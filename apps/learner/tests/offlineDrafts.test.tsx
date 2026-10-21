@@ -7,7 +7,9 @@ import {
   ConnectionStatus,
   DraftConflict,
   pendingActionName,
+  SLOW_REQUEST_MS,
   usePageReturn,
+  useSlow,
 } from "../src/connected/connectivity.web";
 
 function memoryStorage() {
@@ -263,5 +265,66 @@ describe("connection status", () => {
     expect(onReturn).toHaveBeenCalledOnce();
     expect(onReturn.mock.calls[0]![0]).toBeGreaterThanOrEqual(0);
     state.mockRestore();
+  });
+});
+
+describe("slow network (I06)", () => {
+  it("says the server is slow once a request has run for a while, and stops when it ends", () => {
+    vi.useFakeTimers();
+    try {
+      function Host({ busy }: { busy: boolean }) {
+        return (
+          <ConnectionStatus
+            online
+            pendingAction={null}
+            pending={busy}
+            slow={useSlow(busy)}
+            onRetry={() => undefined}
+          />
+        );
+      }
+      const { rerender } = render(<Host busy />);
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(SLOW_REQUEST_MS));
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "The server is slow to answer. Keep this page open",
+      );
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+      rerender(<Host busy={false} />);
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      // A new request starts the wait again from zero.
+      rerender(<Host busy />);
+      act(() => vi.advanceTimersByTime(SLOW_REQUEST_MS - 1));
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("a read that never answers fails with READ_TIMEOUT and a clear message; writes have no client timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = vi.fn<typeof fetch>(
+        (_url, init) =>
+          new Promise((_resolve, reject) =>
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            ),
+          ),
+      );
+      const api = createCourseApi({ fetch: hung, readTimeoutMs: 1000, csrf: () => "c" });
+      const read = api.request<never>("/api/enrollments").catch((error: unknown) => error as Error & { code?: string });
+      await vi.advanceTimersByTimeAsync(1000);
+      const error = await read;
+      expect(error).toMatchObject({ code: "READ_TIMEOUT" });
+      expect(error.message).toBe(
+        "The server took too long to answer. Nothing was changed; check your connection and try again.",
+      );
+      let settled = false;
+      void api.request("/api/profile", "POST", {}).finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

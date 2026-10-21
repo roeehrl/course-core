@@ -1,3 +1,4 @@
+import { useScopeLabel } from "./scopeLabel";
 import type {
   ExtensionPreview,
   ScopePolicy,
@@ -33,8 +34,8 @@ export function ExtensionTerms({
   /** The pool's unit code, selected inside the messages; "units" when unknown. */
   const unit = (poolId: string) =>
     pools.find((pool) => pool.poolId === poolId)?.unit ?? "units";
-  const scopeLabel = (scopeId: string) =>
-    scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
+  const scopeNames = useScopeLabel();
+  const scopeLabel = (scopeId: string) => scopeNames.byId(scopes, scopeId);
   const quota = (q: Terms["currentWorkQuotas"][number]) =>
     t("extensionTerms.quota", {
       limit: q.limit,

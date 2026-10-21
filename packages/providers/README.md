@@ -189,6 +189,32 @@ does not sanitize or execute provider HTML. Grounding metadata does not prove tr
 
 ## Image and video jobs
 
+Every image and video port also declares, without contacting the provider:
+
+- `discoverCapabilities(modelId)`: the configured settings (video durations, aspect ratios and
+  resolutions; image aspect ratios, sizes and types), the prompt limit, how remote work can be
+  stopped, the unit the provider bills by, and how long the provider keeps a generated output
+  (`retention.outputHours`: Veo keeps a video for 2 days, so a host must download it first;
+  inline images are not kept). This is the configuration as declared, not a live check.
+- `estimateCost(request, price)`: the billable units of one request (output seconds, images,
+  requests) priced with an operator-entered `MediaPrice` through `priceMediaUnits`. There is no
+  built-in rate card; a price that does not cover every unit gives `microUsd: null` and
+  `reason: 'pricing_incomplete'`, which a host must treat as "do not admit".
+
+`ModelRegistry.registerAdapter` refuses an image or video port that does not implement both.
+`ProviderRouter.discoverCapabilities`, `estimateVideoCost` and `estimateImageCost` reach them by model.
+
+Image models with `transport: 'image_interaction'` use the Interactions API
+(`POST /{apiVersion}/interactions`), which current Google documentation names for image
+generation; the Imagen models are shut down. The adapter sends the prompt as one text input,
+`store: false` and an inline `response_format` (`aspect_ratio`, `image_size`, `mime_type`) chosen
+from the model's declared `image.aspectRatios`, `image.imageSizes` and `image.mimeTypes`; an
+undeclared value is refused before anything is sent. Only `model_output` steps are read; a
+`failed` or `cancelled` interaction is `OPERATION_FAILED`, any other unfinished status is
+`INVALID_RESPONSE`, and each image is bounded by `image.maxImageBytes`. Such a model must be
+image-only with no tools.
+
+The older path, a `generate_content` model with the `image` capability, is kept:
 `startImage` implements a synchronous completed image-job result through `generateContent`
 with `TEXT`/`IMAGE` modalities. It requires configured `image` capability. Visible inline
 PNG/JPEG/WebP data is checked for canonical base64 and matching format signatures; this
@@ -319,13 +345,15 @@ in the parent. This package owns no database, workflow, event stream or durable 
 
 Researched on 2026-10-12. Implementation follows the requested Generate Content/Veo
 contracts; Google's current site labels the Generate Content guide section as legacy
-alongside the newer Interactions API. This package does not implement Interactions.
+alongside the newer Interactions API. Image generation through Interactions was added on
+2026-10-21 (see `image_interaction`); text roles still use Generate Content.
 
 - [GenerateContent REST reference](https://ai.google.dev/api/generate-content): request/response envelope, completion reasons, usage counters and citation byte offsets.
 - [Text generation](https://ai.google.dev/gemini-api/docs/generate-content/text-generation): message roles and system instructions.
 - [Structured outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output): current `responseFormat.text` JSON schema configuration.
 - [Google Search grounding](https://ai.google.dev/gemini-api/docs/generate-content/google-search): `googleSearch`, grounding metadata and attribution requirements.
 - [Image generation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation): response modalities and inline image parts.
+- [Interactions API reference](https://ai.google.dev/api/interactions-api) and [Image generation](https://ai.google.dev/gemini-api/docs/image-generation): `ImageResponseFormat`, `ImageContent`, `ModelOutputStep`, interaction status and usage counters (read 2026-10-21; the [Imagen page](https://ai.google.dev/gemini-api/docs/imagen) says Imagen is shut down).
 - [Veo generation](https://ai.google.dev/gemini-api/docs/veo): `predictLongRunning`, GET operation polling and generated video references.
 - [Troubleshooting](https://ai.google.dev/gemini-api/docs/troubleshooting): transient errors and bounded backoff guidance.
 

@@ -89,5 +89,5 @@ export class TestProvider implements ProviderGateway {
   calls: ProviderRequest[] = [];
   result: Outcome = success();
   async availability() { return { status: 'ready' as const }; }
-  async invoke(request: ProviderRequest) { this.calls.push(request); return this.result; }
+  async invoke(request: ProviderRequest, _signal?: AbortSignal) { this.calls.push(request); return this.result; }
 }

@@ -76,20 +76,44 @@ export function researchOutput(c: Candidate): ResearchOutput {
     searchQueries: metadata?.webSearchQueries ?? [], searchSuggestionsHtml: metadata?.searchEntryPoint?.renderedContent ?? null };
 }
 
+/** One image as returned inline: allowlisted type, canonical base64, matching file signature. */
+function inlineImage(data: string, mimeType: string, maxBytes = Infinity) {
+  ensure(['image/png', 'image/jpeg', 'image/webp'].includes(mimeType) && data.length > 0
+    && data.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(data), 'INVALID_RESPONSE');
+  ensure(data.length / 4 * 3 <= maxBytes + 2, 'OUTPUT_TOO_LARGE');
+  const bytes = Buffer.from(data, 'base64');
+  ensure(bytes.toString('base64') === data, 'INVALID_RESPONSE');
+  ensure(bytes.byteLength <= maxBytes, 'OUTPUT_TOO_LARGE');
+  const signature = mimeType === 'image/png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+    : mimeType === 'image/jpeg' ? bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+    : bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+  ensure(signature, 'INVALID_RESPONSE');
+  return { mimeType, base64: data, byteLength: bytes.byteLength };
+}
+const interactionSchema = z.object({
+  status: z.string().max(64),
+  steps: z.array(z.object({ type: z.string().max(64), content: z.array(z.object({ type: z.string().max(64) }).passthrough()).max(64).optional() }).passthrough()).max(256).default([]),
+});
+/** Images of a finished Interactions API call. Only `model_output` steps count; thoughts and tool steps are ignored. */
+export function interactionImageOutput(raw: Record<string, unknown>, maxImageBytes: number): ImageOutput {
+  const interaction = parse(interactionSchema, raw, 'INVALID_RESPONSE');
+  if (interaction.status === 'failed' || interaction.status === 'cancelled') throw new ProviderError('OPERATION_FAILED', { submission: 'unknown' });
+  ensure(interaction.status === 'completed', 'INVALID_RESPONSE');
+  const blocks = interaction.steps.filter(step => step.type === 'model_output').flatMap(step => step.content ?? []);
+  const images = blocks.filter(block => block.type === 'image').map(block => {
+    const image = parse(z.object({ data: z.string().max(32 * 1024 * 1024), mime_type: z.string().max(64) }), block, 'INVALID_RESPONSE');
+    return inlineImage(image.data, image.mime_type, maxImageBytes);
+  });
+  ensure(images.length > 0 && images.length <= 4, 'INVALID_RESPONSE');
+  const text = blocks.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('').slice(0, 10_000);
+  return { state: 'completed', images, text };
+}
+
 export function imageOutput(c: Candidate): ImageOutput {
   const visible = c.content.parts.filter(p => !p.thought);
   const images = visible.flatMap(p => {
     if (!p.inlineData) return [];
-    const { data, mimeType } = p.inlineData;
-    ensure(['image/png', 'image/jpeg', 'image/webp'].includes(mimeType) && data.length > 0
-      && data.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(data), 'INVALID_RESPONSE');
-    const bytes = Buffer.from(data, 'base64');
-    ensure(bytes.toString('base64') === data, 'INVALID_RESPONSE');
-    const signature = mimeType === 'image/png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
-      : mimeType === 'image/jpeg' ? bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-      : bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
-    ensure(signature, 'INVALID_RESPONSE');
-    return [{ mimeType, base64: data, byteLength: bytes.byteLength }];
+    return [inlineImage(p.inlineData.data, p.inlineData.mimeType)];
   });
   ensure(images.length > 0, 'INVALID_RESPONSE');
   return { state: 'completed', images, text: visible.flatMap(p => p.text === undefined ? [] : [p.text]).join('') };

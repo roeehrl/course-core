@@ -9,7 +9,7 @@ import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
-import { evaluateActivation, roleChecks, type ProviderEvaluations, type VersionEvaluation } from "./agent-evals/gate.js";
+import { evaluateActivation, roleChecks, uncheckedRoles, type ProviderEvaluations, type VersionEvaluation } from "./agent-evals/gate.js";
 import { runSuite, type CallRecord, type EvalReport } from "./agent-evals/runner.js";
 import { dialoguesFor, EVAL_ROLES, type Dialogue, type EvalRole } from "./agent-evals/suite.js";
 import { composeProviders, providerConfigurationSchema } from "./provider-composition.js";
@@ -19,12 +19,17 @@ import { roleModels } from "./provider-drafts.js";
 
 /**
  * Quality checks run from the admin "AI services" page. The server runs Core's eval suite against
- * the open setup draft's models with the workspace's own stored key, as a durable background job:
+ * the open setup draft's models (target `draft`), or against the active setup's jobs that are on
+ * without a passing check or an owner approval for their current revision and suite (target
+ * `active`, e.g. after an upgrade brought new checks), with the workspace's own stored key, as a
+ * durable background job:
  *
  * - Admission (one transaction): owners and administrators only; idempotent per key; one running
  *   check per workspace and a per-hour limit; the draft's checked models must have a price in
- *   force and the workspace a spending limit. Every conversation reserves the draft's per-request
- *   allowance against the workspace budget and gets its own spend ledger row, as any paid call.
+ *   force and the workspace a spending limit. Every paid conversation reserves the checked setup's
+ *   per-request allowance against the workspace budget and gets its own spend ledger row, as any
+ *   paid call. Media conversations call no model (Core grades the request it assembles): they need
+ *   no price, cost nothing and reserve nothing.
  * - Each conversation settles its ledger row right after its model call: the reported usage at the
  *   saved price (the rest of the reservation is released), nothing when the provider certainly
  *   refused it, the full reservation when the outcome is unknown.
@@ -45,14 +50,23 @@ export interface QualityCheckOptions {
   beforeDialogue?: (dialogue: Dialogue) => void | Promise<void>;
 }
 export const defaultQualityCheckOptions: QualityCheckOptions = { deadlineMs: 10 * 60_000, perHour: 6 };
-/** Typical size of one practice conversation, for the estimate shown before running. */
+/** Typical size of one model call of a practice conversation, for the estimate shown before running. */
 export const TYPICAL_TOKENS = { input: 3000, output: 600 } as const;
+/** Typical size of one tool result a tool-loop round adds to the next round's input. */
+export const TYPICAL_TOOL_RESULT_TOKENS = 400;
+/** Core's tool loop never runs more rounds than this, whatever the binding says (agent-strategies.ts). */
+export const TOOL_LOOP_ROUND_CAP = 8;
 /** A running check is treated as stopped this long after its deadline (no server finished it). */
 const ABANDONED_AFTER_MS = 60_000;
 type Configuration = z.infer<typeof providerConfigurationSchema>;
-const startSchema = z.strictObject({ idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/), draftId: z.string().uuid() });
+const idempotencyKey = z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/);
+const startSchema = z.union([
+  z.strictObject({ idempotencyKey, draftId: z.string().uuid() }),
+  z.strictObject({ idempotencyKey, target: z.literal("active") }),
+]);
+type Target = "draft" | "active";
 interface CheckRow {
-  id: string; workspace_id: string; draft_id: string; provider_revision: number; actor_id: string; request_digest: string;
+  id: string; workspace_id: string; draft_id: string | null; target: Target; provider_revision: number; actor_id: string; request_digest: string;
   state: "running" | "passed" | "failed" | "error"; reason_code: string | null; roles: EvalRole[]; total_dialogues: number;
   completed_dialogues: number; estimate_micro_usd: string; reserved_micro_usd: string; outcome: RoleOutcome[] | null;
   deadline_at: Date; created_at: Date; finished_at: Date | null;
@@ -82,12 +96,37 @@ const PROVIDER_FAULTS: Record<string, string> = {
 };
 class StopRun extends Error {}
 
-/** The estimate for one job: conversations × typical tokens × the saved price, rounded up. */
-export function estimateMicroUsd(pricing: ModelPricing, conversations: number) {
-  const tokens = BigInt(TYPICAL_TOKENS.input) * BigInt(pricing.inputMicroUsdPerMillionTokens ?? 0)
-    + BigInt(TYPICAL_TOKENS.output) * BigInt(pricing.outputMicroUsdPerMillionTokens ?? 0);
-  const perCall = Number((tokens + 999_999n) / 1_000_000n) + (pricing.microUsdPerRequest ?? 0);
-  return perCall * conversations;
+/** The typical model usage of one practice conversation. */
+export interface TypicalUsage { calls: number; inputTokens: number; outputTokens: number }
+/**
+ * The typical usage of one practice conversation. Most conversations are one model call of
+ * `TYPICAL_TOKENS`. A tool-loop conversation runs one model round per tool it is expected to use
+ * plus a final answer (its fixture's tool results + 1), at most the binding's round limit (itself
+ * capped at `TOOL_LOOP_ROUND_CAP`). Every round re-sends the conversation so far: round k's input is
+ * the typical input plus k × (the previous output + a typical tool result).
+ */
+export function typicalUsage(dialogue: Pick<Dialogue, "expect">, maxToolRounds?: number): TypicalUsage {
+  const tools = dialogue.expect.tools;
+  if (!tools) return { calls: 1, inputTokens: TYPICAL_TOKENS.input, outputTokens: TYPICAL_TOKENS.output };
+  const limit = Math.max(1, Math.min(maxToolRounds ?? 1, TOOL_LOOP_ROUND_CAP));
+  const calls = Math.min(limit, Object.keys(tools.results).length + 1), growth = TYPICAL_TOKENS.output + TYPICAL_TOOL_RESULT_TOKENS;
+  return { calls, inputTokens: calls * TYPICAL_TOKENS.input + (growth * calls * (calls - 1)) / 2, outputTokens: calls * TYPICAL_TOKENS.output };
+}
+/**
+ * The estimate for one job at the saved price, rounded up per conversation: either a number of
+ * one-call conversations of `TYPICAL_TOKENS`, or each conversation's typical usage.
+ */
+export function estimateMicroUsd(pricing: ModelPricing, conversations: number | readonly TypicalUsage[]) {
+  const usages = typeof conversations === "number"
+    ? Array.from({ length: conversations }, () => ({ calls: 1, inputTokens: TYPICAL_TOKENS.input, outputTokens: TYPICAL_TOKENS.output }))
+    : conversations;
+  let total = 0;
+  for (const usage of usages) {
+    const tokens = BigInt(usage.inputTokens) * BigInt(pricing.inputMicroUsdPerMillionTokens ?? 0)
+      + BigInt(usage.outputTokens) * BigInt(pricing.outputMicroUsdPerMillionTokens ?? 0);
+    total += Number((tokens + 999_999n) / 1_000_000n) + usage.calls * (pricing.microUsdPerRequest ?? 0);
+  }
+  return total;
 }
 
 export class ProviderQualityChecks {
@@ -104,52 +143,80 @@ export class ProviderQualityChecks {
       "SELECT id,base_revision,configuration,job_policy FROM provider_setup_drafts WHERE workspace_id=$1", [workspace])).rows[0];
   }
 
-  /** What a check of the open draft would run, cost and need; `blocked` says why it cannot start. */
-  private async plan(client: Database | PoolClient, workspace: string) {
-    const draft = await this.draft(client, workspace);
-    if (!draft) return { draft: null, blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" } } as const;
+  /**
+   * What a check would run, cost and need; `blocked` says why it cannot start. `draft` checks the
+   * open draft's changed jobs; `active` checks the active setup's covered jobs that lack a passing
+   * check or an owner approval for their current revision and the current suite.
+   */
+  private async plan(client: Database | PoolClient, workspace: string, target: Target) {
     const suite = this.providers.evalSuite, old = await this.providers.version(client, workspace);
-    const configuration: Configuration = providerConfigurationSchema.parse(draft.configuration);
-    const jobPolicy = jobPolicySchema.parse(draft.job_policy);
-    const previousEvaluation = old ? (await client.query<{ evaluation: VersionEvaluation | null }>(
-      "SELECT evaluation FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=$2", [workspace, old.revision])).rows[0]?.evaluation ?? null : null;
-    const checks = roleChecks(await evaluateActivation(client as PoolClient, workspace, suite,
-      old ? { configuration: providerConfigurationSchema.parse(old.configuration), evaluation: previousEvaluation } : undefined, configuration));
-    const secrets = old ? this.providers.activeSecrets(workspace, old) : {};
+    const nothing = (code: string) => ({ target, draft: null, old, configuration: null, jobPolicy: null, runtime: null, roles: [], conversations: 0,
+      reserve: { microUsd: 0, tokens: 0 }, blocked: { code } as { code: string; roles?: EvalRole[]; neededMicroUsd?: number; availableMicroUsd?: number },
+      estimateMicroUsd: 0 } as const);
+    let draft: Awaited<ReturnType<ProviderQualityChecks["draft"]>> | null = null, configuration: Configuration, jobPolicy, needed: EvalRole[];
+    let secrets: Record<string, string>;
+    if (target === "draft") {
+      draft = await this.draft(client, workspace);
+      if (!draft) return nothing("PROVIDER_QUALITY_CHECK_NO_DRAFT");
+      configuration = providerConfigurationSchema.parse(draft.configuration);
+      jobPolicy = jobPolicySchema.parse(draft.job_policy);
+      const previousEvaluation = old ? (await client.query<{ evaluation: VersionEvaluation | null }>(
+        "SELECT evaluation FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=$2", [workspace, old.revision])).rows[0]?.evaluation ?? null : null;
+      const checks = roleChecks(await evaluateActivation(client as PoolClient, workspace, suite,
+        old ? { configuration: providerConfigurationSchema.parse(old.configuration), evaluation: previousEvaluation } : undefined, configuration));
+      needed = EVAL_ROLES.filter((role) => checks[role]?.check === "needed" || checks[role]?.check === "failed");
+      secrets = old ? this.providers.activeSecrets(workspace, old) : {};
+    } else {
+      if (!old) return nothing("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
+      configuration = providerConfigurationSchema.parse(old.configuration);
+      jobPolicy = jobPolicySchema.parse(old.job_policy);
+      const unchecked = await uncheckedRoles(client, workspace, suite, configuration);
+      needed = EVAL_ROLES.filter((role) => unchecked.some((r) => r.role === role && r.covered));
+      if (!needed.length) return nothing("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
+      secrets = this.providers.activeSecrets(workspace, old);
+    }
     const runtime = composeProviders(configuration, (name) => secrets[name], this.providers.factories);
     const bound = runtime.strategyContracts().bound as Partial<Record<string, string>>, models = roleModels(configuration), bindings = runtime.roleModels();
     const roles = [];
-    for (const role of EVAL_ROLES) {
-      const check = checks[role]?.check;
-      if (check !== "needed" && check !== "failed") continue;
-      const conversations = dialoguesFor(suite, role, bound[role]).length;
+    for (const role of needed) {
+      const dialogues = dialoguesFor(suite, role, bound[role]), conversations = dialogues.length;
       if (!conversations) continue;
-      const modelId = bindings[role]!.modelId, found = await pricingInForce(client, workspace, modelId);
+      const modelId = bindings[role]!.modelId, ready = runtime.availability(role).status === "ready";
+      // Media conversations call no model: Core grades the request it assembles, so nothing is paid.
+      if (role === "media") {
+        roles.push({ role, modelId, remoteModel: models[role]?.remoteModel ?? null, conversations, paid: false, pricing: null, ready, estimateMicroUsd: 0 });
+        continue;
+      }
+      const found = await pricingInForce(client, workspace, modelId);
       const pricing = found && pricingCovers(found, "tokens") ? found : null;
-      roles.push({ role, modelId, remoteModel: models[role]?.remoteModel ?? null, conversations, pricing,
-        ready: runtime.availability(role).status === "ready", estimateMicroUsd: pricing ? estimateMicroUsd(pricing, conversations) : null });
+      const maxToolRounds = (configuration.roles as Partial<Record<string, { maxToolRounds?: number }>>)[role]?.maxToolRounds;
+      roles.push({ role, modelId, remoteModel: models[role]?.remoteModel ?? null, conversations, paid: true, pricing, ready,
+        estimateMicroUsd: pricing ? estimateMicroUsd(pricing, dialogues.map((d) => typicalUsage(d, maxToolRounds))) : null });
     }
-    const conversations = roles.reduce((n, r) => n + r.conversations, 0);
-    const reserve = { microUsd: conversations * jobPolicy.allowance.microUsd, tokens: conversations * jobPolicy.allowance.tokens };
+    const conversations = roles.reduce((n, r) => n + r.conversations, 0), paid = roles.reduce((n, r) => n + (r.paid ? r.conversations : 0), 0);
+    const reserve = { microUsd: paid * jobPolicy.allowance.microUsd, tokens: paid * jobPolicy.allowance.tokens };
     const budget = (await client.query<{ limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }>(
       "SELECT limit_micro_usd,limit_tokens,used_micro_usd,used_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1", [workspace])).rows[0];
     const available = { microUsd: Math.max(0, Number(budget?.limit_micro_usd ?? 0) - Number(budget?.used_micro_usd ?? 0)),
       tokens: Math.max(0, Number(budget?.limit_tokens ?? 0) - Number(budget?.used_tokens ?? 0)) };
-    const unpriced = roles.filter((r) => !r.pricing).map((r) => r.role), keyless = roles.filter((r) => !r.ready).map((r) => r.role);
-    const blocked = draft.base_revision !== (old?.revision ?? 0) ? { code: "STALE_PROVIDER_REVISION" }
+    const unpriced = roles.filter((r) => r.paid && !r.pricing).map((r) => r.role), keyless = roles.filter((r) => !r.ready).map((r) => r.role);
+    const blocked: { code: string; roles?: EvalRole[]; neededMicroUsd?: number; availableMicroUsd?: number } | null =
+      draft && draft.base_revision !== (old?.revision ?? 0) ? { code: "STALE_PROVIDER_REVISION" }
       : !roles.length ? { code: "PROVIDER_QUALITY_CHECK_NOT_NEEDED" }
       : keyless.length ? { code: "PROVIDER_QUALITY_CHECK_KEY_MISSING", roles: keyless }
       : unpriced.length ? { code: "PROVIDER_QUALITY_CHECK_PRICES_MISSING", roles: unpriced }
+      // Nothing to reserve (only media is checked): no spending limit is needed.
+      : !paid ? null
       : !budget || Number(budget.limit_micro_usd) === 0 ? { code: "PROVIDER_QUALITY_CHECK_LIMIT_MISSING" }
       : available.microUsd < reserve.microUsd || available.tokens < reserve.tokens
         ? { code: "PROVIDER_QUALITY_CHECK_BUDGET_REACHED", neededMicroUsd: reserve.microUsd, availableMicroUsd: available.microUsd }
       : null;
-    return { draft, old, configuration, jobPolicy, runtime, roles, conversations, reserve, available, blocked,
+    return { target, draft, old, configuration, jobPolicy, runtime, roles, conversations, reserve, blocked,
       estimateMicroUsd: roles.reduce((n, r) => n + (r.estimateMicroUsd ?? 0), 0) };
   }
 
   private view(row: CheckRow, charged: number | null = null) {
-    return { id: row.id, draftId: row.draft_id, state: row.state, reason: row.reason_code, roles: row.roles,
+    return { id: row.id, target: row.target ?? "draft", draftId: row.draft_id, state: row.state, reason: row.reason_code, roles: row.roles,
       total: row.total_dialogues, completed: row.completed_dialogues, estimateMicroUsd: Number(row.estimate_micro_usd),
       reservedMicroUsd: Number(row.reserved_micro_usd), chargedMicroUsd: charged, outcome: row.outcome ?? [],
       createdAt: iso(row.created_at), finishedAt: iso(row.finished_at), deadlineAt: iso(row.deadline_at) };
@@ -185,22 +252,31 @@ export class ProviderQualityChecks {
       [workspace, Number(released.usd), Number(released.tokens)]);
   }
 
-  /** The page's view: what a check would run and cost, why it cannot start, and the latest check. */
+  /**
+   * The page's view: what a check would run and cost, why it cannot start, and the latest check.
+   * With an open draft it is the draft's check; otherwise the active setup's jobs that need one
+   * (`target: "active"`), or nothing to check (`target: null`).
+   */
   async status(actor: Actor, workspace: string) {
     await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
     return transaction(this.db, async (client) => {
       await this.expire(client, workspace);
-      const plan = await this.plan(client, workspace);
+      const hasDraft = !!(await this.draft(client, workspace));
+      let plan = await this.plan(client, workspace, hasDraft ? "draft" : "active");
+      // Nothing on needs a check: say there is nothing to check, as before there were active checks.
+      if (!hasDraft && !plan.roles.length) plan = await this.plan(client, workspace, "draft");
+      const offered = plan.configuration !== null && (plan.target === "draft" || plan.roles.length > 0);
       const latest = (await client.query<CheckRow>(
         "SELECT * FROM provider_quality_checks WHERE workspace_id=$1 ORDER BY created_at DESC,id LIMIT 1", [workspace])).rows[0];
       const running = latest?.state === "running";
       return {
+        target: offered ? plan.target : null,
         draftId: plan.draft?.id ?? null,
-        roles: plan.draft ? plan.roles.map((r) => ({ role: r.role, remoteModel: r.remoteModel, conversations: r.conversations,
-          priced: !!r.pricing, estimateMicroUsd: r.estimateMicroUsd })) : [],
-        conversations: plan.draft ? plan.conversations : 0,
-        estimateMicroUsd: plan.draft ? plan.estimateMicroUsd : 0,
-        reserveMicroUsd: plan.draft ? plan.reserve.microUsd : 0,
+        roles: offered ? plan.roles.map((r) => ({ role: r.role, remoteModel: r.remoteModel, conversations: r.conversations,
+          priced: !r.paid || !!r.pricing, estimateMicroUsd: r.estimateMicroUsd })) : [],
+        conversations: offered ? plan.conversations : 0,
+        estimateMicroUsd: offered ? plan.estimateMicroUsd : 0,
+        reserveMicroUsd: offered ? plan.reserve.microUsd : 0,
         typicalTokens: TYPICAL_TOKENS,
         blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : plan.blocked,
         latest: latest ? this.view(latest, await this.charged(client, latest.id)) : null,
@@ -218,11 +294,13 @@ export class ProviderQualityChecks {
     });
   }
 
-  /** Starts a check of the open draft (owners and administrators). Returns at once; the run continues on the server. */
+  /** Starts a check of the open draft (`draftId`) or of the active setup (`target: "active"`), for owners and
+   * administrators. Returns at once; the run continues on the server. */
   async start(actor: Actor, workspace: string, raw: unknown) {
     const parsed = startSchema.safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_QUALITY_CHECK_INVALID", 400);
-    const input = parsed.data, digest = sha256(JSON.stringify({ workspace, actor: actor.id, draftId: input.draftId }));
+    const input = parsed.data, target: Target = "draftId" in input ? "draft" : "active";
+    const digest = sha256(JSON.stringify("draftId" in input ? { workspace, actor: actor.id, draftId: input.draftId } : { workspace, actor: actor.id, target }));
     let launch: (() => void) | undefined;
     const result = await afterCommitTransaction(this.db, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["provider-quality-check:" + workspace]);
@@ -244,25 +322,29 @@ export class ProviderQualityChecks {
       // The workspace budget row is locked before the headroom decision, as every paid admission does.
       await client.query("INSERT INTO supervisor_workspace_budgets(workspace_id) VALUES($1) ON CONFLICT DO NOTHING", [workspace]);
       await client.query("SELECT 1 FROM supervisor_workspace_budgets WHERE workspace_id=$1 FOR UPDATE", [workspace]);
-      const locked = await this.plan(client, workspace);
-      if (!locked.draft || locked.draft.id !== input.draftId) throw new ApiError(404, "PROVIDER_DRAFT_NOT_FOUND");
+      const locked = await this.plan(client, workspace, target);
+      if ("draftId" in input && (!locked.draft || locked.draft.id !== input.draftId)) throw new ApiError(404, "PROVIDER_DRAFT_NOT_FOUND");
       if (locked.blocked) {
         const { code, ...details } = locked.blocked;
         throw new ApiError(code === "STALE_PROVIDER_REVISION" ? 409 : code === "PROVIDER_QUALITY_CHECK_NO_DRAFT" ? 404 : 409, code, code,
           Object.keys(details).length ? details : undefined);
       }
+      if (!locked.configuration) throw new ApiError(409, "PROVIDER_QUALITY_CHECK_NOT_NEEDED");
       const id = randomUUID(), roles = locked.roles.map((r) => r.role);
       const row = (await client.query<CheckRow>(
-        `INSERT INTO provider_quality_checks(id,workspace_id,draft_id,provider_revision,actor_id,idempotency_key,request_digest,state,roles,total_dialogues,
+        `INSERT INTO provider_quality_checks(id,workspace_id,draft_id,target,provider_revision,actor_id,idempotency_key,request_digest,state,roles,total_dialogues,
            estimate_micro_usd,reserved_micro_usd,deadline_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,clock_timestamp()+($12*interval '1 millisecond')) RETURNING *`,
-        [id, workspace, locked.draft.id, locked.old?.revision ?? 0, actor.id, input.idempotencyKey, digest, roles, locked.conversations,
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,'running',$9,$10,$11,$12,clock_timestamp()+($13*interval '1 millisecond')) RETURNING *`,
+        [id, workspace, locked.draft?.id ?? null, target, locked.old?.revision ?? 0, actor.id, input.idempotencyKey, digest, roles, locked.conversations,
           locked.estimateMicroUsd, locked.reserve.microUsd, this.options.deadlineMs])).rows[0]!;
-      // Every conversation reserves the per-request allowance against the workspace budget.
+      // Every paid conversation reserves the per-request allowance against the workspace budget. Refs
+      // `${id}:${n}` follow runSuite's per-dialogue order (one afterCall per dialogue, media included),
+      // so a media conversation takes its number but holds no ledger row.
       const allowance = locked.jobPolicy.allowance, events: SpendEvent[] = [];
       let n = 0;
       for (const role of locked.roles)
         for (let i = 0; i < role.conversations; i++, n++) {
+          if (!role.paid) continue;
           await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
             VALUES($1,'quality_check',$2,1,$3,NULL,$4,$5,'reserved',$6,$7,$6)`, [randomUUID(), `${id}:${n}`, workspace, role.role, role.modelId, allowance.microUsd, allowance.tokens]);
           events.push({ kind: "reserved", role: role.role, microUsd: allowance.microUsd, modelId: role.modelId, basis: "reserved_ceiling" });
@@ -271,9 +353,9 @@ export class ProviderQualityChecks {
         [workspace, locked.reserve.microUsd, locked.reserve.tokens]);
       onCommit(client, () => recordSpendEvents(events));
       await appendEvent(client, { workspaceId: workspace, actorId: actor.id, actorKind: "staff", type: "provider.quality_check.started",
-        payload: { checkId: id, draftId: locked.draft.id, roles, conversations: locked.conversations, estimateMicroUsd: locked.estimateMicroUsd,
+        payload: { checkId: id, target, draftId: locked.draft?.id ?? null, roles, conversations: locked.conversations, estimateMicroUsd: locked.estimateMicroUsd,
           reservedMicroUsd: locked.reserve.microUsd }, idempotencyKey: `provider.quality_check.started:${id}` });
-      const runtime = locked.runtime, configuration = locked.configuration, pricing = new Map(locked.roles.map((r) => [r.role, r.pricing!]));
+      const runtime = locked.runtime, configuration = locked.configuration, pricing = new Map(locked.roles.flatMap((r) => (r.pricing ? [[r.role, r.pricing] as const] : [])));
       launch = () => this.launch(actor, workspace, row, runtime, configuration, pricing);
       return this.view(row, locked.reserve.microUsd);
     });
@@ -297,7 +379,7 @@ export class ProviderQualityChecks {
       const ref = `${row.id}:${index++}`, error = call.error;
       const code = error instanceof ProviderError ? error.code : error ? "UNEXPECTED" : null;
       if (code && Object.hasOwn(PROVIDER_FAULTS, code) && !(code === "TIMEOUT" && signal.aborted)) fault ??= PROVIDER_FAULTS[code]!;
-      await this.settleCall(workspace, row.id, ref, call, pricing.get(call.role)!);
+      await this.settleCall(workspace, row.id, ref, call, pricing.get(call.role) ?? null);
     };
     let report: EvalReport | null = null;
     try {
@@ -330,12 +412,13 @@ export class ProviderQualityChecks {
   }
 
   /** Settles one conversation's ledger row from what the provider reported, and counts progress. */
-  private async settleCall(workspace: string, id: string, ref: string, call: CallRecord, pricing: ModelPricing) {
+  private async settleCall(workspace: string, id: string, ref: string, call: CallRecord, pricing: ModelPricing | null) {
     const error = call.error;
     const notSent = error instanceof ProviderError && error.submission === "not_sent" && !error.usage?.attempts.length;
     const rejected = error && !notSent ? definiteRejection(error) : null;
     const usage: UsageReceipt | null = call.usage;
-    const cost = !error && usage ? priceUsage(usage, pricing).cost : null;
+    // No pricing (a media conversation, which holds no ledger row): nothing to price.
+    const cost = !error && usage && pricing ? priceUsage(usage, pricing).cost : null;
     const totals = usage?.attempts.map((a) => a.tokens.total) ?? [];
     const tokens = !error && totals.length && totals.every((t) => t !== null) ? totals.reduce<number>((n, t) => n + t!, 0) : null;
     await afterCommitTransaction(this.db, async (client) => {

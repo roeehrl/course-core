@@ -10,7 +10,7 @@ import { canTransition, createMediaJobService, sniffVideo, validCaptions, worksp
 import type { SpendEvent } from "../src/provider-costs.js";
 import { afterCommitTransaction, onCommit } from "../src/after-commit.js";
 import { fixture } from "./fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome, approveRevisionsForTest } from "./media-fixture.js";
 
 // Every spend-telemetry emission, observed at the real recorder (which it still calls).
 const spendEmitted = vi.hoisted(() => [] as SpendEvent[]);
@@ -41,6 +41,7 @@ const post = (s: Session, url: string, payload: unknown = {}) => app.inject({ me
 const get = (s: Session, url: string, extra: Record<string, string> = {}) => app.inject({ url, headers: { ...headers(s), ...extra } });
 let providerRevision = 0;
 async function configure(configuration: unknown, allowance: number) {
+  await approveRevisionsForTest(db, workspace, configuration);
   const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
     configuration, jobPolicy: mediaJobPolicy(allowance), credentials: providerRevision === 0 ? { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } : {} });
   expect(r.statusCode, r.body).toBe(200);
@@ -208,9 +209,11 @@ describe("generated media jobs over HTTP and PostgreSQL", () => {
     expect((await post(reviewer, `/api/admin/media-jobs/${id}/review`, approval(sha, { transcript: undefined }))).json().error).toBe("MEDIA_TEXT_ALTERNATIVE_REQUIRED");
     expect((await post(reviewer, `/api/admin/media-jobs/${id}/review`, approval(sha, { findings: { factualAccuracy: false, labelsAndEquations: true, captionsMatchNarration: true, noMisleadingMotion: true } }))).json().error).toBe("MEDIA_REVIEW_FINDINGS_INCOMPLETE");
     expect((await post(reviewer, `/api/admin/media-jobs/${id}/review`, approval("0".repeat(64)))).json().error).toBe("MEDIA_ASSET_CHANGED");
+    // The captions' language is a BCP 47 tag, never free text.
+    expect((await post(reviewer, `/api/admin/media-jobs/${id}/review`, approval(sha, { captionsLanguage: "Hebrew" }))).statusCode).toBe(400);
     expect((await post(learner, `/api/admin/media-jobs/${id}/review`, approval(sha))).statusCode).toBe(403);
     expect((await post(owner, `/api/admin/media-jobs/${id}/attach`, { expiresAt: later(86_400_000).toISOString(), idempotencyKey: key() })).json().error).toBe("MEDIA_NOT_APPROVED");
-    const reviewed = await post(reviewer, `/api/admin/media-jobs/${id}/review`, approval(sha));
+    const reviewed = await post(reviewer, `/api/admin/media-jobs/${id}/review`, approval(sha, { captionsLanguage: "he" }));
     expect(reviewed.json()).toMatchObject({ state: "approved", learnerVisible: false });
     expect((await listed()).media).toEqual([]);
     // Reviewers cannot publish; publishers can, once.
@@ -220,7 +223,7 @@ describe("generated media jobs over HTTP and PostgreSQL", () => {
     expect(attached.json()).toMatchObject({ state: "attached", optional: true, grantsCredit: false });
     const media = (await listed()).media;
     expect(media).toHaveLength(1);
-    expect(media[0]).toMatchObject({ generated: true, title: "Running minimum in motion", transcript: expect.stringContaining("running minimum") });
+    expect(media[0]).toMatchObject({ generated: true, title: "Running minimum in motion", transcript: expect.stringContaining("running minimum"), captionsLanguage: "he" });
     const captions = await get(learner, media[0].captionsUrl);
     expect(captions.headers["content-type"]).toContain("text/vtt");
     expect(captions.body).toBe(SYNTHETIC_CAPTIONS);

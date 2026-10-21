@@ -23,7 +23,7 @@ async function signIn(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  return fixture as { update: string; newCourse: string };
+  return fixture as { update: string; newCourse: string; older: string };
 }
 
 test("install a synthetic course package by upload, then review and publish it on the same screen", async ({
@@ -133,6 +133,49 @@ test("install a new course with approve-and-publish in one confirmed step, then 
   await accessible(page);
 });
 
+test("installing and publishing an older version than the published one needs an explicit choice", async ({
+  page,
+}, info) => {
+  const fixture = await signIn(page);
+  const file = info.outputPath("ordering-0.9.0.course.tgz");
+  writeFileSync(file, Buffer.from(fixture.older, "base64"));
+  await page.getByRole("button", { name: "Install course" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await dialog.getByLabel("Course package file").setInputFiles(file);
+  await dialog.getByRole("button", { name: "Inspect package" }).click();
+  await expect(dialog.getByText("This is an older version")).toBeVisible();
+  await expect(
+    dialog.getByText(
+      /Version 1\.0\.0 of this course is already installed here, and this package is version 0\.9\.0\./,
+    ),
+  ).toBeVisible();
+  const install = dialog.getByRole("button", { name: "Install draft" });
+  await expect(install).toBeDisabled();
+  await accessible(page);
+  await dialog
+    .getByRole("checkbox", {
+      name: "I want to install the older version 0.9.0",
+    })
+    .check();
+  await dialog
+    .getByRole("checkbox", {
+      name: "Also approve the review and publish this version now",
+    })
+    .check();
+  await dialog.getByLabel("Type 0.9.0 to confirm publication").fill("0.9.0");
+  await dialog
+    .getByRole("button", { name: "Install, approve and publish" })
+    .click();
+  await expect(
+    dialog.getByRole("heading", { name: "Release 0.9.0 installed" }),
+  ).toBeFocused();
+  await expect(dialog.getByText("Available to new learners")).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath("package-older-version.png"),
+    fullPage: true,
+  });
+});
+
 test("a GitHub link is refused clearly when it is not a GitHub release link", async ({
   page,
 }) => {
@@ -149,3 +192,74 @@ test("a GitHub link is refused clearly when it is not a GitHub release link", as
   );
   await accessible(page);
 });
+
+// One viewport covers the network handling; phone and tablet exclude @desktop-only.
+test(
+  "a slow, interrupted upload and an unconfirmed install recover without installing twice (I06)",
+  {
+    tag: "@desktop-only",
+  },
+  async ({ page }, info) => {
+    const fixture = await signIn(page);
+    const file = info.outputPath("ordering-1.1.0.course.tgz");
+    writeFileSync(file, Buffer.from(fixture.update, "base64"));
+    await page.getByRole("button", { name: "Install course" }).click();
+    const dialog = page.getByRole("dialog", { name: "Install course" });
+    await dialog.getByLabel("Course package file").setInputFiles(file);
+
+    // A slow connection that then drops mid-upload: the request never reaches the server.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(
+      "**/course-packages/inspect*",
+      async (route) => {
+        await held;
+        await route.abort("connectionreset");
+      },
+      { times: 1 },
+    );
+    await dialog.getByRole("button", { name: "Inspect package" }).click();
+    await expect(dialog.getByText(/^Still working\./)).toBeVisible({
+      timeout: 15000,
+    });
+    release();
+    await expect(
+      dialog.getByText(
+        /The upload stopped before the server received the whole file/,
+      ),
+    ).toBeVisible();
+    await expect(dialog.getByText(/^Still working\./)).toHaveCount(0);
+    // The file is still selected; inspecting again sends it.
+    await dialog.getByRole("button", { name: "Inspect package" }).click();
+    await expect(
+      dialog.getByRole("heading", { name: "Ordering values · version 1.1.0" }),
+    ).toBeFocused();
+
+    // The server installs the draft, but the answer never reaches the browser.
+    let installs = 0;
+    await page.route(
+      "**/course-packages/*/install",
+      async (route) => {
+        installs++;
+        await route.fetch();
+        await route.abort("connectionreset");
+      },
+      { times: 1 },
+    );
+    await dialog.getByRole("button", { name: "Install draft" }).click();
+    await expect(
+      dialog.getByText(
+        /The connection dropped before the server confirmed the install/,
+      ),
+    ).toBeVisible();
+    await accessible(page);
+    await dialog.getByRole("button", { name: "Install draft" }).click();
+    await expect(
+      dialog.getByRole("heading", { name: "Release 1.1.0 installed" }),
+    ).toBeFocused();
+    await expect(dialog.locator('[aria-live="polite"]').first()).toContainText(
+      "This package was already installed.",
+    );
+    expect(installs).toBe(1);
+  },
+);

@@ -2,7 +2,7 @@ import { capabilitySchema, id, modelId as modelIdentifier, registrySchema, type 
 import { ensure, ProviderError } from './errors.js';
 import { parse } from './validation.js';
 
-/** Configuration claims only. No model name heuristics, discovery or price claims. */
+/** Configuration claims only. No model name heuristics or price claims; media capability discovery is the adapter's declaration from this configuration. */
 export class ModelRegistry {
   #revision: string;
   #models: ModelConfig[];
@@ -27,7 +27,8 @@ export class ModelRegistry {
   registerAdapter(adapter: ProviderAdapter): void {
     const providerId = parse(id, adapter.providerId, 'INVALID_CONFIG');
     ensure(!this.#adapters.has(providerId) && typeof adapter.validateModel === 'function' && adapter.ports !== null && typeof adapter.ports === 'object', 'INVALID_CONFIG');
-    const methodNames = { tutoring: ['tutor'], structured_assessment: ['assess'], research: ['research'], image: ['startImage'], video: ['startVideo', 'pollVideo'] } as const;
+    const methodNames = { tutoring: ['tutor'], structured_assessment: ['assess'], research: ['research'], // Media adapters must declare their capabilities and cost units, not only run jobs.
+    image: ['startImage', 'discoverCapabilities', 'estimateCost'], video: ['startVideo', 'pollVideo', 'discoverCapabilities', 'estimateCost'] } as const;
     const ports: Partial<CapabilityPorts> = {};
     for (const [key, port] of Object.entries(adapter.ports)) {
       const capability = parse(capabilitySchema, key, 'INVALID_CONFIG');

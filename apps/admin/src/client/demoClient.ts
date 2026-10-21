@@ -1,4 +1,9 @@
 import { createDemoPolicyClient } from "./demoPolicyClient";
+import { createDemoAssessments } from "./demoAssessments";
+import { createDemoMedia } from "./demoMedia";
+import { createDemoPlatform } from "./demoPlatform";
+import { createDemoPolicyLevels } from "./demoPolicyLevels";
+import { createDemoSupervision } from "./demoSupervision";
 import {
   demoRun,
   demoSession,
@@ -140,6 +145,31 @@ export function createDemoAdminClient({
   }
   return {
     mode: "demo",
+    // In-memory stand-ins for the connected server's ports: fictional data, no provider calls.
+    assessments: createDemoAssessments({
+      getWorkspace: get,
+      scenario,
+      latency,
+      actorName: session.actor.name,
+    }),
+    media: createDemoMedia({ role, scenario, latency }),
+    platform: createDemoPlatform({ role, scenario, latency }),
+    supervision: createDemoSupervision({
+      role,
+      scenario,
+      latency,
+      learners: [...courses.values()].flatMap((course) =>
+        course.enrollments.map((item) => ({
+          id: item.id,
+          name: item.profile.displayName,
+        })),
+      ),
+    }),
+    ...createDemoPolicyLevels({
+      courses: () => [...courses.values()],
+      scenario,
+      latency,
+    }),
     async getSession(signal) {
       await delay(signal);
       return clone(session);

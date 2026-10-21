@@ -101,6 +101,11 @@ export class SubscriptionAdapter implements ProviderAdapter {
         wrapped[name] = (request: { modelId: string; accounting: AccountingInput }, options: CallOptions = {}) => this.#run(operation, request, options, invoke,
           typeof fallbackNative === 'function' ? fallbackNative.bind(input.automaticFallback?.enabled ? input.automaticFallback.adapter.ports[capability as keyof CapabilityPorts] : undefined) : undefined);
       }
+      // Declarations make no provider call and spend nothing, so they come from the subscription adapter as is.
+      if (capability === 'image' || capability === 'video') for (const name of ['discoverCapabilities', 'estimateCost']) {
+        const native = (port as unknown as Record<string, unknown>)[name];
+        ensure(typeof native === 'function', 'INVALID_CONFIG'); wrapped[name] = native.bind(port);
+      }
       Object.assign(ports, { [capability]: Object.freeze(wrapped) });
     }
     this.ports = Object.freeze(ports);

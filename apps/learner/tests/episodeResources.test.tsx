@@ -129,11 +129,27 @@ describe("optional reviewed episode resources", () => {
     youtube.remove();
   });
 
+  it("shows an approved generated image with its alt text and no caption track", async () => {
+    const picture = { id: "44444444-4444-4444-8444-444444444444", title: "Running minimum diagram", objective: "Shows the minimum.", generated: true,
+      transcript: null, visualDescription: "Three boxes holding 5, 3 and 8; the box holding 3 is highlighted.", mimeType: "image/png",
+      assetUrl: "https://evil.example/steal.png", captionsUrl: null, reviewedAt: "2026-10-13T10:00:00Z", expiresAt: "2026-11-13T10:00:00Z" };
+    const parsed = parseGeneratedMedia({ media: [picture, { ...picture, mimeType: "image/svg+xml" }, { ...picture, visualDescription: "" }], optional: true, grantsCredit: false }, "e-1");
+    expect(parsed).toEqual([expect.objectContaining({ mimeType: "image/png", captionsUrl: null, assetUrl: `/api/enrollments/e-1/media/${picture.id}/asset` })]);
+    const client = createResourcesClient({
+      request: (async (url: string) => (url.includes("/media?") ? { media: [picture], optional: true, grantsCredit: false } : body([]))) as never,
+    });
+    render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
+    fireEvent.click(await screen.findByText("1 reviewed resource for this episode"));
+    const img = await screen.findByAltText(picture.visualDescription);
+    expect(img.getAttribute("src")).toBe(`/api/enrollments/e-1/media/${picture.id}/asset`);
+    expect(document.querySelector("video")).toBeNull();
+  });
+
   it("shows approved course-made video with captions and a transcript, rebuilt for this enrollment only", async () => {
     const clip = { id: "33333333-3333-4333-8333-333333333333", title: "Running minimum in motion", objective: "Shows the running minimum.",
       generated: true, transcript: "The running minimum keeps the smaller value.", visualDescription: "A highlight moves along five boxes.",
       mimeType: "video/mp4", assetUrl: "https://evil.example/steal", captionsUrl: "https://evil.example/c.vtt",
-      reviewedAt: "2026-10-13T10:00:00Z", expiresAt: "2026-11-13T10:00:00Z" };
+      reviewedAt: "2026-10-13T10:00:00Z", expiresAt: "2026-11-13T10:00:00Z", captionsLanguage: "he" };
     expect(() => parseGeneratedMedia({ media: [clip], optional: true, grantsCredit: true }, "e-1")).toThrow();
     const parsed = parseGeneratedMedia({ media: [clip, { ...clip, id: "not-a-uuid" }, { ...clip, generated: false }, { ...clip, mimeType: "text/html" }], optional: true, grantsCredit: false }, "e-1");
     expect(parsed).toHaveLength(1);
@@ -152,6 +168,9 @@ describe("optional reviewed episode resources", () => {
     expect(container.querySelector("source")!.getAttribute("src")).toBe(`/api/enrollments/e-1/media/${clip.id}/asset`);
     expect(container.querySelector("track")!.getAttribute("src")).toBe(`/api/enrollments/e-1/media/${clip.id}/captions.vtt`);
     expect(container.querySelector("track")!.getAttribute("kind")).toBe("captions");
+    // The track is labelled with the language the reviewer recorded, not assumed English.
+    expect(container.querySelector("track")!.getAttribute("srclang")).toBe("he");
+    expect(parseGeneratedMedia({ media: [{ ...clip, captionsLanguage: "<script>" }], optional: true, grantsCredit: false }, "e-1")[0]!.captionsLanguage).toBeUndefined();
   });
 
   it("stays out of the way when nothing is attached and reports failure without blocking", async () => {

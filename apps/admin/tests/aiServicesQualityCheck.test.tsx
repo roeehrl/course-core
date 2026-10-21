@@ -120,6 +120,7 @@ const draft = (waiting: boolean, priced = true): Draft => ({
 });
 const check = (over: Partial<QualityCheck> = {}): QualityCheck => ({
   id: "00000000-0000-4000-8000-0000000000c1",
+  target: "draft",
   draftId: "00000000-0000-4000-8000-0000000000d1",
   state: "running",
   reason: null,
@@ -136,6 +137,7 @@ const check = (over: Partial<QualityCheck> = {}): QualityCheck => ({
   ...over,
 });
 const status = (over: Partial<QualityStatus> = {}): QualityStatus => ({
+  target: "draft",
   draftId: "00000000-0000-4000-8000-0000000000d1",
   roles: [
     {
@@ -665,5 +667,238 @@ describe("fetch client", () => {
     expect(calls[0]).toBe(
       `POST /api/workspaces/${workspace}/provider-setup/quality-check`,
     );
+  });
+});
+
+describe("jobs that are on and need a check (after an upgrade)", () => {
+  const digest = (c: string) => c.repeat(64);
+  const activeSetup = (): ProviderSetup => {
+    const base = setup();
+    return {
+      ...base,
+      configuration: {
+        ...(base.configuration as object),
+        registry: {
+          revision: "x",
+          models: (["companion", "supervisor", "reviewer"] as const).map(
+            (r) => ({
+              id: `connection-1:${r}`,
+              providerId: "connection-1",
+              remoteModel: "gemini-3.8-flash",
+            }),
+          ),
+        },
+        roles: Object.fromEntries(
+          (["companion", "supervisor", "reviewer"] as const).map((r) => [
+            r,
+            { modelId: `connection-1:${r}` },
+          ]),
+        ),
+      },
+    };
+  };
+  const evalRole = (
+    role: "companion" | "supervisor" | "reviewer",
+    status: "stale" | "not_evaluated" | "not_covered" | "passed",
+    c: string,
+  ) => ({
+    role,
+    strategy: role === "reviewer" ? "host.reviewer.own" : `core.${role}`,
+    revisionDigest: digest(c),
+    covered: status !== "not_covered",
+    status,
+    grandfathered: true,
+    activatedBy: "unchanged",
+  });
+  const evals = (statuses: Parameters<typeof evalRole>[1][]) => ({
+    suite: {
+      id: "core-public",
+      version: "2",
+      digest: digest("f"),
+      dialogues: 18,
+      coverage: [{ role: "companion", dialogues: 9 }],
+    },
+    providerRevision: 2,
+    gatedAtActivation: true,
+    roles: [
+      evalRole("supervisor", statuses[0]!, "a"),
+      evalRole("companion", statuses[1]!, "b"),
+      evalRole("reviewer", statuses[2]!, "c"),
+    ],
+    results: [],
+    overrides: [],
+  });
+  const activeStatus = () =>
+    status({
+      target: "active",
+      draftId: null,
+      roles: [
+        {
+          role: "companion",
+          remoteModel: "gemini-3.8-flash",
+          conversations: 9,
+          priced: true,
+          estimateMicroUsd: 54000,
+        },
+        {
+          role: "supervisor",
+          remoteModel: "gemini-3.8-flash",
+          conversations: 2,
+          priced: true,
+          estimateMicroUsd: 42000,
+        },
+      ],
+      conversations: 11,
+      estimateMicroUsd: 96000,
+      reserveMicroUsd: 1100000,
+    });
+  const upgraded = (overrides: Parameters<typeof fakePort>[0] = {}) =>
+    fakePort({
+      setup: vi.fn().mockResolvedValue(activeSetup()),
+      currentDraft: vi.fn().mockResolvedValue(null),
+      evals: vi
+        .fn()
+        .mockResolvedValue(evals(["not_evaluated", "stale", "not_covered"])),
+      qualityStatus: vi.fn().mockResolvedValue(activeStatus()),
+      ...overrides,
+    });
+
+  it("lists the jobs that need a check, says they keep working, and runs the check of what is on", async () => {
+    const port = upgraded({
+      startQualityCheck: vi
+        .fn()
+        .mockResolvedValue(
+          check({ target: "active", draftId: null, total: 11, completed: 1 }),
+        ),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(t("check.active.note", { count: 3 })),
+    ).toBeInTheDocument();
+    for (const [job, state] of [
+      ["supervisor", "not_evaluated"],
+      ["companion", "stale"],
+      ["reviewer", "not_covered"],
+    ] as const)
+      expect(
+        within(region).getByText(t(`check.state.${state}`), { exact: false }),
+        job,
+      ).toBeInTheDocument();
+    expect(
+      within(region).getByText(
+        t("check.active.notCheckable", { jobs: t("role.reviewer.name") }),
+      ),
+    ).toBeInTheDocument();
+    expect(within(region).getByText(t("pill.activeNeedsCheck"))).toBeVisible();
+    // The page doesn't say AI services are off because of it: the jobs keep working.
+    expect(
+      screen.queryByText(t("issue.check", { count: 3 })),
+    ).not.toBeInTheDocument();
+    expect(
+      within(region).queryByText(t("check.nothingWaiting")),
+    ).not.toBeInTheDocument();
+    expect(
+      within(region).getByText(
+        t("check.run.estimate", { count: 11, amount: usd(96000) }),
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(region).getByRole("button", { name: t("check.run.button") }),
+    );
+    expect(
+      await within(region).findByText(
+        t("check.run.progress", { done: 1, total: 11 }),
+      ),
+    ).toBeInTheDocument();
+    expect(port.startQualityCheck).toHaveBeenCalledWith(workspace, {
+      target: "active",
+      idempotencyKey: expect.stringMatching(/^ai-services:/),
+    });
+  });
+
+  it("lets an owner approve the exact active revisions without a check", async () => {
+    const port = upgraded({
+      approve: vi.fn().mockResolvedValue({
+        id: "00000000-0000-4000-8000-0000000000a1",
+        role: "companion",
+        revisionDigest: digest("b"),
+        suiteDigest: digest("f"),
+        createdAt: new Date().toISOString(),
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    fireEvent.click(
+      await within(region).findByText(t("check.active.approveTitle")),
+    );
+    fireEvent.change(
+      within(region).getByLabelText(t("check.reasonLabel"), { exact: false }),
+      {
+        target: { value: "We reviewed these jobs by hand after the upgrade." },
+      },
+    );
+    port.evals.mockResolvedValue(evals(["passed", "passed", "passed"]));
+    fireEvent.click(
+      within(region).getByRole("button", { name: t("check.active.approve") }),
+    );
+    expect(
+      await within(region).findByText(t("check.active.approved")),
+    ).toBeInTheDocument();
+    expect(port.approve.mock.calls.map((c) => c[1])).toEqual(
+      [
+        ["supervisor", "a"],
+        ["companion", "b"],
+        ["reviewer", "c"],
+      ].map(([role, c]) => ({
+        role,
+        revisionDigest: digest(c!),
+        reason: "We reviewed these jobs by hand after the upgrade.",
+        idempotencyKey: expect.stringMatching(/^ai-services:/),
+      })),
+    );
+  });
+
+  it("asks an administrator to get an owner's approval, and asks to finish an open draft before checking", async () => {
+    const port = upgraded({
+      currentDraft: vi.fn().mockResolvedValue(draft(false)),
+      qualityStatus: vi
+        .fn()
+        .mockResolvedValue(
+          status({ blocked: { code: "PROVIDER_QUALITY_CHECK_NOT_NEEDED" } }),
+        ),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="admin" />);
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(t("check.active.draftOpen")),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByText(t("check.approveOwnersOnly")),
+    ).toBeInTheDocument();
+    expect(
+      within(region).queryByRole("button", { name: t("check.run.button") }),
+    ).toBeNull();
+  });
+
+  it("says the same in Hebrew", async () => {
+    render(
+      <I18nProvider value={hebrew}>
+        <AiServicesPage
+          workspaceId={workspace}
+          port={upgraded()}
+          role="owner"
+        />
+      </I18nProvider>,
+    );
+    const region = await screen.findByRole("region", {
+      name: he("section.check"),
+    });
+    expect(
+      await within(region).findByText(he("check.active.note", { count: 3 })),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByRole("button", { name: he("check.run.button") }),
+    ).toBeInTheDocument();
   });
 });

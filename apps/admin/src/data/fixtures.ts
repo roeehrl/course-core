@@ -14,7 +14,14 @@ export const allPermissions: Permission[] = [
   "extension.propose",
   "provider.configure",
   "run.inspect",
+  "policy.read",
+  "policy.write",
+  "supervision.control",
+  "supervision.requeue",
+  "supervision.settings",
 ];
+/** The demo's one fictional workspace, which both demo courses belong to. */
+export const DEMO_WORKSPACE_ID = "00000000-0000-4000-8000-00000000d000";
 export type DemoRole = AdminSession["actor"]["role"];
 export function demoSession(role: DemoRole): AdminSession {
   return {
@@ -44,6 +51,7 @@ export function demoWorkspace(
   return {
     course: {
       ...summary,
+      workspaceId: DEMO_WORKSPACE_ID,
       category: "Foundations",
       objectives: [
         "Understand the core idea",
@@ -52,6 +60,8 @@ export function demoWorkspace(
       ],
     },
     revision: "1",
+    // The demo administrator is a workspace administrator (platform and integrations).
+    ...(role === "administrator" ? { role: "admin" } : {}),
     permissions:
       role === "administrator"
         ? [...allPermissions]

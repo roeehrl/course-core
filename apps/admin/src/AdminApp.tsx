@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Activity,
   BookOpen,
+  Cable,
   ClipboardCheck,
   Contact,
   ChevronRight,
   Gauge,
   History,
+  Hourglass,
   Compass,
   FlaskConical,
   Bot,
@@ -28,6 +31,7 @@ import { Badge, Button, ErrorState, Loading, Notice } from "./components/ui";
 import { CourseView } from "./views/CourseView";
 import { EnrollmentsView } from "./views/EnrollmentsView";
 import { PolicyView } from "./views/PolicyView";
+import { AllowancesView } from "./views/AllowancesView";
 import { ProvidersView } from "./views/ProvidersView";
 import { FirstRun } from "./components/FirstRun";
 import { RunsView } from "./views/RunsView";
@@ -38,10 +42,13 @@ import { MediaView } from "./views/MediaView";
 import { OverviewView } from "./views/OverviewView";
 import { AuditView } from "./views/AuditView";
 import { PlacementView } from "./views/PlacementView";
+import { AssessmentsView } from "./views/AssessmentsView";
 import { SupervisionView } from "./views/SupervisionView";
 import { StudyView } from "./views/StudyView";
 import { AdminSectionView } from "./views/AdminSectionView";
 import { ConceptMappingsView } from "./views/ConceptMappingsView";
+import { PlatformView } from "./views/PlatformView";
+import { IntegrationsView } from "./views/IntegrationsView";
 import { useI18n, useT, type AdminTranslator, type MessageKey } from "./i18n";
 
 export interface AdminAppProps {
@@ -52,9 +59,11 @@ const views = [
   { id: "course", titleKey: "adminApp.nav.course", icon: BookOpen },
   { id: "learners", titleKey: "adminApp.nav.learners", icon: UsersRound },
   { id: "reviews", titleKey: "adminApp.nav.reviews", icon: ClipboardCheck },
+  { id: "assessments", titleKey: "adminApp.nav.assessments", icon: ListChecks },
   { id: "placement", titleKey: "adminApp.nav.placement", icon: Compass },
   { id: "people", titleKey: "adminApp.nav.people", icon: Contact },
   { id: "policy", titleKey: "adminApp.nav.policy", icon: ShieldCheck },
+  { id: "allowances", titleKey: "adminApp.nav.allowances", icon: Hourglass },
   { id: "mappings", titleKey: "adminApp.nav.mappings", icon: Network },
   { id: "research", titleKey: "adminApp.nav.research", icon: Library },
   { id: "media", titleKey: "adminApp.nav.media", icon: Clapperboard },
@@ -63,6 +72,8 @@ const views = [
   { id: "studies", titleKey: "adminApp.nav.studies", icon: FlaskConical },
   { id: "runs", titleKey: "adminApp.nav.runs", icon: ScanSearch },
   { id: "audit", titleKey: "adminApp.nav.audit", icon: History },
+  { id: "platform", titleKey: "adminApp.nav.platform", icon: Activity },
+  { id: "integrations", titleKey: "adminApp.nav.integrations", icon: Cable },
 ] as const satisfies readonly {
   id: string;
   titleKey: MessageKey;
@@ -184,12 +195,23 @@ function CourseWorkspace({
     icon: SlidersHorizontal,
     content: true,
   }));
+  // Platform and integrations are workspace operations for owners and administrators.
+  const operator =
+    Boolean(client.platform) &&
+    ["owner", "admin"].includes(data?.role ?? session.actor.role);
   const navigation = [
-    ...views.map((item) => ({
-      ...item,
-      title: t(item.titleKey),
-      content: false,
-    })),
+    // A view whose port this client lacks (for example the demo) is not offered.
+    ...views
+      .filter((item) => item.id !== "allowances" || client.getAllowances)
+      .filter(
+        (item) =>
+          operator || (item.id !== "platform" && item.id !== "integrations"),
+      )
+      .map((item) => ({
+        ...item,
+        title: t(item.titleKey),
+        content: false,
+      })),
     ...sectionNav,
   ];
   const activeView =
@@ -365,11 +387,17 @@ function CourseWorkspace({
               {view === "policy" && (
                 <PolicyView data={data} client={client} actions={actions} />
               )}
+              {view === "allowances" && client.getAllowances && (
+                <AllowancesView data={data} client={client} />
+              )}
               {view === "providers" && (
                 <ProvidersView data={data} client={client} actions={actions} />
               )}
               {view === "reviews" && (
                 <ReviewsView data={data} client={client} />
+              )}
+              {view === "assessments" && (
+                <AssessmentsView data={data} client={client} />
               )}
               {view === "people" && <PeopleView data={data} client={client} />}
               {view === "research" && (
@@ -389,6 +417,12 @@ function CourseWorkspace({
               )}
               {view === "mappings" && <ConceptMappingsView client={client} />}
               {view === "studies" && <StudyView data={data} client={client} />}
+              {view === "platform" && (
+                <PlatformView data={data} client={client} />
+              )}
+              {view === "integrations" && (
+                <IntegrationsView data={data} client={client} />
+              )}
               {sectionId && client.adminSections && declared.data && (
                 <AdminSectionView
                   key={sectionId}

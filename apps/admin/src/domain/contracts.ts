@@ -19,6 +19,7 @@ import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
 import type { StudiesPort } from "./studies";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
+import type { AssessmentAdminPort } from "./assessmentAdmin";
 import type { AdminSectionsPort } from "./adminSections";
 import type { ConceptMappingPort } from "./conceptMappings";
 import {
@@ -59,11 +60,13 @@ export const permissionSchema = z.enum([
   "audit.read",
   "supervision.control",
   "supervision.requeue",
+  "supervision.settings",
   "run.retry",
   "evidence.regrade",
   "study.read",
   "study.manage",
   "study.export",
+  "audit.export",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({
@@ -132,6 +135,9 @@ export const releaseSchema = z.object({
       passed: z.boolean(),
       detail: text,
       warning: z.boolean().optional(),
+      /** A check the app can explain in the reader's language (`courseView.check.code.<code>`). */
+      code: z.string().max(80).optional(),
+      params: z.record(z.string(), z.string().max(2000)).optional(),
     }),
   ),
 });
@@ -394,6 +400,8 @@ export interface AdminClient {
   audit?: AuditPort;
   /** Placement settings, per-enrollment exemptions and overrides, quality counters. */
   placement?: PlacementAdminPort;
+  /** Answer keys, rubrics and test answers of the course's questions, with test runs. */
+  assessments?: AssessmentAdminPort;
   /** Pause, stop and resume one enrollment's AI supervision. */
   supervision?: SupervisionPort;
   /** Educational evaluation studies: setup, arm balance, consent counts and the research export. */
@@ -460,11 +468,18 @@ export interface AdminClient {
     releaseId: string,
     action: ReleaseAction,
     context: MutationContext,
-    /** Selecting an older release (rollback) needs the digest of its reviewed impact. */
-    confirmation?: { impactDigest: string },
+    /** Selecting an older release (rollback) needs the digest of its reviewed impact; publishing a
+     * version lower than one already published needs confirmOlderVersion. */
+    confirmation?: { impactDigest?: string; confirmOlderVersion?: true },
   ): Promise<MutationResult>;
   /** Rollback impact, release diff and defective items. Absent in demos. */
   releaseSafety?: ReleaseSafetyPort;
+  /** Check a draft before saving, preview it as representative learners, and analyse who
+   * publishing it affects. Absent in demos. */
+  releaseEditing?: import("./releaseEditing").ReleaseEditingPort;
+  /** Platform readiness, integrations, billed costs, audit export and policy history. Owners and
+   * administrators only; absent in demos. */
+  platform?: import("./platform").PlatformPort;
   /** Install a course from a course-package file or public GitHub release. Absent in demos. */
   coursePackages?: CoursePackagePort;
   /** A course's update source, manual checks and automatic-update setting. Absent in demos. */
@@ -581,4 +596,40 @@ export interface AdminClient {
       acknowledgedShortenedGrantIds: string[];
     },
   ): Promise<import("./policyLedger").CohortResult>;
+  /** Organization ceilings (the outermost policy level), previewed against every course. */
+  getPolicyCeilings?(
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./policyLevels").CeilingsView>;
+  previewPolicyCeilings?(
+    workspaceId: string,
+    ceilings: import("./policyLevels").OrganizationCeilings,
+  ): Promise<import("./policyLevels").CeilingsView>;
+  savePolicyCeilings?(
+    workspaceId: string,
+    input: {
+      expectedRevision: number;
+      ceilings: import("./policyLevels").OrganizationCeilings;
+      reason: string;
+    },
+  ): Promise<import("./policyLevels").CeilingsView>;
+  /** Extension offers, accommodations and pool use across every learner of a course. */
+  getAllowances?(
+    courseId: string,
+    view: "pending" | "all",
+    signal?: AbortSignal,
+  ): Promise<import("./policyLevels").Allowances>;
+  /** One reviewed accommodation or outage adjustment for several learners at once. */
+  previewAccommodationBatch?(
+    courseId: string,
+    input: import("./policyLevels").BatchRequest,
+  ): Promise<import("./policyLevels").BatchPreview>;
+  applyAccommodationBatch?(
+    courseId: string,
+    input: { batchId: string; previewDigest: string; reason: string },
+  ): Promise<import("./policyLevels").BatchResult>;
+  getAccommodationBatches?(
+    courseId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./policyLevels").Batches>;
 }

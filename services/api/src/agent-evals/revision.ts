@@ -33,6 +33,14 @@ const PROBE: TeachingContext = {
   question: "Probe question?",
   constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false },
 };
+/** Role inputs some strategies need before they build a request (v2: research, reviewer and the
+ * tool loop are probed too, so a prompt change in any of them is a new revision). */
+const PROBE_INPUTS: Partial<Record<AgentRole, Partial<TeachingContext>>> = {
+  research: { publicResearchTopic: "Probe public topic", publicResearchScope: { requestId: "00000000-0000-4000-8000-000000000000", topicId: "probe-topic", queryDigest: "0".repeat(64) } },
+  reviewer: { rubricReview: { requestId: "00000000-0000-4000-8000-000000000000", attemptId: "00000000-0000-4000-8000-000000000001", prompt: "Probe question?",
+    criteria: [{ id: "probe-criterion", description: "Probe criterion.", required: true }], response: "Probe answer text.", earlierTurns: [],
+    rubricDigest: "0".repeat(64), responseDigest: "0".repeat(64) } },
+};
 class Captured extends Error {}
 /** Runs the strategy against a router that records the first request and stops. Nothing is sent. */
 async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding): Promise<unknown> {
@@ -44,7 +52,10 @@ async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBi
   };
   const router = { tutor: capture("tutor"), assess: capture("assess"), research: capture("research"), startImage: capture("startImage"), startVideo: capture("startVideo") } as unknown as ProviderRouter;
   try {
-    await strategy.run({ role, binding, context: structuredClone(PROBE), accountingKey: "revision-probe", signal: new AbortController().signal, router });
+    // A tool loop's first model request comes before any tool call; the probe's tools never answer.
+    const tools = { invoke: async () => { throw new Captured(); } };
+    await strategy.run({ role, binding, context: { ...structuredClone(PROBE), ...structuredClone(PROBE_INPUTS[role] ?? {}) }, accountingKey: "revision-probe",
+      signal: new AbortController().signal, router, tools });
   } catch (error) {
     if (!(error instanceof Captured)) return null;
   }

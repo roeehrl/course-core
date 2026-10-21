@@ -11,5 +11,5 @@ export function createSourceInspector<Credential>(authorize: AuthorizeResearch<C
 export function createSourceReviewer<Credential>(authorize: AuthorizeResearch<Credential>, loadInspection: (id: string) => Promise<SourceInspection | undefined>) {
   return createReviewEngine(authorize, loadInspection);
 }
-export { createYouTubeSearch, youtubeSearchParameters, parseIsoDuration, YouTubeSearchError, YOUTUBE_DATA_API } from './youtube-search.js';
+export { createYouTubeSearch, youtubeSearchParameters, parseIsoDuration, YouTubeSearchError, YOUTUBE_DATA_API, YOUTUBE_QUOTA, quotaDay, quotaResetsAt, youtubeErrorCode } from './youtube-search.js';
 export type { YouTubeSearchQuery, YouTubeSearchHit, YouTubeSearchResult, YouTubeSearchOptions, YouTubeSearchErrorCode } from './youtube-search.js';

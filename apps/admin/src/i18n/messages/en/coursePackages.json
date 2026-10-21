@@ -43,6 +43,9 @@
   "error.COURSE_PACKAGE_NOT_STAGED": "The inspected package expired. Inspect it again.",
   "error.PUBLISH_CONFIRMATION_REQUIRED": "Type the exact version to confirm publication.",
   "error.RELEASE_VERSION_CONFLICT": "This version already exists here with different content.",
+  "error.OLDER_VERSION_CONFIRMATION_REQUIRED": "A newer version of this course is already installed. Tick the box to confirm that you want this older version, then install again.",
+  "error.PUBLISH_VERSION_OLDER_THAN_PUBLISHED": "A newer version of this course is already published. Confirm that you want to publish this older version, then try again.",
+  "error.PUBLISH_VERSION_INVALID": "This version number is not a valid version (for example 1.2.0), so it cannot be published.",
   "error.CORE_VERSION_TOO_OLD": "This course needs a newer Core.",
   "error.SDK_UNSUPPORTED": "This course was compiled with an SDK this Core does not support.",
   "error.ADAPTATION_REGISTRY_DIGEST_MISMATCH": "The registry changed since it was shown. Reload before approving.",
@@ -61,5 +64,8 @@
   "error.STALE_REVISION": "Someone else changed these settings. Reload and try again.",
   "error.FORBIDDEN": "Your role cannot do this.",
   "error.UNAVAILABLE": "The server could not be reached.",
-  "error.unknown": "The server refused this step ({code})."
+  "error.unknown": "The server refused this step ({code}).",
+  "error.PACKAGE_AGENT_STRATEGY_REFUSED": "An agent strategy in this course asks for more than Core's own strategy allows (more tools, rounds, retries or autonomy). Narrow it in the course and build the package again.",
+  "error.UPLOAD_INTERRUPTED": "The upload stopped before the server received the whole file, so nothing was installed. Check your connection, then choose Inspect package again; the file stays selected.",
+  "error.INSTALL_UNCONFIRMED": "The connection dropped before the server confirmed the install. Choose Install draft again: it is safe, because the same package is recognised and never installed twice."
 }

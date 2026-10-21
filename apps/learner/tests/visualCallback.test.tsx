@@ -62,4 +62,33 @@ describe("actual visual context callbacks", () => {
     rerender(<VisualBlock experience={experience} source={source} onContextChange={(e) => events.push(e)} />);
     expect(ready(events).state.amount).toBe(5);
   });
+  it("reports completion once with the block's identity: scrubbing back and forth and replaying add nothing (L10)", async () => {
+    const experience = visualContextFixture(), completions: unknown[] = [];
+    const scene = fromVisualExperience(experience);
+    const { rerender } = render(<VisualBlock experience={experience} source={source} onComplete={(c) => completions.push(c)} />);
+    const timeline = screen.getByRole("slider", { name: "Timeline" });
+    const end = String(scene.timeline.durationMs);
+    fireEvent.change(timeline, { target: { value: "0" } });
+    expect(completions).toEqual([]);
+    for (const value of [end, "0", end, "100", end]) fireEvent.change(timeline, { target: { value } });
+    await waitFor(() => expect(completions).toHaveLength(1));
+    expect(completions[0]).toEqual({ episodeId: source.episodeId, blockId: source.blockId, visualId: experience.id, sceneFingerprint: new VisualRuntime(scene).exportReplay().sceneFingerprint });
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.change(timeline, { target: { value: end } });
+    // A new host callback identity does not re-arm completion either.
+    rerender(<VisualBlock experience={experience} source={source} onComplete={(c) => completions.push(c)} />);
+    fireEvent.change(screen.getByRole("slider", { name: "Timeline" }), { target: { value: end } });
+    expect(completions).toHaveLength(1);
+  });
+  it("renders the player's own texts in the UI language (visuals messages)", async () => {
+    const { I18nProvider, createLearnerTranslator } = await import("../src/i18n");
+    render(
+      <I18nProvider value={createLearnerTranslator("he")}>
+        <VisualBlock experience={visualContextFixture()} source={source} />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole("slider", { name: "ציר זמן" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "איפוס" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  });
 });

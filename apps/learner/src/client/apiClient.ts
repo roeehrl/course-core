@@ -4,7 +4,7 @@ import type { Profile } from "../domain/types";
 import type { ClosureReport } from "./policyClient";
 import { useEffect } from "react";
 import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
-import { randomId } from "./webCrypto";
+import { randomId, randomTraceparent } from "./webCrypto";
 
 /** What every learner-visible question may carry: "I don't know" is offered unless the author
  * turned it off, and confidence is captured only when the item declares a scale. */
@@ -17,6 +17,9 @@ export type Question = QuestionCommon & (
   | Pick<Extract<Assessment, { type: "code" }>, "type" | "language" | "starterCode">
   | Pick<Extract<Assessment, { type: "code_repair" }>, "type" | "language" | "starterCode">
   | { type: "rubric" | "counterexample" | "experiment_design" | "teach_back"; criteria: Criterion[] });
+/** A sentence of a gate decision as a message code with parameters (see the API's gates.ts). */
+export interface GateMessage { code: string; params?: Record<string, string | number | string[]>; detail?: GateMessage }
+export interface GateMessages { reason: GateMessage; criteria: Record<string, GateMessage>; actions: (GateMessage | null)[] }
 /** A server gate decision as the lesson shows it. The server recomputes it at every advance. */
 export interface GateView {
   passed: boolean;
@@ -27,6 +30,8 @@ export interface GateView {
   learnerVisibleReason?: string;
   criterionResults?: { criterionId: string; kind?: string; met: boolean | "pending"; reason: string }[];
   nextActions?: NextAction[];
+  /** The same reason, criteria and next steps as message codes, shown in the learner's language. */
+  messages?: GateMessages | null;
   decisionId?: string | null;
   /** The learner's latest request for a staff review of this gate. */
   review?: { requestId: string; state: "open" | "upheld" | "exception_granted"; reviewerNote: string | null; requestedAt: string; decidedAt: string | null } | null;
@@ -78,6 +83,8 @@ export interface ServerSnapshot {
 /** API error codes this client explains, each with an `apiClient.error.<CODE>` message. */
 const EXPLAINED_CODES = new Set([
   "UNAUTHENTICATED",
+  "ADAPTATION_NOT_AT_SAFE_BOUNDARY",
+  "PENDING_CHANGE_RESOLVED",
   "LOGIN_CODE_INVALID",
   "LOGIN_CODES_DISABLED",
   "LOGIN_FAILED",
@@ -115,6 +122,7 @@ const EXPLAINED_CODES = new Set([
   "CHALLENGE_EXPIRED",
   "PENDING_CORRUPT",
   "NETWORK_UNCERTAIN",
+  "READ_TIMEOUT",
   "COVERAGE_REQUIRED",
   "FRESH_EVIDENCE_ITEM_REQUIRED",
   "DEADLINE_REACHED",
@@ -231,6 +239,10 @@ function eitherSignal(a: AbortSignal | undefined, b: AbortSignal) {
     },
   };
 }
+/** A read that has not answered after this long fails with READ_TIMEOUT instead of
+ * leaving the page waiting. Writes have no client timeout: a write may already have
+ * been received, so it stays pending and is confirmed through its saved record. */
+export const READ_TIMEOUT_MS = 20_000;
 /** Reported in the event envelope; keep equal to app.json's expo.version. */
 export const LEARNER_APP_VERSION = "0.1.0";
 export function createCourseApi(
@@ -240,6 +252,7 @@ export function createCourseApi(
     pending?: Pick<Storage, "getItem" | "setItem" | "removeItem">;
     accountId?: string;
     onStorageUnavailable?: () => void;
+    readTimeoutMs?: number;
   } = {},
 ) {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -331,10 +344,22 @@ export function createCourseApi(
     const leaving = method === "GET" ? departure.signal() : undefined;
     if (leaving?.aborted) throw abortError();
     const combined = leaving ? eitherSignal(transport.signal, leaving) : undefined;
-    const signal = combined?.signal ?? transport.signal;
+    // Reads give up after READ_TIMEOUT_MS so a stalled connection ends in a clear message.
+    const deadline = leaving ? new AbortController() : undefined;
+    const timer = deadline
+      ? setTimeout(() => deadline.abort(), options.readTimeoutMs ?? READ_TIMEOUT_MS)
+      : undefined;
+    const timed = deadline && combined ? eitherSignal(combined.signal, deadline.signal) : undefined;
+    const signal = timed?.signal ?? combined?.signal ?? transport.signal;
     try {
       return await send<T>(url, method, payload, signal);
+    } catch (error) {
+      if (deadline?.signal.aborted && !leaving?.aborted && !transport.signal?.aborted)
+        throw new CourseApiError("READ_TIMEOUT", 0);
+      throw error;
     } finally {
+      clearTimeout(timer);
+      timed?.release();
       combined?.release();
     }
   }
@@ -364,6 +389,7 @@ export function createCourseApi(
             : { "Content-Type": "application/json" }),
           ...(method === "GET" ? {} : { "X-CSRF-Token": csrf() }),
           ...envelope,
+          traceparent: randomTraceparent(),
         },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       });

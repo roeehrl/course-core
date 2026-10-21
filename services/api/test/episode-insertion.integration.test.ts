@@ -10,7 +10,7 @@ import { transaction } from "../src/database.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
-import { scanWakeups } from "../src/wakeups.js";
+import { scanWakeups, WAKEUP_RETRY_MS } from "../src/wakeups.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
 import { DEFAULT_COURSE_POLICY_SETTINGS } from "../src/policy-adapter.js";
 
@@ -293,11 +293,13 @@ describe("learner undo of a personal change", () => {
   }, 30000);
 });
 
+let headroomReleases = 1;
 describe("core remediation funded from enrollment headroom", () => {
   /** A release whose course settings reserve core headroom for every new enrollment. */
   async function headroomSetup(classification: "required" | "optional") {
     const course = remedialCourse(adapter);
-    course.version = "2." + Math.floor(Math.random() * 1_000_000) + ".0";
+    // Each release is newer than the last in this workspace: publication refuses going back unconfirmed.
+    course.version = "2." + headroomReleases++ + ".0";
     course.policy.work = { additionalMinutes: 60, additionalEpisodes: 4, remediationCyclesPerConcept: 4 };
     const created = await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course);
     expect(created.statusCode, created.body).toBe(200);
@@ -438,8 +440,9 @@ describe("staff insertion of a reviewed remedial episode over HTTP (no model)", 
       expect(issued.statusCode, issued.body).toBe(200);
       expect((await send(s, "answers", { challengeId: issued.json().challengeId, answer })).json().result.passed).toBe(false);
     }
-    // Every check is used, the gate is unmet and no more added work fits: closure with a gaps report.
-    await scan();
+    // Every check is used, the gate is unmet and no more added work fits: closure with a gaps report
+    // when the exhausted quota is next re-checked (wakeups.ts WAKEUP_RETRY_MS).
+    for (let i = 0; i < 10; i++) if ((await scanWakeups(db, { now: new Date(Date.now() + 2 * WAKEUP_RETRY_MS) })).wrapped) break;
     expect(await status()).toBe("closed");
     const closed = (await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='enrollment.closed'", [s.enrollment])).rows;
     expect(closed).toEqual([{ payload: { reason: "cap", cap: "work_quota", coverage: "partial" } }]);

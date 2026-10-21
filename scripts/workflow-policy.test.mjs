@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 
@@ -58,6 +59,40 @@ test('nightly runs only on schedule or dispatch and covers each required area', 
   assert.doesNotMatch(workflows['ci.yml'], /schedule:/);
 });
 
+test('nightly runs the OS/Node matrix and the scripted agent evals', () => {
+  const nightly = jobs(workflows['nightly.yml']);
+  const platforms = nightly.platforms;
+  assert.ok(platforms, 'platforms job');
+  assert.match(platforms, /^ {4}runs-on: \$\{\{ matrix\.os \}\}$/m);
+  assert.match(platforms, /^ {8}os: \[ubuntu-24\.04, ubuntu-24\.04-arm, macos-15\]$/m, 'Linux x64, Linux arm64 and the macOS host');
+  // The oldest Node the root engines range admits, and the newest Node 26.
+  const engines = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).engines.node;
+  const minimum = /^>=(\d+) <(\d+)$/.exec(engines);
+  assert.ok(minimum, engines);
+  assert.match(platforms, new RegExp(`^ {8}node: \\['${minimum[1]}\\.0\\.0', '${minimum[1]}'\\]$`, 'm'));
+  assert.match(platforms, /node-version: \$\{\{ matrix\.node \}\}/);
+  for (const command of ['npm run test:infra', 'npm run test:lifecycle', 'orchestrate.mjs check "$module"']) assert.ok(platforms.includes(command), command);
+  const evals = nightly['agent-evals'];
+  assert.ok(evals, 'agent-evals job');
+  assert.ok(evals.includes('npm run eval:agents -- --report agent-eval-report.json'), 'reference model must pass');
+  assert.ok(evals.includes('npm run eval:agents -- --model known-bad --expect-fail'), 'known-bad model must fail');
+  assert.doesNotMatch(evals, /COURSE_AGENT_EVALS_LIVE|--live\b|--judge\b|secrets/);
+});
+
+test('release and pull-request CI keep their job sets; the release job rehearses compatibility and rollback', () => {
+  // The required checks and the release evidence count these jobs; adding one is a deliberate change.
+  assert.deepEqual(Object.keys(jobs(workflows['release.yml'])), ['identity', 'full-ci', 'candidates']);
+  assert.deepEqual(Object.keys(jobs(workflows['ci.yml'])), ['audit', 'packages', 'sandbox', 'api-core', 'api-engines', 'api-connected', 'api', 'web']);
+  const candidates = jobs(workflows['release.yml']).candidates;
+  assert.match(candidates, /image: postgres:17/);
+  const order = ['release-compat.mjs check --candidate "$TESTED_COMMIT"', 'node --test scripts/tests/release-rehearsal.test.mjs', 'nightly.mjs no-skips "$RUNNER_TEMP/rehearsal.log"',
+    'release-compat.mjs rehearse --candidate "$TESTED_COMMIT"', 'release-artifacts.mjs prepare'];
+  for (const command of order) assert.ok(candidates.includes(command), command);
+  for (let i = 1; i < order.length; i++) assert.ok(candidates.indexOf(order[i - 1]) < candidates.indexOf(order[i]), `${order[i - 1]} before ${order[i]}`);
+  // Pipelines into tee need bash's pipefail.
+  for (const step of candidates.split('\n      - ').filter(step => step.includes('| tee'))) assert.match(step, /\n {8}shell: bash\n/);
+});
+
 test('every job has a timeout, and the required API check gates every API job', () => {
   for (const [name, text] of Object.entries(workflows))
     for (const [job, body] of Object.entries(jobs(text)))
@@ -79,6 +114,27 @@ test('every job has a timeout, and the required API check gates every API job', 
   }
   // Each suite the required check used to run serially still runs in exactly one API job.
   for (const command of ['npm run test:backup-drill', 'npm run check:api:practical', 'npm run check:api\n', 'playwright.engines.config.ts --forbid-only',
-    'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'npm run test:supervised'])
+    'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'run proof:clean-room', 'npm run test:supervised'])
     assert.equal(apiJobs.filter(job => ci[job].includes(command)).length, 1, command);
+});
+
+test('PR and release CI fail on test-level skips: every test command is skip-checked', () => {
+  const ci = workflows['ci.yml'];
+  assert.match(header(ci), /\nenv:\n(?: {2}#.*\n)* {2}COURSE_FORBID_TEST_SKIPS: '1'\n/, 'orchestrate.mjs checks module suites for skips');
+  // The release workflow runs this same workflow, so release CI inherits the rule.
+  assert.match(jobs(workflows['release.yml'])['full-ci'], /uses: \.\/\.github\/workflows\/ci\.yml/);
+  const commands = ci.split('\n').map(line => line.replace(/^\s*(?:- )?(?:run: )?/, '').trim())
+    .filter(line => /(?:npm (?:--prefix \S+ )?run (?:test:\S+|check:sandbox:docker)|cli\.js test )/.test(line));
+  assert.ok(commands.length >= 8, 'test commands found');
+  // Qualification flows are scripts, not test runners; they fail on any unmet step themselves.
+  const scripts = ['npm run test:supervised'];
+  for (const command of commands)
+    if (!scripts.includes(command)) assert.match(command, /^node (?:\.\.\/\.\.\/)?scripts\/test-skips\.mjs -- /, command);
+});
+
+test('the required Docker job brings up the documented self-host stack', () => {
+  const sandbox = jobs(workflows['ci.yml']).sandbox;
+  assert.match(sandbox, /^ {4}name: Sandbox \/ real Docker Linux$/m, 'required check name is bound by branch protection and release evidence');
+  assert.ok(sandbox.indexOf('npm run test:self-host') > sandbox.indexOf('npm run check:sandbox:docker'), 'runs after the sandbox Docker suites');
+  assert.equal(Object.values(jobs(workflows['ci.yml'])).filter(body => body.includes('npm run test:self-host')).length, 1);
 });

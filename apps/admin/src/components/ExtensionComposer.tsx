@@ -29,7 +29,23 @@ export function ExtensionComposer({
   onRefresh: () => void;
 }) {
   const t = useT();
-  const [days, setDays] = useState(2);
+  // Days move a deadline; planned minutes and episodes raise a work cap. Blank means none.
+  const hasDeadline = Boolean(scope.window || scope.hardDeadline);
+  const [days, setDays] = useState(hasDeadline ? "2" : "");
+  const [minutes, setMinutes] = useState("");
+  const [episodes, setEpisodes] = useState("");
+  const amount = (value: string) =>
+    value.trim() && Number(value) > 0 ? Number(value) : undefined;
+  const amounts = {
+    ...(amount(days) ? { days: amount(days)! } : {}),
+    ...(amount(minutes) ? { minutes: amount(minutes)! } : {}),
+    ...(amount(episodes) ? { episodes: amount(episodes)! } : {}),
+  };
+  const units = new Set(
+    policy.pools
+      .filter((pool) => scope.extensions?.poolIds.includes(pool.poolId))
+      .map((pool) => pool.unit),
+  );
   const [preview, setPreview] = useState<ExtensionPreview>();
   const [error, setError] = useState<unknown>();
   const [previewing, setPreviewing] = useState(false);
@@ -69,13 +85,13 @@ export function ExtensionComposer({
     try {
       const value = await client.previewExtension(
         policy.enrollmentId,
-        { scopeId: scope.scopeId, days },
+        { scopeId: scope.scopeId, ...amounts },
         abort.signal,
       );
       if (
         value.enrollmentId !== policy.enrollmentId ||
         value.scopeId !== scope.scopeId ||
-        value.days !== days
+        (value.days ?? undefined) !== amounts.days
       )
         throw new AdminError("invalid_response");
       if (
@@ -108,7 +124,7 @@ export function ExtensionComposer({
     setError(undefined);
     const input: ExtensionProposal = {
       scopeId: scope.scopeId,
-      days,
+      ...amounts,
       rationaleEventIds: rationale,
       episodeIds: activities,
       planImpact: impact.trim(),
@@ -142,9 +158,14 @@ export function ExtensionComposer({
       ? values.filter((item) => item !== value)
       : [...values, value];
   }
+  const canDays =
+    hasDeadline &&
+    (units.has("calendar_day") || units.has("scope_calendar_day"));
+  const canMinutes = units.has("planned_minute");
+  const canEpisodes = units.has("episode");
   const enabled =
     scope.extensions?.enabled &&
-    !!(scope.window || scope.hardDeadline) &&
+    (canDays || canMinutes || canEpisodes) &&
     policy.status === "active";
   const scopedActivities = policy.activities.filter((activity) =>
     policy.constraints
@@ -164,30 +185,75 @@ export function ExtensionComposer({
           void makePreview();
         }}
       >
-        <Field
-          label={t("extensionComposer.days")}
-          htmlFor="extension-days"
-          hint={t("extensionComposer.days.hint")}
-        >
-          <input
-            id="extension-days"
-            type="number"
-            required
-            min={1}
-            max={366}
-            step={1}
-            value={days}
-            onChange={(e) => {
-              invalidate();
-              setDays(Number(e.target.value));
-            }}
-            disabled={pending}
-          />
-        </Field>
+        {(canDays || !enabled) && (
+          <Field
+            label={t("extensionComposer.days")}
+            htmlFor="extension-days"
+            hint={t("extensionComposer.days.hint")}
+          >
+            <input
+              id="extension-days"
+              type="number"
+              min={1}
+              max={366}
+              step={1}
+              value={days}
+              onChange={(e) => {
+                invalidate();
+                setDays(e.target.value);
+              }}
+              disabled={pending}
+            />
+          </Field>
+        )}
+        {canMinutes && (
+          <Field
+            label={t("extensionComposer.minutes")}
+            htmlFor="extension-minutes"
+            hint={t("extensionComposer.minutes.hint")}
+          >
+            <input
+              id="extension-minutes"
+              type="number"
+              min={1}
+              max={100000}
+              step={1}
+              value={minutes}
+              onChange={(e) => {
+                invalidate();
+                setMinutes(e.target.value);
+              }}
+              disabled={pending}
+            />
+          </Field>
+        )}
+        {canEpisodes && (
+          <Field
+            label={t("extensionComposer.episodes")}
+            htmlFor="extension-episodes"
+            hint={t("extensionComposer.episodes.hint")}
+          >
+            <input
+              id="extension-episodes"
+              type="number"
+              min={1}
+              max={1000}
+              step={1}
+              value={episodes}
+              onChange={(e) => {
+                invalidate();
+                setEpisodes(e.target.value);
+              }}
+              disabled={pending}
+            />
+          </Field>
+        )}
         <Button
           type="submit"
           kind="primary"
-          disabled={!enabled || previewing || pending}
+          disabled={
+            !enabled || previewing || pending || !Object.keys(amounts).length
+          }
         >
           {previewing
             ? t("extensionComposer.resolving")

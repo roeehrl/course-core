@@ -9,8 +9,8 @@ connected-browser tests:
 
 It signs in a synthetic learner on the disposable test host, reloads the course list,
 opens the fixture course, and then makes 12 round trips between the roadmap and the
-first lesson. Every run attaches its measurements as `budgets.json` and prints them
-in a `budgets {…}` log line.
+first lesson. It then answers the lesson's two checks. Every run attaches its
+measurements as `budgets.json` and prints them in a `budgets {…}` log line.
 
 ## What is measured
 
@@ -19,6 +19,8 @@ in a `budgets {…}` log line.
 | Cold course list | After a full reload, time from navigation start until the course card's heading is in the DOM. That heading needs the signed-in course list from the API, so the empty shell does not count |
 | Roadmap → lesson | In the page, from the press of "Continue learning →" to the first animation frame where the lesson heading has replaced the roadmap. The lesson heading needs the lesson data |
 | Lesson → roadmap | The same measurement for the roadmap button |
+| Answer feedback | From the press of "Check answer" to the first animation frame where the result text ("Correct. 2 is below 5.", then the completed-checks message) is on the page. The result needs the graded answer from the API |
+| Command acknowledgement | From the press of a lesson command ("Mark this part read", "Start the next check →") to `responseEnd` of that command's POST in Resource Timing, so the server's acknowledgement has fully arrived |
 | JS heap (Chromium only) | `JSHeapUsedSize` from the DevTools protocol after a forced garbage collection: once after the first lesson opens, and again after the round trips |
 
 The timings are measured inside the page, so Playwright's polling interval is not
@@ -27,26 +29,30 @@ the app's own rendering and API round trips, not network latency to a remote hos
 
 ## Budgets
 
-| Budget | Threshold | Measured locally | Product target |
+The navigation, feedback and acknowledgement budgets are the T01 product targets
+themselves. First-token time (3 s) for AI answers is not measured here: it needs a
+live provider, and scripted adapters answer at once.
+
+| Budget | Threshold | Measured locally (2026-10-21) | Product target |
 | --- | --- | --- | --- |
-| Cold course list | < 3,000 ms | 28–46 ms | — |
-| Roadmap → lesson, median of 13 | < 500 ms (slowest < 1,500 ms) | 6–13 ms (slowest ≤ 20 ms) | < 200 ms navigation (T01) |
-| Lesson → roadmap, median of 12 | < 500 ms (slowest < 1,500 ms) | 8–13 ms (slowest ≤ 23 ms) | < 200 ms navigation (T01) |
-| JS heap after the round trips | < 64 MiB | 5.8 MiB | browser shell < 250 MB (T02) |
-| JS heap growth over 12 round trips | < 8 MiB | 0.3–0.4 MiB | no leak |
+| Cold course list | < 3,000 ms | 32–78 ms | — |
+| Roadmap → lesson, median of 13 | < 200 ms (slowest < 600 ms) | 7–12 ms (slowest ≤ 20 ms) | < 200 ms navigation (T01) |
+| Lesson → roadmap, median of 12 | < 200 ms (slowest < 600 ms) | 8–14 ms (slowest ≤ 20 ms) | < 200 ms navigation (T01) |
+| Answer feedback, each of 2 | < 300 ms | 24–53 ms | < 300 ms feedback (T01) |
+| Command acknowledgement, each of 3 | < 500 ms | 6–27 ms | < 500 ms acknowledgement (T01) |
+| JS heap after the round trips | < 64 MiB | 6.6 MiB | browser shell < 250 MB (T02) |
+| JS heap growth over 12 round trips | < 8 MiB | 0.4 MiB | no leak |
 
 The local figures come from an Apple-silicon Mac with other work running: Chrome at
-all three sizes (three runs each) and WebKit at all three sizes. Firefox was not
+desktop, phone and tablet sizes and WebKit at all three sizes. Firefox was not
 installed locally; CI runs it.
 
-The thresholds are deliberately generous: 10 to 100 times the measured values, and
-looser than the product targets for navigation. A shared CI runner can be many times
-slower than a workstation, and these checks must not become a flaky required
-check. A failure therefore means a gross regression, such as a navigation that now
-waits on a slow request or a component that leaks on every visit. A pass does not
-show that the T01 latency targets are met for a real learner over a real network,
-or that the whole browser process stays under 250 MB. The JS heap is only part of a
-tab's memory.
+The measured values are 10 to 40 times below the targets, so a shared CI runner that
+is several times slower still passes; a failure means a real regression against the
+product target, such as a navigation that now waits on a slow request. A pass shows
+the targets are met on loopback, not for a real learner over a real network. The JS
+heap is only part of a tab's memory, and the load and heap thresholds stay loose
+regression guards.
 
 ## When a budget fails
 

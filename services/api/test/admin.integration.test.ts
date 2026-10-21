@@ -436,10 +436,18 @@ describe("real immutable release lifecycle", () => {
         })
       ).statusCode,
     ).toBe(200);
+    // Learners are pinned to the live release: publishing forward needs the confirmed analysis.
+    const unconfirmed = await mutation(admin, "POST", `/releases/${id}/transitions`, {
+      action: "publish",
+    });
+    expect(unconfirmed.statusCode).toBe(428);
+    const impact = await req(admin, "GET", `${coursePath()}/releases/${id}/publish-impact`);
+    expect(impact.json().impactDigest).toBe(unconfirmed.json().details.impactDigest);
     expect(
       (
         await mutation(admin, "POST", `/releases/${id}/transitions`, {
           action: "publish",
+          impactDigest: impact.json().impactDigest,
         })
       ).statusCode,
     ).toBe(200);
@@ -586,7 +594,11 @@ describe("real evidence and enrollment administration", () => {
           enrollmentRevision: e.revision,
         },
       );
-      expect(response.json().error).toBe("REVIEW_CANNOT_GRANT_MASTERY");
+      // An assisted pass cannot be upheld; an incorrect result can be kept as recorded,
+      // which grants nothing (C03: a disputed result of any kind can be kept).
+      if (assisted)
+        expect(response.json().error).toBe("REVIEW_CANNOT_GRANT_MASTERY");
+      else expect(response.statusCode, response.body).toBe(200);
       expect(
         (
           await db.query(
@@ -602,7 +614,9 @@ describe("real evidence and enrollment administration", () => {
             [evidenceId],
           )
         ).rows[0].count,
-      ).toBe("0");
+      ).toBe(assisted ? "0" : "1");
+      const after = (await snapshot()).enrollments.find((x: any) => x.id === id);
+      expect(after.completed).toBe(0);
     }
   });
   it("acknowledges valid evidence, then invalidates with audit and relocks descendants", async () => {

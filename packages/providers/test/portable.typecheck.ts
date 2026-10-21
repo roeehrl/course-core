@@ -19,7 +19,8 @@ const otherAdapter: ProviderAdapter = {
   } } },
 };
 registry.registerAdapter(otherAdapter);
-export const corePort: TutoringProvider & VideoJobProvider = new ProviderRouter(registry);
+// The router dispatches media calls by model; capability discovery and estimates are per adapter.
+export const corePort: TutoringProvider & Pick<VideoJobProvider, 'startVideo' | 'pollVideo'> = new ProviderRouter(registry);
 export const portableJob: VideoJob = { kind: 'video', providerId: 'other-vendor', modelId: 'vendor/model @stable',
   registryRevision: 'v1', providerState: { arbitraryTicket: [1, 'queue-a'] },
   accounting: { accountingKey: 'job' }, requestedDurationSeconds: 9 };

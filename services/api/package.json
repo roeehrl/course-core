@@ -15,6 +15,7 @@
     "test:practical": "tsx qualification/practical-flow.ts",
     "test:supervised": "tsx qualification/supervised-flow.ts",
     "test:object-store": "tsx qualification/object-store-flow.ts",
+    "test:clip-export": "tsx qualification/clip-export-flow.ts",
     "test:load": "tsx qualification/load-flow.ts",
     "test:long-session": "node --expose-gc --import tsx qualification/long-session-flow.ts",
     "migrate": "tsx src/migrate-cli.ts",
@@ -51,6 +52,8 @@
     "@temporalio/worker": "^1.24.0",
     "@types/node": "^24.0.0",
     "@types/pg": "8.23.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "5.0.4"

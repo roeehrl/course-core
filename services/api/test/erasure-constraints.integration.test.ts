@@ -74,7 +74,13 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     adaptation_proofs: { trusted_record: said, verification_evidence: quoted },
     adaptation_proposals: { id: ids.proposal, status: "verified", body: said, assignments: quoted, evidence_fence: said },
     adaptation_reverts: { plan_revision: 2, plan_digest: hex("1"), rollback_target_digest: hex("2") },
+    // A change waiting for a safe boundary (migration 092): the candidate is redacted, the status kept.
+    adaptation_pending_changes: { job_id: ids.job, episode_id: "min", artifact_kind: "visual", selection: said, reason: "attempt_in_progress", status: "waiting" },
+    // What was checked before a generated change was applied (migration 092): codes and results only, kept.
+    adaptation_validation_reports: { report: { hostChecks: [{ id: "host-accessibility", result: "passed" }] } },
     adaptation_states: { snapshot: said },
+    // A published generated component (migration 093): its model and tests are redacted, identifiers kept.
+    generated_components: { episode_id: "min", block_id: "operation-one", digest: hex("6"), artifact_digest: hex("7"), body: said },
     // A resolved check amended by an appeal (migration 070): identifiers, states and times only, kept as the record.
     adaptation_transfer_checks: { status: "failed", objective_id: "objective.one", attempt_id: ids.attempt, resolved_at: new Date().toISOString(),
       amended_status: "passed", amended_at: new Date().toISOString(), amended_by_appeal_id: ids.appeal },
@@ -114,6 +120,10 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     learning_events: { actor_kind: "learner", event_type: "assessment.submitted", payload: said, platform: "web", app_version: "1.0.0", client_sequence: 1, occurred_at: new Date().toISOString(),
       trace_id: TRACE_ID },
     media_attachments: { job_id: ids.mediaJob, review_id: ids.review, episode_id: "min", attached_by: staff },
+    // A storyboard staff wrote for this learner's episode (migration 102): its text and shots are redacted.
+    media_storyboards: { episode_id: "min", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,
+      shots: [{ id: "shot-1", kind: "generated", description: "Shot showing " + secret, narration: secret, durationSeconds: 4 }], drafted_by: "staff", state: "draft",
+      idempotency_key: "constraints-storyboard-" + ids.mediaJob },
     media_jobs: { id: ids.mediaJob, episode_id: "min", kind: "generated_short_video", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,
       model_id: "synthetic-model", state: "attached", charged_micro_usd: 10, provider_operation: { provider: "synthetic", providerState: said }, idempotency_key: "constraints-" + ids.mediaJob },
     personal_change_visibility: {},
@@ -126,6 +136,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     research_resource_choices: { job_id: ids.job, objective_id: "objective.one", episode_id: "min" },
     research_requests: { parent_job_id: ids.job, topic_id: "topic.one", episode_id: "min", state: "collected" },
     retention_schedules: {},
+    // The learner's study days (migration 097); erasure deletes them.
+    retention_availability: { time_zone: "Zone/" + secret },
     rubric_appeals: { id: ids.appeal, attempt_id: ids.attempt, reason: "My appeal says " + secret, state: "upheld", reviewer_id: staff, decision: "met", decided_at: new Date().toISOString(),
       findings: { findings: quoted, requestDigest: hex("3") }, reviewer_note: "Second reviewer: " + secret },
     rubric_assist_consents: { granted: true },
@@ -144,6 +156,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     supervisor_controls: {},
     supervisor_enrollment_budgets: {},
     supervisor_event_requeues: { reason: "Requeued: " + secret, previous_code: "provider_outage", idempotency_key: "constraints-" + ids.job },
+    supervisor_run_cancellations: { job_id: ids.job, reason: "Stopped: " + secret, previous_state: "running", idempotency_key: "constraints-cancel-" + ids.job },
     supervisor_job_retries: { job_id: ids.job, reason: "Retried: " + secret, outcome: "failed", previous_state: "failed", previous_reason: "attempts_exhausted", idempotency_key: "constraints-" + ids.job },
     supervisor_inputs: { job_id: ids.job, context: said },
     supervisor_job_cancellations: { reason: "data_erasure", jobs: [ids.job] },
@@ -161,7 +174,14 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
       status: "confirmed", source: "learner", learner_correction: "Actually " + secret, evidence_refs: quoted },
     teaching_hypothesis_changes: { hypothesis_id: ids.hypothesis, actor_kind: "system", action: "proposed", data: said },
     teaching_signals: { signal_kind: "answer.incorrect", source_ref: said },
+    teaching_actions: { action: "contrast_case", objective_ids: ["objective.one"], origin: "trigger", state: "started", rule_id: "T1", job_id: ids.job, outcome: { objectives: [] } },
+    supervisor_authority_requests: { job_id: ids.job, kind: "goal_change", approver: "learner", proposal: { goal: "Goal: " + secret }, state: "approved", decided_at: new Date().toISOString(), previous: { goal: "Earlier: " + secret } },
     wakeup_failures: { stage: "retention", code: "SYNTHETIC_FAILURE" },
+    // Policy records (095, 096) and the continuation track (094): identifiers, units, dates and states only.
+    accommodation_overrides: {}, closure_reports: {}, extension_offers: {}, extension_pools: {}, learning_policy_revisions: {},
+    policy_constraint_snapshots: {}, policy_timer_plans: {}, work_reservations: {},
+    policy_deadline_timers: { phase: "cap" },
+    continuation_tracks: { state: "active" },
     wakeup_signals: { kind: "retention_due" },
   };
 }
@@ -210,6 +230,9 @@ async function populate(client: PoolClient, enrollment: string, learner: string,
       .catch((error: Error) => { throw new Error(`${table}: ${error.message}`); });
   }
   // Rows erasure reaches through the media job rather than an enrollment column.
+  await client.query(`INSERT INTO media_checks(id,job_id,workspace_id,asset_sha256,input_digest,verifier,verdict,findings,checked_by)
+    VALUES($1,$2,$3,$4,$4,'rules','contradicted',$5,$6)`, [randomUUID(), ids.mediaJob, workspace, hex("b"),
+    JSON.stringify([{ code: "QUANTITY_CONTRADICTED", source: "script", subject: secret, expected: "3", found: "8" }]), owner.userId]);
   await client.query(`INSERT INTO media_reviews(id,job_id,workspace_id,decision,asset_sha256,captions_vtt,transcript,visual_description,findings,rationale,reviewed_by)
     VALUES($1,$2,$3,'approved',$4,$5,$6,$7,'{}',$8,$9)`, [ids.review, ids.mediaJob, workspace, hex("b"), "WEBVTT\n\n00:00.000 --> 00:01.000\n" + secret,
     "Transcript of the clip: " + secret, "The clip shows " + secret, "Approved because " + secret, owner.userId]);

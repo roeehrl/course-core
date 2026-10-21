@@ -64,6 +64,36 @@ export const modelSuggestionSelectionSchema = z.strictObject({
 export type ModelSuggestionSelection = z.infer<
   typeof modelSuggestionSelectionSchema
 >;
+const planId = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/);
+/** Something the learner is offered after verification (N01 assessment and visual/media families):
+ * a new practice problem Core picked, or a registered course visual. Never evidence. */
+export const learnerSuggestionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("practice_check"), objectiveId: planId, assessmentId: z.string().min(1).max(200), episodeId: planId.nullable() }),
+  z.strictObject({ kind: z.literal("visual"), objectiveId: planId, visualId: planId, episodeId: planId.nullable() }),
+]);
+export type LearnerSuggestion = z.infer<typeof learnerSuggestionSchema>;
+/** A change only a separate authority may make (design §4, B06): the job waits for that decision. */
+export const authorityRequestSchema = z.strictObject({
+  kind: z.enum(["goal_change", "required_objectives", "grading_standard", "paid_ceiling"]),
+  reason: z.string().trim().min(1).max(500),
+  proposal: z.strictObject({
+    goal: z.string().trim().min(1).max(300).optional(),
+    objectiveIds: z.array(planId).min(1).max(10).optional(),
+    limitMicroUsd: z.number().int().min(1).max(1_000_000_000).optional(),
+  }),
+  permissionRevision: z.number().int().positive(),
+});
+export type AuthorityRequest = z.infer<typeof authorityRequestSchema>;
+/** What an evaluator's choice carries over from one builder's alternative (design §4). */
+export interface AlternativeChoice {
+  checkpointId: string;
+  selection: SupportSelection | null;
+  generatedTeaching?: GeneratedTeachingSelection | undefined;
+  resourceChoices?: ResourceChoice[] | undefined;
+  suggestions?: LearnerSuggestion[] | undefined;
+  /** The builder's tool receipts, so the committed plan cites what produced the draft. */
+  toolCallRefs: string[];
+}
 export interface SupportSelection {
   profileId: string;
   entryId: string;
@@ -83,6 +113,9 @@ export interface SupervisorToolPort {
     generatedTeaching?: GeneratedTeachingSelection;
     researchSelection?: ResearchSelection;
     resourceChoice?: ResourceChoice;
+    suggestion?: LearnerSuggestion;
+    authorityRequest?: AuthorityRequest;
+    alternative?: AlternativeChoice;
   }>;
 }
 export interface SupervisedPlan {
@@ -95,6 +128,10 @@ export interface SupervisedPlan {
   researchSelections?: ResearchSelection[] | undefined;
   /** At most one verified reviewed resource per objective. */
   resourceChoices?: ResourceChoice[] | undefined;
+  suggestions?: LearnerSuggestion[] | undefined;
+  authorityRequest?: AuthorityRequest | undefined;
+  /** The builder alternative an evaluator committed to (a multi-builder job only). */
+  chosenAlternative?: string | undefined;
 }
 export const supervisedPlanSchema = z
   .strictObject({
@@ -107,7 +144,8 @@ export const supervisedPlanSchema = z
         permissionRevision: z.number().int().positive(),
       })
       .nullable(),
-    toolCallRefs: z.array(z.string().uuid()).max(8),
+    // An evaluator's plan also cites the chosen builder's receipts.
+    toolCallRefs: z.array(z.string().uuid()).max(24),
     modelSuggestion: modelSuggestionSelectionSchema.optional(),
     generatedTeaching: generatedTeachingSelectionSchema.optional(),
     researchSelections: z.array(researchSelectionSchema).max(2).optional(),
@@ -117,8 +155,14 @@ export const supervisedPlanSchema = z
       .max(2)
       .refine((c) => new Set(c.map((x) => x.objectiveId)).size === c.length)
       .optional(),
+    suggestions: z.array(learnerSuggestionSchema).min(1).max(2).optional(),
+    authorityRequest: authorityRequestSchema.optional(),
+    chosenAlternative: z.string().regex(/^build-[a-c]$/).optional(),
   })
-  .refine((plan) => !(plan.selection && plan.generatedTeaching));
+  .refine((plan) => !(plan.selection && plan.generatedTeaching))
+  // A request for separate authority stands alone: nothing else in the plan rides on it.
+  .refine((plan) => !plan.authorityRequest || (!plan.selection && !plan.generatedTeaching && !plan.modelSuggestion
+    && !plan.researchSelections?.length && !plan.resourceChoices?.length && !plan.suggestions?.length));
 /** A tool port refusing the model's call for a reason the model alone caused (arguments that
  * fail the tool's contract, a candidate limit). Nothing was recorded for that call; the loop ends
  * the run with a definite refusal instead of an uncertain error. */
@@ -158,8 +202,10 @@ export async function runSupervisorToolLoop(options: {
     modelSuggestion: ModelSuggestionSelection | undefined,
     generatedTeaching: GeneratedTeachingSelection | undefined,
     generatedCandidates = 0,
-    researchSelections: ResearchSelection[] = [];
-  const resourceChoices = new Map<string, ResourceChoice>();
+    researchSelections: ResearchSelection[] = [],
+    authorityRequest: AuthorityRequest | undefined,
+    chosenAlternative: string | undefined;
+  const resourceChoices = new Map<string, ResourceChoice>(), suggestions = new Map<string, LearnerSuggestion>();
   // Core's own round checks refusing what the model decided are a definite outcome: the model
   // answered, and every receipt and paid round so far is known. The run ends with a refusal that
   // holds only the reason (never a partial plan), charged with the real usage of every round.
@@ -211,6 +257,9 @@ export async function runSupervisorToolLoop(options: {
       if (d.decision === "finish") {
         if (d.tool !== "none" || d.argumentsJson !== "{}" || !d.summary.trim())
           return refuse("tool_loop_invalid_decision");
+        // A request for separate authority must stand alone (supervisedPlanSchema).
+        if (authorityRequest && (selected || generatedTeaching || modelSuggestion || researchSelections.length || resourceChoices.size || suggestions.size))
+          return refuse("tool_loop_invalid_decision");
         return {
           content: {
             kind: "supervised_plan",
@@ -221,6 +270,9 @@ export async function runSupervisorToolLoop(options: {
             ...(generatedTeaching ? { generatedTeaching } : {}),
             ...(researchSelections.length ? { researchSelections } : {}),
             ...(resourceChoices.size ? { resourceChoices: [...resourceChoices.values()] } : {}),
+            ...(suggestions.size ? { suggestions: [...suggestions.values()] } : {}),
+            ...(authorityRequest ? { authorityRequest } : {}),
+            ...(chosenAlternative ? { chosenAlternative } : {}),
           } satisfies SupervisedPlan as SupervisedPlan | OutputRefusal,
           usage: aggregateSupervisorUsage(receipts, options.accountingKey),
         };
@@ -276,6 +328,24 @@ export async function runSupervisorToolLoop(options: {
         resourceChoices.set(called.resourceChoice.objectiveId, called.resourceChoice);
       }
       if (called.modelSuggestion) modelSuggestion = called.modelSuggestion;
+      if (called.suggestion) {
+        const key = `${called.suggestion.kind}:${called.suggestion.objectiveId}`;
+        if (!suggestions.has(key) && suggestions.size >= 2) return refuse("tool_loop_candidate_limit");
+        suggestions.set(key, called.suggestion);
+      }
+      if (called.authorityRequest) authorityRequest = called.authorityRequest;
+      if (called.alternative) {
+        // The evaluator commits to one builder's draft: the plan carries exactly that draft.
+        const alt = called.alternative;
+        chosenAlternative = alt.checkpointId;
+        selected = alt.selection;
+        generatedTeaching = alt.generatedTeaching;
+        resourceChoices.clear();
+        for (const choice of alt.resourceChoices ?? []) resourceChoices.set(choice.objectiveId, choice);
+        suggestions.clear();
+        for (const suggestion of alt.suggestions ?? []) suggestions.set(`${suggestion.kind}:${suggestion.objectiveId}`, suggestion);
+        for (const refId of alt.toolCallRefs) if (!toolCallRefs.includes(refId)) toolCallRefs.push(refId);
+      }
       if (JSON.stringify(called.result).length > 12000)
         return refuse("tool_loop_tool_result_too_large");
       trace.push({ tool: d.tool, result: called.result });

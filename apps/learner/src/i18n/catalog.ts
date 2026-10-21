@@ -17,6 +17,7 @@ import en_connectedCompanion from "./messages/en/connectedCompanion.json";
 import en_connectedHost from "./messages/en/connectedHost.json";
 import en_connectedLesson from "./messages/en/connectedLesson.json";
 import en_connectivity from "./messages/en/connectivity.json";
+import en_continuationTrack from "./messages/en/continuationTrack.json";
 import en_courseRoadmap from "./messages/en/courseRoadmap.json";
 import en_crossCoursePanel from "./messages/en/crossCoursePanel.json";
 import en_debugInspector from "./messages/en/debugInspector.json";
@@ -25,6 +26,7 @@ import en_drafts from "./messages/en/drafts.json";
 import en_enrollmentPreview from "./messages/en/enrollmentPreview.json";
 import en_episodeResources from "./messages/en/episodeResources.json";
 import en_gateDecision from "./messages/en/gateDecision.json";
+import en_generatedComponent from "./messages/en/generatedComponent.json";
 import en_learnerApp from "./messages/en/learnerApp.json";
 import en_learnerMemoryPanel from "./messages/en/learnerMemoryPanel.json";
 import en_lessonFlow from "./messages/en/lessonFlow.json";
@@ -35,6 +37,7 @@ import en_markdownContent from "./messages/en/markdownContent.json";
 import en_overlay from "./messages/en/overlay.json";
 import en_passkeys from "./messages/en/passkeys.json";
 import en_passwordForms from "./messages/en/passwordForms.json";
+import en_pendingChanges from "./messages/en/pendingChanges.json";
 import en_personalChanges from "./messages/en/personalChanges.json";
 import en_placementEntry from "./messages/en/placementEntry.json";
 import en_placementRun from "./messages/en/placementRun.json";
@@ -44,6 +47,7 @@ import en_policyPresentation from "./messages/en/policyPresentation.json";
 import en_practiceRunner from "./messages/en/practiceRunner.json";
 import en_presentation from "./messages/en/presentation.json";
 import en_profile from "./messages/en/profile.json";
+import en_profileDetails from "./messages/en/profileDetails.json";
 import en_profileEditor from "./messages/en/profileEditor.json";
 import en_pythonRunner from "./messages/en/pythonRunner.json";
 import en_resources from "./messages/en/resources.json";
@@ -54,12 +58,14 @@ import en_reviewedMedia from "./messages/en/reviewedMedia.json";
 import en_sourceLinks from "./messages/en/sourceLinks.json";
 import en_studyConsent from "./messages/en/studyConsent.json";
 import en_supervisionPanel from "./messages/en/supervisionPanel.json";
+import en_supervisorRequests from "./messages/en/supervisorRequests.json";
 import en_teachingHypothesesPanel from "./messages/en/teachingHypothesesPanel.json";
 import en_unverified from "./messages/en/unverified.json";
 import en_useCompanionConversation from "./messages/en/useCompanionConversation.json";
 import en_useEnrollmentPolicy from "./messages/en/useEnrollmentPolicy.json";
 import en_useLearner from "./messages/en/useLearner.json";
 import en_visualBlock from "./messages/en/visualBlock.json";
+import en_visualMessages from "./messages/en/visualMessages.json";
 import en_webCrypto from "./messages/en/webCrypto.json";
 import en_youTubePlayer from "./messages/en/youTubePlayer.json";
 import en_yourDataPanel from "./messages/en/yourDataPanel.json";
@@ -79,6 +85,7 @@ import he_connectedCompanion from "./messages/he/connectedCompanion.json";
 import he_connectedHost from "./messages/he/connectedHost.json";
 import he_connectedLesson from "./messages/he/connectedLesson.json";
 import he_connectivity from "./messages/he/connectivity.json";
+import he_continuationTrack from "./messages/he/continuationTrack.json";
 import he_courseRoadmap from "./messages/he/courseRoadmap.json";
 import he_crossCoursePanel from "./messages/he/crossCoursePanel.json";
 import he_debugInspector from "./messages/he/debugInspector.json";
@@ -87,6 +94,7 @@ import he_drafts from "./messages/he/drafts.json";
 import he_enrollmentPreview from "./messages/he/enrollmentPreview.json";
 import he_episodeResources from "./messages/he/episodeResources.json";
 import he_gateDecision from "./messages/he/gateDecision.json";
+import he_generatedComponent from "./messages/he/generatedComponent.json";
 import he_learnerApp from "./messages/he/learnerApp.json";
 import he_learnerMemoryPanel from "./messages/he/learnerMemoryPanel.json";
 import he_lessonFlow from "./messages/he/lessonFlow.json";
@@ -97,6 +105,7 @@ import he_markdownContent from "./messages/he/markdownContent.json";
 import he_overlay from "./messages/he/overlay.json";
 import he_passkeys from "./messages/he/passkeys.json";
 import he_passwordForms from "./messages/he/passwordForms.json";
+import he_pendingChanges from "./messages/he/pendingChanges.json";
 import he_personalChanges from "./messages/he/personalChanges.json";
 import he_placementEntry from "./messages/he/placementEntry.json";
 import he_placementRun from "./messages/he/placementRun.json";
@@ -106,6 +115,7 @@ import he_policyPresentation from "./messages/he/policyPresentation.json";
 import he_practiceRunner from "./messages/he/practiceRunner.json";
 import he_presentation from "./messages/he/presentation.json";
 import he_profile from "./messages/he/profile.json";
+import he_profileDetails from "./messages/he/profileDetails.json";
 import he_profileEditor from "./messages/he/profileEditor.json";
 import he_pythonRunner from "./messages/he/pythonRunner.json";
 import he_resources from "./messages/he/resources.json";
@@ -116,12 +126,14 @@ import he_reviewedMedia from "./messages/he/reviewedMedia.json";
 import he_sourceLinks from "./messages/he/sourceLinks.json";
 import he_studyConsent from "./messages/he/studyConsent.json";
 import he_supervisionPanel from "./messages/he/supervisionPanel.json";
+import he_supervisorRequests from "./messages/he/supervisorRequests.json";
 import he_teachingHypothesesPanel from "./messages/he/teachingHypothesesPanel.json";
 import he_unverified from "./messages/he/unverified.json";
 import he_useCompanionConversation from "./messages/he/useCompanionConversation.json";
 import he_useEnrollmentPolicy from "./messages/he/useEnrollmentPolicy.json";
 import he_useLearner from "./messages/he/useLearner.json";
 import he_visualBlock from "./messages/he/visualBlock.json";
+import he_visualMessages from "./messages/he/visualMessages.json";
 import he_webCrypto from "./messages/he/webCrypto.json";
 import he_youTubePlayer from "./messages/he/youTubePlayer.json";
 import he_yourDataPanel from "./messages/he/yourDataPanel.json";
@@ -143,6 +155,7 @@ export const en = {
   connectedHost: en_connectedHost,
   connectedLesson: en_connectedLesson,
   connectivity: en_connectivity,
+  continuationTrack: en_continuationTrack,
   courseRoadmap: en_courseRoadmap,
   crossCoursePanel: en_crossCoursePanel,
   debugInspector: en_debugInspector,
@@ -151,6 +164,7 @@ export const en = {
   enrollmentPreview: en_enrollmentPreview,
   episodeResources: en_episodeResources,
   gateDecision: en_gateDecision,
+  generatedComponent: en_generatedComponent,
   learnerApp: en_learnerApp,
   learnerMemoryPanel: en_learnerMemoryPanel,
   lessonFlow: en_lessonFlow,
@@ -161,6 +175,7 @@ export const en = {
   overlay: en_overlay,
   passkeys: en_passkeys,
   passwordForms: en_passwordForms,
+  pendingChanges: en_pendingChanges,
   personalChanges: en_personalChanges,
   placementEntry: en_placementEntry,
   placementRun: en_placementRun,
@@ -170,6 +185,7 @@ export const en = {
   practiceRunner: en_practiceRunner,
   presentation: en_presentation,
   profile: en_profile,
+  profileDetails: en_profileDetails,
   profileEditor: en_profileEditor,
   pythonRunner: en_pythonRunner,
   resources: en_resources,
@@ -180,12 +196,14 @@ export const en = {
   sourceLinks: en_sourceLinks,
   studyConsent: en_studyConsent,
   supervisionPanel: en_supervisionPanel,
+  supervisorRequests: en_supervisorRequests,
   teachingHypothesesPanel: en_teachingHypothesesPanel,
   unverified: en_unverified,
   useCompanionConversation: en_useCompanionConversation,
   useEnrollmentPolicy: en_useEnrollmentPolicy,
   useLearner: en_useLearner,
   visualBlock: en_visualBlock,
+  visualMessages: en_visualMessages,
   webCrypto: en_webCrypto,
   youTubePlayer: en_youTubePlayer,
   yourDataPanel: en_yourDataPanel,
@@ -207,6 +225,7 @@ export const he: PartialCatalog<typeof en> = {
   connectedHost: he_connectedHost,
   connectedLesson: he_connectedLesson,
   connectivity: he_connectivity,
+  continuationTrack: he_continuationTrack,
   courseRoadmap: he_courseRoadmap,
   crossCoursePanel: he_crossCoursePanel,
   debugInspector: he_debugInspector,
@@ -215,6 +234,7 @@ export const he: PartialCatalog<typeof en> = {
   enrollmentPreview: he_enrollmentPreview,
   episodeResources: he_episodeResources,
   gateDecision: he_gateDecision,
+  generatedComponent: he_generatedComponent,
   learnerApp: he_learnerApp,
   learnerMemoryPanel: he_learnerMemoryPanel,
   lessonFlow: he_lessonFlow,
@@ -225,6 +245,7 @@ export const he: PartialCatalog<typeof en> = {
   overlay: he_overlay,
   passkeys: he_passkeys,
   passwordForms: he_passwordForms,
+  pendingChanges: he_pendingChanges,
   personalChanges: he_personalChanges,
   placementEntry: he_placementEntry,
   placementRun: he_placementRun,
@@ -234,6 +255,7 @@ export const he: PartialCatalog<typeof en> = {
   practiceRunner: he_practiceRunner,
   presentation: he_presentation,
   profile: he_profile,
+  profileDetails: he_profileDetails,
   profileEditor: he_profileEditor,
   pythonRunner: he_pythonRunner,
   resources: he_resources,
@@ -244,12 +266,14 @@ export const he: PartialCatalog<typeof en> = {
   sourceLinks: he_sourceLinks,
   studyConsent: he_studyConsent,
   supervisionPanel: he_supervisionPanel,
+  supervisorRequests: he_supervisorRequests,
   teachingHypothesesPanel: he_teachingHypothesesPanel,
   unverified: he_unverified,
   useCompanionConversation: he_useCompanionConversation,
   useEnrollmentPolicy: he_useEnrollmentPolicy,
   useLearner: he_useLearner,
   visualBlock: he_visualBlock,
+  visualMessages: he_visualMessages,
   webCrypto: he_webCrypto,
   youTubePlayer: he_youTubePlayer,
   yourDataPanel: he_yourDataPanel,

@@ -49,9 +49,18 @@ export interface ActivityRuntimePort {
   frameScript?: string;
 }
 export interface ActivityEvaluation { passed: boolean; objectiveIds: string[]; explanation?: string }
+/** Effective values of one course admin section for the enrollment being evaluated. */
+export type AdminSettingValues = Readonly<Record<string, boolean | number | string>>;
 /** A registered (installed, trusted) evaluator of activity observations. */
 export interface ActivityEvaluatorPort {
-  evaluate(input: { activity: ActivityDefinition; configuration: JsonObject; observation: JsonObject; state: JsonObject }): Promise<ActivityEvaluation>;
+  /** `course` is the enrollment's own course version (server bundle). `evaluatorId` is the course's
+   * evaluator definition id (absent for a bare extension reference). `settings` reads the effective
+   * values (enrollment, chapter or course scope, else the declared default) of one of the course's
+   * own admin sections for this enrollment, or null when the course declares no such section. */
+  evaluate(input: { activity: ActivityDefinition; configuration: JsonObject; observation: JsonObject; state: JsonObject;
+    course?: CourseManifest; evaluatorId?: string; settings?: (sectionId: string) => Promise<AdminSettingValues | null> }): Promise<ActivityEvaluation>;
+  /** Publication check of one activity block against what this evaluator needs. Throws to refuse. */
+  validateActivity?(input: { course: CourseManifest; activity: ActivityDefinition; configuration: JsonObject; evaluatorId?: string }): void;
 }
 
 export const frameScriptIntegrity = (script: string) => 'sha256-' + createHash('sha256').update(script, 'utf8').digest('hex');
@@ -121,7 +130,8 @@ export function activityEvaluator(course: CourseManifest, activity: ActivityDefi
   const extensionId = definition?.extensionId ?? activity.evaluatorRef;
   const declaration = course.extensions.find(row => row.id === extensionId), extension = installed.find(row => row.id === extensionId);
   if (!declaration || !extension?.activityEvaluator || !declarationMatchesInstalled(declaration, extension) || !extension.capabilities.includes('assessment.evaluate')) return undefined;
-  return { ref: `${definition?.id ?? extensionId}@${definition?.version ?? extension.version}`, extension, evaluator: extension.activityEvaluator };
+  return { ref: `${definition?.id ?? extensionId}@${definition?.version ?? extension.version}`, extension, evaluator: extension.activityEvaluator,
+    ...(definition ? { evaluatorId: definition.id } : {}) };
 }
 
 const refuse = (code: string, details: Record<string, unknown>) => new ApiError(409, code, code, details);
@@ -166,7 +176,13 @@ export function assertActivitiesRunnable(course: CourseManifest, installed: read
       try { resolved.runtime.validateActivity(activity, blockConfiguration(block)); }
       catch { throw refuse('PUBLISH_ACTIVITY_CONFIGURATION_INVALID', at); }
     }
-    if (activity.evaluatorRef !== undefined && !activityEvaluator(course, activity, installed)) throw refuse('PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE', at);
+    if (activity.evaluatorRef === undefined) continue;
+    const registered = activityEvaluator(course, activity, installed);
+    if (!registered) throw refuse('PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE', at);
+    try { registered.evaluator.validateActivity?.({ course, activity, configuration: blockConfiguration(block), ...(registered.evaluatorId ? { evaluatorId: registered.evaluatorId } : {}) }); }
+    catch (error) {
+      throw refuse('PUBLISH_EVALUATOR_CONFIGURATION_INVALID', { ...at, ...(error instanceof ApiError ? error.details : {}) });
+    }
   }
 }
 function fallbackRunnable(course: CourseManifest, activity: ActivityDefinition, fallback: ActivityDefinition['equivalentFallbacks'][number], textBlocks: Set<string>, installed: readonly RuntimeExtension[]) {

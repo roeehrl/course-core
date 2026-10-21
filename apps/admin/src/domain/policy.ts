@@ -34,7 +34,8 @@ export const workSchema = z.object({
 const disambiguation = z.enum(["reject", "earlier", "later", "compatible"]);
 export const scopeSchema = z.object({
   scopeId: id,
-  label: z.string(),
+  /** Null for the organization and enrollment levels: the app names them by level. */
+  label: z.string().nullable(),
   parentScopeId: id.nullable(),
   policyId: id,
   kind: z.enum([
@@ -93,6 +94,30 @@ export const constraintSchema = z.object({
   bindingDeadlines: z.array(deadlineSchema),
   quotas: z.array(quotaSchema),
   existingMaterialAccess: z.enum(["read_only", "closed"]),
+  /** Which level binds: the scope of the effective deadline, and per work counter the scope
+   * with the least room left. Older servers omit it. */
+  binding: z
+    .object({
+      deadline: z
+        .object({
+          scopeId: id,
+          level: z.string(),
+          kind: z.enum(["absolute", "window", "ultimate"]),
+          at: instant,
+        })
+        .nullable(),
+      quotas: z.array(
+        z.object({
+          metric: quotaSchema.shape.metric,
+          conceptId: id.nullable(),
+          scopeId: id,
+          level: z.string(),
+          limit: count,
+          remaining: count,
+        }),
+      ),
+    })
+    .optional(),
 });
 const disclosureShape = {
   currentEffectiveDeadline: instant.nullable(),
@@ -260,7 +285,7 @@ export const learningPolicySchema = z.object({
       z
         .object({
           accommodationId: id,
-          kind: z.enum(["accommodation", "approved_pause"]),
+          kind: z.enum(["accommodation", "approved_pause", "outage"]),
           scopeId: id,
           newPolicyRevision: count,
         })
@@ -272,15 +297,23 @@ export const learningPolicySchema = z.object({
   rationaleEvents: z.array(z.object({ id, label: z.string() })),
   activities: z.array(z.object({ id, scopeId: id, label: z.string() })),
 });
-export const extensionRequestSchema = z.object({
-  scopeId: id,
-  days: z.number().int().min(1).max(366),
-});
+/** Days move a deadline; planned minutes and episodes raise a work cap. At least one is set. */
+export const extensionRequestSchema = z
+  .object({
+    scopeId: id,
+    days: z.number().int().min(1).max(366).optional(),
+    minutes: z.number().int().min(1).max(100_000).optional(),
+    episodes: z.number().int().min(1).max(1_000).optional(),
+    poolIds: z.array(id).min(1).max(10).optional(),
+  })
+  .refine((r) => r.days || r.minutes || r.episodes);
 export const previewSchema = z.object({
   ...disclosureShape,
   enrollmentId: id,
   scopeId: id,
-  days: count,
+  days: count.nullable().optional(),
+  minutes: count.nullable().optional(),
+  episodes: count.nullable().optional(),
   revision: count,
   policyRevision: count,
   ledgerRevision: count,
@@ -292,7 +325,11 @@ export const previewSchema = z.object({
     additionalEpisodes: count,
   }),
 });
-export const proposalInputSchema = extensionRequestSchema.extend({
+export const proposalInputSchema = z.object({
+  scopeId: id,
+  days: z.number().int().min(1).max(366).optional(),
+  minutes: z.number().int().min(1).max(100_000).optional(),
+  episodes: z.number().int().min(1).max(1_000).optional(),
   rationaleEventIds: z.array(id).min(1).max(20),
   episodeIds: z.array(id).min(1).max(20),
   planImpact: z.string().trim().min(1).max(2000),
@@ -352,9 +389,10 @@ export type PolicyMigrationPreview = z.infer<
 >;
 export type PolicyMigrationResult = z.infer<typeof policyMigrationResultSchema>;
 
+export type AdjustmentKind = "accommodation" | "approved_pause" | "outage";
 export interface AccommodationRequest {
   scopeId: string;
-  kind: "accommodation" | "approved_pause";
+  kind: AdjustmentKind;
   change: {
     deadline?: { kind: "absolute" | "window"; calendarDays: number };
     work?: { additionalMinutes?: number; additionalEpisodes?: number };
@@ -366,7 +404,7 @@ export const accommodationPreviewSchema = z.object({
   revision: count,
   expiresAt: instant,
   scopeId: id,
-  kind: z.enum(["accommodation", "approved_pause"]),
+  kind: z.enum(["accommodation", "approved_pause", "outage"]),
   adjustment: z.object({
     scopeId: id,
     absoluteDeadline: instant.optional(),

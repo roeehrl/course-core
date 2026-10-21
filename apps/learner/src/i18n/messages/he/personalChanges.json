@@ -33,5 +33,15 @@
   "undo.keep": "להשאיר",
   "undo.failed": "לא ניתן היה לבטל את השינוי. שום דבר לא השתנה.",
   "undo.label": "ביטול: {label}",
-  "undo.button": "ביטול השינוי"
+  "undo.button": "ביטול השינוי",
+  "kind.attach_visual": "נוספה הדמיה אינטראקטיבית",
+  "checked": "נבדק אוטומטית לפני שנוסף: {checks}.",
+  "check.host_accessibility": "קריא גם עם טכנולוגיה מסייעת",
+  "check.host_model_agreement": "התמונה, הנוסחה והטבלה של ההדמיה מתאימות זו לזו",
+  "check.host_answer_key": "התשובה מגיעה מהמודל של הקורס עצמו",
+  "check.host_code_reference": "פתרון נכון עובר את הבדיקות הנסתרות ופתרונות שגויים נכשלים בהן",
+  "check.host_component_tests": "המודל עובר את הבדיקות שלו",
+  "check.course": "הבדיקות של הקורס עצמו",
+  "check.other": "בדיקה אוטומטית נוספת",
+  "addedAfterAttempt": "התוספת המתינה עד לסיום השאלה שעבדת עליה, ואז הוספת אותה."
 }

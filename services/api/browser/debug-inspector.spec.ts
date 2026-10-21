@@ -56,6 +56,12 @@ test("an owner who is also enrolled opens the inspector beside the lesson, with 
   await expect(frame.getByRole("heading", { name: "Part 1: Illustration" })).toBeVisible({ timeout: 15_000 });
   await expect(frame.getByRole("region", { name: "Visual state" })).toBeVisible();
   await expect(frame.getByRole("table", { name: "Bindings: state the scene reads" })).toBeVisible();
+  // L11: the renderer build the course declares and the installed build serving it, and the scene's image assets.
+  await expect(frame.getByRole("heading", { name: "Renderer build" })).toBeVisible();
+  await expect(frame.getByText("course-core-svg-v1", { exact: true })).toBeVisible();
+  await expect(frame.getByText(/^\d+\.\d+\.\d+ · sha256-[0-9a-f]{64}$/)).toHaveCount(2);
+  await expect(frame.getByText("The course runs on exactly the build it declares.")).toBeVisible();
+  await expect(frame.getByText("This scene has no image assets.")).toBeVisible();
   await expect(frame.getByText(/This open is recorded and the learner can see it/)).toBeVisible();
   // The same receipt as the staff learner view, visible in the learner's own list.
   const views = await page.request.get(`/api/enrollments/${session.enrollmentId}/staff-views`);

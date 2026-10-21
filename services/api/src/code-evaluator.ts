@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Assessment,CourseManifest } from '@course-core/sdk';
 import { DockerSandbox, validateSubmission, type Case } from '@course-core/sandbox';
 import { z } from 'zod';
+import { canonicalJson } from '@course-core/sdk/compiler';
 import { ApiError, requireCondition } from './errors.js';
 import type { RuntimeExtension } from './publication.js';
 
@@ -40,6 +41,16 @@ export async function codeEvaluator(bytes: Buffer, sandbox: DockerSandbox): Prom
     codeFixtureBatchPlan(fixture.cases as Case[]);
   }
   const ready = await sandbox.readiness();
+  const grade = async (fixtureCases: Case[], source: unknown): Promise<CodeGrade> => {
+    requireCondition(typeof source === 'string' && source.trim().length > 0 && Buffer.byteLength(source) <= 64000, 'INVALID_CODE_SUBMISSION');
+    const cases = structuredClone(fixtureCases), report = await sandbox.grade({ source, cases, batchCaseCounts: codeFixtureBatchPlan(cases) });
+    if (['busy', 'unavailable', 'cleanup_failed'].includes(report.status)) throw new ApiError(503, 'CODE_EVALUATOR_UNAVAILABLE');
+    const passedCases = report.cases.filter(row => row.passed).length;
+    return { passed: report.passed, explanation: report.passed ? `All ${cases.length} hidden reference cases matched.`
+      : report.status === 'graded' ? `${passedCases} of ${cases.length} reference cases matched. Review the required input/output contract and try a fresh exercise variant.`
+        : `The submission did not complete within the ${report.status === 'timeout' ? 'time' : report.status === 'output_limit' ? 'output' : 'execution'} limits. No credit was granted.`,
+      evaluator: `${config.id}@${config.version}:${integrity}:${report.runtime.image}`, execution: { status: report.status, sourceDigest: report.sourceDigest, durationMs: report.durationMs, passedCases, totalCases: cases.length, outputBytes:report.outputBytes,batchesCompleted:report.batchesCompleted,runtime: report.runtime } };
+  };
   return { id: config.id, version: config.version, integrity, platforms: ['web'], capabilities: ['assessment.evaluate'], codeReady: ready.ready,
     validateCodeAssessment(assessment) {
       requireCondition(assessment.type === 'code' && assessment.language === 'python' && config.fixtures.some(fixture => fixture.id === assessment.grading.fixtureRef), 'CODE_FIXTURE_NOT_FOUND', 409);
@@ -48,16 +59,33 @@ export async function codeEvaluator(bytes: Buffer, sandbox: DockerSandbox): Prom
       requireCondition(assessment.type === 'code' && assessment.language === 'python', 'CODE_LANGUAGE_UNAVAILABLE', 409);
       const fixture = config.fixtures.find(row => row.id === assessment.grading.fixtureRef);
       requireCondition(fixture, 'CODE_FIXTURE_NOT_FOUND', 409);
-      requireCondition(typeof source === 'string' && source.trim().length > 0 && Buffer.byteLength(source) <= 64000, 'INVALID_CODE_SUBMISSION');
-      const cases=structuredClone(fixture.cases) as Case[],report = await sandbox.grade({ source, cases,batchCaseCounts:codeFixtureBatchPlan(cases) });
-      if (['busy', 'unavailable', 'cleanup_failed'].includes(report.status)) throw new ApiError(503, 'CODE_EVALUATOR_UNAVAILABLE');
-      const passedCases = report.cases.filter(row => row.passed).length;
-      return { passed: report.passed, explanation: report.passed ? `All ${fixture.cases.length} hidden reference cases matched.`
-        : report.status === 'graded' ? `${passedCases} of ${fixture.cases.length} reference cases matched. Review the required input/output contract and try a fresh exercise variant.`
-          : `The submission did not complete within the ${report.status === 'timeout' ? 'time' : report.status === 'output_limit' ? 'output' : 'execution'} limits. No credit was granted.`,
-        evaluator: `${config.id}@${config.version}:${integrity}:${report.runtime.image}`, execution: { status: report.status, sourceDigest: report.sourceDigest, durationMs: report.durationMs, passedCases, totalCases: fixture.cases.length, outputBytes:report.outputBytes,batchesCompleted:report.batchesCompleted,runtime: report.runtime } };
+      return grade(fixture.cases as Case[], source);
+    },
+    // Hidden tests of a supervisor-generated exercise (generated-content.ts): the same sandbox,
+    // limits and result shape, with cases the host verified and stored with the exercise.
+    async evaluateGeneratedCode(assessment, cases, source) {
+      requireCondition(assessment.type === 'code' && assessment.language === 'python' && isGeneratedFixtureRef(assessment.grading.fixtureRef)
+        && assessment.grading.fixtureRef === generatedFixtureRef(cases), 'CODE_FIXTURE_NOT_FOUND', 409);
+      try { validateSubmission({ source: 'def solve(x): return x', cases }); codeFixtureBatchPlan(cases); }
+      catch { throw new ApiError(409, 'CODE_FIXTURE_NOT_FOUND'); }
+      return grade(cases, source);
     },
   };
+}
+
+/** A generated exercise names its hidden tests by their digest; nothing else can match it. */
+export const generatedFixtureRef = (cases: readonly Case[]) => 'generated-' + createHash('sha256').update(canonicalJson(cases)).digest('hex');
+export const isGeneratedFixtureRef = (ref: string) => /^generated-[a-f0-9]{64}$/.test(ref);
+/** The installed evaluator of a generated exercise: the canonical item's evaluator, as
+ * qualifiedCodeEvaluator requires it, offering hidden tests of generated exercises. */
+export function qualifiedGeneratedCodeEvaluator(assessment: Assessment, declarations: CourseManifest['extensions'], installed: readonly RuntimeExtension[]) {
+  requireCondition(assessment.type === 'code' && isGeneratedFixtureRef(assessment.grading.fixtureRef), 'CODE_LANGUAGE_UNAVAILABLE', 409);
+  const declaration = declarations.find(row => row.id === assessment.grading.evaluatorId), adapter = installed.find(row => row.id === assessment.grading.evaluatorId);
+  requireCondition(declaration && adapter && adapter.version === declaration.version && adapter.integrity === declaration.integrity
+    && declaration.capabilities.includes('assessment.evaluate') && adapter.capabilities.includes('assessment.evaluate')
+    && declaration.platforms.includes('web') && adapter.platforms.includes('web')
+    && adapter.codeReady && adapter.evaluateGeneratedCode, 'EVALUATOR_NOT_CONFIGURED', 409);
+  return adapter.evaluateGeneratedCode.bind(adapter);
 }
 
 // This identity check deliberately stays inline instead of calling the shared

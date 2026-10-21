@@ -36,7 +36,18 @@ export type Expression =
   | { time: true }
   | { sample: string }
   | { op: Operator; args: Expression[] };
-export type Paint = string | { kind: "linear"; from: string; to: string };
+export type Paint =
+  | string
+  | { kind: "linear"; from: string; to: string }
+  /** From 0.5: the first colour at the centre (cx, cy, fractions of the node's box), the second at radius r. */
+  | {
+      kind: "radial";
+      from: string;
+      to: string;
+      cx?: number;
+      cy?: number;
+      r?: number;
+    };
 export type StateField =
   | {
       label: string;
@@ -60,7 +71,8 @@ export type NumericProperty =
   | "fontSize"
   | "x2"
   | "y2"
-  | "progress";
+  | "progress"
+  | "morph";
 export interface Manipulation {
   x?: { state: string; from: number; to: number };
   y?: { state: string; from: number; to: number };
@@ -124,7 +136,15 @@ export type SceneNode = NodeBase &
         weight?: "normal" | "bold";
         align?: "start" | "middle" | "end";
       }
-    | { kind: "path"; commands: PathCommand[]; progress?: Expression }
+    | {
+        kind: "path";
+        commands: PathCommand[];
+        progress?: Expression;
+        /** From 0.5: the shape at morph 1; same command letters as `commands`. */
+        morphTo?: PathCommand[];
+        /** 0 draws `commands`, 1 draws `morphTo`; in between, every coordinate is interpolated. */
+        morph?: Expression;
+      }
     | {
         kind: "plot";
         width: Expression;
@@ -150,6 +170,15 @@ export type SceneNode = NodeBase &
         height?: Expression;
       }
     | {
+        /** From 0.5: an image of `scene.defs.images`, fitted into width × height. `label`
+         * is its text alternative and is required. */
+        kind: "image";
+        image: string;
+        width: Expression;
+        height: Expression;
+        fit?: "contain" | "cover" | "fill";
+      }
+    | {
         /** A constrained TeX subset (see equation.ts). `label` is required as its text alternative. */
         kind: "equation";
         tex: string;
@@ -162,6 +191,19 @@ export interface Defs {
   clips?: { id: string; nodes: SceneNode[] }[];
   masks?: { id: string; nodes: SceneNode[] }[];
   symbols?: { id: string; width: number; height: number; nodes: SceneNode[] }[];
+  /** From 0.5: embedded raster images. `data` is base64; `sha256` must match its bytes. */
+  images?: ImageAsset[];
+}
+/** An embedded PNG, JPEG or WebP image, verified against its declared digest at parse time. */
+export interface ImageAsset {
+  id: string;
+  mediaType: "image/png" | "image/jpeg" | "image/webp";
+  /** Intrinsic size in pixels: the aspect ratio the image is fitted with. */
+  width: number;
+  height: number;
+  /** `sha256-` and 64 lowercase hex digits over the decoded bytes. */
+  sha256: string;
+  data: string;
 }
 /** Features a scene can require from a renderer (SDK RenderFeature values plus `symbol`). */
 export type SceneFeature =
@@ -176,7 +218,13 @@ export type SceneFeature =
   | "layout_set"
   | "panes"
   | "invariants"
-  | "goldens";
+  | "goldens"
+  | "image"
+  | "radial_gradient"
+  | "equation_environments"
+  | "morph"
+  | "color_animation"
+  | "camera";
 /**
  * An invariant's expression: the ordinary expression forms plus probes that read the
  * computed frame, so one assertion can compare representations (geometry, panes, state).
@@ -231,6 +279,28 @@ export interface Keyframe {
   ease?: Ease;
   /** Only with ease "spring"; defaults to stiffness 170, damping 26, mass 1. */
   spring?: Spring;
+}
+/** A colour keyframe; colours interpolate per sRGB channel, alpha included. */
+export interface ColorKeyframe {
+  atMs: number;
+  color: string;
+  ease?: Exclude<Ease, "spring">;
+}
+/** From 0.5: animates a node's solid fill or stroke colour. */
+export interface ColorTrack {
+  node: string;
+  property: "fill" | "stroke";
+  keyframes: ColorKeyframe[];
+}
+/** From 0.5: the view onto the scene. (x, y) is the scene point at the centre; zoom > 1 enlarges. */
+export interface Camera {
+  x?: Expression;
+  y?: Expression;
+  zoom?: Expression;
+}
+export interface CameraTrack {
+  property: "x" | "y" | "zoom";
+  keyframes: Keyframe[];
 }
 /** One keyframe list applied to several nodes, each starting `delayMs` after the previous. */
 export interface Stagger {
@@ -311,6 +381,7 @@ export interface Scene {
   controls?: string[];
   nodes: SceneNode[];
   defs?: Defs;
+  camera?: Camera;
   layouts: {
     compact: Layout;
     expanded: Layout;
@@ -325,6 +396,8 @@ export interface Scene {
     durationMs: number;
     tracks: Track[];
     staggers?: Stagger[];
+    colorTracks?: ColorTrack[];
+    cameraTracks?: CameraTrack[];
     cues: { atMs: number; text: string }[];
   };
   panes?: Pane[];
@@ -375,6 +448,8 @@ export interface GeometryNode {
   x2: number;
   y2: number;
   progress: number;
+  /** Only on paths with `morphTo`. */
+  morph?: number;
   cornerRadius: number;
   text?: string;
   weight?: "normal" | "bold";
@@ -388,6 +463,9 @@ export interface GeometryNode {
   mask?: string;
   symbol?: string;
   equation?: EquationLayout;
+  /** Image nodes: the asset id and how it is fitted. */
+  image?: string;
+  fit?: "contain" | "cover" | "fill";
 }
 /** A laid-out equation in the node's local pixels; baseline at y = 0. */
 export interface EquationLayout {
@@ -416,6 +494,14 @@ export interface FrameDefs {
     height: number;
     nodes: GeometryNode[];
   }[];
+  /** Present only when the scene has images. */
+  images?: readonly ImageAsset[];
+}
+/** The resolved camera (present only when the scene has one). */
+export interface FrameCamera {
+  x: number;
+  y: number;
+  zoom: number;
 }
 export interface Frame {
   sceneId: string;
@@ -433,6 +519,8 @@ export interface Frame {
   defs?: FrameDefs;
   /** Present only when the scene has panes. */
   panes?: PaneFrame[];
+  /** Present only when the scene has a camera. */
+  camera?: FrameCamera;
 }
 export interface ReplayEvent {
   atMs: number;

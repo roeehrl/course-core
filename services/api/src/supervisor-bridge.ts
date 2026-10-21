@@ -5,11 +5,12 @@ import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
-import { checkAction, type PolicyState } from '@course-core/policy';
+import { envelopeScopeId, checkAction, type PolicyState } from '@course-core/policy';
 import {
   accounting, allowanceSchema, ContractError, createJob, fenceSchema, jobCommandSchema, jobSpecSchema,
   outboxEventSchema, preparedSchema, providerRequestSchema, rpcRequestSchema, runRefSchema, sameFence, snapshotSchema,
-  transition as reduce, transitionSchema, uuid, verificationSchema, workflowId, nextGeneration, resumable, outcomeSchema,
+  transition as reduce, transitionSchema, uuid, verificationSchema, workflowId, nextGeneration, resumable, outcomeSchema, refence,
+  MAX_PARK_MS, type JobObjective,
   type Command, type Fence, type HostBridge, type HostContext, type JobSpec, type OutboxEvent,
   type RunRef, type Snapshot, type Verification, type ProviderRequest, type SupervisionState,
 } from '@course-core/supervisor';
@@ -24,11 +25,16 @@ import type {SupervisorJobPolicy} from './provider-setup.js';
 import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { telemetry } from '@course-core/supervisor/telemetry';
+import { noteBridgeContact } from './platform-operations.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
 import { ackCrossCourseWakeup, claimCrossCourseWakeups, crossCourseConsentFor, observeCrossCourseEnrollment, planCrossCourse } from './cross-course.js';
+import { ACTION_EVENT, ALTERNATIVE_ACTIONS, DEFAULT_ACTION_POLICY, actionForEvent, deliverActionsOfJob, endActionsOfJob, followUpsFor, insertFollowUp,
+  resolveFollowUp, type ActionRow } from './teaching-actions.js';
+import { supervisionSettingsWithin } from './supervision-settings.js';
+import { automaticHypothesesEnabled } from './teaching-hypotheses.js';
 
 /** A staff retry of one ended supervisor run (scoped-corrections.ts): prepared into its own new run. */
 export const RETRY_EVENT = 'supervisor.run_retry_requested';
@@ -130,7 +136,7 @@ async function scopeEpisode(client: PoolClient, c: Current, episodeId: string | 
 }
 function policyCheck(c: Current, kind: 'admit_job' | 'tool_call' | 'publish', role?: string) {
   const episodeId = c.scopeEpisodeId === undefined ? c.enrollment.current_episode_id : c.scopeEpisodeId;
-  return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : 'course',
+  return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : envelopeScopeId(c.policy),
     kind: closedCourseCompanion(c, role) ? 'read' : kind, now: new Date(c.nowMs).toISOString(), expectedPolicyRevision: c.fence.policyRevision });
 }
 interface Locked { snapshot: Snapshot; cancelled: boolean; current: Current; episodeId: string | null }
@@ -244,12 +250,16 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
       // A budget stop names the ceiling it hit, so staff and learners can be told why.
       ...(next.reason === 'budget_exhausted' && ceiling ? { ceiling } : {}) }), key.workspaceId, key.enrollmentId, old.version]);
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
+  // A teaching action whose job stopped without delivering its change ends with the job's reason.
+  if ((next.state === 'failed' || next.state === 'cancelled') && old.state !== next.state) await endActionsOfJob(client, key.jobId, next.reason ?? next.state);
 }
 
 export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal|RubricRefusal;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
   episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string; rubricRequestId?: string;
+  /** The logical role this checkpoint runs (design §4); absent for a single-writer job. */
+  task?: { logicalRole: 'planner' | 'builder' | 'evaluator'; alternative?: string };
 }
 function content(input: unknown): SupervisorArtifactContent {
   requireCondition(input && typeof input === 'object' && !Array.isArray(input), 'SUPERVISOR_INVALID_ARTIFACT');
@@ -309,8 +319,12 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
 async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot, verified: { receipt: Verification; row: VerificationRow }, receiptId: string,options:Pick<SupervisorBridgeOptions,'applyPlan'|'confirmRubricSuggestion'>={}) {
   const applyPlan=options.applyPlan;
   requireCondition(verified.receipt.verdict === 'verified' && snapshot.verification?.receiptId === verified.receipt.receiptId, 'SUPERVISOR_VERIFICATION_REQUIRED', 409);
-  requireCondition(verified.receipt.artifacts.length === 1, 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
-  const a = await artifact(client, ref, verified.receipt.artifacts[0]!.artifactId, verified.receipt.artifacts[0]!.digest);
+  // One writer commits (design §4): a multi-checkpoint job applies its last checkpoint's artifact
+  // (the evaluator's choice); the planner's and builders' artifacts were its inputs.
+  const last = snapshot.operations.find(o => o.checkpointId === snapshot.specification.checkpoints.at(-1)!.id)?.outcome;
+  requireCondition(last?.status === 'succeeded' && (verified.receipt.artifacts.length === 1 || snapshot.specification.role === 'supervisor')
+    && verified.receipt.artifacts.some(x => x.artifactId === last.artifact.artifactId && x.digest === last.artifact.digest), 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
+  const a = await artifact(client, ref, last.artifact.artifactId, last.artifact.digest);
   const targetId = randomUUID();
   requireCondition(a.content.kind !== 'output_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   requireCondition(a.content.kind !== 'rubric_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
@@ -336,7 +350,7 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     await client.query('INSERT INTO research_candidates(id,request_id,job_id,enrollment_id,workspace_id,artifact_id,digest) VALUES($1,$2,$3,$4,$5,$6,$7)',[targetId,a.content.requestId,ref.jobId,ref.enrollmentId,ref.workspaceId,a.id,a.digest]);
     const updated=await client.query("UPDATE research_requests SET state='collected' WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND research_job_id=$4 AND state='dispatched'",[a.content.requestId,ref.enrollmentId,ref.workspaceId,ref.jobId]);requireCondition(updated.rowCount===1,'RESEARCH_REQUEST_NOT_ACTIVATED',409);
   } else {
-    if(a.content.kind==='supervised_plan'&&(a.content.selection||a.content.modelSuggestion||a.content.generatedTeaching||a.content.researchSelections?.length||a.content.resourceChoices?.length)){requireCondition(applyPlan,'SUPERVISOR_APPLICATION_UNSUPPORTED',409);await applyPlan(client,ref,a.content);}
+    if(a.content.kind==='supervised_plan'&&(a.content.selection||a.content.modelSuggestion||a.content.generatedTeaching||a.content.researchSelections?.length||a.content.resourceChoices?.length||a.content.suggestions?.length)){requireCondition(applyPlan,'SUPERVISOR_APPLICATION_UNSUPPORTED',409);await applyPlan(client,ref,a.content);}
     await client.query(`INSERT INTO supervisor_adaptations (id,job_id,enrollment_id,workspace_id,verification_id,summary) VALUES ($1,$2,$3,$4,$5,$6)`,
       [targetId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, a.content.summary]);
   }
@@ -347,6 +361,47 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
   await client.query('INSERT INTO outbox (event_id,kind,payload) VALUES ($1,$2,$3)', [event.id, 'supervisor.applied', JSON.stringify({ eventId: event.id, jobId: ref.jobId, enrollmentId: ref.enrollmentId })]);
   await client.query(`INSERT INTO supervisor_applications (id,job_id,enrollment_id,workspace_id,verification_id,application_kind,target_id,event_id)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [receiptId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, verified.row.application_kind, targetId, event.id]);
+  // Delivered: the teaching actions this job served are followed up later (design §4 loop).
+  if (snapshot.specification.role === 'supervisor') await scheduleFollowUpsWithin(client, ref, snapshot, event.id);
+}
+/** How long a follow-up job may run once it is due. */
+const FOLLOW_UP_RUN_MS = 10 * 60_000;
+/** Creates each follow-up of the job's delivered teaching actions as a supervisor job parked until it
+ * is due (follow_up_due). The dispatcher's reconcile pass resumes it then, re-based on the learner's
+ * state at that time. A follow-up the course deadline would cut off is recorded as ended. */
+async function scheduleFollowUpsWithin(client: PoolClient, ref: RunRef, snapshot: Snapshot, eventId: string) {
+  const delivered = await deliverActionsOfJob(client, ref.jobId);
+  if (!delivered.length) return;
+  const c = await current(client, ref.workspaceId, ref.enrollmentId);
+  const deadline = policyCheck(c, 'admit_job').snapshot.effectiveDeadline;
+  const input = (await client.query<{ context: SupervisorInputContext }>('SELECT context FROM supervisor_inputs WHERE id=$1',
+    [snapshot.specification.checkpoints[0]!.inputRef])).rows[0]!.context;
+  const cp = snapshot.specification.checkpoints.at(-1)!;
+  for (const parent of delivered) for (const plan of followUpsFor(parent)) {
+    const dueAtMs = c.nowMs + plan.delayMs, deadlineAtMs = dueAtMs + FOLLOW_UP_RUN_MS;
+    if (deadline && deadlineAtMs > Date.parse(deadline)) {
+      await client.query(`INSERT INTO teaching_actions(id,enrollment_id,workspace_id,action,objective_ids,origin,parent_id,state,end_reason)
+        VALUES($1,$2,$3,$4,$5,'follow_up',$6,'ended','course_deadline')`, [randomUUID(), ref.enrollmentId, ref.workspaceId, plan.action, JSON.stringify(parent.objective_ids), parent.id]);
+      continue;
+    }
+    const job = { jobId: randomUUID(), workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, generation: 1 };
+    const actionId = await insertFollowUp(client, parent, plan.action, new Date(dueAtMs), job.jobId);
+    // Each follow-up's own input event (a job is unique per event and role); not itself supervised.
+    const scheduled = await appendEvent(client, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, actorKind: 'system', type: 'teaching.follow_up_scheduled',
+      payload: { actionId, parentActionId: parent.id, action: plan.action, jobId: job.jobId, dueAt: new Date(dueAtMs).toISOString() }, causationId: eventId,
+      idempotencyKey: `teaching-follow-up:${actionId}`, supervise: false });
+    const objective: JobObjective = { kind: plan.action, objectiveIds: parent.objective_ids.slice(0, 20), refs: [actionId] };
+    const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: job.jobId, workspaceId: job.workspaceId, enrollmentId: job.enrollmentId },
+      inputEventId: scheduled.id, role: 'supervisor', fence: c.fence, objective, budget: cp.allowance, deadlineAtMs,
+      checkpoints: [{ id: 'generate', capability: 'supervisor', inputRef: randomUUID(), allowance: cp.allowance, timeoutMs: cp.timeoutMs, maxAttempts: cp.maxAttempts, phase: 'analyze' }] });
+    await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,trace_id,objective)
+      VALUES ($1,$2,$3,$4,'supervisor','queued',$5,$6,$7,$8,$9,$10)`, [job.jobId, job.enrollmentId, job.workspaceId, workflowId(job), scheduled.id, c.fence.enrollmentRevision,
+        JSON.stringify(spec), JSON.stringify(createJob(spec)), telemetry().traceId(), JSON.stringify(objective)]);
+    const context: SupervisorInputContext = { kind: 'learning_event', eventId: scheduled.id, eventType: 'teaching.follow_up_scheduled', courseReleaseId: c.enrollment.course_release_id, episodeId: input.episodeId };
+    await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
+      [spec.checkpoints[0]!.inputRef, job.jobId, job.enrollmentId, job.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
+    await parkSupervisorJobWithin(client, job, 'follow_up_due', { dueAtMs });
+  }
 }
 
 /** Statuses of a definite refusal while preparing an event: a state conflict (409), or a client
@@ -392,6 +447,16 @@ function observePreparation(outcome: PreparationOutcome) {
   if (outcome.disposition === 'refused') runtime.count('course.supervisor.rejections', 1, { ...role, 'course.rejection.reason': 'preparation_refused' });
 }
 
+/** What a new job is for (design §4 job record): its teaching action, or the episode objectives of
+ * the learning event that started it. Identifiers only. */
+async function jobObjective(client: PoolClient, action: ActionRow | null, c: Current, eventId: string, episodeId: string | null): Promise<JobObjective> {
+  if (action) return { kind: 'teaching_action', objectiveIds: action.objective_ids.slice(0, 20), refs: [action.id] };
+  const objectiveIds = episodeId ? (await client.query<{ ids: unknown }>(`SELECT ep->'objectiveIds' AS ids FROM course_releases r,
+      jsonb_array_elements(r.server_bundle->'chapters') ch, jsonb_array_elements(ch->'episodes') ep
+    WHERE r.id=$1 AND r.workspace_id=$2 AND ep->>'id'=$3 LIMIT 1`, [c.enrollment.course_release_id, c.enrollment.workspace_id, episodeId])).rows[0]?.ids : [];
+  const valid = Array.isArray(objectiveIds) ? objectiveIds.filter((id): id is string => typeof id === 'string' && /^[a-z][a-z0-9._:-]{0,127}$/.test(id)).slice(0, 20) : [];
+  return { kind: 'learning_event', objectiveIds: valid, refs: [eventId] };
+}
 /** The Postgres host bridge, plus a claim of one known event for trusted
  * in-process callers (fixtures, operator tooling). It is not exposed over RPC. */
 export interface PostgresSupervisorBridge extends HostBridge {
@@ -480,6 +545,12 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
       if (typeof p.blockId === 'string') context.blockId = p.blockId;
       c.scopeEpisodeId = await scopeEpisode(client, c, context.episodeId);
     }
+    // A teaching action Core started from the trigger table (teaching-actions.ts): its own job.
+    let action: ActionRow | null = null;
+    if (row.event_type === ACTION_EVENT) {
+      requireCondition(row.actor_kind === 'system', 'TEACHING_ACTION_NOT_STARTED', 409);
+      action = await actionForEvent(client, row.enrollment_id, row.workspace_id, row.event_payload, row.event_id);
+    }
     const binding=await options.providerBinding?.(client,row.workspace_id);
     // Configuration binding can wait for an operator transaction. Recheck
     // wall-clock deadlines after that serialization wait, before admission.
@@ -494,7 +565,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     // it reads its context when the call starts, so it sees this event too. Explicit requests
     // (companion questions, research, written-answer assistance) are never coalesced.
     let coalescedInto: string | null = null;
-    if (disposition === 'prepared' && role === 'supervisor' && row.event_type !== RETRY_EVENT) {
+    if (disposition === 'prepared' && role === 'supervisor' && row.event_type !== RETRY_EVENT && !action) {
       coalescedInto = (await client.query<{ id: string }>(`SELECT id FROM supervisor_jobs WHERE enrollment_id=$1 AND workspace_id=$2 AND role='supervisor'
         AND state='queued' AND NOT (runtime_snapshot->'operations' @> '[{"status":"succeeded"}]')
         ORDER BY created_at DESC,id LIMIT 1`, [row.enrollment_id, row.workspace_id])).rows[0]?.id ?? null;
@@ -504,20 +575,35 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
       const policy=binding?.jobPolicy;
       const admission=policy?{allowance:policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
       const ref = { jobId: randomUUID(), workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: 1 };
-      const inputRef = randomUUID();
+      // An action that builds new material gets a planner, concurrent alternative builders and an
+      // evaluator that commits (design §4), when the workspace lets the supervisor apply changes.
+      const team = action !== null && ALTERNATIVE_ACTIONS.has(action.action) && DEFAULT_ACTION_POLICY.alternativeBuilders >= 2
+        && (await supervisionSettingsWithin(client, row.workspace_id)).autonomyLevel === 'apply_verified_personal';
+      const base = { capability: role, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts };
+      const checkpoints = team ? [
+        { ...base, id: 'plan', inputRef: randomUUID(), phase: 'analyze' as const, logicalRole: 'planner' as const },
+        ...Array.from({ length: Math.min(3, DEFAULT_ACTION_POLICY.alternativeBuilders) }, (_, i) => ({ ...base, id: `build-${String.fromCharCode(97 + i)}`,
+          inputRef: randomUUID(), phase: 'build' as const, logicalRole: 'builder' as const, group: 'build' })),
+        { ...base, id: 'evaluate', inputRef: randomUUID(), phase: 'evaluate' as const, logicalRole: 'evaluator' as const },
+      ] : [{ ...base, id: 'generate', inputRef: randomUUID(), ...(PHASE[role] ? { phase: PHASE[role] } : {}) }];
+      const objective = await jobObjective(client, action, c, row.event_id, context.episodeId);
       const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId },
-        inputEventId: row.event_id, role, fence: c.fence,
-        checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts,
-          ...(PHASE[role] ? { phase: PHASE[role] } : {}) }],
+        inputEventId: row.event_id, role, fence: c.fence, checkpoints,
         // A closed-course answer is read-only: the course deadline that closed it (already
         // past for a capped course) governs work, not reading, so only the job duration bounds it.
-        budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs,
-          check.snapshot.effectiveDeadline && !closedCourseCompanion(c, role) ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
+        budget: { microUsd: admission.allowance.microUsd * checkpoints.length, tokens: admission.allowance.tokens * checkpoints.length },
+        deadlineAtMs: Math.min(c.nowMs + admission.durationMs * (team ? 2 : 1),
+          check.snapshot.effectiveDeadline && !closedCourseCompanion(c, role) ? Date.parse(check.snapshot.effectiveDeadline) : Infinity),
+        objective });
       const snapshot = createJob(spec);
-      await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision,trace_id)
-        VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10,$11)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null,telemetry().traceId()]);
-      await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
-        [inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
+      await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision,trace_id,objective)
+        VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10,$11,$12)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null,telemetry().traceId(),
+          JSON.stringify(objective)]);
+      for (const cp of spec.checkpoints)
+        await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [cp.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId, cp.id, JSON.stringify(c.fence),
+            JSON.stringify(cp.logicalRole ? { ...context, task: { logicalRole: cp.logicalRole, ...(cp.logicalRole === 'builder' ? { alternative: cp.id } : {}) } } : context)]);
+      if (action) await client.query('UPDATE teaching_actions SET job_id=$2,updated_at=clock_timestamp() WHERE id=$1', [action.id, ref.jobId]);
       if (role === 'companion') {
         const linked = await client.query(`UPDATE companion_messages SET job_id=$3
           WHERE id=$1 AND enrollment_id=$2 AND role='learner' AND (job_id IS NULL OR job_id=$3)`,
@@ -546,59 +632,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
       });
     },
     async transition(raw) {
-      const command = jobCommandSchema.parse(raw), ref = command.ref; authorize(ref.workspaceId);
-      return afterCommitTransaction(db, async client => {
-        const locked = await lockedJob(client, ref), old = locked.snapshot;
-        const budgets = await lockBudgetCeilings(client, ref, locked.episodeId), availableBudget = budgets.available;
-        // Read wall clock AFTER waiting for all serialization locks.
-        locked.current.nowMs = await clock(client);
-        const role = old.specification.role;
-        const check = policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role);
-        const host: HostContext = { nowMs: locked.current.nowMs, currentFence: locked.current.fence,
-          enrollmentActive: enrollmentActive(locked.current, role) && check.allowed,
-          // A job whose role the enrollment's study arm withholds ends as cancelled at this transition.
-          cancellationRequested: locked.cancelled || armWithholds(locked.current, role), availableBudget, supervision: locked.current.supervision };
-        if (command.type === 'halt' && (command.reason === 'cancel_requested' || command.reason === 'supervision_stopped')) {
-          // Persist the cancellation; a stop keeps its own terminal reason through the reducer's halt.
-          await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1', [ref.jobId]);
-          if (command.reason === 'cancel_requested') host.cancellationRequested = true;
-        }
-        if (command.type === 'settle' && command.outcome.status === 'succeeded') {
-          const a = await artifact(client, ref, command.outcome.artifact.artifactId, command.outcome.artifact.digest);
-          requireCondition(a.operation_id === command.operationId && a.owner_id === command.ownerId, 'SUPERVISOR_ARTIFACT_MISMATCH', 409);
-        }
-        if (command.type === 'settle' && command.outcome.status === 'not_started') {
-          const staged = await client.query('SELECT 1 FROM supervisor_artifacts WHERE operation_id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
-            [command.operationId, ref.jobId, ref.enrollmentId, ref.workspaceId]);
-          requireCondition(staged.rowCount === 0, 'SUPERVISOR_OUTCOME_CONFLICT', 409);
-        }
-        let verified: Awaited<ReturnType<typeof storedVerification>>;
-        if (command.type === 'verify' || command.type === 'apply') {
-          verified = await storedVerification(client, ref, old);
-          if (verified) host.verification = verified.receipt;
-        }
-        if (command.type === 'apply') host.applicationReceiptId = old.applicationReceiptId ?? randomUUID();
-        // Verifier/artifact row locks may have waited past a deadline; never use pre-wait time.
-        host.nowMs = locked.current.nowMs = await clock(client);
-        host.enrollmentActive = enrollmentActive(locked.current, role)
-          && policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role).allowed;
-        // The pure engine performs all terminal/fence checks before accepting an application receipt.
-        const result = reduce(old, command, host);
-        if (result.snapshot.state === 'applied' && old.state !== 'applied') {
-          requireCondition(verified!, 'SUPERVISOR_VERIFICATION_REQUIRED', 409);
-          // Re-run the receipt binding validation: stored authority/hash may have been revoked or changed since verify.
-          const validated = reduce({ ...old, state: 'verifying' }, { type: 'verify', ref }, host);
-          requireCondition(validated.snapshot.state === 'ready' && validated.snapshot.verification?.receiptId === old.verification?.receiptId,
-            'SUPERVISOR_VERIFICATION_REQUIRED', 409);
-          await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options);
-        }
-        await save(client, old, result.snapshot, budgets.binding);
-        if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {
-          // A slow database write must not commit an expired permit/application. Roll back all effects.
-          requireCondition(await clock(client) < old.specification.deadlineAtMs, 'SUPERVISOR_DEADLINE_REACHED', 409);
-        }
-        return transitionSchema.parse(result);
-      });
+      const command = jobCommandSchema.parse(raw); authorize(command.ref.workspaceId);
+      return afterCommitTransaction(db, client => transitionWithin(client, command, options));
     },
     async claimOutbox(ownerId, limit, leaseMs) {
       rpcRequestSchema.parse({ method: 'outbox.claim', ownerId, limit, leaseMs });
@@ -738,10 +773,66 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
   };
   return bridge;
 }
+/** One host transition inside the caller's transaction: every lock, fence and budget check of the
+ * bridge's `transition`, for trusted host paths that already hold a transaction (follow-up and
+ * authority parking, application of a delivered teaching action). */
+export async function transitionWithin(client: PoolClient, raw: Command, options: Pick<SupervisorBridgeOptions, 'applyPlan' | 'confirmRubricSuggestion'> = {}) {
+  const command = jobCommandSchema.parse(raw), ref = command.ref;
+  const locked = await lockedJob(client, ref), old = locked.snapshot;
+  const budgets = await lockBudgetCeilings(client, ref, locked.episodeId), availableBudget = budgets.available;
+  // Read wall clock AFTER waiting for all serialization locks.
+  locked.current.nowMs = await clock(client);
+  const role = old.specification.role;
+  const check = policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role);
+  const host: HostContext = { nowMs: locked.current.nowMs, currentFence: locked.current.fence,
+    enrollmentActive: enrollmentActive(locked.current, role) && check.allowed,
+    // A job whose role the enrollment's study arm withholds ends as cancelled at this transition.
+    cancellationRequested: locked.cancelled || armWithholds(locked.current, role), availableBudget, supervision: locked.current.supervision };
+  if (command.type === 'halt' && (command.reason === 'cancel_requested' || command.reason === 'supervision_stopped')) {
+    // Persist the cancellation; a stop keeps its own terminal reason through the reducer's halt.
+    await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1', [ref.jobId]);
+    if (command.reason === 'cancel_requested') host.cancellationRequested = true;
+  }
+  if (command.type === 'settle' && command.outcome.status === 'succeeded') {
+    const a = await artifact(client, ref, command.outcome.artifact.artifactId, command.outcome.artifact.digest);
+    requireCondition(a.operation_id === command.operationId && a.owner_id === command.ownerId, 'SUPERVISOR_ARTIFACT_MISMATCH', 409);
+  }
+  if (command.type === 'settle' && command.outcome.status === 'not_started') {
+    const staged = await client.query('SELECT 1 FROM supervisor_artifacts WHERE operation_id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
+      [command.operationId, ref.jobId, ref.enrollmentId, ref.workspaceId]);
+    requireCondition(staged.rowCount === 0, 'SUPERVISOR_OUTCOME_CONFLICT', 409);
+  }
+  let verified: Awaited<ReturnType<typeof storedVerification>>;
+  if (command.type === 'verify' || command.type === 'apply') {
+    verified = await storedVerification(client, ref, old);
+    if (verified) host.verification = verified.receipt;
+  }
+  if (command.type === 'apply') host.applicationReceiptId = old.applicationReceiptId ?? randomUUID();
+  // Verifier/artifact row locks may have waited past a deadline; never use pre-wait time.
+  host.nowMs = locked.current.nowMs = await clock(client);
+  host.enrollmentActive = enrollmentActive(locked.current, role)
+    && policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role).allowed;
+  // The pure engine performs all terminal/fence checks before accepting an application receipt.
+  const result = reduce(old, command, host);
+  if (result.snapshot.state === 'applied' && old.state !== 'applied') {
+    requireCondition(verified!, 'SUPERVISOR_VERIFICATION_REQUIRED', 409);
+    // Re-run the receipt binding validation: stored authority/hash may have been revoked or changed since verify.
+    const validated = reduce({ ...old, state: 'verifying' }, { type: 'verify', ref }, host);
+    requireCondition(validated.snapshot.state === 'ready' && validated.snapshot.verification?.receiptId === old.verification?.receiptId,
+      'SUPERVISOR_VERIFICATION_REQUIRED', 409);
+    await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options);
+  }
+  await save(client, old, result.snapshot, budgets.binding);
+  if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {
+    // A slow database write must not commit an expired permit/application. Roll back all effects.
+    requireCondition(await clock(client) < old.specification.deadlineAtMs, 'SUPERVISOR_DEADLINE_REACHED', 409);
+  }
+  return transitionSchema.parse(result);
+}
 /** Moves a non-terminal job with no open call to its next generation (or returns the generation
  * already waiting for its workflow). The previous generation's workflow has closed: it returned
  * when the job waited, parked or became uncertain. Terminal jobs never resume. */
-async function resumeWithin(client: PoolClient, raw: RunRef): Promise<RunRef | null> {
+async function resumeWithin(client: PoolClient, raw: RunRef, options: { rebase?: boolean } = {}): Promise<RunRef | null> {
   const row = (await client.query<{ generation: number; resume_requested_at: Date | null }>(
     "SELECT (runtime_snapshot->>'generation')::integer AS generation,resume_requested_at FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3",
     [raw.jobId, raw.enrollmentId, raw.workspaceId])).rows[0];
@@ -751,21 +842,67 @@ async function resumeWithin(client: PoolClient, raw: RunRef): Promise<RunRef | n
   if (row.resume_requested_at && old.state === 'queued') return ref; // Started before, never loaded: start again (idempotent by workflow id).
   if (!resumable(old) || locked.cancelled || !['waiting', 'running', 'needs_input', 'follow_up_due', 'budget_wait', 'verifying'].includes(old.state)) return null;
   if (old.state === 'follow_up_due' && (old.dueAtMs ?? Infinity) > locked.current.nowMs) return null;
-  const next = nextGeneration(old), nextRef = { ...raw, generation: next.generation };
+  let base = old;
+  if (old.state === 'follow_up_due') {
+    const outcome = await followUpDue(client, ref, locked.current);
+    if (outcome !== 'run') {
+      await transitionWithin(client, { type: 'halt', ref, reason: 'cancel_requested' });
+      return null;
+    }
+  }
+  // A follow-up made no call under its old context, and a job whose only output waited for a
+  // person's decision has had that decision applied by the person: both continue on today's state.
+  if ((old.state === 'follow_up_due' && old.operations.length === 0) || (old.state === 'needs_input' && options.rebase))
+  {
+    base = refence(old, locked.current.fence, locked.current.nowMs + FOLLOW_UP_RUN_MS, locked.current.nowMs);
+    // Its inputs are read under the same fence.
+    await client.query('UPDATE supervisor_inputs SET fence=$2 WHERE job_id=$1', [raw.jobId, JSON.stringify(locked.current.fence)]);
+  }
+  const next = nextGeneration(base), nextRef = { ...raw, generation: next.generation };
   await save(client, old, next);
   await client.query('UPDATE supervisor_jobs SET workflow_id=$2,resume_requested_at=clock_timestamp() WHERE id=$1', [raw.jobId, workflowId(nextRef)]);
   await client.query('UPDATE supervisor_reconciliations SET resumed_generation=$2 WHERE job_id=$1 AND resumed_generation IS NULL', [raw.jobId, next.generation]);
   return nextRef;
 }
-/** Trusted host hook: park a job between calls until a person answers (`needs_input`) or until a
- * scheduled follow-up is due (`follow_up_due`, resumed by the dispatcher's reconcile pass). */
-export async function parkSupervisorJob(db: Database, ref: RunRef, reason: 'needs_input' | 'follow_up_due', dueAtMs?: number) {
-  const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [ref.workspaceId] });
-  return bridge.transition({ type: 'park', ref, reason, ...(dueAtMs !== undefined ? { dueAtMs } : {}) });
+/** A due follow-up job: whether it still has something to do. Its action's deterministic part
+ * (evidence since the delivered change, a novel transfer item) is resolved and stored first. */
+async function followUpDue(client: PoolClient, ref: RunRef, c: Current): Promise<'run' | 'ended'> {
+  const action = (await client.query<ActionRow>("SELECT * FROM teaching_actions WHERE job_id=$1 AND state='scheduled' FOR UPDATE", [ref.jobId])).rows[0];
+  if (!action) return 'run';
+  const end = async (reason: string) => { await client.query("UPDATE teaching_actions SET state='ended',end_reason=$2,updated_at=clock_timestamp() WHERE id=$1", [action.id, reason]); return 'ended' as const; };
+  // The learner may have turned personal support off, or staff lowered autonomy, since delivery.
+  if (!(await automaticHypothesesEnabled(client, ref.enrollmentId, ref.workspaceId, false))) return end('opt_in_revoked');
+  if ((await supervisionSettingsWithin(client, ref.workspaceId)).autonomyLevel === 'recommend_only') return end('autonomy_recommend_only');
+  const bundle = (await client.query<{ server_bundle: unknown }>('SELECT server_bundle FROM course_releases WHERE id=$1', [c.enrollment.course_release_id])).rows[0]!.server_bundle;
+  const resolved = await resolveFollowUp(client, action, bundle as Parameters<typeof resolveFollowUp>[2]);
+  if (resolved.settled) return end('already_demonstrated');
+  return 'run';
 }
-/** Trusted host hook: a person answered; the parked job restarts in a new generation. */
-export async function resumeSupervisorJob(db: Database, ref: RunRef) {
-  return afterCommitTransaction(db, client => resumeWithin(client, ref));
+/** Parks a job between calls inside the caller's transaction (see parkSupervisorJob). */
+export async function parkSupervisorJobWithin(client: PoolClient, ref: RunRef, reason: 'needs_input' | 'follow_up_due', options: { dueAtMs?: number; deadlineAtMs?: number } = {}) {
+  return transitionWithin(client, { type: 'park', ref, reason, ...(options.dueAtMs !== undefined ? { dueAtMs: options.dueAtMs } : {}),
+    ...(options.deadlineAtMs !== undefined ? { deadlineAtMs: options.deadlineAtMs } : {}) });
+}
+/** Trusted host hook: park a job between calls until a person answers (`needs_input`: an authority
+ * request, supervisor-plan-verifier.ts) or until a scheduled follow-up is due (`follow_up_due`,
+ * resumed by the dispatcher's reconcile pass). A wait for a person may extend the deadline. */
+export async function parkSupervisorJob(db: Database, ref: RunRef, reason: 'needs_input' | 'follow_up_due', options: { dueAtMs?: number; deadlineAtMs?: number } = {}) {
+  return afterCommitTransaction(db, client => parkSupervisorJobWithin(client, ref, reason, options));
+}
+/** The longest a parked job may wait for a person, bounded by the course's own deadline. */
+export async function parkDeadlineWithin(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>, waitMs: number) {
+  const c = await current(client, ref.workspaceId, ref.enrollmentId);
+  const deadline = policyCheck(c, 'admit_job').snapshot.effectiveDeadline;
+  return Math.min(c.nowMs + Math.min(waitMs, MAX_PARK_MS - 60_000), deadline ? Date.parse(deadline) : Infinity);
+}
+/** Trusted host hook: a person answered; the parked job restarts in a new generation. With
+ * `rebase`, a job waiting for a decision continues on the current revisions (the decision was
+ * applied under the decider's own authority, which itself changes them). */
+export async function resumeSupervisorJob(db: Database, ref: RunRef, options: { rebase?: boolean } = {}) {
+  return afterCommitTransaction(db, client => resumeWithin(client, ref, options));
+}
+export async function resumeSupervisorJobWithin(client: PoolClient, ref: RunRef, options: { rebase?: boolean } = {}) {
+  return resumeWithin(client, ref, options);
 }
 
 /** Register only this internal service route; does not install cookie/learner auth or read env. */
@@ -779,6 +916,7 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
       const header = request.headers.authorization;
       const token = typeof header === 'string' && /^Bearer \S+$/.test(header) ? header.slice(7) : '';
       requireCondition(timingSafeEqual(expected, createHash('sha256').update(token).digest()), 'SUPERVISOR_UNAUTHENTICATED', 401);
+      noteBridgeContact();
       const parsed = rpcRequestSchema.safeParse(request.body);
       requireCondition(parsed.success, 'SUPERVISOR_INVALID_REQUEST');
       const body = parsed.data;
@@ -839,12 +977,19 @@ export async function configureSupervisorPeriodBudget(db: Database, scope: { wor
   limits: { daily?: { microUsd: number; tokens: number } | null; artifact?: { microUsd: number; tokens: number } | null }) {
   const workspaceId = uuid.parse(scope.workspaceId), enrollmentId = uuid.parse(scope.enrollmentId);
   const daily = limits.daily ? allowanceSchema.parse(limits.daily) : null, artifact = limits.artifact ? allowanceSchema.parse(limits.artifact) : null;
-  return transaction(db, async client => {
+  return transaction(db, client => configureSupervisorPeriodBudgetWithin(client, { workspaceId, enrollmentId }, { daily, artifact }));
+}
+/** configureSupervisorPeriodBudget inside the caller's transaction (the admin route audits in the same one). */
+export async function configureSupervisorPeriodBudgetWithin(client: PoolClient, scope: { workspaceId: string; enrollmentId: string },
+  limits: { daily: { microUsd: number; tokens: number } | null; artifact: { microUsd: number; tokens: number } | null }) {
+  const workspaceId = uuid.parse(scope.workspaceId), enrollmentId = uuid.parse(scope.enrollmentId);
+  const daily = limits.daily ? allowanceSchema.parse(limits.daily) : null, artifact = limits.artifact ? allowanceSchema.parse(limits.artifact) : null;
+  {
     requireCondition((await client.query('SELECT 1 FROM enrollments WHERE id=$1 AND workspace_id=$2', [enrollmentId, workspaceId])).rowCount, 'SUPERVISOR_NOT_FOUND', 404);
     await client.query(`INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [enrollmentId, workspaceId]);
     await client.query(`UPDATE supervisor_enrollment_budgets SET daily_limit_micro_usd=$3,daily_limit_tokens=$4,artifact_limit_micro_usd=$5,artifact_limit_tokens=$6
       WHERE enrollment_id=$1 AND workspace_id=$2`, [enrollmentId, workspaceId, daily?.microUsd ?? null, daily?.tokens ?? null, artifact?.microUsd ?? null, artifact?.tokens ?? null]);
-  });
+  }
 }
 
 /** Trusted gateway hook; parent must authenticate and scope its caller separately from the worker. */
@@ -950,6 +1095,8 @@ async function storeArtifactRow(db: Database, ref: RunRef, operationId: string, 
     await client.query(`INSERT INTO supervisor_artifacts (id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content,content_object_id,content_kind)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, ref.jobId, ref.enrollmentId, ref.workspaceId, operationId, ownerId, digest,
       staged ? null : JSON.stringify(value), staged?.id ?? null, staged ? value.kind : null]);
+    // The bridge request continues the worker's trace: the artifact digest joins it to the stored row.
+    telemetry().annotate({ 'course.artifact.hash': digest });
     return { artifactId: id, digest, claimed: staged !== null };
   });
 }

@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import type { VisualRuntime } from "@course-core/visuals/headless";
 
 /**
@@ -27,11 +28,34 @@ declare global {
   interface Window { courseInspectorBridge?: CourseInspectorBridge }
 }
 
+/** Whether the inspector is open, for visuals that load lazily: while it is, they load and stay
+ * loaded, so it can show the live state of any part of the lesson. */
+let inspecting = false;
+const watchers = new Set<() => void>();
+function setInspecting(value: boolean) {
+  inspecting = value;
+  for (const watcher of watchers) watcher();
+}
+export function useInspectorOpen(): boolean {
+  return useSyncExternalStore(
+    (change) => {
+      watchers.add(change);
+      return () => watchers.delete(change);
+    },
+    () => inspecting,
+    () => false,
+  );
+}
+
 /** Exposes the bridge while the inspector is open; returns the function that withdraws it. */
 export function openInspectorBridge(close: () => void) {
   const bridge: CourseInspectorBridge = { version: 1, visual: (episodeId, blockId) => runtimes.get(key(episodeId, blockId)), close };
   window.courseInspectorBridge = bridge;
+  setInspecting(true);
   return () => {
-    if (window.courseInspectorBridge === bridge) delete window.courseInspectorBridge;
+    if (window.courseInspectorBridge === bridge) {
+      delete window.courseInspectorBridge;
+      setInspecting(false);
+    }
   };
 }

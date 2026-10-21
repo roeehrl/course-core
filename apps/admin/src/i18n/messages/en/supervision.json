@@ -11,5 +11,10 @@
   "error.SUPERVISION_CONSENT_WITHDRAWN": "The learner withdrew consent for AI supervision since this request. It was not re-queued.",
   "error.RUBRIC_ASSIST_CONSENT_WITHDRAWN": "The learner withdrew consent for review drafts since this request. It was not re-queued.",
   "error.INVALID_REQUEST": "Give a reason of at least 10 characters.",
-  "error.unavailable": "AI supervision is unavailable right now. Nothing changed."
+  "error.unavailable": "AI supervision is unavailable right now. Nothing changed.",
+  "error.SUPERVISION_SETTINGS_CHANGED": "Someone else changed these settings meanwhile. Reload the page to see their change, then try again.",
+  "error.SUPERVISION_LESSON_LIMIT_ABOVE_DAILY": "The per-lesson limit is more than the daily limit, so it could never be reached. Lower it or raise the daily limit.",
+  "error.AUTHORITY_REQUEST_CLOSED": "This request was already decided or has ended. Reload to see its state.",
+  "error.AUTHORITY_DECIDED_BY_LEARNER": "Only the learner can decide this one: it is about their own goal.",
+  "error.AUTHORITY_REQUEST_NOT_FOUND": "This request no longer exists. Reload the list."
 }

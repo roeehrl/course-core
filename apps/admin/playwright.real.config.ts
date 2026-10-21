@@ -26,8 +26,10 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { viewport: { width: 1440, height: 1000 } } },
+    // Tests tagged @desktop-only cover behaviour one viewport proves (for example network handling).
     {
       name: "phone",
+      grepInvert: /@desktop-only/,
       use: {
         viewport: { width: 390, height: 844 },
         isMobile: true,
@@ -36,6 +38,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
+      grepInvert: /@desktop-only/,
       use: { viewport: { width: 834, height: 1112 }, hasTouch: true },
     },
   ],

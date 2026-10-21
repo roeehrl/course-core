@@ -7,7 +7,7 @@ import { numericPayload } from "../src/connected/AssessmentInput.web";
 const inProgress = {
   available: true, maxItems: 4, studied: false, state: "in_progress",
   run: { itemsUsed: 0, pendingChallengeId: null, nextItem: { episodeId: "min", assessmentId: "min-predict" }, stopReason: "continuing",
-    proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNote: "Not tested." } },
+    proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNoteCode: "not_a_judgement" as const } },
 };
 const prediction = { id: "min-predict", type: "prediction", prompt: "How long is the kept piece?", unit: "cm", allowAbstain: true };
 function renderItem(question: Record<string, unknown>) {

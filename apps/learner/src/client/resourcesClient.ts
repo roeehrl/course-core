@@ -83,7 +83,8 @@ export function parseResources(data: unknown): EpisodeResource[] {
     return [{ id, title, url, excerpts, whyUseful: why, reviewedAt, expiresAt, rightsUse, attributions, suggestedFor, ...(youtube ? { youtube } : {}) }];
   });
 }
-/** Course-made video help: generated, then approved and attached by staff. */
+/** Course-made help: a generated video, exact clip or image, approved and attached by staff.
+ * An image has no captions or transcript; its visual description is its alt text. */
 export interface GeneratedMedia {
   id: string;
   title: string;
@@ -91,8 +92,10 @@ export interface GeneratedMedia {
   transcript: string;
   visualDescription: string;
   assetUrl: string;
-  captionsUrl: string;
-  mimeType: "video/mp4" | "video/webm";
+  captionsUrl: string | null;
+  /** The caption track's language as the reviewer recorded it; undefined when unknown. */
+  captionsLanguage?: string;
+  mimeType: "video/mp4" | "video/webm" | "image/png" | "image/jpeg" | "image/webp";
   reviewedAt: string;
   expiresAt: string;
 }
@@ -113,10 +116,13 @@ export function parseGeneratedMedia(data: unknown, enrollmentId: string): Genera
       reviewedAt = text(r.reviewedAt, 64),
       expiresAt = text(r.expiresAt, 64),
       mimeType = r.mimeType;
-    if (!id || !uuid.test(id) || !title || !objective || !transcript || !visualDescription || !reviewedAt || !expiresAt || r.generated !== true) return [];
-    if (mimeType !== "video/mp4" && mimeType !== "video/webm") return [];
-    return [{ id, title, objective, transcript, visualDescription, reviewedAt, expiresAt, mimeType,
-      assetUrl: `${base}/${id}/asset`, captionsUrl: `${base}/${id}/captions.vtt` }];
+    const video = mimeType === "video/mp4" || mimeType === "video/webm";
+    const image = mimeType === "image/png" || mimeType === "image/jpeg" || mimeType === "image/webp";
+    if (!id || !uuid.test(id) || !title || !objective || (video && !transcript) || !visualDescription || !reviewedAt || !expiresAt || r.generated !== true) return [];
+    if (!video && !image) return [];
+    const language = video && typeof r.captionsLanguage === "string" && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/.test(r.captionsLanguage) ? r.captionsLanguage : undefined;
+    return [{ id, title, objective, transcript: transcript ?? "", visualDescription, reviewedAt, expiresAt, mimeType, ...(language ? { captionsLanguage: language } : {}),
+      assetUrl: `${base}/${id}/asset`, captionsUrl: video ? `${base}/${id}/captions.vtt` : null }];
   });
 }
 export function createResourcesClient(api: Pick<CourseApi, "request">) {

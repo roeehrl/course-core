@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { compileCourse } from "@course-core/sdk/compiler";
+import { replayRetention } from "./retention.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { CourseManifest } from "@course-core/sdk";
 import {
@@ -31,6 +32,7 @@ import { workspaceAudit } from "./workspace-audit.js";
 import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runRetryLinks, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
+import { assertPublishVersion } from "./course-versions.js";
 import { requireSameRequest } from "./erased-digests.js";
 import { appendEvent } from "./events.js";
 import {
@@ -51,12 +53,15 @@ import {
   activateWindows,
   assertPublishable,
   enrollmentPolicy,
+  extensionAmountsSchema,
+  extensionRequest,
   loadPolicy,
 } from "./policy-adapter.js";
-import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
+import { recognitionOnlyLegacyGates, assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
-import { authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
+import { checkManifest, previewAsLearners, publishImpact, requireConfirmedImpact } from "./release-editing.js";
+import { authorPlacementBounds, authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementBlueprint, placementBoundsError, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 import { withArtifactContent } from './artifact-store.js';
@@ -84,7 +89,7 @@ export interface Catalog {
   revision: number;
   active_release_id: string | null;
 }
-interface ReleaseRow extends Release {
+export interface ReleaseRow extends Release {
   version: string;
   course_key: string;
   created_by: string;
@@ -185,7 +190,7 @@ export async function catalogFor(
   const role = await permit(client, actor, catalog.workspace_id, permission, catalog.id);
   return { catalog, role };
 }
-async function releasesFor(client: Sql, catalog: Catalog) {
+export async function releasesFor(client: Sql, catalog: Catalog) {
   return (
     await client.query<ReleaseRow>(
       `SELECT r.*,v.state AS review_state,v.notes,v.reviewed_digest FROM course_releases r
@@ -198,6 +203,10 @@ async function releasesFor(client: Sql, catalog: Catalog) {
 async function authorLimitFor(client: Sql, catalog: Catalog) {
   const live = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
   return authorPlacementLimit(live.map((r) => r.server_bundle));
+}
+async function authorBoundsFor(client: Sql, catalog: Catalog) {
+  const live = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
+  return authorPlacementBounds(live.map((r) => r.server_bundle));
 }
 export async function enrollmentFor(
   client: Sql,
@@ -274,6 +283,11 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
     ...(installed(options).some((extension) => extension.activityRuntime?.kind === "sandboxed_web")
       ? [{ label: "Sandboxed web activities", passed: true, warning: true, detail: SANDBOXED_ACTIVITY_WARNING }]
       : []),
+    // Not a failure: SDK 0.4 bundles stay publishable, but staff should know a checkpoint can be passed on recognition alone.
+    ...((gates) => gates.length
+      ? [{ label: "Checkpoints passed by choosing answers alone", passed: true, warning: true, code: "LEGACY_RECOGNITION_ONLY_GATES", params: { gates: gates.join(", ") },
+        detail: `SDK 0.4 checkpoints ${gates.join(", ")} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates.` }]
+      : [])(recognitionOnlyLegacyGates(release.server_bundle)),
   ];
 }
 /** Shown wherever a sandboxed_web activity runtime is installed (see README "Activity runtime"). */
@@ -685,8 +699,11 @@ export async function savePolicy(
 export async function policyView(client: Sql, context: EnrollmentContext) {
   const policy = await loadPolicy(client as PoolClient, context.enrollment.id),
     course = context.release.server_bundle;
+  // The organization and enrollment levels have no course title: the admin app names them by level.
   const label = (scope: ScopePolicy) =>
-    scope.kind === "course"
+    scope.kind === "organization" || scope.kind === "enrollment"
+      ? null
+      : scope.kind === "course"
       ? course.title
       : scope.kind === "chapter"
         ? (course.chapters.find((c) => `chapter:${c.id}` === scope.scopeId)
@@ -725,33 +742,6 @@ export async function policyView(client: Sql, context: EnrollmentContext) {
     })),
   };
 }
-function extensionArgs(state: PolicyState, scopeId: string, days: number) {
-  const scope = state.scopes.find((s) => s.scopeId === scopeId);
-  requireCondition(scope, "UNKNOWN_SCOPE", 404);
-  const pool = state.pools.find(
-    (p) =>
-      scope.extensions?.poolIds.includes(p.poolId) &&
-      ["calendar_day", "scope_calendar_day"].includes(p.unit),
-  );
-  requireCondition(pool, "EXTENSIONS_DISABLED", 409);
-  requireCondition(
-    scope.window || scope.hardDeadline,
-    "NO_DEADLINE_TO_EXTEND",
-    409,
-  );
-  return {
-    scopeId,
-    change: {
-      deadline: {
-        kind: scope.window ? ("window" as const) : ("absolute" as const),
-        calendarDays: days,
-      },
-    },
-    addedWork: { additionalMinutes: 0, additionalEpisodes: 0, remediation: [] },
-    poolDebits: [{ poolId: pool.poolId, amount: days }],
-  };
-}
-
 /** Static conditions under which staff may acknowledge (accept) existing evidence as valid:
  * an independent, unassisted, passing deterministic answer on the enrollment's current course
  * version. Acknowledging never changes a grade; the route also regrades the stored answer. */
@@ -804,8 +794,11 @@ export async function reviewEvidenceWithin(
   requireCondition(evidence && !evidence.invalidated_at, "EVIDENCE_NOT_FOUND", 404);
   if (input.decision === "accept") {
     const assessment = context.release.server_bundle.assessments.find((a) => a.id === evidence.assessment_id);
+    // Keeping a result that did not pass grants nothing, whatever kind of answer it was (code,
+    // choice, a delayed check). Upholding a pass must be re-checkable by Core without grading again.
     requireCondition(
-      acknowledgeable(evidence, context.release) && assessment && gradeDeterministic(assessment, evidence.response).passed,
+      evidence.result.passed === false ||
+        (acknowledgeable(evidence, context.release) && assessment && gradeDeterministic(assessment, evidence.response).passed),
       "REVIEW_CANNOT_GRANT_MASTERY",
       409,
     );
@@ -823,6 +816,8 @@ export async function reviewEvidenceWithin(
   await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [context.enrollment.id]);
   // Invalidated evidence supersedes any decision that relied on it.
   if (input.decision === "reject") await refreshDecisionsForEnrollment(client, context.enrollment.id, evidence.assessment_id);
+  // A withdrawn delayed-check result no longer moves the review schedule.
+  if (input.decision === "reject" && evidence.mode === "retention") await replayRetention(client, context.enrollment.id, [evidence.objective_id]);
   const event = await appendEvent(client, {
     workspaceId: catalog.workspace_id,
     enrollmentId: context.enrollment.id,
@@ -856,7 +851,9 @@ export async function transitionReleaseWithin(
   actor: Actor,
   catalog: Catalog,
   releaseId: string,
-  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined },
+  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined; confirmOlderVersion?: true | undefined;
+    /** Staff publishing from the admin page confirm the forward impact (release-editing.ts). */
+    confirmForward?: boolean },
   options: AdminRuntimeOptions,
 ): Promise<{ outcome: "saved" | "pending_review" | "published"; message: string }> {
   const row = (await releasesFor(client, catalog)).find(
@@ -928,11 +925,20 @@ export async function transitionReleaseWithin(
       "RELEASE_REVIEW_REQUIRED",
       428,
     );
+    // Versions move forward; publishing an older one needs explicit confirmation (course-versions.ts).
+    const backFrom = await assertPublishVersion(client, release, input.confirmOlderVersion === true);
     await assertPublishable(client, release.id, release.server_bundle);
+    if (input.confirmForward) {
+      const active = catalog.active_release_id ? (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id) ?? null : null;
+      requireConfirmedImpact(await publishImpact(client, catalog, active, release), input.impactDigest);
+    }
     await client.query(
       "UPDATE course_releases SET status='published' WHERE id=$1",
       [release.id],
     );
+    if (backFrom)
+      await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.older_version_published",
+        payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, newestPublished: backFrom }, idempotencyKey: `release:${release.id}:older-version` });
     await selectCatalogueReleaseWithin(client, catalog.id, release.id);
     return {
       outcome: "published",
@@ -1023,7 +1029,7 @@ export function registerAdminRoutes(
     });
   });
   /** Placement administration for one course: author policy, staff settings, the effective
-   * result and quality counters. */
+   * result, what the blueprint and protected units mean per episode, and quality counters. */
   app.get(`${path}/courses/:courseId/placement`, async (request) => {
     const actor = await auth.authenticate(request);
     return transaction(db, async (client) => {
@@ -1033,38 +1039,90 @@ export function registerAdminRoutes(
       const author = active?.server_bundle.placement;
       return {
         authorLimit: await authorLimitFor(client, catalog),
-        author: author ? { enabled: author.enabled, maxItems: author.maxItems, learnerMayDecline: author.learnerMayDecline, assessmentIds: author.assessmentIds, protectedEpisodeIds: author.protectedEpisodeIds } : null,
+        authorBounds: await authorBoundsFor(client, catalog),
+        author: author ? { enabled: author.enabled, maxItems: author.maxItems, learnerMayDecline: author.learnerMayDecline, assessmentIds: author.assessmentIds,
+          objectiveIds: author.objectiveIds, protectedEpisodeIds: author.protectedEpisodeIds, retestPolicy: author.retestPolicy ?? null,
+          assistancePolicy: author.assistancePolicy ?? null, evidenceThresholds: author.evidenceThresholds ?? null,
+          // The blueprint in words, for choosing what to leave out: staff (course.read) already see the course's questions.
+          items: author.assessmentIds.map((id) => active!.server_bundle.assessments.find((a) => a.id === id)).filter((a) => a !== undefined)
+            .map((a) => ({ assessmentId: a.id, familyId: a.familyId, objectiveIds: a.objectiveIds, prompt: a.prompt.replace(/\s+/g, " ").slice(0, 200) })),
+          objectives: author.objectiveIds.map((id) => ({ objectiveId: id, description: active!.server_bundle.objectives.find((o) => o.id === id)?.description ?? id })) } : null,
         settings: settingsView(row),
         effective: active ? effectivePlacement(active.server_bundle, row) : null,
+        blueprint: active ? placementBlueprint(active.server_bundle, row) : null,
         counters: (adminPermissionMatrix[role] ?? []).includes("enrollment.read") ? await placementCounters(client, catalog.workspace_id, catalog.course_key) : null,
       };
     });
   });
+  const placementSettingsSchema = z.strictObject({
+    expectedRevision: z.number().int().min(0),
+    enabled: z.boolean(),
+    retestCooldownHours: z.number().int().min(0).max(8760),
+    maxRuns: z.number().int().min(1).max(10),
+    maxItems: z.number().int().min(1).max(100).nullable(),
+    minFamiliesPerEpisode: z.number().int().min(1).max(10).nullable(),
+    // Staff narrowing of the author's blueprint and protected units (migration 098). Omitted = unchanged.
+    excludedAssessmentIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+    excludedObjectiveIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+    protectedEpisodeIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+  });
+  type PlacementSettingsInput = z.infer<typeof placementSettingsSchema>;
+  /** The settings row these inputs would save, over the current one, checked against the author. */
+  async function proposedPlacement(client: Sql, catalog: Catalog, input: PlacementSettingsInput, current: PlacementSettingsRow | null) {
+    const refused = placementLimitError(input.maxItems, await authorLimitFor(client, catalog))
+      ?? placementBoundsError(input, await authorBoundsFor(client, catalog));
+    if (refused) throw new ApiError(409, refused);
+    const active = catalog.active_release_id ? (await client.query<ReleaseRow>("SELECT * FROM course_releases WHERE id=$1", [catalog.active_release_id])).rows[0] : undefined;
+    const author = active?.server_bundle.placement;
+    const unique = (ids: string[] | undefined, fallback: string[]) => [...new Set(ids ?? fallback)];
+    const row = { ...(current ?? { workspace_id: catalog.workspace_id, course_key: catalog.course_key, revision: 0, updated_by: null, updated_at: new Date() }),
+      enabled: input.enabled, retest_cooldown_hours: input.retestCooldownHours, max_runs: input.maxRuns, max_items: input.maxItems, min_families_per_episode: input.minFamiliesPerEpisode,
+      excluded_assessment_ids: unique(input.excludedAssessmentIds, current?.excluded_assessment_ids ?? []),
+      excluded_objective_ids: unique(input.excludedObjectiveIds, current?.excluded_objective_ids ?? []),
+      protected_episode_ids: unique(input.protectedEpisodeIds, current?.protected_episode_ids ?? []) } as PlacementSettingsRow;
+    // Narrowing only: every excluded item or objective must be one the author offered, and an
+    // extra protected episode one that exists and the author did not already protect.
+    if (author) {
+      const episodeIds = new Set(active!.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => e.id)));
+      if (input.excludedAssessmentIds && input.excludedAssessmentIds.some((id) => !author.assessmentIds.includes(id))) throw new ApiError(409, "PLACEMENT_ITEM_NOT_IN_BLUEPRINT");
+      if (input.excludedObjectiveIds && input.excludedObjectiveIds.some((id) => !author.objectiveIds.includes(id))) throw new ApiError(409, "PLACEMENT_OBJECTIVE_NOT_PLACEABLE");
+      if (input.protectedEpisodeIds && input.protectedEpisodeIds.some((id) => !episodeIds.has(id) || author.protectedEpisodeIds.includes(id))) throw new ApiError(409, "PLACEMENT_EPISODE_UNKNOWN");
+    } else if ((input.excludedAssessmentIds?.length ?? 0) + (input.excludedObjectiveIds?.length ?? 0) + (input.protectedEpisodeIds?.length ?? 0) > 0)
+      throw new ApiError(409, "PLACEMENT_NOT_OFFERED");
+    return { row, active };
+  }
+  /** What the proposed settings would do, without saving them: test before save. */
+  app.post(`${path}/courses/:courseId/placement/settings/preview`, async (request) => {
+    const actor = await auth.authenticate(request), input = parse(placementSettingsSchema, request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.write");
+      const current = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
+      const { row, active } = await proposedPlacement(client, catalog, input, current);
+      return { effective: active ? effectivePlacement(active.server_bundle, row) : null, blueprint: active ? placementBlueprint(active.server_bundle, row) : null,
+        current: active ? placementBlueprint(active.server_bundle, current) : null };
+    });
+  });
   app.post(`${path}/courses/:courseId/placement/settings`, async (request) => {
-    const actor = await auth.authenticate(request),
-      input = parse(z.strictObject({
-        expectedRevision: z.number().int().min(0),
-        enabled: z.boolean(),
-        retestCooldownHours: z.number().int().min(0).max(8760),
-        maxRuns: z.number().int().min(1).max(10),
-        maxItems: z.number().int().min(1).max(100).nullable(),
-        minFamiliesPerEpisode: z.number().int().min(1).max(10).nullable(),
-      }), request.body);
+    const actor = await auth.authenticate(request), input = parse(placementSettingsSchema, request.body);
     return transaction(db, async (client) => {
       const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.write", true);
       const current = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
       requireCondition((current?.revision ?? 0) === input.expectedRevision, "STALE_REVISION", 409);
-      // Staff limits only tighten the author's: never more questions than any live release that
-      // offers placement allows, and no limit at all when none offers it.
-      const refused = placementLimitError(input.maxItems, await authorLimitFor(client, catalog));
-      if (refused) throw new ApiError(409, refused);
+      // Staff settings only tighten the author's: never more questions or runs, a shorter cooldown or
+      // fewer item families than any live release that offers placement allows, and the blueprint and
+      // protected units only narrowed.
+      const { row } = await proposedPlacement(client, catalog, input, current);
       const saved = (await client.query<PlacementSettingsRow>(
-        `INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours,max_runs,max_items,min_families_per_episode,revision,updated_by,updated_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,clock_timestamp())
+        `INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours,max_runs,max_items,min_families_per_episode,excluded_assessment_ids,excluded_objective_ids,
+           protected_episode_ids,revision,updated_by,updated_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,$11,clock_timestamp())
          ON CONFLICT (workspace_id,course_key) DO UPDATE SET enabled=EXCLUDED.enabled,retest_cooldown_hours=EXCLUDED.retest_cooldown_hours,max_runs=EXCLUDED.max_runs,
-           max_items=EXCLUDED.max_items,min_families_per_episode=EXCLUDED.min_families_per_episode,revision=placement_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()
+           max_items=EXCLUDED.max_items,min_families_per_episode=EXCLUDED.min_families_per_episode,excluded_assessment_ids=EXCLUDED.excluded_assessment_ids,
+           excluded_objective_ids=EXCLUDED.excluded_objective_ids,protected_episode_ids=EXCLUDED.protected_episode_ids,
+           revision=placement_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()
          RETURNING *`,
-        [catalog.workspace_id, catalog.course_key, input.enabled, input.retestCooldownHours, input.maxRuns, input.maxItems, input.minFamiliesPerEpisode, actor.id])).rows[0]!;
+        [catalog.workspace_id, catalog.course_key, input.enabled, input.retestCooldownHours, input.maxRuns, input.maxItems, input.minFamiliesPerEpisode,
+          JSON.stringify(row.excluded_assessment_ids), JSON.stringify(row.excluded_objective_ids), JSON.stringify(row.protected_episode_ids), actor.id])).rows[0]!;
       await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "placement.settings_changed",
         payload: { catalogId: catalog.id, ...settingsView(saved) }, idempotencyKey: `placement-settings:${catalog.id}:${saved.revision}` });
       return { settings: settingsView(saved) };
@@ -1261,6 +1319,8 @@ export function registerAdminRoutes(
             action: z.enum(["submit-review", "approve", "publish", "activate", "archive"]),
             /** Required to select an older release (rollback): the digest of its current impact. */
             impactDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+            /** Required to publish a version lower than one already published (course-versions.ts). */
+            confirmOlderVersion: z.literal(true).optional(),
           }),
           request.body,
         );
@@ -1280,7 +1340,7 @@ export function registerAdminRoutes(
         { releaseId: params(request).releaseId, ...input },
         options,
         async (client, catalog) =>
-          transitionReleaseWithin(client, actor, catalog, params(request).releaseId!, input, options),
+          transitionReleaseWithin(client, actor, catalog, params(request).releaseId!, { ...input, confirmForward: true }, options),
       );
     },
   );
@@ -1298,6 +1358,58 @@ export function registerAdminRoutes(
       requireCondition(target.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
       const active = await releaseOf(client, catalog, catalog.active_release_id ?? undefined);
       return rollbackImpact(client, active, target);
+    });
+  });
+  /** Checks a manifest exactly as saving the draft would, without saving it ("test before save"),
+   * and says whether this runtime could run it and what it changes against the live release. */
+  app.post(`${path}/courses/:courseId/releases/:releaseId/check`, { bodyLimit: 16 * 1024 * 1024 }, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({ manifest: z.unknown() }), request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "course.write");
+      const release = await releaseOf(client, catalog, params(request).releaseId);
+      const check = checkManifest(input.manifest, { courseKey: catalog.course_key, version: release.version });
+      if (!check.valid) return { ...check, runtime: null, changes: null };
+      const course = compileCourse(input.manifest).server;
+      let runtime: { ready: boolean; code: string | null } = { ready: true, code: null };
+      try {
+        await prepareCourseRunnable(course, installed(options));
+        assertCourseRunnable(course, installed(options));
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        runtime = { ready: false, code: error.code };
+      }
+      const active = catalog.active_release_id ? await releaseOf(client, catalog, catalog.active_release_id) : null;
+      const changes = active ? releaseDiff(active, { ...release, digest: check.digest!, server_bundle: course }) : null;
+      return { ...check, runtime, changes: changes && { against: changes.from, identical: changes.identical, changes: changes.changes, kinds: changes.kinds } };
+    });
+  });
+  /** The release (or an unsaved manifest for it) as representative synthetic learners would see
+   * it: each one's roadmap from the learner engine and their next lesson's content. */
+  app.post(`${path}/courses/:courseId/releases/:releaseId/preview`, { bodyLimit: 16 * 1024 * 1024 }, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({ manifest: z.unknown().optional() }), request.body ?? {});
+    return transaction(db, async (client) => {
+      const { catalog, role } = await catalogFor(client, actor, params(request).courseId!, "course.read");
+      const release = await releaseOf(client, catalog, params(request).releaseId);
+      // Drafts and unsaved edits are visible only to the roles that may see drafts.
+      if (release.status === "draft" || input.manifest !== undefined)
+        requireCondition(["owner", "admin", "author", "reviewer"].includes(role), "FORBIDDEN", 403);
+      if (input.manifest === undefined) return { source: "saved" as const, ...previewAsLearners(release.server_bundle, release.digest) };
+      const compiled = compileCourse(input.manifest);
+      requireCondition(compiled.server.id === catalog.course_key && compiled.server.version === release.version, "COURSE_IDENTITY_MISMATCH");
+      return { source: "unsaved" as const, ...previewAsLearners(compiled.server, compiled.digest) };
+    });
+  });
+  /** Who publishing this approved draft affects, with the digest staff confirm when publishing. */
+  app.get(`${path}/courses/:courseId/releases/:releaseId/publish-impact`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "release.publish");
+      const draft = await releaseOf(client, catalog, params(request).releaseId);
+      requireCondition(draft.status === "draft", "PUBLISHED_RELEASE_IMMUTABLE", 409);
+      const active = catalog.active_release_id ? await releaseOf(client, catalog, catalog.active_release_id) : null;
+      return publishImpact(client, catalog, active, draft);
     });
   });
   /** What differs between two releases of this course, by entity digest. */
@@ -1376,6 +1488,9 @@ export function registerAdminRoutes(
           // Invalidated evidence supersedes any gate decision that relied on it.
           await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [row.enrollment_id]);
           await refreshDecisionsForEnrollment(client, row.enrollment_id, input.assessmentId);
+          // A defective delayed check no longer moves the learner's review schedule.
+          const item = release.server_bundle.assessments.find((x) => x.id === input.assessmentId);
+          if (item && release.server_bundle.retention?.assessmentIds.includes(item.id)) await replayRetention(client, row.enrollment_id, item.objectiveIds);
           await appendEvent(client, { workspaceId: catalog.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff", type: "evidence.invalidated",
             payload: { assessmentId: input.assessmentId, reason: "item_defective", evidence: row.n, releaseId: release.id }, idempotencyKey: `defect:${release.id}:${input.assessmentId}:${row.enrollment_id}`, supervise: true });
           // A completed or closed course is not reopened; the amendment is audited and shown to the learner.
@@ -1665,6 +1780,32 @@ export function registerAdminRoutes(
     await transaction(db, (client) => recordReplay(client, actor, catalog, job, result));
     return result;
   });
+  /** Replays up to 20 of the course's latest finished supervisor runs that kept a plan, each in
+   * the same read-only sandbox as a single replay, with its own new replay id and audit receipt.
+   * Used after an upgrade or rule change to see which recorded runs today's rules still reproduce. */
+  app.post(`${path}/courses/:courseId/runs/replay`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({ limit: z.number().int().min(1).max(20).default(10), enrollmentId: uuid.optional() }), request.body ?? {});
+    const { catalog, results } = await sandboxed(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "run.inspect");
+      const ids = (await client.query<{ id: string }>(
+        `SELECT j.id FROM supervisor_jobs j JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id JOIN course_releases r ON r.id=e.course_release_id
+          WHERE j.workspace_id=$1 AND r.course_key=$2 AND j.role='supervisor' AND j.state IN ('applied','failed','cancelled') AND e.status<>'erased'
+            AND ($3::uuid IS NULL OR j.enrollment_id=$3)
+            AND EXISTS (SELECT 1 FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.content->>'kind'='supervised_plan')
+          ORDER BY j.updated_at DESC,j.id LIMIT $4`, [catalog.workspace_id, catalog.course_key, input.enrollmentId ?? null, input.limit])).rows;
+      const results = [];
+      for (const { id } of ids) {
+        const job = await courseRun(client, catalog, id);
+        results.push({ job, result: await replayRun(client, job) });
+      }
+      return { catalog, results };
+    });
+    await transaction(db, async (client) => { for (const { job, result } of results) await recordReplay(client, actor, catalog, job, result); });
+    const runs = results.map(({ job, result }) => ({ runId: job.id, replayRunId: result.replayRunId, outcome: result.outcome, reason: result.reason }));
+    return { runs, summary: { matches: runs.filter((r) => r.outcome === "matches").length, diverged: runs.filter((r) => r.outcome === "diverged").length,
+      notReplayable: runs.filter((r) => r.outcome === "not_replayable").length }, providerCalls: 0, progressWrites: "denied" as const };
+  });
   /** Runs of one enrollment (optionally of one episode), for the inspector opened from the
    * read-only learner view. Summaries only; the run view and payload keep their own rules. */
   app.get(`${path}/enrollments/:enrollmentId/runs`, async (request) => {
@@ -1800,9 +1941,9 @@ function registerAdminPolicyRoutes(
       ),
     );
   });
-  const daysSchema = z.strictObject({
+  // Days move a deadline; planned minutes and episodes raise a work cap; at least one is required.
+  const daysSchema = extensionAmountsSchema.extend({
     scopeId: z.string().min(1).max(200),
-    days: z.number().int().min(1).max(366),
   });
   app.post(`${enrollmentPath}/extensions/preview`, async (request) => {
     const actor = await auth.authenticate(request),
@@ -1818,13 +1959,15 @@ function registerAdminPolicyRoutes(
       return {
         enrollmentId: context.enrollment.id,
         scopeId: input.scopeId,
-        days: input.days,
+        days: input.days ?? null,
+        minutes: input.minutes ?? null,
+        episodes: input.episodes ?? null,
         revision: context.enrollment.revision,
         policyRevision: state.policyRevision,
         ledgerRevision: state.ledgerRevision,
         ...previewExtension(
           state,
-          extensionArgs(state, input.scopeId, input.days),
+          extensionRequest(state, input.scopeId, input),
         ),
       };
     });
@@ -1881,7 +2024,7 @@ function registerAdminPolicyRoutes(
         const now = new Date().toISOString(),
           offerId = randomUUID();
         const transition = proposeExtension(state, {
-          ...extensionArgs(state, input.scopeId, input.days),
+          ...extensionRequest(state, input.scopeId, input),
           now,
           offerId,
           expectedPolicyRevision: state.policyRevision,
@@ -2072,7 +2215,7 @@ function registerAdminPolicyRoutes(
   // audited authority, separate from learner-requested extensions and pools.
   const adjustmentSchema = z.strictObject({
     scopeId: z.string().min(1).max(200),
-    kind: z.enum(["accommodation", "approved_pause"]),
+    kind: z.enum(["accommodation", "approved_pause", "outage"]),
     change: z.strictObject({
       deadline: z.strictObject({ kind: z.enum(["absolute", "window"]), calendarDays: z.number().int().min(1).max(366) }).optional(),
       work: z.strictObject({ additionalMinutes: z.number().int().min(1).max(100000).optional(), additionalEpisodes: z.number().int().min(1).max(1000).optional() }).optional(),
@@ -2130,7 +2273,7 @@ function registerAdminPolicyRoutes(
         return {
           policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
           receipt: { id: audit.id, authority: "server", outcome: "accommodated" },
-          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
+          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : p.kind === "outage" ? "Outage adjustment applied to this learner only. Pools and other learners are unchanged." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
         };
       },
     );

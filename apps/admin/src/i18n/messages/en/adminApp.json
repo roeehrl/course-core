@@ -44,5 +44,9 @@
   "insecure.body": "Plain-http addresses outside Tailscale are trusted on this server. Sign-in traffic to them, including passwords and session cookies, is not encrypted. Only the server operator can turn the checks back on.",
   "demoDisclosure": "Public fictional data · in-memory changes · no live provider calls",
   "footer.motto": "Course Core / A little more understanding.",
-  "footer.authorization": "Server authorization governs every action."
+  "footer.authorization": "Server authorization governs every action.",
+  "nav.allowances": "Extensions & accommodations",
+  "nav.platform": "Platform",
+  "nav.integrations": "Integrations",
+  "nav.assessments": "Answer keys"
 }

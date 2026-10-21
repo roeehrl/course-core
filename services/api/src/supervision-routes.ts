@@ -136,9 +136,11 @@ export function registerSupervisionRoutes(
     const rows = (
       await db.query(
         `SELECT t.id,t.job_id AS "jobId",t.step,t.tool,t.outcome,t.created_at AS "createdAt",
-      j.state AS "jobState",e.plan_revision AS "appliedPlanRevision",m.proposal_id AS "modelProposalId",d.action AS "modelDecision",r.state AS "researchState"
+      j.state AS "jobState",e.plan_revision AS "appliedPlanRevision",m.proposal_id AS "modelProposalId",d.action AS "modelDecision",r.state AS "researchState",
+      w.status AS "pendingStatus"
       FROM supervisor_tool_calls t JOIN supervisor_jobs j ON j.id=t.job_id AND j.enrollment_id=t.enrollment_id AND j.workspace_id=t.workspace_id
       LEFT JOIN supervisor_plan_effects e ON e.job_id=t.job_id AND e.enrollment_id=t.enrollment_id AND e.workspace_id=t.workspace_id AND EXISTS(SELECT 1 FROM supervisor_artifacts a WHERE a.job_id=t.job_id AND a.enrollment_id=t.enrollment_id AND a.workspace_id=t.workspace_id AND a.content->>'kind'='supervised_plan' AND ((t.tool='choose_support' AND a.content->'selection'=t.outcome->'selection') OR (t.tool='create_teaching' AND a.content->'generatedTeaching'=t.outcome->'generatedTeaching')))
+      LEFT JOIN adaptation_pending_changes w ON w.job_id=t.job_id AND w.enrollment_id=t.enrollment_id AND t.tool='create_teaching' AND w.selection=t.outcome->'generatedTeaching'
       LEFT JOIN research_requests r ON r.id::text=t.outcome #>> '{researchSelection,requestId}' AND r.parent_job_id=t.job_id AND r.enrollment_id=t.enrollment_id AND r.workspace_id=t.workspace_id
       LEFT JOIN supervisor_model_effects m ON m.job_id=t.job_id AND m.enrollment_id=t.enrollment_id AND m.workspace_id=t.workspace_id AND t.tool='suggest_model' AND m.selection_digest=t.outcome->>'modelSuggestionDigest'
       LEFT JOIN LATERAL (SELECT c.action FROM learner_model_changes c WHERE c.proposal_id=m.proposal_id AND c.enrollment_id=t.enrollment_id AND c.workspace_id=t.workspace_id AND c.action<>'proposal.created' ORDER BY c.sequence DESC LIMIT 1) d ON true
@@ -162,7 +164,9 @@ export function registerSupervisionRoutes(
           failedCheckIds:r.tool==='check_teaching'?r.outcome.result?.failedCheckIds??[]:[],
           modelSuggestion: r.tool==='suggest_model'&&r.outcome.modelSuggestion!==undefined,
           delivery:
-            r.modelProposalId!==null ? (r.modelDecision==='proposal.accepted'?'learner_accepted':r.modelDecision==='proposal.corrected'?'learner_corrected':r.modelDecision==='proposal.disputed'?'learner_disputed':'pending_learner_review') : r.appliedPlanRevision !== null
+            // A generated change that waited for a safe point (E03): waiting, turned down or lapsed until added.
+            r.pendingStatus && r.appliedPlanRevision === null ? ({ waiting: 'waiting_for_safe_point', declined: 'learner_declined', lapsed: 'lapsed' } as Record<string, string>)[r.pendingStatus] ?? null
+            : r.modelProposalId!==null ? (r.modelDecision==='proposal.accepted'?'learner_accepted':r.modelDecision==='proposal.corrected'?'learner_corrected':r.modelDecision==='proposal.disputed'?'learner_disputed':'pending_learner_review') : r.appliedPlanRevision !== null
               ? "applied"
               : (r.outcome.result?.selected===true&&r.jobState==='applied'?'not_selected':r.outcome.result?.delivery ?? null),
         },

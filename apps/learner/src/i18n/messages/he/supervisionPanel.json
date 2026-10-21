@@ -60,5 +60,14 @@
   "context.sources": "הקשר: {count, plural, one {מקור אחד של הקורס.} two {שני מקורות של הקורס.} other {# מקורות של הקורס.}}",
   "context.events": "הקשר: {count, plural, one {אירוע למידה אחד · ההצעה לא מעניקה שליטה} two {שני אירועי למידה · ההצעה לא מעניקה שליטה} other {# אירועי למידה · ההצעה לא מעניקה שליטה}}",
   "timeline.empty": "עדיין לא הופעלו כלים של המפקח עבור ההרשמה הזו.",
-  "refresh": "רענון המידע של המפקח"
+  "refresh": "רענון המידע של המפקח",
+  "tool.propose_practice_check": "הציע בעיית תרגול חדשה",
+  "tool.list_visuals": "עיין בתמונות ובהנפשות של הקורס",
+  "tool.choose_visual": "בחר תמונה מהקורס להראות לך",
+  "tool.request_authority": "ביקש החלטה שאינו רשאי לקבל בעצמו",
+  "tool.compare_alternatives": "השווה בין שתי טיוטות",
+  "tool.choose_alternative": "שמר את הטיוטה הטובה יותר",
+  "status.waitingForSafePoint": "מוכן, וממתין לסיום השאלה הנוכחית. אפשר להוסיף אותו מהשיעור.",
+  "status.learnerDeclined": "דחית את זה. זה לא נוסף.",
+  "status.lapsed": "כבר לא זמין, ולכן לא נוסף."
 }

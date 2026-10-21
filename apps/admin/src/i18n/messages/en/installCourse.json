@@ -46,6 +46,9 @@
   "preview.heading": "<title>{title}</title> · version <version>{version}</version>",
   "blocking.title": "{count, plural, one {# blocking problem} other {# blocking problems}}",
   "warnings.title": "{count, plural, one {# warning} other {# warnings}}",
+  "older.title": "This is an older version",
+  "older.body": "Version {newest} of this course is already installed here, and this package is version {version}. Learners already on a release keep it. New learners get this version only if you publish it.",
+  "older.label": "I want to install the older version {version}",
   "fact.course": "Course",
   "fact.courseDigest": "Course digest",
   "fact.package": "Package",
@@ -103,5 +106,6 @@
   "steps.registryApproved": "Approved (digest {digest}).",
   "steps.registryConsent": "I approve the packaged recovery registry ({count, plural, one {# profile} other {# profiles}}, digest {digest}) for version {version}.",
   "steps.approveRegistry": "Approve recovery registry",
-  "steps.ownerMustApprove": "An owner or administrator must approve the registry."
+  "steps.ownerMustApprove": "An owner or administrator must approve the registry.",
+  "status.slow": "Still working. A large package takes longer on a slow connection; keep this window open."
 }

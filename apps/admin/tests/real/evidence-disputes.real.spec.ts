@@ -34,15 +34,15 @@ test("a reviewer resolves learners' evidence disputes without seeing their reaso
   // The learner's own words never reach the staff page.
   await expect(page.getByText(fixture.reason)).toHaveCount(0);
   expect(await page.content()).not.toContain(fixture.reason);
-  // A failed answer can only be invalidated.
+  // A failed answer can be kept as recorded (it grants nothing) or invalidated.
   await expect(
-    devon.getByRole("radio", { name: /Uphold the result/ }),
-  ).toBeDisabled();
-  await expect(
-    devon.getByRole("radio", { name: /Invalidate this evidence/ }),
+    devon.getByRole("radio", { name: /Keep the result/ }),
   ).toBeChecked();
+  await expect(
+    devon.getByText(/Keeping a result that did not pass changes nothing/),
+  ).toBeVisible();
 
-  const uphold = casey.getByRole("button", { name: "Uphold result" });
+  const uphold = casey.getByRole("button", { name: "Keep result" });
   await expect(uphold).toBeDisabled();
   await casey
     .getByLabel("Review note")
@@ -62,11 +62,12 @@ test("a reviewer resolves learners' evidence disputes without seeing their reaso
   await uphold.click();
   await expect(
     page.getByText(
-      "Result upheld for Casey Learner on minimum. The dispute is closed.",
+      "Result kept for Casey Learner on minimum. The dispute is closed.",
     ),
   ).toBeVisible();
   await expect(card(page, "Casey Learner")).toHaveCount(0);
 
+  await devon.getByRole("radio", { name: /Invalidate this evidence/ }).check();
   await devon
     .getByLabel("Review note")
     .fill("The answer does not meet the item; invalidated.");

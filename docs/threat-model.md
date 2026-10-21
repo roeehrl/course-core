@@ -99,7 +99,7 @@ reference. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 | Threat | Mitigation in code | Residual risk |
 | --- | --- | --- |
-| A user acts beyond their role | One permission matrix for owner, admin, author, instructor, reviewer, observer, support_observer, service and learner (`services/api/src/course-access.ts:8-99`); course-scoped members get permissions only through an unrevoked, unexpired grant checked per request (`course-access.ts:101-131`); the shared resolvers `resolveRole`/`permitCourse`/`workspaceRole`/`enrollmentRole` (`course-access.ts:124-188`); admins cannot manage owner, admin or service roles and nobody changes their own role (`people-routes.ts:30`, `people-routes.ts:53-57`, `people-routes.ts:246`) | — |
+| A user acts beyond their role | One permission matrix for owner, admin, author, instructor, reviewer, observer, support_observer, service and learner (`services/api/src/course-access.ts:8-99`); course-scoped members get permissions only through an unrevoked, unexpired grant checked per request (`course-access.ts:101-131`); the shared resolvers `resolveRole`/`permitCourse`/`workspaceRole`/`enrollmentRole` (`course-access.ts:124-188`); admins cannot manage owner, admin or service roles and nobody changes their own role (`people-routes.ts:30`, `people-routes.ts:53-57`, `people-routes.ts:246`). Every registered API route declares who may call it (`services/api/test/route-access.ts`), and `test/route-matrix.integration.test.ts` reads the route list from the server, fails on any route without an entry, and calls each route anonymously, with the service token and as every role and course grant over real HTTP and PostgreSQL | — |
 | Reading another learner's or workspace's records | Enrollment reads require an active membership; staff need the staff flag and an owner, admin or instructor role on that course; anyone else gets 404 (`repository.ts:43-58`); erased enrollments return 410 (`repository.ts:52`). All SQL is parameterised and filtered by `workspace_id` / `user_id` | Isolation is enforced in application code only. PostgreSQL row-level security is not used, so one missed filter in a new route is a cross-tenant leak with no database backstop |
 | Staff misuse of learner data | View-as-learner is owner/admin only, read-only, creates no learner session, and is recorded in the append-only `staff_learner_views` table and as an event the learner sees (`learner-view.ts:60-98`); the learner's private conversation, self-notes and learner model are withheld from staff (`learner-privacy.ts:1-11`, `learner-privacy.ts:36`, `learner-privacy.ts:152`); staff exports omit them (`data-lifecycle.ts:90-113`) | Owners and admins can still export a learner's record on request; that is audited but not prevented |
 | Research study data identifying a learner, or a learner placed in a study without agreeing | Joining is the learner's own explicit consent (never a staff action), separate from enrolling, and records a digest of the consent text shown (`services/api/src/study.ts`, `study-routes.ts`); the research export is owner/admin only, recorded in the append-only `study_exports` table and as a `study.exported` audit event, holds per-study salted pseudonyms, codes and numbers only (no names, emails, free text or chat), and suppresses arms below the study's minimum cell size together with the total; withdrawal removes the learner from later exports and erasure deletes their participation | A downloaded export is outside the system's control; with small cohorts, arm, timings and scores can still single out a known participant to someone who observed their session, so session sheets and exports are handled under the usability protocol (`docs/usability-protocol.md`) |
@@ -125,6 +125,7 @@ reference. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 | Threat | Mitigation in code | Residual risk |
 | --- | --- | --- |
 | Learner code escaping or attacking the host | Digest-pinned images per architecture (`packages/sandbox/src/index.ts:15-19`) with `@sha256:` required (`index.ts:95`) and `--pull=never`; `--network=none`, `--read-only`, `--cap-drop=ALL`, `no-new-privileges`, uid 65532, 128 MiB memory and no swap, 0.5 CPU, 32 pids, 64 files, no core dumps, a 16 MiB `noexec` tmpfs and a read-only work mount (`index.ts:80-83`); 5 s default timeout and 64 KiB output cap (`index.ts:93-98`); readiness checks for a Linux host with memory, pids and seccomp support (`index.ts:112-124`); the reference grader stays outside the container (SECURITY.md) | The API needs the Docker daemon, which is root-equivalent on the host. Isolation is runc with the default seccomp profile, with no gVisor or user namespaces. A kernel escape compromises the host |
+| Supervisor-generated code (exercise solutions, components) | Run only by the installed code evaluator in the sandbox above, at check, verification and delivery (`services/api/src/generated-content.ts`); in the browser a component runs only in the sandboxed Python runner frame below, and the page shows only its declared outputs as text (`apps/learner/src/connected/GeneratedComponent.web.tsx`); hidden tests stay server-side and out of the learner bundle and export | A component can use the learner's CPU until the runner's limits; its output can be wrong teaching (it never counts as evidence) |
 | Untrusted code in the application process | Course packages and provider output are never executed in the API (`course-package.ts:9`); activity scripts come only from extensions installed on the host and checked by integrity at startup (`activity-runtime.ts:59-64`, `main.ts:86`); visuals are declarative expression trees with numeric and evaluation budgets (`packages/visuals/src/expression.ts:3-27`) and their build is scanned for markup or script injection (`visuals-identity.ts:58`) | — |
 
 ### Sandboxed activity frames
@@ -179,7 +180,39 @@ reference. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 | Threat | Mitigation in code | Residual risk |
 | --- | --- | --- |
-| Learner text or secrets in logs or traces | Telemetry is off unless configured; every attribute passes an allowlist with value patterns (`services/supervisor/src/telemetry.ts:10-20`, `telemetry.ts:139-151`); HTTP spans carry the route template, method and status (`services/api/src/telemetry.ts:8-12`); browser trace headers are ignored (`telemetry.ts:20-23`); provider spans carry model, provider, token counts and outcome only (`telemetry.ts:42-61`); Fastify logging is off and auth routes are silent (`server.ts:102`, `auth.ts:175-255`); the pilot log keeps fixed codes and discards raw child output (`deploy/local/runtime.mjs:210-221`); the OTLP endpoint must be https or loopback http without credentials (`deploy/local/pilot.mjs`, `telemetryConfiguration`) | OTLP headers (for example a collector token) sit in `config.json` |
+| Learner text or secrets in logs or traces | Telemetry is off unless configured; every attribute passes an allowlist with value patterns (`services/supervisor/src/telemetry.ts:10-20`, `telemetry.ts:139-151`); HTTP spans carry the route template, method and status (`services/api/src/telemetry.ts:8-12`); a browser `traceparent` is only recorded as a span link, never adopted as the parent or used for sampling, and its `tracestate` is never read (`services/api/src/telemetry.ts`, `singleTraceparent` in `services/supervisor/src/telemetry.ts`); provider spans carry model, provider, token counts and outcome only (`telemetry.ts:42-61`); Fastify logging is off and auth routes are silent (`server.ts:102`, `auth.ts:175-255`); the pilot log keeps fixed codes and discards raw child output (`deploy/local/runtime.mjs:210-221`); the OTLP endpoint must be https or loopback http without credentials (`deploy/local/pilot.mjs`, `telemetryConfiguration`) | OTLP headers (for example a collector token) sit in `config.json` |
+
+#### End-to-end egress canary sweep
+
+`services/api/test/egress-canary-sweep.integration.test.ts` checks every outbound and shared path together, in one run, with real HTTP and PostgreSQL 17. It runs in the required API check (`npm run check:api`). The per-surface canary tests (telemetry, run inspector, retrieval, audit, research inspection, data lifecycle, release artifacts) still cover each path in depth. The sweep makes sure no path is left off the list.
+
+It plants random markers through the normal API:
+
+- learner chat and learner-model text
+- a display name
+- a private block in the course content
+- the provider credential
+- session cookies and CSRF tokens
+
+It then drives a scripted supervisor run and does staff research inspection and media search. It also opens the run inspector, reads the workspace audit and makes learner and staff exports. Last, it reads as another workspace, and as nobody signed in.
+
+Each marker is searched for in plain text, JSON-escaped, URL-encoded, hex and base64 (at every byte alignment). The paths checked are:
+
+| Path | Must not contain |
+| --- | --- |
+| Process output: stdout, stderr and console | any marker or session secret |
+| OpenTelemetry export: traces, metrics and request headers | any marker or session secret |
+| Research fetcher requests and media search queries | any marker |
+| Provider request bodies | account IDs, the credential, the service token or sessions. The opted-in learner's text, their display name and the course content are expected there. |
+| Run inspector default view and workspace audit | learner text, name or credential |
+| Staff copy of an export | learner chat and learner-model text |
+| Other-workspace and anonymous views; retrieval indexes outside the learner's own scope | any marker |
+| Database tables | the credential, session tokens or CSRF tokens in clear |
+| Release source (tracked files plus untracked files that are not ignored) | any marker |
+
+Positive controls show that each marker really travelled. The learner's text reaches the model, their own export and their own question index. The table scan finds it in `companion_messages`. A scanner test shows that each encoded form is caught.
+
+Residual risk: the sweep covers the paths that exist in this repository. A new outbound path, such as a new provider port, exporter or log sink, must be added to the sweep's channel list.
 
 ### Supply chain
 

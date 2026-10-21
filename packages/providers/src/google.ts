@@ -3,10 +3,11 @@ import { callOptionsSchema, id, imageRequestSchema, textRequestSchema, videoRequ
   type AccountingInput, type AssessmentRequest, type CallOptions, type Capability, type ImageJobProvider, type ImageOutput, type ImageRequest,
   type CapabilityPorts, type Json, type ModelConfig, type Operation, type ProviderAdapter, type ProviderResult, type ResearchOutput, type ResearchProvider, type StructuredAssessmentProvider,
   type TextRequest, type TutoringProvider, type UsageReceipt, type VideoJob, type VideoJobProvider, type VideoRequest,
-  type DownloadOptions, type VideoAsset, MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';
+  type DownloadOptions, type VideoAsset, MAX_VIDEO_DOWNLOAD_BYTES,
+  type CostEstimate, type MediaCapabilities, type MediaPrice, priceMediaUnits } from './contracts.js';
 import { googleVideoJobSchema, requireGoogleModel, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError, safeError } from './errors.js';
-import { candidate, imageOutput, operationOutput, researchOutput, responseText, validateOperationName } from './google-response.js';
+import { candidate, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, validateOperationName } from './google-response.js';
 import { abortable, abortScope, GoogleTransport, waitAbortable, type GoogleTransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -31,6 +32,45 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
     const model = this.#registry.list().find(m => m.id === modelId && m.providerId === this.#id && m.enabled);
     if (model) this.validateModel(model);
     return model ? model.capabilities : [];
+  }
+  /** Declared from trusted registry configuration and the provider's documentation: Veo keeps a
+   * generated video for 2 days; images are returned inline and nothing is stored (`store: false`). */
+  discoverCapabilities(modelId: string): MediaCapabilities {
+    const model = requireGoogleModel(this.#registry.list().find(m => m.id === modelId && m.providerId === this.#id && m.enabled)
+      ?? (() => { throw new ProviderError('CAPABILITY_MISMATCH'); })()), config = model.providerConfig;
+    const base = { modelId: model.id, providerId: this.#id, maxPromptCharacters: model.limits.maxInputCharacters };
+    if (config.transport === 'video_lro') return { ...base, kind: 'video', cancellation: 'local_abort_only', billing: 'per_output_second',
+      video: { durationSeconds: [...config.video.durationSeconds], aspectRatios: [...config.video.aspectRatios], resolutions: [...config.video.resolutions] },
+      retention: { outputHours: 48, providerStoresRequest: true } };
+    ensure(model.capabilities.includes('image'), 'CAPABILITY_MISMATCH');
+    if (config.transport === 'image_interaction') return { ...base, kind: 'image', cancellation: 'not_applicable', billing: 'per_image',
+      image: { aspectRatios: [...config.image.aspectRatios], imageSizes: [...config.image.imageSizes], mimeTypes: [...config.image.mimeTypes], maxImagesPerRequest: 1 },
+      retention: { outputHours: null, providerStoresRequest: false } };
+    return { ...base, kind: 'image', cancellation: 'not_applicable', billing: 'per_image',
+      image: { aspectRatios: [], imageSizes: [], mimeTypes: ['image/png', 'image/jpeg', 'image/webp'], maxImagesPerRequest: 1 },
+      retention: { outputHours: null, providerStoresRequest: false } };
+  }
+  estimateCost(input: VideoRequest | ImageRequest, price: MediaPrice | null): CostEstimate {
+    if ('durationSeconds' in input) {
+      const request = parse(videoRequestSchema, input), model = this.#require(request.modelId, 'video'), config = model.providerConfig;
+      ensure(config.transport === 'video_lro' && config.video.durationSeconds.includes(request.durationSeconds)
+        && config.video.aspectRatios.includes(request.aspectRatio) && config.video.resolutions.includes(request.resolution), 'CAPABILITY_MISMATCH');
+      return priceMediaUnits({ outputSeconds: request.durationSeconds, images: 0, requests: 1 }, price);
+    }
+    const request = parse(imageRequestSchema, input);
+    this.#imageSettings(this.#require(request.modelId, 'image'), request);
+    return priceMediaUnits({ outputSeconds: 0, images: 1, requests: 1 }, price);
+  }
+  /** Output settings for an image request; values the model does not declare are refused before sending. */
+  #imageSettings(model: GoogleResolvedModel, request: ImageRequest) {
+    const config = model.providerConfig;
+    if (config.transport !== 'image_interaction') {
+      ensure(request.aspectRatio === undefined && request.imageSize === undefined, 'CAPABILITY_MISMATCH');
+      return null;
+    }
+    const aspectRatio = request.aspectRatio ?? config.image.aspectRatios[0]!, imageSize = request.imageSize ?? config.image.imageSizes[0]!;
+    ensure((config.image.aspectRatios as string[]).includes(aspectRatio) && (config.image.imageSizes as string[]).includes(imageSize), 'CAPABILITY_MISMATCH');
+    return { aspectRatio, imageSize, mimeType: config.image.mimeTypes[0]!, maxImageBytes: config.image.maxImageBytes };
   }
   #usage(model: Pick<ModelConfig, 'id'>, operation: Operation, accounting: AccountingInput, inputCharacters = 0, maxOutputTokens: number | null = null, videoSeconds: number | null = null): UsageReceipt {
     return { accounting, providerId: this.#id, modelId: model.id, operation, attempts: [], inputCharacters,
@@ -87,6 +127,15 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
     const model = this.#require(request.modelId, 'image'), config = model.providerConfig;
     ensure(request.prompt.length <= model.limits.maxInputCharacters && request.maxOutputTokens <= (model.limits.maxOutputTokens ?? 0));
     const usage = this.#usage(model, 'image', request.accounting, request.prompt.length, request.maxOutputTokens);
+    const settings = this.#imageSettings(model, request);
+    if (settings) return this.#run(usage, async () => {
+      // Inline delivery and `store: false`: the image comes back in the response and the provider keeps no copy for retrieval.
+      const raw = await this.#transport.request(`/${config.apiVersion}/interactions`, 'POST', {
+        model: model.remoteModel, input: [{ type: 'text', text: request.prompt }], store: false,
+        response_format: { type: 'image', mime_type: settings.mimeType, aspect_ratio: settings.aspectRatio, image_size: settings.imageSize, delivery: 'inline' },
+      }, usage, config.maxResponseBytes, call);
+      const output = interactionImageOutput(raw, settings.maxImageBytes); usage.observedImageCount = output.images.length; return output;
+    });
     return this.#run(usage, async () => {
       const raw = await this.#transport.request(`/${config.apiVersion}/models/${model.remoteModel}:generateContent`, 'POST', {
         contents: [{ role: 'user', parts: [{ text: request.prompt }] }],

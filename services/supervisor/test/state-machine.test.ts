@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { createJob, transition, accounting, nextGeneration, resumable } from '../src/state-machine.js';
+import { createJob, transition, accounting, nextGeneration, resumable, refence } from '../src/state-machine.js';
 import { jobSpecSchema, jobCommandSchema, outcomeSchema, operationId, type Command } from '../src/contracts.js';
 import { specification, success, TestHost } from './fixtures.js';
 
@@ -241,4 +241,83 @@ test('parking waits for input or a due follow-up between calls, and a new genera
   assert.equal(resumable(uncertain.snapshot), false); assert.throws(() => nextGeneration(uncertain.snapshot), /not_resumable/);
   const done = new TestHost(); await done.transition({ type: 'halt', ref: done.ref, reason: 'cancel_requested' });
   assert.equal(resumable(done.snapshot), false);
+});
+
+/** A planner, two concurrent alternative builders and an evaluator (design §4 logical roles). */
+function teamSpecification() {
+  const base = specification(), cp = base.checkpoints[0]!;
+  return { ...base, budget: { microUsd: 400, tokens: 400 },
+    objective: { kind: 'teaching_action', objectiveIds: ['minimum'], refs: [randomUUID()] },
+    checkpoints: [
+      { ...cp, id: 'plan', logicalRole: 'planner' as const, phase: 'analyze' as const },
+      { ...cp, id: 'build-a', inputRef: randomUUID(), logicalRole: 'builder' as const, phase: 'build' as const, group: 'build' },
+      { ...cp, id: 'build-b', inputRef: randomUUID(), logicalRole: 'builder' as const, phase: 'build' as const, group: 'build' },
+      { ...cp, id: 'evaluate', inputRef: randomUUID(), logicalRole: 'evaluator' as const, phase: 'evaluate' as const },
+    ] };
+}
+test('the job record names its objective; groups of builders are consecutive, bounded and never the committing step', () => {
+  const spec = jobSpecSchema.parse(teamSpecification());
+  assert.deepEqual(spec.objective?.objectiveIds, ['minimum']);
+  // Specifications recorded before the objective existed still load.
+  assert.equal(jobSpecSchema.parse(specification()).objective, undefined);
+  assert.throws(() => jobSpecSchema.parse({ ...teamSpecification(), objective: { kind: 'teaching_action', objectiveIds: ['Not An Id'], refs: [] } }));
+  const cps = teamSpecification().checkpoints;
+  assert.throws(() => jobSpecSchema.parse({ ...teamSpecification(), checkpoints: [cps[1], cps[0], cps[2], cps[3]] }), /group_not_consecutive/);
+  assert.throws(() => jobSpecSchema.parse({ ...teamSpecification(), checkpoints: [cps[0], cps[1], cps[2]] }), /group_cannot_commit/);
+  const many = [1, 2, 3, 4].map(i => ({ ...cps[1]!, id: `build-${i}`, inputRef: randomUUID() }));
+  assert.throws(() => jobSpecSchema.parse({ ...teamSpecification(), checkpoints: [cps[0], ...many, cps[3]] }), /group_too_large/);
+});
+test('alternative builders run concurrently after the planner; the evaluator waits for both', async () => {
+  const h = new TestHost(teamSpecification() as never);
+  await assert.rejects(claim(h, 'build-a'), /checkpoint_order/);
+  await claim(h, 'plan'); assert.equal(h.snapshot.state, 'analyzing'); await settle(h);
+  assert.equal((await claim(h, 'build-a')).effect, 'invoke');
+  // The sibling builder needs no result from the first one.
+  assert.equal((await claim(h, 'build-b')).effect, 'invoke');
+  assert.equal(h.snapshot.state, 'building');
+  await assert.rejects(claim(h, 'evaluate'), /checkpoint_order/);
+  const a = h.snapshot.operations.find(o => o.checkpointId === 'build-a')!;
+  await h.transition({ type: 'settle', ref: h.ref, operationId: a.id, ownerId: a.ownerId, outcome: success() });
+  // One builder is still out: the job still shows building.
+  assert.equal(h.snapshot.state, 'building');
+  await assert.rejects(claim(h, 'evaluate'), /checkpoint_order/);
+  await settle(h);
+  assert.equal(h.snapshot.state, 'running');
+  await claim(h, 'evaluate'); assert.equal(h.snapshot.state, 'evaluating'); await settle(h);
+  await h.transition({ type: 'verify', ref: h.ref }); await h.transition({ type: 'apply', ref: h.ref });
+  assert.equal(h.snapshot.state, 'applied'); assert.equal(h.applications, 1);
+});
+test('concurrent builders share the job budget: a third reservation over budget waits', async () => {
+  const spec = { ...teamSpecification(), budget: { microUsd: 250, tokens: 250 } };
+  const h = new TestHost(spec as never);
+  await claim(h, 'plan'); await settle(h);
+  await claim(h, 'build-a');
+  // 25 settled + 100 out + 100 more = 225 fits; the evaluator's later 100 would not, but it waits for builders anyway.
+  assert.equal((await claim(h, 'build-b')).effect, 'invoke');
+  const tight = new TestHost({ ...teamSpecification(), budget: { microUsd: 200, tokens: 200 } } as never);
+  await claim(tight, 'plan'); await settle(tight); await claim(tight, 'build-a');
+  const refused = await claim(tight, 'build-b');
+  assert.equal(refused.snapshot.state, 'budget_wait'); assert.equal(refused.snapshot.reason, 'budget_exhausted');
+});
+test('a parked job ignores late steps of its old generation, may extend its deadline, and re-bases its fence only while parked', async () => {
+  const h = new TestHost();
+  await claim(h); await settle(h);
+  const now = Date.now(), later = now + 3 * 86_400_000;
+  await assert.rejects(h.transition({ type: 'park', ref: h.ref, reason: 'needs_input', deadlineAtMs: now + 1_000 }), /invalid_park_deadline/);
+  await assert.rejects(h.transition({ type: 'park', ref: h.ref, reason: 'needs_input', deadlineAtMs: now + 30 * 86_400_000 }), /invalid_park_deadline/);
+  await h.transition({ type: 'park', ref: h.ref, reason: 'needs_input', deadlineAtMs: later });
+  assert.equal(h.snapshot.specification.deadlineAtMs, later);
+  for (const step of [{ type: 'verify', ref: h.ref }, { type: 'apply', ref: h.ref }] as Command[]) {
+    const result = await h.transition(step);
+    assert.equal(result.effect, 'stop'); assert.equal(h.snapshot.state, 'needs_input'); assert.equal(h.applications, 0);
+  }
+  const fence = { ...h.snapshot.specification.fence, profileRevision: 2 };
+  const rebased = refence(h.snapshot, fence, now + 86_400_000, now);
+  assert.equal(rebased.specification.fence.profileRevision, 2);
+  // Never shortens the deadline it already had.
+  assert.equal(rebased.specification.deadlineAtMs, later);
+  const running = new TestHost(); await claim(running);
+  assert.throws(() => refence(running.snapshot, fence, now + 1_000, now), /not_refenceable/);
+  const queued = new TestHost();
+  assert.throws(() => refence(queued.snapshot, fence, now + 1_000, now), /not_refenceable/);
 });

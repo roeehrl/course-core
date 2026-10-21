@@ -169,8 +169,95 @@ export function ResearchView({
         port={client.research}
         releaseId={releaseId}
         permissions={data.permissions}
+        workspaceId={data.course.workspaceId}
       />
     </div>
+  );
+}
+
+/** Today's YouTube quota and a one-unit key check, so a live search never fails by surprise. */
+function YouTubeStatusCard({
+  port,
+  workspaceId,
+  canCheck,
+  refresh,
+}: {
+  port: Port;
+  workspaceId: string;
+  canCheck: boolean;
+  /** Changes after each saved search, so the counts follow it. */
+  refresh: unknown;
+}) {
+  const t = useT();
+  const { when } = useFormatters();
+  const status = useRemote(
+    (signal) => port.youtubeStatus!(workspaceId, signal),
+    [port, workspaceId, refresh],
+  );
+  const [check, setCheck] = useState<{
+    ok?: boolean;
+    error?: unknown;
+    pending?: boolean;
+  }>({});
+  if (!status.data) return null;
+  const s = status.data;
+  return (
+    <Card eyebrow={t("researchView.youtube.status.title")}>
+      {!s.configured ? (
+        <p>{t("researchView.youtube.status.notConfigured")}</p>
+      ) : (
+        <>
+          <p>
+            {t("researchView.youtube.status.usage", {
+              searches: s.searches.used,
+              searchLimit: s.searches.limit,
+              units: s.units.used,
+              unitLimit: s.units.limit,
+              when: when(s.resetsAt),
+            })}
+          </p>
+          {s.exhaustedByProvider && (
+            <Notice tone="gold">
+              {t("researchView.youtube.status.exhausted", {
+                when: when(s.resetsAt),
+              })}
+            </Notice>
+          )}
+          {canCheck && (
+            <div className="media-estimate" aria-live="polite">
+              <Button
+                disabled={check.pending}
+                onClick={async () => {
+                  setCheck({ pending: true });
+                  try {
+                    await port.youtubeCheck!(workspaceId);
+                    setCheck({ ok: true });
+                  } catch (error) {
+                    setCheck({ error });
+                  }
+                  status.reload();
+                }}
+              >
+                {t("researchView.youtube.status.check")}
+              </Button>
+              <p className="media-hint">
+                {t("researchView.youtube.status.checkHint")}
+              </p>
+              {check.ok && (
+                <Notice tone="green">
+                  {t("researchView.youtube.status.ok")}
+                </Notice>
+              )}
+              {check.error !== undefined && (
+                <Notice tone="red">
+                  {researchErrorMessage(check.error, t, when)}
+                </Notice>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -178,10 +265,12 @@ function ReleaseResearch({
   port,
   releaseId,
   permissions,
+  workspaceId,
 }: {
   port: Port;
   releaseId: string;
   permissions: CourseWorkspace["permissions"];
+  workspaceId?: string | undefined;
 }) {
   const t = useT();
   const { when } = useFormatters();
@@ -234,9 +323,19 @@ function ReleaseResearch({
       <div aria-live="polite">
         {command.message && <Notice tone="green">{command.message}</Notice>}
         {command.error !== undefined && (
-          <Notice tone="red">{researchErrorMessage(command.error, t)}</Notice>
+          <Notice tone="red">
+            {researchErrorMessage(command.error, t, when)}
+          </Notice>
         )}
       </div>
+      {port.youtubeStatus && workspaceId && (
+        <YouTubeStatusCard
+          port={port}
+          workspaceId={workspaceId}
+          canCheck={permissions.includes("provider.configure")}
+          refresh={command.message ?? command.error}
+        />
+      )}
       {lib.topics.length === 0 && (
         <Card title={t("researchView.topics.title")}>
           <EmptyState title={t("researchView.topics.empty.title")}>

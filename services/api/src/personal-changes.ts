@@ -6,7 +6,7 @@ import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
-import { revertPersonalChange } from "./adaptation-store.js";
+import { applyPendingChangeWithin, declinePendingChangeWithin, liveComponents, pendingChanges, revertPersonalChange, type AdaptationRuntime } from "./adaptation-store.js";
 import { transferChecks } from "./adaptation-transfer.js";
 
 /** Optional personal blocks the learner hid. Required changes are never hideable. */
@@ -35,10 +35,11 @@ export function changeProvenance(adapterIds: string[]): { provenance: "author_re
 export async function personalChanges(client: PoolClient, context: EnrollmentContext) {
   const rows = (
     await client.query(
-      `SELECT p.id,p.body,p.assignments,x.plan_revision,x.applied_at,r.reverted_at,r.plan_revision AS reverted_revision,
+      `SELECT p.id,p.body,p.assignments,x.plan_revision,x.applied_at,r.reverted_at,r.plan_revision AS reverted_revision,v.report AS validation,
          COALESCE((SELECT array_agg(DISTINCT f.adapter_id) FROM adaptation_proofs f WHERE f.proposal_id=p.id AND f.enrollment_id=p.enrollment_id),'{}') AS adapters
        FROM adaptation_applications x JOIN adaptation_proposals p ON p.id=x.proposal_id AND p.enrollment_id=x.enrollment_id
        LEFT JOIN adaptation_reverts r ON r.enrollment_id=x.enrollment_id AND r.proposal_id=x.proposal_id
+       LEFT JOIN adaptation_validation_reports v ON v.enrollment_id=x.enrollment_id AND v.proposal_id=x.proposal_id
        WHERE x.enrollment_id=$1 ORDER BY x.plan_revision`,
       [context.enrollment.id],
     )
@@ -58,7 +59,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
       .some((o) => (o.type === "replace_teaching" && (mine.has(`${o.episodeId}/${o.blockId}`) || mine.has(`${o.episodeId}/`))) || (o.type === "append_teaching" && mine.has(`${o.episodeId}/`))));
   };
   return rows.flatMap((row) => {
-    const artifacts = (row.body?.artifacts ?? []) as { id: string; kind: string; sourceRefs?: string[] }[];
+    const artifacts = (row.body?.artifacts ?? []) as { id: string; kind: string; sourceRefs?: string[]; assessment?: { id: string } }[];
     const { provenance, unverified } = changeProvenance(row.adapters as string[]);
     const reverted = Boolean(row.reverted_at);
     const hasVariant = artifacts.some((a) => a.kind === "assessment_variant");
@@ -77,6 +78,8 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         episodeTitle: titles[episodeId] ?? episodeId,
         blockId,
         kind: op.type,
+        // A generated question is labelled where the learner answers it, by its item ID.
+        ...(artifact?.kind === "assessment_variant" && artifact.assessment ? { assessmentId: artifact.assessment.id } : {}),
         why: typeof row.body?.rationale === "string" ? row.body.rationale : "",
         // A reverted change is no longer delivered; its classification comes from its recorded decision.
         classification: requirement?.classification
@@ -91,6 +94,9 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         }),
         // Later independent checks on what this change taught (outcome only; never evidence).
         transferChecks: checks.filter((c) => c.proposalId === row.id).map((c) => ({ objectiveId: c.objectiveId, status: c.status, ...(c.amendedFrom ? { amendedFrom: c.amendedFrom } : {}) })),
+        // What was checked before a generated change was added (check IDs and results only).
+        ...(row.validation ? { validation: { hostChecks: (row.validation.hostChecks ?? []).map((c: { id: string }) => c.id),
+          courseChecks: (row.validation.courseChecks?.checks ?? []).length, boundary: row.validation.boundary } } : {}),
         reverted,
         revertedAt: reverted ? new Date(row.reverted_at).toISOString() : null,
         revertable: !reverted && !hasVariant && op.type !== "suggest_profile_correction" && !blockedBy(row),
@@ -98,7 +104,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
     });
   });
 }
-export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, runtime: AdaptationRuntime) {
   const base = "/api/enrollments/:enrollmentId/personal-changes";
   const params = { type: "object", additionalProperties: false, required: ["enrollmentId"], properties: { enrollmentId: { type: "string", format: "uuid" } } };
   app.get(base, { schema: { params } }, async (request) => {
@@ -136,6 +142,40 @@ export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database,
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: input.hidden ? "personal_change.hidden" : "personal_change.restored", payload: { episodeId: input.episodeId, blockId: input.blockId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { episodeId: input.episodeId, blockId: input.blockId, hidden: input.hidden };
+    });
+  });
+  // Generated interactive components of live personal changes (E05): model and controls only, for
+  // the lesson to run in Core's sandboxed runner frame. Their tests stay server-side.
+  app.get("/api/enrollments/:enrollmentId/components", { schema: { params } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    return transaction(db, async (client) => ({ components: await liveComponents(client, await loadEnrollment(client, actor, enrollmentId)) }));
+  });
+  // Generated changes waiting for a safe boundary (E03): listed without their content; the learner
+  // adds one once their attempt ends (every check runs again) or turns it down.
+  app.get(`${base}/pending`, { schema: { params } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    return transaction(db, async (client) => {
+      const context = await loadEnrollment(client, actor, enrollmentId);
+      requireCondition(context.enrollment.user_id === actor.id, "LEARNER_ONLY", 403);
+      return { pending: await pendingChanges(client, context) };
+    });
+  });
+  const pendingBody = { type: "object", additionalProperties: false, required: ["expectedRevision", "idempotencyKey", "pendingId"],
+    properties: { expectedRevision: { type: "integer", minimum: 1 }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200, pattern: "^[A-Za-z0-9:_-]+$" },
+      pendingId: { type: "string", format: "uuid" } } };
+  app.post(`${base}/pending/apply`, { schema: { params, body: pendingBody } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string },
+      input = request.body as CommandInput & { pendingId: string };
+    return enrollmentCommand(db, actor, enrollmentId, "personal_change.pending.apply", input, (client, context) => applyPendingChangeWithin(client, context, actor, input.pendingId, runtime));
+  });
+  app.post(`${base}/pending/decline`, { schema: { params, body: pendingBody } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string },
+      input = request.body as CommandInput & { pendingId: string };
+    return enrollmentCommand(db, actor, enrollmentId, "personal_change.pending.decline", input, async (client, context) => {
+      const result = await declinePendingChangeWithin(client, context, actor, input.pendingId);
+      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "personal_change.declined",
+        payload: { pendingId: input.pendingId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      return result;
     });
   });
 }

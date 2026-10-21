@@ -262,7 +262,7 @@ describe("digest coverage", () => {
   const tombstoned = new Set([
     "admin_command_receipts.request_digest", "command_receipts.request_digest", "companion_context_capsules.digest",
     "gate_review_requests.request_digest", "learner_model_sources.event_digest", "media_command_receipts.request_digest",
-    "media_jobs.request_digest", "people_command_receipts.request_digest", "rubric_assist_requests.response_digest",
+    "media_jobs.request_digest", "media_storyboards.request_digest", "people_command_receipts.request_digest", "rubric_assist_requests.response_digest",
     "supervisor_model_effects.selection_digest", "supervisor_tool_calls.request_digest",
     // The observation an activity reported (076).
     "activity_observations.request_digest",
@@ -277,6 +277,7 @@ describe("digest coverage", () => {
     "learner_model_proposals.course_digest": "course version", "learning_events.course_digest": "course version",
     "teaching_hypotheses.course_digest": "course version", "rubric_assist_requests.rubric_digest": "course rubric",
     "rubric_reviews.rubric_digest": "course rubric", "extension_grants.terms_digest": "published offer terms",
+    "extension_offers.terms_digest": "published offer terms (projection of the policy ledger, 095)",
     "research_requests.query_digest": "approved public topic from the course bundle",
     "research_resource_choices.candidate_digest": "staff-reviewed public resource; the choice row itself is kept in clear",
     "agent_tool_grants.token_hash": "SHA-256 of a random 256-bit bearer token, not learner content; erasure revokes the grant",
@@ -296,9 +297,15 @@ describe("digest coverage", () => {
     "assessment_challenges.adaptation_artifact_digest": "generated personal teaching provenance chain",
     "research_candidates.digest": "generated artifact", "rubric_suggestions.digest": "generated artifact",
     "supervisor_artifacts.digest": "generated artifact",
+    // A published generated component and the text block it belongs to (migration 093).
+    "generated_components.digest": "generated artifact",
+    "generated_components.artifact_digest": "generated personal teaching provenance chain",
     // Digest of the staff-written consent text the learner agreed to; erasure deletes the row (085).
     "study_consent_changes.consent_digest": "staff-written study consent text; the row is deleted on erasure",
     "study_participants.consent_digest": "staff-written study consent text; the row is deleted on erasure",
+    // Grading provenance (097): digests of course content and evaluator builds, never of the answer.
+    "attempts.item_digest": "course item", "attempts.answer_key_digest": "course answer key or rubric", "attempts.evaluator_digest": "evaluator build",
+    "attempt_regrades.item_digest": "course item", "attempt_regrades.answer_key_digest": "course answer key or rubric", "attempt_regrades.evaluator_digest": "evaluator build",
   };
   it("every digest column over enrollment data is either tombstoned on erasure or kept for a stated reason", async () => {
     const columns = (await db.query(`SELECT c.table_name||'.'||c.column_name AS name FROM information_schema.columns c

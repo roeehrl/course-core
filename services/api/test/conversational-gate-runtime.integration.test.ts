@@ -358,7 +358,7 @@ describe("an unversioned 0.4 gate judged in conversation (conversationalEvaluato
   }, 60000);
 
   it("refuses a reply that reproduces the companion's words: a conversation turn can be quoted as evidence", async () => {
-    const who = await enroll(legacyCourse(`7.7.${versions++}`), false);
+    const who = await enroll(legacyCourse(`7.6.${versions++}`), false);
     const companion = "The kept value never exceeds any value seen so far because each comparison keeps the smaller one.";
     await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'assistant',$3,'{}')", [randomUUID(), who.enrollment, companion]);
     const attempt = await explain(who);
@@ -371,7 +371,7 @@ describe("an unversioned 0.4 gate judged in conversation (conversationalEvaluato
   }, 30000);
 
   it("does not count a conversation whose findings quote no learner words, even if a row claims to be reviewed", async () => {
-    const who = await enroll(legacyCourse(`7.6.${versions++}`), false);
+    const who = await enroll(legacyCourse(`7.7.${versions++}`), false);
     await passFamily(who);
     const attempt = await explain(who);
     // A forged row without cited spans (no server path writes one) is still not conversation evidence.

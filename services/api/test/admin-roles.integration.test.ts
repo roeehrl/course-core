@@ -113,17 +113,42 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   { name: "research requests", url: () => `/api/admin/releases/${release}/research`, allowed: STAFF_READERS },
   { name: "research library", url: () => `/api/admin/releases/${release}/research/library`, allowed: READ_COURSE },
   { name: "media jobs", url: () => `/api/admin/releases/${release}/media-jobs`, allowed: REVIEWERS },
+  { name: "media storyboards", url: () => `/api/admin/releases/${release}/media-storyboards`, allowed: REVIEWERS },
+  // Workspace-level, for those who may search (course.write); course-scoped grants do not reach it.
+  { name: "YouTube quota status", url: () => `/api/admin/workspaces/${workspace}/youtube`, allowed: ["owner", "admin", "author"] },
   { name: "adaptation registry", url: () => `/api/admin/releases/${release}/adaptation-registry`, allowed: ["owner", "admin"] },
   // The learner may download their own record from either prefix.
   { name: "staff data export", url: () => `/api/admin/enrollments/${enrollment}/export`, allowed: ["learner", "owner", "admin"] },
+  { name: "learning event export", url: () => `/api/admin/enrollments/${enrollment}/event-export`, allowed: ["learner", "owner", "admin"] },
   // Routes merged after the shared rule (#104 placement, #105 supervision, #97 policy) use it too.
   { name: "course placement", url: () => `/api/admin/courses/${catalog}/placement`, allowed: READ_COURSE },
   { name: "enrollment placement", url: () => `/api/admin/enrollments/${enrollment}/placement`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "service", "scoped_active", "scoped_reviewer"] },
   { name: "enrollment supervision", url: () => `/api/admin/enrollments/${enrollment}/supervision`, allowed: REVIEWERS },
+  // AI supervision settings, spending limits and authority decisions: owner and admin only (Q08, B06, B09).
+  { name: "supervision settings", url: () => `/api/admin/workspaces/${workspace}/supervision/settings`, allowed: ["owner", "admin"] },
+  { name: "supervision authority requests", url: () => `/api/admin/workspaces/${workspace}/supervision/requests`, allowed: ["owner", "admin"] },
+  { name: "learner AI spending limits", url: () => `/api/admin/workspaces/${workspace}/supervision/enrollments/${enrollment}/budget`, allowed: ["owner", "admin"] },
+  // The learner's own decisions and teaching actions: theirs alone.
+  { name: "learner supervision requests", url: () => `/api/enrollments/${enrollment}/supervision/requests`, allowed: ["learner"] },
+  // Policy levels and allowances (094-096): course reads follow policy.read on that course; the
+  // organization ceilings are workspace-wide, so a course grant never opens them.
+  { name: "organization ceilings", url: () => `/api/admin/workspaces/${workspace}/policy-ceilings`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer"] },
+  { name: "course allowances", url: () => `/api/admin/courses/${catalog}/allowances`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  { name: "accommodation batches", url: () => `/api/admin/courses/${catalog}/accommodations/batches`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  { name: "enrollment policy revisions", url: () => `/api/admin/enrollments/${enrollment}/policy-revisions`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  // The continuation track is the learner's own choice.
+  { name: "continuation track", url: () => `/api/enrollments/${enrollment}/continuation`, allowed: ["learner"] },
   // Learner-owned reads that staff read roles may also open, under the learner-privacy rule.
   { name: "learner model", url: () => `/api/enrollments/${enrollment}/learner-model`, allowed: ["learner", ...STAFF_READERS] },
   { name: "learner hypotheses", url: () => `/api/enrollments/${enrollment}/learner-model/hypotheses`, allowed: ["learner", ...STAFF_READERS] },
   { name: "enrollment events", url: () => `/api/enrollments/${enrollment}/events`, allowed: ["learner", ...STAFF_READERS] },
+  // Workspace operations (Q11, Q12, U04): owners and administrators only; the audit file is
+  // a separate permission from reading the log on the page.
+  { name: "platform readiness", url: () => `/api/admin/workspaces/${workspace}/platform-readiness`, allowed: ["owner", "admin"] },
+  { name: "integrations", url: () => `/api/admin/workspaces/${workspace}/integrations`, allowed: ["owner", "admin"] },
+  { name: "billed statements", url: () => `/api/admin/workspaces/${workspace}/billing-statements`, allowed: ["owner", "admin"] },
+  { name: "audit export", url: () => `/api/admin/workspaces/${workspace}/audit/export?format=json&from=2026-01-01&to=2026-12-31`, allowed: ["owner", "admin"] },
+  { name: "policy history", url: () => `/api/admin/courses/${catalog}/policy-history`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
   // The companion conversation is private to the learner: no staff role reads it.
   { name: "companion chat", url: () => `/api/enrollments/${enrollment}/companion`, allowed: ["learner"] },
 ];

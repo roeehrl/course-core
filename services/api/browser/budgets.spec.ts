@@ -1,8 +1,8 @@
 // Performance and memory budgets for the connected learner (requirements T01/T02).
-// These are regression guards on the CI runner, not proof of the product targets:
-// each budget is several times the value measured locally and on CI, so a pass means
-// "no gross regression", and a failure means something became markedly slower or
-// started leaking. Measured values are attached to every run as `budgets.json`.
+// Navigation, answer feedback and command acknowledgement are asserted against the T01
+// product targets themselves (200 / 300 / 500 ms), measured over loopback against a local
+// API, so they exclude real network latency. Load and memory budgets stay loose regression
+// guards. Measured values are attached to every run as `budgets.json`.
 // The thresholds and the measurements behind them are documented in docs/performance-budgets.md.
 // Heap figures need the Chrome DevTools Protocol, so they are asserted on Chromium only;
 // the timing budgets also run on WebKit and Firefox through playwright.engines.config.ts.
@@ -14,10 +14,18 @@ const BUDGETS = {
    * card's heading, which needs the API's course list, is in the DOM. */
   coldCourseListMs: 3_000,
   /** Median press of "Continue learning →" on the roadmap until the lesson heading
-   * (which needs the lesson data) has replaced the roadmap. The slowest press may take 3x. */
-  lessonNavigationMs: 500,
-  /** Median press of the roadmap button in a lesson until the roadmap is back (slowest: 3x). */
-  roadmapNavigationMs: 500,
+   * (which needs the lesson data) has replaced the roadmap: the T01 navigation target.
+   * The slowest press may take 3x. */
+  lessonNavigationMs: 200,
+  /** Median press of the roadmap button in a lesson until the roadmap is back: the T01
+   * navigation target (slowest: 3x). */
+  roadmapNavigationMs: 200,
+  /** Press of "Check answer" until the result is on screen: the T01 feedback target. Every
+   * answer must meet it. */
+  feedbackMs: 300,
+  /** Press of a lesson command (mark a part read, start a check) until the server's
+   * acknowledgement has arrived: the T01 command acknowledgement target. Every command must meet it. */
+  commandAckMs: 500,
   /** Chromium JS heap in use after a forced garbage collection, after all navigations. */
   heapAfterNavigationsBytes: 64 * 1024 * 1024,
   /** Growth of that heap between the first lesson and the end of the round trips. */
@@ -50,6 +58,55 @@ async function timedPress(page: Page, button: RegExp, done: "lesson" | "roadmap"
         requestAnimationFrame(tick);
       }),
     { source: button.source, flags: button.flags, done },
+  );
+}
+
+/** Presses a button and resolves, on the first animation frame where `text` is on the page, with
+ * the elapsed milliseconds (the feedback a learner sees after answering). */
+async function timedFeedback(page: Page, button: RegExp, text: string) {
+  return page.evaluate(
+    ({ source, flags, text }) =>
+      new Promise<number>((resolve, reject) => {
+        const pattern = new RegExp(source, flags);
+        const target = [...document.querySelectorAll("button")].find((b) => pattern.test(b.textContent ?? "") && b.offsetParent !== null);
+        if (!target) return reject(new Error(`no visible button ${source}`));
+        const started = performance.now();
+        target.click();
+        const deadline = started + 20_000;
+        const tick = () => {
+          if (document.body.innerText.includes(text)) resolve(performance.now() - started);
+          else if (performance.now() > deadline) reject(new Error(`${text} did not appear`));
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    { source: button.source, flags: button.flags, text },
+  );
+}
+
+/** Presses a button that sends a lesson command and resolves with the time until the response to
+ * the POST whose path ends in `action` has fully arrived (Resource Timing `responseEnd`). */
+async function timedAck(page: Page, button: RegExp, action: string) {
+  return page.evaluate(
+    ({ source, flags, action }) =>
+      new Promise<number>((resolve, reject) => {
+        const pattern = new RegExp(source, flags);
+        const target = [...document.querySelectorAll("button")].find((b) => pattern.test(b.textContent ?? "") && b.offsetParent !== null);
+        if (!target) return reject(new Error(`no visible button ${source}`));
+        const started = performance.now();
+        const ending = new RegExp(`/api/enrollments/[^/]+/${action}$`);
+        target.click();
+        const deadline = started + 20_000;
+        const tick = () => {
+          const entry = (performance.getEntriesByType("resource") as PerformanceResourceTiming[])
+            .find((e) => e.startTime >= started && ending.test(new URL(e.name).pathname) && e.responseEnd > 0);
+          if (entry) resolve(entry.responseEnd - started);
+          else if (performance.now() > deadline) reject(new Error(`no ${action} response`));
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    { source: button.source, flags: button.flags, action },
   );
 }
 
@@ -111,6 +168,22 @@ test("the connected learner stays within its load, navigation and memory budgets
   }
   const heapLast = await heapUsed();
 
+  // Feedback and command acknowledgement on the lesson's two checks.
+  const feedback: number[] = [], ack: number[] = [];
+  ack.push(await timedAck(page, /^Mark this part read$/, "read"));
+  await expect(page.getByRole("button", { name: "Start the next check →", exact: true })).toBeVisible();
+  ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
+  await expect(page.getByText("Which is smaller?", { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: "2", exact: true }).click();
+  feedback.push(await timedFeedback(page, /^Check answer$/, "Correct. 2 is below 5."));
+  ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
+  const box = page.getByRole("textbox", { name: "Your numeric answer", exact: true });
+  await box.fill("4");
+  // WebKit sometimes delivers no input to a freshly shown field; fill once more (as learner.spec.ts).
+  if ((await box.inputValue()) !== "4") await box.fill("4");
+  await expect(box).toHaveValue("4");
+  feedback.push(await timedFeedback(page, /^Check answer$/, "Your independent checks are complete."));
+
   // The median is the budgeted figure; the worst case is bounded at three times the budget.
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? Number.NaN;
   const measured = {
@@ -119,6 +192,7 @@ test("the connected learner stays within its load, navigation and memory budgets
     lessonNavigationMs: { median: Math.round(median(lesson)), max: Math.round(Math.max(...lesson)) },
     roadmapNavigationMs: { median: Math.round(median(roadmap)), max: Math.round(Math.max(...roadmap)) },
     heapFirstLessonBytes: heapFirst, heapAfterNavigationsBytes: heapLast,
+    feedbackMs: feedback.map(Math.round), commandAckMs: ack.map(Math.round),
   };
   await testInfo.attach("budgets.json", { body: JSON.stringify({ measured, budgets: BUDGETS }, null, 2), contentType: "application/json" });
   console.log(`budgets ${JSON.stringify(measured)}`);
@@ -128,6 +202,8 @@ test("the connected learner stays within its load, navigation and memory budgets
   expect(Math.max(...lesson), "slowest roadmap → lesson").toBeLessThan(3 * BUDGETS.lessonNavigationMs);
   expect(median(roadmap), "median lesson → roadmap").toBeLessThan(BUDGETS.roadmapNavigationMs);
   expect(Math.max(...roadmap), "slowest lesson → roadmap").toBeLessThan(3 * BUDGETS.roadmapNavigationMs);
+  for (const value of feedback) expect(value, "check answer → result on screen").toBeLessThan(BUDGETS.feedbackMs);
+  for (const value of ack) expect(value, "lesson command → server acknowledgement").toBeLessThan(BUDGETS.commandAckMs);
   if (browserName === "chromium") {
     expect(heapFirst, "heap measured").not.toBeNull();
     expect(heapLast!, "JS heap after navigations").toBeLessThan(BUDGETS.heapAfterNavigationsBytes);

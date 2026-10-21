@@ -155,3 +155,31 @@ test("an answer draft survives closing the tab", async ({ page, context }) => {
     reopened.getByRole("radio", { name: "2", exact: true }),
   ).toBeChecked();
 });
+
+test("slow network: a slow answer says the server is slow, is never sent twice, and is recorded once (I06)", async ({
+  page,
+}) => {
+  await openCheck(page);
+  const posts = answerPosts(page);
+  // The server takes 9 s to answer (a slow mobile connection).
+  await page.route(
+    "**/answers",
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 9000));
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  await check.click();
+  const status = page.locator(".connected-connection");
+  await expect(status).toContainText("The server is slow to answer.", {
+    timeout: 8000,
+  });
+  // While it waits, the learner cannot send the same answer again.
+  await expect(check.and(page.locator(":enabled"))).toHaveCount(0);
+  await expect(status).toHaveCount(0, { timeout: 15000 });
+  expect(posts.keys).toHaveLength(1);
+  expect(posts.confirmed).toEqual([200]);
+  expect(await answeredChecks(page)).toBe(1);
+});

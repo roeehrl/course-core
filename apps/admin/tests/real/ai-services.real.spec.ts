@@ -224,7 +224,8 @@ for (const locale of ["en", "he"] as Locale[]) {
     await expect(row.locator("bdi[dir=ltr]").first()).toHaveText("7Q2c");
     await expect(row).toContainText(t("row.working"));
 
-    // Models: the suggestion for each needed job is prefilled; saving waits for a quality check.
+    // Models: the suggestion for each needed job is prefilled; saving waits for a quality check
+    // of both jobs (every agent role is gated on an evaluated revision, N07).
     const tutor = page.getByLabel(
       t("models.modelFor", { job: t("role.companion.name") }),
     );
@@ -238,10 +239,10 @@ for (const locale of ["en", "he"] as Locale[]) {
     ).toContainText("gemini-9.0-flash");
     await page.getByRole("button", { name: t("models.save") }).click();
     await expect(
-      page.getByText(t("models.savedWaiting", { count: 1 })),
+      page.getByText(t("models.savedWaiting", { count: 2 })),
     ).toBeVisible();
     await expect(
-      status.getByRole("link", { name: t("issue.check", { count: 1 }) }),
+      status.getByRole("link", { name: t("issue.check", { count: 2 }) }),
     ).toBeVisible();
     await expect(
       status.getByRole("link", { name: t("issue.prices", { count: 1 }) }),
@@ -270,17 +271,20 @@ for (const locale of ["en", "he"] as Locale[]) {
       .click();
     await expect(spending.getByText(t("spending.saved"))).toBeVisible();
 
-    // Quality check: the owner runs it from the page. It shows the estimate first (9 practice
-    // conversations of 3000 input and 600 output tokens at $0.30 / $2.50 per million), runs on the
-    // server against the synthetic model, passes, and the waiting model is turned on.
+    // Quality check: the owner runs it from the page. It shows the estimate first (11 practice
+    // conversations at $0.30 / $2.50 per million tokens: nine tutor calls of 3000 input and 600
+    // output tokens, $0.0024 each, and two supervisor tool-loop conversations of three rounds each
+    // (two tool results, then the answer) whose input grows by 1000 tokens a round, 12000 input
+    // and 1800 output tokens, $0.0081 each), runs on the server against the synthetic model,
+    // passes, and the waiting model is turned on.
     const check = page.locator("#ai-check");
-    await expect(check).toContainText(t("check.notChecked", { count: 1 }));
+    await expect(check).toContainText(t("check.notChecked", { count: 2 }));
     await expect(check.locator("bdi[dir=ltr]").first()).toHaveText(
       "gemini-9.0-flash",
     );
     await expect(
       check.getByText(
-        t("check.run.estimate", { count: 9, amount: x.money(0.0216) }),
+        t("check.run.estimate", { count: 11, amount: x.money(0.0378) }),
       ),
     ).toBeVisible();
     // Approving without a check is still there, folded away as the secondary choice.
@@ -360,7 +364,7 @@ test("an administrator cannot approve without a check; a connection in use canno
   await expect(page.locator(".ai-connection")).toContainText(t("row.keySaved"));
   await page.getByRole("button", { name: t("models.save") }).click();
   await expect(
-    page.getByText(t("models.savedWaiting", { count: 1 })),
+    page.getByText(t("models.savedWaiting", { count: 2 })),
   ).toBeVisible();
   const check = page.locator("#ai-check");
   await expect(check.getByText(t("check.approveOwnersOnly"))).toBeVisible();
@@ -437,7 +441,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     });
     await models.getByRole("button", { name: t("models.save") }).click();
     await expect(
-      page.getByText(t("models.savedWaiting", { count: 1 })),
+      page.getByText(t("models.savedWaiting", { count: 2 })),
     ).toBeVisible();
 
     // Prices: filled in from Google's pricing page with its date; the owner confirms with Save.

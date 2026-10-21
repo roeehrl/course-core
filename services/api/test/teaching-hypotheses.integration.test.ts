@@ -139,8 +139,12 @@ describe('trigger table at runtime', () => {
     expect(signal.rule_ids).toEqual(['T7']);
     expect(signal.recommendations.map((x: { action: string }) => x.action)).toEqual(['worked_example']);
     expect(signal.restraints).toContain('abstain_is_not_a_misconception');
-    expect(signal.effects).toEqual([]);
+    // No hypothesis; Core starts the worked example it recommends as supervisor work (B03).
+    expect(signal.effects).toEqual([{ kind: 'start_action', action: 'worked_example', actionId: expect.any(String) }]);
     expect((await view(learner, id)).items).toHaveLength(0);
+    const action = (await db.query("SELECT action,state,origin,rule_id,event_id FROM teaching_actions WHERE enrollment_id=$1", [id])).rows;
+    expect(action).toEqual([expect.objectContaining({ action: 'worked_example', state: 'started', origin: 'trigger', rule_id: 'T7' })]);
+    expect((await db.query("SELECT event_type,actor_kind FROM learning_events WHERE id=$1", [action[0].event_id])).rows[0]).toEqual({ event_type: 'teaching.action_started', actor_kind: 'system' });
   });
   it('a linked wrong answer proposes, a repeat probes, and the probe never counts as evidence', async () => {
     const { learner, id } = await enroll();

@@ -5,6 +5,9 @@ import base from './playwright.config.js';
 export default defineConfig({
   ...base,
   use: { ...base.use, channel: undefined },
+  // Passkey journeys need Chromium's CDP virtual authenticator, and the renderer health check
+  // Chromium's DevTools protocol; the Chromium run covers both.
+  testIgnore: ['**/passkey.spec.ts', '**/renderer-health.spec.ts'],
   projects: [
     { name: 'webkit-desktop', use: { browserName: 'webkit', viewport: { width: 1440, height: 960 } } },
     { name: 'webkit-iphone', use: { ...devices['iPhone 15'], browserName: 'webkit' } },

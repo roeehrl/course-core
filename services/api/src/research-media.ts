@@ -12,8 +12,12 @@ import {
 import type { ReviewedSource, SourceInspection } from "@course-core/research";
 import {
   createYouTubeSearch,
+  quotaDay,
+  quotaResetsAt,
   ResearchError,
+  YOUTUBE_QUOTA,
   YouTubeSearchError,
+  type YouTubeSearchErrorCode,
   type YouTubeSearchHit,
   type YouTubeSearchResult,
 } from "@course-core/research/node";
@@ -24,14 +28,14 @@ import type { authService } from "./auth.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, loadEnrollment } from "./repository.js";
-import { permitRelease } from "./course-access.js";
+import { permitCourse, permitRelease } from "./course-access.js";
 
 /** The provider-setup credential binding an admin uses for the YouTube Data API key.
  * Keys are entered only in the admin provider screen and are sealed server-side. */
 export const YOUTUBE_SEARCH_CREDENTIAL = "COURSE_PROVIDER_YOUTUBE_DATA_API_KEY";
 export interface YouTubeSearchPort {
   /** Undefined when the workspace has no key: search is then unavailable, never keyless. */
-  forWorkspace(workspaceId: string): Promise<{ search(query: unknown, signal?: AbortSignal): Promise<YouTubeSearchResult> } | undefined>;
+  forWorkspace(workspaceId: string): Promise<{ search(query: unknown, signal?: AbortSignal): Promise<YouTubeSearchResult>; check?(signal?: AbortSignal): Promise<{ ok: true }> } | undefined>;
 }
 export function workspaceYouTubeSearch(
   credential: (workspaceId: string, name: string) => Promise<string | undefined>,
@@ -303,14 +307,98 @@ export async function recentSearches(client: Database | PoolClient, releaseId: s
     [releaseId, workspaceId])).rows;
   return rows.map((row) => searchView(row, bundle.research?.publicTopics.find((t) => t.id === row.topic_id)?.objectiveIds ?? []));
 }
-function searchFailure(error: unknown): never {
-  if (error instanceof YouTubeSearchError)
-    throw new ApiError(error.searchCode === "SEARCH_QUOTA" ? 429 : error.searchCode === "SEARCH_UNAUTHORIZED" ? 409 : 502, "YOUTUBE_" + error.searchCode);
+/** Each refusal as a stable code an admin can act on; the reset time travels with a quota stop. */
+function searchFailure(error: unknown, now: Date): never {
+  if (error instanceof YouTubeSearchError) {
+    const status = error.searchCode === "SEARCH_QUOTA" || error.searchCode === "SEARCH_RATE_LIMITED" ? 429
+      : error.searchCode === "SEARCH_FAILED" ? 502 : 409;
+    throw new ApiError(status, "YOUTUBE_" + error.searchCode, undefined, error.searchCode === "SEARCH_QUOTA"
+      ? { resetsAt: quotaResetsAt(now).toISOString() }
+      : error.retryAfterMs !== null ? { retryAfterSeconds: Math.ceil(error.retryAfterMs / 1000) } : undefined);
+  }
   if (error instanceof ResearchError) throw new ApiError(error.code === "INVALID_INPUT" ? 400 : 502, "YOUTUBE_SEARCH_" + error.code);
   throw error;
 }
 
+/** The workspace's daily YouTube Data API limits: its own settings, else Google's default allocation. */
+async function quotaLimits(client: Database | PoolClient, workspaceId: string) {
+  const row = (await client.query<{ daily_units: number; daily_searches: number }>(
+    "SELECT daily_units,daily_searches FROM youtube_quota_settings WHERE workspace_id=$1", [workspaceId])).rows[0];
+  return { units: row?.daily_units ?? YOUTUBE_QUOTA.defaultDailyUnits, searches: row?.daily_searches ?? YOUTUBE_QUOTA.defaultDailySearches };
+}
+/** Reserves the quota of one operation before it is sent. Units are never returned: Google charges
+ * every request, refused ones included. Refuses with the reset time when the day is used up. */
+export async function reserveYouTubeQuota(db: Database, workspaceId: string, units: number, searches: number, now = new Date()) {
+  const day = quotaDay(now), resetsAt = quotaResetsAt(now).toISOString();
+  return transaction(db, async (client) => {
+    const limits = await quotaLimits(client, workspaceId);
+    await client.query("INSERT INTO youtube_quota_usage(workspace_id,quota_day) VALUES($1,$2) ON CONFLICT DO NOTHING", [workspaceId, day]);
+    const used = (await client.query<{ units: number; searches: number; exhausted_at: Date | null }>(
+      "SELECT units,searches,exhausted_at FROM youtube_quota_usage WHERE workspace_id=$1 AND quota_day=$2 FOR UPDATE", [workspaceId, day])).rows[0]!;
+    if (used.exhausted_at || used.units + units > limits.units || used.searches + searches > limits.searches)
+      throw new ApiError(429, "YOUTUBE_QUOTA_EXHAUSTED", undefined, { resetsAt });
+    await client.query("UPDATE youtube_quota_usage SET units=units+$3,searches=searches+$4,updated_at=clock_timestamp() WHERE workspace_id=$1 AND quota_day=$2",
+      [workspaceId, day, units, searches]);
+  });
+}
+/** Google reported the project's quota used up: nothing more is sent until the day ends. */
+async function markQuotaExhausted(db: Database, workspaceId: string, now: Date) {
+  await db.query(`INSERT INTO youtube_quota_usage(workspace_id,quota_day,exhausted_at) VALUES($1,$2,clock_timestamp())
+    ON CONFLICT (workspace_id,quota_day) DO UPDATE SET exhausted_at=COALESCE(youtube_quota_usage.exhausted_at,clock_timestamp()),updated_at=clock_timestamp()`,
+  [workspaceId, quotaDay(now)]);
+}
+async function quotaStatus(db: Database, workspaceId: string, configured: boolean, now = new Date()) {
+  const limits = await quotaLimits(db, workspaceId), day = quotaDay(now);
+  const used = (await db.query<{ units: number; searches: number; exhausted_at: Date | null }>(
+    "SELECT units,searches,exhausted_at FROM youtube_quota_usage WHERE workspace_id=$1 AND quota_day=$2", [workspaceId, day])).rows[0];
+  return { configured, quotaDay: day, resetsAt: quotaResetsAt(now).toISOString(),
+    units: { used: used?.units ?? 0, limit: limits.units }, searches: { used: used?.searches ?? 0, limit: limits.searches },
+    exhaustedByProvider: Boolean(used?.exhausted_at), grantsCredit: false };
+}
+const quotaSettingsBody = z.strictObject({ dailyUnits: z.number().int().min(1).max(100_000_000), dailySearches: z.number().int().min(1).max(1_000_000) });
+
 export function registerResearchMediaRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, search?: YouTubeSearchPort) {
+  const workspaceParams = { type: "object", additionalProperties: false, required: ["workspaceId"], properties: { workspaceId: uuid } };
+  /** Today's YouTube quota use and limits, and whether a key is configured (never the key). */
+  app.get("/api/admin/workspaces/:workspaceId/youtube", { schema: { params: workspaceParams } }, async (request) => {
+    const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
+    await permitCourse(db, actor, workspaceId, null, "course.write");
+    return quotaStatus(db, workspaceId, Boolean(await search?.forWorkspace(workspaceId)));
+  });
+  /** Owners set the daily limits their Google Cloud project actually has (raised allocations). */
+  app.post("/api/admin/workspaces/:workspaceId/youtube/quota", { schema: { params: workspaceParams }, bodyLimit: 1024 }, async (request) => {
+    const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
+    const body = quotaSettingsBody.safeParse(request.body);
+    requireCondition(body.success, "INVALID_INPUT", 400);
+    return transaction(db, async (client) => {
+      await permitCourse(client, actor, workspaceId, null, "provider.configure");
+      await client.query(`INSERT INTO youtube_quota_settings(workspace_id,daily_units,daily_searches,updated_by) VALUES($1,$2,$3,$4)
+        ON CONFLICT (workspace_id) DO UPDATE SET daily_units=EXCLUDED.daily_units,daily_searches=EXCLUDED.daily_searches,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()`,
+      [workspaceId, body.data.dailyUnits, body.data.dailySearches, actor.id]);
+      await appendEvent(client, { workspaceId, actorId: actor.id, actorKind: "staff", type: "research.youtube.quota_set",
+        payload: { dailyUnits: body.data.dailyUnits, dailySearches: body.data.dailySearches }, idempotencyKey: "youtube-quota:" + randomUUID() });
+      return { dailyUnits: body.data.dailyUnits, dailySearches: body.data.dailySearches };
+    }).then(async (saved) => ({ ...saved, status: await quotaStatus(db, workspaceId, Boolean(await search?.forWorkspace(workspaceId))) }));
+  });
+  /** Test before relying on it: one cheap call (1 unit) that proves the key works and the API is
+   * enabled. It sends no course or learner text. */
+  app.post("/api/admin/workspaces/:workspaceId/youtube/check", { schema: { params: workspaceParams }, bodyLimit: 1024 }, async (request) => {
+    const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
+    await permitCourse(db, actor, workspaceId, null, "provider.configure");
+    const client = await search?.forWorkspace(workspaceId);
+    requireCondition(client?.check, "YOUTUBE_SEARCH_NOT_CONFIGURED", 409);
+    await reserveYouTubeQuota(db, workspaceId, YOUTUBE_QUOTA.checkUnits, 0);
+    let failure: string | null = null;
+    try { await client.check(); }
+    catch (error) {
+      if (error instanceof YouTubeSearchError && error.searchCode === "SEARCH_QUOTA") await markQuotaExhausted(db, workspaceId, new Date());
+      failure = error instanceof YouTubeSearchError ? "YOUTUBE_" + error.searchCode : "YOUTUBE_SEARCH_FAILED";
+    }
+    await transaction(db, (tx) => appendEvent(tx, { workspaceId, actorId: actor.id, actorKind: "staff", type: "research.youtube.checked",
+      payload: { ok: failure === null, code: failure }, idempotencyKey: "youtube-check:" + randomUUID() }));
+    if (failure) searchFailure(new YouTubeSearchError(failure.slice("YOUTUBE_".length) as YouTubeSearchErrorCode), new Date());
+    return { ok: true, status: await quotaStatus(db, workspaceId, true) };
+  });
   /** Staff search. The topic's approved public query is the only text sent. */
   app.post("/api/admin/releases/:releaseId/research/topics/:topicId/youtube-search", {
     schema: { params: { type: "object", additionalProperties: false, required: ["releaseId", "topicId"],
@@ -329,13 +417,16 @@ export function registerResearchMediaRoutes(app: FastifyInstance, db: Database, 
     requireCondition(client, "YOUTUBE_SEARCH_NOT_CONFIGURED", 409);
     // A declared task language for this topic, if any; never a learner's language.
     const language = bundle.researchTasks?.find((t) => t.publicTopicIds.includes(topicId))?.languages[0];
+    // One search and one details call: reserved before anything is sent.
+    await reserveYouTubeQuota(db, release.workspace_id, YOUTUBE_QUOTA.searchUnits + YOUTUBE_QUOTA.videosUnits, 1);
     let result: YouTubeSearchResult;
     try {
       // Network access happens outside any database transaction.
       result = await client.search({ queryText: topic.queryText, ...(language ? { relevanceLanguage: language } : {}),
         maxResults: parsed.data.maxResults ?? 5 });
     } catch (error) {
-      searchFailure(error);
+      if (error instanceof YouTubeSearchError && error.searchCode === "SEARCH_QUOTA") await markQuotaExhausted(db, release.workspace_id, new Date());
+      searchFailure(error, new Date());
     }
     return transaction(db, async (tx) => {
       await permitRelease(tx, actor, { id: release.id, workspace_id: release.workspace_id }, "course.write");

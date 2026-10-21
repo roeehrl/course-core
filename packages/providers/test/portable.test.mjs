@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import * as portable from '../dist/index.js';
 import { ModelRegistry, ProviderRouter, ProviderError } from '../dist/index.js';
-import { harness, request, textResponse, code } from './helpers.mjs';
+import { harness, request, textResponse, code, mediaDeclarations } from './helpers.mjs';
 
 const MODEL = 'tenant/models/tutor @ revision+7';
 const nativeConfig = z.strictObject({ dialect: z.literal(7), route: z.strictObject({ namespace: z.string(), deployment: z.number().int() }) });
@@ -33,7 +33,7 @@ function fakeAdapter(registry) {
         const model = registry.require(input.modelId, 'tutoring', 'other-vendor'); nativeConfig.parse(model.providerConfig);
         calls.push('tutor'); return { output: { text: 'Fake vendor answer' }, usage: usage(input, 'tutor') };
       } },
-      video: {
+      video: { ...mediaDeclarations('video', 'other-vendor'),
         async startVideo(input) {
           calls.push('start');
           return { output: { state: 'pending', job: { kind: 'video', providerId: 'other-vendor', modelId: input.modelId,

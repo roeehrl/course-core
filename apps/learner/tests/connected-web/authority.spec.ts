@@ -149,6 +149,9 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     name: "Order from motion",
     exact: true,
   });
+  // The visual loads as it nears the lesson's scrolling view; on a short phone it starts
+  // below the fold, so bring it into view as a learner would.
+  await page.locator(".ccv-lazy").first().scrollIntoViewIfNeeded();
   const svg = player.locator("svg.ccv-scene");
   await expect(svg).toBeVisible();
   await expect(

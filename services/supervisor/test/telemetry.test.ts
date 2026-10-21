@@ -31,6 +31,12 @@ test('attribute allowlist drops unknown keys, free text and wrongly typed values
   assert.deepEqual(sanitizeAttributes({ 'gen_ai.usage.input_tokens': 1 }, ['http.route']), {});
   assert.deepEqual(sanitizeAttributes(undefined), {});
 });
+test('correlation attributes keep only random ids, digests and a flag', () => {
+  assert.deepEqual(sanitizeAttributes({ 'course.attempt.id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'course.artifact.hash': 'b'.repeat(64), 'course.client.trace_linked': true }),
+    { 'course.attempt.id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'course.artifact.hash': 'b'.repeat(64), 'course.client.trace_linked': true });
+  for (const [key, bad] of Object.entries({ 'course.attempt.id': learnerText, 'course.artifact.hash': 'B'.repeat(64), 'course.client.trace_linked': 'yes' }))
+    assert.deepEqual(sanitizeAttributes({ [key]: bad }), {}, key);
+});
 test('media job attributes keep only fixed states, steps and server codes', () => {
   assert.deepEqual(sanitizeAttributes({ 'course.media.state': 'under_review', 'course.media.step': 'poll', 'course.media.code': 'MEDIA_RECONCILED',
     'course.media.claimed': 3, 'course.media.job_id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'course.media.script': learnerText }),

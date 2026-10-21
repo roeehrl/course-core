@@ -16,5 +16,7 @@
   "error.ENROLLMENT_CLOSED": "This enrollment is closed. Its record is not changed after closure.",
   "error.ENROLLMENT_ERASED": "This learner's data was erased.",
   "error.IDEMPOTENCY_CONFLICT": "A different request was already sent with this key. Reload and try again.",
-  "error.unknown": "The inspector could not complete this. Nothing was revealed or changed."
+  "error.unknown": "The inspector could not complete this. Nothing was revealed or changed.",
+  "error.RUN_ALREADY_ENDED": "This run already ended. Reload to see how it finished.",
+  "error.RUN_CANCEL_ALREADY_REQUESTED": "A stop was already requested for this run."
 }

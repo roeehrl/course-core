@@ -5,6 +5,13 @@ export const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const key = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 const count = z.number().int().min(0).max(1_000_000_000);
 export const roleSchema = z.enum(['supervisor', 'companion', 'research', 'media', 'reviewer']);
+/** Design §4 logical roles inside one supervisor job. They need not be separate models: each is a
+ * checkpoint the bound model runs under a narrower brief and tool set. One writer commits: only the
+ * last checkpoint's artifact (the planner's, or the evaluator's choice) can ever be applied. */
+export const logicalRoleSchema = z.enum(['planner', 'builder', 'evaluator']);
+/** At most this many checkpoints run concurrently (alternative builders). */
+export const MAX_PARALLEL_CHECKPOINTS = 3;
+const objectiveId = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/);
 export const fenceSchema = z.strictObject({
   enrollmentRevision: z.number().int().positive(),
   profileRevision: z.number().int().positive(),
@@ -24,6 +31,16 @@ export const checkpointSchema = z.strictObject({
   maxAttempts: z.number().int().min(1).max(5),
   // What the checkpoint does, shown as the job's state while its call is out. Omitted = 'running'.
   phase: z.enum(['analyze', 'build', 'evaluate']).optional(),
+  // Omitted = the job's single writer (a one-checkpoint job). Builders of one `group` run concurrently.
+  logicalRole: logicalRoleSchema.optional(),
+  group: key.optional(),
+});
+/** What a job is for (design §4 job record): a teaching action, a follow-up, or the learning event's
+ * episode objectives. Identifiers only; never learner text. */
+export const objectiveSchema = z.strictObject({
+  kind: key,
+  objectiveIds: z.array(objectiveId).max(20),
+  refs: z.array(uuid).max(8),
 });
 export const jobSpecSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -34,9 +51,19 @@ export const jobSpecSchema = z.strictObject({
   checkpoints: z.array(checkpointSchema).min(1).max(16),
   budget: allowanceSchema,
   deadlineAtMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  // Optional so specifications recorded before it existed still load.
+  objective: objectiveSchema.optional(),
 }).superRefine((spec, ctx) => {
   if (new Set(spec.checkpoints.map(c => c.id)).size !== spec.checkpoints.length)
     ctx.addIssue({ code: 'custom', message: 'duplicate_checkpoint' });
+  // A concurrent group is consecutive, bounded, and never the last checkpoint: one writer commits.
+  const groups = spec.checkpoints.map(c => c.group);
+  for (const group of new Set(groups.filter((g): g is string => g !== undefined))) {
+    const first = groups.indexOf(group), last = groups.lastIndexOf(group);
+    if (groups.slice(first, last + 1).some(g => g !== group)) ctx.addIssue({ code: 'custom', message: 'group_not_consecutive' });
+    if (last - first + 1 > MAX_PARALLEL_CHECKPOINTS) ctx.addIssue({ code: 'custom', message: 'group_too_large' });
+    if (last === spec.checkpoints.length - 1) ctx.addIssue({ code: 'custom', message: 'group_cannot_commit' });
+  }
 });
 export const availabilitySchema = z.discriminatedUnion('status', [
   z.strictObject({ status: z.literal('ready') }),
@@ -73,6 +100,9 @@ export const stateSchema = z.enum([
   'needs_input', 'follow_up_due',
 ]);
 export const TERMINAL_STATES = ['applied', 'failed', 'cancelled'] as const;
+export const PARKED_STATES = ['needs_input', 'follow_up_due'] as const;
+/** Longest a parked job's deadline may be extended past the host clock. */
+export const MAX_PARK_MS = 14 * 86_400_000;
 export const operationIdSchema = z.string().regex(/^[0-9a-f-]{36}\/[a-z][a-z0-9_-]{0,63}$/);
 export const operationSchema = z.strictObject({
   id: operationIdSchema,
@@ -130,7 +160,7 @@ export const controlDeliverySchema = z.strictObject({
 export const controlDeliveriesSchema = z.array(controlDeliverySchema).max(100);
 /** Why the host cancelled a job outside staff control: the enrollment's data is being erased, or
  * the workspace's provider configuration changed under it. */
-export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed']);
+export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed', 'staff_cancelled']);
 /** Temporal signal asking one job to stop now. Advisory like `supervisionControl`: the host has
  * already recorded the cancellation, and the job's next host step stops whether or not this arrives. */
 export const JOB_CANCELLATION_SIGNAL = 'jobCancellation';
@@ -160,7 +190,9 @@ export const jobCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('halt'), ref: runRefSchema, reason: haltReasonSchema }),
   // Host-issued: park a job until input arrives or a follow-up is due; a new generation resumes it.
   z.strictObject({ type: z.literal('park'), ref: runRefSchema, reason: z.enum(['needs_input', 'follow_up_due']),
-    dueAtMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }),
+    dueAtMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    // A person may take days to answer: the host may extend the deadline (never shorten it), within MAX_PARK_MS.
+    deadlineAtMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }),
 ]);
 export const providerRequestSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -258,6 +290,8 @@ export type JobKey = z.infer<typeof jobKeySchema>;
 export type RunRef = z.infer<typeof runRefSchema>;
 export type Fence = z.infer<typeof fenceSchema>;
 export type JobSpec = z.infer<typeof jobSpecSchema>;
+export type JobObjective = z.infer<typeof objectiveSchema>;
+export type LogicalRole = z.infer<typeof logicalRoleSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type Command = z.infer<typeof jobCommandSchema>;
 export type Transition = z.infer<typeof transitionSchema>;

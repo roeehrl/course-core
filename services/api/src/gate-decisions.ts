@@ -11,14 +11,14 @@ import { ApiError, requireCondition } from './errors.js';
 import { digestJson, loadEnrollment, loadEnrollmentRecords, policyEpisodeId, type Enrollment, type EnrollmentContext } from './repository.js';
 import { episodes, gateDecision, learningSnapshot } from './learning.js';
 import { loadPolicy } from './policy-adapter.js';
-import { gateItemIds, type ComputedDecision, type Gate } from './gates.js';
+import { gateItemIds, withoutMessages, type ComputedDecision, type DecisionMessages, type Gate } from './gates.js';
 
 /** The persisted record in the SDK GateDecision record shape. */
 export type DecisionRecord = GateDecision;
 export interface DecisionRow {
   id: string; enrollment_id: string; gate_id: string; gate_version: string; course_digest: string; policy_revision: number; status: GateDecision['status'];
   criterion_results: GateDecision['criterionResults']; missing_objective_ids: string[]; unresolved_misconception_ids: string[]; evidence_refs: string[];
-  evaluator: GateDecision['evaluator']; learner_visible_reason: string; next_actions: NextAction[]; next_activity_id: string | null;
+  evaluator: GateDecision['evaluator']; learner_visible_reason: string; messages: DecisionMessages | null; next_actions: NextAction[]; next_activity_id: string | null;
   inputs_digest: string; supersedes: string | null; superseded_at: Date | null; decided_at: Date;
 }
 export function decisionRecord(row: DecisionRow): DecisionRecord {
@@ -28,8 +28,9 @@ export function decisionRecord(row: DecisionRow): DecisionRecord {
     learnerVisibleReason: row.learner_visible_reason, nextActions: row.next_actions, nextActivityId: row.next_activity_id,
     decidedAt: row.decided_at.toISOString(), supersedes: row.supersedes };
 }
-/** What the decision binds: everything Core computed from evidence, versions and policy. */
-export const decisionInputsDigest = (computed: ComputedDecision) => digestJson(computed);
+/** What the decision binds: everything Core computed from evidence, versions and policy. The
+ * translation codes restate the English text, so they are left out and never supersede a record. */
+export const decisionInputsDigest = (computed: ComputedDecision) => digestJson(withoutMessages(computed));
 const criterionRecords = (computed: ComputedDecision) => computed.criterionResults.map(({ criterionId, met, evidenceRefs, reason }) => ({ criterionId, met, evidenceRefs, reason }));
 
 /** True when the applicable cap or deadline denies further submissions for the episode. */
@@ -105,21 +106,21 @@ async function persistDecision(client: PoolClient, enrollment: Enrollment, gate:
   return insertDecision(client, enrollment, gate.id, episodeId, current?.id ?? null, {
     gateVersion: computed.gateVersion, courseDigest: computed.courseDigest, policyRevision: computed.policyRevision, status: computed.status,
     criterionResults: criterionRecords(computed), missingObjectiveIds: computed.missingObjectiveIds, unresolvedMisconceptionIds: computed.unresolvedMisconceptionIds,
-    evidenceRefs: computed.evidenceRefs, evaluator: computed.evaluator, learnerVisibleReason: computed.learnerVisibleReason, nextActions: computed.nextActions,
+    evidenceRefs: computed.evidenceRefs, evaluator: computed.evaluator, learnerVisibleReason: computed.learnerVisibleReason, messages: computed.messages, nextActions: computed.nextActions,
     nextActivityId: computed.nextActivityId, inputsDigest: digest });
 }
-type DecisionFields = Omit<DecisionRecord, 'decisionId' | 'enrollmentId' | 'gateId' | 'decidedAt' | 'supersedes'> & { inputsDigest: string };
+type DecisionFields = Omit<DecisionRecord, 'decisionId' | 'enrollmentId' | 'gateId' | 'decidedAt' | 'supersedes'> & { inputsDigest: string; messages: DecisionMessages };
 /** Supersedes the current record (if any) and inserts the new current decision. */
 async function insertDecision(client: PoolClient, enrollment: Enrollment, gateId: string, episodeId: string, supersedes: string | null, d: DecisionFields) {
   if (supersedes) await client.query('UPDATE gate_decisions SET superseded_at=clock_timestamp() WHERE id=$1', [supersedes]);
   const row = (await client.query<DecisionRow>(
     `INSERT INTO gate_decisions(id,enrollment_id,workspace_id,gate_id,gate_version,episode_id,course_digest,policy_revision,status,criterion_results,missing_objective_ids,
-       unresolved_misconception_ids,evidence_refs,evaluator,learner_visible_reason,next_actions,next_activity_id,inputs_digest,supersedes)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+       unresolved_misconception_ids,evidence_refs,evaluator,learner_visible_reason,next_actions,next_activity_id,inputs_digest,supersedes,messages)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
     [randomUUID(), enrollment.id, enrollment.workspace_id, gateId, d.gateVersion, episodeId, d.courseDigest, d.policyRevision, d.status,
       JSON.stringify(d.criterionResults), JSON.stringify(d.missingObjectiveIds), JSON.stringify(d.unresolvedMisconceptionIds),
       JSON.stringify(d.evidenceRefs), JSON.stringify(d.evaluator), d.learnerVisibleReason, JSON.stringify(d.nextActions),
-      d.nextActivityId, d.inputsDigest, supersedes])).rows[0]!;
+      d.nextActivityId, d.inputsDigest, supersedes, JSON.stringify(d.messages)])).rows[0]!;
   return decisionRecord(row);
 }
 /** Refreshes the decisions of every gate an item contributes to, after evidence changed. */
@@ -159,7 +160,7 @@ export async function requireReadyDecision(client: PoolClient, context: Enrollme
     // Legacy gates keep their 0.4 error code and missing-objective details.
     throw new ApiError(409, legacy ? 'EVIDENCE_REQUIRED' : 'GATE_NOT_READY', legacy ? 'EVIDENCE_REQUIRED' : 'GATE_NOT_READY', {
       ...(legacy ? { missing: refreshed.computed.objectives.filter(o => !o.passed).map(o => ({ objectiveId: o.id, independentFamilies: o.families.length, requiredFamilies: o.required })) } : {}),
-      status: record.status, reason: record.learnerVisibleReason, nextActions: record.nextActions, decision: record });
+      status: record.status, reason: record.learnerVisibleReason, messages: refreshed.computed.messages, nextActions: record.nextActions, decision: record });
   }
   return { ...refreshed, exceptionId: null as string | null };
 }
@@ -175,7 +176,7 @@ export function registerGateDecisionRoutes(app: FastifyInstance, db: Database, a
       const episode = episodes(context.release.server_bundle).find(e => e.gateId === gateId);
       requireCondition(episode, 'GATE_NOT_FOUND', 404);
       const refreshed = (await refreshGateDecision(client, context, episode.id))!;
-      return { decision: refreshed.record, episodeId: episode.id };
+      return { decision: refreshed.record, episodeId: episode.id, messages: refreshed.computed.messages };
     });
   });
   /** Decision history, newest first: what was decided, under which versions, and what replaced it. */
@@ -184,7 +185,7 @@ export function registerGateDecisionRoutes(app: FastifyInstance, db: Database, a
     return transaction(db, async client => {
       await loadEnrollment(client, actor, enrollmentId, false, true);
       const rows = (await client.query<DecisionRow>('SELECT * FROM gate_decisions WHERE enrollment_id=$1 AND gate_id=$2 ORDER BY decided_at DESC,id LIMIT 50', [enrollmentId, gateId])).rows;
-      return { decisions: rows.map(row => ({ ...decisionRecord(row), current: row.superseded_at === null, supersededAt: row.superseded_at?.toISOString() ?? null })) };
+      return { decisions: rows.map(row => ({ ...decisionRecord(row), current: row.superseded_at === null, supersededAt: row.superseded_at?.toISOString() ?? null, messages: row.messages ?? null })) };
     });
   });
 }

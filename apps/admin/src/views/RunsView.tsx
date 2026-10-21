@@ -10,7 +10,6 @@ import {
   ErrorState,
   Loading,
   Notice,
-  Status,
 } from "../components/ui";
 import {
   useFormatters,
@@ -20,12 +19,19 @@ import {
   type MessageKey,
 } from "../i18n";
 import { AdminError } from "../domain/errors";
+import {
+  runInspectorErrorMessage,
+  type ReplayBatch,
+  type RunInspectorPort,
+} from "../domain/runInspector";
 import type { Permission } from "../domain/contracts";
 import {
+  CancelPanel,
   PayloadPanel,
   PoliciesPanel,
   ReplayPanel,
   RetryPanel,
+  RunStatus,
   SyncPanel,
   WorkflowPanel,
 } from "./RunInspectorPanels";
@@ -76,7 +82,7 @@ export function RunsView({
                   <span>
                     <strong dir="auto">{run.label}</strong>
                     <small>{when(run.startedAt)}</small>
-                    <Status value={run.status} />
+                    <RunStatus value={run.status} />
                   </span>
                 </button>
               ))}
@@ -87,6 +93,12 @@ export function RunsView({
               </EmptyState>
             )}
           </Card>
+          {client.runInspector?.replayRecent && (
+            <ReplayRecent
+              port={client.runInspector}
+              courseId={data.course.id}
+            />
+          )}
           {runId && (
             <RunDetails
               key={runId}
@@ -130,6 +142,7 @@ export function RunDetails({
     | "artifacts"
     | "replay"
     | "retry"
+    | "stop"
     | "payload"
   >("timeline");
   if (result.loading) return <Loading label={t("runsView.loading")} />;
@@ -147,12 +160,13 @@ export function RunDetails({
     { id: "artifacts", label: t("runsView.view.artifacts") },
     { id: "replay", label: t("runsView.view.replay") },
     { id: "retry", label: t("runsView.view.retry") },
+    { id: "stop", label: t("runsView.view.stop") },
     { id: "payload", label: t("runsView.view.payload") },
   ] as const;
   return (
     <Card title={run.label} eyebrow={t("runsView.eyebrow")}>
       <div className="split-line">
-        <Status value={run.status} />
+        <RunStatus value={run.status} />
         <small className="mono" dir="ltr">
           {run.id}
         </small>
@@ -240,6 +254,16 @@ export function RunDetails({
           allowed={permissions.includes("run.retry")}
         />
       )}
+      {view === "stop" && (
+        <CancelPanel
+          port={client.runInspector}
+          courseId={courseId}
+          runId={runId}
+          status={run.status}
+          cancelRequested={run.sync?.run.cancellationRequested ?? false}
+          allowed={permissions.includes("supervision.control")}
+        />
+      )}
       {view === "payload" && (
         <PayloadPanel
           port={client.runInspector}
@@ -284,7 +308,7 @@ export function RunDetails({
             <article className="record" key={decision.id}>
               <div className="split-line">
                 <h3 dir="ltr">{decision.tool}</h3>
-                <Status value={decision.outcome} />
+                <RunStatus value={decision.outcome} />
               </div>
               <p className="mono reason-code" dir="ltr">
                 {decision.reasonCode}
@@ -384,7 +408,7 @@ export function RunDetails({
                   ) : (
                     <h3>{t("runsView.calls.unknownModel")}</h3>
                   )}
-                  <Status
+                  <RunStatus
                     value={
                       call.state === "completed"
                         ? "completed"
@@ -469,7 +493,7 @@ export function RunDetails({
                     <FileText size={18} aria-hidden="true" />{" "}
                     <bdi>{artifact.name}</bdi>
                   </h3>
-                  <Status value={artifact.status} />
+                  <RunStatus value={artifact.status} />
                 </div>
                 <small dir="auto">{artifact.provenance}</small>
                 <pre
@@ -494,6 +518,58 @@ export function RunDetails({
           )}
         </div>
       )}
+    </Card>
+  );
+}
+
+/** Replays the course's latest finished runs in one go, read-only, to see whether today's rules
+ * still produce the plans they recorded (for example after an upgrade). */
+function ReplayRecent({
+  port,
+  courseId,
+}: {
+  port: RunInspectorPort;
+  courseId: string;
+}) {
+  const t = useT();
+  const [state, setState] = useState<{
+    pending: boolean;
+    result?: ReplayBatch;
+    error?: unknown;
+  }>({ pending: false });
+  return (
+    <Card title={t("runsView.replayRecent.title")}>
+      <p>{t("runsView.replayRecent.intro")}</p>
+      <Button
+        disabled={state.pending}
+        onClick={() => {
+          setState({ pending: true });
+          port.replayRecent!(courseId, 10).then(
+            (result) => setState({ pending: false, result }),
+            (error: unknown) => setState({ pending: false, error }),
+          );
+        }}
+      >
+        {state.pending
+          ? t("runsView.replayRecent.pending")
+          : t("runsView.replayRecent.submit")}
+      </Button>
+      <div aria-live="polite">
+        {state.error !== undefined && (
+          <Notice tone="red">{runInspectorErrorMessage(state.error, t)}</Notice>
+        )}
+        {state.result && (
+          <Notice tone={state.result.summary.diverged ? "gold" : "green"}>
+            {state.result.runs.length === 0
+              ? t("runsView.replayRecent.none")
+              : t("runsView.replayRecent.summary", {
+                  matches: state.result.summary.matches,
+                  diverged: state.result.summary.diverged,
+                  notReplayable: state.result.summary.notReplayable,
+                })}
+          </Notice>
+        )}
+      </div>
     </Card>
   );
 }

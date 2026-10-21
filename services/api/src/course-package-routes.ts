@@ -232,6 +232,8 @@ export const installSchema = z.strictObject({
   workspaceId: uuid, idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/), notes: z.string().trim().max(1200).optional(),
   approveAndPublish: z.strictObject({ confirmVersion: z.string().min(1).max(128) }).optional(),
   approveRegistry: z.strictObject({ configurationDigest: hex }).optional(),
+  /** Required to install (and publish) a version lower than the newest one installed (course-versions.ts). */
+  confirmOlderVersion: z.literal(true).optional(),
 });
 /** Installs a staged, re-verified package as a release draft in review (see the module comment).
  * Shared by the install route and the course updater. */
@@ -256,6 +258,10 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
       if (same) return { releaseId: same, alreadyInstalled: true, unrecorded: true };
       const blocking = preview.problems.filter(problem => problem.severity === 'blocking');
       if (blocking.length) throw new ApiError(409, blocking[0]!.code, blocking[0]!.code, { problems: blocking.map(problem => problem.code) });
+      // A course moves forward: going back to an older version is an explicit, recorded choice.
+      const older = preview.problems.some(problem => problem.code === 'OLDER_THAN_INSTALLED');
+      if (older && !input.confirmOlderVersion) throw new ApiError(409, 'OLDER_VERSION_CONFIRMATION_REQUIRED', 'OLDER_VERSION_CONFIRMATION_REQUIRED',
+        { version: descriptor.courseVersion, newestVersion: preview.existing.newestVersion });
       const releaseId = randomUUID();
       await client.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
         [releaseId, input.workspaceId, compiled.server.id, compiled.server.version, compiled.digest, JSON.stringify(compiled.server), JSON.stringify(compiled.learner), actor.id]);
@@ -270,7 +276,7 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
       let published = false;
       if (input.approveAndPublish) {
         await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'approve' }, admin);
-        await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'publish' }, admin);
+        await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'publish', ...(older ? { confirmOlderVersion: true as const } : {}) }, admin);
         published = true;
       }
       await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1', [catalogId]);
@@ -278,7 +284,7 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
       await appendEvent(client, { workspaceId: input.workspaceId, actorId: actor.id, actorKind: 'staff', type: 'course_package.installed',
         payload: { catalogId, releaseId, courseKey: descriptor.courseId, version: descriptor.courseVersion, courseDigest: compiled.digest, packageSha256: packageSha,
           sourceKind: staged.source.kind, ...(staged.source.kind === 'github' ? { repository: `${staged.source.owner}/${staged.source.repo}`, tag: staged.source.tag } : {}),
-          registryStaged: verified.adaptationRegistryPresent, published, ...extraEventPayload },
+          registryStaged: verified.adaptationRegistryPresent, published, ...(older ? { olderVersionConfirmed: true, newestVersion: preview.existing.newestVersion } : {}), ...extraEventPayload },
         idempotencyKey: `course-package:${input.workspaceId}:${packageSha}` });
       return { releaseId, alreadyInstalled: false };
     });

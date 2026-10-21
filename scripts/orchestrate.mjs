@@ -9,6 +9,7 @@ import { auditPublic } from './audit-public.mjs';
 import { checkTestDatabase } from './check-test-database.mjs';
 import { resolveModuleGraph } from './dependency-graph.mjs';
 import { MODULES, ROOT, ensure, readJson, requireFile, requireNode26, requireReleasedSdk, targets, testDatabaseUrl } from './modules.mjs';
+import { SkipScanner, requireNothingSkipped } from './test-skips.mjs';
 
 export async function lockPath(root) {
   const key = createHash('sha256').update(await realpath(root)).digest('hex').slice(0, 24);
@@ -48,11 +49,18 @@ function stop(signal) {
   try { process.kill(process.platform === 'win32' ? activeChild.pid : -activeChild.pid, signal); }
   catch (error) { if (error.code !== 'ESRCH') throw error; }
 }
-async function run(command, args, cwd, env) {
+/** Runs a child process. With scan, its output is also read for test-runner summaries
+ * (scripts/test-skips.mjs) and a skipped, todo or not-run test fails the command. */
+async function run(command, args, cwd, env, { scan = false } = {}) {
   ensure(!interrupted, 'Root command interrupted');
   console.log(`[${path.relative(ROOT, cwd) || 'root'}] ${path.basename(command)} ${args.join(' ')}`);
+  const scanner = scan ? new SkipScanner() : undefined;
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: 'inherit', detached: process.platform !== 'win32' });
+    const child = spawn(command, args, { cwd, env, stdio: scan ? ['inherit', 'pipe', 'pipe'] : 'inherit', detached: process.platform !== 'win32' });
+    if (scan) for (const [stream, target] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+      stream.setEncoding('utf8');
+      stream.on('data', (chunk) => { target.write(chunk); scanner.push(chunk); });
+    }
     activeChild = child;
     child.once('error', (error) => { activeChild = undefined; reject(error); });
     child.once('close', (code, signal) => {
@@ -61,6 +69,7 @@ async function run(command, args, cwd, env) {
       else reject(new Error(`${path.relative(ROOT, cwd)}: ${path.basename(command)} ${args.join(' ')} failed (${signal ?? code}); no later steps were run`));
     });
   });
+  if (scanner) requireNothingSkipped(scanner.end(), `${path.relative(ROOT, cwd)}: ${path.basename(command)} ${args.join(' ')}`);
 }
 async function testFiles(directory) {
   const result = [];
@@ -165,6 +174,10 @@ async function execute(action, selection, withDependencies) {
         ...browserPortEnv(process.env),
       });
       const npm = (module, args, extraEnv = {}) => run('npm', ['--workspaces=false', ...args], module.directory, { ...env, ...extraEnv });
+      // PR and release CI set COURSE_FORBID_TEST_SKIPS=1: every test suite below must report
+      // no skipped, todo or not-run test (scripts/test-skips.mjs).
+      const forbidSkips = process.env.COURSE_FORBID_TEST_SKIPS === '1';
+      const npmTest = (module, args, extraEnv = {}) => run('npm', ['--workspaces=false', ...args], module.directory, { ...env, ...extraEnv }, { scan: forbidSkips });
       if (action === 'browsers') {
         for (const name of selected) {
           const module = modules.get(name);
@@ -203,17 +216,17 @@ async function execute(action, selection, withDependencies) {
             await requireFile(path.join(modules.get('learner').directory, 'dist/index.html'), 'connected learner production export');
             await requireFile(path.join(modules.get('admin').directory, 'dist/index.html'), 'connected admin production export');
             await checkTestDatabase();
-            await npm(module, ['test'], { TEST_DATABASE_URL: testDatabaseUrl().href });
-          } else await npm(module, ['test']);
-          if (module.integration) await npm(module, ['run', module.integration]);
+            await npmTest(module, ['test'], { TEST_DATABASE_URL: testDatabaseUrl().href });
+          } else await npmTest(module, ['test']);
+          if (module.integration) await npmTest(module, ['run', module.integration]);
           if (name === 'learner') await npm(module, ['run', 'check:expo']);
           if (module.web) {
             await requireFile(path.join(module.directory, 'dist/index.html'), `${MODULES[name].directory}: built web entry point`);
             // Keep export/build and its browser suite under the same checkout lock.
             // The app owns its preview server and ports; do not launch another server.
-            await npm(module, ['run', 'test:web', '--', '--forbid-only']);
+            await npmTest(module, ['run', 'test:web', '--', '--forbid-only']);
           } else if (module.browser) {
-            await npm(module, ['run', module.browser, '--', '--forbid-only'],
+            await npmTest(module, ['run', module.browser, '--', '--forbid-only'],
               name === 'api' ? { TEST_DATABASE_URL: testDatabaseUrl().href } : {});
           }
         }

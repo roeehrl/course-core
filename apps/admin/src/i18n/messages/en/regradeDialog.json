@@ -25,5 +25,10 @@
   "reason.hint": "Required, at least 10 characters. Kept in the staff audit record; the learner sees the outcome.",
   "submit.pending": "Regrading…",
   "submit.rubric": "Record the new decision",
-  "submit.automated": "Grade again"
+  "submit.automated": "Grade again",
+  "provenance": "Graded with",
+  "provenance.none": "Graded before Core recorded the exact item, answer key and evaluator.",
+  "provenance.itemGone": "The item is no longer in this course version.",
+  "provenance.same": "The same item, answer key and evaluator the course uses now.",
+  "provenance.changed": "Changed since this answer was graded: {item, select, yes {the item} other {}}{key, select, yes { · the answer key} other {}}{evaluator, select, yes { · the evaluator} other {}}. A regrade uses the current version."
 }

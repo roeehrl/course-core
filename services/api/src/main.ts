@@ -18,15 +18,18 @@ import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolate
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { declarativeActivityRuntime } from './activity-runtime.js';
+import { declarativeActivityEvaluator } from './declarative-evaluator.js';
 import { svgRenderer } from './svg-renderer.js';
 import { reviewedRubricEvaluator } from './rubric-evaluator.js';
 import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
-import { scanWakeups } from './wakeups.js';
+import { nextWakeupDelay, scanWakeups } from './wakeups.js';
 import { purgeEndedSessions } from './session-purge.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
+import { startMediaScheduler, type MediaScheduler } from './media-scheduler.js';
+import { clipToolchainFromEnvironment } from './clip-export.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
 import { pythonRunnerFromEnvironment } from './python-runner.js';
 
@@ -85,7 +88,7 @@ if (process.env.PROVIDER_CONFIG_FILE) {
   providers = composeProviders(configuration, name => process.env[name]);
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
-const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime()];
+const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime(), declarativeActivityEvaluator()];
 // Names and digests of the host's configured fixture/verifier files, compared with a course
 // package's host requirements. Host paths are never reported.
 const hostFiles: HostRequirementFile[] = [];
@@ -96,13 +99,14 @@ const coursePackageDirectories = packageDirectories(process.env.COURSE_PACKAGE_D
 // How often due automatic course updates run (each course has its own interval; default 5 minutes).
 const courseUpdateTickMs = Number(process.env.COURSE_UPDATE_TICK_MS ?? 300_000);
 if (!Number.isInteger(courseUpdateTickMs) || courseUpdateTickMs < 60_000) throw new Error('COURSE_UPDATE_TICK_MS must be an integer of at least 60000.');
+let sandbox: DockerSandbox | undefined;
 if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
   if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new Error('Invalid code fixture file list.');
   const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
   if (!image) throw new Error('An explicitly pinned sandbox image is required on this platform.');
-  const sandbox = instrumentSandbox(new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) }));
+  sandbox = instrumentSandbox(new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) }));
   for (const file of files) { const bytes = await readFile(file); hostFiles.push({ name: basename(file), sha256: sha256(bytes) }); installedExtensions.push(await codeEvaluator(bytes, sandbox)); }
   let teachingFiles:unknown;try{teachingFiles=JSON.parse(process.env.TEACHING_VERIFIER_FILES??'[]');}catch{throw new Error('Invalid teaching verifier file list.');}
   if(!Array.isArray(teachingFiles)||teachingFiles.length>20||!teachingFiles.every(file=>typeof file==='string'&&file.length<4096))throw new Error('Invalid teaching verifier file list.');
@@ -116,6 +120,8 @@ if (artifactStore) {
   catch (error) { throw new Error(`The artifact object store is not reachable (${(error as { code?: string }).code ?? 'OBJECT_STORE_UNAVAILABLE'}).`); }
 }
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
+// Exact clips and compositions need an rsvg-convert compatible rasterizer and ffmpeg (clip-export.ts).
+const clipToolchain = clipToolchainFromEnvironment(process.env);
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, allowInsecureOrigins, loginCodes, trustedProxies,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
@@ -124,42 +130,43 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
   providers,
   ...(workspaceProviders ? { workspaceProviders } : {}),
+  media: { options: { clipToolchain } },
   installedExtensions,
   artifactStore,
   coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
   pythonRunner: pythonRunnerFromEnvironment(process.env),
+  ...(sandbox ? { sandbox } : {}),
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });
 if (allowInsecureOrigins) process.stderr.write(`${JSON.stringify({ event: 'origins.insecure_allowed', origins: additionalOrigins.filter((value) => value.startsWith('http:')) })}\n`);
-// Boundary wake-ups for the supervisor. Bounded, idempotent and never authoritative.
+// Boundary wake-ups for the supervisor from durable per-deadline timers. The worker sleeps
+// until the next timer, queued re-plan or retention check is due (at most WAKEUP_INTERVAL_MS),
+// so its work follows what is due, not the number of active enrollments. Never authoritative.
 const wakeupMs = Number(process.env.WAKEUP_INTERVAL_MS ?? 60_000);
 if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {
-  let running = false;
   // Failures are recorded in wakeup_failures and logged as stable codes only (no payloads or learner content).
   const report = (fields: Record<string, string>) => process.stderr.write(`${JSON.stringify({ event: 'wakeup.failure', ...fields })}\n`);
   const tick = async () => {
-    if (running) return; running = true;
-    try { await scanWakeups(db, { onFailure: failure => report({ ...failure }) }); }
-    catch (error) { const code = (error as { code?: unknown })?.code; report({ stage: 'scan', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' }); }
-    finally { running = false; }
+    let delay = wakeupMs;
+    try {
+      const result = await scanWakeups(db, { onFailure: failure => report({ ...failure }) });
+      delay = result.wrapped ? await nextWakeupDelay(db, { maxMs: wakeupMs }) : 1_000;
+    } catch (error) { const code = (error as { code?: unknown })?.code; report({ stage: 'scan', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' }); }
+    setTimeout(() => void tick(), delay).unref();
   };
-  setInterval(() => void tick(), wakeupMs).unref();
   void tick();
 }
-// Generated-media jobs: leased, bounded polling of stored provider operations. Never resubmits.
-const mediaMs = Number(process.env.MEDIA_JOB_INTERVAL_MS ?? 15_000);
-if (workspaceProviders && Number.isInteger(mediaMs) && mediaMs >= 5_000) {
-  const media = createMediaJobService(db, workspaceMediaResolver(workspaceProviders));
-  let running = false;
-  // Retried next tick; logged as a stable code only, never provider data, scripts or learner content.
-  const tick = async () => {
-    if (running) return; running = true;
-    try { await media.run(); }
-    catch (error) { const code = (error as { code?: unknown })?.code; process.stderr.write(`${JSON.stringify({ event: 'media.failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`); }
-    finally { running = false; }
-  };
-  setInterval(() => void tick(), mediaMs).unref();
+// Generated-media jobs: durable wake-ups at each job's stored due time (media-scheduler.ts), leased
+// and bounded; stored provider operations are polled, never resubmitted. Exact clips and
+// compositions run here too when the clip toolchain is configured.
+const mediaMaxSleepMs = Number(process.env.MEDIA_SCHEDULER_MAX_SLEEP_MS ?? 300_000);
+let mediaScheduler: MediaScheduler | null = null;
+if (workspaceProviders || clipToolchain) {
+  const media = createMediaJobService(db, workspaceProviders ? workspaceMediaResolver(workspaceProviders) : undefined, { clipToolchain });
+  // Failures are retried at the next due time; logged as a stable code only, never provider data, scripts or learner content.
+  mediaScheduler = startMediaScheduler(db, media, { maxSleepMs: mediaMaxSleepMs,
+    onError: code => process.stderr.write(`${JSON.stringify({ event: 'media.failure', code })}\n`) });
 }
 // Objects let go of (erasure) or never claimed are deleted from the store; failures retry next sweep.
 const sweepMs = Number(process.env.ARTIFACT_SWEEP_INTERVAL_MS ?? 60_000);
@@ -193,7 +200,7 @@ let closing = false;
 async function shutdown() {
   if (closing) return;
   closing = true;
-  await app.close(); await db.end(); await observability.shutdown();
+  await mediaScheduler?.stop(); await app.close(); await db.end(); await observability.shutdown();
 }
 process.on('SIGTERM', () => { void shutdown(); });
 process.on('SIGINT', () => { void shutdown(); });

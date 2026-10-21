@@ -17,12 +17,17 @@
   "error.FORBIDDEN": "Your role cannot perform this research action.",
   "error.YOUTUBE_SEARCH_NOT_CONFIGURED": "YouTube search needs a YouTube Data API key. An owner or admin adds it in AI services, under Advanced (for developers) → YouTube search key.",
   "error.YOUTUBE_SEARCH_UNAUTHORIZED": "YouTube refused the workspace key. Check it in Provider setup.",
-  "error.YOUTUBE_SEARCH_QUOTA": "The YouTube Data API quota is used up for now. Try again later.",
+  "error.YOUTUBE_SEARCH_QUOTA": "Google says this project's YouTube Data API quota for today is used up. Searches start again at {when}. To search more each day, request a higher quota in Google Cloud and then raise the daily limit here.",
   "error.YOUTUBE_SEARCH_FAILED": "YouTube search did not answer. Nothing was saved.",
   "error.RESEARCH_SEARCH_MISMATCH": "That video is not in the stored search for this topic.",
   "error.RESEARCH_SEGMENT_OUT_OF_RANGE": "The reviewed segment ends after the video does.",
   "error.RESEARCH_SEGMENT_NOT_APPLICABLE": "Only videos have a reviewed segment.",
   "error.youtubeFailed": "YouTube search failed. Nothing was saved.",
   "error.refused": "Inspection or review was refused ({reason}). Nothing was approved or delivered.",
-  "error.unavailable": "The research service is unavailable. Nothing was approved or delivered."
+  "error.unavailable": "The research service is unavailable. Nothing was approved or delivered.",
+  "error.YOUTUBE_QUOTA_EXHAUSTED": "Today's YouTube search limit for this workspace is reached, so nothing was sent. Searches start again at {when}.",
+  "error.YOUTUBE_SEARCH_RATE_LIMITED": "YouTube asked to slow down. Try again in about {seconds, number} seconds.",
+  "error.YOUTUBE_SEARCH_KEY_INVALID": "YouTube does not accept the workspace key (wrong, expired or deleted). An owner replaces it in AI services, under Advanced (for developers) → YouTube search key.",
+  "error.YOUTUBE_SEARCH_API_DISABLED": "The key's Google Cloud project has not turned on the YouTube Data API v3, or the key is restricted from it. Enable the API for that project in Google Cloud, then check again.",
+  "error.YOUTUBE_SEARCH_TIMEOUT": "YouTube did not answer in time. Nothing was saved. Try again."
 }

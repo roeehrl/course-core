@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { ProviderError, type UsageReceipt } from "@course-core/providers";
+import { ProviderError, type Json, type UsageReceipt } from "@course-core/providers";
+import type { SupervisorToolPort } from "../supervisor-tool-loop.js";
 import type { ProviderRuntime } from "../provider-runtime.js";
 import { EVAL_ROLES, GRADER_VERSION, REPORT_SCHEMA, dialoguesFor, sha256, teachingContext, type Dialogue, type EvalRole, type EvalSuite } from "./suite.js";
 import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput } from "./graders.js";
@@ -28,10 +29,17 @@ export interface EvalReport {
   passed: boolean;
 }
 
-/** What a stored runtime result is, for grading. */
-export function evalOutput(content: unknown): EvalOutput {
-  const value = content as { kind?: string; text?: unknown; summary?: unknown; needs?: unknown; reason?: unknown };
+/** What a stored runtime result is, for grading. `tools` are the tool calls a tool-loop run made. */
+export function evalOutput(content: unknown, tools: readonly string[] = []): EvalOutput {
+  const value = content as { kind?: string; text?: unknown; summary?: unknown; needs?: unknown; reason?: unknown; sources?: unknown; criteria?: unknown };
   if (value?.kind === "companion_text" && typeof value.text === "string") return { kind: "text", text: value.text.slice(0, 32000) };
+  if (value?.kind === "supervised_plan" && typeof value.summary === "string") return { kind: "tool_plan", summary: value.summary.slice(0, 16000), tools: tools.slice(0, 16) };
+  if (value?.kind === "research_candidate" && typeof value.text === "string") return { kind: "research", text: value.text.slice(0, 32000), sources: Array.isArray(value.sources) ? Math.min(512, value.sources.length) : 0 };
+  if (value?.kind === "rubric_suggestion") {
+    const parsed = evalOutputSchema.safeParse({ kind: "review", summary: value.summary, criteria: value.criteria });
+    return parsed.success ? parsed.data : { kind: "error", code: "UNEXPECTED_OUTPUT" };
+  }
+  if (value?.kind === "rubric_refusal") return { kind: "refusal", reason: String(value.reason).slice(0, 100) };
   if (value?.kind === "teaching_proposal") {
     const parsed = evalOutputSchema.safeParse({ kind: "plan", summary: value.summary, needs: value.needs });
     return parsed.success ? parsed.data : { kind: "error", code: "UNEXPECTED_OUTPUT" };
@@ -68,9 +76,17 @@ export async function runSuite(options: {
       await options.beforeDialogue?.(dialogue);
       let output: EvalOutput, usage: UsageReceipt | null = null, failure: unknown = null;
       try {
-        const result = await runtime.execute(role, teachingContext(dialogue), `agent-eval-${role}-${index}`, signal);
-        usage = result.usage;
-        output = evalOutput(result.content);
+        const context = teachingContext(dialogue);
+        if (role === "media") {
+          // Media is judged on the request Core assembles; nothing is generated or paid for.
+          const request = await runtime.assembledRequest(role, context);
+          output = request && typeof request.prompt === "string" ? { kind: "media_prompt", prompt: request.prompt.slice(0, 70000) } : { kind: "error", code: "NO_REQUEST" };
+        } else {
+          const called: string[] = [];
+          const result = await runtime.execute(role, context, `agent-eval-${role}-${index}`, signal, scriptedTools(dialogue, called));
+          usage = result.usage;
+          output = evalOutput(result.content, called);
+        }
       } catch (error) {
         failure = error;
         usage = error instanceof ProviderError ? error.usage ?? null : null;
@@ -88,6 +104,18 @@ export async function runSuite(options: {
     mode: options.mode, ...(options.model ? { model: options.model } : {}), configuration: options.configuration, roles, skipped,
     passed: roles.length > 0 && roles.every((r) => r.passed),
   };
+}
+
+/** Deterministic tools for a tool-loop dialogue: each answers from the dialogue's fixture and the
+ * call is recorded for the tool-scope grader. Undefined for dialogues without tools. */
+function scriptedTools(dialogue: Dialogue, called: string[]): SupervisorToolPort | undefined {
+  const rule = dialogue.expect.tools;
+  if (!rule) return undefined;
+  return { async invoke(name) {
+    called.push(name);
+    const result = rule.results[name] ?? { available: false, reason: "not_in_fixture" };
+    return { receiptId: randomUUID(), result: structuredClone(result) as Json };
+  } };
 }
 
 /**

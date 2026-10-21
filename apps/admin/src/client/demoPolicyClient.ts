@@ -38,6 +38,10 @@ export function createDemoPolicyClient(
   ): Promise<ExtensionPreview> {
     if (!extensionRequestSchema.safeParse(input).success)
       throw new AdminError("validation");
+    // The demo ledger declares calendar-day pools only.
+    if (!input.days || input.minutes || input.episodes)
+      throw new AdminError("no_pool_for_unit");
+    const days = input.days;
     const policy = get(enrollmentId);
     if (policy.status !== "active") throw new AdminError("inactive_enrollment");
     const scope = policy.scopes.find((item) => item.scopeId === input.scopeId);
@@ -53,15 +57,15 @@ export function createDemoPolicyClient(
       (item) => item.poolId === pool?.poolId,
     );
     if (!pool || !balance) throw new AdminError("scope_not_extendable");
-    if (input.days > pool.maxPerGrant) throw new AdminError("per_grant_limit");
-    if (input.days > balance.remaining || balance.grantsRemaining === 0)
+    if (days > pool.maxPerGrant) throw new AdminError("per_grant_limit");
+    if (days > balance.remaining || balance.grantsRemaining === 0)
       throw new AdminError("allowance_exhausted");
     const source = scope.window?.resolvedDeadline ?? scope.hardDeadline!.at;
     const zone = scope.window?.timeZone ?? scope.hardDeadline!.timeZone;
     const { Temporal } = await import("@js-temporal/polyfill");
     const proposed = Temporal.Instant.from(source)
       .toZonedDateTimeISO(zone)
-      .add({ days: input.days })
+      .add({ days: days })
       .toInstant()
       .toString();
     const after = structuredClone(policy);
@@ -80,7 +84,7 @@ export function createDemoPolicyClient(
     return {
       enrollmentId,
       scopeId: input.scopeId,
-      days: input.days,
+      days: days,
       revision: policy.revision,
       policyRevision: policy.policyRevision,
       ledgerRevision: policy.ledgerRevision,
@@ -96,12 +100,12 @@ export function createDemoPolicyClient(
       proposedEffectiveDeadline: next.effectiveDeadline,
       currentWorkQuotas: current.quotas,
       proposedWorkQuotas: next.quotas,
-      poolDebits: [{ poolId: pool.poolId, amount: input.days }],
+      poolDebits: [{ poolId: pool.poolId, amount: days }],
       balanceBefore: [structuredClone(balance)],
       balanceAfter: [
         {
           poolId: pool.poolId,
-          remaining: balance.remaining - input.days,
+          remaining: balance.remaining - days,
           grantsRemaining: balance.grantsRemaining - 1,
         },
       ],
@@ -194,7 +198,7 @@ export function createDemoPolicyClient(
           change: {
             deadline: {
               kind: scope.window ? "window" : "absolute",
-              calendarDays: input.days,
+              calendarDays: input.days ?? 0,
             },
           },
           addedWork: {

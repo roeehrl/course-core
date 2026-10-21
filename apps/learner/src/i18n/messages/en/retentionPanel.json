@@ -9,5 +9,16 @@
   "meta.complete": "{state} · schedule complete",
   "startFailed": "The check could not start. Nothing changed; try again.",
   "start": "Take the delayed check",
-  "noFresh": "No unseen questions remain for this check."
+  "noFresh": "No unseen questions remain for this check.",
+  "outcome.missed": "Last check missed: the next one comes a step sooner, not back to the start",
+  "outcome.unsure": "You said you weren't sure yet: a review comes soon, with nothing lost",
+  "moved": "moved to your next study day",
+  "days.legend": "Days you can study",
+  "days.anyDay": "Checks can fall due on any day.",
+  "days.current": "Checks fall due only on the days ticked below, in your time zone ({zone}).",
+  "days.hint": "A check that would fall on another day waits for your next study day. It never comes earlier.",
+  "days.save": "Save study days",
+  "days.saved": "Study days saved. Your next checks were moved to match.",
+  "days.failed": "Your study days could not be saved. Nothing changed; try again.",
+  "days.pickOne": "Pick at least one day."
 }

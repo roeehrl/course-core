@@ -149,7 +149,15 @@ function DisputeCard({
         <dl className="dispute-facts">
           <div>
             <dt>{t("evidenceDisputeQueue.facts.item")}</dt>
-            <dd dir="ltr">{evidence.assessmentId}</dd>
+            <dd>
+              {t("evidenceDisputeQueue.facts.itemValue", {
+                kind: evidence.kind ?? "other",
+                check: evidence.mode,
+              })}{" "}
+              <span className="mono" dir="ltr">
+                {evidence.assessmentId}
+              </span>
+            </dd>
           </div>
           <div>
             <dt>{t("evidenceDisputeQueue.facts.result")}</dt>
@@ -216,6 +224,11 @@ function DisputeCard({
               {t("evidenceDisputeQueue.decision.upholdRule")}
             </p>
           )}
+          {dispute.canResolve && dispute.canUphold && !evidence.passed && (
+            <p className="muted">
+              {t("evidenceDisputeQueue.decision.keepRule")}
+            </p>
+          )}
           <label className="check-label">
             <input
               type="radio"
@@ -227,6 +240,9 @@ function DisputeCard({
             {t("evidenceDisputeQueue.decision.invalidate")}
           </label>
         </fieldset>
+        {dispute.canRegrade && (
+          <p className="muted">{t("evidenceDisputeQueue.regradeHint")}</p>
+        )}
         <Field
           label={t("evidenceDisputeQueue.note.label")}
           htmlFor={`${id}-note`}

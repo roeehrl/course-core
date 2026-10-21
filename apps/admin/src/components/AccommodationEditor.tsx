@@ -1,3 +1,4 @@
+import { useScopeLabel } from "./scopeLabel";
 import { useRef, useState } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type {
@@ -10,7 +11,7 @@ import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n } from "../i18n";
 
-/** An individual accommodation or approved pause for one learner. It is
+/** An individual accommodation, approved pause or outage adjustment for one learner. It is
  * authorized and audited separately; extension pools and other learners are
  * unchanged. The reason is a reference (such as an approval ticket), never
  * health or personal details. */
@@ -29,6 +30,7 @@ export function AccommodationEditor({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
+  const scopeNames = useScopeLabel();
   const { when } = useFormatters();
   const scope = policy.scopes.find((s) => s.scopeId === scopeId)!;
   const deadlineKind: "window" | "absolute" | null = scope.window
@@ -89,29 +91,35 @@ export function AccommodationEditor({
     preview?.adjustment.windowDeadline ?? preview?.adjustment.absoluteDeadline;
   return (
     <Dialog
-      title={t("accommodationEditor.title", { scope: scope.label })}
+      title={t("accommodationEditor.title", {
+        scope: scopeNames.name(scope, scope.scopeId),
+      })}
       onClose={onClose}
       pending={pending}
     >
       <Notice tone="gold">{t("accommodationEditor.notice")}</Notice>
       <fieldset className="segmented">
         <legend>{t("accommodationEditor.type")}</legend>
-        {(["accommodation", "approved_pause"] as const).map((value) => (
-          <label key={value}>
-            <input
-              type="radio"
-              name="accommodation-kind"
-              checked={kind === value}
-              onChange={() => {
-                setKind(value);
-                reset();
-              }}
-            />
-            {value === "accommodation"
-              ? t("accommodationEditor.kind.accommodation")
-              : t("accommodationEditor.kind.approvedPause")}
-          </label>
-        ))}
+        {(["accommodation", "approved_pause", "outage"] as const).map(
+          (value) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="accommodation-kind"
+                checked={kind === value}
+                onChange={() => {
+                  setKind(value);
+                  reset();
+                }}
+              />
+              {value === "accommodation"
+                ? t("accommodationEditor.kind.accommodation")
+                : value === "outage"
+                  ? t("accommodationEditor.kind.outage")
+                  : t("accommodationEditor.kind.approvedPause")}
+            </label>
+          ),
+        )}
       </fieldset>
       {deadlineKind && (
         <Field

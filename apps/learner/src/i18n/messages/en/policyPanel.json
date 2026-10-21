@@ -45,5 +45,13 @@
   "noBalance": "No extension allowance is recorded.",
   "limitsHeading": "Additional learning limits",
   "granted": "{count, plural, one {# extension has} other {# extensions have}} been granted and included in the saved dates above.",
-  "noOffers": "No extension offer needs a decision."
+  "noOffers": "No extension offer needs a decision.",
+  "binding.deadline": "What sets this date: {level, select, organization {your organization's limit} course {the course} enrollment {your own terms} chapter {this chapter} episode {this lesson} other {another limit}}.",
+  "binding.quota": "{metric}: {remaining} of {limit} left, set by {level, select, organization {your organization's limit} course {the course} enrollment {your own terms} chapter {this chapter} episode {this lesson} other {another limit}}.",
+  "offer.changeLabel": "What this extension changes",
+  "offer.changeHeading": "What changes",
+  "offer.change.days": "{days, plural, one {# more calendar day} other {# more calendar days}} before the deadline",
+  "offer.change.minutes": "{minutes, plural, one {# more planned study minute} other {# more planned study minutes}} allowed",
+  "offer.change.lessons": "{lessons, plural, one {# more lesson} other {# more lessons}} allowed",
+  "offer.cost": "Uses {amount} {unit, select, days {calendar days} minutes {study minutes} lessons {lessons} other {units}} of your allowance: {before} before, {after} after."
 }

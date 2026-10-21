@@ -34,7 +34,15 @@ import {
   policySettingsViewSchema,
   type LedgerAction,
 } from "../domain/policyLedger";
+import {
+  allowancesSchema,
+  batchesSchema,
+  batchPreviewSchema,
+  batchResultSchema,
+  ceilingsViewSchema,
+} from "../domain/policyLevels";
 import { createEventEnvelope } from "./eventEnvelope";
+import { withTraceContext } from "./traceContext";
 import {
   CoursePackageError,
   installationSchema,
@@ -83,14 +91,18 @@ import {
   researchQueueSchema,
   researchReceiptSchema,
   youtubeSearchReceiptSchema,
+  youtubeStatusSchema,
   ResearchActionError,
 } from "../domain/research";
 import {
   MediaActionError,
+  mediaCheckSchema,
   mediaEstimateSchema,
   mediaJobSchema,
   mediaLibrarySchema,
   mediaReceiptSchema,
+  storyboardListSchema,
+  storyboardSchema,
 } from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
 import {
@@ -122,21 +134,47 @@ import {
   sectionWriteSchema,
 } from "../domain/adminSections";
 import {
+  cancelResultSchema,
   enrollmentRunsSchema,
   payloadRevealSchema,
+  replayBatchSchema,
   replaySchema,
   retryResultSchema,
   RunInspectorError,
 } from "../domain/runInspector";
+import {
+  learnerPreviewSchema,
+  manifestCheckSchema,
+  publishImpactSchema,
+  ReleaseEditingError,
+} from "../domain/releaseEditing";
+import {
+  billingReceiptSchema,
+  billingSchema,
+  integrationsSchema,
+  PlatformError,
+  policyHistorySchema,
+  readinessSchema,
+} from "../domain/platform";
 import {
   RegradeError,
   regradeResultSchema,
   regradeViewSchema,
 } from "../domain/corrections";
 import {
+  AssessmentAdminError,
+  assessmentListSchema,
+  fixtureListSchema,
+  fixtureResultSchema,
+  fixtureRunSchema,
+  fixtureRunsSchema,
+  keyImpactSchema,
+} from "../domain/assessmentAdmin";
+import {
   coursePlacementSchema,
   enrollmentPlacementSchema,
   PlacementAdminError,
+  placementPreviewSchema,
   placementSettingsSchema,
 } from "../domain/placementAdmin";
 import {
@@ -144,6 +182,11 @@ import {
   requeueResultSchema,
   supervisionOverviewSchema,
   supervisionResultSchema,
+  supervisionSettingsSchema,
+  settingsPreviewSchema,
+  authorityQueueSchema,
+  authorityRequestSchema,
+  learnerBudgetSchema,
 } from "../domain/supervision";
 import {
   ConceptMappingError,
@@ -197,7 +240,9 @@ function ledgerPath(
 export function createFetchAdminClient(
   options: FetchClientOptions,
 ): AdminClient {
-  const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const fetcher = withTraceContext(
+    options.fetch ?? globalThis.fetch.bind(globalThis),
+  );
   // Staff actions record the same client facts on their events as learner actions.
   const envelope = createEventEnvelope();
   const base = options.baseUrl.replace(/\/$/, "");
@@ -271,12 +316,19 @@ export function createFetchAdminClient(
         STALE_PREVIEW: "stale_revision",
         STALE_REVISION: "stale_revision",
         RESET_FORBIDDEN: "policy_reset_forbidden",
+        LOOSER_THAN_PARENT: "looser_than_parent",
+        NO_POOL_FOR_UNIT: "no_pool_for_unit",
+        OUTAGE_DEADLINE_ONLY: "outage_deadline_only",
+        COHORT_TOO_LARGE: "cohort_too_large",
+        NO_ACTIVE_LEARNERS: "no_active_learners",
+        PAUSE_NOT_ALLOWED: "pause_not_allowed",
         ULTIMATE_CEILING: "policy_reset_forbidden",
         REVIEW_CANNOT_GRANT_MASTERY: "review_invalid",
         RELEASE_REVIEW_REQUIRED: "pending_review",
         PUBLISHED_RELEASE_IMMUTABLE: "immutable_release",
         PUBLISH_CAPABILITY_MISSING: "runtime_unsupported",
         PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE: "runtime_unsupported",
+        PUBLISH_EVALUATOR_CONFIGURATION_INVALID: "runtime_unsupported",
         PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED: "runtime_unsupported",
         PUBLISH_ACTIVITY_RUNTIME_UNAVAILABLE: "runtime_unsupported",
         PUBLISH_ACTIVITY_CONTRACT_REQUIRED: "runtime_unsupported",
@@ -288,6 +340,10 @@ export function createFetchAdminClient(
         PUBLISH_CAPABILITY_FORBIDDEN: "runtime_unsupported",
         PUBLISH_VISUAL_VALIDATOR_MISSING: "runtime_unsupported",
         PUBLISH_VISUAL_INVALID: "runtime_unsupported",
+        PUBLISH_VISUAL_INACCESSIBLE: "visual_inaccessible",
+        PUBLISH_RENDER_FEATURE_UNSUPPORTED: "visual_feature_unsupported",
+        PUBLISH_VISUAL_INVARIANT_FAILED: "visual_check_failed",
+        PUBLISH_VISUAL_GOLDEN_MISMATCH: "visual_check_failed",
         PUBLISH_INFEASIBLE: "policy_infeasible",
         ENROLLMENT_INFEASIBLE: "policy_infeasible",
         RESERVE_EXCEEDS_QUOTA: "policy_infeasible",
@@ -315,6 +371,7 @@ export function createFetchAdminClient(
         STALE_PROVIDER_BUDGET_REVISION: "stale_revision",
         IMPACT_CHANGED: "impact_changed",
         IMPACT_CONFIRMATION_REQUIRED: "impact_changed",
+        PUBLISH_VERSION_OLDER_THAN_PUBLISHED: "older_version",
         ACTIVE_RELEASE_ARCHIVE_FORBIDDEN: "active_release",
         NO_REPLACEMENT_ITEM: "no_replacement",
         ITEM_ALREADY_DEFECTIVE: "item_defective",
@@ -361,7 +418,7 @@ export function createFetchAdminClient(
     method: string,
     payload: unknown,
     signal: AbortSignal | undefined,
-    fail: (code: string) => Error,
+    fail: (code: string, details?: unknown) => Error,
   ): Promise<T> {
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
@@ -394,7 +451,12 @@ export function createFetchAdminClient(
         body && typeof body === "object" && "error" in body
           ? String(body.error)
           : "";
-      throw fail(/^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE");
+      throw fail(
+        /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+        body && typeof body === "object" && "details" in body
+          ? body.details
+          : undefined,
+      );
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) throw fail("INVALID_RESPONSE");
@@ -487,7 +549,7 @@ export function createFetchAdminClient(
       method,
       payload,
       signal,
-      (c) => new ResearchActionError(c),
+      (c, details) => new ResearchActionError(c, details),
     );
   const media = <T>(
     path: string,
@@ -502,7 +564,7 @@ export function createFetchAdminClient(
       method,
       payload,
       signal,
-      (c) => new MediaActionError(c),
+      (c, details) => new MediaActionError(c, details),
     );
   const costs = <T>(
     path: string,
@@ -564,11 +626,17 @@ export function createFetchAdminClient(
         /^[A-Z0-9_]{1,80}$/.test(record.error)
           ? record.error
           : "UNAVAILABLE";
+      // Roles come as names, or (PROVIDER_EVAL_REQUIRED) as { role, revisionDigest, reason }.
       const roles = Array.isArray(record.details?.roles)
-        ? record.details.roles.filter(
-            (r): r is Job =>
-              typeof r === "string" && (JOBS as readonly string[]).includes(r),
-          )
+        ? record.details.roles
+            .map((r: unknown) =>
+              r && typeof r === "object" && "role" in r ? r.role : r,
+            )
+            .filter(
+              (r): r is Job =>
+                typeof r === "string" &&
+                (JOBS as readonly string[]).includes(r),
+            )
         : undefined;
       const count =
         typeof record.details?.count === "number"
@@ -643,7 +711,17 @@ export function createFetchAdminClient(
       });
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new CoursePackageError("UNAVAILABLE");
+      // The connection failed before an answer arrived. An upload that broke
+      // off installed nothing and can simply be sent again; an install may or
+      // may not have happened, and repeating it is safe (the same package is
+      // recognised and never installed twice).
+      throw new CoursePackageError(
+        typeof Blob !== "undefined" && body instanceof Blob
+          ? "UPLOAD_INTERRUPTED"
+          : method === "POST" && path.endsWith("/install")
+            ? "INSTALL_UNCONFIRMED"
+            : "UNAVAILABLE",
+      );
     }
     let payload: unknown;
     try {
@@ -758,6 +836,9 @@ export function createFetchAdminClient(
           action,
           ...(confirmation?.impactDigest
             ? { impactDigest: confirmation.impactDigest }
+            : {}),
+          ...(confirmation?.confirmOlderVersion
+            ? { confirmOlderVersion: true }
             : {}),
         },
         ctx,
@@ -912,7 +993,7 @@ export function createFetchAdminClient(
         `/enrollments/${encodeURIComponent(id)}/extensions/preview`,
         previewSchema,
         "POST",
-        { scopeId: input.scopeId, days: input.days },
+        input,
         undefined,
         signal,
       ),
@@ -1213,6 +1294,21 @@ export function createFetchAdminClient(
           "POST",
           {},
         ),
+      youtubeStatus: (workspaceId, signal) =>
+        research(
+          `${workspacePath(workspaceId)}/youtube`,
+          youtubeStatusSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      youtubeCheck: (workspaceId) =>
+        research(
+          `${workspacePath(workspaceId)}/youtube/check`,
+          z.object({ ok: z.literal(true), status: youtubeStatusSchema }),
+          "POST",
+          {},
+        ),
       youtubeSearch: (releaseId, topicId) =>
         research(
           `/releases/${encodeURIComponent(releaseId)}/research/topics/${encodeURIComponent(topicId)}/youtube-search`,
@@ -1303,6 +1399,70 @@ export function createFetchAdminClient(
         ),
       assetUrl: (jobId) =>
         `${base}/media-jobs/${encodeURIComponent(jobId)}/asset`,
+      requestImage: (enrollmentId, input, idempotencyKey) =>
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-images`,
+          mediaJobSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      requestClip: (enrollmentId, input, idempotencyKey) =>
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-clips`,
+          mediaJobSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      compose: (storyboardId, idempotencyKey) =>
+        media(
+          `/media-storyboards/${encodeURIComponent(storyboardId)}/compose`,
+          mediaJobSchema,
+          "POST",
+          { idempotencyKey },
+        ),
+      storyboards: async (releaseId, signal) =>
+        (
+          await media(
+            `/releases/${encodeURIComponent(releaseId)}/media-storyboards`,
+            storyboardListSchema,
+            "GET",
+            undefined,
+            signal,
+          )
+        ).storyboards,
+      createStoryboard: (enrollmentId, input, idempotencyKey) =>
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-storyboards`,
+          storyboardSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      editStoryboard: (storyboardId, expectedRevision, shots, idempotencyKey) =>
+        media(
+          `/media-storyboards/${encodeURIComponent(storyboardId)}/edit`,
+          storyboardSchema,
+          "POST",
+          { expectedRevision, shots, idempotencyKey },
+        ),
+      reviewStoryboard: (
+        storyboardId,
+        expectedRevision,
+        decision,
+        idempotencyKey,
+      ) =>
+        media(
+          `/media-storyboards/${encodeURIComponent(storyboardId)}/review`,
+          storyboardSchema,
+          "POST",
+          { expectedRevision, decision, idempotencyKey },
+        ),
+      check: (jobId, input, idempotencyKey) =>
+        media(
+          `/media-jobs/${encodeURIComponent(jobId)}/check`,
+          mediaCheckSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
     },
     reviews: {
       pending: (catalogId, signal) =>
@@ -1489,6 +1649,89 @@ export function createFetchAdminClient(
         };
       },
     },
+    assessments: {
+      list: (catalogId, releaseId, signal) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments`,
+          assessmentListSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
+      previewKey: (catalogId, releaseId, assessmentId, grading) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments/${encodeURIComponent(assessmentId)}/key/preview`,
+          keyImpactSchema,
+          "POST",
+          { grading },
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      saveKey: (catalogId, releaseId, assessmentId, input) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments/${encodeURIComponent(assessmentId)}/key`,
+          keyImpactSchema.extend({ digest: z.string() }),
+          "PUT",
+          input,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      saveRubric: (catalogId, releaseId, rubricId, input) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/rubrics/${encodeURIComponent(rubricId)}`,
+          z.object({ digest: z.string() }),
+          "PUT",
+          input,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      fixtures: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/assessment-fixtures`,
+          fixtureListSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
+      addFixture: (catalogId, input) =>
+        direct(
+          `${course(catalogId)}/assessment-fixtures`,
+          fixtureResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      removeFixture: (catalogId, fixtureId) =>
+        direct(
+          `${course(catalogId)}/assessment-fixtures/${encodeURIComponent(fixtureId)}`,
+          z.record(z.string(), z.unknown()),
+          "DELETE",
+          undefined,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      run: (catalogId, releaseId) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/fixture-runs`,
+          fixtureRunSchema,
+          "POST",
+          undefined,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      runs: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/fixture-runs`,
+          fixtureRunsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
+    },
     placement: {
       course: (catalogId, signal) =>
         direct(
@@ -1503,6 +1746,15 @@ export function createFetchAdminClient(
         direct(
           `${course(catalogId)}/placement/settings`,
           z.object({ settings: placementSettingsSchema }),
+          "POST",
+          input,
+          undefined,
+          (c) => new PlacementAdminError(c),
+        ),
+      preview: (catalogId, input) =>
+        direct(
+          `${course(catalogId)}/placement/settings/preview`,
+          placementPreviewSchema,
           "POST",
           input,
           undefined,
@@ -1584,6 +1836,24 @@ export function createFetchAdminClient(
           undefined,
           (c) => new RunInspectorError(c),
         ),
+      cancel: (courseId, runId, input) =>
+        direct(
+          `${course(courseId)}/runs/${encodeURIComponent(runId)}/cancel`,
+          cancelResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
+      replayRecent: (courseId, limit) =>
+        direct(
+          `${course(courseId)}/runs/replay`,
+          replayBatchSchema,
+          "POST",
+          { limit },
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
       enrollmentRuns: (enrollmentId, episodeId, signal) =>
         direct(
           `/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`,
@@ -1592,6 +1862,132 @@ export function createFetchAdminClient(
           undefined,
           signal,
           (c) => new RunInspectorError(c),
+        ),
+    },
+    releaseEditing: {
+      check: (courseId, releaseId, manifest, signal) =>
+        direct(
+          `${course(courseId)}/releases/${encodeURIComponent(releaseId)}/check`,
+          manifestCheckSchema,
+          "POST",
+          { manifest },
+          signal,
+          (c) => new ReleaseEditingError(c),
+        ),
+      preview: (courseId, releaseId, manifest, signal) =>
+        direct(
+          `${course(courseId)}/releases/${encodeURIComponent(releaseId)}/preview`,
+          learnerPreviewSchema,
+          "POST",
+          manifest === undefined ? {} : { manifest },
+          signal,
+          (c) => new ReleaseEditingError(c),
+        ),
+      publishImpact: (courseId, releaseId, signal) =>
+        direct(
+          `${course(courseId)}/releases/${encodeURIComponent(releaseId)}/publish-impact`,
+          publishImpactSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new ReleaseEditingError(c),
+        ),
+    },
+    platform: {
+      readiness: (workspaceId, signal) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/platform-readiness`,
+          readinessSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
+        ),
+      integrations: (workspaceId, signal) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/integrations`,
+          integrationsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
+        ),
+      billing: (workspaceId, signal) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/billing-statements`,
+          billingSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
+        ),
+      recordBilled: (workspaceId, input) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/billing-statements`,
+          billingReceiptSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new PlatformError(c),
+        ),
+      exportAudit: async (workspaceId, query) => {
+        const search = new URLSearchParams({
+          format: query.format,
+          from: query.from,
+          to: query.to,
+          ...(query.actorKind ? { actorKind: query.actorKind } : {}),
+        });
+        const headers = new Headers(options.requestHeaders?.());
+        headers.set(
+          "Accept",
+          query.format === "csv" ? "text/csv" : "application/json",
+        );
+        let response: Response;
+        try {
+          response = await fetcher(
+            `${base}/workspaces/${encodeURIComponent(workspaceId)}/audit/export?${search}`,
+            {
+              method: "GET",
+              headers,
+              credentials: "include",
+              cache: "no-store",
+              redirect: "error",
+            },
+          );
+        } catch {
+          throw new PlatformError("UNAVAILABLE");
+        }
+        if (!response.ok) {
+          const body: unknown = await response.json().catch(() => null);
+          const code =
+            body && typeof body === "object" && "error" in body
+              ? String(body.error)
+              : "";
+          throw new PlatformError(
+            /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+          );
+        }
+        const rows = Number(response.headers.get("X-Export-Rows"));
+        const digest = response.headers.get("X-Export-Digest") ?? "";
+        if (!Number.isSafeInteger(rows) || !/^[a-f0-9]{64}$/.test(digest))
+          throw new PlatformError("INVALID_RESPONSE");
+        return {
+          body: await response.blob(),
+          // i18n-ignore: download file name, the same in every locale
+          fileName: `audit-${query.from}-to-${query.to}.${query.format}`,
+          rows,
+          truncated: response.headers.get("X-Export-Truncated") === "true",
+          digest,
+        };
+      },
+      policyHistory: (courseId, signal) =>
+        direct(
+          `${course(courseId)}/policy-history`,
+          policyHistorySchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
         ),
     },
     regrade: {
@@ -1680,6 +2076,71 @@ export function createFetchAdminClient(
           undefined,
           (c) => new SupervisionError(c),
         ),
+      settings: {
+        load: (ws, signal) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/settings`,
+            supervisionSettingsSchema,
+            "GET",
+            undefined,
+            signal,
+            (c) => new SupervisionError(c),
+          ),
+        preview: (ws, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/settings/preview`,
+            settingsPreviewSchema,
+            "POST",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+        save: (ws, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/settings`,
+            supervisionSettingsSchema,
+            "PUT",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+        requests: (ws, signal) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/requests`,
+            authorityQueueSchema,
+            "GET",
+            undefined,
+            signal,
+            (c) => new SupervisionError(c),
+          ),
+        decide: (ws, requestId, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/requests/${encodeURIComponent(requestId)}/decision`,
+            authorityRequestSchema,
+            "POST",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+        budget: (ws, id, signal) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/enrollments/${encodeURIComponent(id)}/budget`,
+            learnerBudgetSchema,
+            "GET",
+            undefined,
+            signal,
+            (c) => new SupervisionError(c),
+          ),
+        saveBudget: (ws, id, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/enrollments/${encodeURIComponent(id)}/budget`,
+            learnerBudgetSchema,
+            "PUT",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+      },
     },
     teachingHypotheses: {
       load: (id, signal) =>
@@ -1885,6 +2346,61 @@ export function createFetchAdminClient(
         cohortResultSchema,
         "POST",
         input,
+      ),
+    getPolicyCeilings: (id, signal) =>
+      request(
+        `/workspaces/${encodeURIComponent(id)}/policy-ceilings`,
+        ceilingsViewSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    previewPolicyCeilings: (id, ceilings) =>
+      request(
+        `/workspaces/${encodeURIComponent(id)}/policy-ceilings/preview`,
+        ceilingsViewSchema,
+        "POST",
+        { ceilings },
+      ),
+    savePolicyCeilings: (id, input) =>
+      request(
+        `/workspaces/${encodeURIComponent(id)}/policy-ceilings`,
+        ceilingsViewSchema,
+        "PUT",
+        input,
+      ),
+    getAllowances: (id, view, signal) =>
+      request(
+        `${course(id)}/allowances?view=${view}`,
+        allowancesSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    previewAccommodationBatch: (id, input) =>
+      request(
+        `${course(id)}/accommodations/batch/preview`,
+        batchPreviewSchema,
+        "POST",
+        input,
+      ),
+    applyAccommodationBatch: (id, input) =>
+      request(
+        `${course(id)}/accommodations/batch/apply`,
+        batchResultSchema,
+        "POST",
+        input,
+      ),
+    getAccommodationBatches: (id, signal) =>
+      request(
+        `${course(id)}/accommodations/batches`,
+        batchesSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
       ),
     previewAccommodation: (id, input, signal) =>
       request(

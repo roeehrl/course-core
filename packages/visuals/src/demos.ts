@@ -1256,9 +1256,187 @@ export const sortingDemo = sorting();
 export const motionDemo = motion();
 export const transitionsDemo = transitions();
 /** Uses the 0.2 primitives (clip, mask, symbol/use, equation); not part of demoScenes. */
+/** A 16 × 16 checkered PNG, embedded as an image asset. */
+const TILE_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAJElEQVR42mNID7wJR7WX/8ARLnGGQaiBGEXI4oNRw2g8DAoNAOrc7pBzFfvnAAAAAElFTkSuQmCC";
+/** The 0.5 primitives: an image, a radial gradient, a matrix equation, a morphing path,
+ * colour animation and a camera. */
+function lens(): Scene {
+  const square = [
+    { command: "M", x: -40, y: -40 },
+    { command: "L", x: 40, y: -40 },
+    { command: "L", x: 40, y: 40 },
+    { command: "L", x: -40, y: 40 },
+    { command: "Z" },
+  ];
+  const diamond = [
+    { command: "M", x: 0, y: -56 },
+    { command: "L", x: 56, y: 0 },
+    { command: "L", x: 0, y: 56 },
+    { command: "L", x: -56, y: 0 },
+    { command: "Z" },
+  ];
+  return parseScene({
+    version: 1,
+    id: "lens-study",
+    title: "Zoom, morph and colour",
+    description:
+      "A camera follows a square as it becomes a diamond and changes colour, beside the matrix that rotates it.",
+    state: {
+      angle: {
+        label: "Rotation (degrees)",
+        kind: "number",
+        initial: 0,
+        min: 0,
+        max: 90,
+        step: 15,
+      },
+    },
+    controls: ["angle"],
+    defs: {
+      images: [
+        {
+          id: "tile",
+          mediaType: "image/png",
+          width: 16,
+          height: 16,
+          sha256:
+            "sha256-a8fd05c6f079dcf60343c784f7a09cb8db71e40dab9a85bcc827d8f6b1666b44",
+          data: TILE_PNG,
+        },
+      ],
+    },
+    camera: {},
+    nodes: [
+      {
+        kind: "rect",
+        id: "lensBackdrop",
+        width: 640,
+        height: 360,
+        fill: {
+          kind: "radial",
+          from: "#ffffff",
+          to: "#e4e8fb",
+          cx: 0.5,
+          cy: 0.45,
+          r: 0.7,
+        },
+      },
+      {
+        kind: "image",
+        id: "lensTile",
+        image: "tile",
+        x: 40,
+        y: 40,
+        width: 80,
+        height: 80,
+        label: "A checkered tile in purple and light blue",
+      },
+      {
+        kind: "path",
+        id: "lensShape",
+        x: 320,
+        y: 170,
+        rotation: { state: "angle" },
+        commands: square,
+        morphTo: diamond,
+        fill: "#6751d9",
+        stroke: "#18243c",
+        strokeWidth: 2,
+        label: "The shape",
+      },
+      {
+        kind: "equation",
+        id: "lensMatrix",
+        fill: "#18243c",
+        x: 410,
+        y: 300,
+        fontSize: 18,
+        tex: "R = \\begin{pmatrix} \\cos\\theta & -\\sin\\theta \\\\ \\sin\\theta & \\cos\\theta \\end{pmatrix}",
+        label:
+          "R equals the matrix with rows cos theta, minus sin theta, and sin theta, cos theta",
+      },
+      {
+        kind: "text",
+        id: "lensCaption",
+        x: 40,
+        y: 330,
+        fontSize: 16,
+        fill: "#18243c",
+        text: { op: "concat", args: ["Rotation: ", { state: "angle" }, "°"] },
+      },
+    ],
+    layouts: {
+      compact: {
+        width: 640,
+        height: 360,
+        overrides: { lensMatrix: { x: 300, y: 290 }, lensCaption: { y: 345 } },
+      },
+      expanded: { width: 640, height: 360 },
+    },
+    timeline: {
+      durationMs: 4000,
+      tracks: [
+        {
+          node: "lensShape",
+          property: "morph",
+          keyframes: [
+            { atMs: 0, value: 0 },
+            { atMs: 1500, value: 1, ease: "smooth" },
+          ],
+        },
+      ],
+      colorTracks: [
+        {
+          node: "lensShape",
+          property: "fill",
+          keyframes: [
+            { atMs: 0, color: "#6751d9" },
+            { atMs: 2000, color: "#0f8a7a", ease: "smooth" },
+            { atMs: 4000, color: "#c2410c", ease: "smooth" },
+          ],
+        },
+      ],
+      cameraTracks: [
+        {
+          property: "zoom",
+          keyframes: [
+            { atMs: 0, value: 1 },
+            { atMs: 2000, value: 1.6, ease: "smooth" },
+            { atMs: 4000, value: 1, ease: "smooth" },
+          ],
+        },
+        {
+          property: "y",
+          keyframes: [
+            { atMs: 0, value: 180 },
+            { atMs: 2000, value: 170, ease: "smooth" },
+            { atMs: 4000, value: 180, ease: "smooth" },
+          ],
+        },
+      ],
+      cues: [
+        { atMs: 0, text: "A square, seen whole." },
+        { atMs: 1500, text: "The square has become a diamond." },
+        { atMs: 2000, text: "The camera moves in on the shape." },
+        { atMs: 4000, text: "The camera returns; the colour has changed." },
+      ],
+    },
+    accessibility: {
+      text: "A purple square in the middle morphs into a diamond while a camera zooms in on it and its colour shifts to teal and then orange. Beside it, R is the 2 by 2 rotation matrix; the rotation control turns the shape.",
+      reducedMotion: {
+        atMs: 4000,
+        description:
+          "The final frame: an orange diamond beside the rotation matrix, seen whole.",
+      },
+    },
+  });
+}
 export const primitivesDemo = primitives();
 /** Uses the 0.3 motion features (spring, stagger, layout set, panes); not in demoScenes. */
 export const motionStudyDemo = runningMax();
+/** Uses the 0.5 primitives (image, radial gradient, matrix, morph, colour, camera); not in demoScenes. */
+export const lensDemo = lens();
 export const demoScenes: readonly Scene[] = [
   sortingDemo,
   motionDemo,

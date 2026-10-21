@@ -17,7 +17,28 @@ export {
 export type { MathNode } from "./equation.js";
 export { escapeMarkup, sanitizeMarkup, serializeMarkup } from "./markup.js";
 export type { MarkupElement } from "./markup.js";
-export { buildSceneMarkup, renderSvg } from "./svg.js";
+export { buildSceneMarkup, cameraViewBox, renderSvg } from "./svg.js";
+export { CompletionLatch } from "./completion.js";
+export type { VisualCompletion } from "./completion.js";
+export {
+  decodeBase64,
+  imageSignatureMatches,
+  verifyImageAsset,
+} from "./image.js";
+export { sha256Bytes } from "./digest.js";
+export {
+  englishErrorMessages,
+  errorText,
+  visualError,
+  VisualCatalogError,
+} from "./errors.js";
+export type { ErrorKey } from "./errors.js";
+export {
+  englishVisualMessages,
+  formatNumber,
+  visualMessages,
+} from "./messages.js";
+export type { VisualMessages } from "./messages.js";
 export { buildPanesMarkup, renderPanes } from "./panes.js";
 export { OffscreenPause } from "./visibility.js";
 export {
@@ -45,6 +66,7 @@ export { VisualRuntime, evaluateScene } from "./runtime.js";
 export type { RuntimeSnapshot } from "./runtime.js";
 export {
   interpolate,
+  interpolateColor,
   transformPoint,
   inversePoint,
   multiply,

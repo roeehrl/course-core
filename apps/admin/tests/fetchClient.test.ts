@@ -45,6 +45,92 @@ describe("fetch admin adapter", () => {
       client.previewExtension(enrollmentId, calendarRequest),
     ).rejects.toMatchObject({ code: "parent_cap" });
   });
+  it("sends an older-version confirmation only when given and maps the refusal to a plain message", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(mutation))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            error: "PUBLISH_VERSION_OLDER_THAN_PUBLISHED",
+            details: { version: "1.0.0" },
+          },
+          { status: 409 },
+        ),
+      );
+    const client = createFetchAdminClient({
+      baseUrl: "/api/admin",
+      fetch: fetcher,
+    });
+    await client.transitionRelease("c1", "r1", "publish", context(), {
+      confirmOlderVersion: true,
+    });
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({
+      action: "publish",
+      confirmOlderVersion: true,
+    });
+    const refusal = await client
+      .transitionRelease("c1", "r1", "publish", context())
+      .catch((e: unknown) => e);
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual({
+      action: "publish",
+    });
+    expect(refusal).toMatchObject({ code: "older_version" });
+    expect(errorMessage(refusal)).toMatch(
+      /newer version of this course is already published/,
+    );
+  });
+  it("maps an inaccessible-visual publication refusal to its own message (S12)", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          error: "PUBLISH_VISUAL_INACCESSIBLE",
+          details: { visualId: "bars", reasons: ["keyboard"] },
+        },
+        { status: 409 },
+      ),
+    );
+    const client = createFetchAdminClient({ baseUrl: "/api", fetch: fetcher });
+    const refused = await client
+      .previewExtension(enrollmentId, calendarRequest)
+      .catch((error: unknown) => error);
+    expect(refused).toMatchObject({ code: "visual_inaccessible" });
+    expect(errorMessage(refused)).toMatch(
+      /keyboard support and a text alternative/,
+    );
+  });
+  it("maps visual feature and visual check refusals to messages that say what to fix", async () => {
+    for (const [error, code, text] of [
+      [
+        "PUBLISH_RENDER_FEATURE_UNSUPPORTED",
+        "visual_feature_unsupported",
+        /declared visuals version/,
+      ],
+      [
+        "PUBLISH_VISUAL_INVARIANT_FAILED",
+        "visual_check_failed",
+        /failed its own checks/,
+      ],
+      [
+        "PUBLISH_VISUAL_GOLDEN_MISMATCH",
+        "visual_check_failed",
+        /failed its own checks/,
+      ],
+    ] as const) {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json({ error }, { status: 409 }));
+      const client = createFetchAdminClient({
+        baseUrl: "/api",
+        fetch: fetcher,
+      });
+      const refused = await client
+        .previewExtension(enrollmentId, calendarRequest)
+        .catch((e: unknown) => e);
+      expect(refused).toMatchObject({ code });
+      expect(errorMessage(refused)).toMatch(text);
+    }
+  });
   it("encodes identifiers, includes cookie credentials, revisions and idempotency headers", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -148,5 +234,27 @@ describe("fetch admin adapter", () => {
     expect(
       new Headers(fetcher.mock.calls[0]![1]?.headers).has("Idempotency-Key"),
     ).toBe(false);
+  });
+  it("names an interrupted package upload and an unconfirmed install apart from an unreachable server (I06)", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+    const client = createFetchAdminClient({ baseUrl: "/api", fetch: fetcher });
+    const packages = client.coursePackages!;
+    await expect(
+      packages.inspectFile(
+        "ws-1",
+        new File([new Uint8Array([0x1f, 0x8b])], "x.course.tgz"),
+      ),
+    ).rejects.toMatchObject({ code: "UPLOAD_INTERRUPTED" });
+    await expect(
+      packages.install("b".repeat(64), {
+        workspaceId: "ws-1",
+        idempotencyKey: "package-retry-1",
+      }),
+    ).rejects.toMatchObject({ code: "INSTALL_UNCONFIRMED" });
+    await expect(packages.installation("rel-1")).rejects.toMatchObject({
+      code: "UNAVAILABLE",
+    });
   });
 });

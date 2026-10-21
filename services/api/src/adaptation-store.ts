@@ -30,9 +30,13 @@ import { appendEvent } from './events.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
 import { learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
+import { evaluatorExtensionId } from './gates.js';
+import { declarationMatchesInstalled } from './extension-identity.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
-import {generatedBlocks,generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
+import {generatedBlocks,generatedOperation,generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
+import { componentChecks, componentDigest, generatedContentChecks, hostCheckIds, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
+import { RENDERER_ID } from '@course-core/visuals/headless';
 import { recordTransferChecks } from './adaptation-transfer.js';
 import { freeze, readRelease, verifiedBundle, verifiedRelease } from './release-cache.js';
 
@@ -48,6 +52,8 @@ const profileSchema = z.strictObject({ id, episodeId: id, operation: operationKi
   generationBrief:z.string().min(1).max(3000).refine(v=>v.trim().length>0).optional(),
   /** `advanced`: an optional generated lesson offered only once the anchor's checkpoint is passed. */
   branch: z.enum(['remedial','advanced']).optional(),
+  /** Generated interactive components, tested by this installed code evaluator (generated-content.ts). */
+  component: z.strictObject({ evaluatorId: id }).optional(),
   bank: z.array(z.strictObject({ id, assessment: z.custom<Assessment>(), sourceRefs: z.array(id).min(1), hiddenFixtures: z.custom<Json>().optional() })).max(256).optional(),
   teachingBank:z.array(z.discriminatedUnion('kind',[
     z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)}),
@@ -69,7 +75,13 @@ export interface TrustedAdaptationAdapter {
     generator?: ExerciseGeneratorPort; verifier: ArtifactVerifierPort;
   }>;
 }
-export interface AdaptationRuntime { adapters: readonly TrustedAdaptationAdapter[]; verifierTimeoutMs: number }
+export interface AdaptationRuntime { adapters: readonly TrustedAdaptationAdapter[]; verifierTimeoutMs: number;
+  /** Installed renderers and evaluators the host's own checks of generated content use (generated-content.ts). */
+  installed?: readonly RuntimeExtension[] }
+/** The same runtime, with the installed extensions generated simulations and exercises are checked and graded by. */
+export function withInstalledExtensions(runtime: AdaptationRuntime, installed: readonly RuntimeExtension[]): AdaptationRuntime {
+  return Object.freeze({ ...runtime, installed: Object.freeze([...installed]) });
+}
 /** Explicit composition only. Empty adapters means no executable adaptation capability. */
 export function createAdaptationRuntime(adapters: readonly TrustedAdaptationAdapter[], verifierTimeoutMs = 5000): AdaptationRuntime {
   require(Number.isSafeInteger(verifierTimeoutMs) && verifierTimeoutMs >= 10 && verifierTimeoutMs <= 30000, 'INVALID_ADAPTER_TIMEOUT');
@@ -383,6 +395,12 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
     require(author.limits.allowedClassifications.includes(profile.classification) && profile.plannedMinutes <= author.limits.maxPlannedMinutesPerAssignment
       && profile.additionalEpisodes <= author.limits.maxAdditionalEpisodesPerAssignment, 'AUTHOR_LIMIT', 409);
     require(profile.generationBrief===undefined||adapter.kind==='generated-teaching','GENERATION_BRIEF_CAPABILITY_MISMATCH',409);
+    // A component is appended as its text alternative and tested by an installed evaluator of generated tests.
+    if(profile.component){
+      const evaluator=runtime.installed?.find(e=>e.id===profile.component!.evaluatorId);
+      require(adapter.kind==='generated-teaching'&&profile.operation==='append_teaching'&&generator.artifactKinds.includes('practice')&&declaration.artifactKinds.includes('practice'),'GENERATED_TEACHING_PROFILE_INVALID',409);
+      require(evaluator?.evaluateGeneratedCode&&evaluator.codeReady&&declarationMatchesInstalled(course.extensions.find(e=>e.id===evaluator.id),evaluator),'GENERATED_CODE_EVALUATOR_UNAVAILABLE',409);
+    }
     // An advanced branch is extra: always optional, always a whole inserted lesson.
     require(profile.branch!=='advanced'||(profile.operation==='insert_episode'&&profile.classification==='optional'),'ADVANCED_BRANCH_INVALID',409);
     if(adapter.kind==='teaching-bank'){
@@ -392,9 +410,26 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
       require(profile.teachingBank.every(e=>(e.kind==='episode')===(profile.operation==='insert_episode'))&&(profile.operation!=='insert_episode'||profile.additionalEpisodes>=1),'TEACHING_PROFILE_INVALID',409);
       for(const entry of profile.teachingBank)require(entry.objectiveIds.every(o=>target!.objectiveIds.includes(o))&&entry.sourceRefs.every(s=>author.sourceRefs.includes(s))&&generator.artifactKinds.includes(entry.kind)&&declaration.artifactKinds.includes(entry.kind),'TEACHING_PROFILE_INVALID',409);
     }else if(adapter.kind==='generated-teaching'){
-      require(['append_teaching','insert_episode'].includes(profile.operation)&&!profile.bank&&!profile.teachingBank&&!profile.templateId&&!profile.canonicalAssessmentId&&declaration.requiredCheckIds.length>0&&adapter.validateProfile,'GENERATED_TEACHING_PROFILE_INVALID',409);
+      require(['append_teaching','insert_episode','attach_visual','add_assessment_variant'].includes(profile.operation)&&!profile.bank&&!profile.teachingBank&&!profile.templateId
+        &&(profile.operation==='add_assessment_variant')===Boolean(profile.canonicalAssessmentId)&&declaration.requiredCheckIds.length>0&&adapter.validateProfile,'GENERATED_TEACHING_PROFILE_INVALID',409);
       // A generated lesson needs a verifier and generator for whole episodes and is metered as added work.
       require(profile.operation!=='insert_episode'||(generator.artifactKinds.includes('episode')&&declaration.artifactKinds.includes('episode')&&profile.additionalEpisodes>=1),'GENERATED_TEACHING_PROFILE_INVALID',409);
+      // Simulations and questions: the author declared the kind for this generator and verifier.
+      const kind=profile.operation==='attach_visual'?'visual':profile.operation==='add_assessment_variant'?'assessment_variant':undefined;
+      require(!kind||(generator.artifactKinds.includes(kind)&&declaration.artifactKinds.includes(kind)&&verifier.artifactKinds.includes(kind)),'GENERATED_TEACHING_PROFILE_INVALID',409);
+      // A simulation is drawn by the installed scene renderer the course declares, never by new code.
+      require(profile.operation!=='attach_visual'||(course.extensions.some(e=>e.id===RENDERER_ID&&e.capabilities.includes('visual.render'))
+        &&runtime.installed?.some(e=>e.id===RENDERER_ID&&e.validateVisual)),'GENERATED_SIMULATION_RENDERER_UNAVAILABLE',409);
+      if(profile.operation==='add_assessment_variant'){
+        const canonical=course.assessments.find(a=>a.id===profile.canonicalAssessmentId),family=author.families.find(f=>f.canonicalAssessmentId===canonical?.id);
+        require(canonical&&family&&family.generatorIds.includes(generator.id)&&family.verifierIds.includes(verifier.id)
+          &&canonical.objectiveIds.every(o=>target!.objectiveIds.includes(o))&&['numeric','prediction','code'].includes(canonical.type),'CANONICAL_FAMILY_BINDING',409);
+        // Generated exercises are graded by the canonical item's own installed evaluator, on their verified hidden tests.
+        if(canonical.type==='code'){
+          const extensionId=evaluatorExtensionId(course,canonical.grading.evaluatorId),evaluator=runtime.installed?.find(e=>e.id===extensionId);
+          require(canonical.language==='python'&&evaluator?.evaluateGeneratedCode&&evaluator.codeReady&&declarationMatchesInstalled(course.extensions.find(e=>e.id===extensionId),evaluator),'GENERATED_CODE_EVALUATOR_UNAVAILABLE',409);
+        }
+      }
       adapter.validateProfile(course,profile);
     }else if (profile.operation === 'add_assessment_variant') {
       require(!profile.teachingBank,'ADAPTER_CAPABILITY_MISMATCH',409);
@@ -1094,8 +1129,11 @@ async function generatedTeachingBinding(
   const profile = reg.configuration.profiles.find(
     (p) => p.id === selection.profileId,
   );
-  require((profile?.operation === "append_teaching" || profile?.operation === "insert_episode") &&
-    (selection.artifact.kind === "episode") === (profile.operation === "insert_episode") &&
+  // Each kind has exactly one delivery: text appended, a lesson inserted after its anchor, a
+  // simulation attached, a question added as a variant of the profile's canonical item.
+  require(profile?.operation === generatedOperation(selection.artifact.kind) &&
+    (selection.artifact.kind !== "assessment_variant" || selection.artifact.canonicalAssessmentId === profile.canonicalAssessmentId) &&
+    Boolean(selection.component) === Boolean(profile.component) &&
     profile.episodeId === selection.episodeId &&
     installed(runtime, profile).kind ===
       "generated-teaching", "GENERATED_TEACHING_UNAVAILABLE", 409);
@@ -1151,6 +1189,18 @@ async function generatedTeachingBinding(
     declaration,
   };
 }
+type Bound = Awaited<ReturnType<typeof generatedTeachingBinding>>;
+/** The host's own checks of a candidate, whatever the course verifier says: accessibility of
+ * everything a learner reads, and for simulations and questions the model, answer-key and
+ * reference checks of generated-content.ts against the learner's delivered course. */
+async function hostChecks(bound: Bound, runtime: AdaptationRuntime, signal?: AbortSignal) {
+  const accessibility = accessibilityProblems(generatedBlocks(bound.selection.artifact));
+  const context = { course: bound.loaded.release.server_bundle, installed: runtime.installed ?? [], signal };
+  const content = bound.selection.component && bound.profile.component
+    ? await componentChecks(bound.selection.component, bound.selection.artifact, bound.profile.component.evaluatorId, context)
+    : await generatedContentChecks(bound.selection.artifact, context);
+  return { accessibility, content, failedCheckIds: [...(accessibility.length ? [ACCESSIBILITY_CHECK_ID] : []), ...content.failedCheckIds] };
+}
 
 /** Independent reference/content review before the supervisor may become ready.
  * Adapter implementations must be bounded local checks, or consume an already
@@ -1162,10 +1212,10 @@ export async function checkGeneratedSupervisorTeachingWithin(client:PoolClient,r
   const result=parse(z.strictObject({artifactDigest:hash,checks:z.array(z.strictObject({id,result:z.enum(['passed','failed'])})).min(1).max(64),evidenceRefs:z.array(z.string().min(1).max(256)).min(1).max(32)}),await bounded(runtime,localSignal=>bound.ports.verifier.verify({baseCourseDigest:bound.base.digest,proposalDigest:digestJson(bound.selection),artifact:structuredClone(bound.selection.artifact),requiredCheckIds:[...bound.declaration.requiredCheckIds]},{signal:localSignal}),signal));
   require(result.artifactDigest===bound.selection.artifact.digest&&digestJson(result.checks.map(c=>c.id).sort())===digestJson([...bound.declaration.requiredCheckIds].sort()),'ADAPTATION_VERIFICATION_FAILED',409);
   const failedCheckIds=result.checks.filter(c=>c.result==='failed').map(c=>c.id);
-  // The host's own accessibility check runs on every candidate, whatever the course verifier says.
-  const accessibility=accessibilityProblems(generatedBlocks(bound.selection.artifact));
-  if(accessibility.length)failedCheckIds.push(ACCESSIBILITY_CHECK_ID);
-  return {passed:failedCheckIds.length===0,failedCheckIds,accessibilityProblems:accessibility};
+  // The host's own checks run on every candidate, whatever the course verifier says.
+  const host=await hostChecks(bound,runtime,signal);
+  failedCheckIds.push(...host.failedCheckIds);
+  return {passed:failedCheckIds.length===0,failedCheckIds,accessibilityProblems:host.accessibility,contentProblems:host.content.problems as ContentProblem[]};
 }
 export async function verifyGeneratedSupervisorTeaching(db:Database,ref:RunRef,raw:GeneratedTeachingSelection,runtime:AdaptationRuntime) {
   return transaction(db,async client=>{
@@ -1176,7 +1226,10 @@ export async function verifyGeneratedSupervisorTeaching(db:Database,ref:RunRef,r
 
 /** Called only inside the bridge's fenced, verified application transaction.
  * Recheck the installed verifier, current registry, consent, target and quotas.
- * Atomic rollback prevents partial lessons or invented mastery on any denial. */
+ * Atomic rollback prevents partial lessons or invented mastery on any denial.
+ * An addition to the lesson the learner is mid-attempt in waits for a safe boundary
+ * (generated-content.ts safeBoundary): it is recorded as a pending personal change and
+ * delivered, with every check repeated, when the learner adds it after the attempt. */
 export async function applyGeneratedSupervisorTeaching(
   client: PoolClient,
   ref: RunRef,
@@ -1184,83 +1237,198 @@ export async function applyGeneratedSupervisorTeaching(
   runtime: AdaptationRuntime,
 ) {
   try {
-    const { selection, enrolled, actor, loaded, base, reg, profile } =
-      await generatedTeachingBinding(client, ref, raw, runtime);
-    require(accessibilityProblems(generatedBlocks(selection.artifact)).length === 0, "ACCESSIBILITY_CHECK_FAILED", 409);
-    await activateWindows(
-      client,
-      base.server_bundle,
-      enrolled.id,
-      profile.episodeId,
-      await clock(client),
-    );
-    await assertPolicyAction(
-      client,
-      enrolled.id,
-      profile.episodeId,
-      "plan",
-      await clock(client),
-    );
-    const context = await runtimeContext(client, enrolled, base, reg),
-      state = await loadState(client, enrolled, context),
-      operationId = "operation-" + randomUUID();
-    const prepared = await prepare(
-      client,
-      enrolled,
-      actor,
-      base,
-      reg,
-      context,
-      state,
-      {
-        schemaVersion: 1,
-        id: "proposal-" + randomUUID(),
-        baseCourseDigest: base.digest,
-        expectedPlanRevision: state.plan.revision,
-        expectedPlanDigest: state.plan.digest,
-        rationale:
-          "Supervisor generated new teaching after learner opt-in; installed course reference checks verified its content.",
-        artifacts: [selection.artifact],
-        operations: [
-          // A generated lesson follows the episode it was made for; text is appended to it.
-          selection.artifact.kind === "episode"
-            ? { id: operationId, type: "insert_episode", afterEpisodeId: profile.episodeId, artifactId: selection.artifact.id }
-            : { id: operationId, type: "append_teaching", episodeId: profile.episodeId, artifactId: selection.artifact.id },
-        ],
-      },
-      [{ operationId, profileId: profile.id }],
-      runtime,
-    );
-    const applied = await applyStored(
-      client,
-      loaded,
-      actor,
-      prepared.proposalId,
-      state.plan.revision,
-      "supervisor-" + ref.jobId,
-      true,
-    );
-    await client.query(
-      "INSERT INTO supervisor_plan_effects(job_id,enrollment_id,workspace_id,proposal_id,plan_revision,permission_revision) VALUES($1,$2,$3,$4,$5,$6)",
-      [
-        ref.jobId,
-        ref.enrollmentId,
-        ref.workspaceId,
-        prepared.proposalId,
-        applied.planRevision,
-        selection.permissionRevision,
-      ],
-    );
-    // Delivery is not the end: whether the learner can now use it on an independent check is
-    // recorded per objective and resolved from later attempts (never from model output).
-    await recordTransferChecks(client, ref.enrollmentId, ref.workspaceId, prepared.proposalId, selection.artifact.objectiveIds);
-    return {
-      proposalId: prepared.proposalId,
-      planRevision: applied.planRevision,
-      episodeId: profile.episodeId,
-      ...(selection.artifact.kind === "episode" ? { insertedEpisodeId: selection.artifact.id } : {}),
-    };
+    const bound = await generatedTeachingBinding(client, ref, raw, runtime);
+    const { selection, enrolled, profile } = bound;
+    const boundary = await safeBoundary(client, enrolled.id, profile.episodeId, profile.operation);
+    if (!boundary.safe) return await deferGeneratedChange(client, ref, selection, boundary.reason);
+    return await deliverGenerated(client, ref, bound, runtime);
   } catch (error) {
     translated(error);
   }
+}
+async function deliverGenerated(client: PoolClient, ref: RunRef, bound: Bound, runtime: AdaptationRuntime, waited = false) {
+  const { selection, enrolled, actor, loaded, base, reg, profile } = bound;
+  const host = await hostChecks(bound, runtime);
+  require(host.accessibility.length === 0, "ACCESSIBILITY_CHECK_FAILED", 409);
+  require(host.content.failedCheckIds.length === 0, "GENERATED_CONTENT_CHECK_FAILED", 409);
+  await activateWindows(
+    client,
+    base.server_bundle,
+    enrolled.id,
+    profile.episodeId,
+    await clock(client),
+  );
+  await assertPolicyAction(
+    client,
+    enrolled.id,
+    profile.episodeId,
+    "plan",
+    await clock(client),
+  );
+  const context = await runtimeContext(client, enrolled, base, reg),
+    state = await loadState(client, enrolled, context),
+    operationId = "operation-" + randomUUID(),
+    artifactId = selection.artifact.id,
+    type = generatedOperation(selection.artifact.kind);
+  const prepared = await prepare(
+    client,
+    enrolled,
+    actor,
+    base,
+    reg,
+    context,
+    state,
+    {
+      schemaVersion: 1,
+      id: "proposal-" + randomUUID(),
+      baseCourseDigest: base.digest,
+      expectedPlanRevision: state.plan.revision,
+      expectedPlanDigest: state.plan.digest,
+      rationale:
+        "Supervisor generated new teaching after learner opt-in; installed course reference checks verified its content.",
+      artifacts: [selection.artifact],
+      operations: [
+        // A generated lesson follows the episode it was made for; everything else is added to it.
+        type === "insert_episode"
+          ? { id: operationId, type, afterEpisodeId: profile.episodeId, artifactId }
+          : { id: operationId, type, episodeId: profile.episodeId, artifactId },
+      ],
+    },
+    [{ operationId, profileId: profile.id }],
+    runtime,
+  );
+  const applied = await applyStored(
+    client,
+    loaded,
+    actor,
+    prepared.proposalId,
+    state.plan.revision,
+    "supervisor-" + ref.jobId,
+    true,
+  );
+  await client.query(
+    "INSERT INTO supervisor_plan_effects(job_id,enrollment_id,workspace_id,proposal_id,plan_revision,permission_revision) VALUES($1,$2,$3,$4,$5,$6)",
+    [
+      ref.jobId,
+      ref.enrollmentId,
+      ref.workspaceId,
+      prepared.proposalId,
+      applied.planRevision,
+      selection.permissionRevision,
+    ],
+  );
+  // What was checked before this change was applied, kept with it (migration 092).
+  const verifier = reg.configuration.verifiers.find((v) => v.id === profile.verifierId)!;
+  await client.query("INSERT INTO adaptation_validation_reports(enrollment_id,workspace_id,proposal_id,report) VALUES($1,$2,$3,$4)", [ref.enrollmentId, ref.workspaceId,
+    prepared.proposalId, JSON.stringify({ schemaVersion: 1, artifactKind: selection.artifact.kind, artifactDigest: selection.artifact.digest, planRevision: applied.planRevision,
+      courseChecks: { verifierId: verifier.id, verifierVersion: verifier.version, checks: bound.declaration.requiredCheckIds.map((id) => ({ id, result: "passed" })) },
+      hostChecks: hostCheckIds(selection.artifact, Boolean(selection.component)).map((id) => ({ id, result: "passed" })),
+      boundary: waited ? "added_by_learner_after_attempt" : "safe_at_delivery" })]);
+  // The tested component is published once, content-addressed, beside its text block (migration 093).
+  if (selection.component)
+    await client.query(`INSERT INTO generated_components(enrollment_id,workspace_id,proposal_id,episode_id,block_id,digest,artifact_digest,body)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [ref.enrollmentId, ref.workspaceId, prepared.proposalId, profile.episodeId, operationId,
+      componentDigest(selection.component), selection.artifact.digest, JSON.stringify(selection.component)]);
+  // Delivery is not the end: whether the learner can now use it on an independent check is
+  // recorded per objective and resolved from later attempts (never from model output).
+  await recordTransferChecks(client, ref.enrollmentId, ref.workspaceId, prepared.proposalId, selection.artifact.objectiveIds);
+  return {
+    proposalId: prepared.proposalId,
+    planRevision: applied.planRevision,
+    episodeId: profile.episodeId,
+    ...(type === "insert_episode" ? { insertedEpisodeId: artifactId } : {}),
+  };
+}
+
+/** Keeps a verified change for the learner to add once their attempt ends. Nothing in the
+ * lesson, evidence or work accounting changes; the content stays out of learner views. */
+async function deferGeneratedChange(client: PoolClient, ref: RunRef, selection: GeneratedTeachingSelection, reason: BoundaryReason) {
+  const id = randomUUID();
+  const inserted = await client.query<{ id: string }>(`INSERT INTO adaptation_pending_changes(id,enrollment_id,workspace_id,job_id,episode_id,artifact_kind,selection,reason)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
+    [id, ref.enrollmentId, ref.workspaceId, ref.jobId, selection.episodeId, selection.artifact.kind, JSON.stringify(selection), reason]);
+  const pendingId = inserted.rows[0]?.id ?? (await client.query<{ id: string }>('SELECT id FROM adaptation_pending_changes WHERE job_id=$1', [ref.jobId])).rows[0]!.id;
+  if (inserted.rowCount) {
+    await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [ref.enrollmentId]);
+    await appendEvent(client, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, actorKind: 'system', type: 'personal_change.deferred',
+      payload: { pendingId, episodeId: selection.episodeId, reason }, idempotencyKey: `personal-change-deferred:${ref.jobId}`, supervise: false });
+  }
+  return { deferred: true as const, pendingId, episodeId: selection.episodeId, reason };
+}
+export interface PendingChangeRow { id: string; enrollment_id: string; workspace_id: string; job_id: string; episode_id: string; artifact_kind: string;
+  selection: GeneratedTeachingSelection; reason: BoundaryReason; status: 'waiting' | 'applied' | 'lapsed' | 'declined'; outcome_code: string | null;
+  proposal_id: string | null; created_at: Date; resolved_at: Date | null }
+/** Codes after which a waiting change can never be delivered: it lapses instead of retrying. */
+const LAPSED = new Set(['SUPERVISION_CONSENT_CHANGED', 'GENERATED_TEACHING_REGISTRY_CHANGED', 'GENERATED_TEACHING_UNAVAILABLE', 'SUPERVISION_TARGET_CHANGED',
+  'ADVANCED_BRANCH_NOT_EARNED', 'GENERATED_TEACHING_BINDING', 'ARTIFACT_BYTES_LIMIT', 'VERIFIER_CAPABILITY_MISMATCH', 'ACCESSIBILITY_CHECK_FAILED',
+  'GENERATED_CONTENT_CHECK_FAILED', 'ADAPTATION_VERIFICATION_FAILED', 'ENROLLMENT_INACTIVE', 'QUOTA_EXCEEDED', 'DEADLINE_REACHED',
+  'ADAPTATION_ADAPTER_NOT_INSTALLED', 'VERIFIER_REGISTRATION_MISMATCH', 'DUPLICATE_QUESTION', 'AUTHOR_LIMIT', 'POLICY_DENIED']);
+/**
+ * The learner adds a waiting change now (their own enrollment only). It must be at a safe
+ * boundary for that lesson, and everything is checked again exactly as at first delivery:
+ * consent, registry, target, the course verifier, the host checks, policy and work caps.
+ * A change that can no longer be delivered lapses with its reason and changes nothing else.
+ */
+export async function applyPendingChangeWithin(client: PoolClient, loaded: EnrollmentContext, actor: Actor, pendingId: string, runtime: AdaptationRuntime) {
+  require(loaded.enrollment.user_id === actor.id, 'LEARNER_ONLY', 403);
+  const row = (await client.query<PendingChangeRow>('SELECT * FROM adaptation_pending_changes WHERE id=$1 AND enrollment_id=$2 FOR UPDATE', [pendingId, loaded.enrollment.id])).rows[0];
+  require(row, 'PENDING_CHANGE_NOT_FOUND', 404);
+  require(row.status === 'waiting', 'PENDING_CHANGE_RESOLVED', 409);
+  const operation = generatedOperation(row.selection.artifact.kind);
+  const boundary = await safeBoundary(client, loaded.enrollment.id, row.episode_id, operation);
+  if (!boundary.safe) throw new ApiError(409, 'ADAPTATION_NOT_AT_SAFE_BOUNDARY', 'ADAPTATION_NOT_AT_SAFE_BOUNDARY', { reason: boundary.reason });
+  const ref = { jobId: row.job_id, enrollmentId: row.enrollment_id, workspaceId: row.workspace_id } as RunRef;
+  await client.query('SAVEPOINT pending_change');
+  try {
+    const effect = await deliverGenerated(client, ref, await generatedTeachingBinding(client, ref, row.selection, runtime), runtime, true);
+    await client.query('RELEASE SAVEPOINT pending_change');
+    await client.query("UPDATE adaptation_pending_changes SET status='applied',proposal_id=$2,resolved_at=clock_timestamp() WHERE id=$1", [row.id, effect.proposalId]);
+    return { pendingId: row.id, status: 'applied' as const, planRevision: effect.planRevision, episodeId: effect.episodeId };
+  } catch (error) {
+    await client.query('ROLLBACK TO SAVEPOINT pending_change');
+    const code = error instanceof ApiError ? error.code : error instanceof AdaptationError || error instanceof PolicyError ? error.code : undefined;
+    if (!code || !LAPSED.has(code)) translated(error);
+    await client.query("UPDATE adaptation_pending_changes SET status='lapsed',outcome_code=$2,resolved_at=clock_timestamp() WHERE id=$1", [row.id, code]);
+    await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [loaded.enrollment.id]);
+    return { pendingId: row.id, status: 'lapsed' as const, code };
+  }
+}
+/** The learner turns a waiting change down. Nothing was delivered, so nothing is undone. */
+export async function declinePendingChangeWithin(client: PoolClient, loaded: EnrollmentContext, actor: Actor, pendingId: string) {
+  require(loaded.enrollment.user_id === actor.id, 'LEARNER_ONLY', 403);
+  const updated = await client.query("UPDATE adaptation_pending_changes SET status='declined',resolved_at=clock_timestamp() WHERE id=$1 AND enrollment_id=$2 AND status='waiting'",
+    [pendingId, loaded.enrollment.id]);
+  require(updated.rowCount === 1, 'PENDING_CHANGE_RESOLVED', 409);
+  await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [loaded.enrollment.id]);
+  return { pendingId, status: 'declined' as const };
+}
+/** Waiting changes as the learner sees them: what kind, for which lesson, why it waits and
+ * whether it can be added now. The generated content itself is not shown before delivery. */
+export async function pendingChanges(client: PoolClient, loaded: EnrollmentContext) {
+  const rows = (await client.query<PendingChangeRow>("SELECT * FROM adaptation_pending_changes WHERE enrollment_id=$1 AND status='waiting' ORDER BY created_at LIMIT 20",
+    [loaded.enrollment.id])).rows;
+  const titles = new Map(loaded.release.server_bundle.chapters.flatMap(c => c.episodes).map(e => [e.id, e.title]));
+  const result = [];
+  for (const row of rows) {
+    const boundary = await safeBoundary(client, loaded.enrollment.id, row.episode_id, generatedOperation(row.selection.artifact.kind));
+    result.push({ pendingId: row.id, episodeId: row.episode_id, episodeTitle: titles.get(row.episode_id) ?? row.episode_id,
+      kind: generatedOperation(row.selection.artifact.kind), reason: row.reason, createdAt: row.created_at.toISOString(),
+      addableNow: boundary.safe, ...(boundary.safe ? {} : { waitingFor: boundary.reason }) });
+  }
+  return result;
+}
+
+/** Published components of this enrollment's live personal changes, for the lesson to run in the
+ * sandboxed runner frame. Reverted changes keep their record but are not offered. */
+export async function liveComponents(client: PoolClient, loaded: EnrollmentContext) {
+  const rows = (await client.query<{ episode_id: string; block_id: string; digest: string; body: Record<string, unknown> }>(
+    `SELECT c.episode_id,c.block_id,c.digest,c.body FROM generated_components c JOIN adaptation_proposals p ON p.id=c.proposal_id AND p.enrollment_id=c.enrollment_id
+      WHERE c.enrollment_id=$1 AND p.status='applied' AND NOT EXISTS(SELECT 1 FROM adaptation_reverts r WHERE r.enrollment_id=c.enrollment_id AND r.proposal_id=c.proposal_id)
+      ORDER BY c.created_at LIMIT 64`, [loaded.enrollment.id])).rows;
+  const shown = new Set(loaded.release.server_bundle.chapters.flatMap(c => c.episodes.flatMap(e => e.blocks.map(b => `${e.id}/${b.id}`))));
+  return rows.filter(r => shown.has(`${r.episode_id}/${r.block_id}`) && r.body.source).map(r => {
+    const { tests: _tests, ...component } = r.body;
+    // The tests stay server-side; the learner runs the model, never needs its checks.
+    return { episodeId: r.episode_id, blockId: r.block_id, digest: r.digest, ...component };
+  });
 }

@@ -10,6 +10,7 @@ import { composeProviders } from "../src/provider-composition.js";
 import {
   configureSupervisorBudget,
   createPostgresSupervisorBridge,
+  parkSupervisorJob,
   recordSupervisorVerification,
   storeSupervisorArtifact,
 } from "../src/supervisor-bridge.js";
@@ -35,16 +36,18 @@ import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { createMediaJobService, workspaceMediaResolver } from "../src/media-jobs.js";
-import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
+import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, approveRevisionsForTest, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
 import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
+import { generatedContentFixture, lineScene, LINE_COMPONENT_SOURCE, syntheticCodeEvaluator } from "../test/generated-content-fixture.js";
 import { recoveryFixture } from "../test/recovery-fixture.js";
 import {
   approveAdaptationRegistry,
   createAdaptationRuntime,
+  withInstalledExtensions,
 } from "../src/adaptation-store.js";
 import { codeEvaluator } from "../src/code-evaluator.js";
 import { offsetClock } from "../src/clock.js";
@@ -134,6 +137,24 @@ optionalFixture.course.adaptation!.limits.allowedClassifications = ["required", 
 const optionalReleaseId = randomUUID(),
   optionalCourse = compileCourse(optionalFixture.course);
 const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
+// The generated-content course (set below, once the renderer is installed): the supervisor writes a simulation.
+let contentCourseDigest = "";
+/** Operations whose supervisor writes an interactive component instead of a simulation. */
+const componentOperations = new Set<string>();
+const lineComponent = { title: "Line explorer", description: "Change the slope, x and intercept, then run the model to see y.", source: LINE_COMPONENT_SOURCE,
+  inputs: [{ name: "slope", label: "Slope", min: -5, max: 5, step: 1, initial: 2 }, { name: "x", label: "Input x", min: 0, max: 10, step: 1, initial: 3 },
+    { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
+  outputs: [{ name: "y", label: "Output y" }],
+  tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }] };
+const contentScript = (round: number, component: boolean) =>
+  round === 0
+    ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }
+    : round === 1
+      ? { decision: "tool", tool: "create_teaching", summary: "", argumentsJson: JSON.stringify(component
+          ? { profileId: "component-profile", kind: "component", component: lineComponent, objectiveIds: ["minimum"], sourceRefs: ["ordering-author-reference"] }
+          : { profileId: "simulation-profile", kind: "simulation", scene: lineScene("browser-line"), objectiveIds: ["minimum"], sourceRefs: ["ordering-author-reference"] }) }
+      : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "Generated practice of a straight line for the minimum lesson." };
 const repairOperations = new Set<string>();
 const modelAdapter: ProviderAdapter = {
   providerId: "browser-supervisor",
@@ -186,6 +207,8 @@ const modelAdapter: ProviderAdapter = {
                     argumentsJson: "{}",
                     summary: "Use the repaired independently checked example.",
                   }
+          : prompt.context.course.digest === contentCourseDigest
+            ? contentScript(round, componentOperations.has(req.accounting.accountingKey.split(":round-")[0]!))
           : prompt.context.course.digest === generatedCourse.digest || prompt.context.course.digest === optionalCourse.digest
             ? round === 0
               ? {
@@ -320,7 +343,11 @@ const renderer = await svgRenderer(),
     Buffer.from(JSON.stringify(comparisonFixtures)),
     sandbox,
   ),
-  codeRecovery = codeRecoveryFixture(grader);
+  codeRecovery = codeRecoveryFixture(grader),
+  content = generatedContentFixture(renderer),
+  contentReleaseId = randomUUID(),
+  contentCourse = compileCourse(content.course);
+contentCourseDigest = contentCourse.digest;
 // Test-only generated media: a scripted video adapter behind its own provider store.
 // Only the media service uses it; the supervisor keeps the fixed test providers.
 const mediaVideo = new ScriptedVideo(),
@@ -343,7 +370,8 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
     ? { adminDirectory: fileURLToPath(new URL("../../../apps/admin/dist", import.meta.url)) }
     : {}),
   // The repair stub only serves the versioned-gate fixture's code-repair item (test host only).
-  installedExtensions: [renderer, grader, reviewedRubricEvaluator(), repairEvaluatorStub(),
+  // The synthetic code evaluator tests generated components and exercises here (test host only).
+  installedExtensions: [renderer, grader, reviewedRubricEvaluator(), repairEvaluatorStub(), syntheticCodeEvaluator(),
     // Activity runtime: Core's interpreter, a synthetic sandboxed probe and evaluator (test host only).
     declarativeActivityRuntime(), sandboxedActivityRuntime(), syntheticActivityEvaluator(), hintProbeRuntime()],
   adaptation: createAdaptationRuntime([
@@ -352,6 +380,7 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
     ...generatedFixture.runtime.adapters.filter(
       (a) => a.kind === "generated-teaching",
     ),
+    content.adapter,
   ]),
   providers,
   supervisor: supervisorOptions,
@@ -483,8 +512,19 @@ await approveAdaptationRegistry(
   },
   codeRecovery.runtime,
 );
+await db.query(
+  "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+  [contentReleaseId, workspaceId, contentCourse.server.id, contentCourse.server.version, contentCourse.digest, JSON.stringify(contentCourse.server), JSON.stringify(contentCourse.learner), ownerId],
+);
+// Approval checks generated content against the installed renderer and a generated-test evaluator.
+await approveAdaptationRegistry(
+  db,
+  { id: ownerId, displayName: "Test owner" },
+  { releaseId: contentReleaseId, expectedRegistryRevision: 0, configuration: content.config },
+  withInstalledExtensions(content.runtime, [renderer, syntheticCodeEvaluator()]),
+);
 // Raw fixture inserts must establish the same catalogue records as real import.
-for (const id of [releaseId, generatedReleaseId, optionalReleaseId, codeReleaseId]) await ensureCatalog(db, id);
+for (const id of [releaseId, generatedReleaseId, optionalReleaseId, codeReleaseId, contentReleaseId]) await ensureCatalog(db, id);
 app.post("/test/code-session", async () => {
   const userId = randomUUID();
   await db.query(
@@ -606,6 +646,8 @@ app.post("/test/media-session", async () => {
   const release = (await call(`/api/workspaces/${workspace}/releases`, fixture())).id;
   await call(`/api/releases/${release}/publish`, {});
   const enrollmentId = (await call("/api/enrollments", { releaseId: release }, learner)).id;
+  // Every agent role is gated (N07): the owner approves the scripted media revision first.
+  await approveRevisionsForTest(db, workspace, mediaConfiguration());
   await mediaProviders.save({ id: ids.owner!, displayName: "Media owner" }, workspace, { expectedRevision: 0, idempotencyKey: "media-" + randomUUID(),
     configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(250_000), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
   await configureSupervisorBudget(db, { workspaceId: workspace }, { microUsd: 5_000_000, tokens: 1_000_000 });
@@ -834,6 +876,37 @@ app.post("/test/hypothesis-session", async (request) => {
     for (const block of min.blocks) if (block.type !== "assessment") await send("read", { episodeId: "min", blockId: block.id });
     await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
   }
+  return { token: await issueLoginCode(db, userId) };
+});
+// A learner of the hypothesis course who opted in to personal support: a confident wrong answer
+// started a teaching action (B03), and a supervisor job waits for them to decide a new overall
+// goal it proposed (B06). The job is parked (needs_input) exactly as the plan verifier parks it.
+app.post("/test/supervisor-requests-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "requests-browser:" + userId, "Requests learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [hypothesisWorkspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: hypothesisReleaseId } })).json().id as string;
+  const send = async (action: string, body: Record<string, unknown>) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision;
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/${action}`, headers, payload: { expectedRevision: revision, idempotencyKey: randomUUID(), ...body } });
+    if (r.statusCode !== 200) throw Error("Requests fixture failed: " + r.body);
+    return r.json();
+  };
+  await send("supervision", { adaptiveTeaching: true });
+  await send("profile", { profile: { displayName: "Requests learner", goal: "Order small lists", pace: "steady" } });
+  const issued = await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
+  await send("answers", { challengeId: issued.challengeId, answer: "nine", confidence: 5 });
+  const review = await transaction(db, (client) => appendEvent(client, { workspaceId: hypothesisWorkspaceId, enrollmentId: enrollment, actorId: userId, actorKind: "learner",
+    type: "learning.review_requested", payload: { episodeId: "min" }, idempotencyKey: randomUUID(), supervise: true }));
+  const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [hypothesisWorkspaceId] });
+  const lease = await bridge.claimOutboxEvent(review.id, randomUUID(), 30_000);
+  const [job] = lease ? await bridge.prepareOutbox(lease) : [];
+  if (!job || !lease || !(await bridge.ackOutbox(lease))) throw Error("Requests fixture job failed");
+  await parkSupervisorJob(db, job, "needs_input");
+  await db.query(`INSERT INTO supervisor_authority_requests(id,enrollment_id,workspace_id,job_id,kind,approver,proposal) VALUES($1,$2,$3,$4,'goal_change','learner',$5)`,
+    [randomUUID(), enrollment, hypothesisWorkspaceId, job.jobId, JSON.stringify({ goal: "Find minima and maxima", reason: "You asked about maxima twice." })]);
   return { token: await issueLoginCode(db, userId) };
 });
 // Closes a /test/session enrollment at its reached cap with read-only material and a
@@ -1075,6 +1148,10 @@ app.post("/test/model-session", async (request) => {
     (request.body as { generated?: boolean } | undefined)?.generated === true;
   const optional =
     (request.body as { optional?: boolean } | undefined)?.optional === true;
+  // A generated simulation; with midAttempt the learner has a practice question open meanwhile.
+  const generatedContent = (request.body as { content?: boolean } | undefined)?.content === true;
+  const midAttempt = (request.body as { midAttempt?: boolean } | undefined)?.midAttempt === true;
+  const writesComponent = (request.body as { component?: boolean } | undefined)?.component === true;
   const userId = randomUUID();
   await db.query(
     "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
@@ -1100,7 +1177,7 @@ app.post("/test/model-session", async (request) => {
     method: "POST",
     url: "/api/enrollments",
     headers,
-    payload: { releaseId: optional ? optionalReleaseId : generated ? generatedReleaseId : releaseId },
+    payload: { releaseId: generatedContent ? contentReleaseId : optional ? optionalReleaseId : generated ? generatedReleaseId : releaseId },
   });
   if (enrolled.statusCode !== 200)
     throw Error("Model fixture enrollment failed");
@@ -1118,6 +1195,12 @@ app.post("/test/model-session", async (request) => {
   });
   if (permission.statusCode !== 200)
     throw Error("Model fixture consent failed");
+  if (midAttempt) {
+    const revision = (await app.inject({ url: `/api/enrollments/${id}`, headers })).json().revision;
+    const opened = await app.inject({ method: "POST", url: `/api/enrollments/${id}/challenges`, headers,
+      payload: { expectedRevision: revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-a", mode: "practice" } });
+    if (opened.statusCode !== 200) throw Error("Model fixture challenge failed");
+  }
   await transaction(db, (client) =>
     appendEvent(client, {
       workspaceId,
@@ -1165,6 +1248,7 @@ app.post("/test/model-session", async (request) => {
     repairOperations.add(
       createHash("sha256").update(operation.id).digest("hex"),
     );
+  if (writesComponent) componentOperations.add(createHash("sha256").update(operation.id).digest("hex"));
   const output = await app.inject({
     method: "POST",
     url: "/v1/operations",

@@ -14,6 +14,7 @@ import { MODULES, ROOT, DEPENDENCY_FIELDS, ensure, readJson, requireNode26, sdkR
 import { resolveModuleGraph } from './dependency-graph.mjs';
 import { isMain } from './is-main.mjs';
 import {reviewedLicenseFile} from './release-license-reviews.mjs';
+import {compatibilityMatrix,directorySource} from './release-compat.mjs';
 
 const exec = promisify(execFile);
 export const REPOSITORY = 'roeehrl/course-core';
@@ -48,11 +49,15 @@ export function sourceAllowed(filename) {
   privacyPath(filename);
   if (ROOT_SOURCE.has(filename)) return true;
   if (filename.startsWith('.github/')) return /^\.github\/(?:workflows\/[A-Za-z0-9_-]+\.ya?ml|CODEOWNERS|dependabot\.ya?ml)$/.test(filename);
-  if (filename.startsWith('scripts/')) return /^scripts\/[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
+  // scripts/tests/ holds tests that need a disposable database, outside the test:infra glob.
+  if (filename.startsWith('scripts/')) return /^scripts\/(?:tests\/)?[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
     || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
-  // Project documentation: flat Markdown files only.
-  if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename);
-  if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename);
+  // Project documentation: flat Markdown files, and the published JSON Schemas of versioned contracts.
+  if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename)
+    || /^docs\/contracts\/[a-z0-9-]+\.v[0-9]+\.schema\.json$/.test(filename);
+  // deploy/docker is the documented Linux/Docker self-host stack; its .env.example holds placeholders only.
+  if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename)
+    || /^deploy\/docker\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md|compose\.yaml|Caddyfile|Dockerfile|Dockerfile\.dockerignore|\.env\.example)$/.test(filename);
   const base = MODULE_PATHS.find(directory => filename.startsWith(`${directory}/`));
   if (!base) return false;
   const relative = filename.slice(base.length + 1);
@@ -479,8 +484,22 @@ export function metadata(entries) {
 function exactKeys(value, keys, label) {
   ensure(value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).sort().join('\0')===[...keys].sort().join('\0'),`Invalid ${label} fields`);
 }
+/** The compatibility matrix recorded in a candidate manifest (scripts/release-compat.mjs). */
+export function validateCompatibility(matrix,version) {
+  exactKeys(matrix,['schemaVersion','core','sdk','node','postgres','migrations'],'candidate compatibility matrix');
+  const semver=/^\d+\.\d+\.\d+$/;
+  ensure(matrix.schemaVersion===1&&matrix.core===version,'Compatibility matrix belongs to another version');
+  exactKeys(matrix.sdk,['release','coursePackages'],'compatibility SDK');exactKeys(matrix.sdk.coursePackages,['supported','sameMajorOutsideRange','otherMajor'],'compatibility course packages');
+  ensure(semver.test(matrix.sdk.release)&&semver.test(matrix.sdk.coursePackages.supported?.min)&&semver.test(matrix.sdk.coursePackages.supported?.maxExclusive)
+    &&matrix.sdk.coursePackages.sameMajorOutsideRange==='install_with_warning'&&matrix.sdk.coursePackages.otherMajor==='refused','Invalid compatibility SDK range');
+  exactKeys(matrix.node,['engines','testedMajor','modules'],'compatibility Node');
+  ensure(typeof matrix.node.engines==='string'&&Number.isSafeInteger(matrix.node.testedMajor)&&Object.keys(matrix.node.modules).every(name=>Object.hasOwn(MODULES,name)),'Invalid compatibility Node versions');
+  exactKeys(matrix.postgres,['major'],'compatibility PostgreSQL');ensure(Number.isSafeInteger(matrix.postgres.major)&&matrix.postgres.major>=17,'Invalid compatibility PostgreSQL major');
+  exactKeys(matrix.migrations,['count','last','sha256'],'compatibility migrations');
+  ensure(Number.isSafeInteger(matrix.migrations.count)&&matrix.migrations.count>0&&/^\d{3}_[a-z0-9_]+\.sql$/.test(matrix.migrations.last)&&/^[a-f0-9]{64}$/.test(matrix.migrations.sha256),'Invalid compatibility migration receipt');
+}
 export function validateCandidateManifest(manifest) {
-  exactKeys(manifest,['schemaVersion','state','identity','ci','modules','assets','sbom','installedVisuals','verificationScope'],'candidate manifest');
+  exactKeys(manifest,['schemaVersion','state','identity','ci','modules','assets','sbom','compatibility','installedVisuals','verificationScope'],'candidate manifest');
   ensure(manifest.schemaVersion===1 && manifest.state==='verified_candidate','Unsupported candidate state');
   const identity=manifest.identity;
   exactKeys(identity,['repository','tag','version','commit','tagObject','tree','sourceEpoch','workflowRef','workflowSha'],'candidate identity');
@@ -504,6 +523,7 @@ export function validateCandidateManifest(manifest) {
   exactKeys(manifest.sbom,['filename','size','sha256','format','specVersion'],'candidate SBOM');
   ensure(manifest.sbom.filename===sbomFilename(identity.version)&&manifest.sbom.format===SBOM_FORMAT.format&&manifest.sbom.specVersion===SBOM_FORMAT.specVersion
     &&Number.isSafeInteger(manifest.sbom.size)&&manifest.sbom.size>0&&manifest.sbom.size<=64*1024*1024&&/^[a-f0-9]{64}$/.test(manifest.sbom.sha256),'Invalid candidate SBOM receipt');
+  validateCompatibility(manifest.compatibility,identity.version);
   ensure(Array.isArray(manifest.modules)&&manifest.modules.length===Object.keys(MODULES).length&&new Set(manifest.modules.map(m=>m.name)).size===manifest.modules.length,'Runtime module coverage mismatch');
   for(const module of manifest.modules){
     exactKeys(module,['name','directory','packageName','version','lockSha256'],'runtime module receipt');
@@ -657,7 +677,8 @@ async function prepareCandidates(root,options) {
     const modules=await Promise.all(Object.entries(MODULES).map(async([name,module])=>{const manifest=await readJson(path.join(source,module.directory,'package.json'));return {name,directory:module.directory,packageName:manifest.name,version:manifest.version,lockSha256:sha(await readFile(path.join(source,module.directory,'package-lock.json')))};}));
     const sbom=cycloneDxSbom(boundIdentity,await Promise.all(modules.map(async row=>({...row,lock:await readJson(path.join(source,row.directory,'package-lock.json'))}))));
     const sbomReceipt={filename:sbomFilename(original.version),size:sbom.length,sha256:sha(sbom),...SBOM_FORMAT};
-    const manifest={schemaVersion:1,state:'verified_candidate',identity:boundIdentity,ci,modules,assets:assets.map(({bytes,...record})=>record),sbom:sbomReceipt,installedVisuals,verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
+    const compatibility=await compatibilityMatrix(directorySource(source));
+    const manifest={schemaVersion:1,state:'verified_candidate',identity:boundIdentity,ci,modules,assets:assets.map(({bytes,...record})=>record),sbom:sbomReceipt,compatibility,installedVisuals,verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
     validateCandidateManifest(manifest);
     for(const asset of assets)await writeFile(path.join(output,asset.filename),asset.bytes,{flag:'wx',mode:0o600});
     await writeFile(path.join(output,sbomReceipt.filename),sbom,{flag:'wx',mode:0o600});
@@ -679,6 +700,7 @@ async function verifyCandidates(root,options) {
     const expected=await snapshot(root,fresh.commit,path.join(scratch,'source'));
     const archived=readTarGzip(await readFile(path.join(directory,archiveNames(fresh.version).source))).map(e=>({...e,path:e.path.slice('course-core/'.length)}));
     ensure(JSON.stringify(metadata(expected))===JSON.stringify(metadata(archived)),'Archived source does not equal the immutable Git tree');
+    ensure(JSON.stringify(await compatibilityMatrix(directorySource(path.join(scratch,'source'))))===JSON.stringify(manifest.compatibility),'Compatibility matrix does not match the archived source');
     return await verifyCandidateBytes(directory,manifest);
   }finally{await rm(scratch,{recursive:true,force:true});}
 }

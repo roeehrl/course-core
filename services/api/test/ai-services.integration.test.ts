@@ -219,10 +219,11 @@ describe("AI services", () => {
     const draft = r.json();
     draftId = draft.id;
     expect(draft.secretsIncluded).toBe(false);
-    expect(draft.waitingForCheck).toEqual(["companion"]);
+    // Every role is gated on an evaluated revision (N07): the supervisor's tool loop too.
+    expect(draft.waitingForCheck).toEqual(["companion", "supervisor"]);
     expect(draft.roles.map((x: { role: string; check: string; priced: boolean }) => [x.role, x.check, x.priced])).toEqual([
       ["companion", "needed", false],
-      ["supervisor", "not_needed", false],
+      ["supervisor", "needed", false],
     ]);
     expect((await call(owner, "GET", base + "/drafts/current")).json().draft.id).toBe(draftId);
   });
@@ -256,12 +257,13 @@ describe("AI services", () => {
     const approved = await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-evals/overrides`, { idempotencyKey: key(), draftId, role: "companion", reason });
     expect(approved.statusCode).toBe(200);
     expect(approved.json().revisionDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect((await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-evals/overrides`, { idempotencyKey: key(), draftId, role: "supervisor", reason })).statusCode).toBe(200);
     expect((await call(owner, "GET", base + "/drafts/current")).json().draft.waitingForCheck).toEqual([]);
     const stale = await call(owner, "POST", `${base}/drafts/${draftId}/activate`, { expectedRevision: current - 1, idempotencyKey: key(), confirmCancelRunning: false });
     expect(stale.json().error).toBe("STALE_PROVIDER_REVISION");
     const activated = await call(owner, "POST", `${base}/drafts/${draftId}/activate`, { expectedRevision: current, idempotencyKey: key(), confirmCancelRunning: false });
     expect(activated.statusCode).toBe(200);
-    expect(activated.json()).toMatchObject({ revision: current + 1, evaluation: { companion: "override", supervisor: "not_covered" } });
+    expect(activated.json()).toMatchObject({ revision: current + 1, evaluation: { companion: "override", supervisor: "override" } });
     expect((await call(owner, "GET", base + "/drafts/current")).json().draft).toBeNull();
     expect((await call(owner, "GET", base + "/connections")).json().connections[0].usedByRoles).toEqual(["companion", "supervisor"]);
   });

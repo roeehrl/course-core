@@ -117,6 +117,7 @@
 .connected-lesson-heading > p {
   color: #526a70;
   margin: 0;
+  max-width: 70ch;
   font-size: 15px;
 }
 .connected-kicker {
@@ -177,6 +178,20 @@
 }
 .connected-reading-card p {
   margin: 0;
+}
+/* I04: lesson prose keeps a readable measure (about 70 characters) on wide
+ * screens; the card and any visual keep the full column. 1em = the body text
+ * size, so 70ch is measured in body-text characters. */
+.connected-prose {
+  font-size: 16px;
+  max-width: 70ch;
+  min-width: 0;
+}
+/* The text blocks set their own font stack, which can resolve to a narrower font
+ * than the container's (on Linux, for one), so each block also keeps 70 of its own
+ * characters. */
+.connected-prose [dir] {
+  max-width: 70ch;
 }
 .connected-part-top {
   display: flex;
@@ -1214,6 +1229,27 @@
 }
 .connected-retention .connected-button {
   justify-self: start;
+}
+.connected-retention-days {
+  border: 0;
+  padding: 0;
+  margin: 16px 0 0;
+  min-inline-size: 0;
+}
+.connected-retention-days legend {
+  font-weight: 600;
+  padding: 0;
+}
+.connected-retention-day-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.connected-retention-day-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 44px;
 }
 .connected-changes ul {
   list-style: none;
@@ -2323,4 +2359,119 @@ html:has(.connected-host:not(.is-compact)) {
   min-height: 36px;
   max-width: 100%;
   font: inherit;
+}
+
+/* Generated additions waiting for a safe point in the lesson (pendingChanges.web.tsx). */
+.connected-pending {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid #80601e;
+  border-inline-start-width: 4px;
+  border-radius: 12px;
+  background: #fffaf0;
+  color: #183237;
+}
+.connected-pending h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.connected-pending ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.connected-pending p {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.connected-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* A generated interactive component beside its text alternative (GeneratedComponent.web.tsx). */
+.connected-component {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid #c9d6d3;
+  border-radius: 12px;
+  background: #ffffff;
+  display: grid;
+  gap: 10px;
+}
+.connected-component h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.connected-component p {
+  margin: 0;
+}
+.connected-component fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.connected-component legend {
+  padding: 0 0 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.connected-component-control {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+.connected-component-control input {
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid #6b7893;
+  border-radius: 8px;
+  font: inherit;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.connected-component-results {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.connected-component-results div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connected-component-results dt {
+  font-weight: 600;
+}
+.connected-component-results dd {
+  margin: 0;
+}
+.connected-detour {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px dashed #9fb5ae;
+}
+.connected-detour p {
+  margin: 0;
+  flex: 1 1 260px;
+}
+.connected-placement-evidence {
+  margin: 4px 0 12px;
+  padding-inline-start: 20px;
+}
+.connected-placement-evidence ul {
+  margin: 4px 0;
+  padding-inline-start: 18px;
 }

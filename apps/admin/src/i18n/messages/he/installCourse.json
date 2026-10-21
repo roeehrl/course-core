@@ -46,6 +46,9 @@
   "preview.heading": "<title>{title}</title> · גרסה <version>{version}</version>",
   "blocking.title": "{count, plural, one {בעיה חוסמת אחת} two {שתי בעיות חוסמות} other {# בעיות חוסמות}}",
   "warnings.title": "{count, plural, one {אזהרה אחת} two {שתי אזהרות} other {# אזהרות}}",
+  "older.title": "זו גרסה ישנה יותר",
+  "older.body": "גרסה {newest} של הקורס כבר מותקנת כאן, והחבילה הזו היא גרסה {version}. לומדים שכבר נמצאים בגרסה מסוימת נשארים בה. לומדים חדשים יקבלו את הגרסה הזו רק אם מפרסמים אותה.",
+  "older.label": "אני רוצה להתקין את הגרסה הישנה יותר {version}",
   "fact.course": "קורס",
   "fact.courseDigest": "גיבוב הקורס",
   "fact.package": "חבילה",
@@ -103,5 +106,6 @@
   "steps.registryApproved": "אושר (גיבוב {digest}).",
   "steps.registryConsent": "אני מאשר/ת את מרשם ההתאוששות שבחבילה ({count, plural, one {פרופיל אחד} two {שני פרופילים} other {# פרופילים}}, גיבוב {digest}) לגרסה {version}.",
   "steps.approveRegistry": "אישור מרשם ההתאוששות",
-  "steps.ownerMustApprove": "בעלים או מנהל/ת צריכים לאשר את המרשם."
+  "steps.ownerMustApprove": "בעלים או מנהל/ת צריכים לאשר את המרשם.",
+  "status.slow": "עדיין בתהליך. חבילה גדולה לוקחת יותר זמן בחיבור איטי; כדאי להשאיר את החלון הזה פתוח."
 }

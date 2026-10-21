@@ -1,3 +1,4 @@
+import { useScopeLabel } from "../components/scopeLabel";
 import { PolicyMigrationEditor } from "../components/PolicyMigrationEditor";
 import { useState } from "react";
 import { CalendarClock } from "lucide-react";
@@ -25,6 +26,7 @@ import {
   useSingleFlight,
 } from "../components/LedgerActionDialog";
 import { PolicySettingsCard } from "../components/PolicySettingsCard";
+import { OrganizationCeilingsCard } from "../components/OrganizationCeilingsCard";
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
@@ -57,6 +59,13 @@ export function PolicyView({
           <CalendarClock size={28} aria-hidden="true" />
         </span>
       </div>
+      {client.getPolicyCeilings && data.course.workspaceId && (
+        <OrganizationCeilingsCard
+          client={client}
+          workspaceId={data.course.workspaceId}
+          canWrite={data.permissions.includes("policy.write")}
+        />
+      )}
       {client.getPolicySettings && (
         <PolicySettingsCard
           client={client}
@@ -130,8 +139,9 @@ function PolicyWorkspace({
   const t = i18n.t;
   const { when } = useFormatters();
   const [policy, setPolicy] = useState(initial);
+  const scopeNames = useScopeLabel();
   const scopeLabel = (scopeId: string) =>
-    policy.scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
+    scopeNames.byId(policy.scopes, scopeId);
   const [scopeId, setScopeId] = useState(
     initial.scopes.find(
       (scope) => scope.kind === "chapter" && scope.mode === "bounded",
@@ -342,7 +352,7 @@ function PolicyWorkspace({
                 >
                   <span>
                     <strong>
-                      <bdi>{item.label}</bdi>
+                      <bdi>{scopeNames.name(item, item.scopeId)}</bdi>
                     </strong>
                     <Badge tone={item.mode === "bounded" ? "blue" : "gold"}>
                       {t(`policyView.mode.${item.mode}` as MessageKey)}

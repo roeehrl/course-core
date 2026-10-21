@@ -26,6 +26,10 @@ export type AdminPermission =
   | "audit.read"
   /** Pause, stop and resume one enrollment's AI supervision. */
   | "supervision.control"
+  /** Workspace AI supervision settings (autonomy, permitted tool families), per-learner daily and
+   * per-lesson AI spending limits, and decisions on changes the supervisor may not make itself
+   * (owner/admin only). */
+  | "supervision.settings"
   /** Re-queue, once and with a reason, a supervisor request quarantined after an outage (owner/admin
    * only: it restarts delivery the dispatcher gave up on, which may spend provider budget). */
   | "supervision.requeue"
@@ -39,7 +43,9 @@ export type AdminPermission =
   /** Define, open and close an educational evaluation study (owner/admin only). */
   | "study.manage"
   /** Download a study's pseudonymous research export, audit-logged (owner/admin only). */
-  | "study.export";
+  | "study.export"
+  /** Download the workspace audit log as CSV or JSON, itself audit-logged (owner/admin only). */
+  | "audit.export";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -60,11 +66,13 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "audit.read",
       "supervision.control",
       "supervision.requeue",
+      "supervision.settings",
       "run.retry",
       "evidence.regrade",
       "study.read",
       "study.manage",
       "study.export",
+      "audit.export",
     ],
     admin: [
       "course.read",
@@ -84,11 +92,13 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "audit.read",
       "supervision.control",
       "supervision.requeue",
+      "supervision.settings",
       "run.retry",
       "evidence.regrade",
       "study.read",
       "study.manage",
       "study.export",
+      "audit.export",
     ],
     author: ["course.read", "course.write"],
     instructor: [

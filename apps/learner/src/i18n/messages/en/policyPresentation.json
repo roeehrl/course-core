@@ -8,5 +8,7 @@
   "scope.other": "Learning scope",
   "quota.additionalMinutes": "Extra learning minutes",
   "quota.additionalEpisodes": "Extra lessons",
-  "quota.remediationCyclesPerConcept": "Review rounds per skill"
+  "quota.remediationCyclesPerConcept": "Review rounds per skill",
+  "scope.organization": "Your organization's limits",
+  "scope.enrollment": "Your own terms"
 }

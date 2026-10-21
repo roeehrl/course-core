@@ -1,9 +1,12 @@
 import { DraftEditor } from "../components/DraftEditor";
+import { StructuredDraftEditor } from "../components/StructuredDraftEditor";
+import { LearnerPreview } from "../components/LearnerPreview";
+import { PublishImpact } from "../components/PublishImpact";
 import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
-import { useI18n, useT } from "../i18n";
+import { useI18n, useT, type MessageKey } from "../i18n";
 import {
   ArrowUpRight,
   Check,
@@ -18,6 +21,7 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
+import { newerVersion } from "../domain/versions";
 import { ReleaseSafetyPanel, RollbackDialog } from "./ReleaseSafetyPanel";
 import {
   Badge,
@@ -46,12 +50,22 @@ export function CourseView({
 }) {
   const i18n = useI18n();
   const t = useT();
+  /** A server check with a code, in the reader's language; undefined keeps the server's text. */
+  const checkText = (
+    check: { code?: string; params?: Record<string, string> },
+    part: "label" | "detail",
+  ) => {
+    const key =
+      `courseView.check.code.${[check.code ?? "", part].join(".")}` as MessageKey;
+    return check.code && i18n.has(key) ? i18n.t(key, check.params) : undefined;
+  };
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);
   const selected =
     data.releases.find((item) => item.id === selectedId) ?? data.releases[0];
   const [dialog, setDialog] = useState<"details" | "draft" | "publish">();
   const [editingBundle, setEditingBundle] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const canWrite = data.permissions.includes("course.write");
   const [installing, setInstalling] = useState(false);
   const [installPending, setInstallPending] = useState(false);
@@ -65,14 +79,33 @@ export function CourseView({
     actions.clear();
     setDialog(value);
   }
+  /** A newer version already published or archived than this one, if any. */
+  const newerPublishedThan = (release: Release) =>
+    newerVersion(
+      release.version,
+      data.releases
+        .filter(
+          (r) =>
+            r.id !== release.id &&
+            (r.state === "published" || r.state === "archived"),
+        )
+        .map((r) => r.version),
+    );
   async function transition(
     release: Release,
     action: "submit-review" | "approve" | "publish" | "activate",
+    confirmation?: { impactDigest?: string; confirmOlderVersion?: true },
   ) {
     const result = await actions.run(
-      JSON.stringify(["release", release.id, action]),
+      JSON.stringify(["release", release.id, action, confirmation ?? null]),
       (context) =>
-        client.transitionRelease(data.course.id, release.id, action, context),
+        client.transitionRelease(
+          data.course.id,
+          release.id,
+          action,
+          context,
+          confirmation,
+        ),
     );
     if (result) setDialog(undefined);
   }
@@ -234,8 +267,8 @@ export function CourseView({
                   {check.passed && !check.warning ? <Check size={16} /> : "!"}
                 </span>
                 <div>
-                  <strong>{check.label}</strong>
-                  <small>{check.detail}</small>
+                  <strong>{checkText(check, "label") ?? check.label}</strong>
+                  <small>{checkText(check, "detail") ?? check.detail}</small>
                 </div>
                 <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
                   {check.warning
@@ -323,6 +356,18 @@ export function CourseView({
                 {t("courseView.editBundle")}
               </Button>
             )}
+          {client.releaseEditing &&
+            (selected.state === "published" ||
+              selected.state === "archived" ||
+              canWrite ||
+              data.permissions.includes("release.review")) && (
+              <Button
+                disabled={actions.pending}
+                onClick={() => setPreviewing(true)}
+              >
+                {t("courseView.previewAsLearners")}
+              </Button>
+            )}
           {selected.state === "published" && (
             <>
               <Notice tone="blue">{t("courseView.immutable")}</Notice>
@@ -402,14 +447,38 @@ export function CourseView({
           />
         </Dialog>
       )}
-      {editingBundle && selected && (
-        <DraftEditor
-          client={client}
-          courseId={data.course.id}
-          releaseId={selected.id}
-          actions={actions}
-          onClose={() => setEditingBundle(false)}
-        />
+      {editingBundle &&
+        selected &&
+        (client.releaseEditing ? (
+          <StructuredDraftEditor
+            client={client}
+            port={client.releaseEditing}
+            courseId={data.course.id}
+            releaseId={selected.id}
+            actions={actions}
+            onClose={() => setEditingBundle(false)}
+          />
+        ) : (
+          <DraftEditor
+            client={client}
+            courseId={data.course.id}
+            releaseId={selected.id}
+            actions={actions}
+            onClose={() => setEditingBundle(false)}
+          />
+        ))}
+      {previewing && selected && client.releaseEditing && (
+        <Dialog
+          title={t("courseView.previewDialog", { version: selected.version })}
+          onClose={() => setPreviewing(false)}
+          className="structured-editor"
+        >
+          <LearnerPreview
+            port={client.releaseEditing}
+            courseId={data.course.id}
+            releaseId={selected.id}
+          />
+        </Dialog>
       )}
       {dialog && (
         <Dialog
@@ -424,12 +493,34 @@ export function CourseView({
           pending={actions.pending}
         >
           <ActionFeedback actions={actions} />
-          {dialog === "publish" && selected ? (
+          {dialog === "publish" && selected && client.releaseEditing ? (
+            <PublishImpact
+              port={client.releaseEditing}
+              courseId={data.course.id}
+              releaseId={selected.id}
+              version={selected.version}
+              newerPublished={newerPublishedThan(selected)}
+              pending={actions.pending}
+              onConfirm={(impactDigest, older) =>
+                void transition(selected, "publish", {
+                  impactDigest,
+                  ...(older ? { confirmOlderVersion: true as const } : {}),
+                })
+              }
+            />
+          ) : dialog === "publish" && selected ? (
             <PublishConfirmation
               version={selected.version}
+              newerPublished={newerPublishedThan(selected)}
               demo={client.mode === "demo"}
               pending={actions.pending}
-              onSubmit={() => void transition(selected, "publish")}
+              onSubmit={(older) =>
+                void transition(
+                  selected,
+                  "publish",
+                  older ? { confirmOlderVersion: true } : undefined,
+                )
+              }
             />
           ) : (
             <CourseForm
@@ -544,24 +635,29 @@ function CourseForm({
 }
 function PublishConfirmation({
   version,
+  newerPublished,
   demo,
   pending,
   onSubmit,
 }: {
   version: string;
+  /** A newer version already published: publishing this one goes back and needs confirming. */
+  newerPublished: string | null;
   demo: boolean;
   pending: boolean;
-  onSubmit: () => void;
+  onSubmit: (olderConfirmed: boolean) => void;
 }) {
   const i18n = useI18n();
   const t = useT();
   const [consent, setConsent] = useState(false);
+  const [older, setOlder] = useState(false);
+  const ready = consent && (!newerPublished || older);
   return (
     <form
       className="stack"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
-        if (consent) onSubmit();
+        if (ready) onSubmit(Boolean(newerPublished) && older);
       }}
     >
       <p>
@@ -578,6 +674,22 @@ function PublishConfirmation({
         )}
       </p>
       {demo && <Notice tone="gold">{t("courseView.demoOnly")}</Notice>}
+      {newerPublished && (
+        <Notice tone="gold">
+          <p>
+            {t("courseView.olderNotice", { version, newest: newerPublished })}
+          </p>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={older}
+              onChange={(e) => setOlder(e.target.checked)}
+              disabled={pending}
+            />
+            {t("courseView.olderLabel", { version })}
+          </label>
+        </Notice>
+      )}
       <label className="check-label">
         <input
           type="checkbox"
@@ -587,7 +699,7 @@ function PublishConfirmation({
         />
         {t("courseView.confirmLabel", { version })}
       </label>
-      <Button kind="primary" type="submit" disabled={!consent || pending}>
+      <Button kind="primary" type="submit" disabled={!ready || pending}>
         {pending ? t("courseView.recording") : t("courseView.confirm")}
       </Button>
     </form>

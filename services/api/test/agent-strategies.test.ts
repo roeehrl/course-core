@@ -62,9 +62,14 @@ describe('agent strategy registry', () => {
     for (const tool of SUPERVISOR_TOOLS) expect(validateContract('tool', tool.contract).valid).toBe(true);
     expect([...SUPERVISOR_TOOL_IDS].sort()).toEqual([...IMPLEMENTED_SUPERVISOR_TOOLS].sort());
     expect((supervisorToolDecisionSchema as unknown as { properties: { tool: { enum: string[] } } }).properties.tool.enum).toEqual([...SUPERVISOR_TOOL_IDS, 'none']);
-    // The assessment and code/lab families are read-only.
-    for (const family of ['assessment', 'code_lab'])
-      expect(SUPERVISOR_TOOLS.filter(t => t.family === family).map(t => t.contract.sideEffects)).toEqual(['none']);
+    // The code/lab family is read-only; assessment, visual/media and delegation tools read or stage a
+    // proposal the host verifies, and never write an artifact themselves (N01).
+    expect(SUPERVISOR_TOOLS.filter(t => t.family === 'code_lab').map(t => t.contract.sideEffects)).toEqual(['none']);
+    for (const family of ['assessment', 'visual_media', 'delegation']) {
+      const effects = SUPERVISOR_TOOLS.filter(t => t.family === family).map(t => t.contract.sideEffects);
+      expect(effects.length).toBeGreaterThanOrEqual(2);
+      expect(effects.every(e => e === 'none' || e === 'proposal_only')).toBe(true);
+    }
     expect(new StrategyRegistry(BUILT_IN_STRATEGIES).list().map(s => s.contract.id)).toEqual([
       'core.supervisor.tool-loop', 'core.supervisor.plan', 'core.companion.tutor', 'core.research.public-topic',
       'core.reviewer.rubric-assist', 'core.media.video', 'core.media.image']);

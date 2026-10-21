@@ -4,8 +4,9 @@ import { mkdtemp, rm, writeFile, chmod, mkdir, readdir, readFile } from 'node:fs
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { privateDirectory, writePrivate, hash } from './runtime.mjs';
-import { verifyManifest, parseBackupArguments, pruneBackups, createBackup, verifyBackup, decryptBackup, tableCountDifferences } from './backup.mjs';
-import { backupAgeRecipientsConfiguration, loadConfiguration } from './pilot.mjs';
+import { EventEmitter } from 'node:events';
+import { verifyManifest, parseBackupArguments, pruneBackups, createBackup, createSnapshot, verifyBackup, decryptBackup, tableCountDifferences, recordBackupReport } from './backup.mjs';
+import { backupAgeRecipientsConfiguration, loadConfiguration, snapshotsConfiguration, snapshotSchedule } from './pilot.mjs';
 
 // Synthetic, syntactically valid age recipients (bech32 alphabet). They are not real keys.
 const recipient = fill => 'age1' + fill.repeat(58);
@@ -145,4 +146,79 @@ test('row-count comparison ignores key order and names every differing, missing 
   assert.deepEqual(tableCountDifferences({ a: 1, b: 2, gone: 0 }, { b: 3, a: 1, added: 4 }), [
     { table: 'added', recorded: null, restored: 4 }, { table: 'b', recorded: 2, restored: 3 }, { table: 'gone', recorded: 0, restored: null }]);
   assert.deepEqual(tableCountDifferences({ a: 1 }, { a: 2 }, ['before', 'after']), [{ table: 'a', before: 1, after: 2 }]);
+});
+
+test('snapshots prune apart from stopped backups, and their arguments never take an identity', () => fixture(async parent => {
+  const backups = ['backup-20261001000000000-aaaaaa', 'backup-20261002000000000-bbbbbb'], snapshots = ['snapshot-20261001000000000-cccccc', 'snapshot-20261001010000000-dddddd', 'snapshot-20261001020000000-eeeeee'];
+  for (const name of [...backups, ...snapshots]) { await mkdir(path.join(parent, name), { mode: 0o700 }); await manifestFixture(path.join(parent, name)); }
+  assert.deepEqual(await pruneBackups({ output: parent, keep: 1, kind: 'snapshot' }), { status: 'pruned', kept: [snapshots[2]], removed: [snapshots[1], snapshots[0]], skipped: [] });
+  assert.deepEqual((await readdir(parent)).sort(), [...backups, snapshots[2]]);
+  assert.deepEqual((await pruneBackups({ output: parent, keep: 1 })).removed, [backups[0]]);
+  await assert.rejects(pruneBackups({ output: parent, keep: 1, kind: 'other' }), /invalid_arguments/);
+  assert.deepEqual(parseBackupArguments(['prune', '--output', parent, '--keep', '48', '--kind', 'snapshot']), { mode: 'prune', output: parent, keep: 48, kind: 'snapshot' });
+  assert.throws(() => parseBackupArguments(['prune', '--output', parent, '--keep', '4', '--kind', 'everything']), /invalid_arguments/);
+  assert.equal(parseBackupArguments(['snapshot', '--output', '/tmp/s']).mode, 'snapshot');
+  assert.throws(() => parseBackupArguments(['snapshot']), /invalid_arguments/);
+  assert.throws(() => parseBackupArguments(['snapshot', '--output', '/tmp/s', '--age-identity', '/tmp/k']), /invalid_arguments/);
+}));
+
+test('a snapshot with a configured recipient but no age binary fails before touching the database', () => fixture(async base => {
+  const { root, state } = await pilotFixture(base, { backupAgeRecipients: [recipient('q')] });
+  const empty = await privateDirectory(path.join(base, 'no-age'), true), output = path.join(base, 'snapshots');
+  await assert.rejects(createSnapshot({ root, state, output, ageBin: empty }), /age_missing/);
+  assert.deepEqual(await readdir(output).catch(() => []), []);
+}));
+
+test('backup reports refuse anything but fixed kinds, codes, times and counts', async () => {
+  const url = new URL('postgresql://nobody@127.0.0.1:1/course_core_test_absent');
+  const report = { kind: 'snapshot', outcome: 'failed', code: 'pg_dump_failed', startedAt: '2026-10-21T10:00:00.000Z', finishedAt: '2026-10-21T10:00:04.000Z',
+    encrypted: false, coreVersion: '0.1.50', tables: null, rows: null, bytes: null };
+  // Unreachable database: the report is simply not written (best effort).
+  assert.equal(await recordBackupReport(undefined, url, report), false);
+  for (const bad of [{ kind: 'dump' }, { code: "x'); DROP TABLE t; --" }, { code: null }, { outcome: 'succeeded' }, { startedAt: "now()" }, { coreVersion: "1'" }])
+    assert.equal(await recordBackupReport('/nonexistent-bin', url, { ...report, ...bad }), false, JSON.stringify(bad));
+});
+
+test('snapshot settings: absolute owner directory, a 15 to 60 minute interval and a bounded count', () => {
+  assert.equal(snapshotsConfiguration(undefined), null);
+  assert.deepEqual(snapshotsConfiguration({ directory: '/backups/snapshots' }), { directory: '/backups/snapshots', intervalMinutes: 60, keep: 48 });
+  assert.deepEqual(snapshotsConfiguration({ directory: '/b', intervalMinutes: 15, keep: 2 }), { directory: '/b', intervalMinutes: 15, keep: 2 });
+  for (const [bad, code] of [[{ directory: 'relative' }, 'invalid_snapshots'], [{ directory: "/it's" }, 'invalid_snapshots'], [{ directory: '/b', extra: 1 }, 'invalid_snapshots'],
+    [{ directory: '/b', intervalMinutes: 90 }, 'invalid_snapshot_interval'], [{ directory: '/b', intervalMinutes: 5 }, 'invalid_snapshot_interval'],
+    [{ directory: '/b', keep: 1 }, 'invalid_snapshot_keep'], [[], 'invalid_snapshots'], ['x', 'invalid_snapshots']])
+    assert.throws(() => snapshotsConfiguration(bad), new RegExp(code), JSON.stringify(bad));
+});
+
+test('the pilot snapshot schedule runs one snapshot at a time, prunes after success and stops cleanly', async () => {
+  const calls = [], children = [], logged = [];
+  const spawnProcess = (_node, args) => {
+    const child = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), killed: false, kill() { this.killed = true; } });
+    calls.push(args.slice(1)); children.push(child); return child;
+  };
+  const schedule = snapshotSchedule({ root: '/r', state: '/s', snapshots: { directory: '/snap', intervalMinutes: 60, keep: 5 }, log: { write: code => logged.push(code) },
+    spawnProcess, firstDelayMs: 3_600_000 });
+  const first = schedule.tick();
+  await schedule.tick(); // Still running: no second snapshot starts.
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], ['snapshot', '--root', '/r', '--state', '/s', '--output', '/snap']);
+  children[0].emit('exit', 0);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls[1], ['prune', '--output', '/snap', '--keep', '5', '--kind', 'snapshot']);
+  children[1].emit('exit', 0);
+  await first;
+  assert.deepEqual(logged, ['snapshot_created']);
+  // A failed snapshot is logged by code only and not pruned after.
+  const second = schedule.tick();
+  children[2].stderr.emit('data', JSON.stringify({ status: 'blocked', code: 'snapshot_export_failed' }) + '\n');
+  children[2].emit('exit', 1);
+  await second;
+  assert.equal(calls.length, 3);
+  assert.deepEqual(logged, ['snapshot_created', 'snapshot_failed']);
+  // Stopping the pilot ends a snapshot that is still running.
+  void schedule.tick();
+  schedule.stop();
+  assert.equal(children[3].killed, true);
+  children[3].emit('exit', null);
+  await schedule.tick();
+  assert.equal(calls.length, 4);
 });

@@ -1,3 +1,4 @@
+import { useScopeLabel } from "./scopeLabel";
 import { useRef, useState } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type {
@@ -23,6 +24,7 @@ export function PolicyMigrationEditor({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
+  const scopeNames = useScopeLabel();
   const { when } = useFormatters();
   const [source, setSource] = useState(
     JSON.stringify(
@@ -159,10 +161,7 @@ export function PolicyMigrationEditor({
           {preview.impacts.map((impact) => (
             <details key={impact.scopeId}>
               <summary>
-                <bdi>
-                  {policy.scopes.find((s) => s.scopeId === impact.scopeId)
-                    ?.label ?? impact.scopeId}
-                </bdi>
+                <bdi>{scopeNames.byId(policy.scopes, impact.scopeId)}</bdi>
               </summary>
               <p>
                 {t("policyMigrationEditor.effective", {

@@ -36,8 +36,9 @@ test("real cookie session, draft validation/review/publication and immutable rel
       "A validated draft bundle was created. Runtime readiness and review still govern publication.",
     ),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Edit draft", exact: true }).click();
   await page
-    .getByRole("button", { name: "Edit draft bundle", exact: true })
+    .getByRole("button", { name: "Whole file (advanced)", exact: true })
     .click();
   const editor = page.getByLabel("Course bundle JSON");
   const manifest = JSON.parse(await editor.inputValue());
@@ -66,7 +67,7 @@ test("real cookie session, draft validation/review/publication and immutable rel
     page.getByRole("heading", { name: "Release 1.1.0", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Edit draft bundle", exact: true }),
+    page.getByRole("button", { name: "Edit draft", exact: true }),
   ).toHaveCount(0);
   const session = await (await page.request.get("/api/admin/session")).json();
   const course = session.courses[0];
@@ -124,10 +125,11 @@ test("a draft bundle loads from a chosen manifest file and saves through the rea
   await expect(
     page.getByText(/A validated draft bundle was created/),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Edit draft bundle", exact: true })
+  await page.getByRole("button", { name: "Edit draft", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit draft" });
+  await dialog
+    .getByRole("button", { name: "Whole file (advanced)", exact: true })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Edit draft bundle" });
   const editor = dialog.getByLabel("Course bundle JSON");
   // The synthetic fixture course's own draft, changed, stands in for a built course.manifest.json.
   const manifest = JSON.parse(await editor.inputValue());

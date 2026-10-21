@@ -111,6 +111,39 @@ function RegradeForm({
               : t("regradeDialog.currentNone")}
           </dd>
         </div>
+        {view.provenance && (
+          <div>
+            <dt>{t("regradeDialog.provenance")}</dt>
+            <dd>
+              {!view.provenance.itemDigest
+                ? t("regradeDialog.provenance.none")
+                : !view.provenance.changedSince
+                  ? t("regradeDialog.provenance.itemGone")
+                  : view.provenance.changedSince.item ||
+                      view.provenance.changedSince.answerKey ||
+                      view.provenance.changedSince.evaluator
+                    ? t("regradeDialog.provenance.changed", {
+                        item: view.provenance.changedSince.item ? "yes" : "no",
+                        key: view.provenance.changedSince.answerKey
+                          ? "yes"
+                          : "no",
+                        evaluator: view.provenance.changedSince.evaluator
+                          ? "yes"
+                          : "no",
+                      })
+                    : t("regradeDialog.provenance.same")}
+              {view.provenance.itemDigest && (
+                <span className="mono" dir="ltr">
+                  {" "}
+                  {view.provenance.answerKeyDigest?.slice(0, 12)}
+                  {view.provenance.codeImage
+                    ? ` · ${view.provenance.codeImage}`
+                    : ""}
+                </span>
+              )}
+            </dd>
+          </div>
+        )}
       </dl>
       {!!view.history.length && (
         <table className="data-table">

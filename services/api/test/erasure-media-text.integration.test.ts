@@ -12,7 +12,7 @@ import { ERASED_MEDIA_TEXT, eraseEnrollmentMedia } from "../src/media-erasure.js
 import { WITHHELD_FROM_STAFF } from "../src/learner-privacy.js";
 import { ERASED_DIGEST } from "../src/erased-digests.js";
 import { fixture } from "./fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy, approveRevisionsForTest } from "./media-fixture.js";
 
 // Generated media is requested by staff for one learner. Erasing that learner redacts every piece
 // of text staff wrote for it (job, review, revocation, the provider's opaque operation state) and
@@ -188,6 +188,7 @@ beforeAll(async () => {
   expect(imported.statusCode, imported.body).toBe(200);
   releaseId = imported.json().id;
   expect((await post(owner, `/api/releases/${releaseId}/publish`)).statusCode).toBe(200);
+  await approveRevisionsForTest(db, workspace, mediaConfiguration());
   const configured = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: 0, idempotencyKey: key(),
     configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(ALLOWANCE), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
   expect(configured.statusCode, configured.body).toBe(200);
@@ -287,7 +288,7 @@ describe("erasure redacts the media staff made for the learner", () => {
     const settled = await everything(erased.enrollment);
     expect(await erase(erased)).toMatchObject({ replayed: true, counts: result.counts });
     const again = await transaction(db, (client) => eraseEnrollmentMedia(client, erased.enrollment));
-    expect(again).toEqual({ mediaJobText: 0, mediaReviews: 0, mediaRevokeReasons: 0, mediaAssets: 0 });
+    expect(again).toEqual({ mediaJobText: 0, mediaReviews: 0, mediaRevokeReasons: 0, mediaAssets: 0, mediaStoryboards: 0, mediaChecks: 0, mediaCheckReceipts: 0, mediaStoryboardReceipts: 0 });
     expect(await everything(erased.enrollment)).toEqual(settled);
     for (const t of [2_000, 20_000]) await worker.run({ now: later(t) });
     expect(await everything(erased.enrollment)).toEqual(settled);

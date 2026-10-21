@@ -16,10 +16,13 @@ import { recordSpendEvents } from "./provider-costs.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
+import { eraseTeachingActions } from "./teaching-actions.js";
 import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { eraseCrossCourseWithin, exportCrossCourse } from "./cross-course.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 import { withArtifactContent } from './artifact-store.js';
+import { learnerTeachingArtifact } from "./learner-export.js";
+import { EVENT_EXPORT_FORMAT, eventExportQuery, exportLearningEvents } from './event-export.js';
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -158,6 +161,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
           // Teaching hypotheses about the learner, their reviews, probe runs and the
           // signals that produced them. None of these are assessment evidence.
           teaching: await exportTeachingHypotheses(client, enrollmentId),
+          // Teaching actions Core started and their follow-ups, and changes the supervisor asked the
+          // learner or staff to decide (codes, identifiers and proposals only).
+          teachingActions: await rows(client, "SELECT id,action,objective_ids,rule_id,origin,parent_id,state,end_reason,job_id,due_at,outcome,created_at FROM teaching_actions WHERE enrollment_id=$1 ORDER BY created_at", id),
+          authorityRequests: await rows(client, "SELECT id,job_id,kind,approver,proposal,state,decided_at,created_at FROM supervisor_authority_requests WHERE enrollment_id=$1 ORDER BY created_at", id),
           // Agents the learner connected: label, scopes, lifetime and each call's tool and outcome. Never a token.
           agentGrants: await rows(client, "SELECT id,label,scopes,created_at,expires_at,revoked_at,revoked_reason,last_used_at FROM agent_tool_grants WHERE enrollment_id=$1 ORDER BY created_at", id),
           agentToolCalls: await rows(client, "SELECT grant_id,tool,outcome,created_at FROM agent_tool_calls WHERE enrollment_id=$1 ORDER BY created_at", id),
@@ -175,7 +182,11 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       permission: (await client.query("SELECT revision,adaptive_teaching,updated_at FROM supervisor_permissions WHERE enrollment_id=$1", id)).rows[0] ?? null,
       jobs: await rows(client, "SELECT id,role,state,created_at,updated_at FROM supervisor_jobs WHERE enrollment_id=$1 ORDER BY created_at", id),
       adaptations: (await client.query("SELECT id,summary,state,created_at FROM supervisor_adaptations WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
-      personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
+      // Each artifact through the learner allowlist: a generated item's question, never its key or hidden fixtures.
+      personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1 ORDER BY artifact_id", id)).rows
+        .map((r) => learnerTeachingArtifact(r.artifact_id, r.body)),
+      generatedComponents: (await client.query("SELECT episode_id,block_id,digest,created_at FROM generated_components WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      pendingPersonalChanges: (await client.query("SELECT id,episode_id,artifact_kind,reason,status,outcome_code,created_at,resolved_at FROM adaptation_pending_changes WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,refusal_code,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       suggestedResources: (await client.query("SELECT objective_id,episode_id,attachment_id,created_at,ended_at,end_reason FROM research_resource_choices WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
@@ -210,7 +221,8 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     placement: (await client.query("SELECT state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1", id)).rows[0] ?? null,
     placementRuns: (await client.query("SELECT run_number,state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number", id)).rows,
     placementOverrides: (await client.query("SELECT episode_id,evidence_refs,reason,created_at FROM placement_exemption_overrides WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
-    retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
+    retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review,lapses,last_outcome FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
+    retentionAvailability: (await client.query("SELECT weekday_mask,time_zone,updated_at FROM retention_availability WHERE enrollment_id=$1", id)).rows[0] ?? null,
     // Research studies of this course the learner joined: the arm, consent and its history (study.ts).
     studies: (await client.query(`SELECT p.study_id,s.title,p.arm_id,p.consent,p.consented_at,p.withdrawn_at,
         (SELECT jsonb_agg(jsonb_build_object('action',c.action,'at',c.created_at) ORDER BY c.consent_revision) FROM study_consent_changes c WHERE c.study_id=p.study_id AND c.enrollment_id=p.enrollment_id) AS history
@@ -266,8 +278,11 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   // The study keeps its allocation counter, so later assignments are unaffected.
   await run("studyConsentChanges", "DELETE FROM study_consent_changes WHERE enrollment_id=$1");
   await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
+  // The learner's study days for review checks are their own setting.
+  await run("retentionAvailability", "DELETE FROM retention_availability WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
+  await run("supervisorCancelReasons", "UPDATE supervisor_run_cancellations SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   // A rubric regrade's findings quote the learner's own words; keep only the outcome.
   await run("attemptRegrades", "UPDATE attempt_regrades SET reason='[erased]',result=jsonb_build_object('passed',passed) WHERE enrollment_id=$1");
   await run("supervisorRequeueReasons", "UPDATE supervisor_event_requeues SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
@@ -279,7 +294,12 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   // External agent grants stop working; their labels were written by the learner.
   await run("agentToolGrants", "UPDATE agent_tool_grants SET revoked_at=COALESCE(revoked_at,clock_timestamp()),revoked_reason=COALESCE(revoked_reason,'erased'),label='[erased]' WHERE enrollment_id=$1");
   await eraseTeachingHypotheses(run);
+  await eraseTeachingActions(run);
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
+  // Generated changes still waiting for a safe boundary (migration 092): the candidate goes, the status stays.
+  await run("pendingPersonalChanges", "UPDATE adaptation_pending_changes SET selection='{}'::jsonb WHERE enrollment_id=$1");
+  // Published generated components (migration 093): their model and tests go; identifiers stay.
+  await run("generatedComponents", "UPDATE generated_components SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProofs", "UPDATE adaptation_proofs SET trusted_record='{}'::jsonb,verification_evidence='[]'::jsonb WHERE enrollment_id=$1");
   await run("adaptationAuthorizations", "UPDATE adaptation_authorizations SET trusted_record='{}'::jsonb WHERE enrollment_id=$1");
@@ -318,6 +338,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   // Plain digests of what was just redacted could be brute-forced back (erased-digests.ts).
   Object.assign(counts, await eraseEnrollmentDigests(client, enrollmentId));
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");
+  // An erased enrollment takes no more review on the continuation track (its timers end with the status change, 096).
+  await run("continuationTrack", "UPDATE continuation_tracks SET state='stopped',stopped_at=clock_timestamp(),revision=revision+1 WHERE enrollment_id=$1 AND state='active'");
   await run("enrollment", "UPDATE enrollments SET profile='{}'::jsonb,status='erased',closed_at=coalesce(closed_at,clock_timestamp()) WHERE id=$1");
   await client.query("UPDATE supervisor_permissions SET adaptive_teaching=false,revision=revision+1 WHERE enrollment_id=$1 AND adaptive_teaching", [enrollmentId]);
   await client.query("SELECT set_config('course_core.erasure_enrollment','',true)");
@@ -365,6 +387,40 @@ export function registerDataLifecycleRoutes(
       .header("Cache-Control", "no-store")
       .header("Content-Disposition", `attachment; filename="enrollment-${enrollmentId}.json"`);
     return document.document;
+  };
+  /** The enrollment's learning events in the portable SDK event-export format (event-export.ts),
+   * one bounded cursor page per request, with the same authorization and receipt as the full export. */
+  const eventExportHandler = async (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
+    const actor = await auth.authenticate(request),
+      { enrollmentId } = request.params as { enrollmentId: string },
+      query = eventExportQuery.safeParse(request.query ?? {});
+    requireCondition(query.success, "INVALID_INPUT", 400);
+    const result = await transaction(db, async (client) => {
+      await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").catch(() => undefined);
+      const who = await authorize(client, actor, enrollmentId);
+      return { ...who, ...(await exportLearningEvents(client, enrollmentId, who.actorKind, query.data)) };
+    });
+    const digest = digestJson(result.document), exportId = randomUUID();
+    await transaction(db, async (client) => {
+      await client.query(
+        "INSERT INTO data_exports(id,enrollment_id,workspace_id,requested_by,actor_kind,requester_role,digest) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        [exportId, enrollmentId, result.enrollment.workspace_id, actor.id, result.actorKind, result.staffRole, digest],
+      );
+      await appendEvent(client, {
+        workspaceId: result.enrollment.workspace_id,
+        actorId: actor.id,
+        actorKind: result.actorKind === "learner" ? "learner" : "staff",
+        type: "data.exported",
+        payload: { enrollmentId, exportId, digest, format: "learning-event-export", exportFormat: EVENT_EXPORT_FORMAT, cursor: result.document.cursor,
+          eventCount: result.document.events.length, ...(result.staffRole ? { requesterRole: result.staffRole } : {}) },
+        idempotencyKey: "data-export:" + exportId,
+      });
+    });
+    reply
+      .header("Cache-Control", "no-store")
+      .header("Course-Core-Export-Has-More", result.hasMore ? "true" : "false")
+      .header("Content-Disposition", `attachment; filename="enrollment-${enrollmentId}-events-${result.document.cursor.after}.json"`);
+    return result.document;
   };
   const eraseHandler = async (request: import("fastify").FastifyRequest) => {
     const actor = await auth.authenticate(request),
@@ -433,6 +489,7 @@ export function registerDataLifecycleRoutes(
   // Learner-facing and administration paths share one authorization model.
   for (const prefix of ["/api/enrollments", "/api/admin/enrollments"]) {
     app.get(`${prefix}/:enrollmentId/export`, { schema: { params } }, exportHandler);
+    app.get(`${prefix}/:enrollmentId/event-export`, { schema: { params } }, eventExportHandler);
     app.post(`${prefix}/:enrollmentId/erase`, { schema: { params } }, eraseHandler);
   }
 }

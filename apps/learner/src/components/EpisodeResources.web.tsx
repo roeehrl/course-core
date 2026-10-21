@@ -71,18 +71,27 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
                 <h3 dir="auto">{clip.title}</h3>
                 <p>{i18n.rich("episodeResources.generated", undefined, { label })}</p>
                 <p>{i18n.rich("episodeResources.whatItShows", { objective: clip.objective }, { label })}</p>
-                <div className="connected-video connected-video-native">
-                  <video controls preload="none" playsInline aria-label={clip.title}>
-                    <source src={clip.assetUrl} type={clip.mimeType} />
-                    <track kind="captions" src={clip.captionsUrl} srcLang="en" label={t("episodeResources.captions")} default />
-                  </video>
-                </div>
-                <div className="connected-media-text">
-                  <h4>{t("episodeResources.transcript")}</h4>
-                  <p dir="auto">{clip.transcript}</p>
-                  <h4>{t("episodeResources.videoShows")}</h4>
-                  <p dir="auto">{clip.visualDescription}</p>
-                </div>
+                {clip.captionsUrl ? (
+                  <>
+                    <div className="connected-video connected-video-native">
+                      <video controls preload="none" playsInline aria-label={clip.title}>
+                        <source src={clip.assetUrl} type={clip.mimeType} />
+                        <track kind="captions" src={clip.captionsUrl} srcLang={clip.captionsLanguage} label={t("episodeResources.captions")} default />
+                      </video>
+                    </div>
+                    <div className="connected-media-text">
+                      <h4>{t("episodeResources.transcript")}</h4>
+                      <p dir="auto">{clip.transcript}</p>
+                      <h4>{t("episodeResources.videoShows")}</h4>
+                      <p dir="auto">{clip.visualDescription}</p>
+                    </div>
+                  </>
+                ) : (
+                  <figure className="connected-generated-image">
+                    <img src={clip.assetUrl} alt={clip.visualDescription} loading="lazy" />
+                    <figcaption dir="auto">{t("episodeResources.imageShows")} {clip.visualDescription}</figcaption>
+                  </figure>
+                )}
               </li>
             ))}
             {state.items!.map((item) => (

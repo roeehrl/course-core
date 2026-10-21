@@ -5,6 +5,7 @@ import {
 } from "@course-core/visuals/headless";
 import { VisualRuntimePlayer } from "@course-core/visuals/react";
 import "@course-core/visuals/styles.css";
+import { useVisualMessages } from "./visualMessages";
 import { CheckCircle2, Circle, EyeOff, Lock, MapPin } from "lucide-react";
 import type {
   LearnerBlock,
@@ -66,13 +67,14 @@ export function LearnerViewScreen({
             access: inspector,
             runtimes: new Map(),
             experiences: new Map(),
+            renderers: view.visualRenderers,
             open: (target: InspectedBlock, from: HTMLElement | null) => {
               opener.current = from;
               setInspected(target);
             },
           }
         : null,
-    [inspector],
+    [inspector, view.visualRenderers],
   );
   const closeInspector = () => {
     setInspected(undefined);
@@ -569,8 +571,10 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
               <track
                 kind="captions"
                 src={clip.captionsUrl}
-                srcLang="en"
-                label={t("learnerViewScreen.media.captionsTrack")}
+                srcLang={clip.captionsLanguage ?? undefined}
+                label={t("learnerViewScreen.media.captionsTrack", {
+                  language: clip.captionsLanguage ?? "unknown",
+                })}
                 default
               />
             )}
@@ -594,7 +598,9 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
           <dt>{t("learnerViewScreen.media.captions")}</dt>
           <dd>
             {clip.captions
-              ? t("learnerViewScreen.media.captionsTrack")
+              ? t("learnerViewScreen.media.captionsTrack", {
+                  language: clip.captionsLanguage ?? "unknown",
+                })
               : t("learnerViewScreen.media.none")}
           </dd>
         </div>
@@ -822,6 +828,7 @@ function Visual({
     }
   }, [experience]);
   const t = useT();
+  const visualText = useVisualMessages();
   useRegisterRuntime(blockId, prepared, experience);
   const authored = experience?.accessibility?.description?.trim();
   const fallback = (
@@ -835,7 +842,12 @@ function Visual({
   return (
     <div className="learner-view-visual">
       {prepared ? (
-        <VisualRuntimePlayer runtime={prepared} fallback={fallback} />
+        <VisualRuntimePlayer
+          runtime={prepared}
+          fallback={fallback}
+          messages={visualText.messages}
+          locale={visualText.locale}
+        />
       ) : (
         fallback
       )}

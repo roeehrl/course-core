@@ -5,6 +5,7 @@ import { codeView, confirmsDeterministically, conversationItemId, gateConversati
   RUBRIC_PRODUCTION_TYPES, type RubricItem } from './gates.js';
 import type { Assessment } from '@course-core/sdk';
 import type { CodeGrade } from './code-evaluator.js';
+import type { Case } from '@course-core/sandbox';
 import type {TrustedAdaptationAdapter} from './adaptation-store.js';
 import { coreObjectiveIds } from './learning.js';
 import { declarationMatchesInstalled, type BuildIdentity } from './extension-identity.js';
@@ -24,6 +25,8 @@ export interface RuntimeExtension { id: string; version: string; integrity: stri
   /** The render features a visual requires. Throws when the visual cannot be parsed. */
   visualFeatures?: (visual: CourseManifest['visuals'][number]) => readonly string[];
   codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade>;
+  /** Grades against the verified hidden tests of a supervisor-generated exercise (generated-content.ts). */
+  evaluateGeneratedCode?: (assessment: Assessment, cases: Case[], source: unknown) => Promise<CodeGrade>;
   rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void;
   /** Deterministic evaluators of gate conversations (method 'deterministic'): confirms or declines
    * each quoted finding a proposal makes. Pure and synchronous, so the same proposal always gets
@@ -76,6 +79,7 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     if (block.type === 'assessment') required.add(block.assessmentId);
     if (block.type === 'visual') {
       const visual = course.visuals.find(visual => visual.id === block.visualId)!, adapter = requireAdapter(visual.rendererId);
+      assertVisualAccessible(course, visual.rendererId, { visualId: visual.id }, visual.accessibility.description);
       if (!adapter.validateVisual) throw new ApiError(409, 'PUBLISH_VISUAL_VALIDATOR_MISSING');
       let required: readonly string[];
       try { adapter.validateVisual(visual); required = adapter.visualFeatures?.(visual) ?? []; }
@@ -87,6 +91,7 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
   // Renderer definitions for visuals name the features they need; the declared build must have them.
   for (const renderer of course.renderers ?? []) {
     const adapter = installed.find(row => row.id === renderer.extensionId), declaration = course.extensions.find(row => row.id === renderer.extensionId);
+    if (renderer.surface === 'visual' && declaration) assertVisualAccessible(course, renderer.extensionId, { rendererDefinitionId: renderer.id });
     if (renderer.surface !== 'visual' || !adapter?.renderFeatures || !declarationMatchesInstalled(declaration, adapter)) continue;
     assertRenderFeatures(course, adapter, renderer.extensionId, renderer.features, { rendererDefinitionId: renderer.id });
   }
@@ -138,6 +143,26 @@ function visualRefusal(visualId: string, error: unknown): ApiError {
   return new ApiError(409, mapped, mapped, { visualId, check: String((error as Error).message).slice(0, 400) });
 }
 
+/**
+ * Visuals are required lesson content (S12): the renderer a course declares for one must declare
+ * keyboard support and a non-blank text alternative, and the visual itself a non-blank
+ * description. SDK 0.6 validate refuses the same (INACCESSIBLE_VISUAL, MISSING_TEXT_ALTERNATIVE);
+ * Core refuses it here for bundles from every supported SDK release, whatever the SDK checked.
+ * `reasons` are stable codes: keyboard, renderer_text_alternative, visual_description.
+ */
+function assertVisualAccessible(course: CourseManifest, extensionId: string, subject: Record<string, string>, description?: string) {
+  const declared = course.extensions.find(row => row.id === extensionId);
+  if (!declared) return;
+  const blank = (value: unknown) => typeof value !== 'string' || value.trim() === '';
+  const access = declared.accessibility as Partial<CourseManifest['extensions'][number]['accessibility']> | undefined;
+  const reasons = [
+    ...(access?.keyboard !== true ? ['keyboard'] : []),
+    ...(blank(access?.textAlternative) ? ['renderer_text_alternative'] : []),
+    ...(description !== undefined && blank(description) ? ['visual_description'] : []),
+  ];
+  if (reasons.length) throw new ApiError(409, 'PUBLISH_VISUAL_INACCESSIBLE', 'PUBLISH_VISUAL_INACCESSIBLE', { ...subject, rendererId: extensionId, reasons });
+}
+
 /** Refuses, at publication, a visual or renderer definition needing a render feature the declared
  * build of its renderer does not support. Adapters that report no features support none. */
 function assertRenderFeatures(course: CourseManifest, adapter: RuntimeExtension, extensionId: string, required: readonly string[], subject: Record<string, string>) {
@@ -158,6 +183,17 @@ function assertLegacyConversationReachable(course: CourseManifest, gate: LegacyP
     throw new ApiError(409, 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', { gateId: gate.id });
 }
 
+/** Unversioned 0.4 gates whose items are all recognition (choosing among given answers) and that
+ * have no judged conversation. SDK 0.4 bundles stay publishable unchanged (the compatibility
+ * promise), so these are not refused; staff see them as a release warning, because such a gate can
+ * be passed on recognition alone. Where a 0.4 gate offers any produced-answer task, evaluateGate
+ * requires one, and declared critical misconceptions block it, as for versioned gates. */
+export function recognitionOnlyLegacyGates(course: CourseManifest): string[] {
+  return course.gates.filter((gate): gate is LegacyProgressionGate => !isVersionedGate(gate) && !gate.conversationalEvaluatorId).filter(gate => {
+    const items = gateAssessmentIds(gate).map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
+    return items.length > 0 && items.every(item => RECOGNITION_TYPES.has(item.type));
+  }).map(gate => gate.id);
+}
 /** Assessment rules for versioned gates, enforced again here although the SDK validates them at
  * import: recognition alone cannot pass, transfer evidence must be collectable, and declared
  * critical misconceptions must be checked by a criterion and an item that can expose them. */

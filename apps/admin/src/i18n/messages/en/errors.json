@@ -17,6 +17,7 @@
   "error.immutable_release": "Published or archived releases are immutable. Create a new validated draft instead.",
   "error.runtime_unsupported": "Publication is blocked by the installed runtime: a required evaluator, activity handler or visual validator is absent or rejected the scene, or a gate's conversational evaluator names no single cited rubric (name a 0.5 evaluator definition bound to exactly one rubric, or a deterministic evaluator whose installed adapter confirms quoted findings). Metadata does not establish a working handler.",
   "error.impact_changed": "The impact changed since you reviewed it (new learners, evidence or content). Review the updated impact, then confirm again.",
+  "error.older_version": "A newer version of this course is already published. Confirm that you want to publish the older version, then try again.",
   "error.active_release": "The release new learners start on cannot be archived. Select another release for new learners first.",
   "error.no_replacement": "No other item can replace this one. Confirm that learners lose this route to the checkpoint, or add a replacement in a new release.",
   "error.item_defective": "This item is already marked defective on this release.",
@@ -24,5 +25,14 @@
   "error.eval_required": "This provider, model or prompt revision has no passing agent evaluation. Record an evaluation report, or ask a workspace owner to record an override, then save again. Nothing was changed.",
   "error.shortened_grant": "This change shortens time already promised by a grant, exception or accommodation. Acknowledge each affected grant explicitly before applying it.",
   "error.ledger_refused": "The ledger refused this operation: the grant is already revoked, the refund exceeds what the grant debited, or the item no longer exists. Nothing changed.",
-  "error.invalid_response": "The service returned an incompatible response. No update was applied to this view."
+  "error.invalid_response": "The service returned an incompatible response. No update was applied to this view.",
+  "error.looser_than_parent": "This change would make a level looser than the level above it (a later end date or more work). A learner's own terms, a chapter or an episode can only be stricter than the course and organization. Choose a tighter value, or change the higher level first.",
+  "error.no_pool_for_unit": "No extension allowance at this level pays for this kind of extra (minutes or episodes). Add an allowance for that unit in the course policy settings, or request calendar days instead.",
+  "error.outage_deadline_only": "An outage adjustment can only move a deadline. Remove the extra minutes or episodes, or use an accommodation instead.",
+  "error.cohort_too_large": "Too many learners for one batch (at most 500). Choose fewer learners and adjust them in several batches.",
+  "error.no_active_learners": "No active learner matches this selection, so there is nothing to adjust.",
+  "error.pause_not_allowed": "An approved pause can only move a relative window that allows pauses. Use an accommodation for other deadlines.",
+  "error.visual_inaccessible": "Publication is blocked: a lesson visual is not accessible. Its renderer must declare keyboard support and a text alternative, and the visual needs a text description. Update the course package and upload it again.",
+  "error.visual_feature_unsupported": "Publication is blocked: a lesson visual uses something its declared visuals version cannot draw. Declare the visuals version installed here in the course package, or remove the newer feature, and upload it again.",
+  "error.visual_check_failed": "Publication is blocked: a lesson visual failed its own checks (a stated fact or a saved frame no longer matches). Fix the visual in the course package and upload it again."
 }

@@ -3,7 +3,7 @@ import type { ContentBlock, Episode } from "@course-core/sdk";
 import type { Challenge, ServerSnapshot } from "../client/apiClient";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { VisualBlock } from "../components/VisualBlock";
-import type { VisualContextChange } from "../components/VisualBlock";
+import type { VisualCompletionReport, VisualContextChange } from "../components/VisualBlock";
 import { ReviewedMedia } from "../components/ReviewedMedia";
 import { SourceLinks } from "../components/SourceLinks";
 import { EpisodeResources } from "../components/EpisodeResources";
@@ -25,6 +25,7 @@ import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } fr
 import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
 import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
+import { GeneratedComponentPanel, type GeneratedComponent } from "./GeneratedComponent.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
 import type { ActivityClient } from "../client/activityClient";
 import { ActivityBlock } from "./ActivityBlock.web";
@@ -41,6 +42,10 @@ export interface ConnectedLessonProps {
   answer: string;
   checkingAnswer?: boolean;
   policyPanel?: React.ReactNode;
+  /** Generated interactive components by `${episodeId}/${blockId}` (see GeneratedComponent.web.tsx). */
+  components?: Map<string, GeneratedComponent>;
+  /** Generated additions waiting for a safe point in this lesson (see pendingChanges.web.tsx). */
+  pendingChanges?: React.ReactNode;
   resources?: ResourcesClient;
   reviews?: ReviewsLoader;
   onReviewReply?: ReviewReply;
@@ -66,6 +71,8 @@ export interface ConnectedLessonProps {
     title: string | undefined,
   ) => void;
   onVisualContextChange?: (change: VisualContextChange) => void;
+  /** A visual block was watched to its end: an observation for the host to record. */
+  onVisualComplete?: (completion: VisualCompletionReport) => void;
   /** Generated, not person-reviewed parts of this learner's course. */
   unverified?: UnverifiedContent;
   /** Opens the personal change that added generated content. */
@@ -74,6 +81,28 @@ export interface ConnectedLessonProps {
   activities?: ActivityClient;
   /** An activity step was completed on the server; reload the lesson state. */
   onActivityChanged?: () => void;
+  /** Opens the learner's current step on the path, after an optional detour or a revisit. */
+  onReturn?: (episodeId: string) => void;
+}
+/**
+ * Where the learner goes back to when this lesson is a detour from their path: an optional lesson
+ * (authored or added for them) or a finished one they are revisiting, while their current step is
+ * elsewhere. Names the current lesson and the part they stopped at. Null when this is the path.
+ */
+export function returnPoint(server: ServerSnapshot, episode: Episode, placement: boolean) {
+  const currentId = server.nextEpisodeId;
+  if (placement || !currentId || currentId === episode.id) return null;
+  const lesson = server.lessons.find((row) => row.id === episode.id);
+  const optional = episode.requirement === "optional" || server.adaptationRequirements?.some((r) => r.episodeId === episode.id && r.insertedEpisode && r.classification === "optional");
+  const revisit = lesson?.status === "completed" || lesson?.status === "placed";
+  if (!optional && !revisit) return null;
+  const target = server.course.chapters.flatMap((chapter) => chapter.episodes).find((row) => row.id === currentId);
+  if (!target) return null;
+  const read = server.lessons.find((row) => row.id === currentId)?.completedBlockIds ?? [];
+  const parts = target.blocks.filter((block) => ["text", "visual", "media"].includes(block.type));
+  const unread = parts.findIndex((block) => !read.includes(block.id));
+  return { kind: optional ? ("optional" as const) : ("revisit" as const), episodeId: target.id, title: target.title,
+    where: unread >= 0 ? ("part" as const) : ("check" as const), part: unread + 1, total: parts.length };
 }
 export function ConnectedLesson(props: ConnectedLessonProps) {
   const t = useT();
@@ -126,6 +155,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
   const steps = lessonSteps(server, episode, t);
+  const detour = returnPoint(server, episode, placement);
   const place = nowAndNext(steps);
   const blockTitle = current
     ? t("connectedLesson.partOf", { number: index + 1, total: reading.length })
@@ -145,13 +175,20 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     return (
       <>
         {block.type === "text" ? (
-          <div {...courseContentAttributes(server.course)}>
-            <MarkdownContent markdown={block.markdown} />
-          </div>
+          <>
+            <div className="connected-prose" {...courseContentAttributes(server.course)}>
+              <MarkdownContent markdown={block.markdown} />
+            </div>
+            {/* A generated component runs beside its text alternative, in the sandboxed runner. */}
+            {props.components?.has(`${episode.id}/${block.id}`) && (
+              <GeneratedComponentPanel component={props.components.get(`${episode.id}/${block.id}`)!} />
+            )}
+          </>
         ) : block.type === "visual" ? (
           <VisualBlock
             source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}
             onContextChange={props.onVisualContextChange}
+            onComplete={props.onVisualComplete}
             companionAvailable={server.studyArm?.companion !== false}
             experience={server.course.visuals.find(
               (visual) => visual.id === block.visualId,
@@ -221,7 +258,23 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           </dl>
         )}
       </header>
+      {detour && (
+        <div className="connected-detour" role="note" data-testid="detour-return">
+          <p>
+            {t(detour.kind === "optional" ? "connectedLesson.detour.optional" : "connectedLesson.detour.revisit", {
+              title: detour.title,
+              where: detour.where,
+              part: detour.part,
+              total: detour.total,
+            })}
+          </p>
+          {props.onReturn && (
+            <Button label={t("connectedLesson.detour.return", { title: detour.title })} kind="quiet" onPress={() => props.onReturn!(detour.episodeId)} />
+          )}
+        </div>
+      )}
       {props.policyPanel}
+      {props.pendingChanges}
       {closed ? (
         <Notice error>{t("connectedLesson.accessClosed")}</Notice>
       ) : (
@@ -388,6 +441,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       }
                       tone={challenge.independentEligible ? "mint" : "sand"}
                     />
+                    {props.unverified?.questions.has(challenge.question.id) && (
+                      <UnverifiedBadge
+                        what="question"
+                        {...(props.onReviewChange
+                          ? { onReview: () => props.onReviewChange!(props.unverified!.questions.get(challenge.question.id)!) }
+                          : {})}
+                      />
+                    )}
                     <div {...courseContentAttributes(server.course)}>
                       <MarkdownContent markdown={challenge.question.prompt} />
                     </div>

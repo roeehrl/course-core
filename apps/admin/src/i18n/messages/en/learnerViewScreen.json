@@ -76,7 +76,7 @@
   "media.shown": "shown to learner",
   "media.meta": "Course-made video · reviewed {reviewed} · shown until {until}",
   "media.objective": "What it shows:",
-  "media.captionsTrack": "English captions",
+  "media.captionsTrack": "{language, select, en {English captions} he {Hebrew captions} other {Captions}}",
   "media.unplayable": "<strong>Video not playable here.</strong> This browser cannot play this clip ({type}). The learner gets the same transcript and description shown below.",
   "media.captions": "Captions",
   "media.none": "None",

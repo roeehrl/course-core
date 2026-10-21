@@ -96,3 +96,28 @@ test("a closed course answers its read-only question, and a refused question is 
   expect((await axe(page)).violations).toEqual([]);
   await page.screenshot({ path: info.outputPath("closed-answered.png") });
 });
+
+test("after closing, the learner can opt into review explicitly and stop it, without reopening the course", async ({ page }, info) => {
+  const enrollmentId = await startCourse(page);
+  const closed = await page.request.post("/test/closed-course", { data: { enrollmentId, budget: 1 } });
+  expect(closed.ok(), await closed.text()).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: /Continue learning|Resume course|Open course/ }).first().click();
+  const track = page.locator(".connected-continuation");
+  await expect(track.getByRole("heading", { name: "Keep reviewing after the course" })).toBeVisible();
+  await expect(track).toContainText("Nothing is required");
+  await expect(track).toContainText("The course stays closed");
+  const start = track.getByRole("button", { name: "Start reviewing", exact: true });
+  await expect(start).toBeDisabled();
+  expect((await axe(page)).violations).toEqual([]);
+  await track.getByRole("checkbox").check();
+  await start.click();
+  await expect(track.getByRole("status")).toContainText("You are reviewing after the course");
+  const view = await (await page.request.get(`/api/enrollments/${enrollmentId}/continuation`)).json();
+  expect(view.track.state).toBe("active");
+  expect((await (await page.request.get(`/api/enrollments/${enrollmentId}`)).json()).status).toBe("closed");
+  await page.screenshot({ path: info.outputPath("continuation.png") });
+  await track.getByRole("button", { name: "Stop reviewing", exact: true }).click();
+  await expect(track).toContainText("You stopped reviewing on");
+  await expect(track.getByRole("button", { name: "Start reviewing again", exact: true })).toBeDisabled();
+});

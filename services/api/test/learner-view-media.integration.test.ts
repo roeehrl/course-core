@@ -8,7 +8,7 @@ import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { createMediaJobService, workspaceMediaResolver, type MediaJobService } from "../src/media-jobs.js";
 import { fixture } from "./fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, approveRevisionsForTest } from "./media-fixture.js";
 
 // The read-only "view as learner" shows the course-made media attached for the learner, exactly
 // as the learner's own lesson lists it, and plays it only under that recorded view. Real
@@ -79,6 +79,7 @@ beforeAll(async () => {
   releaseId = imported.json().id;
   expect((await post(owner, `/api/releases/${releaseId}/publish`)).statusCode).toBe(200);
   enrollment = (await post(learner, "/api/enrollments", { releaseId })).json().id;
+  await approveRevisionsForTest(db, workspace, mediaConfiguration());
   const configured = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: 0, idempotencyKey: key(),
     configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(250_000), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
   expect(configured.statusCode, configured.body).toBe(200);
@@ -112,7 +113,7 @@ describe("view as learner: course-made media", () => {
       const [item] = body.generatedMedia, base = `/api/admin/enrollments/${enrollment}/learner-view/${body.view.id}/media/${shown.attachmentId}`;
       expect(item).toEqual({
         id: shown.attachmentId, episodeId: "min", title: own[0].title, objective: own[0].objective, transcript: own[0].transcript,
-        visualDescription: own[0].visualDescription, captions: true, mimeType: own[0].mimeType, byteLength: own[0].byteLength,
+        visualDescription: own[0].visualDescription, captions: true, captionsLanguage: null, mimeType: own[0].mimeType, byteLength: own[0].byteLength,
         reviewedAt: own[0].reviewedAt, expiresAt: own[0].expiresAt, state: "available", assetUrl: `${base}/asset`, captionsUrl: `${base}/captions.vtt`,
       });
       expect(r.body).not.toContain("Superseded minimum clip");

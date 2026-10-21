@@ -72,8 +72,9 @@ test("an instructor pauses, stops and resumes a learner's AI supervision; a revi
   await expect(page.getByText("Stop cancels unfinished work")).toBeVisible();
   await accessible(page);
   await page.getByRole("button", { name: "Confirm stop" }).click();
+  // The fixture's job waiting for a staff decision is the one unfinished job.
   await expect(
-    page.getByText(/Supervision stopped\. 0 unfinished job/),
+    page.getByText(/Supervision stopped\. 1 unfinished job/),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Pause supervision" }),
@@ -154,4 +155,98 @@ test("an owner re-queues a request quarantined after an outage once, with a reas
     undelivered.getByRole("rowheader", { name: "companion requested" }),
   ).toBeVisible();
   await accessible(page);
+});
+
+test("an owner checks and saves the supervision settings, decides a spending-limit request and sets a learner's daily limits", async ({
+  page,
+}, info) => {
+  const fixture = await (
+    await page.request.post("/test/supervision-fixture")
+  ).json();
+  await openSupervision(page, fixture.ownerCode);
+  await expect(
+    page.getByRole("heading", { name: "AI supervision settings" }),
+  ).toBeVisible();
+  // Saving needs a check of what the change does first.
+  await page.getByRole("radio", { name: /^Only suggest/ }).check();
+  const save = page.getByRole("button", { name: "Save settings" });
+  await expect(save).toBeDisabled();
+  await expect(
+    page.getByText("Check what the change does before saving it."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Check what this changes" }).click();
+  await expect(
+    page.getByText("No new teaching work starts for any learner."),
+  ).toBeVisible();
+  await accessible(page);
+  await page.screenshot({
+    path: info.outputPath("settings-preview.png"),
+    fullPage: true,
+  });
+  await save.click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  // A tool family switched off is previewed as tools no longer used.
+  await page.getByRole("checkbox", { name: /^Visuals/ }).uncheck();
+  await page.getByRole("button", { name: "Check what this changes" }).click();
+  await expect(page.getByText(/will no longer be used/)).toBeVisible();
+
+  // The spending-limit request waits for an owner.
+  await expect(page.getByText("Higher AI spending limit")).toBeVisible();
+  await expect(
+    page.getByText("Why: Two more practice sessions this week."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(
+    page.getByText(
+      "Approved. The change is in force and the supervisor continues.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Nothing is waiting for a decision."),
+  ).toBeVisible();
+
+  // The learner's daily and per-lesson limits, with a plain error when they cannot work together.
+  await expect(
+    page.getByRole("heading", { name: "AI spending limits for this learner" }),
+  ).toBeVisible();
+  await page.getByLabel("Per day (US dollars)", { exact: true }).fill("0.5");
+  await page.getByLabel("Per day (tokens)", { exact: true }).fill("20000");
+  await page.getByLabel("Per lesson per day (US dollars)").fill("1");
+  await page.getByLabel("Per lesson per day (tokens)").fill("10000");
+  await page.getByRole("button", { name: "Save limits" }).click();
+  await expect(
+    page.getByText(/The per-lesson limit is more than the daily limit/),
+  ).toBeVisible();
+  await page.getByLabel("Per lesson per day (US dollars)").fill("0.25");
+  await page.getByRole("button", { name: "Save limits" }).click();
+  await expect(page.getByText("Limits saved.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Remove limits" }),
+  ).toBeVisible();
+  await accessible(page);
+  await page.screenshot({
+    path: info.outputPath("learner-limits.png"),
+    fullPage: true,
+  });
+});
+
+test("an instructor sees no workspace settings, spending limits or decisions", async ({
+  page,
+}) => {
+  const fixture = await (
+    await page.request.post("/test/supervision-fixture")
+  ).json();
+  await openSupervision(page, fixture.instructorCode);
+  await expect(
+    page.getByText("AI supervision is running for this learner."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "AI supervision settings" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Changes waiting for your decision" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "AI spending limits for this learner" }),
+  ).toHaveCount(0);
 });

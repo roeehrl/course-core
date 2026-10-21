@@ -10,23 +10,26 @@ import { appendEvent } from './events.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext } from './repository.js';
 import { episodes, gateDecision, gradeDeterministic, publicQuestion, requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
+import { assertReviewAllowed } from './continuation.js';
 import type { RuntimeExtension } from './publication.js';
 import { closeCompletedCourse } from './closure.js';
-import { qualifiedCodeEvaluator } from './code-evaluator.js';
+import { gradeCodeAnswer, requireCodeEvaluator } from './generated-content.js';
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from './rubric-evaluator.js';
 import { recordRetentionOutcome } from './retention.js';
 import { systemClock, type Clock } from './clock.js';
 import { optionalPersonalBlocks } from './personal-changes.js';
 import { isIndependentCheck } from './independence.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
+import { gradingProvenance, provenanceColumns } from './grading-provenance.js';
 import { proposeConversationFindings } from './rubric-assist.js';
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, reviewedRubric } from './gates.js';
 import { refreshDecisionsForItem, refreshGateDecision, requireReadyDecision } from './gate-decisions.js';
 import { enrollmentState } from './learner-snapshot.js';
-import { enrollmentPlacement } from './placement-settings.js';
+import { enrollmentPlacement, placementCourse } from './placement-settings.js';
 import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 import { recordAnswerSignal } from './teaching-hypotheses.js';
 import { unsatisfiedActivityBlocks } from './activity-routes.js';
+import { annotateAttempt } from './telemetry.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -47,9 +50,9 @@ export async function agentAuthored(client: PoolClient, enrollmentId: string, an
   return replies.some(reply => normal(reply.content).split(/(?<=[.!?])\s+/).some(sentence => sentence.length >= 60 && response.includes(sentence)));
 }
 /** Whether this host can evaluate the item now (installed, declared and qualified evaluator). */
-function requireEvaluator(context: EnrollmentContext, assessment: Assessment, installed: RuntimeExtension[]) {
+export function requireEvaluator(context: EnrollmentContext, assessment: Assessment, installed: RuntimeExtension[]) {
   const course = context.release.server_bundle, code = codeView(course, assessment), rubric = reviewedRubric(course, assessment.id);
-  if (code) { qualifiedCodeEvaluator(code, course.extensions, installed); return; }
+  if (code) { requireCodeEvaluator(code, course, installed); return; }
   if (rubric) {
     requireCondition(installed.some(e => e.rubricReady && e.id === rubric.evaluatorExtensionId && course.extensions.some(d => d.id === e.id && declarationMatchesInstalled(d, e))), 'EVALUATOR_NOT_CONFIGURED', 409);
     return;
@@ -76,8 +79,10 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       if (input.mode === 'placement') {
         // Staff settings can switch placement off or lower the item allowance; never raise it.
         const placement = await enrollmentPlacement(client, context.enrollment, course);
-        requireCondition(placement.enabled && course.placement && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
-        requireCondition(episode.objectiveIds.every(obj => course.placement!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
+        // The blueprint and protected episodes as staff narrowed them (placement-settings.ts).
+        const placed = placementCourse(course, placement).placement;
+        requireCondition(placement.enabled && placed && !placed.protectedEpisodeIds.includes(episode.id) && placed.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
+        requireCondition(episode.objectiveIds.every(obj => placed!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
         // Placement items exist only inside the learner's in-progress placement run.
         const run = (await client.query<{ state: string; started_at: Date; finished_at: Date | null }>('SELECT state,started_at,finished_at FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1 FOR UPDATE', [enrollmentId])).rows[0];
         requireCondition(run?.state === 'in_progress', 'PLACEMENT_RUN_REQUIRED', 409);
@@ -109,9 +114,12 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
   app.post(`${commandPath}/solution`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid }, ['challengeId']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { challengeId: string };
     return enrollmentCommand(db, actor, enrollmentId, 'solution', input, async (client, context) => {
-      const challenge = (await client.query<{ assessment_id: string; attempt_id: string | null }>('SELECT assessment_id,attempt_id FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2', [input.challengeId, enrollmentId])).rows[0];
+      const challenge = (await client.query<{ assessment_id: string; attempt_id: string | null; mode: string }>('SELECT assessment_id,attempt_id,mode FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2', [input.challengeId, enrollmentId])).rows[0];
       requireCondition(challenge, 'CHALLENGE_NOT_FOUND', 404);
       requireCondition(!challenge.attempt_id, 'CHALLENGE_ALREADY_SUBMITTED', 409);
+      // An author who declared placement unassisted-only allows no revealed answer on a placement item.
+      if (challenge.mode === 'placement')
+        requireCondition(!(await enrollmentPlacement(client, context.enrollment, context.release.server_bundle)).unassistedOnly, 'PLACEMENT_UNASSISTED_ONLY', 409);
       const assessment = findAssessment(context.release.server_bundle, challenge.assessment_id)!, explanation = explanationOf(assessment);
       requireCondition(DETERMINISTIC_ITEM_TYPES.has(assessment.type) && explanation !== undefined, 'EVALUATOR_NOT_CONFIGURED', 409);
       await client.query("UPDATE assessment_challenges SET assistance='solution',independent_eligible=false WHERE id=$1", [input.challengeId]);
@@ -138,7 +146,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       requireCondition(challenge.course_digest === context.release.digest, 'COURSE_VERSION_CHANGED', 409);
       const course = context.release.server_bundle;
       if (challenge.mode !== 'placement') requireAvailable(course, context.release.digest, context.progress, context.evidence, challenge.episode_id);
-      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
+      // A spaced review answer is also allowed on a closed course's opt-in continuation track.
+      if (challenge.mode === 'retention') await assertReviewAllowed(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
+      else await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
       const assessment = findAssessment(course, challenge.assessment_id)!;
       // Confidence is optional, only on items that declare it, and never part of grading.
       if (input.confidence !== undefined) requireCondition(assessment.confidence && input.confidence <= assessment.confidence.scale.maximum, 'INVALID_CONFIDENCE');
@@ -152,16 +162,22 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         if (challenge.mode !== 'retention' && challenge.mode !== 'placement') await refreshDecisionsForItem(client, updated, assessment.id);
         return { result: { ...result, independent }, state: await enrollmentState(client, updated) };
       };
-      const insertAttempt = (response: unknown, result: unknown) => client.query(
-        `INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(response), JSON.stringify(result), input.idempotencyKey, confidence]);
+      // Every attempt binds the exact item, key and evaluator it was (or will be) graded with.
+      const insertAttempt = async (response: unknown, result: unknown) => {
+        await client.query(
+          `INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,confidence,item_digest,answer_key_digest,evaluator_digest,code_image)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(response), JSON.stringify(result), input.idempotencyKey, confidence,
+            ...provenanceColumns(gradingProvenance(course, assessment.id, installed, result as { execution?: { runtime?: { image?: string } } }))]);
+        annotateAttempt(attemptId, context.release.digest);
+      };
       if (input.abstain) {
         // "I don't know" is recorded honestly: no evidence row, no failed evidence, no credit.
         requireCondition(assessment.allowAbstain !== false, 'ABSTAIN_NOT_ALLOWED', 409);
         const explanation = explanationOf(assessment) ?? 'Nothing was recorded against you. A reviewer or the companion can help you prepare for a fresh check.';
         await insertAttempt(null, { status: 'abstained', abstained: true, passed: false, evaluator: 'abstain@1', independentEligible: independent });
         // A held-out retention check answered "I don't know" schedules a review; it is not a failed result.
-        if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, false, independent, clock.now());
+        if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, false, independent, clock.now(), true);
         // Teaching signal only (T7): "I don't know" is never a misconception.
         await recordAnswerSignal(client, context, { attemptId, assessment, answer: null, passed: false, independent, mode: challenge.mode, confidence, abstained: true });
         return finish({ abstained: true }, { passed: false, abstained: true, explanation });
@@ -180,7 +196,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         return finish({ pendingReview: true }, { passed: false, pendingReview: true, explanation: 'Submitted for review against the rubric. It counts only after a reviewer cites your answer for every required criterion.' });
       }
       const code = codeView(course, assessment);
-      const result = code ? await qualifiedCodeEvaluator(code, course.extensions, installed)(code, input.answer) : gradeDeterministic(assessment, input.answer);
+      const result = code ? await gradeCodeAnswer(client, enrollmentId, code, input.answer, course, installed) : gradeDeterministic(assessment, input.answer);
       await insertAttempt(input.answer, result);
       for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
       if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent, clock.now());

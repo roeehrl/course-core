@@ -22,7 +22,8 @@ const require = createRequire(import.meta.url);
 export const SURFACES = Object.freeze({
   admin: { directory: 'apps/admin', sources: ['src'], catalog: 'src/i18n/messages' },
   learner: { directory: 'apps/learner', sources: ['src'], catalog: 'src/i18n/messages' },
-  // Visuals has no catalog yet: its strings move behind a `messages` prop at its next version bump.
+  // Visuals (0.5) keeps its English messages in src/i18n/messages/ (VisualMessages, error texts); hosts
+  // pass translations through the `messages` prop. Its JSON-free catalog is not checked as a surface catalog.
   visuals: {
     directory: 'packages/visuals',
     sources: ['src'],

@@ -588,7 +588,8 @@ describe("gate review and exception", () => {
     finally { await db.query("ALTER TABLE gate_decisions ENABLE TRIGGER gate_decisions_immutable"); }
     expect((await requestReview({ decisionId: old.decisionId, reason }, fresh, id)).json().error).toBe("GATE_REVIEW_WINDOW_CLOSED");
     // An unversioned 0.4 gate declares no appeal policy.
-    const legacy = await publish(retentionCourse());
+    // Published after this workspace's 5.0.x course, so it carries a later version.
+    const legacy = await publish({ ...retentionCourse(), version: `9.5.${versions++}` });
     expect(legacy.published.statusCode, legacy.published.body).toBe(200);
     const legacyEnrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: legacy.id })).json().id;
     const legacyGate = (await view(learner, legacyEnrollment)).lessons.find((l: { gate: unknown }) => l.gate).gate;

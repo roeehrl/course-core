@@ -34,7 +34,8 @@ test("the inspector drives the player, shows computed node properties and runs p
       .locator("td"),
   ).toHaveText(String(Number(pointer.x.toFixed(3))));
   await inspector.getByRole("button", { name: "Run checks" }).click();
-  await expect(inspector.getByRole("status")).toHaveText(
+  // The first status is the checks'; the export controls have their own.
+  await expect(inspector.getByRole("status").first()).toHaveText(
     "All checks pass at every layout.",
   );
   // The preview shows every layout of the set, at the same time as the player.

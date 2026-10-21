@@ -9,5 +9,7 @@ export default defineConfig({
   use: { baseURL: origin, channel: process.env.CI === 'true' ? undefined : 'chrome', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   webServer: { command: 'npx tsx browser/start.ts', url: `${origin}/health`, reuseExistingServer: false, timeout: 30000,
     env: { COURSE_BROWSER_PORT: String(port), COURSE_BROWSER_PASSKEY_PORT: String(passkeyPort) } },
-  projects: [{ name: 'desktop', use: { viewport: { width: 1440, height: 960 } } }, { name: 'phone', use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } }, { name: 'tablet', use: { viewport: { width: 834, height: 1112 }, hasTouch: true } }],
+  // The renderer health check (Chromium's DevTools protocol) runs once, on the phone project;
+  // CI refuses runtime skips, so the other projects leave it out here.
+  projects: [{ name: 'desktop', testIgnore: '**/renderer-health.spec.ts', use: { viewport: { width: 1440, height: 960 } } }, { name: 'phone', use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } }, { name: 'tablet', testIgnore: '**/renderer-health.spec.ts', use: { viewport: { width: 834, height: 1112 }, hasTouch: true } }],
 });

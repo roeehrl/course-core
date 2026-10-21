@@ -1,0 +1,21 @@
+{
+  "title": "Policy changes",
+  "eyebrow": "What changed in this course's rules, setting by setting",
+  "loading": "Loading policy changes…",
+  "retry": "Try again",
+  "empty": "No policy change has been recorded for this course.",
+  "source.course_settings": "Course policy settings",
+  "source.placement_settings": "Placement settings",
+  "source.organization_ceilings": "Organization limits",
+  "source.release_policy": "Published version",
+  "version": "Version {version}",
+  "revision": "Revision {revision}",
+  "by": "{who}, {at}",
+  "reason": "Reason:",
+  "noChanges": "No setting differs from the previous one.",
+  "changes": "Changed settings",
+  "col.setting": "Setting",
+  "col.before": "Before",
+  "col.after": "After",
+  "unset": "not set"
+}

@@ -69,10 +69,10 @@ test("forced colours keep the single chevron visible in the system text colour",
 }, info) => {
   await page.emulateMedia({ forcedColors: "active" });
   const resources = await openLessonWithHelp(page);
-  test.skip(
-    !(await page.evaluate(() => matchMedia("(forced-colors: active)").matches)),
-    "This engine cannot emulate forced colours.",
-  );
+  // Every engine CI runs emulates forced colours; losing that fails instead of skipping.
+  expect(
+    await page.evaluate(() => matchMedia("(forced-colors: active)").matches),
+  ).toBe(true);
   await expectOneIndicatorEach(page);
   await expectToggleSemantics(page, resources);
   // The chevron keeps clear of the summary's forced-colours border.

@@ -12,13 +12,23 @@ import {
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
 
 const placement: CoursePlacement = {
-  author: { enabled: true, maxItems: 4, learnerMayDecline: true },
+  author: {
+    enabled: true,
+    maxItems: 4,
+    learnerMayDecline: true,
+    protectedEpisodeIds: [],
+    items: [],
+    objectives: [],
+  },
   settings: {
     enabled: false,
     retestCooldownHours: 168,
     maxRuns: 1,
     maxItems: null,
     minFamiliesPerEpisode: null,
+    excludedAssessmentIds: [],
+    excludedObjectiveIds: [],
+    protectedEpisodeIds: [],
     revision: 0,
     updatedAt: null,
   },
@@ -80,6 +90,9 @@ describe("placement administration", () => {
         maxRuns: 1,
         maxItems: 3,
         minFamiliesPerEpisode: null,
+        excludedAssessmentIds: [],
+        excludedObjectiveIds: [],
+        protectedEpisodeIds: [],
       }),
     );
     expect(await screen.findByText("Placement settings saved.")).toBeVisible();
@@ -224,5 +237,139 @@ describe("placement administration", () => {
         idempotencyKey: "key-12345678",
       },
     });
+  });
+
+  it("shows the author's rules, narrows the blueprint and protects a lesson only after checking the effect", async () => {
+    const authored: CoursePlacement = {
+      ...placement,
+      authorBounds: {
+        maxRuns: 2,
+        minCooldownHours: 24,
+        minFamiliesPerEpisode: 2,
+      },
+      author: {
+        enabled: true,
+        maxItems: 4,
+        learnerMayDecline: true,
+        protectedEpisodeIds: ["intro"],
+        assistancePolicy: "unassisted_only",
+        items: [
+          {
+            assessmentId: "min-a",
+            familyId: "compare",
+            objectiveIds: ["minimum"],
+            prompt: "Which is smaller?",
+          },
+          {
+            assessmentId: "min-b",
+            familyId: "select",
+            objectiveIds: ["minimum"],
+            prompt: "Minimum of 4 and 9?",
+          },
+        ],
+        objectives: [
+          { objectiveId: "minimum", description: "Find a minimum." },
+        ],
+      },
+      blueprint: [
+        {
+          episodeId: "intro",
+          title: "Welcome",
+          status: "protected_by_author",
+          questions: 0,
+          families: 0,
+          objectives: [],
+        },
+        {
+          episodeId: "min",
+          title: "Minimum",
+          status: "placeable",
+          questions: 2,
+          families: 2,
+          objectives: [
+            {
+              objectiveId: "minimum",
+              description: "Find a minimum.",
+              placeable: true,
+            },
+          ],
+        },
+      ],
+    };
+    const preview = vi.fn(async () => ({
+      current: authored.blueprint!,
+      blueprint: [
+        authored.blueprint![0]!,
+        {
+          ...authored.blueprint![1]!,
+          status: "protected_by_staff" as const,
+          questions: 1,
+          families: 1,
+        },
+      ],
+    }));
+    const port: PlacementAdminPort = {
+      course: vi.fn(async () => authored),
+      save: vi.fn(async () => ({
+        settings: { ...authored.settings, revision: 1 },
+      })),
+      preview,
+      enrollment: vi.fn(),
+      revoke: vi.fn(),
+    };
+    render(
+      <PlacementView
+        data={workspace(["policy.write"])}
+        client={{ placement: port } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText(
+        /At most 2 runs per learner, with at least 24 hours between runs/,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Placement questions are answered without help/),
+    ).toBeVisible();
+    // The author's protected lesson cannot be un-protected here.
+    expect(
+      screen.getByLabelText(/Welcome · protected by the course author/),
+    ).toBeDisabled();
+    await userEvent.click(screen.getByLabelText(/Which is smaller\?/));
+    await userEvent.click(screen.getByLabelText(/^Minimum$/));
+    const save = screen.getByRole("button", {
+      name: "Save placement settings",
+    });
+    expect(save).toBeDisabled();
+    expect(screen.getByText(/Check the effect before saving/)).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check the effect" }),
+    );
+    const expected = {
+      expectedRevision: 0,
+      enabled: false,
+      retestCooldownHours: 168,
+      maxRuns: 1,
+      maxItems: null,
+      minFamiliesPerEpisode: null,
+      excludedAssessmentIds: ["min-a"],
+      excludedObjectiveIds: [],
+      protectedEpisodeIds: ["min"],
+    };
+    await waitFor(() => expect(preview).toHaveBeenCalledWith("c1", expected));
+    expect(await screen.findByText("Always kept (your setting)")).toBeVisible();
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await waitFor(() => expect(port.save).toHaveBeenCalledWith("c1", expected));
+  });
+
+  it("explains a refusal for settings looser than the author's", () => {
+    expect(
+      placementErrorMessage(
+        new PlacementAdminError("PLACEMENT_RETESTS_LOOSEN_AUTHOR"),
+      ),
+    ).toBe(
+      "The course author allows fewer runs per learner. Lower the number of runs.",
+    );
   });
 });

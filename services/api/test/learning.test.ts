@@ -55,6 +55,17 @@ describe('honest evidence and progression', () => {
     expect(publicQuestion(fixture().assessments[0]!)).not.toHaveProperty('familyId');
     expect(publicQuestion(fixture().assessments[0]!)).toHaveProperty('options');
   });
+  it('serves only allowlisted question fields, so a field an item or generated variant gains never leaves the server', () => {
+    const marked = { ...fixture().assessments[1]!, grading: { expected: 4, absoluteTolerance: 0, unit: 'cm', explanation: 'KEY' },
+      hiddenFixtures: { cases: ['KEY'] }, recipe: { secret: 'KEY' }, answer: 'KEY' } as unknown as Parameters<typeof publicQuestion>[0];
+    expect(publicQuestion(marked)).toEqual({ id: 'min-b', type: 'numeric', objectiveIds: ['minimum'], prompt: 'Minimum of 4 and 9?', allowAbstain: true, unit: 'cm' });
+    const trace = { id: 't', type: 'trace', objectiveIds: ['minimum'], familyId: 'f', prompt: 'Trace it.', steps: [{ id: 's', prompt: 'Step?', answer: 'KEY' }],
+      grading: { expected: [{ stepId: 's', answer: 'KEY' }], match: 'exact', explanation: 'KEY' } } as unknown as Parameters<typeof publicQuestion>[0];
+    expect(JSON.stringify(publicQuestion(trace))).not.toContain('KEY');
+    const code = { id: 'c', type: 'code_repair', objectiveIds: ['minimum'], familyId: 'f', prompt: 'Fix it.', language: 'python', starterCode: 'pass',
+      grading: { evaluatorId: 'e', fixtureRef: 'KEY' } } as Parameters<typeof publicQuestion>[0];
+    expect(publicQuestion(code)).toEqual({ id: 'c', type: 'code_repair', objectiveIds: ['minimum'], prompt: 'Fix it.', allowAbstain: true, language: 'python', starterCode: 'pass' });
+  });
   it('skips optional units in the required path without inventing credit or removing prerequisite gates', () => {
     const course = fixture();
     course.objectives.push({ id: 'optional-topic', description: 'An optional enrichment.', prerequisites: [] });

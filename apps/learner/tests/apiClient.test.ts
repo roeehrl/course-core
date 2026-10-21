@@ -70,6 +70,13 @@ describe("connected API request boundaries", () => {
       redirect: "error",
       headers: { "X-CSRF-Token": "anti-csrf" },
     });
+    // Each request carries its own valid W3C trace context (U03); the API only links it.
+    const traces = fetcher.mock.calls.map(
+      (call) => (call[1]!.headers as Record<string, string>).traceparent,
+    );
+    for (const trace of traces)
+      expect(trace).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-00$/);
+    expect(new Set(traces).size).toBe(traces.length);
   });
   it("does not replace an unresolved command with changed semantics", async () => {
     const pending = storage(),

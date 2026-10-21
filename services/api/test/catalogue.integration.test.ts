@@ -84,6 +84,11 @@ async function impactDigest(id: string, who = owner) {
   const impact = await request(who, "GET", `/api/admin/courses/${catalog}/releases/${id}/rollback-impact`);
   return impact.statusCode === 200 ? (impact.json().impactDigest as string) : undefined;
 }
+/** Publishing forward while learners are pinned needs the digest of its affected-learner analysis. */
+async function publishDigest(id: string, who = owner) {
+  const impact = await request(who, "GET", `/api/admin/courses/${catalog}/releases/${id}/publish-impact`);
+  return impact.statusCode === 200 ? (impact.json().impactDigest as string) : undefined;
+}
 async function transition(
   id: string,
   action: string,
@@ -91,7 +96,8 @@ async function transition(
   headers?: Record<string, string>,
   confirm: boolean | string = true,
 ) {
-  const digest = typeof confirm === "string" ? confirm : action === "activate" && confirm ? await impactDigest(id) : undefined;
+  const digest = typeof confirm === "string" ? confirm : action === "activate" && confirm ? await impactDigest(id)
+    : action === "publish" && confirm ? await publishDigest(id) : undefined;
   return request(
     who,
     "POST",

@@ -7,6 +7,17 @@ const decisionRef = z.object({
   kind: z.enum(["attempt", "review", "appeal", "regrade"]),
   id: z.string().uuid(),
 });
+const digest = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/)
+  .nullable();
+/** What a grading was bound to (M03); null digests on answers graded before bindings existed. */
+const provenance = z.object({
+  itemDigest: digest,
+  answerKeyDigest: digest,
+  evaluatorDigest: digest,
+  codeImage: text(300).nullable(),
+});
 export const regradeViewSchema = z.object({
   attemptId: z.string().uuid(),
   assessmentId: text(200),
@@ -17,6 +28,17 @@ export const regradeViewSchema = z.object({
       decision: z.enum(["met", "not_met"]).nullable(),
     })
     .nullable(),
+  provenance: provenance
+    .extend({
+      changedSince: z
+        .object({
+          item: z.boolean(),
+          answerKey: z.boolean(),
+          evaluator: z.boolean(),
+        })
+        .nullable(),
+    })
+    .optional(),
   history: z
     .array(
       z.object({
@@ -30,6 +52,7 @@ export const regradeViewSchema = z.object({
         reason: text(2000),
         actor: text(200),
         at: z.string(),
+        provenance: provenance.optional(),
       }),
     )
     .max(200),

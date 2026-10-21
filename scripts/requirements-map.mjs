@@ -43,6 +43,9 @@ export function validateMap(map) {
   ensure(!map.ids.some(id => Object.hasOwn(excluded, id[0])), 'An excluded prefix is also listed in ids');
   ensure(typeof map.repositories?.sdk?.commit === 'string' && /^[a-f0-9]{40}$/.test(map.repositories.sdk.commit), 'repositories.sdk.commit must pin a full SDK commit');
   const known = new Set(map.ids), references = [];
+  // Critical requirements: CI fails while any of them has no behavior-level test reference.
+  ensure(Array.isArray(map.critical) && map.critical.length > 0 && map.critical.every((id, i) => known.has(id) && (i === 0 || map.critical[i - 1] < id)),
+    'critical must be a non-empty, sorted and unique list of known requirement IDs');
   ensure(map.requirements && typeof map.requirements === 'object' && !Array.isArray(map.requirements), 'requirements must map IDs to test references');
   for (const [id, list] of Object.entries(map.requirements)) {
     ensure(known.has(id), Object.hasOwn(excluded, id[0]) ? `${id} belongs to an excluded group` : `Unknown requirement ID ${id}`);
@@ -64,9 +67,12 @@ export async function danglingReferences(references, sources) {
   return dangling;
 }
 
+/** Coverage report. A critical requirement counts as covered only when at least one reference
+ * names a behavior: a ::title inside a test file, not just the file. */
 export function coverage(map) {
   const uncovered = map.ids.filter(id => !map.requirements[id]);
-  return { total: map.ids.length, covered: map.ids.length - uncovered.length, uncovered };
+  const uncoveredCritical = (map.critical ?? []).filter(id => !(map.requirements[id] ?? []).some(reference => REFERENCE.exec(reference)?.[3]));
+  return { total: map.ids.length, covered: map.ids.length - uncovered.length, uncovered, critical: (map.critical ?? []).length, uncoveredCritical };
 }
 
 async function gitSource(directory, revision) {
@@ -106,6 +112,9 @@ export async function requirementsMain(args = process.argv.slice(2), root = ROOT
   const report = coverage(map);
   console.log(`Requirement map: ${report.covered}/${report.total} IDs have at least one test reference (${references.length} references).`);
   if (report.uncovered.length) console.log(`Uncovered (reported, not failing): ${report.uncovered.join(' ')}`);
+  ensure(report.uncoveredCritical.length === 0,
+    `Critical requirements without a behavior-level test reference (core|sdk:<test file>::<test title>): ${report.uncoveredCritical.join(' ')}`);
+  console.log(`Critical requirements: all ${report.critical} have a behavior-level test reference.`);
   return { ...report, references: references.length };
 }
 if (isMain(import.meta.url)) requirementsMain().catch(error => { console.error(`Requirement map check failed: ${error.message}`); process.exitCode = 1; });

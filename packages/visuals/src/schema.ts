@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { checkEquation, EQUATION_LIMITS } from "./equation.js";
 import { MAX_VALUE, VisualError, operatorArity } from "./expression.js";
+import { visualError } from "./errors.js";
+import type { ErrorKey, englishErrorMessages } from "./errors.js";
+import { verifyImageAsset } from "./image.js";
 import { SPRING_LIMITS } from "./motion.js";
 import type {
   Expression,
@@ -32,6 +35,12 @@ export const LIMITS = Object.freeze({
   renderedNodes: 4_000,
   /** Frames the publish-time invariants may evaluate (layouts × states × times). */
   checkFrames: 512,
+  /** Embedded images (`defs.images`). */
+  images: 16,
+  /** Base64 characters of one image (about 140 KB decoded). The scene byte budget bounds the total. */
+  imageChars: 192_000,
+  /** Colour tracks. */
+  colorTracks: 64,
 });
 const reserved = new Set(["__proto__", "prototype", "constructor"]);
 const id = z
@@ -85,6 +94,16 @@ const base = {
     .union([
       color,
       z.object({ kind: z.literal("linear"), from: color, to: color }).strict(),
+      z
+        .object({
+          kind: z.literal("radial"),
+          from: color,
+          to: color,
+          cx: z.number().finite().min(0).max(1).optional(),
+          cy: z.number().finite().min(0).max(1).optional(),
+          r: z.number().finite().positive().max(2).optional(),
+        })
+        .strict(),
     ])
     .optional(),
   stroke: color.optional(),
@@ -185,6 +204,8 @@ const node: z.ZodType<SceneNode> = z.lazy(() =>
         kind: z.literal("path"),
         commands: z.array(command).min(1).max(1024),
         progress: expression.optional(),
+        morphTo: z.array(command).min(1).max(1024).optional(),
+        morph: expression.optional(),
       })
       .strict(),
     z
@@ -225,6 +246,16 @@ const node: z.ZodType<SceneNode> = z.lazy(() =>
     z
       .object({
         ...base,
+        kind: z.literal("image"),
+        image: id,
+        width: expression,
+        height: expression,
+        fit: z.enum(["contain", "cover", "fill"]).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
         kind: z.literal("equation"),
         tex: z.string().min(1).max(EQUATION_LIMITS.chars),
         fontSize: expression.optional(),
@@ -251,6 +282,22 @@ const defs = z
       )
       .max(LIMITS.defs)
       .optional(),
+    images: z
+      .array(
+        z
+          .object({
+            id,
+            mediaType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+            width: z.number().int().min(1).max(8192),
+            height: z.number().int().min(1).max(8192),
+            sha256: z.string().regex(/^sha256-[0-9a-f]{64}$/),
+            data: z.string().min(8).max(LIMITS.imageChars),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(LIMITS.images)
+      .optional(),
   })
   .strict();
 const numericProperties = [
@@ -266,6 +313,7 @@ const numericProperties = [
   "x2",
   "y2",
   "progress",
+  "morph",
 ] as const;
 const property = z.enum(numericProperties);
 const overrides = z
@@ -397,6 +445,21 @@ const keyframe = z
     "spring parameters require ease: spring",
   );
 const keyframes = z.array(keyframe).min(1).max(LIMITS.keyframes);
+const solid = z
+  .string()
+  .regex(/^(?:#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8})$/);
+const colorKeyframes = z
+  .array(
+    z
+      .object({
+        atMs: positive,
+        color: solid,
+        ease: z.enum(["linear", "smooth", "in", "out", "step"]).optional(),
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(LIMITS.keyframes);
 const title = z.string().min(1).max(160);
 const pane = z.discriminatedUnion("kind", [
   z
@@ -447,6 +510,14 @@ const schema = z
     controls: z.array(id).max(LIMITS.state).optional(),
     nodes: z.array(node).min(1).max(LIMITS.nodes),
     defs: defs.optional(),
+    camera: z
+      .object({
+        x: expression.optional(),
+        y: expression.optional(),
+        zoom: expression.optional(),
+      })
+      .strict()
+      .optional(),
     layouts: z
       .object({
         compact: layout,
@@ -483,6 +554,28 @@ const schema = z
               .strict(),
           )
           .max(64)
+          .optional(),
+        colorTracks: z
+          .array(
+            z
+              .object({
+                node: id,
+                property: z.enum(["fill", "stroke"]),
+                keyframes: colorKeyframes,
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(LIMITS.colorTracks)
+          .optional(),
+        cameraTracks: z
+          .array(
+            z
+              .object({ property: z.enum(["x", "y", "zoom"]), keyframes })
+              .strict(),
+          )
+          .min(1)
+          .max(3)
           .optional(),
         cues: z.array(z.object({ atMs: positive, text }).strict()).max(256),
       })
@@ -615,17 +708,27 @@ export function assertStateValue(
   )
     throw new VisualError("STATE_TYPE", "Unknown enum value");
 }
+/** Camera bounds: zoom 0.1–20, centre within ±100,000. */
+export function checkCamera(prop: "x" | "y" | "zoom", value: number): void {
+  if (
+    !Number.isFinite(value) ||
+    (prop === "zoom" ? value < 0.1 || value > 20 : Math.abs(value) > 100_000)
+  )
+    throw visualError("SCHEMA", "cameraRange", { property: prop });
+}
 export function supportsProperty(
   node: SceneNode,
   prop: NumericProperty,
 ): boolean {
+  if (prop === "morph")
+    return node.kind === "path" && node.morphTo !== undefined;
   if (["x", "y", "rotation", "scale", "opacity"].includes(prop))
     return node.kind !== "link" || prop === "opacity";
   return (
     (
       {
-        width: ["rect", "ellipse", "plot", "use"],
-        height: ["rect", "ellipse", "plot", "use"],
+        width: ["rect", "ellipse", "plot", "use", "image"],
+        height: ["rect", "ellipse", "plot", "use", "image"],
         radius: ["circle"],
         fontSize: ["text", "equation"],
         x2: ["line"],
@@ -659,6 +762,12 @@ export function parseScene(input: unknown): Scene {
   const fail = (message: string): never => {
     throw new VisualError("SCHEMA", message);
   };
+  const failWith = <K extends ErrorKey>(
+    key: K,
+    ...params: Parameters<(typeof englishErrorMessages)[K]>
+  ): never => {
+    throw visualError("SCHEMA", key, ...params);
+  };
   const stateKeys = Object.keys(scene.state);
   if (stateKeys.length > LIMITS.state) fail("Too many state fields");
   for (const f of Object.values(scene.state)) {
@@ -686,7 +795,7 @@ export function parseScene(input: unknown): Scene {
       (n < 0 || n > 100_000)
     )
       fail(`Invalid ${prop}`);
-    if (["opacity", "progress"].includes(prop) && (n < 0 || n > 1))
+    if (["opacity", "progress", "morph"].includes(prop) && (n < 0 || n > 1))
       fail(`Invalid ${prop}`);
     if (prop === "scale" && (n < 0.001 || n > 100)) fail("Invalid scale");
   };
@@ -706,6 +815,7 @@ export function parseScene(input: unknown): Scene {
       "text",
       "path",
       "plot",
+      "image",
     ],
     symbol: [
       "group",
@@ -717,6 +827,7 @@ export function parseScene(input: unknown): Scene {
       "path",
       "plot",
       "equation",
+      "image",
     ],
   };
   function collect(
@@ -741,6 +852,8 @@ export function parseScene(input: unknown): Scene {
           fail(`Equation ${n.id} requires a label as its text alternative`);
         checkEquation(n.tex);
       }
+      if (n.kind === "image" && !n.label?.trim())
+        failWith("imageLabel", { node: n.id });
       for (const prop of numericProperties) {
         const value = (n as unknown as Record<string, unknown>)[prop];
         if (value !== undefined) checkNumber(prop, value);
@@ -754,8 +867,16 @@ export function parseScene(input: unknown): Scene {
         points += n.points.length;
       }
       if (n.kind === "path") {
-        points += n.commands.length;
+        points += n.commands.length + (n.morphTo?.length ?? 0);
         if (n.commands[0]?.command !== "M") fail("Paths must begin with M");
+        if (n.morph !== undefined && !n.morphTo)
+          failWith("morphNeedsTarget", { node: n.id });
+        if (
+          n.morphTo &&
+          (n.morphTo.length !== n.commands.length ||
+            n.morphTo.some((c, i) => c.command !== n.commands[i]!.command))
+        )
+          failWith("morphShape", { node: n.id });
       }
       if (n.manipulate) {
         if (!n.label) fail("Manipulable nodes require a label");
@@ -789,7 +910,14 @@ export function parseScene(input: unknown): Scene {
     clip: new Set<string>(),
     mask: new Set<string>(),
     symbol: new Map<string, number>(),
+    image: new Set<string>(),
   };
+  for (const image of scene.defs?.images ?? []) {
+    if (regions.image.has(image.id))
+      failWith("imageDuplicate", { image: image.id });
+    regions.image.add(image.id);
+    verifyImageAsset(image);
+  }
   for (const [kind, rows] of [
     ["clip", scene.defs?.clips ?? []],
     ["mask", scene.defs?.masks ?? []],
@@ -819,6 +947,11 @@ export function parseScene(input: unknown): Scene {
         "UNDEFINED_REFERENCE",
         `Node ${n.id} references undefined mask ${n.mask}`,
       );
+    if (n.kind === "image" && !regions.image.has(n.image))
+      throw visualError("UNDEFINED_REFERENCE", "imageReference", {
+        node: n.id,
+        image: n.image,
+      });
     if (n.kind === "use") {
       const size = regions.symbol.get(n.symbol);
       if (size === undefined)
@@ -876,7 +1009,7 @@ export function parseScene(input: unknown): Scene {
     for (const k of keys) {
       checkNumber(property, k.value);
       if (k.atMs <= previous || k.atMs + offset > scene.timeline.durationMs)
-        fail("Keyframes must increase within duration");
+        failWith("keyframesIncrease");
       previous = k.atMs;
     }
   };
@@ -891,6 +1024,42 @@ export function parseScene(input: unknown): Scene {
         i * stagger.delayMs,
       ),
     );
+  for (const track of scene.timeline.colorTracks ?? []) {
+    const target = all.get(track.node),
+      key = `${track.node}.${track.property}`;
+    if (!target || target.kind === "group" || tracks.has(key))
+      failWith("colorTrackInvalid", { track: key });
+    if (track.property === "fill" && typeof target!.fill === "object")
+      failWith("colorTrackGradient", { track: key });
+    tracks.add(key);
+    let previous = -1;
+    for (const k of track.keyframes) {
+      if (k.atMs <= previous || k.atMs > scene.timeline.durationMs)
+        failWith("keyframesIncrease");
+      previous = k.atMs;
+    }
+  }
+  if (scene.timeline.cameraTracks && !scene.camera)
+    failWith("cameraTracksNeedCamera");
+  for (const track of scene.timeline.cameraTracks ?? []) {
+    const key = `camera.${track.property}`;
+    if (tracks.has(key))
+      failWith("cameraTrackDuplicate", { property: track.property });
+    tracks.add(key);
+    let previous = -1;
+    for (const k of track.keyframes) {
+      checkCamera(track.property, k.value);
+      if (k.atMs <= previous || k.atMs > scene.timeline.durationMs)
+        failWith("keyframesIncrease");
+      previous = k.atMs;
+    }
+  }
+  for (const prop of ["x", "y", "zoom"] as const) {
+    const value = scene.camera?.[prop];
+    if (typeof value === "number") checkCamera(prop, value);
+    else if (value !== undefined && typeof value !== "object")
+      failWith("cameraNumeric", { property: prop });
+  }
   if (tracks.size > LIMITS.tracks) fail("Too many tracks");
   const paneIds = new Set<string>();
   for (const p of scene.panes ?? []) {

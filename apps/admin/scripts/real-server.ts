@@ -5,7 +5,10 @@ import {
   transaction,
 } from "../../../services/api/src/database.ts";
 import { appendEvent } from "../../../services/api/src/events.ts";
-import { createPostgresSupervisorBridge } from "../../../services/api/src/supervisor-bridge.ts";
+import {
+  createPostgresSupervisorBridge,
+  parkSupervisorJob,
+} from "../../../services/api/src/supervisor-bridge.ts";
 import { migrate } from "../../../services/api/src/migrations.ts";
 import { createServer } from "../../../services/api/src/server.ts";
 import { authService, issueLoginCode } from "../../../services/api/src/auth.ts";
@@ -19,7 +22,13 @@ import { fixture } from "../../../services/api/test/fixture.ts";
 import { retentionCourse } from "../../../services/api/test/retention-fixture.ts";
 import { buildPackage } from "../../../services/api/test/course-package-fixture.ts";
 import { packageDirectories } from "../../../services/api/src/course-package-directory.ts";
-import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join as joinPath } from "node:path";
 import {
@@ -48,9 +57,13 @@ import {
 import {
   MEDIA_CREDENTIAL,
   SYNTHETIC_CAPTIONS,
+  ScriptedAssist,
+  ScriptedImage,
   ScriptedVideo,
   mediaConfiguration,
   mediaJobPolicy,
+  pipelineConfiguration,
+  approveRevisionsForTest,
 } from "../../../services/api/test/media-fixture.ts";
 import {
   subscriptionAdapter,
@@ -211,6 +224,7 @@ const { googleAdapterFactory } =
 const { PUBLIC_SCRIPTED_MODELS } =
   await import("../../../services/api/src/agent-evals/public-suite.ts");
 let scriptedDialogue: string | undefined;
+const scriptedRounds = new Map<string, number>();
 const syntheticGemini: typeof fetch = async (input, init) => {
   const url = new URL(String(input));
   if (
@@ -229,10 +243,24 @@ const syntheticGemini: typeof fetch = async (input, init) => {
       }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
+  // A tool-loop conversation answers round by round (every agent role is evaluated, N07).
+  const round = (scriptedRounds.get(scriptedDialogue!) ?? 0) + 1;
+  scriptedRounds.set(scriptedDialogue!, round);
   const text =
     output.kind === "text"
       ? output.text
-      : JSON.stringify({ summary: output.summary, needs: output.needs });
+      : output.kind === "plan"
+        ? JSON.stringify({ summary: output.summary, needs: output.needs })
+        : output.kind === "tool_script"
+          ? JSON.stringify(
+              output.rounds[Math.min(round, output.rounds.length) - 1],
+            )
+          : output.kind === "review_answer"
+            ? JSON.stringify({
+                summary: output.summary,
+                criteria: output.criteria,
+              })
+            : JSON.stringify(output);
   const prompt = Math.ceil(String(init.body).length / 4),
     answer = Math.ceil(text.length / 4);
   return new Response(
@@ -259,12 +287,17 @@ const { credentialVault } =
   await import("../../../services/api/src/key-vault.ts");
 // Test-only scripted video adapter: no network, no credential, records submissions.
 const scriptedVideo = new ScriptedVideo();
+// Test-only scripted image model and structured-output assistant (storyboards, checks).
+const scriptedImage = new ScriptedImage(),
+  scriptedAssist = new ScriptedAssist();
 const workspaceProviders = new WorkspaceProviders(
   db,
   credentialVault(randomBytes(32)),
   {
     google: googleAdapterFactory(syntheticGemini),
     "scripted-video": scriptedVideo.factory(),
+    "scripted-image": scriptedImage.factory(),
+    "scripted-assist": scriptedAssist.factory(),
     "subscription-fixture": (options) => {
       const native: ProviderAdapter = {
         providerId: options.providerId,
@@ -301,7 +334,31 @@ const workspaceProviders = new WorkspaceProviders(
   undefined,
   { google: metadata, anthropic: anthropicMetadata },
 );
-const mediaOptions = { pollIntervalMs: 1000 };
+// Test-only stand-ins for the clip tools (rsvg-convert, ffmpeg): they write fixed public bytes
+// with the MP4 signature. qualification/clip-export-flow.ts runs the real tools.
+const clipTools = mkdtempSync(joinPath(tmpdir(), "course-admin-clip-tools-"));
+const clipTool = (name: string, body: string) => {
+  const file = joinPath(clipTools, name);
+  writeFileSync(
+    file,
+    `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\n${body}\n`,
+  );
+  chmodSync(file, 0o755);
+  return file;
+};
+const mediaOptions = {
+  pollIntervalMs: 1000,
+  clipToolchain: {
+    rasterizerPath: clipTool(
+      "raster",
+      "fs.readFileSync(0); process.stdout.write(Buffer.from([137,80,78,71,13,10,26,10,1]));",
+    ),
+    ffmpegPath: clipTool(
+      "ffmpeg",
+      "const target = args.at(-1); if (!args.includes('-filter_complex')) fs.readFileSync(0); fs.writeFileSync(target, Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d,1,2,3,4]));",
+    ),
+  },
+};
 const renderer = await svgRenderer();
 // Test-only package directory for course-update browser tests (a disposable temporary folder).
 const packageRoot = realpathSync(
@@ -849,6 +906,57 @@ app.post("/test/release-safety-fixture", async () => {
   await publish(second);
   return { code: await issueLoginCode(db, ownerId) };
 });
+// Test-only (Q09): an owner with version 1.0.0 of the fixture course published and a draft of
+// 1.0.1, so the answer keys page can test a key change against test answers and save it.
+app.post("/test/answer-keys-fixture", async () => {
+  const workspaceId = randomUUID(),
+    ownerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `keys-${workspaceId}`,
+    "Answer keys workspace",
+  ]);
+  await db.query(
+    "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+    [ownerId, `keys:${ownerId}`, "Keys owner"],
+  );
+  await db.query(
+    "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+    [workspaceId, ownerId, "owner"],
+  );
+  const r = await app.inject({
+    method: "POST",
+    url: "/auth/redeem",
+    headers: { origin },
+    payload: { token: await issueLoginCode(db, ownerId) },
+  });
+  const owner = {
+    cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+    origin,
+    "x-csrf-token": r.json().csrfToken,
+  };
+  const create = async (version: string) => {
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspaceId}/releases`,
+      headers: owner,
+      payload: { ...fixture(), version },
+    });
+    if (created.statusCode !== 200)
+      throw new Error(`Answer keys fixture import failed: ${created.body}`);
+    return created.json().id as string;
+  };
+  const published = await create("1.0.0");
+  const publish = await app.inject({
+    method: "POST",
+    url: `/api/releases/${published}/publish`,
+    headers: owner,
+  });
+  if (publish.statusCode !== 200)
+    throw new Error("Answer keys fixture publication failed");
+  await create("1.0.1");
+  return { code: await issueLoginCode(db, ownerId) };
+});
 // Test-only: an owner with version 1.0.0 of the fixture course published, and synthetic
 // course-package files built in-process from public fixtures (a new version, a new course).
 app.post("/test/course-package-fixture", async () => {
@@ -899,10 +1007,14 @@ app.post("/test/course-package-fixture", async () => {
   const other = fixture();
   other.id = "ordering-companion";
   other.title = "Ordering companion";
+  // An older version than the published 1.0.0: installing it needs an explicit choice.
+  const older = fixture();
+  older.version = "0.9.0";
   return {
     code: await issueLoginCode(db, ownerId),
     update: buildPackage(update).bytes.toString("base64"),
     newCourse: buildPackage(other).bytes.toString("base64"),
+    older: buildPackage(older).bytes.toString("base64"),
   };
 });
 // Test-only: an owner with version 1.0.0 published and a folder in the test package directory
@@ -1449,6 +1561,42 @@ app.post("/test/supervision-fixture", async () => {
     !(await bridge.nackOutbox(outage, "dispatch_unavailable", 0, true))
   )
     throw new Error("Supervision fixture quarantine failed");
+  // A supervisor job waiting (needs_input) for an owner to decide a higher AI spending limit (B06).
+  const review = await transaction(db, (client) =>
+    appendEvent(client, {
+      workspaceId,
+      enrollmentId,
+      actorId: learnerId,
+      actorKind: "learner",
+      type: "learning.review_requested",
+      payload: { episodeId: "min" },
+      idempotencyKey: randomUUID(),
+      supervise: true,
+    }),
+  );
+  const reviewLease = await bridge.claimOutboxEvent(
+    review.id,
+    randomUUID(),
+    30_000,
+  );
+  const [waiting] = reviewLease ? await bridge.prepareOutbox(reviewLease) : [];
+  if (!waiting || !reviewLease || !(await bridge.ackOutbox(reviewLease)))
+    throw new Error("Supervision fixture job failed");
+  await parkSupervisorJob(db, waiting, "needs_input");
+  await db.query(
+    `INSERT INTO supervisor_authority_requests(id,enrollment_id,workspace_id,job_id,kind,approver,proposal)
+     VALUES($1,$2,$3,$4,'paid_ceiling','staff',$5)`,
+    [
+      randomUUID(),
+      enrollmentId,
+      workspaceId,
+      waiting.jobId,
+      JSON.stringify({
+        limitMicroUsd: 2_500_000,
+        reason: "Two more practice sessions this week.",
+      }),
+    ],
+  );
   return {
     instructorCode: await issueLoginCode(db, instructorId),
     reviewerCode: await issueLoginCode(db, reviewerId),
@@ -1752,6 +1900,8 @@ app.post("/test/media-fixture", async () => {
   const enrollmentId = (await call("/api/enrollments", { releaseId }, learner))
     .id;
   const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  // Every agent role is gated (N07): the owner approves the scripted revisions first.
+  await approveRevisionsForTest(db, workspaceId, mediaConfiguration());
   await call(setup, {
     expectedRevision: 0,
     idempotencyKey: "media-" + randomUUID(),
@@ -1794,6 +1944,128 @@ app.post("/test/media-fixture", async () => {
     learnerCode: await issueLoginCode(db, learnerId),
     enrollmentId,
   };
+});
+// Test-only: a workspace for the media pipeline: a release with one verified course visual, a
+// scripted video model and a scripted reviewer assistant, budgets and synthetic prices. Nothing
+// is generated or contacted; the clip tools are stand-ins.
+app.post("/test/media-pipeline-fixture", async () => {
+  const workspaceId = randomUUID(),
+    adminId = randomUUID(),
+    learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `media-pipeline-${workspaceId}`,
+    "Media pipeline workspace",
+  ]);
+  for (const [id, role, name] of [
+    [adminId, "admin", "Media administrator"],
+    [learnerId, "learner", "Storyboard learner"],
+  ] as const) {
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [id, `media-pipeline:${id}`, name],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspaceId, id, role],
+    );
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({
+      method: "POST",
+      url: "/auth/redeem",
+      headers: { origin },
+      payload: { token: await issueLoginCode(db, userId) },
+    });
+    return {
+      cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+      origin,
+      "x-csrf-token": r.json().csrfToken,
+    };
+  };
+  const admin = await login(adminId),
+    learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers = admin) => {
+    const r = await app.inject({
+      method: "POST",
+      url,
+      headers,
+      payload: payload as object,
+    });
+    if (r.statusCode !== 200)
+      throw new Error(`Media pipeline fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const course = fixture(),
+    visual = toVisualExperience(sortingDemo);
+  course.extensions.push({
+    id: renderer.id,
+    version: renderer.version,
+    integrity: renderer.integrity,
+    execution: "declarative",
+    entrypoint: "renderers/svg-v1.js",
+    platforms: ["web"],
+    capabilities: ["visual.render"],
+    accessibility: {
+      keyboard: true,
+      reducedMotion: true,
+      textAlternative: visual.accessibility.description,
+    },
+  });
+  course.visuals.push(visual);
+  course.chapters[0]!.episodes[0]!.blocks.push({
+    id: "min-visual",
+    type: "visual",
+    visualId: visual.id,
+  });
+  const releaseId = (
+    await call(`/api/workspaces/${workspaceId}/releases`, course)
+  ).id;
+  await call(`/api/releases/${releaseId}/publish`, {});
+  const enrollmentId = (await call("/api/enrollments", { releaseId }, learner))
+    .id;
+  const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  // Every agent role is gated (N07): the owner approves the scripted revisions first.
+  await approveRevisionsForTest(
+    db,
+    workspaceId,
+    pipelineConfiguration("video"),
+  );
+  await call(setup, {
+    expectedRevision: 0,
+    idempotencyKey: "media-" + randomUUID(),
+    configuration: pipelineConfiguration("video"),
+    jobPolicy: {
+      ...mediaJobPolicy(250_000),
+      allowance: { microUsd: 250_000, tokens: 1_000_000 },
+    },
+    credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" },
+  });
+  for (const scope of [{}, { enrollmentId }])
+    await call(`${setup}/budgets`, {
+      expectedRevision: 0,
+      idempotencyKey: "media-" + randomUUID(),
+      ...scope,
+      limits: { microUsd: 5_000_000, tokens: 1_000_000 },
+      paidWorkApproved: true,
+    });
+  await db.query(
+    `INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
+      effective_from,source_note,created_by) VALUES($1,$2,'assist',1,'active','USD',1000000,4000000,clock_timestamp()-interval '1 minute','Synthetic price',$3)`,
+    [randomUUID(), workspaceId, adminId],
+  );
+  return { code: await issueLoginCode(db, adminId), enrollmentId };
+});
+// Test-only: one bounded worker pass over every due media job (renders, submissions, polls).
+app.post("/test/media-run", async () => {
+  const worker = createMediaJobService(
+    db,
+    workspaceMediaResolver(workspaceProviders),
+    mediaOptions,
+  );
+  for (let i = 0; i < 4; i++)
+    await worker.run({ now: new Date(Date.now() + i * 2000), limit: 20 });
+  return { ok: true };
 });
 // Test-only: a workspace with one configured (never contacted) model, one operator price
 // version and two settled ledger rows, so pricing and spend views have real data.
@@ -2100,6 +2372,20 @@ app.post("/test/learner-view-fixture", async () => {
     enrollmentId,
   };
 });
+// Test-only: what deploy/local/backup.mjs reports after an hourly snapshot and a restore drill.
+app.post("/test/backup-reports", async () => {
+  await db.query("DELETE FROM platform_backup_reports");
+  for (const [kind, minutesAgo, seconds] of [
+    ["snapshot", 20, 4],
+    ["restore_drill", 90, 75],
+  ] as const)
+    await db.query(
+      `INSERT INTO platform_backup_reports(id,kind,outcome,started_at,finished_at,encrypted,core_version,tables,rows,bytes)
+       VALUES($1,$2,'succeeded',clock_timestamp()-make_interval(mins=>$3)-make_interval(secs=>$4),clock_timestamp()-make_interval(mins=>$3),true,'0.1.50',80,1200,2097152)`,
+      [randomUUID(), kind, minutesAgo, seconds],
+    );
+  return { recorded: 2 };
+});
 // Test-only: a learner on a lesson with a visual, one recorded supervisor run of that lesson (tool
 // calls, a stored plan, budgets and client facts), an owner and an instructor.
 app.post("/test/inspector-fixture", async () => {
@@ -2273,6 +2559,8 @@ app.post("/test/learner-view-media-fixture", async () => {
     learner,
   );
   const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  // Every agent role is gated (N07): the owner approves the scripted revisions first.
+  await approveRevisionsForTest(db, workspaceId, mediaConfiguration());
   await call(setup, {
     expectedRevision: 0,
     idempotencyKey: "media-" + randomUUID(),
@@ -2327,6 +2615,7 @@ app.post("/test/learner-view-media-fixture", async () => {
       decision: "approved",
       assetSha256: job.asset.sha256,
       captionsVtt: SYNTHETIC_CAPTIONS,
+      captionsLanguage: "en",
       transcript:
         "The running minimum keeps the smaller value after each comparison in the list.",
       visualDescription:

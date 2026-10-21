@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { fileURLToPath } from 'node:url';
 import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
@@ -10,6 +12,7 @@ import {registerPersonalChangeRoutes} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
+import {createMediaPipeline,registerMediaPipelineRoutes} from './media-pipeline.js';
 import {activateResearchWithin} from './research-store.js';
 import {applyResourceChoicesWithin,registerResearchMediaRoutes,workspaceYouTubeSearch,type YouTubeSearchPort} from './research-media.js';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -33,6 +36,7 @@ import { registerGateReviewRoutes } from './gate-reviews.js';
 import { registerEvidenceDisputeRoutes } from './evidence-disputes.js';
 import { registerScopedCorrectionRoutes } from './scoped-corrections.js';
 import { activateWindows, assertPolicyAction, assertPublishable, enrollmentPolicy } from './policy-adapter.js';
+import { assertPublishVersion } from './course-versions.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
@@ -46,18 +50,24 @@ import { verifyCompanionBoundary } from './companion-verifier.js';
 import {registerSupervisionRoutes} from './supervision-routes.js';
 import { registerStudyRoutes } from './study-routes.js';
 import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
+import { applySuggestionsWithin } from './teaching-actions.js';
+import { registerSupervisorAuthorityRoutes } from './supervisor-authority.js';
+import { registerSupervisionSettingsRoutes } from './supervision-settings-routes.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
+import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
+import { registerPolicyScopeRoutes } from './policy-scope-routes.js';
+import { registerContinuationRoutes } from './continuation.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerConceptMappingRoutes } from './concept-mappings.js';
 import { registerCrossCourseRoutes } from './cross-course.js';
 import { registerAgentToolRoutes } from './agent-tools-routes.js';
 import { registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
-import {createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
+import {createAdaptationRuntime,withInstalledExtensions,type AdaptationRuntime} from './adaptation-store.js';
 import {adaptationDescriptors} from './adaptation-composition.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import {registerProviderSetupRoutes} from './provider-setup-routes.js';
@@ -73,9 +83,11 @@ import { registerRubricAppealRoutes } from './rubric-appeals.js';
 import { registerHttpTelemetry } from './telemetry.js';
 import { enrollmentState, learnerSnapshot } from './learner-snapshot.js';
 import { registerAssessmentRoutes } from './assessment-routes.js';
+import { registerAssessmentAdminRoutes } from './assessment-admin-routes.js';
 import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
+import { registerVisualObservationRoutes } from './visual-observations.js';
 import { registerActivityRoutes } from './activity-routes.js';
 import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
@@ -97,6 +109,10 @@ const state = enrollmentState;
 
 /** The page policy. Only the debug inspector page (framed by the learner app) relaxes frame-ancestors, to this origin. */
 const contentSecurityPolicy = (frameAncestors: "'none'" | "'self'") => `default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; frame-ancestors ${frameAncestors}; object-src 'none'; base-uri 'none'; form-action 'self'`;
+export interface RegisteredRoute { method: string; url: string; schema: Record<string, unknown> | undefined }
+const registeredRouteLists = new WeakMap<FastifyInstance, RegisteredRoute[]>();
+/** The routes a server created by createServer registered (HEAD routes Fastify adds for GET excluded). */
+export const registeredRoutes = (app: FastifyInstance): readonly RegisteredRoute[] => registeredRouteLists.get(app) ?? [];
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
@@ -111,15 +127,24 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** Runs due automatic course updates this often (ms, at least 60 000); omitted: never. */
   courseUpdateTickMs?: number;
   /** Browser practice runs of Python (python-runner.ts). Omitted: enabled with default limits. */
-  pythonRunner?: PythonRunnerOptions }) {
+  pythonRunner?: PythonRunnerOptions;
+  /** The grading sandbox this host runs, for the platform-readiness page; omitted when none. */
+  sandbox?: PlatformOptions['sandbox'];
+  /** The migrations this build ships, compared with the database on the platform-readiness page. */
+  migrationsDirectory?: string }) {
   const clock = serverClock(options.clock);
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
+  const routes: RegisteredRoute[] = [];
+  registeredRouteLists.set(app, routes);
+  // Every route as registered, so the role-matrix test can require an access entry for each one.
+  app.addHook('onRoute', route => { for (const method of [route.method].flat()) if (method !== 'HEAD') routes.push({ method, url: route.url, schema: route.schema as Record<string, unknown> | undefined }); });
   registerHttpTelemetry(app);
   registerClientEnvelope(app);
   await app.register(cookie);
   const auth = authService(db, options);
-  const adaptation=options.adaptation??createAdaptationRuntime([]);
+  // Generated simulations and exercises are checked and graded by the installed renderer and evaluators.
+  const adaptation=withInstalledExtensions(options.adaptation??createAdaptationRuntime([]),options.installedExtensions??[]);
   app.addHook('onSend', async (request, reply) => {
     // Only the content-addressed Pyodide files (versioned path, pinned SHA-256) may be cached.
     const immutable = (request.routeOptions.config as { immutableAsset?: boolean } | undefined)?.immutableAsset === true && reply.statusCode === 200;
@@ -208,6 +233,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   app.post('/api/releases/:releaseId/publish', { schema: { params: { type: 'object', properties: { releaseId: uuid }, required: ['releaseId'] } } }, async request => {
     const actor = await auth.authenticate(request), { releaseId } = request.params as { releaseId: string };
+    // Optional body: { confirmOlderVersion: true } publishes a version lower than one already published.
+    const body = z.strictObject({ confirmOlderVersion: z.literal(true).optional() }).safeParse(request.body ?? {});
+    requireCondition(body.success, 'INVALID_REQUEST');
     return transaction(db, async client => {
       let release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1', [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
@@ -219,11 +247,12 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       if (release.status === 'draft') {
         await prepareCourseRunnable(release.server_bundle, options.installedExtensions);
         assertCourseRunnable(release.server_bundle, options.installedExtensions);
+        const backFrom = await assertPublishVersion(client, release as Release & { course_key: string; version: string }, body.data.confirmOlderVersion === true);
         await assertPublishable(client, releaseId, release.server_bundle);
         await client.query("UPDATE course_releases SET status='published' WHERE id=$1", [releaseId]);
         await selectCatalogueReleaseWithin(client,catalogId,releaseId);
         await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1',[catalogId]);
-        await appendEvent(client, { workspaceId: release.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'course.published', payload: { releaseId }, idempotencyKey: `release:${releaseId}:publish` });
+        await appendEvent(client, { workspaceId: release.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'course.published', payload: { releaseId, ...(backFrom ? { olderVersionConfirmed: true, newestPublished: backFrom } : {}) }, idempotencyKey: `release:${releaseId}:publish` });
       }
       return { id: releaseId, status: 'published' };
     });
@@ -314,6 +343,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const proposalsAvailable = async (workspaceId: string) => Boolean(options.supervisor) && await reviewerAvailable(workspaceId);
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock, proposalsAvailable);
   registerActivityRoutes(app, db, auth, options.installedExtensions ?? []);
+  registerVisualObservationRoutes(app, db, auth);
   await registerPythonRunnerRoutes(app, options.pythonRunner);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
@@ -327,6 +357,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCrossCourseRoutes(app, db, auth);
   registerAgentToolRoutes(app, db, auth);
   registerTeachingHypothesisRoutes(app, db, auth);
+  registerSupervisorAuthorityRoutes(app, db, auth);
+  registerSupervisionSettingsRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerStudyRoutes(app, db, auth);
@@ -338,18 +370,26 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricReviewRoutes(app,db,auth,proposalsAvailable);
   registerRubricAppealRoutes(app, db, auth);
   registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
-  registerRetentionRoutes(app,db,auth,clock);
-  registerPersonalChangeRoutes(app,db,auth);
-  registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory) });
+  registerRetentionRoutes(app,db,auth,clock,options.installedExtensions ?? []);
+  registerAssessmentAdminRoutes(app,db,auth);
+  registerPersonalChangeRoutes(app,db,auth,adaptation);
+  registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory), installedExtensions: options.installedExtensions ?? [] });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.
   registerResearchMediaRoutes(app,db,auth,options.youtubeSearch ?? (options.workspaceProviders?workspaceYouTubeSearch((workspaceId,name)=>options.workspaceProviders!.credential(workspaceId,name)):undefined));
   // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
-  registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
+  const mediaResolver=options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined);
+  registerMediaJobRoutes(app,db,auth,createMediaJobService(db,mediaResolver,options.media?.options));
+  // Storyboards staff review before generation, and automated checks of generated media (media-pipeline.ts).
+  registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver));
   registerPolicyAdminRoutes(app, db, auth);
+  registerPolicyScopeRoutes(app, db, auth);
+  registerContinuationRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);
+  registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
+    supervisorConfigured: Boolean(options.supervisor), migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
   const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] };
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
@@ -367,7 +407,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     app.addHook('onClose', async () => clearInterval(timer));
   }
   if (options.supervisor) {
-    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });
+    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
     registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {

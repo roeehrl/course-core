@@ -1,0 +1,65 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "research.novice.approved-topic",
+  "role": "research",
+  "strategy": "core.research.public-topic",
+  "persona": "novice",
+  "description": "An approved public topic only. A candidate must cite at least one source and claim nothing about review or grades.",
+  "source": {
+    "pack": "examples/courses/packs/spanish-greetings.json",
+    "episode": "sg-hello"
+  },
+  "context": {
+    "course": {
+      "title": "A first conversation in Spanish",
+      "digest": "example:spanish-greetings@1.0.0"
+    },
+    "episode": {
+      "id": "sg-hello",
+      "title": "Opening a conversation",
+      "teaching": "A greeting opens contact. **Hola** is a useful general hello. It is not tied to a particular hour, and it can stand alone or be followed by a person's name. In writing, you may see **Hola, Ana**: the comma separates the greeting from the name being addressed. You do not need to give a long speech to begin a friendly exchange.\n\nThree common greetings refer to the time of day: **buenos días** for the morning, **buenas tardes** for the afternoon, and **buenas noches** for the evening or night. Use the whole phrase as a small unit. Notice that días goes with buenos, while tardes and noches go with buenas. You can learn those combinations before studying adjective agreement in detail.\n\nA conversation might begin with one person saying “Hola” and the other replying “Hola.” If someone greets you with “Buenos días,” returning “Buenos días” is a normal response. You are responding to a greeting, not being asked to translate each individual word.\n\nContext can make more than one expression reasonable. Hola is still a greeting in the morning, so a question asking for the *time-specific* morning greeting is more precise than a question claiming there is only one possible morning greeting. Our checks state which intention to satisfy. Actual boundaries between afternoon and evening vary across communities and situations; this course does not assign a universal clock time.\n\nBuenas noches can also occur when saying goodnight. Listen to the situation: arriving and greeting someone is different from ending an encounter. The same familiar words can serve a related purpose at another point in the conversation.\n\nPractice a two-line exchange on paper using a made-up name and an explicitly stated time of day. First choose a general greeting, then try a time-specific one. This text course checks recognition and conversational choice, not accent, pronunciation or spoken fluency. No recording or external conversation is required to complete the lesson.",
+      "objectives": [
+        {
+          "id": "sg-hello-objective",
+          "description": "Choose a greeting that fits an explicitly stated conversational setting."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {},
+      "recentHistory": []
+    },
+    "question": "Find a clear explanation of time-specific Spanish greetings.",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    },
+    "publicResearchTopic": "Time-of-day greetings in Spanish: buenos días, buenas tardes, buenas noches",
+    "publicResearchScope": {
+      "requestId": "5b1d2a40-7c1e-4b0a-9a51-1f0b6a5e2c11",
+      "topicId": "sg-time-greetings",
+      "queryDigest": "2a9369d56f793850338707dae4e62a150e9310e37da5cad1c60a4d61df9bc4e5"
+    }
+  },
+  "expect": {
+    "grounding": {
+      "anchors": [
+        "buenas tardes",
+        "greeting"
+      ],
+      "minAnchors": 1,
+      "unsupportedPatterns": []
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": []
+    },
+    "factuality": {
+      "required": [],
+      "forbidden": []
+    },
+    "citations": {
+      "minSources": 1
+    }
+  }
+}

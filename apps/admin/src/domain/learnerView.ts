@@ -123,6 +123,13 @@ const viewMediaUrl = (file: string) =>
   new RegExp(
     `^/api/admin/enrollments/${uuidPattern}/learner-view/${uuidPattern}/media/${uuidPattern}/${file}$`,
   );
+const buildIdentity = z.object({
+  version: z.string().max(64),
+  integrity: z.string().max(200),
+});
+export type VisualRendererBuild = z.infer<
+  typeof learnerViewSchema
+>["visualRenderers"][number];
 export const learnerViewSchema = z.object({
   readOnly: z.literal(true),
   view: z.object({
@@ -299,6 +306,12 @@ export const learnerViewSchema = z.object({
         transcript: z.string().max(20000).nullable(),
         visualDescription: z.string().max(5000).nullable(),
         captions: z.boolean(),
+        /** The caption track's language as the reviewer recorded it (BCP 47); null when unknown. */
+        captionsLanguage: z
+          .string()
+          .regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/)
+          .nullable()
+          .optional(),
         mimeType: z.enum(["video/mp4", "video/webm"]),
         byteLength: z.number().int().nonnegative(),
         reviewedAt: z.string(),
@@ -312,6 +325,19 @@ export const learnerViewSchema = z.object({
       }),
     )
     .max(1000)
+    .default([]),
+  /** Renderer build identity of each course visual: the declared build and the installed one serving it. */
+  visualRenderers: z
+    .array(
+      z.object({
+        visualId: id,
+        rendererId: id,
+        declared: buildIdentity.nullable(),
+        installed: buildIdentity.nullable(),
+        served: z.enum(["installed", "accepted_prior", "unavailable"]),
+      }),
+    )
+    .max(200)
     .default([]),
   withheld: z
     .array(

@@ -36,9 +36,16 @@ export interface PlacementView {
       exempt: { episodeId: string; title: string }[];
       startEpisodeId: string | null;
       startTitle: string | null;
-      demonstrated: { objectiveId: string; description: string; families: number }[];
+      demonstrated: { objectiveId: string; description: string; families: number;
+        /** The placement questions that showed it, in the order answered. */
+        supportingItems?: { assessmentId: string; familyId: string; prompt: string }[] }[];
       pending?: { objectiveId: string; description: string }[];
-      untestedNote: string;
+      /** Tried in this run but not shown, and why. */
+      notShown?: { objectiveId: string; description: string; questions: number; reason: "answer_not_correct" | "help_used" | "more_evidence_needed" }[];
+      /** Placeable objectives on the path that were never asked (at most 20 listed of untestedCount). */
+      untested?: { objectiveId: string; description: string }[];
+      untestedCount?: number;
+      untestedNoteCode?: "not_a_judgement";
     };
   };
 }

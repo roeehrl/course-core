@@ -28,9 +28,9 @@ const definitionSchema = z.strictObject({
   verifierId: id,
   version: z.string().regex(/^\d+\.\d+\.\d+$(?![\s\S])/),
   artifactKinds: z
-    .array(z.enum(["explanation", "practice", "episode"]))
+    .array(z.enum(["explanation", "practice", "episode", "visual", "assessment_variant"]))
     .min(1)
-    .max(3)
+    .max(5)
     .refine((v) => new Set(v).size === v.length),
   sourceRefs: ids,
   checkIds: ids,
@@ -191,10 +191,10 @@ export async function isolatedTeachingVerifier(
             digestJson([...config.sourceRefs].sort()) &&
           generator.sourceRefs.every((s) => config.sourceRefs.includes(s)) &&
           generator.artifactKinds.every((k) =>
-            config.artifactKinds.includes(k as "explanation" | "practice"),
+            config.artifactKinds.includes(k as (typeof config.artifactKinds)[number]),
           ) &&
           verifier.artifactKinds.every((k) =>
-            config.artifactKinds.includes(k as "explanation" | "practice"),
+            config.artifactKinds.includes(k as (typeof config.artifactKinds)[number]),
           ),
         "TEACHING_VERIFIER_PROFILE_BINDING",
         409,
@@ -211,7 +211,7 @@ export async function isolatedTeachingVerifier(
                 input.artifact.generator.id === config.generatorId &&
                 input.artifact.generator.version === config.version &&
                 config.artifactKinds.includes(
-                  input.artifact.kind as "explanation" | "practice",
+                  input.artifact.kind as (typeof config.artifactKinds)[number],
                 ) &&
                 input.artifact.sourceRefs.every((s) =>
                   config.sourceRefs.includes(s),

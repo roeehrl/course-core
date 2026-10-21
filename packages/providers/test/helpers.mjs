@@ -1,4 +1,4 @@
-import { ModelRegistry, ProviderError } from '../dist/index.js';
+import { ModelRegistry, ProviderError, priceMediaUnits } from '../dist/index.js';
 import { GoogleProvider } from '../dist/google-index.js';
 
 export const KEY = 'server-only-test-credential';
@@ -56,3 +56,11 @@ export const assessmentSchema = { type: 'object', properties: {
   requiresReview: { type: 'boolean' }, labels: { type: 'array', minItems: 0, maxItems: 2, items: { type: 'string', enum: ['clear', 'gap'] } },
 }, required: ['score', 'feedback', 'requiresReview', 'labels'] };
 export const ASSESSMENT = { score: 2, feedback: 'Explain the missing step.', requiresReview: true, labels: ['gap'] };
+/** Declarations every fake media port must make (capabilities and billable units). */
+export function mediaDeclarations(kind, providerId = 'vendor') {
+  return {
+    discoverCapabilities: modelId => ({ modelId, providerId, kind, maxPromptCharacters: 1000, cancellation: 'not_applicable',
+      billing: kind === 'video' ? 'per_output_second' : 'per_image', retention: { outputHours: null, providerStoresRequest: false } }),
+    estimateCost: (request, price) => priceMediaUnits({ outputSeconds: kind === 'video' ? request.durationSeconds : 0, images: kind === 'image' ? 1 : 0, requests: 1 }, price),
+  };
+}

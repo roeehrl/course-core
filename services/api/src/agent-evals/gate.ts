@@ -20,10 +20,16 @@ import { canonicalJson, covers, dialoguesFor, sha256, type EvalSuite } from "./s
  * rows bound to the role revision digest and the suite digest, so a later change to either one
  * needs new evidence.
  *
- * Roles whose bound strategy the suite does not cover (research, media, reviewer and the
- * supervisor's tool loop today) are activated as before and reported as `not_covered`.
- * Provider versions saved before the gate existed are never deactivated; their roles report
- * `not_evaluated` (grandfathered) until a new revision is activated through the gate.
+ * Every role is gated (requirement N07). The public suite covers every Core strategy (companion,
+ * supervisor plan and tool loop, research, reviewer, media image and video); a role bound to a
+ * strategy the suite does not cover (a host's own pack) needs an owner's explicit override for its
+ * exact revision, recorded with a reason, before it activates.
+ * The gate applies at activation only; there is no runtime gate. Active roles are never
+ * deactivated: a version saved before the gate existed, a role activated while its strategy was
+ * not covered, or one activated on evidence for an older suite keeps running and is reported as
+ * grandfathered (`not_evaluated`, `stale` or `not_covered`) until a check or an owner override for
+ * its current revision is recorded. Saving a change that leaves a role's revision as it is never
+ * needs new evidence for that role; changing it does.
  */
 export const GATE_VERSION = "core.provider-eval-gate/1";
 export type RoleDecision = {
@@ -61,7 +67,6 @@ export async function evaluateActivation(client: Sql, workspace: string, suite: 
     const revision = nextRevisions[role];
     if (!revision) continue;
     const base = { revisionDigest: revision.digest, strategy: revision.strategy };
-    if (!covers(suite, role, revision.strategy)) { roles[role] = { ...base, decision: "not_covered", grandfathered: false }; continue; }
     if (previous && previousRevisions[role]?.digest === revision.digest) {
       const before = previous.evaluation?.roles[role];
       const grandfathered = !before || (before.decision === "unchanged" ? before.grandfathered : before.decision === "not_covered");
@@ -70,12 +75,42 @@ export async function evaluateActivation(client: Sql, workspace: string, suite: 
       continue;
     }
     const found = await evidence(client, workspace, role, revision.digest, suite.digest);
-    if (found.passed) roles[role] = { ...base, decision: "passed", grandfathered: false, resultId: found.passed.id };
+    const covered = covers(suite, role, revision.strategy);
+    if (covered && found.passed) roles[role] = { ...base, decision: "passed", grandfathered: false, resultId: found.passed.id };
     else if (found.override) roles[role] = { ...base, decision: "override", grandfathered: false, overrideId: found.override.id };
+    // Not covered: only an owner's override of this exact revision can activate it.
     else missing.push({ role, revisionDigest: revision.digest,
-      reason: !found.latest ? "not_evaluated" : found.latest.suite_digest !== suite.digest ? "stale_suite" : "failed" });
+      reason: !covered ? "not_covered" : !found.latest ? "not_evaluated" : found.latest.suite_digest !== suite.digest ? "stale_suite" : "failed" });
   }
   return { roles, missing };
+}
+/**
+ * Roles of an active configuration that have neither a passing result nor an owner override for
+ * their current revision and the current suite: they keep running (there is no runtime gate), but a
+ * change to them needs new evidence. `covered` says whether Core's suite can check the role; a role
+ * it cannot check (a host's own strategy) needs an owner's approval instead.
+ */
+export async function uncheckedRoles(client: Sql, workspace: string, suite: EvalSuite, configuration: Configuration) {
+  const revisions = await roleRevisions(configuration);
+  const result: { role: AgentRole; revisionDigest: string; strategy: string | null; covered: boolean; failed: boolean }[] = [];
+  for (const role of AGENT_ROLES) {
+    const revision = revisions[role];
+    if (!revision) continue;
+    const found = await evidence(client, workspace, role, revision.digest, suite.digest);
+    if (found.passed || found.override) continue;
+    result.push({ role, revisionDigest: revision.digest, strategy: revision.strategy, covered: covers(suite, role, revision.strategy),
+      failed: found.latest?.suite_digest === suite.digest && found.latest.outcome === "failed" });
+  }
+  return result;
+}
+/** Whether a role's stored activation rests on evidence for an older suite (or none at all). */
+async function activatedWithoutCurrentEvidence(client: Sql, suite: EvalSuite, decision: RoleDecision | undefined) {
+  if (!decision || decision.grandfathered || decision.decision === "not_covered") return true;
+  const table = decision.resultId ? "provider_eval_results" : decision.overrideId ? "provider_eval_overrides" : null;
+  if (!table) return false;
+  const row = (await client.query<{ suite_digest: string }>(`SELECT suite_digest FROM ${table} WHERE id=$1`,
+    [decision.resultId ?? decision.overrideId])).rows[0];
+  return !row || row.suite_digest !== suite.digest;
 }
 /** Plain per-role check states for the admin page: what a role still needs before activation. */
 export function roleChecks(evaluated: Awaited<ReturnType<typeof evaluateActivation>>) {
@@ -136,10 +171,17 @@ export class ProviderEvaluations {
     for (const role of AGENT_ROLES) {
       const revision = revisions[role];
       if (!revision) continue;
-      const decision = evaluation?.roles[role], grandfathered = !evaluation || decision?.grandfathered === true;
+      // Grandfathered: on without evidence for the current suite (saved before the gate, activated
+      // while its strategy was not covered, or approved for an older suite). It keeps running; a
+      // change to it needs a check.
+      const decision = evaluation?.roles[role], grandfathered = !evaluation || await activatedWithoutCurrentEvidence(this.db, suite, decision);
       const row = { role, strategy: revision.strategy, revisionDigest: revision.digest, grandfathered, activatedBy: decision?.decision ?? null };
-      if (!covers(suite, role, revision.strategy)) { roles.push({ ...row, covered: false, status: "not_covered" as const }); continue; }
       const found = await evidence(this.db, workspace, role, revision.digest, suite.digest);
+      if (!covers(suite, role, revision.strategy)) {
+        roles.push({ ...row, covered: false, status: found.override ? "override" as const : "not_covered" as const,
+          ...(found.override ? { overrideId: found.override.id, overriddenAt: iso(found.override.created_at) } : {}) });
+        continue;
+      }
       const status = found.passed ? "passed" as const : found.override ? "override" as const
         : found.latest?.suite_digest === suite.digest && found.latest.outcome === "failed" ? "failed" as const
         : decision?.resultId || decision?.overrideId || found.latest ? "stale" as const : "not_evaluated" as const;
@@ -169,6 +211,8 @@ export class ProviderEvaluations {
    * regrades every answer with its own graders and suite. Failed results are recorded too.
    */
   async record(actor: Actor, workspace: string, raw: unknown) {
+    // Authorize before parsing and regrading a report of up to 1 MB; the transaction below checks again.
+    await transaction(this.db, (client) => this.member(client, actor, workspace, ["owner", "admin"]));
     const parsed = recordSchema.safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_EVAL_REPORT_INVALID", 400);
     const { report, idempotencyKey } = parsed.data, suite = this.suite;
@@ -236,7 +280,8 @@ export class ProviderEvaluations {
         requireCondition(draft, "PROVIDER_DRAFT_NOT_FOUND", 404);
         const configuration = providerConfigurationSchema.parse(draft.configuration);
         const revision = (await roleRevisions(configuration))[parsed.data.role];
-        requireCondition(revision && covers(suite, parsed.data.role, revision.strategy), "PROVIDER_EVAL_ROLE_NOT_COVERED", 409);
+        // Covered or not: an owner may approve the exact revision of a bound role.
+        requireCondition(revision, "PROVIDER_EVAL_ROLE_NOT_COVERED", 409);
         input = { idempotencyKey: parsed.data.idempotencyKey, role: parsed.data.role, revisionDigest: revision.digest, reason: parsed.data.reason };
       } else input = parsed.data;
       const id = randomUUID();

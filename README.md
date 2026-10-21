@@ -73,7 +73,7 @@ node scripts/orchestrate.mjs install sandbox
 npm run check:sandbox
 ```
 
-Real Docker tests are an additional mandatory `Sandbox / real Docker Linux` CI job on a GitHub-hosted Ubuntu 24.04 runner. After the unit checks, CI runs `npm run sandbox:pull` and then `npm run check:sandbox:docker`. These root entrypoints reject non-GitHub-hosted or non-Linux execution rather than skipping qualification. The helper selects the native x64 or arm64 digest from the built `QUALIFIED_IMAGES`, verifies the Docker daemon architecture, explicitly pulls that exact Python image/platform, and inspects the image's digest and architecture. The test phase only inspects the prepared image and runs the package's `test:docker`; it never pulls. Missing Docker, missing/wrong images, or any failed test fail the job.
+Real Docker tests are an additional mandatory `Sandbox / real Docker Linux` CI job on a GitHub-hosted Ubuntu 24.04 runner. After the unit checks, CI runs `npm run sandbox:pull` and then `npm run check:sandbox:docker`. These root entrypoints reject non-GitHub-hosted or non-Linux execution rather than skipping qualification. The helper selects the native x64 or arm64 digest from the built `QUALIFIED_IMAGES`, verifies the Docker daemon architecture, explicitly pulls that exact Python image/platform, and inspects the image's digest and architecture. The test phase only inspects the prepared image and runs the package's `test:docker`; it never pulls. Missing Docker, missing/wrong images, or any failed test fail the job. The same job then runs `npm run test:self-host`, which builds the [self-host image](deploy/docker/README.md), starts PostgreSQL, the API and the HTTPS proxy under a throwaway Compose project, signs an owner in over HTTPS, checks the restart policy and removes everything it created.
 
 The current hosted job is x64. ARM64 pin selection is supported without emulation; local ARM64 results do not establish hosted x64 qualification. The package's tests cover real computation and wrong/self-awarded results, host-file/environment/network isolation, a read-only root, 128MiB memory limits, timeout/output flooding, cancellation and a shared filesystem admission lock. The reference grader remains outside the learner container. Learner execution retains `--pull=never`; image preparation is separate. No GPU or local model is provisioned.
 
@@ -90,21 +90,41 @@ Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release a
 
 Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the example packs, which were authored for 0.1.0 and compile to the same digests under 0.1.0 and 0.5.0. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Bundles from SDK 0.6 or later are unsupported until Core pins that release.
 
-`packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0 and 0.5.0 and the pin move kept visuals 0.1.1. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, and 0.4.0 adds publish-time scene checks (invariants, goldens) and authoring tools. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
+`packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0 and 0.5.0 and the pin move kept visuals 0.1.1. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, 0.4.0 added publish-time scene checks (invariants, goldens) and authoring tools, and 0.5.0 adds images, radial gradients, matrix equations, path morph, colour animation and a camera, with export, device chrome, lazy loading, completion observations and translatable player texts. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
+
+Lesson visuals must be accessible whatever SDK built the bundle: publication refuses
+(`PUBLISH_VISUAL_INACCESSIBLE`, details `reasons`: `keyboard`, `renderer_text_alternative`,
+`visual_description`) a visual block or a `surface: "visual"` renderer definition whose
+renderer extension does not declare `accessibility.keyboard: true` and a non-blank
+`textAlternative`, or a visual with a blank description. SDK 0.6 validate refuses the same
+(`INACCESSIBLE_VISUAL`, `MISSING_TEXT_ALTERNATIVE`); Core no longer relies on it.
+
+Watching a lesson visual to the end is an observation, never evidence or mastery. The learner
+app reports it once per mounted block (`POST /api/enrollments/:id/visual-completions` with the
+episode, block, visual and scene fingerprint); the API checks that the block shows that visual
+in a lesson the learner can open and that the fingerprint is the released scene's
+(`VISUAL_COMPLETION_OUT_OF_SCOPE`, `VISUAL_COMPLETION_STALE`), then appends one
+`visual.completed` learning event keyed by enrollment, course version and block. Replays,
+scrubbing, remounts and concurrent reports return the same event (`duplicate: true`); nothing
+else changes, not even the enrollment revision. Lesson visuals load lazily: the runtime is
+created near the viewport and released after a minute away from it (state kept), and they load
+eagerly while the debug inspector is open.
 
 ### Gates and assessment (SDK 0.5)
 
-Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`).
+Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`). Every learner-visible sentence of a decision also comes as a message code with parameters beside the SDK record (`messages`: the reason, each criterion by ID and each next action by position; stored in `gate_decisions.messages`), and the learner app shows it in the learner's language; the codes are not part of the decision's inputs digest. Decisions recorded before codes existed show their English text.
 
 **Gate review and exception.** When a versioned gate's `appealPolicy` allows it, the learner can ask staff to review the current decision (`POST /api/enrollments/:id/gates/:gateId/review-requests` with the decision ID and a reason, within the policy's window; one open request per gate). Staff with evidence review rights see open requests at `GET /api/admin/courses/:catalogId/gate-reviews` and decide them at `POST /api/admin/gate-reviews/:requestId`: `upheld` with a note the learner reads, or, for staff who may change enrollments, `exception`. An exception is a separate audited grant, not a gate decision: the decision keeps its status and open criteria, nothing becomes evidence, and the objectives are not counted as demonstrated. It lets the learner complete that episode (recorded with the grant on `episode_progress`) on the course and gate version it names, and it does not lift a reached course limit (`GATE_CAP_REACHED`). The learner never reviews their own request.
 
-Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 pass rule. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
+Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 family-count rule and gain the same false-mastery rules: when the gate offers any task beyond choosing among given answers (or a judged conversation), an objective needs one such independent success, and a declared critical misconception the learner showed blocks readiness until a later independent success on an item exposing it. A 0.4 gate of choice items only stays publishable, so SDK 0.4 bundles keep working unchanged, but the release shows staff a warning (`LEGACY_RECOGNITION_ONLY_GATES`) that it can be passed on recognition alone. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
 
 A versioned gate may name a `conversationalRubricRef`, and an unversioned 0.4 gate a `conversationalEvaluatorId` that names a 0.5 evaluator definition bound to exactly one course rubric. The learner explains in their own words (`gate-conversation:<gateId>`) and a reviewer may ask neutral follow-up questions in the same thread. When the learner has opted in to AI drafts and a reviewer model is configured, the supervisor proposes quoted findings by itself for every turn, reading the earlier turns too (staff can also ask). The host verifier refuses any proposal whose "met" findings do not quote the learner's own words verbatim; a reviewer's question is not the learner's words. A verified proposal is still a draft. Evidence needs confirmation: a human reviewer who quotes the learner, or, for an evaluator declared `method: 'deterministic'`, the installed, integrity-matched adapter's `confirmConversationFindings`. Core records deterministic confirmation only as "met", and only when every finding the proposal marks met is confirmed and every required criterion is met. Otherwise it records why (`automaticCheck` in the review queue) and the answer waits for a person. A model impression without quotes therefore never produces evidence or a ready decision. Core refuses a conversational gate at publish unless its rubric requires cited evidence and its evaluator requires human confirmation or is deterministic with an installed confirmer. A 0.4 conversation counts as one item family, so its listed items must supply the remaining families (`PUBLISH_GATE_EVIDENCE_UNREACHABLE`). A `conversationalEvaluatorId` that names a bare extension has no rubric to cite and is still refused (`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED`). SDK 0.5 lists no conversation item type, so a deterministic conversation evaluator declares one of the deterministic item types in `itemTypes` and binds the rubric through `rubricIds`. No deterministic confirmer ships with Core, and scripted models in tests show the host's checks, not any model's quality. An answer that reproduces a sentence of a companion reply is refused as agent-authored.
 
 ### Activity runtime (SDK 0.5 activities)
 
 Core publishes an activity block only when every target the course declares runs on an installed runtime or has an objective-equivalent fallback, its required capabilities are implemented by the broker (`state.read`, `state.patch`, `observation.emit`) and offered by the runtime, and a declared evaluator is installed. Two execution adapters run: Core's own declarative interpreter (`course-core-declarative-activity`, no course code) and `sandboxed_web`, an installed script whose sha256 is its integrity. An observation is never evidence; only an installed evaluator's result is (`activity_evidence`, migration 059). Staff copies of a learner's record leave out activity state and observations (`activity-work`).
+
+**Built-in answer check, no host install.** Core also ships `course-core-declarative-evaluator`, a data-only checker for declarative activities (it runs no course code). A course uses it like the declarative interpreter: it declares the extension with the id, version and integrity that `GET /api/runtime/extensions` advertises and adds an SDK evaluator definition (`method: 'deterministic'`, `humanConfirmation: 'none'`) naming it. The key is the course's own server-only assessment items, graded exactly as Core grades questions: control `<controlId>` of activity `<activityId>` is checked by item `<activityId>.<controlId>` (numeric for a number control; choice, with its correct option among the control's options, for a choice control; toggles are not checked). A submission passes when every checked control matches. The key never goes into block configuration, which the learner receives. Feedback is an admin setting, never part of the key: if the admin section whose id is the evaluator definition's id has a boolean `show-mismatched-controls` setting and staff turn it on (for the course, a chapter or one enrollment; audited), a result that did not pass names the labels of the controls that did not match. Activity evaluators receive these admin-section values for the learner's enrollment. Publication refuses a key the checker could not apply with `PUBLISH_EVALUATOR_CONFIGURATION_INVALID` and a `reason`. Courses that need other judgments (code, prose) still use an installed evaluator. `examples/courses` builds and runs such a course from the released SDK alone (see its README, "Clean-room author proof").
 
 **What a sandboxed web activity can still do.** The frame has an opaque origin (`sandbox="allow-scripts"`, never `allow-same-origin`) and a CSP with `default-src 'none'` and `connect-src 'none'`, so fetch, XHR, WebSocket, beacons, subresources, nested frames, workers, plugins and forms are blocked. CSP does not cover two of the routes; before the activity script runs, the frame bootstrap closes both:
 
@@ -194,6 +214,69 @@ Selection revalidates the immutable bundle and installed runtime capabilities.
 Migration015 chooses the newest already-published release for existing catalogues
 without changing any saved enrollment. Published content remains immutable.
 
+### Editing a draft safely
+
+Staff edit a draft's chapters and lessons as forms in the admin app: titles,
+summaries, order, which lessons are required, which objectives a lesson teaches,
+and its reading text. Checks, visuals, media and activities stay as they are and
+are changed in the whole manifest file (still available as an advanced tab).
+Saving always asks the server first:
+
+- `POST /api/admin/courses/:courseId/releases/:releaseId/check` (`course.write`)
+  validates a manifest exactly as saving would, without saving it: SDK problem
+  codes with their JSON paths, whether the course id and version match the draft,
+  whether this runtime could run it (the publication gate's code), and what it
+  changes against the live release.
+- `POST /api/admin/courses/:courseId/releases/:releaseId/preview` shows the saved
+  release, or an unsaved manifest, as four made-up representative learners (just
+  starting, tested out of placeable objectives, finished the first chapter, nearly
+  finished). Each roadmap is computed by the learner engine; completed gated lessons
+  use the engine's own staff-exception path on that exact digest, so no evidence is
+  invented. Drafts and unsaved manifests are visible to owners, admins, authors and
+  reviewers only.
+- `GET /api/admin/courses/:courseId/releases/:releaseId/publish-impact`
+  (`release.publish`) is the affected-learner analysis for publishing forward:
+  who stays on the live release (nobody moves), how many are part-way through a
+  lesson the draft changes or removes, recent enrollments, changes by kind, and
+  which defective items the draft fixes or carries over, with an `impactDigest`.
+  Publishing from the admin route requires that digest while any learner is pinned
+  to the live release (428 `IMPACT_CONFIRMATION_REQUIRED`, 409 `IMPACT_CHANGED`).
+
+## Platform operations
+
+Owners and administrators of a workspace have two more admin pages.
+
+- **Platform** (`GET /api/admin/workspaces/:id/platform-readiness`): the database
+  (PostgreSQL version, latency, migrations applied against the ones this build
+  ships), the Temporal worker (when it last reached this API, waiting and held-back
+  events), the grading sandbox, telemetry export (spans sent and dropped), versions
+  (Core, SDK, Node, course file format), and backups. The recovery targets are
+  checked from the backup tool's reports (`platform_backup_reports`, migration 100;
+  see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup,
+  RTO 60 minutes from the latest restore drill, drills at most 7 days old. Each
+  failing part says what to do. Worker contact is kept in memory per API process.
+- **Integrations** (`GET /api/admin/workspaces/:id/integrations`): installed
+  extensions, whether each course's live release can run on them, course package
+  install receipts, update checks, AI provider connections (status only) and
+  whether telemetry export is on.
+- **Billed versus estimated cost** (`GET|POST /api/admin/workspaces/:id/billing-statements`):
+  staff type in what a provider billed for up to 92 days (from its invoice or usage
+  page; never a card or account number). Each figure is listed next to the spend
+  ledger's estimate for the same UTC days, its unsettled part and the difference.
+  Core never fetches billing data, and every cost the admin app shows is labelled
+  as an estimate.
+- **Audit export** (`GET /api/admin/workspaces/:id/audit/export?format=csv|json&from=&to=`,
+  `audit.export`: owners and admins) downloads up to 10,000 events of at most one
+  year, with the audit page's privacy projection. CSV cells that a spreadsheet
+  would run as formulas are prefixed with a quote mark. The download is itself an
+  `audit.exported` event with the file's digest.
+- **Policy history** (`GET /api/admin/courses/:id/policy-history`, `policy.read`):
+  one response for both admin pages. `entries` lists course policy settings,
+  placement settings, the organization limits above the course and the learning
+  policy of each published release, each as a field-by-field diff from the one
+  before; `revisions` lists the stored revisions of the course settings and
+  organization limits with their reason and who saved them.
+
 ## Installing a course
 
 Administration installs a course from one **course package** (course-package v1, a
@@ -250,7 +333,8 @@ API (owner/admin with `course.write`; approval and publication keep `release.rev
 - `POST /api/admin/course-packages/inspect?workspaceId=<id>` with the package bytes
   (`Content-Type: application/gzip` or `application/octet-stream`) or JSON `{"url", "asset"?}`.
 - `POST /api/admin/course-packages/:sha256/install` with `{workspaceId, idempotencyKey, notes?,
-  approveAndPublish?: {confirmVersion}, approveRegistry?: {configurationDigest}}`.
+  approveAndPublish?: {confirmVersion}, approveRegistry?: {configurationDigest},
+  confirmOlderVersion?: true}`.
 - `GET /api/admin/course-packages/installs/:releaseId` and
   `POST /api/admin/course-packages/installs/:releaseId/registry` with
   `{configurationDigest, expectedRegistryRevision}`.
@@ -258,6 +342,26 @@ API (owner/admin with `course.write`; approval and publication keep `release.rev
 Inspections and installations are recorded as `course_package.inspected` and
 `course_package.installed` workspace audit events (package digest, course, version, source; no
 learner data). Migration 077 adds the staging and release-package tables.
+
+**Version direction.** Course versions are semantic versions and move forward in a workspace
+(`services/api/src/course-versions.ts`):
+
+- Installing a package whose version is lower than the newest installed version of the same
+  course is refused with `OLDER_VERSION_CONFIRMATION_REQUIRED` (409, with both versions) unless the
+  install request says `confirmOlderVersion: true`. Administration shows the older version
+  plainly and asks for that choice with a checkbox. The confirmed install records
+  `olderVersionConfirmed` in its `course_package.installed` audit event.
+- Publication refuses a release whose version is not a semantic version (`PUBLISH_VERSION_INVALID`)
+  and one lower than a version of the same course already published (or published and later
+  archived) with `PUBLISH_VERSION_OLDER_THAN_PUBLISHED` (409, with `newestPublished`), unless the
+  publish request says `confirmOlderVersion: true`. This applies to the reviewed transition
+  (`POST /api/admin/courses/:id/releases/:releaseId/transitions` with `action: "publish"`), the
+  direct `POST /api/releases/:releaseId/publish` (optional body `{"confirmOlderVersion": true}`) and
+  install-and-publish. A confirmed older publication is recorded (`release.older_version_published`
+  or `olderVersionConfirmed` on `course.published`).
+- Returning to a version that was already published is a rollback: select it again with its
+  reviewed impact instead of publishing anything. Automatic course updates only ever move to a
+  newer version.
 
 ## Course updates
 
@@ -520,32 +624,100 @@ the reviewer may ask again with a fresh request.
 A draft is never evidence or a grade; only a gate's deterministic evaluator (see
 "Gates and assessment") may confirm one. See `services/api/RUBRIC_ASSIST.md`.
 
+## Supervision loop
+
+After a learner's opt-in the supervisor's trigger table starts teaching actions as
+supervisor work (contrast cases, changes of representation, transfer checks, worked
+examples, review preparation), runs new material as a planner, two concurrent builders and
+an evaluator that alone commits, and follows a delivered change up 24 and 72 hours later
+through parked `follow_up_due` jobs. Goal, grading and paid-ceiling changes wait
+(`needs_input`) for the learner or an owner/admin. Owners and admins set the autonomy
+level, permitted tool families and each learner's daily and per-lesson AI limits. See
+`services/api/SUPERVISION_LOOP.md`.
+
 ## Agent evaluations
 
 `npm run eval:agents` (in `services/api`) runs Core's public agent eval suite: curated
 novice, expert, terse, guessing, uncertain, frustrated, adversarial and inconsistent
 dialogues over the public example packs, graded deterministically for hint leakage,
-grounding, diagnosis restraint, factuality and authority. It drives the real role,
+grounding, diagnosis restraint, factuality, authority, tool scope, quotes, citations and
+privacy. It drives the real role,
 strategy and adapter path with an offline scripted model; a live mode needs an explicit
 opt-in and operator credentials and never runs in CI. A course can run its own private
 held-out set with `--fixtures DIR`.
 
-A new or changed provider, model or prompt revision of an evaluated role activates only
-with a passing recorded evaluation of that exact revision or an owner's audited
-override. Revisions active before the gate stay active and show as not evaluated. See
-`services/api/AGENT_EVALS.md`.
+Every agent role is evaluated: companion, supervisor plan and tool loop, research,
+reviewer and media (`--all-roles`). A new or changed provider, model or prompt revision of
+any role activates only with a passing recorded evaluation of that exact revision or an
+owner's audited override; a role bound to a strategy the suite does not cover needs the
+override. The gate applies at activation only: nothing is turned off at upgrade. Roles
+that are on without evidence for the current suite (saved before the gate, turned on while
+their strategy was not covered, or checked against an older suite) keep running, unrelated
+saves still work, and the admin AI services page lists them with **Run quality check** for
+the active setup and an owner's approval; changing such a role's model needs one of the
+two. See `services/api/AGENT_EVALS.md` and the upgrade notes in `RELEASES.md`.
+
+## Policy levels
+
+Each new enrollment's policy is one hierarchy: **organization → course →
+enrollment → chapter → episode**. The organization level carries the workspace's
+ceilings (`/api/admin/workspaces/:id/policy-ceilings`, owners and admins: an end
+date, the longest enrollment in calendar days, work caps, whether extensions exist
+at all, and whether finished learners keep reading). The course level carries the
+release's policy and the course policy settings; the enrollment level starts empty
+and holds one learner's own tighter terms, changed through the audited per-learner
+or cohort migration (`scopeId: "enrollment"`). Ceilings and settings apply to new
+enrollments; existing learners keep the terms they started with. The effective
+deadline is the earliest on the path and every quota on the path must have room.
+A change to a level that would loosen its parent (a later deadline or a larger
+work cap than an ancestor) is refused with `LOOSER_THAN_PARENT`; an authored
+course or chapter setting that is looser than an ancestor is clipped and disclosed
+as `LOOSER_CHILD_DEADLINE` in the feasibility check. Every resolved constraint
+carries `binding`: the scope and level whose deadline is the effective one, and for
+each work counter the level with the least room left. The ceilings preview runs
+the feasibility check of every course against the proposed ceilings before
+anything is saved. Saved organization and course settings keep their history
+(`policy_setting_revisions`, `GET /api/admin/courses/:id/policy-history`), and each
+enrollment's policy at every revision is kept (`learning_policy_revisions`,
+`GET /api/admin/enrollments/:id/policy-revisions`).
+
+## Extension allowances
+
+A release declares calendar-day allowances per scope. Administrators may add pools
+in the course policy settings (`extensionPools`): a named unit (`calendar_day`
+moves a deadline, `planned_minute` and `episode` raise a work cap), the scopes it
+covers (`course`, `every_chapter`, `every_episode`), whether the balance is
+`shared` across them or one per scope, a total, a per-grant maximum and a grant
+count, plus an optional ultimate ceiling on the course end
+(`extensions.ultimateDeadline`). The settings preview flags a pool that can never
+be used (a day pool on scopes without a deadline, a minute or episode pool on
+scopes without that work cap). Extension requests name `days`, `minutes` and/or
+`episodes` (and optionally the `poolIds` that pay); each unit is paid by one pool
+enabled at that scope, and the policy still checks every balance, per-grant
+maximum and ancestor cap. `GET /api/admin/courses/:id/allowances` lists, across
+learners, accepted offers waiting for an administrator (approve or reject through
+the per-enrollment routes), every offer and grant, accommodations, and pool use.
 
 ## Individual accommodations
 
 Owners and admins can give one learner an accommodation (extra calendar days on
 a scope's window or absolute deadline, extra planned minutes or episodes) or an
-approved pause (moves a pause-enabled window only) through
+approved pause (moves a pause-enabled window only) or an outage adjustment
+(time lost to a service outage: moves a deadline, never adds work) through
 `/api/admin/enrollments/:id/accommodations/preview` and `…/apply`, or the
 **Accommodation for this scope** action in the Policy view. The apply step needs
 an unexpired preview made by the same person against unchanged revisions, records
 an audited authority receipt, and does not draw on extension pools or affect
 other learners. The reason is a reference such as an approval ticket, not
 health or personal details.
+
+The same adjustment can be applied to many learners at once
+(`/api/admin/courses/:id/accommodations/batch/preview` and `…/apply`, at most 500
+learners, default every active learner in the course): the preview shows each
+learner's deadline before and after and which learners it cannot apply to and
+why; apply is all-or-nothing against the previewed revisions, records one
+batch (`policy_accommodation_batches`, who, when, why, how many) and each
+learner's own ledger entry naming the batch (`accommodation_overrides`).
 
 ## View as learner
 
@@ -585,6 +757,10 @@ reveals and replays go through their usual routes and permissions. The
 visual-state panel reads the learner app's own live runtime through a
 same-origin bridge on the learner window that exists only while the panel is
 open.
+The panel also shows the renderer build identity of the visual (the build the
+course declares and the installed build serving it, from the learner view's
+`visualRenderers`) and the SHA-256, type and size of each image asset the scene
+embeds (visuals 0.5 `defs.images`).
 
 ### Scoped retry and regrade
 
@@ -595,9 +771,22 @@ learner's record (in the audit log without the reason), and are refused for an
 erased (410) or a completed or policy-closed (409 `ENROLLMENT_CLOSED`)
 enrollment. Erasure redacts their reasons and a regrade's quoted findings.
 
+- `POST /api/admin/courses/:courseId/runs/:runId/cancel` (`supervision.control`:
+  owners, admins and instructors) stops one live run before it applies anything.
+  It sets the job's cancellation flag, which the bridge honours at the run's next
+  step before any provider call, queues a `staff_cancelled` wake-up so a running
+  call or wait ends now, and records a `supervisor.run_cancel_requested` staff
+  event (`supervisor_run_cancellations`, migration 099). The learner's AI
+  supervision and other runs are untouched. A run that already ended (409
+  `RUN_ALREADY_ENDED`) or was already asked to stop (409
+  `RUN_CANCEL_ALREADY_REQUESTED`) is refused.
+- `POST /api/admin/courses/:courseId/runs/replay` (`run.inspect`) replays up to 20
+  of the course's latest finished supervisor runs that kept a plan, each in the
+  same read-only sandbox as a single replay, with its own new replay id and
+  `run.replayed` receipt. It returns each run's verdict and a summary.
 - `POST /api/admin/courses/:courseId/runs/:runId/retry` (`run.retry`, owners and
-  admins) runs a supervisor run that failed, or ended with an uncertain provider
-  call, again as a new run: a `supervisor.run_retry_requested` event that the
+  admins) runs a supervisor run that failed, ended with an uncertain provider
+  call, or was stopped by staff, again as a new run: a `supervisor.run_retry_requested` event that the
   dispatcher prepares through the normal path (supervision control, consent,
   policy, fence and budgets, verifier, application) and never coalesces. The
   old run is not changed; the run inspector shows each run's `retry` links. A
@@ -619,21 +808,50 @@ enrollment. Erasure redacts their reasons and a regrade's quoted findings.
   learner sees the new decision and can no longer appeal that answer. `GET` on
   the same path returns the decision in force and the regrade history.
 
+**Grading provenance.** Every attempt and every regrade binds what graded it:
+SHA-256 digests (of canonical JSON) of the exact item, of its answer key (a
+deterministic key without its teaching explanation, a code item's grading
+reference plus the evaluator build holding its hidden cases, or a reviewed
+item's rubric) and of the evaluator (Core's deployed deterministic grader
+source, or the installed extension's id, version and integrity), plus the
+sandbox image a code answer ran in (`attempts`/`attempt_regrades` columns,
+`services/api/src/grading-provenance.ts`). The regrade view shows them and
+whether the item, key or evaluator changed since the answer was graded.
+Attempts recorded before these columns existed show none.
+
 ## Supervisor wake-ups
 
-The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits
-one supervised event per boundary: `retention.due` when a delayed check comes
-due, `deadline.approaching` when a binding course, chapter or episode deadline
-is within 48 hours, and `deadline.reached` once when a chapter or episode
-deadline passes with that scope's work unfinished. Each boundary is recorded
-once per enrollment (`wakeup_signals`), so repeated or concurrent scans and
-restarts do not duplicate it, and learners sharing one absolute deadline each
-get their own. Every scan examines a bounded batch of active enrollments (500)
-after a shared keyset cursor (`wakeup_scan_cursors`) and wraps around, so every
-enrollment is reached in turn however many there are and concurrent processes
-take different batches. Wake-ups only prompt the supervisor; commit-time policy
-checks remain authoritative, and a late or missed wake-up never extends, unlocks
-or grants anything.
+Wake-ups come from durable per-deadline timers (`policy_deadline_timers`,
+migration `096`), not from a scan over every active enrollment. Each timer is one
+boundary of one enrollment, planned from a named policy and ledger revision: a
+binding organization, course, enrollment, chapter or episode deadline entering its
+warning window (`deadline.approaching`, 48 hours before), a chapter or episode
+deadline passing with that scope's work unfinished (`deadline.reached`, once), the
+enrollment's own end (`cap`), or an exhausted work quota that must be checked for
+closure (`quota_cap`). A database trigger queues an enrollment for re-planning
+(`policy_timer_plans`) in the same transaction as every change of its policy
+document or status, from any code path, so a committed change cannot be missed.
+The worker sleeps until the next timer, queued plan or retention check is due (at
+most `WAKEUP_INTERVAL_MS`, default 60 s, minimum 10 s); each pass plans and fires
+bounded batches (500) of what is due, so its work follows the due boundaries, not
+the number of enrollments. `retention.due` is still signalled when a delayed check
+comes due; it is also the trigger table's review-due signal (T10): with the
+learner's opt-in it starts preparing the next review as a teaching action. Each boundary is recorded once per enrollment (`wakeup_signals`), so
+repeated or concurrent workers and restarts do not duplicate it, and learners
+sharing one absolute deadline each get their own.
+
+**Commit-time fences.** Firing takes the enrollment's policy row lock (the one
+every grant, accommodation, migration and closure takes) and compares revisions:
+a timer planned from an older policy revision (for a quota check, an older
+ledger) is re-planned instead of acted on, so a deadline moved by an extension or
+outage adjustment never fires at its old time. Closure is re-checked by the policy
+at commit; a timer whose cap the policy says is not reached is dropped and
+re-planned. Wake-ups only prompt the supervisor; commit-time policy checks remain
+authoritative, and a late or missed wake-up never extends, unlocks or grants
+anything. A failed plan or timer is retried after `WAKEUP_RETRY_MS` (60 s); an
+exhausted quota whose learner still has a way forward is re-checked on the same
+interval. Planning also records the resolved constraints of every scope with the
+level that binds (`policy_constraint_snapshots`).
 
 When the course cap is reached the same scan closes the enrollment once with the
 policy's gaps report (`reason: "cap"`, covered and uncovered objectives,
@@ -646,7 +864,7 @@ awaits review or appeal and no admitted work is still being prepared). The polic
 refuses if the cap was not actually reached. A chapter or episode deadline never
 closes the course. A failing step for one enrollment is recorded in
 `wakeup_failures` (stable error code and count only, no payload) and logged as a
-`wakeup.failure` line on stderr; it never stops the scan of the others.
+`wakeup.failure` line on stderr; it never stops the others.
 
 ## Least-privilege database operation
 
@@ -742,6 +960,17 @@ The companion also states what it is doing:
 While the browser is offline a question is held on the device and sent once
 when the connection returns, if the learner is still in the same lesson with
 the same draft.
+
+## Continuing after closure
+
+A closed course (completed or ended at its cap) offers an optional continuation
+track (`/api/enrollments/:id/continuation`). The learner opts in with explicit
+consent and may stop at any time; staff cannot opt a learner in. On the track the
+learner keeps spaced review checks (retention wake-ups continue, and review
+checks and their answers are allowed on the closed course); nothing on it is
+required, it adds no work, grants no credit, and the closed enrollment and its
+closure report stay as they were. Planning, new lesson checks and generated work
+stay refused (`CONTINUATION_NO_REQUIRED_WORK`). Erasure stops the track.
 
 ## Questions after completion or closure
 
@@ -867,6 +1096,18 @@ policy, learner model or evidence still fence it. Capsules are part of the
 companion conversation for privacy: they appear in the learner's export only
 and are erased with it.
 
+The capsule is a public, versioned contract (`schemaVersion: 1`):
+`services/api/src/contracts/context-capsule.ts` is a dependency-free type module
+(no imports) that the SDK can adopt verbatim, `contracts/context-capsule-schema.ts`
+is its runtime schema, and `docs/contracts/context-capsule.v1.schema.json` is the
+JSON Schema generated from it. `services/api/test/context-capsule-contract.test.ts`
+checks that the contract type equals the capsule the server stores, field for field
+(the resolved policy view is an open object in the contract), and that the committed
+JSON Schema is current (`UPDATE_CONTRACTS=1` regenerates it); the companion
+integration test validates a stored capsule against it. Within version 1 fields are
+only added. Adopting the type in `@course-core/sdk` is a separate SDK release; Core
+does not depend on it.
+
 ## Personal changes the learner controls
 
 `GET /api/enrollments/:id/personal-changes` lists every adaptation applied to the
@@ -896,6 +1137,21 @@ assignment validation, policy work caps, plan and evidence fences, an audited
 `stageOnly: true` only verifies and stages it for the existing apply route.
 Retries with the same key replay the stored result.
 
+**Generated interactive content.** With learner opt-in and an approved profile,
+the supervisor can also generate simulations, check questions whose answer key
+Core derives from a scene's computational model, code exercises with hidden tests
+proven in the isolated grader, and small interactive components that run only in
+the sandboxed Python runner. A generated addition to the lesson a learner is
+mid-attempt in waits until they add it after the attempt. See
+[services/api/GENERATED_TEACHING.md](services/api/GENERATED_TEACHING.md).
+
+**Return point after a detour.** When the learner opens a lesson off their path
+(an optional lesson, authored or inserted for them, or one they already
+finished) while their current step is elsewhere, the lesson names where they
+return to: the current lesson and the part they stopped at, or its check when
+every part is read, with a button that takes them there (`returnPoint` in
+`apps/learner/src/connected/ConnectedLesson.web.tsx`).
+
 ## Delayed retention checks
 
 Courses declaring SDK 0.3 `retention` get one schedule per retention objective,
@@ -903,9 +1159,24 @@ derived from when the evidence completing its gate was recorded (so schedules
 are reproducible and created idempotently on first read). When a check is due,
 `POST /api/enrollments/:id/retention/check` issues an unseen held-out item as an
 independent challenge in mode `retention`; a second pending check is refused.
-An independent success records the objective as retained and schedules the next
-interval from the demonstration time; a miss marks it for review one first
-interval later without revoking demonstrated understanding. When no unseen item
+The schedule is graded, not a mastery estimate (`nextSchedule` in
+`services/api/src/retention.ts`): an independent success records the objective
+as retained and moves one interval on (keeping the schedule's own rhythm when the
+check was on time); a wrong answer steps back one interval rather than restarting,
+and only a second miss in a row restarts at the first interval; "I don't know yet"
+loses no step and schedules a review after the first interval; a right answer
+given with help neither gains nor loses a step. A miss or "unsure" marks the
+objective for review without revoking demonstrated understanding. Learners can
+set the weekdays they study, in their time zone
+(`POST /api/enrollments/:id/retention/availability {weekdays, timeZone}`,
+`retention_availability`): a check that would fall on another day waits for the
+start of their next study day, never earlier, and clearing the setting restores
+the schedule's own times. A delayed check may use any item this host can
+evaluate: deterministic items, code with a qualified evaluator, and written
+answers with the installed reviewer, whose review then moves the schedule (a
+second check waits while one is under review). If staff later invalidate a
+delayed-check result (an upheld dispute or a defective item), the schedule is
+rebuilt from the results that still stand. When no unseen item
 remains the API says so (`RETENTION_ITEMS_EXHAUSTED`) instead of repeating one.
 Retention never changes gates, completion or lesson states. Learners see an
 optional Delayed checks panel, and the supervisor receives a `retention.due`
@@ -940,6 +1211,53 @@ arrives, an unfinished run continues from the real outcome. Staff see
 the run state, stop reason and exemptions. The legacy per-episode
 `complete { placement: true }` path is refused in favour of run acceptance.
 
+The result explains itself without a global level: each objective shown lists
+the questions that showed it, objectives tried but not shown say why (an answer
+was not correct, help was used, or more kinds of question are needed), and the
+placeable objectives on the path that were never asked are listed. The note that
+untested objectives are no judgement of ability is a message code the learner app
+translates (`untestedNoteCode`).
+
+**Author policy and staff settings.** Placement is on only when the course offers
+it and staff enable it, and staff settings only tighten the author's. Core reads
+the SDK 0.5 `retestPolicy` (runs and cooldown), `assistancePolicy` and
+`evidenceThresholds` of every live release that offers placement: effective runs,
+cooldown and item families per lesson are the stricter of the author's and the
+staff values, and saving looser staff values is refused
+(`PLACEMENT_RETESTS_LOOSEN_AUTHOR`, `PLACEMENT_COOLDOWN_LOOSENS_AUTHOR`,
+`PLACEMENT_EVIDENCE_LOOSENS_AUTHOR`). With `unassisted_only`, revealing a
+placement answer and companion help while a placement item is open are refused
+(`PLACEMENT_UNASSISTED_ONLY`). Staff may narrow the author's blueprint (leave
+questions or placeable objectives out) and protect more lessons, never add
+questions or un-protect an author's lesson (migration
+`098_placement_blueprint.sql`). `POST /api/admin/courses/:id/placement/settings/preview`
+shows, without saving, what each required lesson would allow (placeable, not
+placeable, no questions left, protected by the author or by staff); the admin
+page requires that check before saving a blueprint change.
+
+## Answer keys and test answers
+
+The admin **Answer keys** page (`course.write`: owners, admins and authors; keys
+reveal answers) lists a release's questions with their keys
+(`GET /api/admin/courses/:id/releases/:releaseId/assessments`). Keys and rubrics
+change only on a draft release, which is then reviewed and published like any
+draft: `PUT .../assessments/:assessmentId/key` (choice, numeric, prediction and
+trace keys) and `PUT .../rubrics/:rubricId` (a course rubric, whose changed
+criteria need a version that was not published with other criteria, or a 0.4
+written item's own rubric). Test answers belong to the course: answers a question
+must reject (wrong-answer fixtures, usually a likely mistake) or accept
+(`GET|POST /api/admin/courses/:id/assessment-fixtures`,
+`DELETE .../assessment-fixtures/:fixtureId`; at most 50 per question and 2000 per
+course). A key change is checked first
+(`POST .../assessments/:assessmentId/key/preview`) and a change that grades a test
+answer the wrong way is saved only with `acceptFailingFixtures`. A test run
+(`POST .../releases/:releaseId/fixture-runs`) grades every test answer with the
+learners' deterministic grader and is recorded (`assessment_fixture_runs`); the
+report (`GET .../fixture-runs`) shows counts to anyone who can read the course
+and each answer's result to course writers, and marks a run stale when its draft
+changed since. Code and written questions are reported as not runnable here (no
+sandbox run or reviewer is started). Every change is audited.
+
 ## External agent tools
 
 A learner can connect an AI agent they use elsewhere (a desktop assistant, a coding agent, a script) to one enrollment from **My profile → Connected agents** (`POST /api/enrollments/:enrollmentId/agent-grants {label, scopes, expiresInDays}`; list with `GET`, revoke with `POST .../:grantId/revoke`). A grant names its scopes (`context`, `profile`, `evidence`, `history`, `propose_intervention`), expires after at most 90 days and can be revoked at any time; at most five are active per enrollment. The access key is shown once; Core stores only its SHA-256 digest. Staff, peers and the read-only learner view cannot create, list or revoke grants. Erasing the enrollment or the account revokes them, and so does removing the learner from the workspace (for good: adding them back does not revive an old key).
@@ -958,7 +1276,12 @@ profile, attempts and evidence, companion conversations, learner model,
 deadline/extension records, supervision summaries, the generated media staff
 requested for them (`media`: title, objective, script, review text, captions and
 attachment state; clips are listed by digest, not embedded) and events. Course content,
-grading keys and other learners are excluded. Owners and admins can export on a
+grading keys and other learners are excluded. Personal teaching
+(`supervision.personalTeaching`) goes through an allowlist
+(`services/api/src/learner-export.ts`): text, episodes, media, visuals and
+suggestions as delivered, and a generated item variant as its question only
+(the same `publicQuestion` allowlist every learner-facing item route uses), never
+its grading key, hidden fixtures, numeric recipe or generator. Owners and admins can export on a
 learner's request through `/api/admin/enrollments/:id/export`; instructors and
 other staff cannot. A staff copy (`audience: "staff"`) follows the learner
 privacy rule below: `companion` and `learnerModel` are `null` and `withheld`
@@ -969,6 +1292,19 @@ migration 038). A staff export also records the exporter's role and, like a
 staff view, is listed for the learner under **Your data**
 (`GET /api/enrollments/:id/staff-views`, `exports`) and in their next export
 (`staffExports`). These rows hold no learner content and survive erasure.
+
+**Portable event export.** `GET /api/enrollments/:id/event-export?after=<sequence>&limit=<n>`
+(and `/api/admin/enrollments/:id/event-export`, same roles) returns the enrollment's learning events
+in the SDK 0.6.0 `learningEventExport` record format (`exportFormat: 1`): the course ID, semantic
+version and compiled digest, the enrollment's opaque ID as `enrollmentRef`, and each event's stable
+UUID, durable sequence (a decimal string), type, actor kind, time, payload and trace ID. It is one
+cursor page per request: `after` is exclusive (default `0`), at most `limit` events (default 1000,
+at most 5000), and `cursor.through` is the last sequence returned, so the next page starts there;
+the `Course-Core-Export-Has-More` header says whether one exists. Malformed cursors and limits get
+400. A staff copy keeps every event's identity and replaces payloads the event privacy rule withholds
+with `{"withheld":"event-payloads"}`. Each page is recorded in `data_exports` and the audit log like
+the full export. SDK 0.6.0 is not released yet, so Core's tests validate every export against the
+schema vendored in `services/api/src/vendor/sdk-event-export` (implementation: `src/event-export.ts`).
 
 ### Learner model privacy
 
@@ -1010,11 +1346,14 @@ exported and erased with the learner's data. At most 20 disputes may be open.
 
 Staff find open disputes on the Answer reviews page (`GET /api/admin/courses/:courseId/evidence-disputes`,
 `evidence.review` on that course through the admin permission check). Each row has the dispute's state, the
-objective, the evidence reference (item, recorded result, course version) and its age, never the learner's
-reason. Resolving (`POST .../evidence-disputes/:disputeId/resolve`, `accept` or `reject` with a note) is the
-same evidence review as on the enrollment: `accept` upholds a result Core can acknowledge (independent,
-unassisted, passing deterministic answers only) without changing it, and `reject` invalidates the evidence and
-recomputes progress. Either one closes the dispute, is idempotent by key, refuses the learner's own dispute and
+objective, the evidence reference (item, kind of answer, check mode, recorded result, course version) and its
+age, never the learner's reason. Any result can be disputed: a choice, a number, a trace, code, a written
+answer or a delayed retention check. Resolving (`POST .../evidence-disputes/:disputeId/resolve`, `accept` or
+`reject` with a note) is the same evidence review as on the enrollment: `accept` keeps the result as recorded
+(any result that did not pass, which grants nothing, or a pass Core can acknowledge: independent, unassisted,
+passing deterministic answers), and `reject` invalidates the evidence and recomputes progress; for a delayed
+check it also rebuilds the review schedule without that result. An automatically graded practice or
+independent answer can instead be graded again (scoped regrade, `canRegrade` on the row). Either one closes the dispute, is idempotent by key, refuses the learner's own dispute and
 a closed one, and is audited (the enrollment event names the dispute; a course-level
 `admin.evidence_dispute.resolved` event records who decided).
 
@@ -1217,4 +1556,4 @@ CI uses Node 26, separate policy/provider/supervisor jobs, the sandbox unit/real
 - **Deployment:** the API/deployment owner maintains entrypoints, containers/compose, migrations, TLS/origin/cookie settings, secret delivery, backup/restore, observability, and production smoke tests. Root CI does not deploy or qualify these.
 - **Accessibility and native:** automated axe checks and browser workflow tests cover their tested views. Human keyboard/screen-reader review and production CSP checks remain necessary; iOS/Android builds and device qualification are deferred.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for CI maintenance and [SECURITY.md](SECURITY.md) for reporting. The [threat model](docs/threat-model.md) describes trust boundaries, mitigations and residual risks; the [pilot guide](deploy/local/README.md#availability-recovery-targets-and-degraded-modes) gives availability and recovery targets and degraded modes; [performance budgets](docs/performance-budgets.md) describes the browser performance and memory checks. [Internationalization](docs/i18n.md) explains message catalogs, right-to-left layout, locale selection and the hardcoded-string check; Hebrew wording follows the [glossary](docs/i18n-glossary.md). The [usability protocol](docs/usability-protocol.md) explains how to test the 90% learner task-success targets and analyse them with a study's research export. Original repository code is licensed under [Apache-2.0](LICENSE); dependencies retain their own licenses.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for CI maintenance and [SECURITY.md](SECURITY.md) for reporting. The [threat model](docs/threat-model.md) describes trust boundaries, mitigations and residual risks; the [pilot guide](deploy/local/README.md#availability-recovery-targets-and-degraded-modes) gives availability and recovery targets and degraded modes; the [Linux/Docker self-host guide](deploy/docker/README.md) runs Core on any Linux server behind an HTTPS proxy, and CI brings that stack up on every pull request; [performance budgets](docs/performance-budgets.md) describes the browser performance and memory checks. [Internationalization](docs/i18n.md) explains message catalogs, right-to-left layout, locale selection and the hardcoded-string check; Hebrew wording follows the [glossary](docs/i18n-glossary.md). The [usability protocol](docs/usability-protocol.md) explains how to test the 90% learner task-success targets and analyse them with a study's research export. [Accessibility checks](docs/accessibility.md) lists what the automated accessibility tests prove and the manual screen-reader traversal of a full lesson. Original repository code is licensed under [Apache-2.0](LICENSE); dependencies retain their own licenses.

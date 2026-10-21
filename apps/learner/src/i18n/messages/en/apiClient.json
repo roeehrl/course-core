@@ -55,5 +55,8 @@
   "error.ACCESS_CLOSED": "This material is no longer available under the course access policy.",
   "error.HELP_BUDGET_EXHAUSTED": "You have used every question this closed course allows. Your saved conversation and course material stay available to read.",
   "error.PENDING_UNCERTAIN": "A previous request has not been confirmed. Retry that request before sending a different change.",
-  "error.generic": "The request could not be completed. Your saved progress has been preserved."
+  "error.generic": "The request could not be completed. Your saved progress has been preserved.",
+  "error.ADAPTATION_NOT_AT_SAFE_BOUNDARY": "Finish the question or activity you are working on first. The new material is added after that, so nothing you are doing changes under you.",
+  "error.PENDING_CHANGE_RESOLVED": "This addition was already added, turned down or is no longer available. Refresh to see your lesson as it is now.",
+  "error.READ_TIMEOUT": "The server took too long to answer. Nothing was changed; check your connection and try again."
 }

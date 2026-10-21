@@ -11,6 +11,7 @@ import { teachingContext } from '../src/provider-context.js';
 import { loadEnrollment } from '../src/repository.js';
 import { resolveSelection, retrieveConversation, RETRIEVAL_LIMITS } from '../src/context-capsule.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge, loadSupervisorInput, recordSupervisorVerification, storeSupervisorArtifact } from '../src/supervisor-bridge.js';
+import { contextCapsuleSchema } from '../src/contracts/context-capsule-schema.js';
 import { fixture } from './fixture.js';
 import { visualContextFixture } from '../../../apps/learner/tests/visualContext.fixture.js';
 
@@ -139,6 +140,8 @@ describe('answers stay attached to the context they were asked in', () => {
       selection: { kind: 'formula', excerpt: 'a <= b' } });
     const stored = (await db.query('SELECT capsule FROM companion_context_capsules WHERE job_id=$1', [job.ref.jobId])).rows[0].capsule;
     expect(stored).toMatchObject({ kind: 'companion_context_capsule', episodeId: 'min', uiRevision: 7, recentEventCursor: expect.any(String), assessmentMode: 'none' });
+    // D01: the stored capsule is a valid public ContextCapsule (contracts/context-capsule.ts).
+    expect(contextCapsuleSchema.safeParse(stored).error).toBeUndefined();
     expect(stored.evidenceRefs.length).toBeGreaterThan(0);
     // The capsule the learner sees carries the same constraint snapshot the job was given (G07 parity).
     expect(stored.resolvedConstraintSnapshot.view).toEqual(job.teaching.constraints.resolvedPolicy);

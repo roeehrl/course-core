@@ -15,7 +15,7 @@ import { issueLoginCode } from '../src/auth.js';
 import { credentialVault } from '../src/key-vault.js';
 import { WorkspaceProviders } from '../src/provider-setup.js';
 import { createMediaJobService, workspaceMediaResolver, type MediaJobService } from '../src/media-jobs.js';
-import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_MP4, mediaJobPolicy, mediaConfiguration } from './media-fixture.js';
+import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_MP4, mediaJobPolicy, mediaConfiguration, approveRevisionsForTest } from './media-fixture.js';
 import { fixture } from './fixture.js';
 import { FakeS3 } from './fake-s3.js';
 
@@ -248,6 +248,7 @@ describe('generated clips in the object store', () => {
     const worker: MediaJobService = createMediaJobService(db, workspaceMediaResolver(providers), mediaOptions);
     await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, 'media-' + workspace, 'Media objects']);
     const owner = await login('owner'), learner = await login('learner'), other = await login('learner');
+    await approveRevisionsForTest(db, workspace, mediaConfiguration());
     const configured = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: 0, idempotencyKey: key(),
       configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(1_000_000), credentials: { [MEDIA_CREDENTIAL]: 'synthetic-media-credential' } });
     expect(configured.statusCode, configured.body).toBe(200);

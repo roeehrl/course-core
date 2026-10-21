@@ -408,7 +408,7 @@ describe("scoped retry of one run (U07)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
     expect(
       screen.getByText(
-        /Only a run that failed, or ended with an uncertain provider call/,
+        /Only a run that failed, ended with an uncertain provider call, or was stopped by staff/,
       ),
     ).toBeVisible();
   });
@@ -419,6 +419,13 @@ const automatedView: RegradeView = {
   assessmentId: "min-a",
   kind: "automated",
   current: { kind: "attempt", id: ATTEMPT, passed: false, decision: null },
+  provenance: {
+    itemDigest: "a".repeat(64),
+    answerKeyDigest: "b".repeat(64),
+    evaluatorDigest: "c".repeat(64),
+    codeImage: null,
+    changedSince: { item: true, answerKey: true, evaluator: false },
+  },
   history: [],
 };
 const rubricView: RegradeView = {
@@ -488,6 +495,12 @@ describe("scoped regrade of one attempt (U07)", () => {
     );
     expect(
       await screen.findByText(/not passed — the original automated result/),
+    ).toBeVisible();
+    // What the answer was graded with, and what changed since (M03).
+    expect(
+      screen.getByText(
+        /Changed since this answer was graded: the item · the answer key\. A regrade uses the current version\./,
+      ),
     ).toBeVisible();
     const submit = screen.getByRole("button", { name: "Grade again" });
     expect(submit).toBeDisabled();

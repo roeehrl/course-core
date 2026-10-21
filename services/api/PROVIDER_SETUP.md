@@ -210,8 +210,15 @@ stays open (no `settled_at`) only while a result can still arrive: a job polling
 uncertain submission, or a job cancelled while its submission was in flight until
 that submission returns. The spend view's `held` counts open rows only.
 
-Jobs are durable rows (`media_jobs`, migration 035) driven by a leased worker pass
-(`MEDIA_JOB_INTERVAL_MS`, default 15 s, only when the provider vault is configured).
+Jobs are durable rows (`media_jobs`, migration 035). There is no polling interval: each job
+stores its own next due time (a submission, a poll after its interval or `Retry-After`, a
+render, a lapsed lease) and each attachment its expiry, and a scheduler
+(`media-scheduler.ts`) sleeps until the earliest of them, runs one bounded leased pass and
+looks again. A transaction that creates work notifies the `course_media_jobs` channel on
+commit, which wakes every scheduler in every process at once. Nothing is kept in memory,
+so after a restart the first pass resumes from the stored times. The longest sleep is
+`MEDIA_SCHEDULER_MAX_SLEEP_MS` (default 300 s), a backstop for a lost notification. The
+scheduler runs when the provider vault or the clip tools are configured.
 Each provider step starts with a fresh lease (default 300 s). Because a poll step can
 make two provider calls in a row (status, then download), the service refuses to start
 unless the lease is at least twice the provider call timeout (default 120 s) plus a
@@ -226,6 +233,53 @@ and stored with a SHA-256. Nothing is learner-visible until staff approve it wit
 WebVTT captions, a transcript and a visual description, and then attach it to one
 enrollment's episode; attachment re-checks the enrollment's current policy and
 expires or can be revoked. Live Veo generation and download have not been verified.
+
+### Media pipeline: capabilities, storyboards, images, exact clips and checks
+
+**Provider contract.** Every image and video adapter declares `discoverCapabilities`
+(settings, prompt limit, cancellation, billing unit and how long the provider keeps an
+output) and `estimateCost` (billable units priced with the operator price; there is no
+built-in rate card). Admission uses the adapter's estimate; the media page shows the
+declared retention. A provider that deletes outputs (Veo: after 2 days) also bounds the
+job deadline to that time less an hour.
+
+**Storyboards** (`media_storyboards`, migration 102). Staff write a teaching script once;
+the shots are either drafted by a model (the supervisor's model when it is ready, else the
+reviewer's) or written by staff. Each shot is a generated clip of a declared length or an
+exact clip of a verified course visual. A reviewer approves the storyboard before any shot
+can be requested; a request names its storyboard and shot and must be of the shot's kind.
+Once every shot has an approved clip, "Join the approved clips" composes them, in shot
+order, into one clip that is reviewed again as a whole.
+
+**Generated images.** With the media role bound to an image model, staff request an image
+from a prompt. It is admitted, reserved and settled like a clip (priced per image or per
+request), comes back in the submission's own response (an unknown outcome stays held and is
+never resent), is stored content-addressed, and is approved with alt text (the visual
+description) instead of captions and a transcript.
+
+**Exact clips** are rendered on the server from a verified course visual of the release,
+frame by frame, by an `rsvg-convert`-compatible rasterizer and `ffmpeg` (`clip-export.ts`).
+They call no provider and cost nothing. Set both tools by absolute path:
+
+    CLIP_RASTERIZER_PATH=/usr/bin/rsvg-convert CLIP_FFMPEG_PATH=/usr/bin/ffmpeg
+
+Without them exact clips and compositions are refused with `MEDIA_CLIP_TOOLCHAIN_MISSING`
+and the media page says what to set. The tools run without a shell, receive only `PATH`,
+are time- and size-bounded, run one at a time per process and work in a private temporary
+directory. `npm run test:clip-export` qualifies the real tools (MP4 and WebM, frame counts,
+byte-identical repeats, composition).
+
+**Automated checks (F12).** Before approval, what the reviewer says the media shows and says
+(transcript, captions, visual description or alt text) is compared with its script, its
+storyboard shot and, when one is linked, a verified course visual (`media-verifier.ts`).
+The rules check always runs: a quantity the sources state ("the minimum is 3") stated with
+another value is a contradiction. "Check before saving" runs it on demand and can also ask
+the reviewer's model (paid work, reserved and settled like any call); a model's claimed
+contradiction counts only when the sentence it quotes is really in the sources. Approval
+is refused (`MEDIA_FACTUAL_CHECK_FAILED`, with the findings) when either finds a
+contradiction for that exact asset and text; such media must be rejected. These checks read
+the reviewer's description, not the pixels: they catch a contradiction the reviewer
+records, and they do not watch the video.
 
 ## Model pricing and cost reconciliation
 

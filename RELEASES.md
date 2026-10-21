@@ -102,6 +102,14 @@ basis is the 0.1.1 parity test and the unchanged 0.2.0 snapshots.
 Visuals 0.4.0 adds scene checks enforced at publish (invariants and golden frame
 digests) and authoring tools. It serves 0.1.x, 0.2.0 and 0.3.0 declarations, each limited to
 its own build's features: a 0.3.0 declaration cannot carry invariants or goldens.
+
+Visuals 0.5.0 adds image assets (embedded PNG, JPEG or WebP, verified against their
+sha256), radial gradients, matrix and environment equations, path morph, colour tracks and a
+camera, plus, in the React wrapper, export controls, device chrome in the preview, lazy
+loading and disposal, completion as an observation and translatable messages. It serves
+0.1.x to 0.4.0 declarations, each limited to its own build's features: a 0.4.0 declaration
+gets 0.4.0's features and cannot use any 0.5 primitive. 0.4 scenes keep their frames and
+golden digests.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
@@ -130,9 +138,51 @@ Core v0.1.33 broke this rule (the code-bank digest moved from `05d8ba24…` to
   bytes, so an edited inventory fails even with rewritten receipts. It describes
   what the locks resolve; it is not a vulnerability or license review.
 - `release-manifest.json` and `SHA256SUMS`: exact commit/tree/tag/run/attempt,
-  required job receipts, dependency lock hashes, every asset/member hash and the
-  SBOM receipt (`sbom`, outside `assets`). `SHA256SUMS` lists the five archives
+  required job receipts, dependency lock hashes, every asset/member hash, the
+  SBOM receipt (`sbom`, outside `assets`) and the compatibility matrix
+  (`compatibility`, below). `SHA256SUMS` lists the five archives
   and the SBOM, so `sha256sum -c SHA256SUMS` needs all six files downloaded.
+
+### Compatibility matrix and migration/rollback rehearsal
+
+Before building candidates, the candidate job runs two checks on the tested commit
+(`scripts/release-compat.mjs`). Both fail the release; neither is a new job.
+
+- `check` builds the compatibility matrix of the candidate and of the previous
+  release (the newest older `vX.Y.Z` with a published GitHub release; dead tags such
+  as v0.1.51, whose release workflow failed, are skipped. The list comes from
+  `gh release list`, or `COURSE_PUBLISHED_RELEASES`; without either the check fails
+  instead of guessing from git tags): the SDK release every module pins and
+  which compiled course packages Core accepts (the pinned SDK minor installs; another
+  minor of the same major installs with a warning; another major is refused, the
+  same rule as the package preview), the Node engines of the root and every module,
+  the PostgreSQL major CI tests and the migration set. It fails when the version did
+  not increase, the SDK pin moved backwards, course packages built with the previous
+  release's SDK would be refused, PostgreSQL went back, or a released migration was
+  edited or removed. The candidate's matrix is recorded in `release-manifest.json`
+  as `compatibility`; verification recomputes it from the archived source.
+- `rehearse` uses a disposable PostgreSQL 17 service and its own schema. It applies
+  the previous release's migrations (read from its tag), seeds synthetic users, a
+  workspace, a release and an enrollment, takes a `pg_dump` backup, applies the
+  candidate's migrations and requires every previous table, column and row count to
+  survive (migrations are additive) and a re-run to be a no-op. It then rolls back
+  the way an operator would, by restoring the backup, requires the schema and every
+  row to equal the pre-upgrade snapshot exactly, and upgrades again.
+  `scripts/tests/release-rehearsal.test.mjs` proves on small synthetic repositories
+  that a dropped column, deleted rows, a failing migration and an edited released
+  migration each fail it; it runs in the same step and may not skip.
+
+Run them locally with a disposable database:
+
+```sh
+node scripts/release-compat.mjs check
+TEST_DATABASE_URL=postgres://127.0.0.1:5432/course_core_test_<name> node scripts/release-compat.mjs rehearse --pg-bin /opt/homebrew/opt/postgresql@17/bin
+```
+
+The rehearsal applies migrations with `psql` in the same way as the API's
+migration runner (name order, recorded digests); it does not start the previous
+or the candidate runtime, and private acceptance against a real deployment stays
+an owner step.
 
 The candidate job then records a GitHub build provenance attestation (Sigstore,
 `actions/attest-build-provenance`) for every candidate file, including the
@@ -172,6 +222,37 @@ rule, which Public CI did not check then. Tags are immutable, so it was neither
 moved nor retried: the file is now `password-input.ts`, CI runs the check, and
 that work ships in 0.1.37 together with passkey sign-in. Do not build or install
 from v0.1.36.
+
+## Upgrade notes
+
+Notes for operators and workspace owners, newest first. They describe what changes for a
+running deployment; the candidate's own manifest remains the record of what was built.
+
+### Next release (after 0.1.50): every agent role is checked before a change
+
+0.1.50 checked only the companion and the supervisor's plan strategy before activation;
+the supervisor's tool loop, research and reviewer were turned on without a check. From
+this release Core's public eval suite covers every role, and the suite itself changed
+(new conversations), so earlier passes and owner approvals were for older checks.
+
+- Nothing is turned off. The gate applies only when a role's model, limits, adapter or
+  prompt changes; there is no runtime gate. Roles that are on keep serving learners.
+- Saving an unrelated change (a key, a price, a budget, the job policy or another role)
+  works as before: a role whose revision is unchanged never needs new evidence.
+- Changing a role's model or binding now needs a passing quality check or an owner's
+  approval for that role; the save is refused with `409 PROVIDER_EVAL_REQUIRED` naming
+  only the changed roles.
+- The admin **AI services** page lists, under Quality check, every job that is on but
+  has no passing check or approval for the current checks (status `stale`,
+  `not_evaluated`, `not_covered` or `failed`). It says they keep working, offers
+  **Run quality check** for the active setup (with its cost estimate; it uses the
+  workspace's key and budget, like a draft's check), and lets an owner approve those
+  exact active revisions without a check, with a reason that is audited.
+- What to do after upgrading: open AI services, check the prices and spending limit,
+  and run the quality check for the jobs that are on, or have an owner approve them.
+  Until then the jobs keep working, but their model cannot be changed.
+- Migration 104 lets a quality check target the active setup (additive: `draft_id` is
+  nullable and a `target` column records `draft` or `active`).
 
 ## Publication and consumption
 

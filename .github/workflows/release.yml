@@ -70,6 +70,22 @@ jobs:
       actions: read
       id-token: write
       attestations: write
+    # Disposable PostgreSQL 17 for the migration and rollback rehearsal only.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: course_core_ci
+          POSTGRES_USER: course_ci
+          # Public disposable CI credential, never an application credential.
+          POSTGRES_PASSWORD: course_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U course_ci -d course_core_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -82,6 +98,40 @@ jobs:
         with:
           node-version: '26'
           package-manager-cache: false
+      # Compatibility matrix (SDK release and accepted course packages, Node, PostgreSQL,
+      # migrations) of the candidate against the previous release tag. Released
+      # migrations must be unchanged and packages built with the previous SDK must install.
+      - name: Check compatibility with the previous release
+        shell: bash
+        env:
+          TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
+          # The previous release is the newest PUBLISHED GitHub release: a tag whose release
+          # workflow failed (a dead tag) is never published and never counts.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node scripts/release-compat.mjs check --candidate "$TESTED_COMMIT" | tee "$RUNNER_TEMP/compatibility.json"
+          { printf '### Compatibility with the previous release\n\n```json\n'; cat "$RUNNER_TEMP/compatibility.json"; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
+      # Previous release's migrations + synthetic data -> backup -> candidate migrations
+      # -> restore the backup (rollback) -> exact previous schema and rows -> upgrade again.
+      - name: Rehearse migration and rollback from the previous release on PostgreSQL 17
+        shell: bash
+        env:
+          TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
+          # The previous release is the newest PUBLISHED GitHub release: a tag whose release
+          # workflow failed (a dead tag) is never published and never counts.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          pg_dump --version | grep -q ' 17\.'
+          node --test scripts/tests/release-rehearsal.test.mjs 2>&1 | tee "$RUNNER_TEMP/rehearsal.log"
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/rehearsal.log"
+          node scripts/release-compat.mjs rehearse --candidate "$TESTED_COMMIT" | tee "$RUNNER_TEMP/rehearsal.json"
+          { printf '### Migration and rollback rehearsal\n\n```json\n'; cat "$RUNNER_TEMP/rehearsal.json"; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Bind successful CI jobs, build isolated source, pack and install-test
         env:
           RELEASE_TAG: ${{ needs.identity.outputs.tag }}

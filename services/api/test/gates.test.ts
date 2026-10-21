@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { decideGate, type CourseManifest, type VersionedProgressionGate } from "@course-core/sdk";
-import { assertCourseRunnable, assertVersionedGateRules } from "../src/publication.js";
+import { assertCourseRunnable, assertVersionedGateRules, recognitionOnlyLegacyGates } from "../src/publication.js";
 import { evaluateGate, type AttemptSignal, type GateEvidence } from "../src/gates.js";
 import { gradeDeterministic, numericAnswer, publicQuestion } from "../src/learning.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { gatedCourse, repairEvaluatorStub } from "./gated-fixture.js";
+import { fixture } from "./fixture.js";
+import type { LegacyProgressionGate } from "@course-core/sdk";
 
 const digest = "d".repeat(64);
 const items: Record<string, { family: string; objective: string }> = {
@@ -121,5 +123,88 @@ describe("numeric answers with units and relative tolerance", () => {
     expect(gradeDeterministic(predict(), 12.375).passed).toBe(true);
     expect(gradeDeterministic(predict(), { value: 12.7, unit: "cm" }).passed).toBe(false);
     expect(gradeDeterministic(predict(), 12.3).passed).toBe(false);
+  });
+});
+
+/** The 0.4 fixture gate, with optional critical misconceptions declared on its objective. */
+function legacyCourse(options: { critical?: boolean; items?: string[] } = {}) {
+  const c = fixture();
+  const g = c.gates.find((x) => x.id === "min-gate") as LegacyProgressionGate;
+  if (options.items) g.assessmentIds = options.items;
+  if (options.critical) {
+    c.hypotheses = [{ id: "picks-larger", kind: "misconception", statement: "Keeps the larger value when asked for the smaller one.", objectiveIds: ["minimum"], critical: true }];
+    const choice = c.assessments.find((a) => a.id === "min-a")!;
+    if (choice.type === "choice") choice.options[1]!.misconceptionId = "picks-larger";
+  }
+  return { c, g };
+}
+const row = (id: string, item: string, family: string, passed = true): GateEvidence =>
+  ({ id, attempt_id: `a-${id}`, objective_id: "minimum", family_id: family, assessment_id: item, independent: true, course_digest: digest, mode: "independent", result: { passed }, created_at: at() });
+
+describe("false-mastery rules on unversioned 0.4 gates", () => {
+  it("keeps the 0.4 family rule when a produced answer is among the families", () => {
+    const { c, g } = legacyCourse();
+    const decision = evaluateGate(c, g, [row("e1", "min-a", "compare"), row("e2", "min-b", "select")], digest);
+    expect(decision).toMatchObject({ status: "ready", passed: true, gateVersion: "legacy-0.4" });
+    expect(decision.criterionResults).toHaveLength(1);
+  });
+  it("never demonstrates an objective on recognition alone when the gate offers a task beyond choosing", () => {
+    const { c, g } = legacyCourse();
+    // A second recognition family (a choice item added to the gate) is not enough on its own.
+    c.assessments.push({ id: "min-c", type: "choice", objectiveIds: ["minimum"], familyId: "pick", prompt: "Which is smaller, 7 or 3?", options: [{ id: "three", text: "3" }, { id: "seven", text: "7" }],
+      grading: { correctOptionId: "three", explanation: "3 is below 7." } });
+    g.assessmentIds.push("min-c");
+    const decision = evaluateGate(c, g, [row("e1", "min-a", "compare"), row("e2", "min-c", "pick")], digest);
+    expect(decision.status).toBe("needs_evidence");
+    expect(decision.objectives[0]).toMatchObject({ passed: false, families: ["compare", "pick"] });
+    expect(decision.criterionResults[0]!.reason).toMatch(/beyond choosing among given answers/);
+    expect(decision.messages.criteria["independent_families:minimum"]).toEqual({ code: "criterion.familiesFor.needsProduction", params: { required: 2, objectives: ["Find a minimum"] } });
+    // The next step offers the produced-answer item, not another choice.
+    expect(decision.nextActions[0]).toMatchObject({ kind: "attempt_check", targetId: "min-b" });
+  });
+  it("blocks readiness while a declared critical misconception the learner showed is not ruled out", () => {
+    const { c, g } = legacyCourse({ critical: true });
+    const signal = (id: string, item: string, outcome: AttemptSignal["outcome"], misconception?: string): AttemptSignal =>
+      ({ id, assessment_id: item, course_digest: digest, mode: "independent", outcome, misconception_ids: misconception ? [misconception] : [], at: at() });
+    const wrong = signal("s0", "min-a", "incorrect", "picks-larger");
+    const b = row("e1", "min-b", "select");
+    // min-b is not an item that can expose the mix-up, so it does not rule it out.
+    const blocked = evaluateGate(c, g, [b, row("e2", "min-a", "compare")].map((r, i) => ({ ...r, created_at: new Date(Date.parse(wrong.at as string) - 1000 * (i + 1)).toISOString() })), digest, { signals: [wrong] });
+    expect(blocked.status).toBe("needs_evidence");
+    expect(blocked.unresolvedMisconceptionIds).toEqual(["picks-larger"]);
+    expect(blocked.criterionResults.find((r) => r.criterionId === "no_critical_misconception")).toMatchObject({ met: false });
+    expect(blocked.messages.criteria["no_critical_misconception"]).toMatchObject({ code: "criterion.misconception.open" });
+    // A later independent success on an item that exposes it rules it out.
+    const cleared = evaluateGate(c, g, [b, row("e3", "min-a", "compare")], digest, { signals: [wrong] });
+    expect(cleared).toMatchObject({ status: "ready", unresolvedMisconceptionIds: [] });
+  });
+  it("keeps a 0.4 gate of recognition items only publishable (SDK compatibility) but names it for a staff warning", () => {
+    const { c } = legacyCourse({ items: ["min-a"] });
+    expect(recognitionOnlyLegacyGates(c)).toEqual(["min-gate"]);
+    expect(() => assertCourseRunnable(c, [])).not.toThrow();
+    expect(recognitionOnlyLegacyGates(legacyCourse().c)).toEqual([]);
+    // Such a gate keeps its 0.4 rule: two recognition families pass it, as SDK 0.4 promised.
+    const { c: only, g } = legacyCourse({ items: ["min-a"] });
+    only.assessments.push({ id: "min-c", type: "choice", objectiveIds: ["minimum"], familyId: "pick", prompt: "Which is smaller, 7 or 3?", options: [{ id: "three", text: "3" }, { id: "seven", text: "7" }],
+      grading: { correctOptionId: "three", explanation: "3 is below 7." } });
+    g.assessmentIds.push("min-c");
+    expect(evaluateGate(only, g, [row("e1", "min-a", "compare"), row("e2", "min-c", "pick")], digest).status).toBe("ready");
+  });
+});
+
+describe("decision text as message codes", () => {
+  it("gives every criterion, next action and the reason a code beside the English text", () => {
+    const c = course(), s = scenario([{ item: "min-a", outcome: "correct" }]);
+    const decision = evaluateGate(c, gate(c), s.evidence, digest, { signals: s.signals });
+    expect(Object.keys(decision.messages.criteria).sort()).toEqual(decision.criterionResults.map((r) => r.criterionId).sort());
+    expect(decision.messages.actions).toHaveLength(decision.nextActions.length);
+    expect(decision.messages.actions.every((m) => m && /^action\./.test(m.code))).toBe(true);
+    expect(decision.messages.reason).toMatchObject({ code: "reason.needs_evidence.detail", params: { more: 1 }, detail: { code: "criterion.families.unmet" } });
+    // The SDK record shape is unchanged: no codes inside criteria or actions.
+    expect(JSON.stringify(decision.nextActions)).not.toMatch(/"message"/);
+    expect(JSON.stringify(decision.criterionResults)).not.toMatch(/"message"/);
+    const ready = evaluateGate(c, gate(c), scenario([{ item: "min-b", outcome: "correct" }, { item: "min-predict", outcome: "correct" }]).evidence, digest);
+    expect(ready.messages.reason).toEqual({ code: "reason.ready" });
+    expect(ready.messages.actions[0]).toMatchObject({ code: "action.continueTo", params: { title: "Maximum" } });
   });
 });

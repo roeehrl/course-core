@@ -8,9 +8,8 @@ import { AxeBuilder } from "@axe-core/playwright";
 const passkeyOrigin = `http://localhost:${process.env.COURSE_BROWSER_PASSKEY_PORT ?? "4318"}`;
 
 // The CDP WebAuthn domain (a virtual authenticator) exists only in Chromium. WebKit
-// and Firefox (playwright.engines.config.ts) have no virtual authenticator in
-// Playwright, so these journeys are skipped there; their password journeys still run.
-test.skip(({ browserName }) => browserName !== "chromium", "Passkey journeys need Chromium's CDP virtual authenticator.");
+// and Firefox have no virtual authenticator in Playwright, so playwright.engines.config.ts
+// excludes this file; their password journeys still run there.
 
 async function credentials(page: Page, data: { role?: "owner" | "learner" } = {}) {
   const response = await page.request.post("/test/password-session", { data });

@@ -48,8 +48,21 @@ const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/);
 const uuid = z.uuid();
 const pace = z.enum(['gentle', 'steady', 'focused']);
 const style = z.enum(['concise', 'step_by_step', 'worked_example']);
+/** Accessibility needs the learner declares (the same vocabulary research requests use). A
+ * preference or need they state, never a diagnosis inferred from behaviour (design §5). */
+export const ACCESSIBILITY_NEEDS = ['captions', 'transcript', 'screen_reader', 'reduced_motion', 'keyboard_only', 'audio_description', 'plain_language'] as const;
+const unique = <T>(rows: readonly T[]) => new Set(rows).size === rows.length;
+/** Declared facts and preferences (design §5, requirement C01): what the learner says about
+ * themselves. Direct edits take effect at once and override inferred preferences. */
 const profileSchema = z.strictObject({
-  preferences: z.strictObject({ pace: pace.optional(), explanationStyle: style.optional(), goal: z.string().max(2000).optional() }),
+  preferences: z.strictObject({ pace: pace.optional(), explanationStyle: style.optional(), goal: z.string().max(2000).optional(),
+    /** Languages the learner is comfortable learning in, most preferred first (BCP 47 tags). */
+    languages: z.array(z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/)).max(5).refine(unique).optional(),
+    experience: z.enum(['new', 'some', 'experienced']).optional(),
+    depth: z.enum(['overview', 'standard', 'deep']).optional(),
+    /** Time the learner plans to spend each week, in minutes. */
+    weeklyMinutes: z.number().int().min(15).max(1200).optional(),
+    accessibility: z.array(z.enum(ACCESSIBILITY_NEEDS)).max(ACCESSIBILITY_NEEDS.length).refine(unique).optional() }),
   priorKnowledge: z.array(z.strictObject({ objectiveId: id, statement: z.string().trim().min(1).max(500) })).max(20)
     .refine(rows => new Set(rows.map(row => row.objectiveId)).size === rows.length),
   thoughts: z.string().max(1000),
@@ -214,6 +227,13 @@ export async function excludedAttemptIds(client: PoolClient, enrollmentId: strin
     WHERE c.enrollment_id=$1 AND c.kind='exclude' AND c.ended_at IS NULL AND e.attempt_id=ANY($2::uuid[])`, [enrollmentId, attemptIds])).rows.map(row => row.attempt_id));
 }
 
+/** Who decided a piece of evidence, from its evaluator and result (codes only, never a staff identity). */
+export function evidenceAuthor(evaluatorRef: string, result: unknown): 'automatic_check' | 'staff_review' | 'second_opinion' | 'staff_regrade' {
+  if (evaluatorRef.startsWith('reviewed-rubric-appeal')) return 'second_opinion';
+  if (evaluatorRef.startsWith('reviewed-rubric-regrade')) return 'staff_regrade';
+  const reviewed = result as { reviewed?: unknown; confirmation?: unknown } | null;
+  return evaluatorRef.startsWith('reviewed-rubric') && reviewed?.reviewed === true && reviewed.confirmation !== 'deterministic' ? 'staff_review' : 'automatic_check';
+}
 /** Skill projection per objective: not_assessed / needs_evidence / practicing /
  * demonstrated / retained / needs_review / disputed. Each state names its basis.
  * Retention comes from delayed-check schedules; practicing from recorded
@@ -244,7 +264,8 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
     // At most 101 distinct families per objective. Gates can require at most 100.
     // Omitted older families cannot turn an unmet threshold into a false pass.
     requireCondition(gateFamilies(gate) <= 100, 'UNSUPPORTED_GATE_LIMIT', 409);
-    const rows = (await client.query<EvidenceRow & { attempt_id: string; disputed: boolean; excluded: boolean }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,a.course_digest,a.mode,
+    const rows = (await client.query<EvidenceRow & { attempt_id: string; disputed: boolean; excluded: boolean; evaluator_ref: string; recorded_at: Date }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,a.course_digest,a.mode,
+        e.evaluator_ref,e.created_at AS recorded_at,
         ${CONTROL_FLAGS}
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
       WHERE e.enrollment_id=$1 AND e.objective_id=$2 AND e.independent AND e.invalidated_at IS NULL
@@ -259,7 +280,10 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
     const refs = supervisor ? rows.filter(row => !row.excluded) : rows;
     results.push({ objectiveId, gateId: gate.id, status, explanation: SKILL_STATE_EXPLANATIONS[status], demonstrated, basis: 'current_course_independent_gate_evidence', ...common,
       independentFamilies: Math.min(rows.length, 100), familiesTruncated: rows.length > 100, requiredFamilies: gateFamilies(gate),
+      // Provenance (design §5, requirement C06): which evaluator issued the evidence, whether a
+      // person or an automatic check decided it, and when it was recorded.
       evidenceRefs: refs.slice(0, maximumRefs).map(row => ({ evidenceId: row.id, attemptId: row.attempt_id, courseDigest: row.course_digest,
+        evaluator: row.evaluator_ref, decidedBy: evidenceAuthor(row.evaluator_ref, row.result), recordedAt: row.recorded_at.toISOString(),
         ...(supervisor ? {} : { disputed: row.disputed }), ...(context.access === 'learner' ? { excluded: row.excluded } : {}) })),
       evidenceRefsTruncated: refs.length > maximumRefs });
   }

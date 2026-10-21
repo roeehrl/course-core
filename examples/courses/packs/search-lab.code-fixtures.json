@@ -1,0 +1,354 @@
+{
+  "schemaVersion": 1,
+  "id": "search-lab-code",
+  "version": "1.0.0",
+  "fixtures": [
+    {
+      "id": "linear-index",
+      "language": "python",
+      "cases": [
+        {
+          "id": "case-1",
+          "input": {
+            "values": [
+              4,
+              9,
+              2,
+              9
+            ],
+            "target": 9
+          },
+          "expected": 1
+        },
+        {
+          "id": "case-2",
+          "input": {
+            "values": [
+              5,
+              1,
+              7
+            ],
+            "target": 3
+          },
+          "expected": -1
+        },
+        {
+          "id": "case-3",
+          "input": {
+            "values": [],
+            "target": 1
+          },
+          "expected": -1
+        },
+        {
+          "id": "case-4",
+          "input": {
+            "values": [
+              6
+            ],
+            "target": 6
+          },
+          "expected": 0
+        },
+        {
+          "id": "case-5",
+          "input": {
+            "values": [
+              2,
+              2,
+              8,
+              1,
+              0
+            ],
+            "target": 0
+          },
+          "expected": 4
+        }
+      ]
+    },
+    {
+      "id": "binary-midpoints",
+      "language": "python",
+      "cases": [
+        {
+          "id": "case-1",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 30
+          },
+          "expected": [
+            3,
+            5,
+            6
+          ]
+        },
+        {
+          "id": "case-2",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 3
+          },
+          "expected": [
+            3,
+            1,
+            0
+          ]
+        },
+        {
+          "id": "case-3",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 20
+          },
+          "expected": [
+            3,
+            5,
+            4
+          ]
+        },
+        {
+          "id": "case-4",
+          "input": {
+            "values": [
+              1,
+              4,
+              9
+            ],
+            "target": 9
+          },
+          "expected": [
+            1,
+            2
+          ]
+        },
+        {
+          "id": "case-5",
+          "input": {
+            "values": [
+              7
+            ],
+            "target": 2
+          },
+          "expected": [
+            0
+          ]
+        },
+        {
+          "id": "case-6",
+          "input": {
+            "values": [],
+            "target": 5
+          },
+          "expected": []
+        }
+      ]
+    },
+    {
+      "id": "lower-bound",
+      "language": "python",
+      "cases": [
+        {
+          "id": "case-1",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 21
+          },
+          "expected": 4
+        },
+        {
+          "id": "case-2",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 22
+          },
+          "expected": 5
+        },
+        {
+          "id": "case-3",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 1
+          },
+          "expected": 0
+        },
+        {
+          "id": "case-4",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "target": 40
+          },
+          "expected": 8
+        },
+        {
+          "id": "case-5",
+          "input": {
+            "values": [
+              2,
+              2,
+              2,
+              5
+            ],
+            "target": 2
+          },
+          "expected": 0
+        },
+        {
+          "id": "case-6",
+          "input": {
+            "values": [],
+            "target": 0
+          },
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "count-in-range",
+      "language": "python",
+      "cases": [
+        {
+          "id": "case-1",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "low": 10,
+            "high": 26
+          },
+          "expected": 4
+        },
+        {
+          "id": "case-2",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "low": 27,
+            "high": 29
+          },
+          "expected": 0
+        },
+        {
+          "id": "case-3",
+          "input": {
+            "values": [
+              1,
+              1,
+              2,
+              3,
+              3,
+              3
+            ],
+            "low": 3,
+            "high": 3
+          },
+          "expected": 3
+        },
+        {
+          "id": "case-4",
+          "input": {
+            "values": [
+              3,
+              8,
+              12,
+              17,
+              21,
+              26,
+              30,
+              35
+            ],
+            "low": 0,
+            "high": 100
+          },
+          "expected": 8
+        },
+        {
+          "id": "case-5",
+          "input": {
+            "values": [],
+            "low": 0,
+            "high": 1
+          },
+          "expected": 0
+        }
+      ]
+    }
+  ]
+}

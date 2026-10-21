@@ -22,5 +22,6 @@
   "conflict.keepShown": "Keep the version shown here",
   "conflict.useOther": "Use the other version",
   "conflict.shownSaved": "The version shown here was saved {time}.",
-  "conflict.shownSavedEarlier": "The version shown here was saved earlier."
+  "conflict.shownSavedEarlier": "The version shown here was saved earlier.",
+  "slow": "The server is slow to answer. Keep this page open: anything you sent stays saved on this device until the server confirms it."
 }

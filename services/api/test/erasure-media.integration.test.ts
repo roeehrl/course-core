@@ -10,7 +10,7 @@ import { WorkspaceProviders } from "../src/provider-setup.js";
 import type { AdapterFactory } from "../src/provider-composition.js";
 import { createMediaJobService, workspaceMediaResolver, type MediaJobService } from "../src/media-jobs.js";
 import { fixture } from "./fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy, approveRevisionsForTest } from "./media-fixture.js";
 
 // Data erasure cancels the enrollment's media jobs. Before that it finishes each job's open
 // reservation: released when the provider certainly never ran it, otherwise closed at the full
@@ -94,6 +94,7 @@ beforeAll(async () => {
   expect(imported.statusCode, imported.body).toBe(200);
   releaseId = imported.json().id;
   expect((await post(owner, `/api/releases/${releaseId}/publish`)).statusCode).toBe(200);
+  await approveRevisionsForTest(db, workspace, mediaConfiguration());
   const configured = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: 0, idempotencyKey: key(),
     configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(ALLOWANCE), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
   expect(configured.statusCode, configured.body).toBe(200);

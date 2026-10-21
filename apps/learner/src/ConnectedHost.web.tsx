@@ -54,19 +54,22 @@ import { ReviewAssistConsent } from './components/ReviewAssistConsent';
 import { StudyConsent } from './components/StudyConsent';
 import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
+import { SupervisorRequests } from './components/SupervisorRequests';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
 import { Badge, Button, Notice, styles } from "./components/ui";
 import { ConnectedLesson } from "./connected/ConnectedLesson.web";
-import type { VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
+import type { VisualCompletionReport, VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
 import {
   createConnectedDraftStore,
   type BrowserStore,
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
-import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
+import { ConnectionStatus, DraftConflict, useOnline, usePageReturn, useSlow } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
+import { PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
+import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
@@ -87,6 +90,7 @@ import { useEnrollmentPolicy } from "./hooks/useEnrollmentPolicy";
 import { EnrollmentPreview } from "./components/EnrollmentPreview";
 import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
+import { ContinuationTrack } from "./components/ContinuationTrack";
 import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
 import { PasskeyManager, PasskeySignIn, passkeysSupported } from "./connected/Passkeys.web";
 
@@ -124,6 +128,7 @@ const RECORD_EVENTS = new Set([
   "episode.completed",
   "companion.requested",
   "profile.updated",
+  "visual.completed",
 ]);
 const PANE_PREFERENCE = "course:learner-companion-pane";
 /** The learner's last explicit choice to show or hide the companion pane. A
@@ -202,6 +207,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     busy = useRef(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const slowRequest = useSlow(pending);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]),
     [catalog, setCatalog] = useState<CatalogCourse[]>([]);
   const [preview, setPreview] = useState<CatalogCourse>();
@@ -306,6 +312,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     else if (visualFrame.current?.scope === readingScope && (!change.source ||
       (visualFrame.current.context.blockId === change.source.blockId && visualFrame.current.context.visualId === change.source.visualId))) visualFrame.current = null;
   }, [readingScope]);
+  // A visual's completion is an observation (visual-observations.ts on the server): sent once
+  // per block view, recorded at most once per course version, and never progress or evidence.
+  // Best effort: a failed send is not retried and shows nothing.
+  const enrollmentIdForVisuals = server?.enrollmentId;
+  const onVisualComplete = useCallback((completion: VisualCompletionReport) => {
+    if (!enrollmentIdForVisuals) return;
+    api
+      .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/visual-completions`, "POST", completion)
+      .catch(() => undefined);
+  }, [api, enrollmentIdForVisuals]);
   const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
   const answerKey = `${scope}:${codeQuestion ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
     draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
@@ -331,6 +347,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     reloadPolicy();
   }, [unansweredQuestions, reloadPolicy]);
   const unverified = useUnverifiedContent(api, server?.enrollmentId, server?.revision ?? 0);
+  const pendingAdditions = usePendingChanges(api, server?.enrollmentId, server?.revision ?? 0);
+  const components = useGeneratedComponents(api, server?.enrollmentId, server?.revision ?? 0);
   /** Opens "Your personal changes" at the change that added generated content. */
   function reviewChange(proposalId: string) {
     setView("profile");
@@ -1064,6 +1082,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               online={online}
               pendingAction={server ? pendingAction : null}
               pending={pending}
+              slow={slowRequest}
               onRetry={() => server && run(() => refresh(server.enrollmentId))}
             />
           )}
@@ -1225,6 +1244,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />}
               <PersonalChanges api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
+              <SupervisorRequests api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <ReviewAssistConsent api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <StudyConsent api={api} server={server} mode="settings" onChanged={() => void refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}
@@ -1266,6 +1286,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
               {policyPanel}
               <ClosureSummary server={server} />
+              {(server.closureReport || server.complete) && (
+                <ContinuationTrack api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
+              )}
               <PlacementRun
                 key={server.enrollmentId}
                 api={api}
@@ -1295,6 +1318,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     return result;
                   });
                   openEpisode(issued.episodeId);
+                }}
+                onSaveAvailability={async (weekdays, timeZone) => {
+                  await inFlight(async () => {
+                    const fresh = await api.load(server.enrollmentId);
+                    await api.command<never>(fresh, "retention/availability", { weekdays, timeZone });
+                    await refresh(server.enrollmentId);
+                  });
                 }}
               />
               <CourseRoadmap
@@ -1330,6 +1360,26 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               answer={answer}
               checkingAnswer={checkingAnswer}
               policyPanel={policyPanel}
+              components={components}
+              pendingChanges={
+                <PendingChangesNotice
+                  items={pendingAdditions}
+                  episodeId={episode.id}
+                  pending={pending}
+                  onAdd={(pendingId) =>
+                    run(async () => {
+                      const result = await command<{ status: string }>("personal-changes/pending/apply", { pendingId });
+                      setNotice(result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed"));
+                    })
+                  }
+                  onDecline={(pendingId) =>
+                    run(async () => {
+                      await command("personal-changes/pending/decline", { pendingId });
+                      setNotice(t("pendingChanges.declined"));
+                    })
+                  }
+                />
+              }
               resources={resourcesClient}
               reviews={reviewsLoader}
               onReviewReply={async (attemptId, text) => { await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text }); }}
@@ -1337,6 +1387,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
               onVisualContextChange={onVisualContextChange}
+              onVisualComplete={onVisualComplete}
               unverified={unverified}
               onReviewChange={reviewChange}
               onRead={(blockId) =>
@@ -1359,6 +1410,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 })
               }
               onComplete={completeEpisode}
+              onReturn={(id) => openEpisode(id)}
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
               activities={activityClient}

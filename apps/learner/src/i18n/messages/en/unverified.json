@@ -1,7 +1,8 @@
 {
-  "label": "Unverified: {what, select, lesson {this lesson} other {this part}} was written by AI and has not been reviewed by a person",
+  "label": "Unverified: {what, select, lesson {this lesson} question {this question} other {this part}} was written by AI and has not been reviewed by a person",
   "tooltip": "Written by AI and checked automatically; no person has reviewed it.",
   "badge": "Unverified",
   "body": "{what, select, lesson {This lesson} other {This part}} was written by AI for you and checked automatically. No person has reviewed it, so treat it as a draft explanation; your checks and progress never depend on it being right.",
-  "review": "See this change, hide or undo it"
+  "review": "See this change, hide or undo it",
+  "bodyQuestion": "This question was written by AI for you. Its answer was checked automatically against the course's own model or tests before you saw it, but no person has reviewed it. If you think it is marked wrongly, you can dispute the result in your learning record."
 }

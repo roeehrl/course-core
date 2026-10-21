@@ -20,13 +20,23 @@ export type AdminErrorCode =
   | "immutable_release"
   | "runtime_unsupported"
   | "impact_changed"
+  | "older_version"
   | "active_release"
   | "no_replacement"
   | "item_defective"
   | "policy_infeasible"
   | "shortened_grant"
   | "ledger_refused"
-  | "eval_required";
+  | "eval_required"
+  | "looser_than_parent"
+  | "no_pool_for_unit"
+  | "outage_deadline_only"
+  | "cohort_too_large"
+  | "no_active_learners"
+  | "pause_not_allowed"
+  | "visual_inaccessible"
+  | "visual_feature_unsupported"
+  | "visual_check_failed";
 export class AdminError extends Error {
   constructor(
     public readonly code: AdminErrorCode,

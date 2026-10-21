@@ -184,8 +184,16 @@ test("staff search YouTube with the workspace key, add a result and review only 
   await nav.getByRole("button", { name: "Research sources" }).click();
   // Without an admin-entered key, search is unavailable and says where the key goes.
   await page.getByRole("button", { name: "Search YouTube" }).click();
+  // The search error and the key status line both say where the key goes.
   await expect(
-    page.getByText(/AI services, under Advanced \(for developers\)/),
+    page.getByText(
+      /^YouTube search needs a YouTube Data API key\. .*AI services, under Advanced \(for developers\)/,
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      /^No YouTube key yet\. .*AI services, under Advanced \(for developers\)/,
+    ),
   ).toBeVisible();
 
   const key = ["synthetic", "browser", "youtube", "key"].join("-");
@@ -210,6 +218,17 @@ test("staff search YouTube with the workspace key, add a result and review only 
   ).toBeVisible();
   // The browser sends only a result count; the server sends the topic's approved query.
   expect(sent.every((body) => body === '{"maxResults":5}')).toBe(true);
+  // Today's quota is shown, and the key can be checked with one unit before relying on it.
+  await expect(
+    page.getByText(/Today: 1 of 100 searches and 2 of 10,000 quota units used/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Check the YouTube key" }).click();
+  await expect(
+    page.getByText("The key works and the YouTube Data API is enabled."),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Today: 1 of 100 searches and 3 of 10,000 quota units used/),
+  ).toBeVisible();
   await page.getByText(/2 YouTube results · metadata only, unreviewed/).click();
   await expect(page.getByText("Running minimum, step by step")).toBeVisible();
   await expect(page.getByText(/embedding not allowed/)).toBeVisible();
