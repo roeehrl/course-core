@@ -57,6 +57,21 @@ describe("research study consent", () => {
     expect(screen.getByRole("button", { name: "Join again" })).toBeDisabled();
   });
 
+  it("says when the study also times how the learner finds their way, before and after joining", async () => {
+    const timed = { ...study, usabilityMeasures: true };
+    const { unmount } = render(<StudyConsent api={api({ revision: 3, study: timed, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText(/how many other buttons you try first/)).toBeVisible();
+    unmount();
+    render(<StudyConsent api={api({ revision: 4, study: timed, participation: joined }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText(/the app times how you find your way/)).toBeVisible();
+  });
+
+  it("does not mention timing when the study does not ask for it", async () => {
+    render(<StudyConsent api={api({ revision: 3, study, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText("your study code (not your name or email)")).toBeVisible();
+    expect(screen.queryByText(/how many other buttons you try first/)).toBeNull();
+  });
+
   it("shows nothing without a study, and reports a failed save without changing anything", async () => {
     const none = api({ revision: 1, study: null, participation: null });
     const { container } = render(<StudyConsent api={none as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);

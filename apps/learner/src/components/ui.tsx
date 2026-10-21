@@ -100,6 +100,7 @@ export function Button({
   testID,
   accessibilityHint,
   describedBy,
+  usability,
 }: {
   label: string;
   onPress: () => void;
@@ -113,6 +114,9 @@ export function Button({
   accessibilityHint?: string;
   /** On web, the id of visible text that describes the button. */
   describedBy?: string;
+  /** Study usability timing (connected/usability.ts): this is the place's required next step,
+   * or it leaves the lesson for help. */
+  usability?: "next" | "detour";
 }) {
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -123,6 +127,7 @@ export function Button({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
       {...(Platform.OS === "web" && describedBy ? { "aria-describedby": describedBy } : {})}
+      {...(Platform.OS === "web" && usability ? { dataSet: { usability } } : {})}
       accessibilityState={{
         disabled: !!disabled,
         ...(Platform.OS !== "web" && selected !== undefined

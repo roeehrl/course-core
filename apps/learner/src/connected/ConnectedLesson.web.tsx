@@ -312,6 +312,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                     <Button
                       label={t("connectedLesson.markRead")}
                       kind="primary"
+                      usability="next"
                       disabled={
                         pending ||
                         next?.id !== current.id ||
@@ -482,6 +483,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                             : t("connectedLesson.answer.check")
                       }
                       kind="primary"
+                      usability="next"
                       disabled={
                         pending ||
                         "error" in answerPayload(challenge.question, props.answer, t) ||
@@ -543,6 +545,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                 <Button
                   label={recovery?.freshCheck ? t("connectedLesson.check.fresh", { minutes: recovery.freshCheck.plannedMinutes }) : t("connectedLesson.check.start")}
                   kind="primary"
+                  usability="next"
                   disabled={pending || blockedMedia}
                   onPress={props.onStart}
                 />
@@ -560,6 +563,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                     : t("connectedLesson.complete.episode")
                 }
                 kind={canComplete ? "primary" : "quiet"}
+                {...(canComplete ? { usability: "next" as const } : {})}
                 disabled={!canComplete}
                 onPress={props.onComplete}
               />

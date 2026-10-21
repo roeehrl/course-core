@@ -56,6 +56,7 @@ export function YourCourseMenu({
     <div
       className="connected-menu"
       ref={root}
+      data-usability="detour"
       onBlur={(event) => {
         if (
           open &&

@@ -71,7 +71,7 @@ export interface ServerSnapshot {
   course: LearnerCourse;
   inaccessibleEpisodeIds: string[];
   /** The research-study version in force, when the learner joined one; null or absent otherwise. */
-  studyArm?: { label: string; behaviour: "fixed" | "chat_only" | "supervisor"; companion: boolean; supervision: boolean } | null;
+  studyArm?: { label: string; behaviour: "fixed" | "chat_only" | "supervisor"; companion: boolean; supervision: boolean; measuresUsability?: boolean } | null;
   activeChallenges: Challenge[];
   lessons: {
     id: string;
