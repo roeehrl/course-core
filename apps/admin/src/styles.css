@@ -139,8 +139,13 @@ button {
 button svg {
   pointer-events: none;
 }
+/* Visually hidden, still read by screen readers. Pinned to the start corner of its containing
+ * block: left at its own place, a hidden header in the far column of a wide table sat outside the
+ * table's scroll box and widened the page on phones (the left edge in Hebrew, the right in English). */
 .sr-only {
   position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
   width: 1px;
   height: 1px;
   padding: 0;
@@ -941,6 +946,8 @@ progress::-moz-progress-bar {
   padding-top: 23px;
 }
 .table-wrap {
+  /* Positioned, so hidden captions and headers stay inside the scroll box. */
+  position: relative;
   overflow-x: auto;
   max-width: 100%;
   border: 1px solid var(--line);
@@ -1711,6 +1718,8 @@ legend {
 @media (max-width: 699px) {
   .people-table thead {
     position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
     width: 1px;
     height: 1px;
     overflow: hidden;
