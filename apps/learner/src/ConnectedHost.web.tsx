@@ -87,6 +87,7 @@ import { useEnrollmentPolicy } from "./hooks/useEnrollmentPolicy";
 import { EnrollmentPreview } from "./components/EnrollmentPreview";
 import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
+import { ContinuationTrack } from "./components/ContinuationTrack";
 import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
 import { PasskeyManager, PasskeySignIn, passkeysSupported } from "./connected/Passkeys.web";
 
@@ -1266,6 +1267,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
               {policyPanel}
               <ClosureSummary server={server} />
+              {(server.closureReport || server.complete) && (
+                <ContinuationTrack api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
+              )}
               <PlacementRun
                 key={server.enrollmentId}
                 api={api}

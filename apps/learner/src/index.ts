@@ -61,6 +61,11 @@ export {
 export { ClosureSummary } from "./components/ClosureSummary";
 export {
   createPolicyClient,
+  createContinuationClient,
+  parseContinuation,
+  type ContinuationView,
+  type PolicyBinding,
+  type PolicyLevel,
   type EnrollmentPolicy,
   type ExtensionOffer,
   type ClosureReport,

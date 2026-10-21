@@ -34,6 +34,13 @@ export interface PolicyDeadline {
   kind: "absolute" | "window" | "ultimate";
   at: string;
 }
+/** The policy level a constraint comes from: organization → course → enrollment → chapter → episode. */
+export type PolicyLevel = "organization" | "course" | "enrollment" | "chapter" | "episode" | "activity";
+/** Which level sets the effective date and each work limit, as resolved by the server. */
+export interface PolicyBinding {
+  deadline: { scopeId: string; level: PolicyLevel; kind: PolicyDeadline["kind"]; at: string } | null;
+  quotas: { metric: PolicyQuota["metric"]; conceptId: string | null; scopeId: string; level: PolicyLevel; limit: number; remaining: number }[];
+}
 export interface PolicyConstraint {
   enrollmentId: string;
   scopeId: string;
@@ -41,6 +48,8 @@ export interface PolicyConstraint {
   deadlines: PolicyDeadline[];
   quotas: PolicyQuota[];
   existingMaterialAccess: "read_only" | "closed";
+  /** Optional (newer servers): absent or malformed values are dropped, never guessed. */
+  binding?: PolicyBinding;
 }
 export interface PolicyBalance {
   poolId: string;
@@ -68,6 +77,14 @@ export interface ExtensionOffer {
     balanceAfter: PolicyBalance[];
     currentWorkQuotas: PolicyQuota[];
     proposedWorkQuotas: PolicyQuota[];
+    /** What the extension changes: calendar days on a deadline, and/or planned minutes and
+     * lessons on a work limit. Older offers may omit it; days are then the only change. */
+    change?: {
+      deadline?: { kind: "absolute" | "window"; calendarDays: number };
+      work?: { additionalMinutes?: number; additionalEpisodes?: number };
+    };
+    /** The exact allowance each unit of this offer uses, per pool. */
+    poolDebits?: { poolId: string; amount: number }[];
     addedWork: {
       additionalMinutes: number;
       additionalEpisodes: number;
@@ -250,11 +267,101 @@ export function parseEnrollmentPolicy(
     )
   )
     delete result.coverage;
+  const levels = ["organization", "course", "enrollment", "chapter", "episode", "activity"];
+  const bindingValid = (b: unknown) =>
+    object(b) &&
+    (b.deadline === null ||
+      (object(b.deadline) &&
+        typeof b.deadline.scopeId === "string" &&
+        levels.includes(String(b.deadline.level)) &&
+        ["absolute", "window", "ultimate"].includes(String(b.deadline.kind)) &&
+        instant(b.deadline.at))) &&
+    list(
+      b.quotas,
+      (q) =>
+        object(q) &&
+        typeof q.scopeId === "string" &&
+        levels.includes(String(q.level)) &&
+        ["additionalMinutes", "additionalEpisodes", "remediationCyclesPerConcept"].includes(String(q.metric)) &&
+        count(q.limit) &&
+        count(q.remaining),
+    );
+  result.constraints = result.constraints.map((c) => {
+    if (c.binding === undefined || bindingValid(c.binding)) return c;
+    const { binding: _dropped, ...rest } = c;
+    return rest;
+  });
+  const positive = (v: unknown) => count(v) && (v as number) > 0;
+  result.offers = result.offers.map((offer) => {
+    const terms = { ...offer.terms } as Record<string, unknown>;
+    const change = terms.change;
+    const changeValid =
+      object(change) &&
+      (change.deadline === undefined ||
+        (object(change.deadline) &&
+          ["absolute", "window"].includes(String(change.deadline.kind)) &&
+          positive(change.deadline.calendarDays))) &&
+      (change.work === undefined ||
+        (object(change.work) &&
+          (change.work.additionalMinutes === undefined || positive(change.work.additionalMinutes)) &&
+          (change.work.additionalEpisodes === undefined || positive(change.work.additionalEpisodes))));
+    if (!changeValid) delete terms.change;
+    if (!list(terms.poolDebits, (d) => object(d) && typeof d.poolId === "string" && positive(d.amount))) delete terms.poolDebits;
+    return { ...offer, terms: terms as unknown as ExtensionOffer["terms"] };
+  });
   const questions = value.closedQuestions;
   if (!(object(questions) && count(questions.budget) && count(questions.used) && count(questions.remaining)))
     delete result.closedQuestions;
   return result;
 }
+/** The optional continuation track after a course closes: spaced review the learner opts into
+ * explicitly. It adds no required work, grants no credit and never reopens the course. */
+export interface ContinuationView {
+  revision: number;
+  available: boolean;
+  track: { state: "active" | "stopped"; optedInAt: string; stoppedAt: string | null } | null;
+  reviewFocus: { unprovenConceptIds: string[]; uncoveredObjectiveIds: string[] } | null;
+  terms: { requiredWork: false; credit: false; reopensCourse: false; canStopAnytime: true };
+}
+export function parseContinuation(value: unknown): ContinuationView {
+  const track = object(value) ? value.track : undefined,
+    focus = object(value) ? value.reviewFocus : undefined,
+    terms = object(value) ? value.terms : undefined;
+  const valid =
+    object(value) &&
+    count(value.revision) &&
+    typeof value.available === "boolean" &&
+    (track === null ||
+      (object(track) &&
+        ["active", "stopped"].includes(String(track.state)) &&
+        instant(track.optedInAt) &&
+        (track.stoppedAt === null || instant(track.stoppedAt)))) &&
+    (focus === null || (object(focus) && strings(focus.unprovenConceptIds) && strings(focus.uncoveredObjectiveIds))) &&
+    // The track's terms are fixed; a server that says otherwise is not trusted.
+    object(terms) &&
+    terms.requiredWork === false &&
+    terms.credit === false &&
+    terms.reopensCourse === false &&
+    terms.canStopAnytime === true;
+  if (!valid) throw new CourseApiError("INVALID_RESPONSE", 502);
+  return value as unknown as ContinuationView;
+}
+export function createContinuationClient(api: Pick<CourseApi, "request" | "command">) {
+  const path = (id: string) => `/api/enrollments/${encodeURIComponent(id)}/continuation`;
+  return {
+    async load(id: string, signal?: AbortSignal) {
+      return parseContinuation(await api.request(path(id), "GET", undefined, { signal }));
+    },
+    async optIn(snapshot: ServerSnapshot, view: ContinuationView, explicitConsent: true) {
+      if (explicitConsent !== true) throw new CourseApiError("CONSENT_REQUIRED", 400);
+      return parseContinuation(await api.command({ ...snapshot, revision: view.revision }, "continuation", { explicitConsent: true }));
+    },
+    async stop(snapshot: ServerSnapshot, view: ContinuationView) {
+      return parseContinuation(await api.command({ ...snapshot, revision: view.revision }, "continuation/stop", {}));
+    },
+  };
+}
+export type ContinuationClient = ReturnType<typeof createContinuationClient>;
 export function createPolicyClient(api: CourseApi) {
   return {
     async load(id: string, signal?: AbortSignal) {
