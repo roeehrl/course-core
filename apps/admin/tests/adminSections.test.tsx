@@ -7,12 +7,15 @@ import { AdminApp } from "../src/AdminApp";
 import {
   AdminSectionError,
   adminSectionErrorMessage,
+  settingProblem,
   type AdminSectionList,
   type AdminSectionView as Section,
   type AdminSectionsPort,
 } from "../src/domain/adminSections";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
 import { demo } from "./helpers";
+import { stripBidiControls } from "@course-core/i18n";
+import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
 const list: AdminSectionList = {
   release: { id: "r1", version: "2.0.0" },
@@ -308,5 +311,59 @@ describe("course-declared admin sections", () => {
         values: { cone: 99 },
       },
     });
+  });
+});
+
+describe("course-declared admin sections in Hebrew", () => {
+  const he = createAdminTranslator("he");
+  it("labels the form in Hebrew and keeps course text as written", async () => {
+    const port: AdminSectionsPort = {
+      list: vi.fn(),
+      read: vi.fn(async () => ({
+        release: { id: "r1", version: "2.0.0" },
+        section: section(false),
+      })),
+      save: vi.fn(),
+    };
+    render(
+      <I18nProvider value={he}>
+        <AdminSectionView
+          port={port}
+          data={workspace(["course.read"])}
+          sectionId="glaze-lab"
+          list={list}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      await screen.findByText(
+        "צפייה בלבד: לתפקיד שלך אין הרשאה לשנות את ההגדרות האלה.",
+      ),
+    ).toBeVisible();
+    // Course text keeps its own direction.
+    expect(screen.getByText("Kiln practice settings.")).toHaveAttribute(
+      "dir",
+      "auto",
+    );
+    expect(
+      screen.getByText((_, el) =>
+        el?.tagName === "SPAN" && el.classList.contains("badge")
+          ? stripBidiControls(el.textContent ?? "") ===
+            "המציג המותאם glaze-panel לא נטען"
+          : false,
+      ),
+    ).toBeVisible();
+  });
+
+  it("explains invalid values and refusals in Hebrew", () => {
+    const cone = section(true).settings.find((s) => s.id === "cone")!;
+    expect(settingProblem(cone, "11", he.t)).toBe("בין 1 ל-10.");
+    expect(settingProblem(cone, "8.5", he.t)).toBe("יש להזין מספר שלם.");
+    expect(
+      adminSectionErrorMessage(new AdminSectionError("STALE_REVISION"), he.t),
+    ).toBe("ההגדרות השתנו מאז שנפתחו. יש לטעון מחדש ולנסות שוב.");
+    expect(adminSectionErrorMessage(new Error("x"), he.t)).toBe(
+      "הגדרות הקורס לא זמינות. שום דבר לא השתנה.",
+    );
   });
 });

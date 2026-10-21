@@ -1,3 +1,4 @@
+import { useT } from "../i18n";
 import { Badge, Field } from "./ui";
 
 /** One reviewer finding per rubric criterion. A met criterion needs an exact quotation from the
@@ -49,6 +50,7 @@ export function RubricFindings({
   disabled?: boolean;
   onChange: (findings: Record<string, Finding>) => void;
 }) {
+  const t = useT();
   const update = (criterion: string, patch: Partial<Finding>) =>
     onChange({
       ...findings,
@@ -61,11 +63,11 @@ export function RubricFindings({
         return (
           <fieldset key={c.id} className="review-criterion">
             <legend>
-              {c.description}{" "}
+              <bdi>{c.description}</bdi>{" "}
               {c.required ? (
-                <Badge>required</Badge>
+                <Badge>{t("rubricFindings.required")}</Badge>
               ) : (
-                <Badge tone="gold">optional</Badge>
+                <Badge tone="gold">{t("rubricFindings.optional")}</Badge>
               )}
             </legend>
             <label className="check-label">
@@ -75,17 +77,17 @@ export function RubricFindings({
                 disabled={disabled}
                 onChange={(e) => update(c.id, { met: e.target.checked })}
               />
-              The answer shows this
+              {t("rubricFindings.met")}
             </label>
             {f.met && (
               <Field
-                label="Exact quotation from the answer"
+                label={t("rubricFindings.quote.label")}
                 htmlFor={`${idPrefix}-${c.id}-quote`}
                 hint={
                   f.quote.trim().length >= 10 &&
                   words.some((w) => w.includes(f.quote.trim()))
                     ? undefined
-                    : "Not found exactly in the answer."
+                    : t("rubricFindings.quote.notFound")
                 }
               >
                 <textarea
@@ -93,6 +95,7 @@ export function RubricFindings({
                   rows={2}
                   maxLength={800}
                   value={f.quote}
+                  dir="auto"
                   disabled={disabled}
                   onChange={(e) => update(c.id, { quote: e.target.value })}
                 />

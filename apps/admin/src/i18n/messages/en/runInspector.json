@@ -1,1 +1,20 @@
-{}
+{
+  "reason.incident_investigation": "Investigating an incident",
+  "reason.quality_review": "Reviewing teaching quality",
+  "reason.learner_request": "The learner asked",
+  "reason.bug_report": "Reproducing a bug report",
+  "error.FORBIDDEN": "Your role cannot do this. Revealing payloads needs the run.payload permission (owners and admins).",
+  "error.RUN_NOT_FOUND": "This run is not part of this course.",
+  "error.INVALID_REQUEST": "Choose a reason before revealing the payload.",
+  "error.INVALID_INPUT": "Give a reason of at least 10 characters.",
+  "error.RUN_ALREADY_RETRIED": "This run was already retried once. Open the run the retry started instead.",
+  "error.RUN_NOT_ENDED": "This run is still live (or waiting on an uncertain call). Cancel it or wait for it to end before retrying.",
+  "error.RUN_NOT_RETRYABLE": "Only a run that failed, or ended with an uncertain provider call, can be retried.",
+  "error.RUN_RETRY_UNSUPPORTED": "Companion, research and written-answer runs answer one request; ask again through that request instead.",
+  "error.SUPERVISION_STOPPED": "AI supervision is stopped for this learner. Resume it before retrying.",
+  "error.SUPERVISION_CONSENT_WITHDRAWN": "The learner withdrew consent for AI supervision since this run. It was not retried.",
+  "error.ENROLLMENT_CLOSED": "This enrollment is closed. Its record is not changed after closure.",
+  "error.ENROLLMENT_ERASED": "This learner's data was erased.",
+  "error.IDEMPOTENCY_CONFLICT": "A different request was already sent with this key. Reload and try again.",
+  "error.unknown": "The inspector could not complete this. Nothing was revealed or changed."
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 /** Scoped regrade of one attempt (U07): a new decision linked to the decision it supersedes. */
 const text = (max = 400) => z.string().max(max);
@@ -95,37 +96,33 @@ export class RegradeError extends Error {
     this.name = "RegradeError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Your role cannot regrade. Regrading needs the evidence.regrade permission (owners, admins and instructors).",
-  SELF_REVIEW_FORBIDDEN: "You cannot regrade your own answer.",
-  SECOND_REVIEWER_REQUIRED:
-    "You made the decision this would replace. A different person must regrade it.",
-  APPEAL_OPEN:
-    "The learner asked for a second opinion. Decide it in the appeal queue first.",
-  NOT_YET_REVIEWED:
-    "This written answer has no review yet. Review it in the review queue.",
-  NOTHING_TO_REGRADE: "There is no graded result to regrade on this attempt.",
-  EVIDENCE_INVALIDATED:
-    "Staff already withdrew this attempt's evidence. A regrade does not restore it.",
-  REGRADE_UNSUPPORTED: "Placement and retention answers are not regraded here.",
-  RUBRIC_CHANGED: "The rubric changed since this answer was given.",
-  RUBRIC_FINDINGS_REQUIRED: "Give one finding for every criterion.",
-  RUBRIC_CRITERIA_INCOMPLETE: "Give one finding for every criterion.",
-  RUBRIC_QUOTE_REQUIRED:
-    "Each criterion you mark as shown needs an exact quotation from the answer.",
-  RUBRIC_DECISION_INCONSISTENT:
-    "The decision does not match the required criteria.",
-  EVALUATOR_NOT_CONFIGURED: "This host cannot run the item's evaluator now.",
-  COURSE_VERSION_UNAVAILABLE:
-    "The course version this answer was given on is no longer stored.",
-  ENROLLMENT_CLOSED:
-    "This enrollment is closed. Its record is not changed after closure.",
-  ENROLLMENT_ERASED: "This learner's data was erased.",
-  INVALID_INPUT: "Give a reason of at least 10 characters.",
-  IDEMPOTENCY_CONFLICT:
-    "A different request was already sent with this key. Reload and try again.",
-};
-export const regradeErrorMessage = (error: unknown) =>
-  messages[error instanceof RegradeError ? error.code : ""] ??
-  "The regrade could not be completed. Nothing was changed.";
+const ERROR_CODES = new Set([
+  "FORBIDDEN",
+  "SELF_REVIEW_FORBIDDEN",
+  "SECOND_REVIEWER_REQUIRED",
+  "APPEAL_OPEN",
+  "NOT_YET_REVIEWED",
+  "NOTHING_TO_REGRADE",
+  "EVIDENCE_INVALIDATED",
+  "REGRADE_UNSUPPORTED",
+  "RUBRIC_CHANGED",
+  "RUBRIC_FINDINGS_REQUIRED",
+  "RUBRIC_CRITERIA_INCOMPLETE",
+  "RUBRIC_QUOTE_REQUIRED",
+  "RUBRIC_DECISION_INCONSISTENT",
+  "EVALUATOR_NOT_CONFIGURED",
+  "COURSE_VERSION_UNAVAILABLE",
+  "ENROLLMENT_CLOSED",
+  "ENROLLMENT_ERASED",
+  "INVALID_INPUT",
+  "IDEMPOTENCY_CONFLICT",
+]);
+export function regradeErrorMessage(
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) {
+  const code = error instanceof RegradeError ? error.code : "";
+  return ERROR_CODES.has(code)
+    ? t(`corrections.error.${code}` as MessageKey)
+    : t("corrections.error.unavailable");
+}

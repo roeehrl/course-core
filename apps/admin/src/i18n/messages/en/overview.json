@@ -1,1 +1,4 @@
-{}
+{
+  "error.FORBIDDEN": "Your role cannot read this. The audit log needs owner, admin or support observer access.",
+  "error.unavailable": "This information is unavailable right now. Nothing was changed."
+}

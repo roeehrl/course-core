@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { FileText, ScanSearch } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { useRemote } from "../hooks/useAdmin";
@@ -11,8 +11,14 @@ import {
   Loading,
   Notice,
   Status,
-  when,
 } from "../components/ui";
+import {
+  useFormatters,
+  useI18n,
+  useT,
+  type AdminTranslator,
+  type MessageKey,
+} from "../i18n";
 import { AdminError } from "../domain/errors";
 import type { Permission } from "../domain/contracts";
 import {
@@ -24,6 +30,14 @@ import {
   WorkflowPanel,
 } from "./RunInspectorPanels";
 
+const strong = (children: ReactNode, key: string | number) => (
+  <strong key={key}>{children}</strong>
+);
+/** A machine code shown through its catalog label, or as is when the catalog has none. */
+function codeLabel(i18n: AdminTranslator, key: MessageKey, code: string) {
+  return i18n.has(key) ? i18n.t(key) : code.replaceAll("_", " ");
+}
+
 export function RunsView({
   data,
   client,
@@ -31,31 +45,26 @@ export function RunsView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
+  const { when } = useFormatters();
   const [runId, setRunId] = useState(data.runs[0]?.id);
   return (
     <div className="page-stack">
       <div className="section-heading">
         <div>
-          <h2>Follow the work, not a black box.</h2>
-          <p>
-            Inspectable inputs, context references, tool decisions and
-            reviewable outputs.
-          </p>
+          <h2>{t("runsView.heading")}</h2>
+          <p>{t("runsView.intro")}</p>
         </div>
         <span className="large-icon">
           <ScanSearch size={28} aria-hidden="true" />
         </span>
       </div>
-      <Notice tone="blue">
-        This inspector shows operational records and concise decision
-        explanations. Private model reasoning and hidden chain-of-thought are
-        not requested or displayed.
-      </Notice>
+      <Notice tone="blue">{t("runsView.privacyNotice")}</Notice>
       {!data.permissions.includes("run.inspect") ? (
         <ErrorState error={new AdminError("permission_denied")} />
       ) : (
         <div className="master-detail">
-          <Card title="Supervisor runs">
+          <Card title={t("runsView.list.title")}>
             <div className="selector-list">
               {data.runs.map((run) => (
                 <button
@@ -65,7 +74,7 @@ export function RunsView({
                   onClick={() => setRunId(run.id)}
                 >
                   <span>
-                    <strong>{run.label}</strong>
+                    <strong dir="auto">{run.label}</strong>
                     <small>{when(run.startedAt)}</small>
                     <Status value={run.status} />
                   </span>
@@ -73,8 +82,8 @@ export function RunsView({
               ))}
             </div>
             {!data.runs.length && (
-              <EmptyState title="No runs recorded">
-                Operational records will appear after the server creates a run.
+              <EmptyState title={t("runsView.list.empty.title")}>
+                {t("runsView.list.empty.body")}
               </EmptyState>
             )}
           </Card>
@@ -104,6 +113,8 @@ export function RunDetails({
   client: AdminClient;
   permissions: readonly Permission[];
 }) {
+  const t = useT();
+  const i18n = useI18n();
   const result = useRemote(
     (signal) => client.getRun(courseId, runId, signal),
     [client, courseId, runId],
@@ -121,54 +132,63 @@ export function RunDetails({
     | "retry"
     | "payload"
   >("timeline");
-  if (result.loading) return <Loading label="Loading run records…" />;
+  if (result.loading) return <Loading label={t("runsView.loading")} />;
   if (result.error)
     return <ErrorState error={result.error} onRetry={result.reload} />;
   const run = result.data!;
   const views = [
-    { id: "timeline", label: "Timeline" },
-    { id: "workflow", label: "Workflow graph" },
-    { id: "context", label: "Context" },
-    { id: "decisions", label: "Tool decisions" },
-    { id: "calls", label: "Provider calls" },
-    { id: "policies", label: "Policies & budgets" },
-    { id: "sync", label: "Client & sync" },
-    { id: "artifacts", label: "Artifacts" },
-    { id: "replay", label: "Replay" },
-    { id: "retry", label: "Retry" },
-    { id: "payload", label: "Payload" },
+    { id: "timeline", label: t("runsView.view.timeline") },
+    { id: "workflow", label: t("runsView.view.workflow") },
+    { id: "context", label: t("runsView.view.context") },
+    { id: "decisions", label: t("runsView.view.decisions") },
+    { id: "calls", label: t("runsView.view.calls") },
+    { id: "policies", label: t("runsView.view.policies") },
+    { id: "sync", label: t("runsView.view.sync") },
+    { id: "artifacts", label: t("runsView.view.artifacts") },
+    { id: "replay", label: t("runsView.view.replay") },
+    { id: "retry", label: t("runsView.view.retry") },
+    { id: "payload", label: t("runsView.view.payload") },
   ] as const;
   return (
-    <Card title={run.label} eyebrow="Run inspector">
+    <Card title={run.label} eyebrow={t("runsView.eyebrow")}>
       <div className="split-line">
         <Status value={run.status} />
-        <small className="mono">{run.id}</small>
+        <small className="mono" dir="ltr">
+          {run.id}
+        </small>
       </div>
-      <p>{run.summary}</p>
+      <p dir="auto">{run.summary}</p>
       <div className="tag-row">
-        <Badge>{run.contextVersion}</Badge>
-        <Badge>{run.toolCalls} recorded host tool calls</Badge>
+        <Badge>
+          <span dir="ltr">{run.contextVersion}</span>
+        </Badge>
+        <Badge>{t("runsView.toolCalls", { count: run.toolCalls })}</Badge>
         {run.providerAttempts !== undefined && (
           <Badge>
             {run.providerAttempts === null
-              ? "Provider attempt count unavailable"
-              : `${run.providerAttempts} reported provider attempts`}
+              ? t("runsView.providerAttempts.unavailable")
+              : t("runsView.providerAttempts", {
+                  count: run.providerAttempts,
+                })}
           </Badge>
         )}
-        <Badge>{run.artifactCount} artifacts</Badge>
+        <Badge>{t("runsView.artifacts", { count: run.artifactCount })}</Badge>
         {run.retry?.retryOf && (
-          <Badge tone="blue">Retry of {run.retry.retryOf.slice(0, 8)}</Badge>
+          <Badge tone="blue">
+            {t("runsView.retryOf", { run: run.retry.retryOf.slice(0, 8) })}
+          </Badge>
         )}
         {run.retry?.retriedBy && (
           <Badge tone="blue">
-            Retried
             {run.retry.retriedBy.runId
-              ? ` as ${run.retry.retriedBy.runId.slice(0, 8)}`
-              : ""}
+              ? t("runsView.retriedAs", {
+                  run: run.retry.retriedBy.runId.slice(0, 8),
+                })
+              : t("runsView.retried")}
           </Badge>
         )}
       </div>
-      <nav aria-label="Run record views" className="segmented">
+      <nav aria-label={t("runsView.viewsNav")} className="segmented">
         {views.map((item) => (
           <Button
             key={item.id}
@@ -187,11 +207,13 @@ export function RunDetails({
               <span className="timeline-dot" />
               <div>
                 <div className="split-line">
-                  <h3>{event.label}</h3>
-                  <small className="mono">{event.time}</small>
+                  <h3 dir="auto">{event.label}</h3>
+                  <small className="mono" dir="ltr">
+                    {event.time}
+                  </small>
                 </div>
                 <Badge>{event.status}</Badge>
-                <p>{event.detail}</p>
+                <p dir="auto">{event.detail}</p>
               </div>
             </li>
           ))}
@@ -231,21 +253,25 @@ export function RunDetails({
           {run.context.map((item) => (
             <article className="record" key={item.id}>
               <div className="split-line">
-                <h3>{item.label}</h3>
-                <Badge tone="blue">{item.version}</Badge>
+                <h3 dir="auto">{item.label}</h3>
+                <Badge tone="blue">
+                  <span dir="ltr">{item.version}</span>
+                </Badge>
               </div>
               <dl className="facts vertical">
                 <div>
-                  <dt>Reference</dt>
-                  <dd className="mono">{item.id}</dd>
+                  <dt>{t("runsView.context.reference")}</dt>
+                  <dd className="mono" dir="ltr">
+                    {item.id}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Source</dt>
-                  <dd>{item.source}</dd>
+                  <dt>{t("runsView.context.source")}</dt>
+                  <dd dir="auto">{item.source}</dd>
                 </div>
                 <div>
-                  <dt>Visibility</dt>
-                  <dd>{item.visibility}</dd>
+                  <dt>{t("runsView.context.visibility")}</dt>
+                  <dd dir="auto">{item.visibility}</dd>
                 </div>
               </dl>
             </article>
@@ -257,46 +283,66 @@ export function RunDetails({
           {run.decisions.map((decision) => (
             <article className="record" key={decision.id}>
               <div className="split-line">
-                <h3>{decision.tool}</h3>
+                <h3 dir="ltr">{decision.tool}</h3>
                 <Status value={decision.outcome} />
               </div>
-              <p className="mono reason-code">{decision.reasonCode}</p>
-              <p>{decision.explanation}</p>
+              <p className="mono reason-code" dir="ltr">
+                {decision.reasonCode}
+              </p>
+              <p dir="auto">{decision.explanation}</p>
               <dl className="facts vertical">
                 <div>
-                  <dt>Input summary</dt>
-                  <dd>{decision.inputSummary}</dd>
+                  <dt>{t("runsView.decision.inputSummary")}</dt>
+                  <dd dir="auto">{decision.inputSummary}</dd>
                 </div>
                 <div>
-                  <dt>Units charged</dt>
-                  <dd>{decision.budgetUnits}</dd>
+                  <dt>{t("runsView.decision.unitsCharged")}</dt>
+                  <dd>{i18n.number(decision.budgetUnits)}</dd>
                 </div>
               </dl>
             </article>
           ))}
           {!!run.hypothesisChanges?.length && (
             <table className="data-table">
-              <caption>
-                Teaching hypothesis changes by this run (learner-reviewable,
-                never evidence)
-              </caption>
+              <caption>{t("runsView.hypotheses.caption")}</caption>
               <thead>
                 <tr>
-                  <th scope="col">Hypothesis</th>
-                  <th scope="col">Change</th>
-                  <th scope="col">Current state</th>
+                  <th scope="col">{t("runsView.hypotheses.hypothesis")}</th>
+                  <th scope="col">{t("runsView.hypotheses.change")}</th>
+                  <th scope="col">{t("runsView.hypotheses.state")}</th>
                 </tr>
               </thead>
               <tbody>
                 {run.hypothesisChanges.map((c, i) => (
                   <tr key={i}>
-                    <td className="mono">{c.templateId ?? c.hypothesisId}</td>
-                    <td>
-                      {c.action.replaceAll("_", " ")} · r{c.revision}
+                    <td className="mono" dir="ltr">
+                      {c.templateId ?? c.hypothesisId}
                     </td>
                     <td>
-                      {c.kind.replaceAll("_", " ")} · {c.status}
-                      {c.pinnedByLearner ? " · pinned by learner" : ""}
+                      {codeLabel(
+                        i18n,
+                        `runsView.hypotheses.action.${c.action}` as MessageKey,
+                        c.action,
+                      )}{" "}
+                      ·{" "}
+                      {t("runsView.hypotheses.revision", {
+                        revision: c.revision,
+                      })}
+                    </td>
+                    <td>
+                      {codeLabel(
+                        i18n,
+                        `runsView.hypotheses.kind.${c.kind}` as MessageKey,
+                        c.kind,
+                      )}{" "}
+                      ·{" "}
+                      {codeLabel(
+                        i18n,
+                        `runsView.hypotheses.status.${c.status}` as MessageKey,
+                        c.status,
+                      )}
+                      {c.pinnedByLearner &&
+                        ` · ${t("runsView.hypotheses.pinnedByLearner")}`}
                     </td>
                   </tr>
                 ))}
@@ -309,18 +355,35 @@ export function RunDetails({
         <div className="stack">
           {run.verification && (
             <p>
-              Host verification by <strong>{run.verification.verifier}</strong>:{" "}
-              {run.verification.verdict}
               {run.verification.applied
-                ? ` · applied as ${run.verification.applied.kind}`
-                : " · not applied"}
+                ? i18n.rich(
+                    "runsView.verification.applied",
+                    {
+                      verifier: run.verification.verifier,
+                      verdict: run.verification.verdict,
+                      kind: run.verification.applied.kind,
+                    },
+                    { strong },
+                  )
+                : i18n.rich(
+                    "runsView.verification.notApplied",
+                    {
+                      verifier: run.verification.verifier,
+                      verdict: run.verification.verdict,
+                    },
+                    { strong },
+                  )}
             </p>
           )}
           {run.providerCalls?.length ? (
             run.providerCalls.map((call) => (
               <article className="record" key={call.operationId}>
                 <div className="split-line">
-                  <h3>{call.modelId ?? "Unknown model"}</h3>
+                  {call.modelId ? (
+                    <h3 dir="ltr">{call.modelId}</h3>
+                  ) : (
+                    <h3>{t("runsView.calls.unknownModel")}</h3>
+                  )}
                   <Status
                     value={
                       call.state === "completed"
@@ -332,34 +395,44 @@ export function RunDetails({
                   />
                 </div>
                 {call.failureCode && (
-                  <p className="mono reason-code">{call.failureCode}</p>
+                  <p className="mono reason-code" dir="ltr">
+                    {call.failureCode}
+                  </p>
                 )}
                 <dl className="facts vertical">
                   <div>
-                    <dt>Provider · operation</dt>
-                    <dd>
+                    <dt>{t("runsView.calls.providerOperation")}</dt>
+                    <dd dir="ltr">
                       {call.providerId ?? "—"} · {call.operation ?? "—"}
                     </dd>
                   </div>
                   <div>
-                    <dt>Input characters</dt>
-                    <dd>{call.inputCharacters ?? "—"}</dd>
+                    <dt>{t("runsView.calls.inputCharacters")}</dt>
+                    <dd>
+                      {call.inputCharacters === null
+                        ? "—"
+                        : i18n.number(call.inputCharacters)}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Duration</dt>
+                    <dt>{t("runsView.calls.duration")}</dt>
                     <dd>
-                      {call.durationMs === null ? "—" : `${call.durationMs} ms`}
+                      {call.durationMs === null
+                        ? "—"
+                        : t("runsView.calls.durationMs", {
+                            ms: call.durationMs,
+                          })}
                     </dd>
                   </div>
                 </dl>
                 <table className="data-table">
-                  <caption>Attempts reported by the provider</caption>
+                  <caption>{t("runsView.attempts.caption")}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Attempt</th>
-                      <th scope="col">HTTP</th>
-                      <th scope="col">Outcome</th>
-                      <th scope="col">Tokens in / out / total</th>
+                      <th scope="col">{t("runsView.attempts.attempt")}</th>
+                      <th scope="col">{t("runsView.attempts.http")}</th>
+                      <th scope="col">{t("runsView.attempts.outcome")}</th>
+                      <th scope="col">{t("runsView.attempts.tokens")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -367,8 +440,8 @@ export function RunDetails({
                       <tr key={i}>
                         <td>{a.attempt ?? i + 1}</td>
                         <td>{a.status ?? "—"}</td>
-                        <td>{a.outcome ?? "—"}</td>
-                        <td>
+                        <td dir="ltr">{a.outcome ?? "—"}</td>
+                        <td dir="ltr">
                           {a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} /{" "}
                           {a.tokens.total ?? "?"}
                         </td>
@@ -376,15 +449,12 @@ export function RunDetails({
                     ))}
                   </tbody>
                 </table>
-                <small>
-                  Counts and identifiers only. Prompts, context and model output
-                  are not shown.
-                </small>
+                <small>{t("runsView.calls.privacy")}</small>
               </article>
             ))
           ) : (
-            <EmptyState title="No provider calls">
-              This run made no provider calls.
+            <EmptyState title={t("runsView.calls.empty.title")}>
+              {t("runsView.calls.empty.body")}
             </EmptyState>
           )}
         </div>
@@ -396,23 +466,30 @@ export function RunDetails({
               <article className="record" key={artifact.id}>
                 <div className="split-line">
                   <h3>
-                    <FileText size={18} aria-hidden="true" /> {artifact.name}
+                    <FileText size={18} aria-hidden="true" />{" "}
+                    <bdi>{artifact.name}</bdi>
                   </h3>
                   <Status value={artifact.status} />
                 </div>
-                <small>{artifact.provenance}</small>
-                <pre aria-label={`${artifact.name} plain text preview`}>
+                <small dir="auto">{artifact.provenance}</small>
+                <pre
+                  dir="auto"
+                  aria-label={t("runsView.artifact.previewLabel", {
+                    name: artifact.name,
+                  })}
+                >
                   {artifact.preview}
                 </pre>
                 <small>
-                  {artifact.mediaType} · Displayed as inert text. No artifact
-                  code is executed.
+                  {t("runsView.artifact.inert", {
+                    mediaType: artifact.mediaType,
+                  })}
                 </small>
               </article>
             ))
           ) : (
-            <EmptyState title="No artifacts">
-              This run produced no reviewable artifacts.
+            <EmptyState title={t("runsView.artifact.empty.title")}>
+              {t("runsView.artifact.empty.body")}
             </EmptyState>
           )}
         </div>
