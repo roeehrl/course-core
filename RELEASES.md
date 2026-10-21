@@ -130,9 +130,48 @@ Core v0.1.33 broke this rule (the code-bank digest moved from `05d8ba24…` to
   bytes, so an edited inventory fails even with rewritten receipts. It describes
   what the locks resolve; it is not a vulnerability or license review.
 - `release-manifest.json` and `SHA256SUMS`: exact commit/tree/tag/run/attempt,
-  required job receipts, dependency lock hashes, every asset/member hash and the
-  SBOM receipt (`sbom`, outside `assets`). `SHA256SUMS` lists the five archives
+  required job receipts, dependency lock hashes, every asset/member hash, the
+  SBOM receipt (`sbom`, outside `assets`) and the compatibility matrix
+  (`compatibility`, below). `SHA256SUMS` lists the five archives
   and the SBOM, so `sha256sum -c SHA256SUMS` needs all six files downloaded.
+
+### Compatibility matrix and migration/rollback rehearsal
+
+Before building candidates, the candidate job runs two checks on the tested commit
+(`scripts/release-compat.mjs`). Both fail the release; neither is a new job.
+
+- `check` builds the compatibility matrix of the candidate and of the previous
+  release tag (the newest older `vX.Y.Z`): the SDK release every module pins and
+  which compiled course packages Core accepts (the pinned SDK minor installs; another
+  minor of the same major installs with a warning; another major is refused, the
+  same rule as the package preview), the Node engines of the root and every module,
+  the PostgreSQL major CI tests and the migration set. It fails when the version did
+  not increase, the SDK pin moved backwards, course packages built with the previous
+  release's SDK would be refused, PostgreSQL went back, or a released migration was
+  edited or removed. The candidate's matrix is recorded in `release-manifest.json`
+  as `compatibility`; verification recomputes it from the archived source.
+- `rehearse` uses a disposable PostgreSQL 17 service and its own schema. It applies
+  the previous release's migrations (read from its tag), seeds synthetic users, a
+  workspace, a release and an enrollment, takes a `pg_dump` backup, applies the
+  candidate's migrations and requires every previous table, column and row count to
+  survive (migrations are additive) and a re-run to be a no-op. It then rolls back
+  the way an operator would, by restoring the backup, requires the schema and every
+  row to equal the pre-upgrade snapshot exactly, and upgrades again.
+  `scripts/tests/release-rehearsal.test.mjs` proves on small synthetic repositories
+  that a dropped column, deleted rows, a failing migration and an edited released
+  migration each fail it; it runs in the same step and may not skip.
+
+Run them locally with a disposable database:
+
+```sh
+node scripts/release-compat.mjs check
+TEST_DATABASE_URL=postgres://127.0.0.1:5432/course_core_test_<name> node scripts/release-compat.mjs rehearse --pg-bin /opt/homebrew/opt/postgresql@17/bin
+```
+
+The rehearsal applies migrations with `psql` in the same way as the API's
+migration runner (name order, recorded digests); it does not start the previous
+or the candidate runtime, and private acceptance against a real deployment stays
+an owner step.
 
 The candidate job then records a GitHub build provenance attestation (Sigstore,
 `actions/attest-build-provenance`) for every candidate file, including the
