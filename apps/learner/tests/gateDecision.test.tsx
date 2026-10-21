@@ -2,7 +2,9 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
-import { GateDecisionPanel, GATE_STATUS_LABELS } from "../src/connected/GateDecision.web";
+import { stripBidiControls } from "@course-core/i18n";
+import { GateDecisionPanel, GATE_STATUS_LABELS, gateText } from "../src/connected/GateDecision.web";
+import { createLearnerTranslator } from "../src/i18n";
 import { AssessmentInput, answerPayload, traceAnswers } from "../src/connected/AssessmentInput.web";
 import { ConnectedLesson, type ConnectedLessonProps } from "../src/connected/ConnectedLesson.web";
 import type { Challenge, GateView, Question } from "../src/client/apiClient";
@@ -163,3 +165,36 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(screen.queryByRole("button", { name: /Show explanation/ })).toBeNull();
   });
 });
+
+describe("gate decision text in the learner's language", () => {
+  const en = createLearnerTranslator("en"), he = createLearnerTranslator("he"), plain = stripBidiControls;
+  const fresh = { code: "action.freshCheck", params: { objectives: ["Find a minimum"], count: 0, required: 2 } };
+  it("renders the server's codes in English exactly as the server's English text", () => {
+    expect(gateText(fresh, "fallback", en)).toBe("Answer a fresh independent check on “Find a minimum” (0 of 2 item families so far)");
+    expect(gateText({ code: "action.viewGaps", params: { focusKind: "objectives", focus: ["Find a minimum", "Find a maximum"] } }, "", en))
+      .toBe("See what remains unproven: “Find a minimum”, “Find a maximum”");
+    expect(gateText({ code: "action.appeal", params: { reviewer: "staff", days: 14 } }, "", en)).toBe("Request a staff review of this decision within 14 days");
+    expect(gateText({ code: "reason.needs_evidence.detail", params: { more: 1 }, detail: { code: "criterion.families.unmet", params: { required: 2, objectives: ["Find a minimum"] } } }, "", en))
+      .toBe("Needs independent success in 2 different item families for “Find a minimum”. (1 more open criterion.)");
+  });
+  it("translates to Hebrew, keeping course text as written", () => {
+    expect(plain(gateText(fresh, "fallback", he))).toBe("מענה על בדיקה עצמאית חדשה על “Find a minimum” (עד עכשיו 0 מתוך 2 משפחות בדיקה)");
+    expect(plain(gateText({ code: "reason.under_review" }, "fallback", he))).toBe("חלק מהראיות שלך ממתינות לבדיקה. בינתיים שום דבר לא נספר לחובתך.");
+  });
+  it("falls back to the server's English text for a code this app does not know, or no code", () => {
+    expect(gateText({ code: "action.fromTheFuture" }, "Server text", he)).toBe("Server text");
+    expect(gateText(null, "Server text", he)).toBe("Server text");
+    expect(gateText({ code: "reason.needs_help.detail", params: { more: 0 }, detail: { code: "unknown" } }, "Whole server reason", he)).toBe("Whole server reason");
+  });
+  it("shows the panel in Hebrew from the decision's codes", () => {
+    const view: GateView = { ...gate("needs_evidence", [{ kind: "attempt_check", label: "English label", targetId: "min-a" }]),
+      messages: { reason: { code: "reason.needs_evidence" }, criteria: { families: { code: "criterion.families.met", params: { required: 2 } } }, actions: [fresh] } };
+    render(<GateDecisionPanel gate={view} pending={false} onAction={vi.fn()} />);
+    // English UI here (no provider): the codes render the English wording, not the stored label.
+    expect(screen.getByRole("button", { name: "Answer a fresh independent check on “Find a minimum” (0 of 2 item families so far)" })).toBeVisible();
+    expect(screen.getByText("More independent evidence is needed.", { selector: "p" })).toBeVisible();
+    // A criterion without a code keeps the server's text.
+    expect(screen.getByText("Needs independent success on a new transfer task.", { selector: "span" })).toBeVisible();
+  });
+});
+

@@ -33,10 +33,10 @@ CREATE TABLE retention_availability (
   FOREIGN KEY (enrollment_id, workspace_id) REFERENCES enrollments(id, workspace_id)
 );
 
--- The learner-visible reason of a gate decision as a message code with parameters, so the
--- learner app shows it in the learner's language. learner_visible_reason stays the English text.
-ALTER TABLE gate_decisions ADD COLUMN learner_visible_reason_message jsonb
-  CHECK (learner_visible_reason_message IS NULL OR jsonb_typeof(learner_visible_reason_message) = 'object');
+-- A gate decision's learner-visible text as message codes with parameters (reason, criteria, next
+-- actions), so the learner app shows it in the learner's language. The SDK record keeps the
+-- English text; decisions made before this migration have NULL and show that text.
+ALTER TABLE gate_decisions ADD COLUMN messages jsonb CHECK (messages IS NULL OR jsonb_typeof(messages) = 'object');
 
 -- Wrong-answer (and right-answer) fixtures for one course's items (Q09). Staff record answers an
 -- item must reject or accept; a fixture run grades every fixture against a release's answer keys.

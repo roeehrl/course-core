@@ -17,6 +17,9 @@ export type Question = QuestionCommon & (
   | Pick<Extract<Assessment, { type: "code" }>, "type" | "language" | "starterCode">
   | Pick<Extract<Assessment, { type: "code_repair" }>, "type" | "language" | "starterCode">
   | { type: "rubric" | "counterexample" | "experiment_design" | "teach_back"; criteria: Criterion[] });
+/** A sentence of a gate decision as a message code with parameters (see the API's gates.ts). */
+export interface GateMessage { code: string; params?: Record<string, string | number | string[]>; detail?: GateMessage }
+export interface GateMessages { reason: GateMessage; criteria: Record<string, GateMessage>; actions: (GateMessage | null)[] }
 /** A server gate decision as the lesson shows it. The server recomputes it at every advance. */
 export interface GateView {
   passed: boolean;
@@ -27,6 +30,8 @@ export interface GateView {
   learnerVisibleReason?: string;
   criterionResults?: { criterionId: string; kind?: string; met: boolean | "pending"; reason: string }[];
   nextActions?: NextAction[];
+  /** The same reason, criteria and next steps as message codes, shown in the learner's language. */
+  messages?: GateMessages | null;
   decisionId?: string | null;
   /** The learner's latest request for a staff review of this gate. */
   review?: { requestId: string; state: "open" | "upheld" | "exception_granted"; reviewerNote: string | null; requestedAt: string; decidedAt: string | null } | null;
