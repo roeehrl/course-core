@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ModelRegistry, ProviderRouter, ProviderError, subscriptionAdapter } from '../dist/index.js';
+import { mediaDeclarations } from './helpers.mjs';
 
 const now = Date.parse('2026-01-01T00:00:00Z'), later = '2026-01-01T00:01:00Z';
 const request = () => ({ modelId: 'teacher', accounting: { accountingKey: 'op-1' }, messages: [{ role: 'user', text: 'Explain ordering.' }], maxOutputTokens: 100 });
@@ -18,8 +19,8 @@ function fixture({ fallback = false } = {}) {
       tutoring: { async tutor(r) { return result(r, 'tutor', { text: route }); } },
       structured_assessment: { async assess(r) { return result(r, 'assess', { explanation: route }); } },
       research: { async research(r) { return result(r, 'research', { text: route, grounding: 'not_grounded', parts: [], sources: [], citations: [], searchQueries: [], searchSuggestionsHtml: null }); } },
-      image: { async startImage(r) { return result(r, 'image', { state: 'completed', images: [], text: route }); } },
-      video: {
+      image: { ...mediaDeclarations('image'), async startImage(r) { return result(r, 'image', { state: 'completed', images: [], text: route }); } },
+      video: { ...mediaDeclarations('video'),
         async startVideo(r) { return result(r, 'video_submit', { state: 'pending', job: { kind: 'video', providerId: 'vendor', modelId: r.modelId,
           registryRevision: 'r1', providerState: { ticket: route + '-ticket' }, accounting: r.accounting, requestedDurationSeconds: r.durationSeconds } }); },
         async pollVideo(job) { assert.equal(job.accessRoute, undefined); assert.equal(job.providerState.ticket, route + '-ticket');

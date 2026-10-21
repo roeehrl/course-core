@@ -23,6 +23,15 @@ export function tokenUsage(input: unknown): TokenUsage {
     cachedInput: u.cachedContentTokenCount ?? null, thoughts: u.thoughtsTokenCount ?? null, toolInput: u.toolUsePromptTokenCount ?? null };
 }
 
+const interactionUsageSchema = z.object({ total_input_tokens: counter.optional(), total_output_tokens: counter.optional(),
+  total_tokens: counter.optional(), total_cached_tokens: counter.optional(), total_thought_tokens: counter.optional(), total_tool_use_tokens: counter.optional() });
+/** Token counters of an Interactions API `usage` object. */
+export function interactionUsage(input: unknown): TokenUsage {
+  const u = parse(interactionUsageSchema, input, 'INVALID_RESPONSE');
+  return { input: u.total_input_tokens ?? null, output: u.total_output_tokens ?? null, total: u.total_tokens ?? null,
+    cachedInput: u.total_cached_tokens ?? null, thoughts: u.total_thought_tokens ?? null, toolInput: u.total_tool_use_tokens ?? null };
+}
+
 export function abortScope(parent: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController(); let timeout = false;
   const forward = () => controller.abort();
@@ -193,9 +202,10 @@ export class JsonTransport {
 
 const googleProtocol: JsonProtocol = {
   adapter: 'google', origin: GOOGLE_ORIGIN,
-  path: path => /^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+)$/.test(path),
+  path: path => /^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+|interactions)$/.test(path),
   headers: key => ({ 'x-goog-api-key': key }),
-  tokens: data => tokenUsage(data.usageMetadata),
+  // generateContent reports `usageMetadata`; the Interactions API reports `usage`.
+  tokens: data => data.usage !== undefined && data.usageMetadata === undefined ? interactionUsage(data.usage) : tokenUsage(data.usageMetadata),
 };
 export class GoogleTransport extends JsonTransport {
   constructor(options: GoogleTransportOptions) { super(options, googleProtocol); }
