@@ -60,6 +60,7 @@ import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type 
 import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
+import { registerAssessmentPolicyRoutes } from './assessment-policy-routes.js';
 import { registerPolicyScopeRoutes } from './policy-scope-routes.js';
 import { registerContinuationRoutes } from './continuation.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
@@ -399,6 +400,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   // Storyboards staff review before generation, and automated checks of generated media (media-pipeline.ts).
   registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver));
   registerPolicyAdminRoutes(app, db, auth);
+  registerAssessmentPolicyRoutes(app, db, auth);
   registerPolicyScopeRoutes(app, db, auth);
   registerContinuationRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
