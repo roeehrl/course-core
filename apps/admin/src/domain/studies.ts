@@ -50,6 +50,10 @@ export const studySchema = z.object({
     .max(6),
   instruments: instrumentsSchema,
   minCellSize: z.number().int().min(1),
+  /** The study also asks participants for usability timings (P15). */
+  usabilityMeasures: z.boolean().default(false),
+  /** Timed trials received so far (aggregate only); null when not asked for. */
+  usabilityTrials: count.nullable().default(null),
   seedDigest: z.string().regex(/^[a-f0-9]{64}$/),
   consent: z.object({
     eligible: count,
@@ -107,6 +111,7 @@ export interface StudyDefinitionInput {
   arms: StudyArm[];
   instruments: Instruments;
   minCellSize: number;
+  usabilityMeasures: boolean;
 }
 export interface StudyDownload {
   body: string;
@@ -185,3 +190,65 @@ export const defaultArms = (t: Translate = englishTranslator().t): StudyArm[] =>
     label: behaviourLabel(behaviour, t),
     behaviour,
   }));
+
+/** A study definition from a file, such as the `definition` in a course's study.json: the same
+ * shape the study form saves. Read in the browser only; nothing is sent until staff save. */
+export const definitionFileSchema = z.strictObject({
+  title: z.string().trim().min(3).max(120),
+  purpose: z.string().trim().min(20).max(2000),
+  arms: z.array(armSchema).min(2).max(6),
+  instruments: instrumentsSchema,
+  minCellSize: z.number().int().min(3).max(100),
+  usabilityMeasures: z.boolean().optional(),
+});
+export type DefinitionFileProblem =
+  | { code: "notJson" }
+  | { code: "notDefinition"; field: string }
+  | { code: "armBehaviourTwice"; behaviour: ArmBehaviour }
+  | { code: "unknownItems"; items: string[] };
+/** Reads a definition file against the chosen release. Accepts the bare definition or an object
+ * with a `definition` field (a course's study.json). */
+export function readDefinitionFile(
+  text: string,
+  releaseItems: readonly { id: string }[],
+): { definition: StudyDefinitionInput } | { problem: DefinitionFileProblem } {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { problem: { code: "notJson" } };
+  }
+  const candidate =
+    value && typeof value === "object" && "definition" in value
+      ? (value as { definition: unknown }).definition
+      : value;
+  const parsed = definitionFileSchema.safeParse(candidate);
+  if (!parsed.success)
+    return {
+      problem: {
+        code: "notDefinition",
+        field: parsed.error.issues[0]?.path.join(".") || "definition",
+      },
+    };
+  const seen = new Set<ArmBehaviour>();
+  for (const arm of parsed.data.arms) {
+    // The form offers one arm per version of the course.
+    if (seen.has(arm.behaviour))
+      return {
+        problem: { code: "armBehaviourTwice", behaviour: arm.behaviour },
+      };
+    seen.add(arm.behaviour);
+  }
+  const known = new Set(releaseItems.map((item) => item.id));
+  const unknown = instrumentSets.flatMap((set) =>
+    parsed.data.instruments[set].filter((id) => !known.has(id)),
+  );
+  if (unknown.length)
+    return { problem: { code: "unknownItems", items: unknown } };
+  return {
+    definition: {
+      ...parsed.data,
+      usabilityMeasures: parsed.data.usabilityMeasures ?? false,
+    },
+  };
+}
