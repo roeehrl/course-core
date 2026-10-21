@@ -143,8 +143,65 @@ for (const locale of ["en", "he"] as Locale[]) {
         .filter({ hasText: t("connect.errEmpty", { service }) }),
     ).toBeVisible();
     expect(seen.posts.filter((p) => p.endsWith("/connections"))).toEqual([]);
-    await key.fill(revokedKey);
+
+    // A pasted key with look-alike characters names each one, where it is and what it should
+    // be; nothing is tested or saved, and nothing is replaced until the owner asks.
+    const lookalike = ["AQ", "Ab8SYNTHETIC\u00d7KEY\u2013real", "0000"].join(
+      ".",
+    );
+    await key.fill(lookalike);
     await key.blur();
+    await expect(
+      page.getByText(t("keyChars.summary", { count: 2 })),
+    ).toBeVisible();
+    const chars = page.locator(".ai-key-chars");
+    await expect(chars.locator("li")).toHaveText([
+      t("keyChars.letter", {
+        position: lookalike.indexOf("\u00d7") + 1,
+        shown: "\u00d7",
+        name: t("keyChars.name.multiplication"),
+        plain: "x",
+      }),
+      t("keyChars.hyphen", {
+        position: lookalike.indexOf("\u2013") + 1,
+        shown: "\u2013",
+        name: t("keyChars.name.enDash"),
+        plain: "-",
+      }),
+    ]);
+    // Isolated left to right (the translator also isolates arguments in Hebrew).
+    await expect(chars.locator("bdi[dir=ltr]").first()).toHaveText(
+      /^[\u2066-\u2069]*\u00d7[\u2066-\u2069]*$/,
+    );
+    await expect(chars).toContainText(t("keyChars.recopy.google"));
+    await expect(
+      page.getByRole("button", { name: t("connect.save") }),
+    ).toBeDisabled();
+    await expect(page.getByText(t("keyChars.saveBlocked"))).toBeVisible();
+    await expect(key).toHaveValue(lookalike);
+    await expect(chars).not.toContainText("SYNTHETIC");
+    expect(seen.posts.filter((p) => p.endsWith("/test-key"))).toEqual([]);
+    await accessible(page);
+    await chars.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`03-key-characters-${locale}.png`),
+    });
+    // An invisible character is removed on request; the fixed key is then checked as usual.
+    await key.fill(revokedKey.replace("_KEY", "\u200b_KEY"));
+    await expect(chars.locator("li")).toHaveText([
+      t("keyChars.hidden", {
+        position: 18,
+        name: t("keyChars.name.zeroWidthSpace"),
+      }),
+    ]);
+    await page
+      .getByRole("button", { name: t("keyChars.fix", { count: 1 }) })
+      .click();
+    await expect(key).toHaveValue(revokedKey);
+    await expect(key).toBeFocused();
+    await expect(
+      page.getByText(t("keyChars.fixed", { count: 1 })),
+    ).toBeVisible();
     await expect(
       page.getByText(t("connect.errRejected", { service })),
     ).toBeVisible();

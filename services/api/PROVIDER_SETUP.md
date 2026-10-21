@@ -39,7 +39,10 @@ not infer support from a model name. Guided setup now uses bounded, scoped metad
 A pasted key is stored without the whitespace, line breaks and zero-width
 characters a copy can add around it. An empty key is refused with
 `400 PROVIDER_CREDENTIAL_EMPTY`, and a key that still contains anything but
-printable ASCII with `400 PROVIDER_CREDENTIAL_MALFORMED`. Values stored by
+printable ASCII with `400 PROVIDER_CREDENTIAL_MALFORMED`; the refusal carries
+only the code, never the key. The admin form applies the same rule as the key is
+typed or pasted and names each refused character (position, look, and the plain
+character it probably was) before anything is sent. Values stored by
 earlier releases are read with the same trimming, so a key saved with a trailing
 space works without being entered again.
 

@@ -557,6 +557,151 @@ describe("AI services page", () => {
     });
   });
 
+  it("names each character a key can't contain, blocks testing and saving, and fixes look-alikes only when asked", async () => {
+    const port = fakePort();
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const field = await screen.findByLabelText(t("connect.keyLabel"));
+    // A Gemini "AQ." key whose x became a multiplication sign and a hyphen an en dash.
+    const good = ["AQ", "Ab8SYNTHETICxKEY-unit_0", "0000"].join(".");
+    const pasted = good.replace("x", "\u00d7").replace("-", "\u2013");
+    const at = (c: string) => Array.from(pasted).indexOf(c) + 1;
+    fireEvent.change(field, { target: { value: pasted } });
+    fireEvent.blur(field);
+    expect(
+      screen.getByText(
+        "This key has 2 characters that API keys never contain. Apps that auto-format text sometimes swap or add them.",
+      ),
+    ).toBeInTheDocument();
+    const list = document.querySelector(".ai-key-chars") as HTMLElement;
+    expect(list.querySelectorAll("li")[0]).toHaveTextContent(
+      `Character ${at("\u00d7")} is \u00d7 (multiplication sign), not the letter x.`,
+    );
+    expect(list.querySelectorAll("li")[1]).toHaveTextContent(
+      `Character ${at("\u2013")} is \u2013 (en dash), not a plain hyphen -.`,
+    );
+    expect(list).toHaveTextContent(
+      "Copy the key again with the copy button in Google AI Studio, and paste it straight here.",
+    );
+    // Only the offending characters are shown, never the rest of the key.
+    expect(list.textContent).not.toMatch(/SYNTHETIC|Ab8|unit_0/);
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field.getAttribute("aria-describedby")).toContain(list.id);
+    const save = screen.getByRole("button", { name: t("connect.save") });
+    expect(save).toBeDisabled();
+    expect(screen.getByText(t("keyChars.saveBlocked"))).toBeInTheDocument();
+    expect(port.testKey).not.toHaveBeenCalled();
+    // Nothing is replaced until the person asks.
+    expect(field).toHaveValue(pasted);
+    fireEvent.click(
+      screen.getByRole("button", { name: t("keyChars.fix", { count: 2 }) }),
+    );
+    expect(field).toHaveValue(good);
+    expect(field).toHaveFocus();
+    expect(screen.getByText(t("keyChars.fixed", { count: 2 }))).toHaveAttribute(
+      "role",
+      "status",
+    );
+    expect(document.querySelector(".ai-key-chars")).toBeNull();
+    // The fixed key is checked like a fresh paste, then saved as usual.
+    await waitFor(() =>
+      expect(port.testKey).toHaveBeenCalledWith(workspace, {
+        kind: "google",
+        key: good,
+      }),
+    );
+    expect(
+      await screen.findByText(
+        t("connect.testOk", { service: "Google", count: 3 }),
+      ),
+    ).toBeInTheDocument();
+    expect(save).toBeEnabled();
+  });
+
+  it("lists at most three characters, counts the rest, and leaves spaces and quotes for a fresh copy", async () => {
+    const port = fakePort();
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const field = await screen.findByLabelText(t("connect.keyLabel"));
+    fireEvent.change(field, {
+      target: { value: "\u201cAIzaSYN TH\u200bETIC\u2011KEY\u00a0X\u201d" },
+    });
+    const list = document.querySelector(".ai-key-chars") as HTMLElement;
+    const items = [...list.querySelectorAll("li")].map((li) => li.textContent);
+    expect(items).toEqual([
+      "Character 1 is \u201c (left double quotation mark). API keys never contain quotation marks.",
+      "Character 9 is a space.",
+      "Character 12 is an invisible zero-width space.",
+    ]);
+    expect(list).toHaveTextContent("And 3 more characters.");
+    // Two of six can be fixed here (the zero-width space and the hyphen).
+    expect(
+      screen.getByRole("button", { name: t("keyChars.fix", { count: 2 }) }),
+    ).toBeInTheDocument();
+    expect(list).toHaveTextContent(t("keyChars.fixPartial", { count: 4 }));
+    fireEvent.click(
+      screen.getByRole("button", { name: t("keyChars.fix", { count: 2 }) }),
+    );
+    expect(field).toHaveValue("\u201cAIzaSYN THETIC-KEY\u00a0X\u201d");
+    expect(screen.getByText(t("keyChars.summary", { count: 4 }))).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /^Fix / }),
+    ).not.toBeInTheDocument();
+    expect(port.testKey).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: t("connect.save") }),
+    ).toBeDisabled();
+  });
+
+  it("checks a replacement key the same way", async () => {
+    const port = fakePort({
+      connections: vi
+        .fn()
+        .mockResolvedValue({ ...noConnections, connections: [connection] }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: t("row.replaceKey") }),
+    );
+    const field = screen.getByLabelText(/New API key for/);
+    fireEvent.change(field, { target: { value: "AQ.ab\u2212cd" } });
+    expect(document.querySelector(".ai-key-chars li")).toHaveTextContent(
+      "Character 6 is \u2212 (minus sign), not a plain hyphen -.",
+    );
+    const save = screen.getByRole("button", { name: t("row.replaceSave") });
+    expect(save).toBeDisabled();
+    fireEvent.submit(save.closest("form")!);
+    expect(port.replaceKey).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: t("keyChars.fix", { count: 1 }) }),
+    );
+    expect(field).toHaveValue("AQ.ab-cd");
+    expect(save).toBeEnabled();
+  });
+
+  it("isolates the offending character left to right in Hebrew", async () => {
+    const port = fakePort();
+    render(
+      inHebrew(
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+      ),
+    );
+    const field = await screen.findByLabelText(he("connect.keyLabel"));
+    fireEvent.change(field, { target: { value: "AQ.ab\u00d7cd" } });
+    const char = document.querySelector(".ai-key-chars .ai-key-char")!;
+    expect(char.tagName).toBe("BDI");
+    expect(char).toHaveAttribute("dir", "ltr");
+    expect(char.textContent?.replace(/[\u2066-\u2069]/g, "")).toBe("\u00d7");
+    const line = document.querySelector(".ai-key-chars li")!.textContent!;
+    expect(line.replace(/[\u2066-\u2069]/g, "")).toBe(
+      "התו במקום 6 הוא \u00d7 (סימן כפל), ולא האות x.",
+    );
+    expect(
+      screen.getByRole("button", { name: he("keyChars.fix", { count: 1 }) }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: he("connect.save") }),
+    ).toBeDisabled();
+  });
+
   it("renders right to left in Hebrew with ids and key endings isolated left to right", async () => {
     const port = fakePort({
       setup: vi.fn().mockResolvedValue(setup(activeConfiguration, 2)),

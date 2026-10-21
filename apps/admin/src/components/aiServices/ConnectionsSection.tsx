@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, ExternalLink, LoaderCircle } from "lucide-react";
 import {
   AiServicesError,
@@ -6,6 +6,8 @@ import {
   type SectionState,
 } from "../../domain/aiServices";
 import { trimKey } from "../../domain/providerSetup";
+import { analyzeKey, fixKeyCharacters } from "../../domain/keyCharacters";
+import { KeyCharacters } from "./KeyCharacters";
 import type { SectionProps } from "./AiServicesPage";
 import {
   Confirm,
@@ -97,23 +99,41 @@ function KeyInput({
   error,
   hint,
   disabled,
+  kind,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
+  /** Called after a paste or on leaving the field, only for a key with acceptable characters. */
   onCommit?: (value: string) => void;
   error?: string | undefined;
   hint?: React.ReactNode;
   disabled?: boolean;
+  /** The service the key is for, to say where to copy it again. */
+  kind?: string;
 }) {
   const { t } = useAiText();
   const [visible, setVisible] = useState(false);
+  const [fixed, setFixed] = useState(0);
   useEffect(() => {
-    if (!value) setVisible(false);
+    if (!value) {
+      setVisible(false);
+      setFixed(0);
+    }
   }, [value]);
+  // Checked on every change with the server's rule, so a refused character is named right away.
+  const analysis = useMemo(() => analyzeKey(value), [value]);
+  const commit = (next: string) => {
+    if (!analyzeKey(next)) onCommit?.(next);
+  };
+  const charsId = `${id}-chars`;
+  const shownError = analysis
+    ? t("aiServices.keyChars.summary", { count: analysis.problems.length })
+    : error;
+  const describedBy = described(id, !!hint, shownError);
   return (
-    <Field id={id} label={label} error={error} hint={hint}>
+    <Field id={id} label={label} error={shownError} hint={hint}>
       <div className="ai-key-input">
         <input
           id={id}
@@ -127,17 +147,25 @@ function KeyInput({
           maxLength={8192}
           value={value}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            setFixed(0);
+            onChange(event.target.value);
+          }}
           onPaste={(event) => {
             const pasted = event.clipboardData.getData("text");
             if (onCommit && pasted)
               setTimeout(
-                () => onCommit((event.target as HTMLInputElement).value),
+                () => commit((event.target as HTMLInputElement).value),
                 0,
               );
           }}
-          onBlur={(event) => onCommit?.(event.target.value)}
-          {...described(id, !!hint, error)}
+          onBlur={(event) => commit(event.target.value)}
+          {...describedBy}
+          aria-describedby={
+            analysis
+              ? `${describedBy["aria-describedby"] ?? ""} ${charsId}`.trim()
+              : describedBy["aria-describedby"]
+          }
         />
         <button
           type="button"
@@ -158,6 +186,29 @@ function KeyInput({
           )}
         </button>
       </div>
+      {analysis && (
+        <KeyCharacters
+          id={charsId}
+          analysis={analysis}
+          kind={kind}
+          onFix={
+            disabled
+              ? undefined
+              : () => {
+                  const next = fixKeyCharacters(value);
+                  setFixed(analysis.fixable);
+                  onChange(next);
+                  document.getElementById(id)?.focus();
+                  commit(next);
+                }
+          }
+        />
+      )}
+      {fixed > 0 && (
+        <p className="ai-key-fixed" role="status">
+          {t("aiServices.keyChars.fixed", { count: fixed })}
+        </p>
+      )}
     </Field>
   );
 }
@@ -201,9 +252,10 @@ function AddConnection({
   const inFlight = useRef<{ key: string; promise: Promise<Outcome> }>(
     undefined,
   );
+  const badChars = !!analyzeKey(key);
   async function test(value: string): Promise<Outcome | null> {
     const clean = trimKey(value);
-    if (!clean) return null;
+    if (!clean || analyzeKey(clean)) return null;
     if (
       (outcome.kind === "ok" || outcome.kind === "failed") &&
       outcome.key === clean
@@ -253,6 +305,7 @@ function AddConnection({
       ]);
       return;
     }
+    if (analyzeKey(clean)) return;
     setErrors([]);
     setSaving(true);
     try {
@@ -344,6 +397,7 @@ function AddConnection({
         value={key}
         error={keyError}
         disabled={saving}
+        kind={kind}
         hint={
           help ? (
             <a href={help} target="_blank" rel="noreferrer noopener">
@@ -359,6 +413,7 @@ function AddConnection({
         }
         onChange={(value) => {
           setKey(value);
+          if (value) setErrors([]);
           if (outcome.kind !== "testing") setOutcome({ kind: "idle" });
         }}
         onCommit={(value) => void test(value)}
@@ -433,14 +488,21 @@ function AddConnection({
           className="button primary"
           disabled={
             saving ||
+            badChars ||
             (outcome.kind === "failed" && outcome.key === trimKey(key))
           }
+          aria-describedby={badChars ? `${base}-blocked` : undefined}
         >
           {saving
             ? t("aiServices.connect.saving")
             : t("aiServices.connect.save")}
         </button>
       </div>
+      {badChars && (
+        <p id={`${base}-blocked`} className="ai-hint">
+          {t("aiServices.keyChars.saveBlocked")}
+        </p>
+      )}
     </form>
   );
 }
@@ -510,12 +572,14 @@ function ConnectionRow({
       setBusy(false);
     }
   }
+  const badChars = !!analyzeKey(key);
   async function replace() {
     const clean = trimKey(key);
     if (!clean) {
       setKeyError(t("aiServices.connect.errEmpty", { service }));
       return;
     }
+    if (analyzeKey(clean)) return;
     setKeyError(undefined);
     setBusy(true);
     try {
@@ -629,6 +693,7 @@ function ConnectionRow({
             value={key}
             error={keyError}
             disabled={busy}
+            kind={connection.kind}
             onChange={(value) => {
               setKey(value);
               setKeyError(undefined);
@@ -643,12 +708,22 @@ function ConnectionRow({
             >
               {t("aiServices.connect.cancel")}
             </button>
-            <button type="submit" className="button primary" disabled={busy}>
+            <button
+              type="submit"
+              className="button primary"
+              disabled={busy || badChars}
+              aria-describedby={badChars ? `${base}-blocked` : undefined}
+            >
               {busy
                 ? t("aiServices.connect.saving")
                 : t("aiServices.row.replaceSave")}
             </button>
           </div>
+          {badChars && (
+            <p id={`${base}-blocked`} className="ai-hint">
+              {t("aiServices.keyChars.saveBlocked")}
+            </p>
+          )}
         </form>
       ) : (
         <div className="ai-actions">
