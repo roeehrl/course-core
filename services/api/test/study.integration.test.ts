@@ -191,7 +191,7 @@ describe("study administration", () => {
     expect((await call(owner, "POST", `/api/admin/courses/${course}/studies`, definition({ minCellSize: 1 }))).statusCode).toBe(400);
     // A draft may lack sets, but cannot open without a pre-test and a post-test.
     const draft = (await ok(call(owner, "POST", `/api/admin/courses/${course}/studies`, definition({ instruments: { pre: [], post: [], transfer: ["min-a"], delayed: [] } })))).study;
-    expect((await summary()).studies[0].warnings.join(" ")).toMatch(/min-a has no declared SDK role/);
+    expect((await summary()).studies[0].warnings).toContainEqual({ code: "TRANSFER_ROLE_UNDECLARED", params: { item: "min-a" } });
     const refused = await call(owner, "POST", `/api/admin/studies/${draft.id}/open`, { expectedRevision: draft.revision });
     expect(refused.json().details.problems).toEqual(expect.arrayContaining(["STUDY_PRE_REQUIRED", "STUDY_POST_REQUIRED"]));
     expect((await call(owner, "POST", `/api/admin/courses/${course}/studies`, definition())).json().error).toBe("STUDY_ALREADY_OPEN");

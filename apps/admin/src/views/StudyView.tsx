@@ -20,6 +20,7 @@ import {
   type Study,
   type StudyArm,
   type StudyDefinitionInput,
+  studyWarningText,
 } from "../domain/studies";
 import { useRemote } from "../hooks/useAdmin";
 import {
@@ -161,6 +162,7 @@ function StudyCard({
   onChanged: (message: string) => void;
 }) {
   const t = useT();
+  const i18n = useI18n();
   const { when } = useFormatters();
   const [editing, setEditing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -312,9 +314,9 @@ function StudyCard({
         {study.warnings.length > 0 && (
           <Notice tone="gold" title={t("studyView.warnings.title")}>
             <ul className="plain-list">
-              {study.warnings.map((w) => (
-                <li key={w} dir="auto">
-                  {w}
+              {study.warnings.map((w, index) => (
+                <li key={index} dir="auto">
+                  {studyWarningText(w, t, i18n.has)}
                 </li>
               ))}
             </ul>
