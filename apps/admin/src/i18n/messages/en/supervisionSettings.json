@@ -86,5 +86,7 @@
   "budget.save": "Save limits",
   "budget.clear": "Remove limits",
   "budget.saved": "Limits saved.",
-  "budget.cleared": "Limits removed."
+  "budget.cleared": "Limits removed.",
+  "budget.courseZone": "Days start at midnight in the course's time zone ({zone}).",
+  "budget.mediaCounts": "Generated videos and images for this learner count toward these limits too."
 }

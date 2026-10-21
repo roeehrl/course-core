@@ -131,5 +131,16 @@
   "cancel.reason": "למה לעצור",
   "cancel.reasonHint": "חובה, לפחות 10 תווים. נשמר ברשומת הצוות ולא מוצג ללומד/ת.",
   "cancel.submit": "עצירת ההרצה",
-  "cancel.pending": "עוצרים…"
+  "cancel.pending": "עוצרים…",
+  "policies.providerSource.host_file": "קובץ ספקי ה-AI של השרת (לסביבת העבודה לא הייתה הגדרת שירותי AI משלה)",
+  "policies.providerSource.workspace": "הגדרת שירותי ה-AI של סביבת העבודה",
+  "strategies.title": "איזו הגדרת AI ענתה",
+  "strategies.none": "אף קריאה בהרצה הזו לא תיעדה איזו הגדרת AI ענתה. הרצות מלפני שהתחלנו לתעד את זה לא מציגות כאן כלום.",
+  "strategies.unchecked": "לפחות קריאה אחת רצה עם הגדרה שבאותו זמן לא עברה בדיקת איכות ולא אושרה על ידי בעלים. היא בכל זאת רצה; אפשר לבדוק או לאשר אותה בדף שירותי ה-AI.",
+  "strategies.source.core": "ההגדרה של Course Core עצמו {strategy} (גרסה {version})",
+  "strategies.source.course": "ההגדרה המצומצמת של הקורס {strategy} (גרסה {version})",
+  "strategies.standing.passed": "עברה את בדיקת האיכות",
+  "strategies.standing.approved": "אושרה על ידי בעלים",
+  "strategies.standing.not_checked": "לא נבדקה כשרצה",
+  "strategies.standing.unknown": "מצב הבדיקה לא ידוע"
 }

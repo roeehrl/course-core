@@ -83,7 +83,7 @@ export async function courseOverview(client: Sql, catalog: OverviewCatalog, acce
     }
   }
 
-  let supervisorHealth: { jobsByState: Record<string, number>; failedLast24h: number; oldestOpenJobAgeSeconds: number | null } | null = null;
+  let supervisorHealth: { jobsByState: Record<string, number>; failedLast24h: number; oldestOpenJobAgeSeconds: number | null; uncheckedCallsLast7Days: number } | null = null;
   if (access.runs) {
     const jobs = (await client.query<{ state: string; n: number; oldest: Date | null; failed_recent: number }>(
       `SELECT j.state,count(*)::int AS n,min(j.created_at) FILTER (WHERE j.state <> ALL($3::text[])) AS oldest,
@@ -92,8 +92,15 @@ export async function courseOverview(client: Sql, catalog: OverviewCatalog, acce
         WHERE e.workspace_id=$1 AND r.course_key=$2 GROUP BY j.state`,
       [catalog.workspace_id, catalog.course_key, TERMINAL_JOB_STATES, new Date(now.getTime() - DAY_MS)])).rows;
     const oldest = jobs.map(j => j.oldest).filter((d): d is Date => d !== null).sort((a, b) => a.getTime() - b.getTime())[0];
+    // AI calls of the last 7 days whose exact setup had no passing quality check and no owner
+    // approval when they ran (for example a role whose prompt changed in a Core upgrade). They ran;
+    // this makes them visible (requirement B08, agent-evals/gate.ts).
+    const unchecked = (await client.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM provider_dispatches d JOIN enrollments e ON e.id=d.enrollment_id JOIN course_releases r ON r.id=e.course_release_id
+        WHERE e.workspace_id=$1 AND r.course_key=$2 AND d.started_at > $3 AND d.eval_standing IN ('not_checked','unknown') AND d.sent_at IS NOT NULL`,
+      [catalog.workspace_id, catalog.course_key, new Date(now.getTime() - 7 * DAY_MS)])).rows[0]!.n;
     supervisorHealth = { jobsByState: Object.fromEntries(jobs.map(j => [j.state, j.n])), failedLast24h: jobs.reduce((n, j) => n + j.failed_recent, 0),
-      oldestOpenJobAgeSeconds: oldest ? Math.max(0, Math.round((now.getTime() - oldest.getTime()) / 1000)) : null };
+      oldestOpenJobAgeSeconds: oldest ? Math.max(0, Math.round((now.getTime() - oldest.getTime()) / 1000)) : null, uncheckedCallsLast7Days: unchecked };
   }
 
   const count = async (sql: string, values: unknown[]) => (await client.query<{ n: number }>(sql, values)).rows[0]!.n;

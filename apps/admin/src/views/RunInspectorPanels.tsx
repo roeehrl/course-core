@@ -126,6 +126,50 @@ export function WorkflowPanel({
   );
 }
 
+type StrategyRow = NonNullable<
+  NonNullable<SupervisorRun["policies"]>["strategies"]
+>[number];
+/** Which AI setup answered each call, and whether that exact setup was checked or approved. */
+function StrategiesUsed({ strategies }: { strategies: StrategyRow[] }) {
+  const t = useT();
+  if (!strategies.length)
+    return <p className="muted">{t("runInspectorPanels.strategies.none")}</p>;
+  const unchecked = strategies.some(
+    (s) => s.evalStanding === "not_checked" || s.evalStanding === "unknown",
+  );
+  return (
+    <section aria-labelledby="run-strategies" className="stack">
+      <h4 id="run-strategies">{t("runInspectorPanels.strategies.title")}</h4>
+      {unchecked && (
+        <Notice tone="gold">
+          {t("runInspectorPanels.strategies.unchecked")}
+        </Notice>
+      )}
+      <ul className="plain-list">
+        {strategies.map((s) => (
+          <li key={s.operationId}>
+            {t(`runInspectorPanels.strategies.source.${s.source}`, {
+              strategy: s.strategyId,
+              version: s.version ?? "—",
+            })}{" "}
+            <Badge
+              tone={
+                s.evalStanding === "passed"
+                  ? "green"
+                  : s.evalStanding === "approved"
+                    ? "blue"
+                    : "gold"
+              }
+            >
+              {t(`runInspectorPanels.strategies.standing.${s.evalStanding}`)}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function PoliciesPanel({ run }: { run: SupervisorRun }) {
   const t = useT();
   const { when } = useFormatters();
@@ -197,7 +241,15 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         </div>
         <div>
           <dt>{t("runInspectorPanels.policies.providerConfiguration")}</dt>
-          <dd dir="ltr">{p.providerConfiguration}</dd>
+          <dd>
+            {p.providerSource ? (
+              t(
+                `runInspectorPanels.policies.providerSource.${p.providerSource}`,
+              )
+            ) : (
+              <span dir="ltr">{p.providerConfiguration}</span>
+            )}
+          </dd>
         </div>
         <div>
           <dt>{t("runInspectorPanels.policies.supervision")}</dt>
@@ -217,6 +269,7 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
           </div>
         )}
       </dl>
+      {p.strategies && <StrategiesUsed strategies={p.strategies} />}
       <table className="data-table">
         <caption>{t("runInspectorPanels.operations.caption")}</caption>
         <thead>
