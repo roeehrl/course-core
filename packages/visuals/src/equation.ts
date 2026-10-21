@@ -1,4 +1,6 @@
-import { finite, VisualError } from "./expression.js";
+import { finite } from "./expression.js";
+import type { ErrorKey, englishErrorMessages } from "./errors.js";
+import { visualError } from "./errors.js";
 import type { EquationLayout } from "./types.js";
 import { sanitizeMarkup } from "./markup.js";
 import type { MarkupElement } from "./markup.js";
@@ -244,8 +246,12 @@ class Parser {
   private atoms = 0;
   private style: Style | undefined;
   constructor(private readonly s: string) {}
-  private fail(code: string, message: string): never {
-    throw new VisualError(code, `Equation: ${message}`);
+  private fail<K extends ErrorKey>(
+    code: string,
+    key: K,
+    ...params: Parameters<(typeof englishErrorMessages)[K]>
+  ): never {
+    throw visualError(code, key, ...params);
   }
   private skip() {
     while (/\s/.test(this.s[this.i] ?? "")) this.i++;
@@ -258,7 +264,7 @@ class Parser {
     large = false,
   ): MathNode {
     if (++this.atoms > EQUATION_LIMITS.atoms)
-      this.fail("EQUATION_LIMIT", "too many symbols");
+      this.fail("EQUATION_LIMIT", "equationTooManySymbols");
     return {
       t: "atom",
       text,
@@ -270,24 +276,27 @@ class Parser {
   }
   parse(): MathNode {
     const row = this.row(0, false);
-    if (this.i < this.s.length) this.fail("EQUATION_SYNTAX", "unbalanced }");
+    if (this.i < this.s.length)
+      this.fail("EQUATION_SYNTAX", "equationUnbalancedBrace");
     return row;
   }
   /** `closed`: inside braces; "cell": an environment cell, ended by &, \\\\ or \\end. */
   private row(depth: number, closed: boolean | "cell"): MathNode {
     if (depth > EQUATION_LIMITS.depth)
-      this.fail("EQUATION_LIMIT", "nesting exceeds limit");
+      this.fail("EQUATION_LIMIT", "equationNesting");
     const items: MathNode[] = [];
     for (;;) {
       this.skip();
       const c = this.s[this.i];
       if (c === undefined) {
-        if (closed === "cell") this.fail("EQUATION_SYNTAX", "missing \\end");
-        if (closed) this.fail("EQUATION_SYNTAX", "missing }");
+        if (closed === "cell")
+          this.fail("EQUATION_SYNTAX", "equationMissingEnd");
+        if (closed) this.fail("EQUATION_SYNTAX", "equationMissingBrace");
         break;
       }
       if (c === "}") {
-        if (closed !== true) this.fail("EQUATION_SYNTAX", "unbalanced }");
+        if (closed !== true)
+          this.fail("EQUATION_SYNTAX", "equationUnbalancedBrace");
         break;
       }
       if (
@@ -297,18 +306,15 @@ class Parser {
           /^\\end(?![A-Za-z])/.test(this.s.slice(this.i, this.i + 5)))
       )
         break;
-      if (c === "&")
-        this.fail(
-          "EQUATION_CHAR",
-          "& separates columns only inside a matrix or environment",
-        );
+      if (c === "&") this.fail("EQUATION_CHAR", "equationAmpersand");
       if (c === "^" || c === "_") {
         this.i++;
         const argument = this.argument(depth + 1);
         let last = items.pop() ?? { t: "row", items: [] };
         if (last.t !== "scripts") last = { t: "scripts", base: last };
         const slot = c === "^" ? "sup" : "sub";
-        if (last[slot]) this.fail("EQUATION_SYNTAX", `double ${c}`);
+        if (last[slot])
+          this.fail("EQUATION_SYNTAX", "equationDouble", { script: c });
         last[slot] = argument;
         items.push(last);
         continue;
@@ -322,7 +328,7 @@ class Parser {
     this.skip();
     const c = this.s[this.i];
     if (c === undefined || c === "}" || c === "^" || c === "_")
-      this.fail("EQUATION_SYNTAX", "missing argument");
+      this.fail("EQUATION_SYNTAX", "equationMissingArgument");
     if (c === "{") return this.group(depth);
     if (/[0-9]/.test(c!)) {
       this.i++;
@@ -351,7 +357,9 @@ class Parser {
     }
     const known = CHARS[c];
     if (!known)
-      this.fail("EQUATION_CHAR", `unsupported character ${JSON.stringify(c)}`);
+      this.fail("EQUATION_CHAR", "equationCharacter", {
+        character: JSON.stringify(c),
+      });
     this.i++;
     return this.atom(known[0], known[1], "mo");
   }
@@ -359,27 +367,27 @@ class Parser {
     this.i++;
     const letters = /^[A-Za-z]+/.exec(this.s.slice(this.i))?.[0];
     const name = letters ?? this.s[this.i] ?? "";
-    if (!name) this.fail("EQUATION_SYNTAX", "trailing backslash");
+    if (!name) this.fail("EQUATION_SYNTAX", "equationTrailingBackslash");
     this.i += name.length;
     return name;
   }
   private braced(): string {
     this.skip();
-    if (this.s[this.i] !== "{") this.fail("EQUATION_SYNTAX", "expected {");
+    if (this.s[this.i] !== "{")
+      this.fail("EQUATION_SYNTAX", "equationExpectedBrace");
     const end = this.s.indexOf("}", this.i);
-    if (end < 0) this.fail("EQUATION_SYNTAX", "missing }");
+    if (end < 0) this.fail("EQUATION_SYNTAX", "equationMissingBrace");
     const text = this.s.slice(this.i + 1, end);
-    if (/[{\\]/.test(text))
-      this.fail("EQUATION_SYNTAX", "text may not contain braces or macros");
+    if (/[{\\]/.test(text)) this.fail("EQUATION_SYNTAX", "equationTextContent");
     if (text.length > EQUATION_LIMITS.text)
-      this.fail("EQUATION_LIMIT", "text too long");
+      this.fail("EQUATION_LIMIT", "equationTextTooLong");
     this.i = end + 1;
     return text;
   }
   private macro(depth: number): MathNode {
     const name = this.name();
     if (UNSAFE.test(name))
-      this.fail("EQUATION_UNSAFE", `\\${name} is not allowed`);
+      this.fail("EQUATION_UNSAFE", "equationUnsafeMacro", { name });
     if (Object.hasOwn(SPACES, name)) return { t: "space", em: SPACES[name]! };
     if (name === "quad" || name === "qquad")
       return { t: "space", em: name === "quad" ? 1 : 2 };
@@ -403,7 +411,7 @@ class Parser {
     if (name === "sqrt") {
       this.skip();
       if (this.s[this.i] === "[")
-        this.fail("EQUATION_MACRO", "\\sqrt with an index is not supported");
+        this.fail("EQUATION_MACRO", "equationSqrtIndex");
       return { t: "sqrt", body: this.argument(depth + 1) };
     }
     if (ACCENTS.has(name as Accent))
@@ -415,13 +423,13 @@ class Parser {
     if (name === "text") {
       const text = this.braced();
       if (++this.atoms > EQUATION_LIMITS.atoms)
-        this.fail("EQUATION_LIMIT", "too many symbols");
+        this.fail("EQUATION_LIMIT", "equationTooManySymbols");
       return { t: "text", text };
     }
     if (name === "operatorname") {
       const text = this.braced();
       if (!/^[A-Za-z]{1,32}$/.test(text))
-        this.fail("EQUATION_SYNTAX", "operator names are letters only");
+        this.fail("EQUATION_SYNTAX", "equationOperatorName");
       return this.atom(text, "op", "mi");
     }
     if (name === "mathrm" || name === "mathbf" || name === "mathit") {
@@ -434,10 +442,7 @@ class Parser {
     }
     if (name === "begin") return this.environment(depth);
     if (name === "\\" || name === "end")
-      this.fail(
-        "EQUATION_SYNTAX",
-        `\\${name} belongs inside \\begin{…} … \\end{…}`,
-      );
+      this.fail("EQUATION_SYNTAX", "equationRowBreak", { name });
     if (name === "left" || name === "right") {
       this.skip();
       const next =
@@ -450,24 +455,26 @@ class Parser {
       }
       const delimiter = DELIMITERS[next];
       if (!delimiter)
-        this.fail("EQUATION_SYNTAX", `\\${name} needs a delimiter`);
+        this.fail("EQUATION_SYNTAX", "equationNeedsDelimiter", { name });
       this.i += next.length;
       return this.atom(delimiter[0], delimiter[1], "mo");
     }
-    return this.fail("EQUATION_MACRO", `unsupported macro \\${name}`);
+    return this.fail("EQUATION_MACRO", "equationUnsupportedMacro", { name });
   }
   /** \\begin{env} cells separated by & and rows by \\\\, up to \\end{env}. */
   private environment(depth: number): MathNode {
     const env = this.braced() as Environment;
     if (!ENVIRONMENTS.has(env))
-      this.fail("EQUATION_MACRO", `unsupported environment ${env}`);
+      this.fail("EQUATION_MACRO", "equationUnsupportedEnvironment", {
+        environment: env,
+      });
     if (depth + 1 > EQUATION_LIMITS.depth)
-      this.fail("EQUATION_LIMIT", "nesting exceeds limit");
+      this.fail("EQUATION_LIMIT", "equationNesting");
     const rows: MathNode[][] = [[]];
     for (;;) {
       rows.at(-1)!.push(this.row(depth + 1, "cell"));
       if (rows.at(-1)!.length > EQUATION_LIMITS.columns)
-        this.fail("EQUATION_LIMIT", "too many columns");
+        this.fail("EQUATION_LIMIT", "equationTooManyColumns");
       if (this.s[this.i] === "&") {
         this.i++;
         continue;
@@ -477,21 +484,23 @@ class Parser {
         rows.push([]);
         // One more than the limit: a trailing \\\\ leaves an empty last row, dropped below.
         if (rows.length > EQUATION_LIMITS.rows + 1)
-          this.fail("EQUATION_LIMIT", "too many rows");
+          this.fail("EQUATION_LIMIT", "equationTooManyRows");
         continue;
       }
       // \\end{env}
       this.i += 4;
       if (this.braced() !== env)
-        this.fail("EQUATION_SYNTAX", `\\begin{${env}} ends with another \\end`);
+        this.fail("EQUATION_SYNTAX", "equationMismatchedEnd", {
+          environment: env,
+        });
       break;
     }
     const empty = (cell: MathNode) => cell.t === "row" && !cell.items.length;
     if (rows.length > 1 && rows.at(-1)!.every(empty)) rows.pop();
     if (rows.length > EQUATION_LIMITS.rows)
-      this.fail("EQUATION_LIMIT", "too many rows");
+      this.fail("EQUATION_LIMIT", "equationTooManyRows");
     if (env === "cases" && rows.some((r) => r.length > 2))
-      this.fail("EQUATION_SYNTAX", "cases rows have at most two columns");
+      this.fail("EQUATION_SYNTAX", "equationCasesColumns");
     return { t: "table", env, rows };
   }
 }
@@ -499,16 +508,13 @@ class Parser {
 /** Parses the supported TeX subset. Throws VisualError for anything else. */
 export function parseTex(tex: string): MathNode {
   if (typeof tex !== "string" || !tex.trim())
-    throw new VisualError("EQUATION_SYNTAX", "Equation: empty");
+    throw visualError("EQUATION_SYNTAX", "equationEmpty");
   if (tex.length > EQUATION_LIMITS.chars)
-    throw new VisualError("EQUATION_LIMIT", "Equation: too long");
+    throw visualError("EQUATION_LIMIT", "equationTooLong");
   if (/[^\x20-\x7e\n\t]/.test(tex))
-    throw new VisualError(
-      "EQUATION_CHAR",
-      "Equation: use ASCII TeX; write symbols as macros",
-    );
+    throw visualError("EQUATION_CHAR", "equationAsciiTex");
   if (/[$#%~"`@]/.test(tex))
-    throw new VisualError("EQUATION_CHAR", "Equation: unsupported character");
+    throw visualError("EQUATION_CHAR", "equationUnsupportedCharacter");
   return new Parser(tex).parse();
 }
 

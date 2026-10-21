@@ -1,21 +1,12 @@
 import type { Expression, State, Value } from "./types.js";
+import { visualError } from "./errors.js";
+import { VisualError } from "./visual-error.js";
 
 export const MAX_VALUE = 1_000_000_000;
-export class VisualError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "VisualError";
-  }
-}
+export { VisualError };
 export function finite(value: number, label = "number"): number {
   if (!Number.isFinite(value) || Math.abs(value) > MAX_VALUE)
-    throw new VisualError(
-      "NON_FINITE",
-      `${label} must be finite and within ±${MAX_VALUE}`,
-    );
+    throw visualError("NON_FINITE", "nonFinite", { label, max: MAX_VALUE });
   return Object.is(value, -0) ? 0 : value;
 }
 export interface EvaluationContext {
@@ -69,7 +60,7 @@ export function seededSample(
     typeof label !== "string" ||
     !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(label)
   )
-    throw new VisualError("SAMPLE", "Invalid sample seed, tick or label");
+    throw visualError("SAMPLE", "invalidSample");
   let h = (seed ^ Math.imul(tick, 0x9e3779b1)) >>> 0;
   for (let i = 0; i < label.length; i++)
     h = Math.imul(h ^ label.charCodeAt(i), 16777619) >>> 0;
@@ -87,19 +78,18 @@ export function evaluate(
   const budget = context.budget ?? { remaining: 4096 };
   function visit(e: Expression, depth: number): Value {
     if (--budget.remaining < 0 || depth > 16)
-      throw new VisualError(
+      throw visualError(
         "EXPRESSION_LIMIT",
-        "Expression evaluation budget exceeded",
+        "expressionEvaluationBudgetExceeded",
       );
     if (typeof e === "number") return finite(e);
     if (typeof e === "boolean") return e;
     if (typeof e === "string") {
-      if (e.length > 2048)
-        throw new VisualError("TEXT_LIMIT", "Text is too long");
+      if (e.length > 2048) throw visualError("TEXT_LIMIT", "textIsTooLong");
       return e;
     }
     if (!e || typeof e !== "object" || Array.isArray(e))
-      throw new VisualError("EXPRESSION", "Invalid expression");
+      throw visualError("EXPRESSION", "invalidExpression");
     const prototype = Object.getPrototypeOf(e),
       descriptors = Object.getOwnPropertyDescriptors(e),
       keys = Object.keys(descriptors);
@@ -107,13 +97,13 @@ export function evaluate(
       (prototype !== Object.prototype && prototype !== null) ||
       keys.some((k) => !("value" in descriptors[k]!))
     )
-      throw new VisualError("EXPRESSION", "Expressions must be plain data");
+      throw visualError("EXPRESSION", "expressionsMustBePlainData");
     const exact = (allowed: string[]) => {
       if (
         keys.length !== allowed.length ||
         keys.some((k) => !allowed.includes(k))
       )
-        throw new VisualError("EXPRESSION", "Unexpected expression fields");
+        throw visualError("EXPRESSION", "unexpectedExpressionFields");
     };
     if ("state" in e) {
       exact(["state"]);
@@ -122,16 +112,16 @@ export function evaluate(
         !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(e.state) ||
         ["constructor", "prototype", "__proto__"].includes(e.state)
       )
-        throw new VisualError("STATE", "Invalid state identifier");
+        throw visualError("STATE", "invalidStateIdentifier");
       if (!Object.hasOwn(context.state, e.state))
-        throw new VisualError("STATE", `Unknown state: ${e.state}`);
+        throw visualError("STATE", "unknownState", { state: e.state });
       const value = context.state[e.state]!;
       return typeof value === "number" ? finite(value) : value;
     }
     if ("time" in e) {
       exact(["time"]);
       if (e.time !== true)
-        throw new VisualError("EXPRESSION", "Invalid time expression");
+        throw visualError("EXPRESSION", "invalidTimeExpression");
       return finite(context.timeMs);
     }
     if ("sample" in e) {
@@ -143,31 +133,27 @@ export function evaluate(
       !Object.hasOwn(operatorArity, e.op) ||
       !Array.isArray(e.args)
     )
-      throw new VisualError("EXPRESSION", "Unknown operator");
+      throw visualError("EXPRESSION", "unknownOperator");
     exact(["op", "args"]);
     const arity = operatorArity[e.op];
     if (e.args.length < arity[0] || e.args.length > arity[1])
-      throw new VisualError("EXPRESSION", `Invalid arity for ${e.op}`);
+      throw visualError("EXPRESSION", "invalidArity", { op: e.op });
     if (
       Reflect.ownKeys(e.args).length !== e.args.length + 1 ||
       Array.from({ length: e.args.length }, (_, i) => i).some(
         (i) => !Object.hasOwn(e.args, i),
       )
     )
-      throw new VisualError("EXPRESSION", "Arguments must be dense arrays");
+      throw visualError("EXPRESSION", "argumentsMustBeDenseArrays");
     if (
       Object.values(Object.getOwnPropertyDescriptors(e.args)).some(
         (d) => !("value" in d),
       )
     )
-      throw new VisualError(
-        "EXPRESSION",
-        "Expression arguments must be plain data",
-      );
+      throw visualError("EXPRESSION", "expressionArgumentsPlainData");
     const get = (i: number) => visit(e.args[i]!, depth + 1);
     const boolean = (v: Value) => {
-      if (typeof v !== "boolean")
-        throw new VisualError("TYPE", "Expected boolean");
+      if (typeof v !== "boolean") throw visualError("TYPE", "expectedBoolean");
       return v;
     };
     if (e.op === "if") return get(boolean(get(0)) ? 1 : 2);
@@ -178,13 +164,13 @@ export function evaluate(
     if (e.op === "concat") {
       const text = values.join("");
       if (text.length > 2048)
-        throw new VisualError("TEXT_LIMIT", "Expression text exceeds limit");
+        throw visualError("TEXT_LIMIT", "expressionTextExceedsLimit");
       return text;
     }
     if (e.op === "eq") return values[0] === values[1];
     const n = values.map((v) => {
       if (typeof v !== "number")
-        throw new VisualError("TYPE", `Expected numbers for ${e.op}`);
+        throw visualError("TYPE", "expectedNumbers", { op: e.op });
       return finite(v);
     });
     const a = n[0]!,
@@ -210,16 +196,16 @@ export function evaluate(
         result = n.reduce((x, y) => finite(x * y), 1);
         break;
       case "div":
-        if (!b) throw new VisualError("DIV_ZERO", "Division by zero");
+        if (!b) throw visualError("DIV_ZERO", "divisionByZero");
         result = a / b;
         break;
       case "mod":
-        if (!b) throw new VisualError("DIV_ZERO", "Modulo by zero");
+        if (!b) throw visualError("DIV_ZERO", "moduloByZero");
         result = a % b;
         break;
       case "pow":
         if (Math.abs(b) > 32)
-          throw new VisualError("OVERFLOW", "Exponent out of bounds");
+          throw visualError("OVERFLOW", "exponentOutOfBounds");
         result = a ** b;
         break;
       case "min":
@@ -229,7 +215,7 @@ export function evaluate(
         result = Math.max(...n);
         break;
       case "clamp":
-        if (b > c) throw new VisualError("RANGE", "Reversed clamp range");
+        if (b > c) throw visualError("RANGE", "reversedClampRange");
         result = Math.min(c, Math.max(b, a));
         break;
       case "lerp":
@@ -254,7 +240,7 @@ export function evaluate(
         result = Math.round(a);
         break;
       default:
-        throw new VisualError("EXPRESSION", "Unsupported expression");
+        throw visualError("EXPRESSION", "unsupportedExpression");
     }
     return finite(result);
   }
