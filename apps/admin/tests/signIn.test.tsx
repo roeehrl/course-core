@@ -124,7 +124,7 @@ describe("password sign-in", () => {
       newPasswordProblem("long enough pw", "long enough pw", "long enough pw"),
     ).toMatch(/different/);
     expect(newPasswordProblem("x".repeat(1025), "x".repeat(1025))).toMatch(
-      /at most 1024/,
+      /at most 1,024/,
     );
     expect(
       newPasswordProblem("😀".repeat(12), "😀".repeat(12)),

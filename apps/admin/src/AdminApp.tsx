@@ -41,30 +41,42 @@ import { SupervisionView } from "./views/SupervisionView";
 import { StudyView } from "./views/StudyView";
 import { AdminSectionView } from "./views/AdminSectionView";
 import { ConceptMappingsView } from "./views/ConceptMappingsView";
+import {
+  useI18n,
+  useT,
+  type AdminTranslator,
+  type MessageKey,
+} from "./i18n";
 
 export interface AdminAppProps {
   client: AdminClient;
 }
 const views = [
-  { id: "overview", title: "Overview", icon: Gauge },
-  { id: "course", title: "Course & releases", icon: BookOpen },
-  { id: "learners", title: "Enrollments", icon: UsersRound },
-  { id: "reviews", title: "Answer reviews", icon: ClipboardCheck },
-  { id: "placement", title: "Placement", icon: Compass },
-  { id: "people", title: "People & roles", icon: Contact },
-  { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
-  { id: "mappings", title: "Concept mappings", icon: Network },
-  { id: "research", title: "Research sources", icon: Library },
-  { id: "media", title: "Generated media", icon: Clapperboard },
-  { id: "providers", title: "Providers", icon: PlugZap },
-  { id: "supervision", title: "AI supervision", icon: Bot },
-  { id: "studies", title: "Studies", icon: FlaskConical },
-  { id: "runs", title: "Run inspector", icon: ScanSearch },
-  { id: "audit", title: "Audit log", icon: History },
-] as const;
+  { id: "overview", titleKey: "adminApp.nav.overview", icon: Gauge },
+  { id: "course", titleKey: "adminApp.nav.course", icon: BookOpen },
+  { id: "learners", titleKey: "adminApp.nav.learners", icon: UsersRound },
+  { id: "reviews", titleKey: "adminApp.nav.reviews", icon: ClipboardCheck },
+  { id: "placement", titleKey: "adminApp.nav.placement", icon: Compass },
+  { id: "people", titleKey: "adminApp.nav.people", icon: Contact },
+  { id: "policy", titleKey: "adminApp.nav.policy", icon: ShieldCheck },
+  { id: "mappings", titleKey: "adminApp.nav.mappings", icon: Network },
+  { id: "research", titleKey: "adminApp.nav.research", icon: Library },
+  { id: "media", titleKey: "adminApp.nav.media", icon: Clapperboard },
+  { id: "providers", titleKey: "adminApp.nav.providers", icon: PlugZap },
+  { id: "supervision", titleKey: "adminApp.nav.supervision", icon: Bot },
+  { id: "studies", titleKey: "adminApp.nav.studies", icon: FlaskConical },
+  { id: "runs", titleKey: "adminApp.nav.runs", icon: ScanSearch },
+  { id: "audit", titleKey: "adminApp.nav.audit", icon: History },
+] as const satisfies readonly { id: string; titleKey: MessageKey; icon: unknown }[];
+/** A role code from the server as a label; unknown codes are shown as they are. */
+export function roleLabel(i18n: AdminTranslator, role: string) {
+  const key = `adminApp.role.${role}` as MessageKey;
+  return i18n.has(key) ? i18n.t(key) : role;
+}
 /** A fixed view, or `section:<id>` for an admin section the live release declares. */
 type ViewId = (typeof views)[number]["id"] | `section:${string}`;
 export function AdminApp({ client }: AdminAppProps) {
+  const t = useT();
   const session = useRemote((signal) => client.getSession(signal), [client]);
   // After installing a new course, reload the session and open that course.
   const [preferred, setPreferred] = useState<string>();
@@ -75,24 +87,21 @@ export function AdminApp({ client }: AdminAppProps) {
   if (session.loading)
     return (
       <main className="startup">
-        <Loading label="Opening administration…" />
+        <Loading label={t("adminApp.opening")} />
       </main>
     );
   if (session.error)
     return (
       <main className="startup">
-        <h1>Administration</h1>
+        <h1>{t("adminApp.title")}</h1>
         <ErrorState error={session.error} onRetry={session.reload} />
       </main>
     );
   if (!session.data?.courses.length)
     return (
       <main className="startup">
-        <h1>No course access</h1>
-        <p>
-          Your account has no courses available. Ask an administrator to check
-          your assignments.
-        </p>
+        <h1>{t("adminApp.noAccess.title")}</h1>
+        <p>{t("adminApp.noAccess.body")}</p>
       </main>
     );
   return (
@@ -143,6 +152,8 @@ function CourseWorkspace({
   onCourseChange: (id: string) => void;
   onOpenCourse: (id: string) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const actions = useWorkspace(client, courseId);
   const data = actions.workspace;
   const [view, setView] = useState<ViewId>("course");
@@ -155,15 +166,20 @@ function CourseWorkspace({
         : Promise.resolve(null),
     [client, courseId],
   );
+  // Section titles are course content, declared by the release.
   const sectionNav = (declared.data?.sections ?? []).map((section) => ({
     id: `section:${section.id}` as ViewId,
     title: section.title,
     icon: SlidersHorizontal,
+    content: true,
   }));
-  const navigation = [...views, ...sectionNav];
+  const navigation = [
+    ...views.map((item) => ({ ...item, title: t(item.titleKey), content: false })),
+    ...sectionNav,
+  ];
   const activeView =
     navigation.find((item) => item.id === view) ??
-    views.find((item) => item.id === "course")!;
+    navigation.find((item) => item.id === "course")!;
   const sectionId =
     view.startsWith("section:") && sectionNav.some((item) => item.id === view)
       ? view.slice("section:".length)
@@ -175,7 +191,7 @@ function CourseWorkspace({
   return (
     <div className="app-frame">
       <a className="skip-link" href="#main-content">
-        Skip to workspace
+        {t("adminApp.skipLink")}
       </a>
       <aside className="sidebar">
         <div className="brand">
@@ -183,14 +199,17 @@ function CourseWorkspace({
             <Layers3 size={22} aria-hidden="true" />
           </span>
           <span>
-            course<span className="brand-core">core</span>
-            <small>ADMINISTRATION</small>
+            <span lang="en" dir="ltr">
+              {/* i18n-ignore: product name, not translated */}
+              course<span className="brand-core">core</span>
+            </span>
+            <small>{t("adminApp.brandSection")}</small>
           </span>
         </div>
         <div className="workspace-label">
-          <PanelTop size={15} aria-hidden="true" /> Course workspace
+          <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
         </div>
-        <nav aria-label="Workspace navigation" className="nav-links">
+        <nav aria-label={t("adminApp.navigation")} className="nav-links">
           {navigation.map((item) => (
             <button
               key={item.id}
@@ -205,11 +224,11 @@ function CourseWorkspace({
               disabled={actions.pending}
             >
               <item.icon size={19} aria-hidden="true" />
-              <span>{item.title}</span>
+              <span dir={item.content ? "auto" : undefined}>{item.title}</span>
               {view === item.id && (
                 <ChevronRight
                   size={15}
-                  className="nav-arrow"
+                  className="nav-arrow flip-rtl"
                   aria-hidden="true"
                 />
               )}
@@ -218,13 +237,13 @@ function CourseWorkspace({
         </nav>
         <div className="sidebar-bottom">
           <ListChecks size={22} aria-hidden="true" />
-          <strong>Intention. Evidence. Review.</strong>
-          <p>One workspace for the decisions behind the learning.</p>
+          <strong>{t("adminApp.tagline.title")}</strong>
+          <p>{t("adminApp.tagline.body")}</p>
           <div className="actor">
             <span className="actor-avatar">{session.actor.name.charAt(0)}</span>
             <div>
-              <strong>{session.actor.name}</strong>
-              <small>{data?.role ?? session.actor.role}</small>
+              <strong dir="auto">{session.actor.name}</strong>
+              <small>{roleLabel(i18n, data?.role ?? session.actor.role)}</small>
             </div>
           </div>
         </div>
@@ -232,9 +251,10 @@ function CourseWorkspace({
       <div className="workspace-main">
         <header className="topbar">
           <div className="course-picker">
-            <label htmlFor="course-select">Course</label>
+            <label htmlFor="course-select">{t("adminApp.course")}</label>
             <select
               id="course-select"
+              dir="auto"
               value={courseId}
               onChange={(e) => onCourseChange(e.target.value)}
               disabled={actions.pending}
@@ -251,12 +271,12 @@ function CourseWorkspace({
           <div className="tag-row">
             <Badge tone={client.mode === "demo" ? "gold" : "blue"}>
               {client.mode === "demo"
-                ? "DEMO WORKSPACE"
-                : "CONNECTED WORKSPACE"}
+                ? t("adminApp.badge.demo")
+                : t("adminApp.badge.connected")}
             </Badge>
             <Button
               kind="quiet"
-              aria-label="Refresh workspace"
+              aria-label={t("adminApp.refresh")}
               disabled={actions.pending || actions.loading}
               onClick={actions.refresh}
             >
@@ -273,30 +293,37 @@ function CourseWorkspace({
           <div className="page-heading">
             <div>
               <p className="eyebrow">
-                Administration / {data?.course.category ?? "Course workspace"}
+                {data?.course.category
+                  ? t("adminApp.eyebrow", { category: data.course.category })
+                  : t("adminApp.eyebrow", { category: t("adminApp.workspace") })}
               </p>
-              <h1 tabIndex={-1} ref={heading}>
+              <h1
+                tabIndex={-1}
+                ref={heading}
+                dir={activeView.content ? "auto" : undefined}
+              >
                 {activeView.title}
               </h1>
             </div>
             <div className="heading-meta">
-              <Badge>{data?.role ?? session.actor.role}</Badge>
-              {data && <small className="mono">revision {data.revision}</small>}
+              <Badge>{roleLabel(i18n, data?.role ?? session.actor.role)}</Badge>
+              {data && (
+                <small className="mono">
+                  {t("adminApp.revision", { revision: data.revision })}
+                </small>
+              )}
             </div>
           </div>
           {session.deployment?.insecureOriginsAllowed && (
             <div className="deployment-notice">
-              <Notice tone="red" title="Insecure-address checks are off">
-                Plain-http addresses outside Tailscale are trusted on this
-                server. Sign-in traffic to them, including passwords and session
-                cookies, is not encrypted. Only the server operator can turn the
-                checks back on.
+              <Notice tone="red" title={t("adminApp.insecure.title")}>
+                {t("adminApp.insecure.body")}
               </Notice>
             </div>
           )}
           {client.mode === "demo" && (
             <p className="demo-disclosure">
-              Public fictional data · in-memory changes · no live provider calls
+              {t("adminApp.demoDisclosure")}
             </p>
           )}
           {actions.loading ? (
@@ -361,8 +388,8 @@ function CourseWorkspace({
             <Loading />
           )}
           <footer className="footer">
-            <span>Course Core / A little more understanding.</span>
-            <span>Server authorization governs every action.</span>
+            <span>{t("adminApp.footer.motto")}</span>
+            <span>{t("adminApp.footer.authorization")}</span>
           </footer>
         </main>
       </div>
