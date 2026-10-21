@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "about": "Maps public requirement IDs of the v0.8 requirement list to the tests that cover them in course-core and course-sdk. IDs only; requirement text is not copied here. node scripts/requirements-map.mjs fails on unknown IDs and dangling test references and reports uncovered IDs. A reference is core:<tracked test path> or sdk:<test path at the pinned SDK commit>, optionally ::<text the test file must contain>. Listing a test does not claim the requirement is complete; see the audit for status.",
+  "about": "Maps public requirement IDs of the v0.8 requirement list to the tests that cover them in course-core and course-sdk. IDs only; requirement text is not copied here. node scripts/requirements-map.mjs fails on unknown IDs and dangling test references, reports uncovered IDs and fails while any ID listed in critical lacks a behavior-level reference (one naming a test title). A reference is core:<tracked test path> or sdk:<test path at the pinned SDK commit>, optionally ::<text the test file must contain>. Listing a test does not claim the requirement is complete; see the audit for status.",
   "excludedPrefixes": {
     "V": "Private curriculum requirements are verified in the course repository, not in these public repositories."
   },
@@ -14,6 +14,43 @@
       "commit": "683c718f0eeee04ff58da55dff599cee33b46b46"
     }
   },
+  "critical": [
+    "A02",
+    "A03",
+    "C03",
+    "C07",
+    "C08",
+    "F02",
+    "F03",
+    "F07",
+    "G03",
+    "G10",
+    "G12",
+    "G13",
+    "G14",
+    "K06",
+    "K08",
+    "K13",
+    "N03",
+    "N05",
+    "P07",
+    "P08",
+    "P09",
+    "Q10",
+    "Q13",
+    "R02",
+    "R06",
+    "R07",
+    "S01",
+    "S03",
+    "S08",
+    "S09",
+    "S11",
+    "T04",
+    "T05",
+    "U05",
+    "U08"
+  ],
   "ids": [
     "A01",
     "A02",
@@ -235,12 +272,15 @@
     ],
     "A02": [
       "core:scripts/infra.test.mjs",
+      "core:scripts/infra.test.mjs::owner repository allowlist covers URL forms without denying other owners or profiles",
       "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/data-lifecycle.integration.test.ts::exports a learner's own complete record without grading keys, to them or an owner only",
       "core:services/api/test/provider-gateway.integration.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "A03": [
       "core:scripts/dependency-graph.test.mjs",
+      "core:scripts/dependency-graph.test.mjs::unknown names, substituted paths, outside paths, and a local SDK are rejected",
       "core:scripts/infra.test.mjs"
     ],
     "A04": [
@@ -272,13 +312,16 @@
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "C03": [
-      "core:services/api/test/learner-model.integration.test.ts"
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/learner-model.integration.test.ts::a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed"
     ],
     "C07": [
-      "core:services/api/test/learner-model.integration.test.ts"
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/learner-model.integration.test.ts::has no browser agent-creation route and denies forged authority, diagnoses and probability fields"
     ],
     "C08": [
-      "core:services/api/test/data-lifecycle.integration.test.ts"
+      "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/data-lifecycle.integration.test.ts::erases personal content everywhere, keeps an auditable skeleton and blocks further use"
     ],
     "C09": [
       "core:apps/learner/tests/memory.test.tsx",
@@ -319,10 +362,12 @@
     ],
     "F02": [
       "core:services/api/test/learning.test.ts",
+      "core:services/api/test/learning.test.ts::requires distinct independent families for every required objective",
       "core:services/api/test/retention.integration.test.ts"
     ],
     "F03": [
-      "core:services/api/test/api.integration.test.ts"
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::practice and corrected repeats remain ineligible for independent mastery"
     ],
     "F04": [
       "core:services/api/test/rubric-assist.integration.test.ts",
@@ -335,7 +380,8 @@
       "core:services/api/test/learner-model.integration.test.ts"
     ],
     "F07": [
-      "core:services/api/test/api.integration.test.ts"
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::deduplicates evidence and outbox records for a retried answer, then opens the next episode only after two families"
     ],
     "F08": [
       "core:services/api/test/wakeups.integration.test.ts"
@@ -345,7 +391,8 @@
       "sdk:tests/validation.test.ts"
     ],
     "G03": [
-      "core:packages/policy/test/resolver.test.mjs"
+      "core:packages/policy/test/resolver.test.mjs",
+      "core:packages/policy/test/resolver.test.mjs::earliest ancestor deadline binds open-ended children; targets are advisory"
     ],
     "G04": [
       "core:packages/policy/test/time.test.mjs",
@@ -364,7 +411,8 @@
       "core:packages/policy/test/extensions.test.mjs"
     ],
     "G10": [
-      "core:services/api/test/api.integration.test.ts"
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::does not grant twice when simultaneous requests use different idempotency keys"
     ],
     "G11": [
       "core:packages/policy/test/lifecycle.test.mjs",
@@ -372,13 +420,16 @@
     ],
     "G12": [
       "core:packages/policy/test/resolver.test.mjs",
-      "core:services/api/test/supervisor-bridge.integration.test.ts"
+      "core:services/api/test/supervisor-bridge.integration.test.ts",
+      "core:services/api/test/supervisor-bridge.integration.test.ts::constructs a fresh job/input fence when policy revision advances after the source event"
     ],
     "G13": [
-      "core:packages/policy/test/resolver.test.mjs"
+      "core:packages/policy/test/resolver.test.mjs",
+      "core:packages/policy/test/resolver.test.mjs::stale revisions fail for admissions and publication, even when fresh command wraps old job"
     ],
     "G14": [
-      "core:packages/policy/test/lifecycle.test.mjs"
+      "core:packages/policy/test/lifecycle.test.mjs",
+      "core:packages/policy/test/lifecycle.test.mjs::on-time grading may finish after closure with a trusted receipt without reopening access or submissions"
     ],
     "G15": [
       "core:packages/policy/test/lifecycle.test.mjs",
@@ -444,13 +495,15 @@
     ],
     "K06": [
       "core:services/api/test/interactive-context.test.ts",
-      "core:services/api/test/interactive-flow.integration.test.ts"
+      "core:services/api/test/interactive-flow.integration.test.ts",
+      "core:services/api/test/interactive-flow.integration.test.ts::explicit companion request stores recomputed context, survives replay and reaches teaching context without evidence or rich Temporal payloads"
     ],
     "K07": [
       "sdk:tests/validation.test.ts"
     ],
     "K08": [
-      "core:apps/learner/tests/resources.test.tsx"
+      "core:apps/learner/tests/resources.test.tsx",
+      "core:apps/learner/tests/resources.test.tsx::keeps Markdown text and code inert and renders only safe inline links"
     ],
     "K10": [
       "core:services/api/test/renderer-compatibility.test.ts"
@@ -459,7 +512,8 @@
       "core:packages/visuals/test/runtime.test.ts"
     ],
     "K13": [
-      "core:services/api/test/admin.integration.test.ts"
+      "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/course-packages.integration.test.ts::reports blocking problems: newer Core required, unsupported SDK, version conflict"
     ],
     "K14": [
       "core:services/api/test/data-lifecycle.integration.test.ts"
@@ -503,10 +557,12 @@
     ],
     "N03": [
       "core:packages/sandbox/test/docker-hardening.test.mjs",
+      "core:packages/sandbox/test/docker-hardening.test.mjs::actual guest observes non-root seccomp/cgroup limits and cannot raise them or write the code mount",
       "core:packages/sandbox/test/docker.test.mjs"
     ],
     "N05": [
-      "core:services/api/test/supervisor-tools.integration.test.ts"
+      "core:services/api/test/supervisor-tools.integration.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts::scopes history and timeline reads, rejects injected authority, and deduplicates simultaneous tool retries"
     ],
     "O01": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
@@ -552,13 +608,16 @@
     ],
     "P07": [
       "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::refuses skipped lessons and a fabricated mastery field",
       "core:services/api/test/episode-insertion.integration.test.ts"
     ],
     "P08": [
-      "core:services/api/test/rubric.integration.test.ts"
+      "core:services/api/test/rubric.integration.test.ts",
+      "core:services/api/test/rubric.integration.test.ts::issues evidence only for a consistent review that quotes the learner, then the gate can pass"
     ],
     "P09": [
-      "core:services/api/test/api.integration.test.ts"
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::records solution help before returning it and downgrades subsequent evidence"
     ],
     "P11": [
       "core:services/api/test/api.integration.test.ts",
@@ -570,12 +629,20 @@
     "P14": [
       "core:apps/learner/tests/components.test.tsx"
     ],
+    "Q02": [
+      "core:apps/admin/tests/real/overview-audit.real.spec.ts::overview, course-scoped access with revocation, and a privacy-preserving audit log",
+      "core:services/api/test/admin-roles.integration.test.ts::summarizes release, lifecycle, risks, defects, supervisor health and approvals; role-limited sections are null"
+    ],
     "Q03": [
       "core:services/api/test/admin.integration.test.ts"
     ],
     "Q05": [
       "core:apps/admin/tests/accommodation.test.tsx",
       "core:services/api/test/admin.integration.test.ts"
+    ],
+    "Q06": [
+      "core:apps/admin/tests/real/placement.real.spec.ts::placement settings tighten only, and a learner's exemption shows its evidence and can be revoked",
+      "core:services/api/test/placement-admin.integration.test.ts::are off by default even when the manifest offers placement, and only staff with policy rights change them"
     ],
     "Q07": [
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
@@ -585,10 +652,20 @@
       "core:apps/admin/tests/real/reviews.real.spec.ts"
     ],
     "Q10": [
-      "core:services/api/test/people.integration.test.ts"
+      "core:services/api/test/people.integration.test.ts",
+      "core:services/api/test/people.integration.test.ts::keeps privileged roles under owner control and blocks self-changes and stale edits"
     ],
     "Q13": [
-      "core:services/api/test/admin.integration.test.ts"
+      "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/admin.integration.test.ts::enforces permission roles and withholds learner data from authors and observers"
+    ],
+    "Q15": [
+      "core:apps/admin/tests/real/admin-sections.real.spec.ts",
+      "core:services/api/test/admin-sections.integration.test.ts::lists only the sections each role may open, including debug.payload sections only for run.payload holders"
+    ],
+    "Q16": [
+      "core:apps/admin/tests/real/learner-view.real.spec.ts",
+      "core:services/api/test/learner-view.integration.test.ts::offers no way to act as the learner: the view is GET-only and every learner command still refuses staff"
     ],
     "Q17": [
       "core:apps/admin/tests/web/admin.spec.ts"
@@ -604,7 +681,8 @@
     "R02": [
       "core:scripts/infra.test.mjs",
       "core:scripts/sandbox-ci.test.mjs",
-      "core:services/api/test/api.integration.test.ts"
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::denies author actions to learners and cross-workspace administrators"
     ],
     "R04": [
       "core:scripts/nightly.test.mjs",
@@ -626,10 +704,12 @@
     ],
     "R07": [
       "core:scripts/nightly.test.mjs::nightly test logs must show suites that ran without skips",
-      "core:scripts/requirements-map.test.mjs"
+      "core:scripts/requirements-map.test.mjs",
+      "core:scripts/requirements-map.test.mjs::the check fails while a critical requirement is uncovered"
     ],
     "S01": [
       "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::deduplicates evidence and outbox records for a retried answer, then opens the next episode only after two families",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/retention.integration.test.ts"
     ],
@@ -639,6 +719,7 @@
     ],
     "S03": [
       "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/api.integration.test.ts::refuses skipped lessons and a fabricated mastery field",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learning.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
@@ -660,6 +741,7 @@
     ],
     "S08": [
       "core:packages/sandbox/test/docker-hardening.test.mjs",
+      "core:packages/sandbox/test/docker-hardening.test.mjs::actual guest observes non-root seccomp/cgroup limits and cannot raise them or write the code mount",
       "core:packages/sandbox/test/docker.test.mjs"
     ],
     "S09": [
@@ -668,7 +750,8 @@
       "core:services/api/test/admin.integration.test.ts",
       "core:services/api/test/data-lifecycle.integration.test.ts",
       "core:services/api/test/provider-gateway.integration.test.ts",
-      "core:services/api/test/supervisor-tools.integration.test.ts"
+      "core:services/api/test/supervisor-tools.integration.test.ts",
+      "core:services/api/test/telemetry.integration.test.ts::exports allowlisted spans for a learner request and a scripted supervisor run, with no learner text"
     ],
     "S10": [
       "core:services/api/test/supervisor-tool-loop.test.ts",
@@ -676,7 +759,8 @@
       "core:services/supervisor/test/temporal.integration.ts"
     ],
     "S11": [
-      "core:services/api/test/data-lifecycle.integration.test.ts"
+      "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/data-lifecycle.integration.test.ts::erases personal content everywhere, keeps an auditable skeleton and blocks further use"
     ],
     "T01": [
       "core:services/api/test/release-transition-latency.integration.test.ts"
@@ -684,17 +768,48 @@
     "T03": [
       "core:deploy/local/backup.test.mjs"
     ],
+    "T04": [
+      "core:services/api/test/telemetry.integration.test.ts::exports allowlisted spans for a learner request and a scripted supervisor run, with no learner text",
+      "core:services/supervisor/test/telemetry.test.ts::attribute allowlist drops unknown keys, free text and wrongly typed values"
+    ],
+    "T05": [
+      "core:scripts/threat-model.test.mjs::every mitigation code reference still names a tracked file and lines that exist",
+      "core:scripts/threat-model.test.mjs::the threat model covers authentication, tenant retrieval, generated code, prompt injection and supply chain"
+    ],
+    "T06": [
+      "core:services/api/test/telemetry.integration.test.ts",
+      "core:services/supervisor/test/telemetry.test.ts::new run, appeal and buffer-loss metrics keep only fixed values"
+    ],
+    "U01": [
+      "core:apps/admin/tests/real/inspector.real.spec.ts",
+      "core:apps/learner/tests/debugInspector.test.tsx::opens a side panel on expanded windows, framing the inspector at the current part, and closes back to the lesson",
+      "core:services/api/test/scoped-corrections.integration.test.ts::is offered only to an account with the learner-view permission on that enrollment; a learner never gets it"
+    ],
     "U02": [
       "core:apps/admin/tests/runCalls.test.tsx"
+    ],
+    "U03": [
+      "core:services/supervisor/test/temporal-tracing.test.ts::with telemetry on, a start inside a span carries its trace and the activity continues it",
+      "core:services/supervisor/test/temporal.integration.ts::real server: a traced start links the workflow, its child jobs and their activities to the starting trace"
     ],
     "U04": [
       "core:services/api/test/admin.integration.test.ts"
     ],
     "U05": [
-      "core:services/api/test/admin.integration.test.ts"
+      "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/run-inspector.integration.test.ts::is refused to every role without run.payload, whatever the request says"
+    ],
+    "U06": [
+      "core:services/api/test/telemetry-collector-down.integration.test.ts::keeps serving and recording while the collector is down, with a bounded span buffer and counted losses",
+      "core:services/supervisor/test/telemetry-buffer.test.ts::a stalled collector: memory stays bounded, span ends never wait, overflow is counted and reported"
+    ],
+    "U07": [
+      "core:services/api/test/run-inspector.integration.test.ts::replays frozen inputs with stubbed tools under a new run id, writes nothing but its receipt, and matches the stored plan",
+      "core:services/api/test/scoped-corrections.integration.test.ts::runs a failed run again as a new run through the dispatcher, linked both ways, idempotently and once"
     ],
     "U08": [
-      "core:services/api/test/learning.test.ts"
+      "core:services/api/test/learning.test.ts",
+      "core:services/api/test/learning.test.ts::rejects stale, failed, assisted, and unrelated evidence separately"
     ],
     "W01": [
       "core:apps/admin/tests/real/studies.real.spec.ts",
