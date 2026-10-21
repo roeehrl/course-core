@@ -151,6 +151,8 @@ const studies: Studies = {
       })),
       instruments: { pre: [], post: [], transfer: [], delayed: [] },
       minCellSize: 5,
+      usabilityMeasures: false,
+      usabilityTrials: null,
       seedDigest: "a".repeat(64),
       consent: { eligible: 2, consented: 2, withdrawn: 0, undecided: 0 },
       createdAt: "2026-10-01T10:00:00.000Z",
