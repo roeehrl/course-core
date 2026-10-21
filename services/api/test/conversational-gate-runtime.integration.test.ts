@@ -101,7 +101,7 @@ async function session(role: string): Promise<Session> {
   const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
   return { id, cookie: r.cookies.map((c) => c.name + "=" + c.value).join("; "), csrf: r.json().csrfToken };
 }
-const call = (who: Session, method: "GET" | "POST", url: string, payload?: unknown) =>
+const call = (who: Session, method: "GET" | "POST" | "PUT", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 async function enroll(course: CourseManifest, consent: boolean): Promise<Learner> {
   const release = (await call(owner, "POST", `/api/workspaces/${workspace}/releases`, course)).json().id;
