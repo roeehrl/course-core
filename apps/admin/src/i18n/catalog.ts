@@ -39,6 +39,7 @@ import en_extensionTerms from "./messages/en/extensionTerms.json";
 import en_firstRun from "./messages/en/firstRun.json";
 import en_gateReviewQueue from "./messages/en/gateReviewQueue.json";
 import en_gateReviews from "./messages/en/gateReviews.json";
+import en_hostInventory from "./messages/en/hostInventory.json";
 import en_installCourse from "./messages/en/installCourse.json";
 import en_integrationsView from "./messages/en/integrationsView.json";
 import en_learnerData from "./messages/en/learnerData.json";
@@ -138,6 +139,7 @@ import he_extensionTerms from "./messages/he/extensionTerms.json";
 import he_firstRun from "./messages/he/firstRun.json";
 import he_gateReviewQueue from "./messages/he/gateReviewQueue.json";
 import he_gateReviews from "./messages/he/gateReviews.json";
+import he_hostInventory from "./messages/he/hostInventory.json";
 import he_installCourse from "./messages/he/installCourse.json";
 import he_integrationsView from "./messages/he/integrationsView.json";
 import he_learnerData from "./messages/he/learnerData.json";
@@ -239,6 +241,7 @@ export const en = {
   firstRun: en_firstRun,
   gateReviewQueue: en_gateReviewQueue,
   gateReviews: en_gateReviews,
+  hostInventory: en_hostInventory,
   installCourse: en_installCourse,
   integrationsView: en_integrationsView,
   learnerData: en_learnerData,
@@ -340,6 +343,7 @@ export const he: PartialCatalog<typeof en> = {
   firstRun: he_firstRun,
   gateReviewQueue: he_gateReviewQueue,
   gateReviews: he_gateReviews,
+  hostInventory: he_hostInventory,
   installCourse: he_installCourse,
   integrationsView: he_integrationsView,
   learnerData: he_learnerData,
