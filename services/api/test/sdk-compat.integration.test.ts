@@ -53,10 +53,17 @@ describe("courses compiled for SDK 0.4.0 under SDK 0.5.0", () => {
     const imported = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, pack("number-line"));
     expect(imported.json()).toMatchObject({ digest: DIGESTS_0_4_0["number-line"], status: "draft" });
     expect((await call(owner, "POST", `/api/releases/${imported.json().id}/publish`)).statusCode).toBe(200);
-    // Still publishable, but staff are warned that its checkpoints pass on recognition alone.
-    const catalogId = (await call(owner, "GET", "/api/admin/session")).json().courses[0].id;
-    const checks = (await call(owner, "GET", `/api/admin/courses/${catalogId}`)).json().releases[0].checks;
-    expect(checks).toContainEqual(expect.objectContaining({ code: "LEGACY_RECOGNITION_ONLY_GATES", passed: true, warning: true, params: { gates: expect.stringContaining("sg-") } }));
+    // Its checkpoints each include a numeric item, so no recognition-only warning.
+    const courses = (await call(owner, "GET", "/api/admin/session")).json().courses as { id: string; title: string }[];
+    const checksOf = async (title: string) => (await call(owner, "GET", `/api/admin/courses/${courses.find((c) => c.title === title)!.id}`)).json().releases[0].checks;
+    expect(await checksOf(pack("number-line").title)).not.toContainEqual(expect.objectContaining({ code: "LEGACY_RECOGNITION_ONLY_GATES" }));
+    // The plant journal's first checkpoint has choice items only: still publishable, but staff
+    // are warned that it passes on recognition alone, and only that checkpoint is named.
+    const journal = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, pack("plant-journal"));
+    expect(journal.json()).toMatchObject({ digest: DIGESTS_0_4_0["plant-journal"], status: "draft" });
+    expect((await call(owner, "POST", `/api/releases/${journal.json().id}/publish`)).statusCode).toBe(200);
+    courses.splice(0, courses.length, ...(await call(owner, "GET", "/api/admin/session")).json().courses);
+    expect(await checksOf(pack("plant-journal").title)).toContainEqual(expect.objectContaining({ code: "LEGACY_RECOGNITION_ONLY_GATES", passed: true, warning: true, params: { gates: "pj-notice-gate" } }));
     const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: imported.json().id })).json().id;
     const send = async (action: string, body: Record<string, unknown>) => call(learner, "POST", `/api/enrollments/${enrollment}/${action}`,
       { expectedRevision: (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json().revision, idempotencyKey: randomUUID(), ...body });

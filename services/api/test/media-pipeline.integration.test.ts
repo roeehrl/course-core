@@ -15,7 +15,7 @@ import { startMediaScheduler } from "../src/media-scheduler.js";
 import { svgRenderer } from "../src/svg-renderer.js";
 import { fixture } from "./fixture.js";
 import { largeVisual } from "./large-course-fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedAssist, ScriptedImage, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_PNG, mediaJobPolicy, pipelineConfiguration } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedAssist, ScriptedImage, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_PNG, mediaJobPolicy, pipelineConfiguration, approveRevisionsForTest } from "./media-fixture.js";
 
 // Real PostgreSQL, HTTP routes, budgets and ledger. Providers are scripted adapters; the clip tools
 // are stand-in programs (qualification/clip-export-flow.ts runs the real ones). Nothing here shows
@@ -56,6 +56,8 @@ const post = (s: Session, url: string, payload: unknown = {}, server = app) => s
 const get = (s: Session, url: string) => app.inject({ url, headers: headers(s) });
 let providerRevision = 0;
 async function configure(media: "video" | "image") {
+  // Every agent role is gated (N07): the owner approves the scripted media and reviewer revisions.
+  await approveRevisionsForTest(db, workspace, pipelineConfiguration(media));
   const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
     configuration: pipelineConfiguration(media), jobPolicy: { ...mediaJobPolicy(250_000), allowance: { microUsd: 250_000, tokens: 1_000_000 } }, credentials: providerRevision === 0 ? { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } : {} });
   expect(r.statusCode, r.body).toBe(200);

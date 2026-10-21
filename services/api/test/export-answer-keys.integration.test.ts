@@ -145,6 +145,45 @@ describe("answer keys never leave the server in a data export", () => {
     ]);
   });
 
+  it("generated content (check questions, code exercises, simulations, components, waiting changes, reports) exports no key", async () => {
+    const common = { digest: "e".repeat(64), generator: { id: `${marker}-generator`, version: "1.0.0" }, objectiveIds: ["minimum"], sourceRefs: ["teaching"] };
+    await storeGenerated([
+      { ...common, id: "check-1", kind: "assessment_variant", canonicalAssessmentId: "min-a",
+        assessment: { id: "check-1--item", type: "numeric", objectiveIds: ["minimum"], familyId: `${marker}-family`, prompt: "How many boxes are highlighted?",
+          grading: { expected: 3, absoluteTolerance: 0, explanation: `${marker}-check-explanation` } },
+        hiddenFixtures: { protocol: "scene-model-v1", model: { read: `${marker}-model` }, visualDigest: `${marker}-visual-digest`, claimedAnswer: `${marker}-claimed` } },
+      { ...common, id: "code-1", kind: "assessment_variant", canonicalAssessmentId: "min-a",
+        assessment: { id: "code-1--item", type: "code", objectiveIds: ["minimum"], familyId: `${marker}-family`, prompt: "Return the smaller value.", language: "python",
+          starterCode: "def smaller(a, b):\n    pass\n", grading: { evaluatorId: `${marker}-evaluator`, fixtureRef: `${marker}-fixture` } },
+        hiddenFixtures: { protocol: "generated-code-v1", cases: [{ id: "t1", input: `${marker}-input`, expected: `${marker}-expected` }],
+          referenceSolution: `${marker}-reference`, wrongSolutions: [`${marker}-wrong`] } },
+      { ...common, id: "sim-1", kind: "visual", visual: { id: "sim-1", title: "Boxes" } },
+      { ...common, id: "component-1", kind: "practice", markdown: "Drag the slider to compare the values." },
+    ]);
+    const proposal = (await db.query("SELECT proposal_id FROM adaptation_artifacts WHERE enrollment_id=$1 AND artifact_id='code-1'", [enrollment])).rows[0].proposal_id;
+    // The component with its hidden tests, a waiting generated change and the proposal's validation report.
+    await db.query("INSERT INTO generated_components(enrollment_id,workspace_id,proposal_id,episode_id,block_id,digest,artifact_digest,body) VALUES($1,$2,$3,'min','component-1',$4,$4,$5)",
+      [enrollment, workspace, proposal, "f".repeat(64), JSON.stringify({ source: `${marker}-source`, tests: [`${marker}-component-test`] })]);
+    await db.query("INSERT INTO adaptation_validation_reports(enrollment_id,workspace_id,proposal_id,report) VALUES($1,$2,$3,$4)",
+      [enrollment, workspace, proposal, JSON.stringify({ checks: [{ id: "key", detail: `${marker}-report` }] })]);
+    const job = randomUUID();
+    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES($1,$2,$3,$4,'supervisor','running',1,'{}')`,
+      [job, enrollment, workspace, `export-keys-${job}`]);
+    await db.query("INSERT INTO adaptation_pending_changes(id,enrollment_id,workspace_id,job_id,episode_id,artifact_kind,selection,reason) VALUES($1,$2,$3,$4,'min','assessment_variant',$5,'attempt_in_progress')",
+      [randomUUID(), enrollment, workspace, job, JSON.stringify({ artifact: variantArtifact("pending-1") })]);
+    for (const who of [learner, owner]) {
+      const r = await call(who, "GET", who === learner ? `/api/enrollments/${enrollment}/export` : `/api/admin/enrollments/${enrollment}/export`);
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.rawPayload.toString("utf8")).not.toContain(marker);
+      expect(r.body).not.toMatch(/"grading"|hiddenFixtures|referenceSolution|wrongSolutions|claimedAnswer|"selection"|"report"/);
+      const doc = r.json();
+      expect(doc.supervision.personalTeaching.map((a: { artifactId: string }) => a.artifactId).sort()).toEqual(["check-1", "code-1", "component-1", "sim-1"]);
+      expect(doc.supervision.personalTeaching.find((a: { artifactId: string }) => a.artifactId === "code-1").question).toMatchObject({ language: "python", starterCode: "def smaller(a, b):\n    pass\n" });
+      expect(doc.supervision.pendingPersonalChanges).toEqual([expect.objectContaining({ artifact_kind: "assessment_variant", status: "waiting", reason: "attempt_in_progress" })]);
+      expect(doc.supervision.generatedComponents).toEqual([expect.objectContaining({ block_id: "component-1", digest: "f".repeat(64) })]);
+    }
+  });
+
   it("a staff export follows the privacy rule and carries no key either", async () => {
     await command("companion", { episodeId: "min", content: "A private question " + marker.toLowerCase() });
     await storeGenerated([variantArtifact("variant-1")]);

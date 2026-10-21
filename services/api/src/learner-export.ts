@@ -11,8 +11,15 @@ function question(assessment: unknown) {
  *
  * An allowlist, not a denylist: each kind names exactly the fields the learner was shown. A
  * generated item variant contributes its question only (publicQuestion), never its grading key,
- * hidden fixtures, numeric recipe, generator or digest. A field an artifact gains later stays out
- * until it is named here. An erased artifact ({}) is listed as erased. */
+ * hidden fixtures, numeric recipe, generator or digest. That covers generated content too
+ * (generated-content.ts stores each candidate as an SDK kind): a model-keyed check question and
+ * a code exercise are `assessment_variant`s whose key, scene model, claimed answer, hidden tests,
+ * reference and wrong solutions sit in `assessment.grading` and `hiddenFixtures`; a simulation is
+ * a `visual` the learner runs whole; a component's text alternative is `practice` Markdown (the
+ * component itself, with its tests, stays in generated_components and is exported as a digest).
+ * A waiting generated change and a validation report are never exported as content: the export
+ * lists a pending change's status only. A field an artifact gains later stays out until it is
+ * named here. An erased artifact ({}) is listed as erased. */
 export function learnerTeachingArtifact(artifactId: string, body: unknown) {
   const a = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   if (typeof a.kind !== 'string') return { artifactId, erased: true };
