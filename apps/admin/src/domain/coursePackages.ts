@@ -177,6 +177,8 @@ export interface CoursePackagePort {
       notes?: string;
       approveAndPublish?: { confirmVersion: string };
       approveRegistry?: { configurationDigest: string };
+      /** Required when a newer version of the course is already installed. */
+      confirmOlderVersion?: true;
     },
   ): Promise<InstallResult>;
   installation(releaseId: string, signal?: AbortSignal): Promise<Installation>;

@@ -20,6 +20,7 @@ export type AdminErrorCode =
   | "immutable_release"
   | "runtime_unsupported"
   | "impact_changed"
+  | "older_version"
   | "active_release"
   | "no_replacement"
   | "item_defective"

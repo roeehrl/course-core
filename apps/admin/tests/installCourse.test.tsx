@@ -298,6 +298,94 @@ describe("installing a course package", () => {
     );
   });
 
+  it("asks for an explicit choice before installing a version older than the newest installed", async () => {
+    const { coursePackages } = setup({
+      inspectFile: vi.fn(async () =>
+        preview({
+          course: {
+            id: "synthetic",
+            title: "Synthetic course",
+            version: "1.0.5",
+            digest,
+          },
+          existing: {
+            status: "new-version",
+            catalogId: "cat-1",
+            newestVersion: "1.2.0",
+          },
+          problems: [
+            {
+              code: "OLDER_THAN_INSTALLED",
+              severity: "warning",
+              detail: "Version 1.2.0 is already installed.",
+            },
+          ],
+        }),
+      ),
+    });
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(await screen.findByText("This is an older version")).toBeVisible();
+    expect(
+      screen.getByText(
+        /Version 1\.2\.0 of this course is already installed here, and this package is version 1\.0\.5/,
+      ),
+    ).toBeVisible();
+    const submit = screen.getByRole("button", { name: "Install draft" });
+    expect(submit).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("checkbox", {
+        name: "I want to install the older version 1.0.5",
+      }),
+    );
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    await waitFor(() =>
+      expect(coursePackages.install).toHaveBeenCalledWith(
+        "b".repeat(64),
+        expect.objectContaining({ confirmOlderVersion: true }),
+      ),
+    );
+  });
+
+  it("does not send an older-version confirmation for a newer version", async () => {
+    const { coursePackages } = setup();
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(screen.queryByText("This is an older version")).toBeNull();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Install draft" }),
+    );
+    await waitFor(() => expect(coursePackages.install).toHaveBeenCalled());
+    expect(coursePackages.install).toHaveBeenCalledWith(
+      "b".repeat(64),
+      expect.not.objectContaining({ confirmOlderVersion: true }),
+    );
+  });
+
+  it("explains an older-version refusal in English and Hebrew", () => {
+    expect(packageMessage("OLDER_VERSION_CONFIRMATION_REQUIRED")).toMatch(
+      /newer version of this course is already installed/,
+    );
+    const he = createAdminTranslator("he");
+    expect(packageMessage("OLDER_VERSION_CONFIRMATION_REQUIRED", he.t)).toMatch(
+      /גרסה חדשה יותר/,
+    );
+    expect(
+      packageMessage("PUBLISH_VERSION_OLDER_THAN_PUBLISHED", he.t),
+    ).toMatch(/פורסמה גרסה חדשה יותר/);
+  });
+
   it("does not offer approve-and-publish without both permissions", async () => {
     setup({
       inspectFile: vi.fn(async () =>

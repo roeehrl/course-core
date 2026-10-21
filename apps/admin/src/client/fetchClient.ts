@@ -313,6 +313,7 @@ export function createFetchAdminClient(
         STALE_PROVIDER_BUDGET_REVISION: "stale_revision",
         IMPACT_CHANGED: "impact_changed",
         IMPACT_CONFIRMATION_REQUIRED: "impact_changed",
+        PUBLISH_VERSION_OLDER_THAN_PUBLISHED: "older_version",
         ACTIVE_RELEASE_ARCHIVE_FORBIDDEN: "active_release",
         NO_REPLACEMENT_ITEM: "no_replacement",
         ITEM_ALREADY_DEFECTIVE: "item_defective",
@@ -743,6 +744,9 @@ export function createFetchAdminClient(
           action,
           ...(confirmation?.impactDigest
             ? { impactDigest: confirmation.impactDigest }
+            : {}),
+          ...(confirmation?.confirmOlderVersion
+            ? { confirmOlderVersion: true }
             : {}),
         },
         ctx,
