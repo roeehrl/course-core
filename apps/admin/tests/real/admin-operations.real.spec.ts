@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -148,6 +149,29 @@ test("an administrator sees platform readiness with the recovery targets, integr
   await expect(
     page.getByText(/The last restore drill took 2 minutes/),
   ).toBeVisible();
+  // The host inventory an author checks a course against (K12): a real download from the API.
+  await expect(
+    page.getByText("Check a course against this server"),
+  ).toBeVisible();
+  const [inventoryDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page
+      .getByRole("button", { name: "Download the server's inventory" })
+      .click(),
+  ]);
+  expect(inventoryDownload.suggestedFilename()).toMatch(
+    /^host-inventory-\d+\.\d+\.\d+\.json$/,
+  );
+  const inventory = JSON.parse(
+    readFileSync(await inventoryDownload.path(), "utf8"),
+  );
+  expect(inventory).toMatchObject({
+    hostInventoryFormat: 1,
+    sdk: {
+      supported: { min: expect.any(String), maxExclusive: expect.any(String) },
+    },
+  });
+  await expect(page.getByText(/Downloaded\. File digest:/)).toBeVisible();
   await accessible(page);
   await page.screenshot({
     path: info.outputPath("platform.png"),
