@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { callOptionsSchema, imageRequestSchema, textRequestSchema, videoJobSchema, videoRequestSchema,
-  type AssessmentRequest, type CallOptions, type ImageJobProvider, type ImageRequest, type ResearchProvider,
-  type StructuredAssessmentProvider, type TextRequest, type TutoringProvider, type VideoJob, type VideoJobProvider, type VideoRequest,
-  type ProviderCallEnd, type ProviderCallObserver, type ProviderCallStart, type UsageReceipt, type DownloadOptions, MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';
+  type AssessmentRequest, type CallOptions, type ImageRequest, type ResearchProvider,
+  type StructuredAssessmentProvider, type TextRequest, type TutoringProvider, type VideoJob, type VideoRequest,
+  type MediaPrice, type ProviderCallEnd, type ProviderCallObserver, type ProviderCallStart, type UsageReceipt, type DownloadOptions, MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';
 import { ensure, ProviderError } from './errors.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -20,7 +20,8 @@ function settled(usage: UsageReceipt | undefined, outcome: ProviderCallEnd['outc
 export interface RouterOptions { observe?: ProviderCallObserver }
 
 /** The core-facing capability port. It imports no provider SDK or native protocol. */
-export class ProviderRouter implements TutoringProvider, StructuredAssessmentProvider, ResearchProvider, ImageJobProvider, VideoJobProvider {
+/** Dispatches to the configured adapters. Media ports are reached by model, so the router itself is not a media adapter. */
+export class ProviderRouter implements TutoringProvider, StructuredAssessmentProvider, ResearchProvider {
   #registry: ModelRegistry;
   #observe: ProviderCallObserver | undefined;
   constructor(registry: ModelRegistry, options: RouterOptions = {}) { this.#registry = registry; this.#observe = options.observe; }
@@ -56,6 +57,19 @@ export class ProviderRouter implements TutoringProvider, StructuredAssessmentPro
   async research(input: TextRequest, options: CallOptions = {}) {
     const request = parse(textRequestSchema, input), call = parse(callOptionsSchema, options);
     return this.#observed({ operation: 'research', modelId: request.modelId }, () => this.#registry.port(request.modelId, 'research').research(request, call));
+  }
+  /** The adapter's declared capabilities for a configured media model. No provider call. */
+  discoverCapabilities(modelId: string, capability: 'video' | 'image') {
+    return this.#registry.port(modelId, capability).discoverCapabilities(modelId);
+  }
+  /** The adapter's billable-unit estimate priced with an operator price. No provider call. */
+  estimateVideoCost(input: VideoRequest, price: MediaPrice | null) {
+    const request = parse(videoRequestSchema, input);
+    return this.#registry.port(request.modelId, 'video').estimateCost(request, price);
+  }
+  estimateImageCost(input: ImageRequest, price: MediaPrice | null) {
+    const request = parse(imageRequestSchema, input);
+    return this.#registry.port(request.modelId, 'image').estimateCost(request, price);
   }
   async startImage(input: ImageRequest, options: CallOptions = {}) {
     const request = parse(imageRequestSchema, input), call = parse(callOptionsSchema, options);

@@ -27,7 +27,9 @@ export const textRequestSchema = z.strictObject({
   modelId, accounting: accountingSchema, messages: messagesSchema,
   systemInstruction: text.optional(), maxOutputTokens: positive,
 });
-export const imageRequestSchema = z.strictObject({ modelId, accounting: accountingSchema, prompt: text, maxOutputTokens: positive });
+export const imageRequestSchema = z.strictObject({ modelId, accounting: accountingSchema, prompt: text, maxOutputTokens: positive,
+  /** Optional output settings; an adapter refuses values its configured model does not declare. */
+  aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/).optional(), imageSize: z.string().regex(/^[0-9]{1,4}K?$/).optional() });
 export const videoRequestSchema = z.strictObject({
   modelId, accounting: accountingSchema, prompt: text, durationSeconds: positive,
   aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: id,
@@ -134,8 +136,58 @@ export type ProviderCallObserver = (call: ProviderCallStart) => ((end: ProviderC
 export interface TutoringProvider { tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<{ text: string }>> }
 export interface StructuredAssessmentProvider { assess(request: AssessmentRequest, options?: CallOptions): Promise<ProviderResult<Json>> }
 export interface ResearchProvider { research(request: TextRequest, options?: CallOptions): Promise<ProviderResult<ResearchOutput>> }
-export interface ImageJobProvider { startImage(request: ImageRequest, options?: CallOptions): Promise<ProviderResult<ImageOutput>> }
+export interface ImageJobProvider {
+  discoverCapabilities(modelId: string): MediaCapabilities;
+  estimateCost(request: ImageRequest, price: MediaPrice | null): CostEstimate;
+  startImage(request: ImageRequest, options?: CallOptions): Promise<ProviderResult<ImageOutput>>;
+}
+/**
+ * What one configured media model can do, as its adapter reads it from trusted registry
+ * configuration (and the provider's documented behaviour). Configured capability only: it is
+ * not proof of a working key, model access or a live account.
+ */
+export interface MediaCapabilities {
+  modelId: string; providerId: string; kind: 'video' | 'image';
+  maxPromptCharacters: number;
+  video?: { durationSeconds: number[]; aspectRatios: string[]; resolutions: string[] };
+  image?: { aspectRatios: string[]; imageSizes: string[]; mimeTypes: string[]; maxImagesPerRequest: number };
+  /** How remote work can be stopped once submitted. */
+  cancellation: 'remote' | 'local_abort_only' | 'not_applicable';
+  /** How long the provider keeps a generated output before deleting it (null: not documented or
+   * not stored). A host must download and store the output itself before this ends. */
+  retention: { outputHours: number | null; providerStoresRequest: boolean };
+  /** The units the provider bills this kind of call by. */
+  billing: 'per_output_second' | 'per_image' | 'per_request';
+}
+/** Operator-entered media prices (integer micro-USD). Adapters ship no rate card. */
+export interface MediaPrice {
+  microUsdPerOutputSecond?: number | null; microUsdPerImage?: number | null; microUsdPerRequest?: number | null;
+  pricingVersionId?: string | null;
+}
+/** A pre-dispatch estimate: the billable units the adapter predicts for a request, priced with
+ * the host's operator price. `microUsd` is null when the price does not cover every unit. */
+export interface CostEstimate {
+  currency: 'USD'; microUsd: number | null; pricingVersionId: string | null;
+  units: { outputSeconds: number; images: number; requests: number };
+  basis: 'operator_price'; reason: null | 'pricing_incomplete';
+}
+/** Prices predicted units with an operator price. Shared so every adapter prices the same way. */
+export function priceMediaUnits(units: CostEstimate['units'], price: MediaPrice | null): CostEstimate {
+  const perSecond = price?.microUsdPerOutputSecond ?? null, perImage = price?.microUsdPerImage ?? null, perRequest = price?.microUsdPerRequest ?? null;
+  // A per-request price adds to per-unit prices; on its own it is the whole price.
+  let total = (perRequest ?? 0) * units.requests, covered = true;
+  if (units.outputSeconds > 0) { if (perSecond === null) covered = false; else total += units.outputSeconds * perSecond; }
+  if (units.images > 0) { if (perImage === null) covered = false; else total += units.images * perImage; }
+  if (!covered && perRequest !== null && perSecond === null && perImage === null) { covered = true; total = perRequest * units.requests; }
+  const microUsd = covered && Number.isSafeInteger(total) && total >= 0 ? total : null;
+  return { currency: 'USD', microUsd, pricingVersionId: price?.pricingVersionId ?? null, units: { ...units }, basis: 'operator_price',
+    reason: microUsd === null ? 'pricing_incomplete' : null };
+}
 export interface VideoJobProvider {
+  /** The configured video settings, limits, cancellation and retention of one model. */
+  discoverCapabilities(modelId: string): MediaCapabilities;
+  /** Billable units of one request priced with an operator price; never contacts the provider. */
+  estimateCost(request: VideoRequest, price: MediaPrice | null): CostEstimate;
   startVideo(request: VideoRequest, options?: CallOptions): Promise<ProviderResult<VideoOutput>>;
   pollVideo(job: VideoJob, options?: CallOptions): Promise<ProviderResult<VideoOutput>>;
   /** Optional. A provider must explicitly implement and report cancellation semantics. */
