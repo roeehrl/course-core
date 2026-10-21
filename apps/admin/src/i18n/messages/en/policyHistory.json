@@ -6,6 +6,7 @@
   "empty": "No policy change has been recorded for this course.",
   "source.course_settings": "Course policy settings",
   "source.placement_settings": "Placement settings",
+  "source.organization_ceilings": "Organization limits",
   "source.release_policy": "Published version",
   "version": "Version {version}",
   "revision": "Revision {revision}",

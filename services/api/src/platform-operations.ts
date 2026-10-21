@@ -239,14 +239,19 @@ export function policyChanges(before: unknown, after: unknown): Change[] {
   return [...new Set([...a.keys(), ...b.keys()])].sort().filter(path => a.get(path) !== b.get(path)).slice(0, 100)
     .map(path => ({ path, before: a.get(path) ?? null, after: b.get(path) ?? null }));
 }
-/** Policy changes of one course, newest first: course policy settings, placement settings and
- * the learning policy each published release carried, each as a diff from the one before. */
+/**
+ * Policy changes of one course, newest first. `entries` is the field-by-field timeline: course
+ * policy settings, placement settings, the organization ceilings above the course (migration
+ * 094) and the learning policy each published release carried, each as a diff from the one
+ * before. `revisions` is the stored revision list of the course settings and organization
+ * ceilings (level, revision, saved settings, reason and who saved it).
+ */
 export async function policyHistory(client: Sql, catalog: { id: string; workspace_id: string; course_key: string }) {
   const settings = (await client.query<{ id: string; event_type: string; created_at: Date; actor: string | null; payload: Record<string, unknown> }>(
     `SELECT l.id,l.event_type,l.created_at,u.display_name AS actor,l.payload FROM learning_events l LEFT JOIN app_users u ON u.id=l.actor_id
       WHERE l.workspace_id=$1 AND l.event_type IN ('policy.settings_changed','placement.settings_changed')
         AND (l.payload->>'courseId'=$2 OR l.payload->>'catalogId'=$2) ORDER BY l.sequence LIMIT 200`, [catalog.workspace_id, catalog.id])).rows;
-  const entries: { source: 'course_settings' | 'placement_settings' | 'release_policy'; id: string; at: string; actor: string | null;
+  const entries: { source: 'course_settings' | 'placement_settings' | 'organization_ceilings' | 'release_policy'; id: string; at: string; actor: string | null;
     revision: number | null; version: string | null; reason: string | null; changes: Change[] }[] = [];
   const previous: Record<string, unknown> = {};
   for (const row of settings) {
@@ -256,6 +261,13 @@ export async function policyHistory(client: Sql, catalog: { id: string; workspac
       version: null, reason: typeof row.payload.reason === 'string' ? row.payload.reason.slice(0, 500) : null, changes: policyChanges(previous[source], value) });
     previous[source] = value;
   }
+  const stored = (await client.query<{ id: string; level: string; revision: number; settings: unknown; reason: string | null; changed_by: string | null; display_name: string | null; changed_at: Date }>(
+    `SELECT h.id,h.level,h.revision,h.settings,h.reason,h.changed_by,u.display_name,h.changed_at FROM policy_setting_revisions h LEFT JOIN app_users u ON u.id=h.changed_by
+     WHERE h.workspace_id=$1 AND (h.catalog_id=$2 OR h.level='organization') ORDER BY h.changed_at DESC,h.id DESC LIMIT 100`, [catalog.workspace_id, catalog.id])).rows;
+  // Course settings already appear above from their events; the ceilings above the course only live here.
+  const ceilings = stored.filter(r => r.level === 'organization').reverse();
+  ceilings.forEach((row, i) => entries.push({ source: 'organization_ceilings', id: `organization-${row.id}`, at: row.changed_at.toISOString(), actor: row.display_name,
+    revision: row.revision, version: null, reason: row.reason?.slice(0, 500) ?? null, changes: policyChanges(ceilings[i - 1]?.settings, row.settings) }));
   const releases = (await client.query<{ id: string; version: string; created_at: Date; author: string | null; policy: unknown; placement: unknown }>(
     `SELECT r.id,r.version,r.created_at,u.display_name AS author,r.server_bundle->'policy' AS policy,r.server_bundle->'placement' AS placement
        FROM course_releases r LEFT JOIN app_users u ON u.id=r.created_by
@@ -268,7 +280,9 @@ export async function policyHistory(client: Sql, catalog: { id: string; workspac
       entries.push({ source: 'release_policy', id: release.id, at: release.created_at.toISOString(), actor: release.author, revision: null, version: release.version, reason: null, changes });
     last = value;
   }
-  return { courseId: catalog.id, entries: entries.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 100) };
+  return { courseId: catalog.id, entries: entries.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 100),
+    revisions: stored.map(r => ({ level: r.level, revision: r.revision, settings: r.settings, reason: r.reason,
+      changedBy: r.changed_by ? { id: r.changed_by, displayName: r.display_name } : null, changedAt: r.changed_at.toISOString() })) };
 }
 
 // ---------------------------------------------------------------- routes

@@ -105,8 +105,14 @@ describe("organization and enrollment levels (G02, G03)", () => {
     // The existing learner keeps the terms they started with.
     expect((await constraint(other, before, "course")).binding.deadline).toMatchObject({ scopeId: "course" });
     // History keeps who saved what and why.
-    const history = (await call(owner, "GET", `/api/admin/courses/${course}/policy-history`)).json().revisions;
+    const historyBody = (await call(owner, "GET", `/api/admin/courses/${course}/policy-history`)).json();
+    const history = historyBody.revisions;
     expect(history[0]).toMatchObject({ level: "organization", revision: 1, reason: "Organization terms 2026", changedBy: { id: owner.userId } });
+    // The same route's field-by-field timeline shows the ceiling change above the course.
+    const ceilingEntry = historyBody.entries.find((e: { source: string }) => e.source === "organization_ceilings");
+    expect(ceilingEntry).toMatchObject({ revision: 1, reason: "Organization terms 2026" });
+    expect(ceilingEntry.changes.length).toBeGreaterThan(0);
+    expect(ceilingEntry.changes.every((c: { before: string | null }) => c.before === null)).toBe(true);
     expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE workspace_id=$1 AND event_type='policy.ceilings_changed'", [workspace])).rows[0].n).toBe(1);
   });
 

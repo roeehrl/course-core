@@ -271,8 +271,11 @@ Owners and administrators of a workspace have two more admin pages.
   would run as formulas are prefixed with a quote mark. The download is itself an
   `audit.exported` event with the file's digest.
 - **Policy history** (`GET /api/admin/courses/:id/policy-history`, `policy.read`):
-  course policy settings, placement settings and the learning policy of each
-  published release, each as a field-by-field diff from the one before.
+  one response for both admin pages. `entries` lists course policy settings,
+  placement settings, the organization limits above the course and the learning
+  policy of each published release, each as a field-by-field diff from the one
+  before; `revisions` lists the stored revisions of the course settings and
+  organization limits with their reason and who saved them.
 
 ## Installing a course
 

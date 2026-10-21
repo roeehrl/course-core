@@ -210,6 +210,9 @@ describe("audit export and policy history (Q12)", () => {
     expect(settings[0]).toMatchObject({ actor: "Owner Ada", reason: "Pilot cohort needs more time.",
       changes: [{ path: changedKey, before: String(view.settings[changedKey]), after: String(view.settings[changedKey] + 1) }] });
     expect(history.json().entries.some((e: { source: string; version: string }) => e.source === "release_policy" && e.version)).toBe(true);
+    // The same response carries the stored revision list the policy pages use.
+    const stored = history.json().revisions.filter((r: { level: string }) => r.level === "course");
+    expect(stored[0]).toMatchObject({ revision: first.json().revision + 1, reason: "Pilot cohort needs more time.", changedBy: { displayName: "Owner Ada" } });
     expect((await call(learner, "GET", `/api/admin/courses/${catalog}/policy-history`)).statusCode).toBe(403);
     expect(policyChanges({ a: { b: 1 } }, { a: { b: 2, c: true } })).toEqual([{ path: "a.b", before: "1", after: "2" }, { path: "a.c", before: null, after: "true" }]);
   });

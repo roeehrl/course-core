@@ -134,7 +134,6 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   // organization ceilings are workspace-wide, so a course grant never opens them.
   { name: "organization ceilings", url: () => `/api/admin/workspaces/${workspace}/policy-ceilings`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer"] },
   { name: "course allowances", url: () => `/api/admin/courses/${catalog}/allowances`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
-  { name: "course policy history", url: () => `/api/admin/courses/${catalog}/policy-history`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
   { name: "accommodation batches", url: () => `/api/admin/courses/${catalog}/accommodations/batches`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
   { name: "enrollment policy revisions", url: () => `/api/admin/enrollments/${enrollment}/policy-revisions`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
   // The continuation track is the learner's own choice.

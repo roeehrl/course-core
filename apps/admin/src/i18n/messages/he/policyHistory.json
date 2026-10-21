@@ -6,6 +6,7 @@
   "empty": "לא נרשם שינוי מדיניות בקורס הזה.",
   "source.course_settings": "הגדרות המדיניות של הקורס",
   "source.placement_settings": "הגדרות השיבוץ",
+  "source.organization_ceilings": "מגבלות הארגון",
   "source.release_policy": "גרסה שפורסמה",
   "version": "גרסה {version}",
   "revision": "מהדורה {revision}",

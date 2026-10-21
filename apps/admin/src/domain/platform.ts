@@ -262,9 +262,10 @@ export const policyHistorySchema = z.object({
         source: z.enum([
           "course_settings",
           "placement_settings",
+          "organization_ceilings",
           "release_policy",
         ]),
-        id: z.string().uuid(),
+        id: z.string().min(1).max(100),
         at: z.string(),
         actor: z.string().max(200).nullable(),
         revision: count.nullable(),
@@ -274,6 +275,8 @@ export const policyHistorySchema = z.object({
       }),
     )
     .max(100),
+  /** The stored revisions of the course settings and organization ceilings (not shown here). */
+  revisions: z.array(z.unknown()).max(100).optional(),
 });
 export type PolicyHistory = z.infer<typeof policyHistorySchema>;
 

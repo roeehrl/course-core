@@ -127,17 +127,8 @@ export function registerPolicyScopeRoutes(app: FastifyInstance, db: Database, au
   });
 
   // ---------------------------------------------------------------- policy revision history
-  app.get(`${course}/policy-history`, async (request) => {
-    const actor = await auth.authenticate(request);
-    return transaction(db, async (client) => {
-      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.read");
-      const rows = (await client.query<{ level: string; revision: number; settings: unknown; reason: string | null; changed_by: string | null; display_name: string | null; changed_at: Date }>(
-        `SELECT h.level,h.revision,h.settings,h.reason,h.changed_by,u.display_name,h.changed_at FROM policy_setting_revisions h LEFT JOIN app_users u ON u.id=h.changed_by
-         WHERE h.workspace_id=$1 AND (h.catalog_id=$2 OR h.level='organization') ORDER BY h.changed_at DESC,h.id DESC LIMIT 100`, [catalog.workspace_id, catalog.id])).rows;
-      return { courseId: catalog.id, revisions: rows.map((r) => ({ level: r.level, revision: r.revision, settings: r.settings, reason: r.reason,
-        changedBy: r.changed_by ? { id: r.changed_by, displayName: r.display_name } : null, changedAt: r.changed_at.toISOString() })) };
-    });
-  });
+  // The course's history (GET /api/admin/courses/:courseId/policy-history, field-by-field diffs
+  // plus the stored revision list) is served by platform-operations.ts.
   app.get("/api/admin/enrollments/:enrollmentId/policy-revisions", async (request) => {
     const actor = await auth.authenticate(request), enrollmentId = parse(uuid, params(request).enrollmentId);
     return transaction(db, async (client) => {
