@@ -6,6 +6,8 @@ import {
   type CoursePlacement,
   type EnrollmentPlacement,
   type PlacementAdminPort,
+  type PlacementBlueprint,
+  type PlacementSettingsInput,
 } from "../domain/placementAdmin";
 import { useRemote } from "../hooks/useAdmin";
 import {
@@ -197,9 +199,32 @@ function SettingsForm({
   const [families, setFamilies] = useState(
     s.minFamiliesPerEpisode === null ? "" : String(s.minFamiliesPerEpisode),
   );
+  const [excludedItems, setExcludedItems] = useState<string[]>(
+    s.excludedAssessmentIds,
+  );
+  const [excludedObjectives, setExcludedObjectives] = useState<string[]>(
+    s.excludedObjectiveIds,
+  );
+  const [kept, setKept] = useState<string[]>(s.protectedEpisodeIds);
+  const [preview, setPreview] = useState<{
+    key: string;
+    blueprint: PlacementBlueprint | null;
+  }>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
+  const toggle = (list: string[], id: string, on: boolean) =>
+    on ? [...new Set([...list, id])] : list.filter((x) => x !== id);
+  const author = placement.author,
+    bounds = placement.authorBounds;
+  const episodes = placement.blueprint ?? [];
+  const same = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((x) => b.includes(x));
+  // A changed blueprint or protected unit is checked with the preview before it is saved.
+  const scopeChanged =
+    !same(excludedItems, s.excludedAssessmentIds) ||
+    !same(excludedObjectives, s.excludedObjectiveIds) ||
+    !same(kept, s.protectedEpisodeIds);
   const itemsValue = num(items),
     familiesValue = num(families);
   const valid =
@@ -218,6 +243,22 @@ function SettingsForm({
       (Number.isInteger(familiesValue) &&
         familiesValue >= 1 &&
         familiesValue <= 10));
+  const input: PlacementSettingsInput = {
+    expectedRevision: s.revision,
+    enabled,
+    retestCooldownHours: Number(cooldown),
+    maxRuns: Number(runs),
+    maxItems: itemsValue,
+    minFamiliesPerEpisode: familiesValue,
+    ...(author
+      ? {
+          excludedAssessmentIds: excludedItems,
+          excludedObjectiveIds: excludedObjectives,
+          protectedEpisodeIds: kept,
+        }
+      : {}),
+  };
+  const key = JSON.stringify(input);
   return (
     <Card title={t("placementView.settings")}>
       <form
@@ -227,18 +268,43 @@ function SettingsForm({
           setPending(true);
           setError(undefined);
           port
-            .save(catalogId, {
-              expectedRevision: s.revision,
-              enabled,
-              retestCooldownHours: Number(cooldown),
-              maxRuns: Number(runs),
-              maxItems: itemsValue,
-              minFamiliesPerEpisode: familiesValue,
-            })
+            .save(catalogId, input)
             .then(onSaved, setError)
             .finally(() => setPending(false));
         }}
       >
+        {author && (
+          <div className="wide">
+            <Notice tone="blue" title={t("placementView.author.title")}>
+              <ul className="plain-list">
+                <li>
+                  {t("placementView.author.items", {
+                    max: placementAuthorLimit(placement) ?? author.maxItems,
+                  })}
+                </li>
+                {bounds?.maxRuns != null && (
+                  <li>
+                    {t("placementView.author.runs", {
+                      runs: bounds.maxRuns,
+                      hours: bounds.minCooldownHours ?? 0,
+                    })}
+                  </li>
+                )}
+                {bounds?.minFamiliesPerEpisode != null && (
+                  <li>
+                    {t("placementView.author.families", {
+                      families: bounds.minFamiliesPerEpisode,
+                    })}
+                  </li>
+                )}
+                {author.assistancePolicy === "unassisted_only" && (
+                  <li>{t("placementView.author.unassisted")}</li>
+                )}
+              </ul>
+              <p className="muted">{t("placementView.author.tighten")}</p>
+            </Notice>
+          </div>
+        )}
         <label className="check-label wide">
           <input
             type="checkbox"
@@ -307,16 +373,185 @@ function SettingsForm({
             onChange={(e) => setFamilies(e.target.value)}
           />
         </Field>
+        {author && author.items.length > 0 && (
+          <fieldset className="wide placement-choices">
+            <legend>{t("placementView.blueprint.items")}</legend>
+            <p className="muted">{t("placementView.blueprint.itemsHint")}</p>
+            {author.items.map((item) => (
+              <label key={item.assessmentId} className="check-label">
+                <input
+                  type="checkbox"
+                  checked={!excludedItems.includes(item.assessmentId)}
+                  onChange={(e) =>
+                    setExcludedItems(
+                      toggle(
+                        excludedItems,
+                        item.assessmentId,
+                        !e.target.checked,
+                      ),
+                    )
+                  }
+                />
+                <span>
+                  <span dir="auto">{item.prompt}</span>{" "}
+                  <span className="muted mono" dir="ltr">
+                    {item.assessmentId}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {author && author.objectives.length > 0 && (
+          <fieldset className="wide placement-choices">
+            <legend>{t("placementView.blueprint.objectives")}</legend>
+            <p className="muted">
+              {t("placementView.blueprint.objectivesHint")}
+            </p>
+            {author.objectives.map((o) => (
+              <label key={o.objectiveId} className="check-label">
+                <input
+                  type="checkbox"
+                  checked={!excludedObjectives.includes(o.objectiveId)}
+                  onChange={(e) =>
+                    setExcludedObjectives(
+                      toggle(
+                        excludedObjectives,
+                        o.objectiveId,
+                        !e.target.checked,
+                      ),
+                    )
+                  }
+                />
+                <span dir="auto">{o.description}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {author && episodes.length > 0 && (
+          <fieldset className="wide placement-choices">
+            <legend>{t("placementView.protect.legend")}</legend>
+            <p className="muted">{t("placementView.protect.hint")}</p>
+            {episodes.map((episode) => {
+              const byAuthor = author.protectedEpisodeIds.includes(
+                episode.episodeId,
+              );
+              return (
+                <label key={episode.episodeId} className="check-label">
+                  <input
+                    type="checkbox"
+                    checked={byAuthor || kept.includes(episode.episodeId)}
+                    disabled={byAuthor}
+                    onChange={(e) =>
+                      setKept(toggle(kept, episode.episodeId, e.target.checked))
+                    }
+                  />
+                  <span>
+                    <span dir="auto">{episode.title}</span>
+                    {byAuthor && (
+                      <span className="muted">
+                        {" "}
+                        · {t("placementView.protect.byAuthor")}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+        )}
+        {preview && preview.key === key && preview.blueprint && (
+          <div className="wide">
+            <h3 className="section-title">
+              {t("placementView.preview.title")}
+            </h3>
+            <BlueprintTable blueprint={preview.blueprint} />
+          </div>
+        )}
         <div className="wide stack">
           {error !== undefined && (
             <Notice tone="red">{placementErrorMessage(error, t)}</Notice>
           )}
-          <Button kind="primary" type="submit" disabled={pending || !valid}>
-            {t("placementView.form.save")}
-          </Button>
+          {scopeChanged && preview?.key !== key && (
+            <p className="muted">{t("placementView.preview.required")}</p>
+          )}
+          <div className="button-row">
+            {port.preview && author && (
+              <Button
+                disabled={pending || !valid}
+                onClick={() => {
+                  setPending(true);
+                  setError(undefined);
+                  port.preview!(catalogId, input)
+                    .then(
+                      (r) => setPreview({ key, blueprint: r.blueprint }),
+                      setError,
+                    )
+                    .finally(() => setPending(false));
+                }}
+              >
+                {t("placementView.preview.run")}
+              </Button>
+            )}
+            <Button
+              kind="primary"
+              type="submit"
+              disabled={
+                pending ||
+                !valid ||
+                (scopeChanged && Boolean(port.preview) && preview?.key !== key)
+              }
+            >
+              {t("placementView.form.save")}
+            </Button>
+          </div>
         </div>
       </form>
     </Card>
+  );
+}
+
+/** What placement may do with each required episode, in plain words. */
+function BlueprintTable({ blueprint }: { blueprint: PlacementBlueprint }) {
+  const t = useT();
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th scope="col">{t("placementView.preview.episode")}</th>
+            <th scope="col">{t("placementView.preview.status")}</th>
+            <th scope="col">{t("placementView.preview.questions")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {blueprint.map((episode) => (
+            <tr key={episode.episodeId}>
+              <td dir="auto">{episode.title}</td>
+              <td>
+                <Badge
+                  tone={
+                    episode.status === "placeable"
+                      ? "green"
+                      : episode.status.startsWith("protected")
+                        ? "blue"
+                        : "gold"
+                  }
+                >
+                  {t(`placementView.status.${episode.status}` as MessageKey)}
+                </Badge>
+              </td>
+              <td>
+                {t("placementView.preview.questionsValue", {
+                  questions: episode.questions,
+                  families: episode.families,
+                })}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

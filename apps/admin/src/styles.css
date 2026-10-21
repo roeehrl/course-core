@@ -2492,6 +2492,7 @@ code.digest {
   color: var(--muted);
 }
 .editor-objectives {
+.placement-choices {
   border: 0;
   padding: 0;
   margin: 0;
@@ -2542,5 +2543,13 @@ code.digest {
   padding: 8px;
   border-block-end: 1px solid var(--line);
   vertical-align: top;
+  min-inline-size: 0;
+}
+.placement-choices legend {
+  font-weight: 600;
+  padding: 0;
+}
+.placement-choices .check-label {
+  align-items: flex-start;
   overflow-wrap: anywhere;
 }

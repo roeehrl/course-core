@@ -5,5 +5,11 @@
   "error.PLACEMENT_NOT_OFFERED": "No published release of this course offers placement, so there is no question limit to set. Leave it empty.",
   "error.PLACEMENT_EXEMPTION_NOT_FOUND": "That exemption no longer exists. Refresh.",
   "error.INVALID_REQUEST": "Check the values: the reason needs at least 10 characters.",
-  "error.unavailable": "Placement administration is unavailable. Nothing changed."
+  "error.unavailable": "Placement administration is unavailable. Nothing changed.",
+  "error.PLACEMENT_RETESTS_LOOSEN_AUTHOR": "The course author allows fewer runs per learner. Lower the number of runs.",
+  "error.PLACEMENT_COOLDOWN_LOOSENS_AUTHOR": "The course author asks for a longer wait between runs. Raise the hours before a retest.",
+  "error.PLACEMENT_EVIDENCE_LOOSENS_AUTHOR": "The course author asks for more kinds of question per lesson. Raise the number, or leave it empty to use the author's.",
+  "error.PLACEMENT_ITEM_NOT_IN_BLUEPRINT": "One of the questions is no longer in the author's placement questions. Refresh and choose again.",
+  "error.PLACEMENT_OBJECTIVE_NOT_PLACEABLE": "One of the objectives is no longer one the author lets learners place out of. Refresh and choose again.",
+  "error.PLACEMENT_EPISODE_UNKNOWN": "One of the lessons no longer exists in the active release, or the author already protects it. Refresh and choose again."
 }

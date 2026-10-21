@@ -161,6 +161,7 @@ import {
   coursePlacementSchema,
   enrollmentPlacementSchema,
   PlacementAdminError,
+  placementPreviewSchema,
   placementSettingsSchema,
 } from "../domain/placementAdmin";
 import {
@@ -1545,6 +1546,15 @@ export function createFetchAdminClient(
         direct(
           `${course(catalogId)}/placement/settings`,
           z.object({ settings: placementSettingsSchema }),
+          "POST",
+          input,
+          undefined,
+          (c) => new PlacementAdminError(c),
+        ),
+      preview: (catalogId, input) =>
+        direct(
+          `${course(catalogId)}/placement/settings/preview`,
+          placementPreviewSchema,
           "POST",
           input,
           undefined,

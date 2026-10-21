@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from './database.js';
 import { authService } from './auth.js';
+import { enrollmentPlacement } from './placement-settings.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput } from './repository.js';
 import { requireCondition } from './errors.js';
 import { requireAvailable } from './learning.js';
@@ -109,7 +110,10 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
         currentPolicy = await activateWindows(client, context.release.server_bundle, enrollmentId, policyEpisodeId(context.release, input.episodeId), new Date().toISOString());
         await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', new Date().toISOString());
       }
-      const pending = await client.query<{ id: string }>("SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true FOR UPDATE", [enrollmentId]);
+      const pending = await client.query<{ id: string; mode: string }>("SELECT id,mode FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true FOR UPDATE", [enrollmentId]);
+      // Placement the author declared unassisted-only takes no companion help while an item is open.
+      if (pending.rows.some(row => row.mode === 'placement'))
+        requireCondition(!(await enrollmentPlacement(client, context.enrollment, context.release.server_bundle)).unassistedOnly, 'PLACEMENT_UNASSISTED_ONLY', 409);
       requireCondition(!pending.rowCount || input.allowAssessmentAssistance === true, 'ASSESSMENT_HELP_CONSENT_REQUIRED', 409);
       const downgradedChallengeIds = pending.rows.map(row => row.id);
       if (pending.rowCount) await client.query("UPDATE assessment_challenges SET assistance='hint',independent_eligible=false WHERE id=ANY($1::uuid[])", [downgradedChallengeIds]);

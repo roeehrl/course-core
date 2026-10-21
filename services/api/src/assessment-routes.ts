@@ -25,7 +25,7 @@ import { proposeConversationFindings } from './rubric-assist.js';
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, reviewedRubric } from './gates.js';
 import { refreshDecisionsForItem, refreshGateDecision, requireReadyDecision } from './gate-decisions.js';
 import { enrollmentState } from './learner-snapshot.js';
-import { enrollmentPlacement } from './placement-settings.js';
+import { enrollmentPlacement, placementCourse } from './placement-settings.js';
 import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 import { recordAnswerSignal } from './teaching-hypotheses.js';
 import { unsatisfiedActivityBlocks } from './activity-routes.js';
@@ -79,8 +79,10 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       if (input.mode === 'placement') {
         // Staff settings can switch placement off or lower the item allowance; never raise it.
         const placement = await enrollmentPlacement(client, context.enrollment, course);
-        requireCondition(placement.enabled && course.placement && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
-        requireCondition(episode.objectiveIds.every(obj => course.placement!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
+        // The blueprint and protected episodes as staff narrowed them (placement-settings.ts).
+        const placed = placementCourse(course, placement).placement;
+        requireCondition(placement.enabled && placed && !placed.protectedEpisodeIds.includes(episode.id) && placed.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
+        requireCondition(episode.objectiveIds.every(obj => placed!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
         // Placement items exist only inside the learner's in-progress placement run.
         const run = (await client.query<{ state: string; started_at: Date; finished_at: Date | null }>('SELECT state,started_at,finished_at FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1 FOR UPDATE', [enrollmentId])).rows[0];
         requireCondition(run?.state === 'in_progress', 'PLACEMENT_RUN_REQUIRED', 409);
@@ -112,9 +114,12 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
   app.post(`${commandPath}/solution`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid }, ['challengeId']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { challengeId: string };
     return enrollmentCommand(db, actor, enrollmentId, 'solution', input, async (client, context) => {
-      const challenge = (await client.query<{ assessment_id: string; attempt_id: string | null }>('SELECT assessment_id,attempt_id FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2', [input.challengeId, enrollmentId])).rows[0];
+      const challenge = (await client.query<{ assessment_id: string; attempt_id: string | null; mode: string }>('SELECT assessment_id,attempt_id,mode FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2', [input.challengeId, enrollmentId])).rows[0];
       requireCondition(challenge, 'CHALLENGE_NOT_FOUND', 404);
       requireCondition(!challenge.attempt_id, 'CHALLENGE_ALREADY_SUBMITTED', 409);
+      // An author who declared placement unassisted-only allows no revealed answer on a placement item.
+      if (challenge.mode === 'placement')
+        requireCondition(!(await enrollmentPlacement(client, context.enrollment, context.release.server_bundle)).unassistedOnly, 'PLACEMENT_UNASSISTED_ONLY', 409);
       const assessment = findAssessment(context.release.server_bundle, challenge.assessment_id)!, explanation = explanationOf(assessment);
       requireCondition(DETERMINISTIC_ITEM_TYPES.has(assessment.type) && explanation !== undefined, 'EVALUATOR_NOT_CONFIGURED', 409);
       await client.query("UPDATE assessment_challenges SET assistance='solution',independent_eligible=false WHERE id=$1", [input.challengeId]);
