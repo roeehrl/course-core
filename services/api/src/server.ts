@@ -62,7 +62,7 @@ import { registerCrossCourseRoutes } from './cross-course.js';
 import { registerAgentToolRoutes } from './agent-tools-routes.js';
 import { registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
-import {createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
+import {createAdaptationRuntime,withInstalledExtensions,type AdaptationRuntime} from './adaptation-store.js';
 import {adaptationDescriptors} from './adaptation-composition.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import {registerProviderSetupRoutes} from './provider-setup-routes.js';
@@ -132,7 +132,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerClientEnvelope(app);
   await app.register(cookie);
   const auth = authService(db, options);
-  const adaptation=options.adaptation??createAdaptationRuntime([]);
+  // Generated simulations and exercises are checked and graded by the installed renderer and evaluators.
+  const adaptation=withInstalledExtensions(options.adaptation??createAdaptationRuntime([]),options.installedExtensions??[]);
   app.addHook('onSend', async (request, reply) => {
     // Only the content-addressed Pyodide files (versioned path, pinned SHA-256) may be cached.
     const immutable = (request.routeOptions.config as { immutableAsset?: boolean } | undefined)?.immutableAsset === true && reply.statusCode === 200;
@@ -358,7 +359,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricAppealRoutes(app, db, auth);
   registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
   registerRetentionRoutes(app,db,auth,clock);
-  registerPersonalChangeRoutes(app,db,auth);
+  registerPersonalChangeRoutes(app,db,auth,adaptation);
   registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory) });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.

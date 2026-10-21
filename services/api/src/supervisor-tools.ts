@@ -14,11 +14,13 @@ import type { ProviderRequest } from "@course-core/supervisor";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { resolveSupervisorOperationWithin } from "./supervisor-bridge.js";
-import { digestJson } from "./repository.js";
+import { digestJson, type Enrollment, type Release } from "./repository.js";
+import type { CourseManifest } from "@course-core/sdk";
 import { SEARCH_LIMITS, searchCoursePassages, searchLearnerQuestions } from "./retrieval.js";
 import { transferChecks } from "./adaptation-transfer.js";
 import { ApiError } from "./errors.js";
-import { checkGeneratedSupervisorTeachingWithin } from "./adaptation-store.js";
+import { checkGeneratedSupervisorTeachingWithin, resolveEnrollmentCourse } from "./adaptation-store.js";
+import { CREATES_INPUT, generatedDraft, profileCreates, sceneModels, sdkKind } from "./generated-content.js";
 import { requireCondition } from "./errors.js";
 import { requireSameRequest } from "./erased-digests.js";
 import type { TeachingContext } from "./provider-runtime.js";
@@ -232,6 +234,11 @@ function scopedTools(
             [enrollment.course_release_id, scoped.ref.workspaceId],
           )
         ).rows[0]!;
+        // The learner's delivered course (base plus applied personal changes), read only when needed.
+        let effectiveCourse: CourseManifest | undefined;
+        const delivered = async () => effectiveCourse ??= (await resolveEnrollmentCourse(client,
+          (await client.query<Enrollment>("SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2", [scoped.ref.enrollmentId, scoped.ref.workspaceId])).rows[0]!,
+          (await client.query<Release>("SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2", [enrollment.course_release_id, scoped.ref.workspaceId])).rows[0]!)).server_bundle;
         const permission = (
           await client.query(
             "SELECT revision,adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE",
@@ -708,6 +715,7 @@ function scopedTools(
               verification: feedback.passed ? "passed" : "rejected",
               failedCheckIds: feedback.failedCheckIds,
               ...(feedback.accessibilityProblems.length ? { accessibilityProblems: feedback.accessibilityProblems } : {}),
+              ...(feedback.contentProblems.length ? { contentProblems: feedback.contentProblems } : {}),
               delivery: "feedback_only",
               doesNotGrantMastery: true,
             };
@@ -752,7 +760,7 @@ function scopedTools(
           const profiles =
             config?.profiles.filter(
               (p) =>
-                (p.operation === "append_teaching" || p.operation === "insert_episode") &&
+                ["append_teaching", "insert_episode", "attach_visual", "add_assessment_variant"].includes(p.operation) &&
                 p.episodeId === context.episode.id &&
                 // An advanced branch is offered only once every objective here is demonstrated.
                 (p.branch !== "advanced" || (context.episode.objectives.length > 0 && context.episode.objectives.every((o) =>
@@ -771,15 +779,24 @@ function scopedTools(
               available: false,
               reason: "independent_assessment_active",
             };
-          else if (name === "list_generation_profiles")
+          else if (name === "list_generation_profiles") {
+            // Questions are keyed by scenes of the learner's delivered course (personal simulations included).
+            const effective = profiles.some((p) => profileCreates(p, release.server_bundle) === "check_item") ? await delivered() : undefined;
             result = {
               available: true,
               profiles: profiles.map((p) => ({
                 id: p.id,
                 episodeId: p.episodeId,
                 classification: p.classification,
-                // A whole generated lesson inserted after this one, or text appended to it.
-                creates: p.operation === "insert_episode" ? "episode" : "teaching_block",
+                // Text appended to this lesson, a whole lesson inserted after it, a simulation, a
+                // check question keyed by a scene's model, or a code exercise with hidden tests.
+                creates: profileCreates(p, release.server_bundle),
+                ...(profileCreates(p, release.server_bundle) === "check_item"
+                  ? { models: sceneModels(effective!, p.episodeId) as unknown as Json }
+                  : {}),
+                ...(profileCreates(p, release.server_bundle) === "code_exercise"
+                  ? { language: release.server_bundle.assessments.find((a: { id: string }) => a.id === p.canonicalAssessmentId)?.language ?? null }
+                  : {}),
                 ...(p.branch ? { branch: p.branch } : {}),
                 plannedMinutes: p.plannedMinutes,
                 additionalEpisodes: p.additionalEpisodes,
@@ -797,7 +814,7 @@ function scopedTools(
                 delivery: "requires_independent_verification",
               })),
             } as Json;
-          else {
+          } else {
             const stagedCount = Number(
               (
                 await client.query(
@@ -858,20 +875,24 @@ function scopedTools(
                     author.sourceRefs.includes(s) &&
                     generator.sourceRefs.includes(s),
                 ) &&
-                generator.artifactKinds.includes(input.kind) &&
-                verifier.artifactKinds.includes(input.kind) &&
-                // A generated lesson is inserted; text is appended. Never the other way round.
-                (input.kind === "episode") === (profile.operation === "insert_episode"),
+                generator.artifactKinds.includes(sdkKind(input.kind)) &&
+                verifier.artifactKinds.includes(sdkKind(input.kind)) &&
+                // Each profile creates one kind: text is appended, a lesson inserted, a simulation
+                // attached, a question added. Never another kind than the approved one.
+                CREATES_INPUT[profileCreates(profile, release.server_bundle)].includes(input.kind),
               "GENERATED_TEACHING_SCOPE",
               409,
             );
             const artifactId = "artifact-" + randomUUID(),
               common = { id: artifactId, objectiveIds: input.objectiveIds, sourceRefs: input.sourceRefs,
                 generator: { id: generator.id, version: generator.version } };
-            const draft = input.kind === "episode"
-              ? { ...common, kind: "episode" as const, title: input.title,
-                  blocks: input.blocks.map((b, i) => ({ id: `${artifactId}--part-${i + 1}`, markdown: b.markdown })) }
-              : { ...common, kind: input.kind, markdown: input.markdown };
+            const built = generatedDraft(input, common, await delivered(),
+              release.server_bundle.assessments.find((a: { id: string }) => a.id === profile.canonicalAssessmentId));
+            if ("problems" in built) {
+              // Structural problems are feedback the supervisor can repair; nothing is staged.
+              result = { selected: false, reason: "content_invalid", problems: built.problems, doesNotGrantMastery: true };
+            } else {
+            const draft = built.draft;
             const staged: GeneratedTeachingSelection = {
               profileId: profile.id,
               episodeId: profile.episodeId,
@@ -892,6 +913,7 @@ function scopedTools(
               delivery: "pending_independent_verification",
               doesNotGrantMastery: true,
             };
+            }
           }
         } else {
           const active = (

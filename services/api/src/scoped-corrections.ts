@@ -16,7 +16,7 @@ import { consentWithdrawn } from "./supervision-control.js";
 import { RETRY_EVENT } from "./supervisor-bridge.js";
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, reviewedRubric } from "./gates.js";
 import { gradeDeterministic } from "./learning.js";
-import { qualifiedCodeEvaluator } from "./code-evaluator.js";
+import { gradeCodeAnswer } from "./generated-content.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, threadOf } from "./rubric-judgment.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
@@ -236,7 +236,7 @@ export async function regradeAttemptWithin(client: PoolClient, actor: Actor, con
       // The course's own evaluator for this item, as the answer route runs it.
       const code = codeView(course, assessment);
       requireCondition(code || DETERMINISTIC_ITEM_TYPES.has(assessment.type), "EVALUATOR_NOT_CONFIGURED", 409);
-      const grade = code ? await qualifiedCodeEvaluator(code, course.extensions, installed)(code, attempt.response) : gradeDeterministic(assessment, attempt.response);
+      const grade = code ? await gradeCodeAnswer(client, enrollment.id, code, attempt.response, course, installed) : gradeDeterministic(assessment, attempt.response);
       passed = grade.passed;
       evaluatorRef = grade.evaluator;
       result = { ...grade };
