@@ -27,6 +27,21 @@ export function randomId(): string {
   return `${h.slice(0, 4).join("")}-${h.slice(4, 6).join("")}-${h.slice(6, 8).join("")}-${h.slice(8, 10).join("")}-${h.slice(10).join("")}`;
 }
 
+/** A W3C `traceparent` with fresh random ids (U03). The API records it as a link on its own span,
+ * never as the parent, so a request can be found in the trace backend. The sampled flag is off:
+ * the app records no spans itself. */
+export function randomTraceparent(): string {
+  const source = (globalThis as { crypto?: Crypto }).crypto;
+  if (typeof source?.getRandomValues !== "function")
+    throw new Error(activeTranslator()("webCrypto.unavailable"));
+  const hex = (length: number) => {
+    const value = Array.from(source.getRandomValues(new Uint8Array(length)), (b) => HEX[b]!).join("");
+    // All-zero ids are invalid.
+    return /^0+$/.test(value) ? value.slice(0, -1) + "1" : value;
+  };
+  return `00-${hex(16)}-${hex(8)}-00`;
+}
+
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
