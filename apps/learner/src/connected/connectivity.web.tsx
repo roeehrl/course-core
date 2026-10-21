@@ -48,6 +48,20 @@ export function usePageReturn(onReturn: (awayMs: number) => void) {
   }, []);
 }
 
+/** How long a request runs before the connection banner says the server is slow. */
+export const SLOW_REQUEST_MS = 6000;
+/** True once `busy` has stayed true for `afterMs`; false again as soon as it ends. */
+export function useSlow(busy: boolean, afterMs = SLOW_REQUEST_MS): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (!busy) return;
+    const timer = setTimeout(() => setSlow(true), afterMs);
+    return () => clearTimeout(timer);
+  }, [busy, afterMs]);
+  return busy && slow;
+}
+
 const PENDING_ACTIONS = new Set(["answers", "read", "complete", "companion", "challenges", "profile", "solution"]);
 /** The kind of saved request, as the connection messages name it. */
 export function pendingActionKind(action: string | undefined) {
@@ -65,9 +79,12 @@ export function ConnectionStatus({
   online,
   pendingAction,
   pending,
+  slow = false,
   onRetry,
 }: {
   online: boolean;
+  /** A request has been running for longer than SLOW_REQUEST_MS. */
+  slow?: boolean;
   /** The action of a saved, unconfirmed request, if there is one. */
   pendingAction?: string | null;
   pending: boolean;
@@ -75,7 +92,7 @@ export function ConnectionStatus({
 }) {
   const waiting = pendingAction !== undefined && pendingAction !== null;
   const i18n = useI18n();
-  if (online && !waiting) return null;
+  if (online && !waiting && !slow) return null;
   const action = pendingActionKind(pendingAction ?? undefined);
   const strong = (children: React.ReactNode, key: string) => <strong key={key}>{children}</strong>;
   return (
@@ -83,12 +100,15 @@ export function ConnectionStatus({
       className={`connected-connection ${online ? "" : "is-offline"}`}
       role="status"
     >
-      <p>
-        {!online && <strong>{i18n.t("connectivity.offline")} </strong>}
-        {waiting
-          ? i18n.rich(online ? "connectivity.pending.online" : "connectivity.pending.offline", { action }, { strong })
-          : i18n.t("connectivity.offlineDrafts")}
-      </p>
+      {(!online || waiting) && (
+        <p>
+          {!online && <strong>{i18n.t("connectivity.offline")} </strong>}
+          {waiting
+            ? i18n.rich(online ? "connectivity.pending.online" : "connectivity.pending.offline", { action }, { strong })
+            : i18n.t("connectivity.offlineDrafts")}
+        </p>
+      )}
+      {slow && online && <p>{i18n.t("connectivity.slow")}</p>}
       {waiting && online && (
         <button
           type="button"

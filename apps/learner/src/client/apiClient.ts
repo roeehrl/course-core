@@ -115,6 +115,7 @@ const EXPLAINED_CODES = new Set([
   "CHALLENGE_EXPIRED",
   "PENDING_CORRUPT",
   "NETWORK_UNCERTAIN",
+  "READ_TIMEOUT",
   "COVERAGE_REQUIRED",
   "FRESH_EVIDENCE_ITEM_REQUIRED",
   "DEADLINE_REACHED",
@@ -231,6 +232,10 @@ function eitherSignal(a: AbortSignal | undefined, b: AbortSignal) {
     },
   };
 }
+/** A read that has not answered after this long fails with READ_TIMEOUT instead of
+ * leaving the page waiting. Writes have no client timeout: a write may already have
+ * been received, so it stays pending and is confirmed through its saved record. */
+export const READ_TIMEOUT_MS = 20_000;
 /** Reported in the event envelope; keep equal to app.json's expo.version. */
 export const LEARNER_APP_VERSION = "0.1.0";
 export function createCourseApi(
@@ -240,6 +245,7 @@ export function createCourseApi(
     pending?: Pick<Storage, "getItem" | "setItem" | "removeItem">;
     accountId?: string;
     onStorageUnavailable?: () => void;
+    readTimeoutMs?: number;
   } = {},
 ) {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -331,10 +337,22 @@ export function createCourseApi(
     const leaving = method === "GET" ? departure.signal() : undefined;
     if (leaving?.aborted) throw abortError();
     const combined = leaving ? eitherSignal(transport.signal, leaving) : undefined;
-    const signal = combined?.signal ?? transport.signal;
+    // Reads give up after READ_TIMEOUT_MS so a stalled connection ends in a clear message.
+    const deadline = leaving ? new AbortController() : undefined;
+    const timer = deadline
+      ? setTimeout(() => deadline.abort(), options.readTimeoutMs ?? READ_TIMEOUT_MS)
+      : undefined;
+    const timed = deadline && combined ? eitherSignal(combined.signal, deadline.signal) : undefined;
+    const signal = timed?.signal ?? combined?.signal ?? transport.signal;
     try {
       return await send<T>(url, method, payload, signal);
+    } catch (error) {
+      if (deadline?.signal.aborted && !leaving?.aborted && !transport.signal?.aborted)
+        throw new CourseApiError("READ_TIMEOUT", 0);
+      throw error;
     } finally {
+      clearTimeout(timer);
+      timed?.release();
       combined?.release();
     }
   }

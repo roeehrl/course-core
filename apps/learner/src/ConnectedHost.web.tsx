@@ -65,7 +65,7 @@ import {
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
-import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
+import { ConnectionStatus, DraftConflict, useOnline, usePageReturn, useSlow } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
@@ -203,6 +203,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     busy = useRef(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const slowRequest = useSlow(pending);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]),
     [catalog, setCatalog] = useState<CatalogCourse[]>([]);
   const [preview, setPreview] = useState<CatalogCourse>();
@@ -1075,6 +1076,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               online={online}
               pendingAction={server ? pendingAction : null}
               pending={pending}
+              slow={slowRequest}
               onRetry={() => server && run(() => refresh(server.enrollmentId))}
             />
           )}
