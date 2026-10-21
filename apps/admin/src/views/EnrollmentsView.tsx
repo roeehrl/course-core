@@ -147,6 +147,7 @@ export function EnrollmentsView({
           <div className="stack">
             <Card
               title={selected.profile.displayName}
+              titleDir="auto"
               eyebrow={t("enrollmentsView.profile.eyebrow")}
               actions={
                 <Button

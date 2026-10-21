@@ -36,7 +36,8 @@ export type AdminErrorCode =
   | "pause_not_allowed"
   | "visual_inaccessible"
   | "visual_feature_unsupported"
-  | "visual_check_failed";
+  | "visual_check_failed"
+  | "no_secure_random";
 export class AdminError extends Error {
   constructor(
     public readonly code: AdminErrorCode,
