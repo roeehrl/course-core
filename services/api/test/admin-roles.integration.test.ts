@@ -116,6 +116,7 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   { name: "adaptation registry", url: () => `/api/admin/releases/${release}/adaptation-registry`, allowed: ["owner", "admin"] },
   // The learner may download their own record from either prefix.
   { name: "staff data export", url: () => `/api/admin/enrollments/${enrollment}/export`, allowed: ["learner", "owner", "admin"] },
+  { name: "learning event export", url: () => `/api/admin/enrollments/${enrollment}/event-export`, allowed: ["learner", "owner", "admin"] },
   // Routes merged after the shared rule (#104 placement, #105 supervision, #97 policy) use it too.
   { name: "course placement", url: () => `/api/admin/courses/${catalog}/placement`, allowed: READ_COURSE },
   { name: "enrollment placement", url: () => `/api/admin/enrollments/${enrollment}/placement`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "service", "scoped_active", "scoped_reviewer"] },

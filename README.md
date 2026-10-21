@@ -970,6 +970,19 @@ staff view, is listed for the learner under **Your data**
 (`GET /api/enrollments/:id/staff-views`, `exports`) and in their next export
 (`staffExports`). These rows hold no learner content and survive erasure.
 
+**Portable event export.** `GET /api/enrollments/:id/event-export?after=<sequence>&limit=<n>`
+(and `/api/admin/enrollments/:id/event-export`, same roles) returns the enrollment's learning events
+in the SDK 0.6.0 `learningEventExport` record format (`exportFormat: 1`): the course ID, semantic
+version and compiled digest, the enrollment's opaque ID as `enrollmentRef`, and each event's stable
+UUID, durable sequence (a decimal string), type, actor kind, time, payload and trace ID. It is one
+cursor page per request: `after` is exclusive (default `0`), at most `limit` events (default 1000,
+at most 5000), and `cursor.through` is the last sequence returned, so the next page starts there;
+the `Course-Core-Export-Has-More` header says whether one exists. Malformed cursors and limits get
+400. A staff copy keeps every event's identity and replaces payloads the event privacy rule withholds
+with `{"withheld":"event-payloads"}`. Each page is recorded in `data_exports` and the audit log like
+the full export. SDK 0.6.0 is not released yet, so Core's tests validate every export against the
+schema vendored in `services/api/vendor/sdk-event-export` (implementation: `src/event-export.ts`).
+
 ### Learner model privacy
 
 The learner model (`/api/enrollments/:id/learner-model`) holds the learner's own

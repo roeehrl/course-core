@@ -20,6 +20,7 @@ import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { eraseCrossCourseWithin, exportCrossCourse } from "./cross-course.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 import { withArtifactContent } from './artifact-store.js';
+import { EVENT_EXPORT_FORMAT, eventExportQuery, exportLearningEvents } from './event-export.js';
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -366,6 +367,40 @@ export function registerDataLifecycleRoutes(
       .header("Content-Disposition", `attachment; filename="enrollment-${enrollmentId}.json"`);
     return document.document;
   };
+  /** The enrollment's learning events in the portable SDK event-export format (event-export.ts),
+   * one bounded cursor page per request, with the same authorization and receipt as the full export. */
+  const eventExportHandler = async (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
+    const actor = await auth.authenticate(request),
+      { enrollmentId } = request.params as { enrollmentId: string },
+      query = eventExportQuery.safeParse(request.query ?? {});
+    requireCondition(query.success, "INVALID_INPUT", 400);
+    const result = await transaction(db, async (client) => {
+      await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").catch(() => undefined);
+      const who = await authorize(client, actor, enrollmentId);
+      return { ...who, ...(await exportLearningEvents(client, enrollmentId, who.actorKind, query.data)) };
+    });
+    const digest = digestJson(result.document), exportId = randomUUID();
+    await transaction(db, async (client) => {
+      await client.query(
+        "INSERT INTO data_exports(id,enrollment_id,workspace_id,requested_by,actor_kind,requester_role,digest) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        [exportId, enrollmentId, result.enrollment.workspace_id, actor.id, result.actorKind, result.staffRole, digest],
+      );
+      await appendEvent(client, {
+        workspaceId: result.enrollment.workspace_id,
+        actorId: actor.id,
+        actorKind: result.actorKind === "learner" ? "learner" : "staff",
+        type: "data.exported",
+        payload: { enrollmentId, exportId, digest, format: "learning-event-export", exportFormat: EVENT_EXPORT_FORMAT, cursor: result.document.cursor,
+          eventCount: result.document.events.length, ...(result.staffRole ? { requesterRole: result.staffRole } : {}) },
+        idempotencyKey: "data-export:" + exportId,
+      });
+    });
+    reply
+      .header("Cache-Control", "no-store")
+      .header("Course-Core-Export-Has-More", result.hasMore ? "true" : "false")
+      .header("Content-Disposition", `attachment; filename="enrollment-${enrollmentId}-events-${result.document.cursor.after}.json"`);
+    return result.document;
+  };
   const eraseHandler = async (request: import("fastify").FastifyRequest) => {
     const actor = await auth.authenticate(request),
       { enrollmentId } = request.params as { enrollmentId: string },
@@ -433,6 +468,7 @@ export function registerDataLifecycleRoutes(
   // Learner-facing and administration paths share one authorization model.
   for (const prefix of ["/api/enrollments", "/api/admin/enrollments"]) {
     app.get(`${prefix}/:enrollmentId/export`, { schema: { params } }, exportHandler);
+    app.get(`${prefix}/:enrollmentId/event-export`, { schema: { params } }, eventExportHandler);
     app.post(`${prefix}/:enrollmentId/erase`, { schema: { params } }, eraseHandler);
   }
 }

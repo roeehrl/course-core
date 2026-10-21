@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:course-core:schema:learning-event-export:1",
+  "title": "Portable learning event export (exportFormat 1)",
+  "description": "A host-produced export of one enrollment's learning events over a cursor range. Sequences are 64-bit-safe decimal strings. Semantic rules (strictly increasing sequences inside the cursor range, unique event IDs) are applied by validateRecord('learningEventExport', ...).",
+  "$ref": "#/$defs/learningEventExport",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "eventSequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "exportedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "sequence",
+        "type",
+        "actorKind",
+        "occurredAt",
+        "payload",
+        "traceId"
+      ],
+      "properties": {
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "$ref": "#/$defs/eventSequence"
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{0,127}$"
+        },
+        "actorKind": {
+          "enum": [
+            "learner",
+            "staff",
+            "agent",
+            "system"
+          ]
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payload": {
+          "$ref": "#/$defs/state"
+        },
+        "traceId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._:-]{0,127}$"
+    },
+    "learningEventExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exportFormat",
+        "course",
+        "enrollmentRef",
+        "exportedAt",
+        "cursor",
+        "events"
+      ],
+      "properties": {
+        "exportFormat": {
+          "const": 1
+        },
+        "course": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version",
+            "digest"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "version": {
+              "$ref": "#/$defs/version"
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "enrollmentRef": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "exportedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cursor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "after",
+            "through"
+          ],
+          "properties": {
+            "after": {
+              "$ref": "#/$defs/eventSequence"
+            },
+            "through": {
+              "$ref": "#/$defs/eventSequence"
+            }
+          }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "$ref": "#/$defs/exportedEvent"
+          }
+        }
+      }
+    },
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}(?![\\s\\S])"
+    },
+    "state": {
+      "type": "object"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    }
+  }
+}
