@@ -93,6 +93,7 @@ export function syntheticYouTubeFetch(record?: { url: URL; key: string | undefin
     const url = new URL(String(input)), key = (init?.headers as Record<string, string> | undefined)?.["x-goog-api-key"];
     record?.push({ url, key });
     if (!key || url.search.includes(key)) return new Response('{"error":{"errors":[{"reason":"keyInvalid"}]}}', { status: 400 });
+    if (url.pathname.endsWith("/i18nLanguages")) return Response.json({ kind: "youtube#i18nLanguageListResponse", items: [] });
     if (url.pathname.endsWith("/search"))
       return Response.json({ items: videos.map((v) => ({ id: { kind: "youtube#video", videoId: v.videoId }, snippet: { title: v.title, channelTitle: v.channelTitle } })) });
     return Response.json({ items: videos.map((v) => ({ id: v.videoId, contentDetails: { duration: v.duration, caption: v.caption }, status: { embeddable: v.embeddable } })) });

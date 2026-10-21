@@ -91,6 +91,7 @@ import {
   researchQueueSchema,
   researchReceiptSchema,
   youtubeSearchReceiptSchema,
+  youtubeStatusSchema,
   ResearchActionError,
 } from "../domain/research";
 import {
@@ -544,7 +545,7 @@ export function createFetchAdminClient(
       method,
       payload,
       signal,
-      (c) => new ResearchActionError(c),
+      (c, details) => new ResearchActionError(c, details),
     );
   const media = <T>(
     path: string,
@@ -1270,6 +1271,21 @@ export function createFetchAdminClient(
         research(
           `/research/sources/${encodeURIComponent(sourceId)}/inspect`,
           researchReceiptSchema,
+          "POST",
+          {},
+        ),
+      youtubeStatus: (workspaceId, signal) =>
+        research(
+          `${workspacePath(workspaceId)}/youtube`,
+          youtubeStatusSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      youtubeCheck: (workspaceId) =>
+        research(
+          `${workspacePath(workspaceId)}/youtube/check`,
+          z.object({ ok: z.literal(true), status: youtubeStatusSchema }),
           "POST",
           {},
         ),

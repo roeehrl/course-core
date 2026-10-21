@@ -213,6 +213,15 @@ export interface ResearchAdminPort {
   inspect(sourceId: string): Promise<unknown>;
   /** Sends only the topic's approved query to the YouTube Data API (workspace key). */
   youtubeSearch?(releaseId: string, topicId: string): Promise<unknown>;
+  /** Today's quota use and limits for the workspace's YouTube key (never the key). */
+  youtubeStatus?(
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<YouTubeStatus>;
+  /** One cheap call (1 unit) that proves the key works and the API is enabled. */
+  youtubeCheck?(
+    workspaceId: string,
+  ): Promise<{ ok: true; status: YouTubeStatus }>;
   review(
     inspectionId: string,
     input: ReviewInput,
@@ -248,23 +257,62 @@ const RESEARCH_CODES = new Set([
   "FORBIDDEN",
   "YOUTUBE_SEARCH_NOT_CONFIGURED",
   "YOUTUBE_SEARCH_UNAUTHORIZED",
-  "YOUTUBE_SEARCH_QUOTA",
   "YOUTUBE_SEARCH_FAILED",
+  "YOUTUBE_SEARCH_KEY_INVALID",
+  "YOUTUBE_SEARCH_API_DISABLED",
+  "YOUTUBE_SEARCH_TIMEOUT",
   "RESEARCH_SEARCH_MISMATCH",
   "RESEARCH_SEGMENT_OUT_OF_RANGE",
   "RESEARCH_SEGMENT_NOT_APPLICABLE",
 ]);
+export const youtubeStatusSchema = z.object({
+  configured: z.boolean(),
+  resetsAt: z.string().max(64),
+  units: z.object({ used: z.number(), limit: z.number() }),
+  searches: z.object({ used: z.number(), limit: z.number() }),
+  exhaustedByProvider: z.boolean(),
+});
+export type YouTubeStatus = z.infer<typeof youtubeStatusSchema>;
 export class ResearchActionError extends Error {
-  constructor(readonly code: string) {
+  /** When a quota stop ends, or how long a rate limit asks to wait. */
+  readonly resetsAt: string | null;
+  readonly retryAfterSeconds: number | null;
+  constructor(
+    readonly code: string,
+    details?: unknown,
+  ) {
     super(code);
     this.name = "ResearchActionError";
+    const d = z
+      .object({
+        resetsAt: z.string().max(64).optional(),
+        retryAfterSeconds: z.number().optional(),
+      })
+      .safeParse(details);
+    this.resetsAt = d.success ? (d.data.resetsAt ?? null) : null;
+    this.retryAfterSeconds = d.success
+      ? (d.data.retryAfterSeconds ?? null)
+      : null;
   }
 }
 export function researchErrorMessage(
   error: unknown,
   t: Translate = englishTranslator().t,
+  when?: (iso: string) => string,
 ): string {
   const code = error instanceof ResearchActionError ? error.code : undefined;
+  // Quota stops say when they end; rate limits say how long to wait.
+  if (code === "YOUTUBE_SEARCH_QUOTA" || code === "YOUTUBE_QUOTA_EXHAUSTED")
+    return t(`research.error.${code}`, {
+      when:
+        when?.((error as ResearchActionError).resetsAt ?? "") ??
+        (error as ResearchActionError).resetsAt ??
+        "",
+    });
+  if (code === "YOUTUBE_SEARCH_RATE_LIMITED")
+    return t("research.error.YOUTUBE_SEARCH_RATE_LIMITED", {
+      seconds: (error as ResearchActionError).retryAfterSeconds ?? 60,
+    });
   if (code && RESEARCH_CODES.has(code))
     return t(`research.error.${code}` as MessageKey);
   if (code?.startsWith("YOUTUBE_")) return t("research.error.youtubeFailed");
