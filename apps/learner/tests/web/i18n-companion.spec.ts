@@ -128,7 +128,7 @@ const CONTENT = [
 ];
 
 async function host(page: Page, locale: string) {
-  await page.context().addCookies([{ name: "course_csrf", value: "mock-csrf", url: "http://127.0.0.1:4173" }]);
+  await page.context().addCookies([{ name: "course_csrf", value: "mock-csrf", url: test.info().project.use.baseURL! }]);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { user: { id: "public-user", displayName: "Public learner", locale: null } } }),
   );

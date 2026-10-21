@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+// COURSE_LEARNER_WEB_PORT is set by the web suite (playwright.config.ts); 4173 otherwise.
+const port = Number(process.env.COURSE_LEARNER_WEB_PORT || 4173);
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const types = {
   ".html": "text/html",
@@ -38,6 +40,6 @@ http
       response.writeHead(404).end("Not found");
     }
   })
-  .listen(4173, "127.0.0.1", () =>
-    console.log("Local export: http://127.0.0.1:4173"),
+  .listen(port, "127.0.0.1", () =>
+    console.log(`Local export: http://127.0.0.1:${port}`),
   );

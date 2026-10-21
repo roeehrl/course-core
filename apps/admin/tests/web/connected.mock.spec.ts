@@ -11,7 +11,11 @@ test("connected host uses the API and cookie CSRF; HTTP errors do not become dem
       role: "admin",
     };
   await context.addCookies([
-    { name: "course_csrf", value: "mock-csrf", url: "http://127.0.0.1:4174" },
+    {
+      name: "course_csrf",
+      value: "mock-csrf",
+      url: test.info().project.use.baseURL!,
+    },
   ]);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { user: { id: "test", displayName: "Mock user" } } }),
