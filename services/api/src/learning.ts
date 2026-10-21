@@ -1,6 +1,7 @@
 import type { Assessment, CourseManifest, Episode } from '@course-core/sdk';
 import { getEpisodeRequirement } from '@course-core/sdk';
 import { ApiError, requireCondition } from './errors.js';
+import { convertUnit } from './units.js';
 import { evaluateGate, gateObjectives, reviewedRubric, type AttemptSignal, type DecisionContext, type Gate, type GateEvidence } from './gates.js';
 
 export type EvidenceRow = GateEvidence;
@@ -82,17 +83,24 @@ export function publicQuestion(assessment: Assessment, course?: CourseManifest) 
 
 /**
  * The value of a numeric or prediction answer: a finite number in the item's declared unit, or
- * `{ value, unit }` stating the unit explicitly. A stated unit must be the item's declared unit;
- * any other unit, or a unit on an item that declares none, is refused as UNIT_MISMATCH before
- * grading, so it never becomes a wrong answer and the learner can restate it.
+ * `{ value, unit }` stating the unit explicitly. A stated unit of the same kind as the item's
+ * declared unit (mm for m, km/h for m/s) is converted to it before tolerance is applied
+ * (units.ts). A unit of another kind, an unknown unit that is not the declared one, or a unit on
+ * an item that declares none, is refused as UNIT_MISMATCH before grading, so it never becomes a
+ * wrong answer and the learner can restate it.
  */
 export function numericAnswer(answer: unknown, unit: string | undefined): number {
   if (answer && typeof answer === 'object' && !Array.isArray(answer)) {
     const { value, unit: stated, ...rest } = answer as Record<string, unknown>;
     requireCondition(Object.keys(rest).length === 0 && typeof stated === 'string' && stated.length <= 50, 'INVALID_ANSWER');
     const declared = unit?.trim().replace(/\s+/g, ' ');
-    if (stated.trim().replace(/\s+/g, ' ') !== declared) throw new ApiError(400, 'UNIT_MISMATCH', 'UNIT_MISMATCH', { expectedUnit: unit ?? null });
-    answer = value;
+    requireCondition(typeof value === 'number' && Number.isFinite(value), 'INVALID_ANSWER');
+    if (stated.trim().replace(/\s+/g, ' ') === declared) answer = value;
+    else {
+      const converted = declared === undefined ? null : convertUnit(value, stated, declared);
+      if (converted === null) throw new ApiError(400, 'UNIT_MISMATCH', 'UNIT_MISMATCH', { expectedUnit: unit ?? null });
+      answer = converted;
+    }
   }
   requireCondition(typeof answer === 'number' && Number.isFinite(answer), 'INVALID_ANSWER');
   return answer;
