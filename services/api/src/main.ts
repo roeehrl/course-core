@@ -97,13 +97,14 @@ const coursePackageDirectories = packageDirectories(process.env.COURSE_PACKAGE_D
 // How often due automatic course updates run (each course has its own interval; default 5 minutes).
 const courseUpdateTickMs = Number(process.env.COURSE_UPDATE_TICK_MS ?? 300_000);
 if (!Number.isInteger(courseUpdateTickMs) || courseUpdateTickMs < 60_000) throw new Error('COURSE_UPDATE_TICK_MS must be an integer of at least 60000.');
+let sandbox: DockerSandbox | undefined;
 if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
   if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new Error('Invalid code fixture file list.');
   const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
   if (!image) throw new Error('An explicitly pinned sandbox image is required on this platform.');
-  const sandbox = instrumentSandbox(new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) }));
+  sandbox = instrumentSandbox(new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) }));
   for (const file of files) { const bytes = await readFile(file); hostFiles.push({ name: basename(file), sha256: sha256(bytes) }); installedExtensions.push(await codeEvaluator(bytes, sandbox)); }
   let teachingFiles:unknown;try{teachingFiles=JSON.parse(process.env.TEACHING_VERIFIER_FILES??'[]');}catch{throw new Error('Invalid teaching verifier file list.');}
   if(!Array.isArray(teachingFiles)||teachingFiles.length>20||!teachingFiles.every(file=>typeof file==='string'&&file.length<4096))throw new Error('Invalid teaching verifier file list.');
@@ -129,6 +130,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   artifactStore,
   coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
   pythonRunner: pythonRunnerFromEnvironment(process.env),
+  ...(sandbox ? { sandbox } : {}),
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });
