@@ -30,7 +30,6 @@ import {
   PermissionHint,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { isolate } from "@course-core/i18n";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 const DAY = 86400_000;
@@ -372,7 +371,8 @@ function ReleaseResearch({
           <Card
             key={topic.id}
             eyebrow={t("researchView.topic.eyebrow")}
-            title={isolate(topic.queryText)}
+            title={topic.queryText}
+            titleDir="auto"
             actions={
               <>
                 {port.youtubeSearch && (
