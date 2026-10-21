@@ -10,21 +10,43 @@ interface RetentionItem {
   dueAt: string | null;
   due: boolean;
   freshItemsLeft: number;
+  lastOutcome?: "retained" | "missed" | "unsure" | "assisted" | null;
+  movedForAvailability?: boolean;
 }
+interface RetentionView { available: boolean; items: RetentionItem[]; availability?: { weekdays: number[]; timeZone: string } | null }
+const WEEK = [0, 1, 2, 3, 4, 5, 6];
+// A known Sunday, to name each weekday in the learner's language.
+const SUNDAY = Date.UTC(2026, 9, 25, 12);
+/** The browser's time zone, which study days are read in. */
+const browserZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+};
 
 /** Delayed independent checks. They record retention beside demonstrated
  * understanding and never change completion or unlock steps. */
-export function RetentionPanel({ api, enrollmentId, revision, onStart }: RetentionPanelProps) {
+export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAvailability }: RetentionPanelProps) {
   const i18n = useI18n(),
     t = i18n.t;
   const [items, setItems] = useState<RetentionItem[]>([]);
+  const [availability, setAvailability] = useState<RetentionView["availability"]>(null);
+  const [days, setDays] = useState<number[] | null>(null);
+  const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
     (api as CourseApi)
-      .request<{ available: boolean; items: RetentionItem[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/retention`, "GET", undefined, { signal: controller.signal })
-      .then((v) => !controller.signal.aborted && setItems(v.available ? v.items : []))
+      .request<RetentionView>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/retention`, "GET", undefined, { signal: controller.signal })
+      .then((v) => {
+        if (controller.signal.aborted) return;
+        setItems(v.available ? v.items : []);
+        setAvailability(v.availability ?? null);
+        setDays(null);
+      })
       .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
     return () => controller.abort();
   }, [api, enrollmentId, revision]);
@@ -50,6 +72,9 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart }: Retenti
                       })
                     : t(`retentionPanel.state.${item.state}` as MessageKey)}
               </span>
+              {item.lastOutcome === "missed" && <span className="connected-muted"> · {t("retentionPanel.outcome.missed")}</span>}
+              {item.lastOutcome === "unsure" && <span className="connected-muted"> · {t("retentionPanel.outcome.unsure")}</span>}
+              {item.movedForAvailability && item.dueAt && !item.due && <span className="connected-muted"> · {t("retentionPanel.moved")}</span>}
             </div>
             {item.due && (item.freshItemsLeft > 0 ? (
               <button
@@ -76,7 +101,60 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart }: Retenti
           </li>
         ))}
       </ul>
-      <div aria-live="polite">{error && <p role="alert" className="connected-error-text">{error}</p>}</div>
+      {onSaveAvailability && (
+        <fieldset className="connected-retention-days">
+          <legend>{t("retentionPanel.days.legend")}</legend>
+          <p className="connected-muted">
+            {availability ? t("retentionPanel.days.current", { zone: availability.timeZone }) : t("retentionPanel.days.anyDay")}
+          </p>
+          <div role="group" aria-label={t("retentionPanel.days.legend")} className="connected-retention-day-list">
+            {WEEK.map((day) => {
+              const chosen = (days ?? availability?.weekdays ?? WEEK).includes(day);
+              return (
+                <label key={day}>
+                  <input
+                    type="checkbox"
+                    checked={chosen}
+                    onChange={() => {
+                      const current = days ?? availability?.weekdays ?? WEEK;
+                      setDays(chosen ? current.filter((d) => d !== day) : [...current, day].sort());
+                      setSaved("");
+                    }}
+                  />{" "}
+                  {i18n.dateTime(SUNDAY + day * 86_400_000, { weekday: "long", timeZone: "UTC" })}
+                </label>
+              );
+            })}
+          </div>
+          <p className="connected-input-hint">{t("retentionPanel.days.hint")}</p>
+          <div className="connected-gate-actions">
+            <button
+              type="button"
+              className="connected-button"
+              disabled={Boolean(busy) || days === null || days.length === 0}
+              onClick={async () => {
+                setBusy("days");
+                setError("");
+                try {
+                  await onSaveAvailability(days!.length === 7 ? null : days, browserZone());
+                  setSaved(t("retentionPanel.days.saved"));
+                } catch {
+                  setError(t("retentionPanel.days.failed"));
+                } finally {
+                  setBusy("");
+                }
+              }}
+            >
+              {t("retentionPanel.days.save")}
+            </button>
+            {days !== null && days.length === 0 && <span className="connected-muted">{t("retentionPanel.days.pickOne")}</span>}
+          </div>
+        </fieldset>
+      )}
+      <div aria-live="polite">
+        {error && <p role="alert" className="connected-error-text">{error}</p>}
+        {saved && <p className="connected-muted">{saved}</p>}
+      </div>
     </section>
   );
 }

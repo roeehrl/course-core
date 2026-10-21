@@ -50,7 +50,7 @@ export async function agentAuthored(client: PoolClient, enrollmentId: string, an
   return replies.some(reply => normal(reply.content).split(/(?<=[.!?])\s+/).some(sentence => sentence.length >= 60 && response.includes(sentence)));
 }
 /** Whether this host can evaluate the item now (installed, declared and qualified evaluator). */
-function requireEvaluator(context: EnrollmentContext, assessment: Assessment, installed: RuntimeExtension[]) {
+export function requireEvaluator(context: EnrollmentContext, assessment: Assessment, installed: RuntimeExtension[]) {
   const course = context.release.server_bundle, code = codeView(course, assessment), rubric = reviewedRubric(course, assessment.id);
   if (code) { requireCodeEvaluator(code, course, installed); return; }
   if (rubric) {
@@ -172,7 +172,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         const explanation = explanationOf(assessment) ?? 'Nothing was recorded against you. A reviewer or the companion can help you prepare for a fresh check.';
         await insertAttempt(null, { status: 'abstained', abstained: true, passed: false, evaluator: 'abstain@1', independentEligible: independent });
         // A held-out retention check answered "I don't know" schedules a review; it is not a failed result.
-        if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, false, independent, clock.now());
+        if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, false, independent, clock.now(), true);
         // Teaching signal only (T7): "I don't know" is never a misconception.
         await recordAnswerSignal(client, context, { attemptId, assessment, answer: null, passed: false, independent, mode: challenge.mode, confidence, abstained: true });
         return finish({ abstained: true }, { passed: false, abstained: true, explanation });

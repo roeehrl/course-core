@@ -366,7 +366,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricReviewRoutes(app,db,auth,proposalsAvailable);
   registerRubricAppealRoutes(app, db, auth);
   registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
-  registerRetentionRoutes(app,db,auth,clock);
+  registerRetentionRoutes(app,db,auth,clock,options.installedExtensions ?? []);
   registerPersonalChangeRoutes(app,db,auth,adaptation);
   registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory) });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());

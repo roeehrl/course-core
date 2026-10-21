@@ -132,6 +132,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     research_resource_choices: { job_id: ids.job, objective_id: "objective.one", episode_id: "min" },
     research_requests: { parent_job_id: ids.job, topic_id: "topic.one", episode_id: "min", state: "collected" },
     retention_schedules: {},
+    // The learner's study days (migration 097); erasure deletes them.
+    retention_availability: { time_zone: "Zone/" + secret },
     rubric_appeals: { id: ids.appeal, attempt_id: ids.attempt, reason: "My appeal says " + secret, state: "upheld", reviewer_id: staff, decision: "met", decided_at: new Date().toISOString(),
       findings: { findings: quoted, requestDigest: hex("3") }, reviewer_note: "Second reviewer: " + secret },
     rubric_assist_consents: { granted: true },

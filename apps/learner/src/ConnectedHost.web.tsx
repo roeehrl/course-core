@@ -1306,6 +1306,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   });
                   openEpisode(issued.episodeId);
                 }}
+                onSaveAvailability={async (weekdays, timeZone) => {
+                  await inFlight(async () => {
+                    const fresh = await api.load(server.enrollmentId);
+                    await api.command<never>(fresh, "retention/availability", { weekdays, timeZone });
+                    await refresh(server.enrollmentId);
+                  });
+                }}
               />
               <CourseRoadmap
                 course={model.course}

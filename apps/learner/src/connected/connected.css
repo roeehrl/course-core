@@ -1215,6 +1215,27 @@
 .connected-retention .connected-button {
   justify-self: start;
 }
+.connected-retention-days {
+  border: 0;
+  padding: 0;
+  margin: 16px 0 0;
+  min-inline-size: 0;
+}
+.connected-retention-days legend {
+  font-weight: 600;
+  padding: 0;
+}
+.connected-retention-day-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.connected-retention-day-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 44px;
+}
 .connected-changes ul {
   list-style: none;
   padding: 0;
