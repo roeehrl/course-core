@@ -284,4 +284,17 @@ describe("leaving the page", () => {
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
+  it("reports leaving the page as one keepalive POST with the CSRF token, and never throws when the network fails", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ ended: true, session: 1 }));
+    const api = createCourseApi({ fetch: fetcher, csrf: () => "anti-csrf" });
+    await expect(api.notify("/api/enrollments/e1/session/end")).resolves.toBeUndefined();
+    const [url, init] = fetcher.mock.calls[0]!;
+    expect(url).toBe("/api/enrollments/e1/session/end");
+    expect(init).toMatchObject({ method: "POST", keepalive: true, credentials: "same-origin", body: "{}" });
+    expect((init!.headers as Record<string, string>)["X-CSRF-Token"]).toBe("anti-csrf");
+    const failing = createCourseApi({ fetch: vi.fn<typeof fetch>().mockRejectedValue(new TypeError("offline")), csrf: () => "anti-csrf" });
+    await expect(failing.notify("/api/enrollments/e1/session/end")).resolves.toBeUndefined();
+    const throwing = createCourseApi({ fetch: (() => { throw new TypeError("gone"); }) as unknown as typeof fetch, csrf: () => "anti-csrf" });
+    await expect(throwing.notify("/api/enrollments/e1/session/end")).resolves.toBeUndefined();
+  });
 });
