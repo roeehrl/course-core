@@ -315,6 +315,8 @@
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "C03": [
+      "core:apps/admin/tests/evidenceDisputes.test.tsx::keeps a failed code answer on a delayed check",
+      "core:services/api/test/evidence-disputes.integration.test.ts::reviews a disputed delayed check like any other result",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learner-model.integration.test.ts::a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed"
     ],
@@ -404,7 +406,10 @@
       "core:services/api/test/rubric.integration.test.ts"
     ],
     "F06": [
-      "core:services/api/test/learner-model.integration.test.ts"
+      "core:apps/learner/tests/retentionPanel.test.tsx",
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/retention-schedule.test.ts",
+      "core:services/api/test/retention.integration.test.ts::steps back one interval on a miss"
     ],
     "F07": [
       "core:services/api/test/api.integration.test.ts",
@@ -485,8 +490,16 @@
     "H01": [
       "core:services/api/test/placement.integration.test.ts"
     ],
+    "H02": [
+      "core:apps/admin/tests/placementAdmin.test.tsx::shows the author",
+      "core:services/api/test/placement-admin.integration.test.ts::bounds staff retests, cooldown and evidence by the author"
+    ],
     "H03": [
       "core:services/api/test/placement.integration.test.ts"
+    ],
+    "H04": [
+      "core:apps/learner/tests/placementResult.test.tsx",
+      "core:services/api/test/placement-admin.integration.test.ts::names the questions behind each objective shown"
     ],
     "H06": [
       "core:services/api/test/placement.integration.test.ts"
@@ -609,6 +622,10 @@
       "core:services/api/test/policy-records.integration.test.ts::projects work reservations and the policy at each revision",
       "core:services/api/test/policy-records.integration.test.ts::records each gate of a stored release"
     ],
+    "M03": [
+      "core:services/api/test/grading-provenance.test.ts",
+      "core:services/api/test/scoped-corrections.integration.test.ts::M03: the attempt and each regrade bind"
+    ],
     "M05": [
       "core:services/api/test/interactive-context.test.ts"
     ],
@@ -688,6 +705,10 @@
       "core:services/api/test/api.integration.test.ts",
       "core:services/api/test/wakeups.integration.test.ts"
     ],
+    "P12": [
+      "core:apps/learner/tests/connectedLesson.test.tsx::return point after a detour (P12)",
+      "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner"
+    ],
     "P13": [
       "core:apps/learner/tests/components.test.tsx"
     ],
@@ -712,8 +733,10 @@
       "core:services/api/test/policy-levels.integration.test.ts::queues the approval across learners"
     ],
     "Q06": [
+      "core:apps/admin/tests/placementAdmin.test.tsx::narrows the blueprint",
       "core:apps/admin/tests/real/placement.real.spec.ts::placement settings tighten only, and a learner's exemption shows its evidence and can be revoked",
-      "core:services/api/test/placement-admin.integration.test.ts::are off by default even when the manifest offers placement, and only staff with policy rights change them"
+      "core:services/api/test/placement-admin.integration.test.ts::are off by default even when the manifest offers placement, and only staff with policy rights change them",
+      "core:services/api/test/placement-admin.integration.test.ts::placement blueprint and protected units (Q06)"
     ],
     "Q07": [
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
@@ -725,7 +748,9 @@
     ],
     "Q09": [
       "core:apps/admin/tests/appeals.test.tsx",
-      "core:apps/admin/tests/real/reviews.real.spec.ts"
+      "core:apps/admin/tests/assessments.test.tsx",
+      "core:apps/admin/tests/real/reviews.real.spec.ts",
+      "core:services/api/test/assessment-admin.integration.test.ts"
     ],
     "Q10": [
       "core:services/api/test/people.integration.test.ts",
@@ -827,6 +852,7 @@
     "S03": [
       "core:services/api/test/api.integration.test.ts",
       "core:services/api/test/api.integration.test.ts::refuses skipped lessons and a fabricated mastery field",
+      "core:services/api/test/gates.test.ts::false-mastery rules on unversioned 0.4 gates",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learning.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"

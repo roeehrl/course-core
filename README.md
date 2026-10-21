@@ -94,11 +94,11 @@ Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in
 
 ### Gates and assessment (SDK 0.5)
 
-Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`).
+Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`). Every learner-visible sentence of a decision also comes as a message code with parameters beside the SDK record (`messages`: the reason, each criterion by ID and each next action by position; stored in `gate_decisions.messages`), and the learner app shows it in the learner's language; the codes are not part of the decision's inputs digest. Decisions recorded before codes existed show their English text.
 
 **Gate review and exception.** When a versioned gate's `appealPolicy` allows it, the learner can ask staff to review the current decision (`POST /api/enrollments/:id/gates/:gateId/review-requests` with the decision ID and a reason, within the policy's window; one open request per gate). Staff with evidence review rights see open requests at `GET /api/admin/courses/:catalogId/gate-reviews` and decide them at `POST /api/admin/gate-reviews/:requestId`: `upheld` with a note the learner reads, or, for staff who may change enrollments, `exception`. An exception is a separate audited grant, not a gate decision: the decision keeps its status and open criteria, nothing becomes evidence, and the objectives are not counted as demonstrated. It lets the learner complete that episode (recorded with the grant on `episode_progress`) on the course and gate version it names, and it does not lift a reached course limit (`GATE_CAP_REACHED`). The learner never reviews their own request.
 
-Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 pass rule. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
+Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 family-count rule and gain the same false-mastery rules: when the gate offers any task beyond choosing among given answers (or a judged conversation), an objective needs one such independent success, and a declared critical misconception the learner showed blocks readiness until a later independent success on an item exposing it. A 0.4 gate of choice items only stays publishable, so SDK 0.4 bundles keep working unchanged, but the release shows staff a warning (`LEGACY_RECOGNITION_ONLY_GATES`) that it can be passed on recognition alone. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
 
 A versioned gate may name a `conversationalRubricRef`, and an unversioned 0.4 gate a `conversationalEvaluatorId` that names a 0.5 evaluator definition bound to exactly one course rubric. The learner explains in their own words (`gate-conversation:<gateId>`) and a reviewer may ask neutral follow-up questions in the same thread. When the learner has opted in to AI drafts and a reviewer model is configured, the supervisor proposes quoted findings by itself for every turn, reading the earlier turns too (staff can also ask). The host verifier refuses any proposal whose "met" findings do not quote the learner's own words verbatim; a reviewer's question is not the learner's words. A verified proposal is still a draft. Evidence needs confirmation: a human reviewer who quotes the learner, or, for an evaluator declared `method: 'deterministic'`, the installed, integrity-matched adapter's `confirmConversationFindings`. Core records deterministic confirmation only as "met", and only when every finding the proposal marks met is confirmed and every required criterion is met. Otherwise it records why (`automaticCheck` in the review queue) and the answer waits for a person. A model impression without quotes therefore never produces evidence or a ready decision. Core refuses a conversational gate at publish unless its rubric requires cited evidence and its evaluator requires human confirmation or is deterministic with an installed confirmer. A 0.4 conversation counts as one item family, so its listed items must supply the remaining families (`PUBLISH_GATE_EVIDENCE_UNREACHABLE`). A `conversationalEvaluatorId` that names a bare extension has no rubric to cite and is still refused (`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED`). SDK 0.5 lists no conversation item type, so a deterministic conversation evaluator declares one of the deterministic item types in `itemTypes` and binds the rubric through `rubricIds`. No deterministic confirmer ships with Core, and scripted models in tests show the host's checks, not any model's quality. An answer that reproduces a sentence of a companion reply is refused as agent-authored.
 
@@ -778,6 +778,17 @@ enrollment. Erasure redacts their reasons and a regrade's quoted findings.
   learner sees the new decision and can no longer appeal that answer. `GET` on
   the same path returns the decision in force and the regrade history.
 
+**Grading provenance.** Every attempt and every regrade binds what graded it:
+SHA-256 digests (of canonical JSON) of the exact item, of its answer key (a
+deterministic key without its teaching explanation, a code item's grading
+reference plus the evaluator build holding its hidden cases, or a reviewed
+item's rubric) and of the evaluator (Core's deployed deterministic grader
+source, or the installed extension's id, version and integrity), plus the
+sandbox image a code answer ran in (`attempts`/`attempt_regrades` columns,
+`services/api/src/grading-provenance.ts`). The regrade view shows them and
+whether the item, key or evaluator changed since the answer was graded.
+Attempts recorded before these columns existed show none.
+
 ## Supervisor wake-ups
 
 Wake-ups come from durable per-deadline timers (`policy_deadline_timers`,
@@ -1099,9 +1110,24 @@ derived from when the evidence completing its gate was recorded (so schedules
 are reproducible and created idempotently on first read). When a check is due,
 `POST /api/enrollments/:id/retention/check` issues an unseen held-out item as an
 independent challenge in mode `retention`; a second pending check is refused.
-An independent success records the objective as retained and schedules the next
-interval from the demonstration time; a miss marks it for review one first
-interval later without revoking demonstrated understanding. When no unseen item
+The schedule is graded, not a mastery estimate (`nextSchedule` in
+`services/api/src/retention.ts`): an independent success records the objective
+as retained and moves one interval on (keeping the schedule's own rhythm when the
+check was on time); a wrong answer steps back one interval rather than restarting,
+and only a second miss in a row restarts at the first interval; "I don't know yet"
+loses no step and schedules a review after the first interval; a right answer
+given with help neither gains nor loses a step. A miss or "unsure" marks the
+objective for review without revoking demonstrated understanding. Learners can
+set the weekdays they study, in their time zone
+(`POST /api/enrollments/:id/retention/availability {weekdays, timeZone}`,
+`retention_availability`): a check that would fall on another day waits for the
+start of their next study day, never earlier, and clearing the setting restores
+the schedule's own times. A delayed check may use any item this host can
+evaluate: deterministic items, code with a qualified evaluator, and written
+answers with the installed reviewer, whose review then moves the schedule (a
+second check waits while one is under review). If staff later invalidate a
+delayed-check result (an upheld dispute or a defective item), the schedule is
+rebuilt from the results that still stand. When no unseen item
 remains the API says so (`RETENTION_ITEMS_EXHAUSTED`) instead of repeating one.
 Retention never changes gates, completion or lesson states. Learners see an
 optional Delayed checks panel, and the supervisor receives a `retention.due`
@@ -1135,6 +1161,53 @@ those objectives (and everything after them) on the path; once the review
 arrives, an unfinished run continues from the real outcome. Staff see
 the run state, stop reason and exemptions. The legacy per-episode
 `complete { placement: true }` path is refused in favour of run acceptance.
+
+The result explains itself without a global level: each objective shown lists
+the questions that showed it, objectives tried but not shown say why (an answer
+was not correct, help was used, or more kinds of question are needed), and the
+placeable objectives on the path that were never asked are listed. The note that
+untested objectives are no judgement of ability is a message code the learner app
+translates (`untestedNoteCode`).
+
+**Author policy and staff settings.** Placement is on only when the course offers
+it and staff enable it, and staff settings only tighten the author's. Core reads
+the SDK 0.5 `retestPolicy` (runs and cooldown), `assistancePolicy` and
+`evidenceThresholds` of every live release that offers placement: effective runs,
+cooldown and item families per lesson are the stricter of the author's and the
+staff values, and saving looser staff values is refused
+(`PLACEMENT_RETESTS_LOOSEN_AUTHOR`, `PLACEMENT_COOLDOWN_LOOSENS_AUTHOR`,
+`PLACEMENT_EVIDENCE_LOOSENS_AUTHOR`). With `unassisted_only`, revealing a
+placement answer and companion help while a placement item is open are refused
+(`PLACEMENT_UNASSISTED_ONLY`). Staff may narrow the author's blueprint (leave
+questions or placeable objectives out) and protect more lessons, never add
+questions or un-protect an author's lesson (migration
+`098_placement_blueprint.sql`). `POST /api/admin/courses/:id/placement/settings/preview`
+shows, without saving, what each required lesson would allow (placeable, not
+placeable, no questions left, protected by the author or by staff); the admin
+page requires that check before saving a blueprint change.
+
+## Answer keys and test answers
+
+The admin **Answer keys** page (`course.write`: owners, admins and authors; keys
+reveal answers) lists a release's questions with their keys
+(`GET /api/admin/courses/:id/releases/:releaseId/assessments`). Keys and rubrics
+change only on a draft release, which is then reviewed and published like any
+draft: `PUT .../assessments/:assessmentId/key` (choice, numeric, prediction and
+trace keys) and `PUT .../rubrics/:rubricId` (a course rubric, whose changed
+criteria need a version that was not published with other criteria, or a 0.4
+written item's own rubric). Test answers belong to the course: answers a question
+must reject (wrong-answer fixtures, usually a likely mistake) or accept
+(`GET|POST /api/admin/courses/:id/assessment-fixtures`,
+`DELETE .../assessment-fixtures/:fixtureId`; at most 50 per question and 2000 per
+course). A key change is checked first
+(`POST .../assessments/:assessmentId/key/preview`) and a change that grades a test
+answer the wrong way is saved only with `acceptFailingFixtures`. A test run
+(`POST .../releases/:releaseId/fixture-runs`) grades every test answer with the
+learners' deterministic grader and is recorded (`assessment_fixture_runs`); the
+report (`GET .../fixture-runs`) shows counts to anyone who can read the course
+and each answer's result to course writers, and marks a run stale when its draft
+changed since. Code and written questions are reported as not runnable here (no
+sandbox run or reviewer is started). Every change is audited.
 
 ## External agent tools
 
@@ -1224,11 +1297,14 @@ exported and erased with the learner's data. At most 20 disputes may be open.
 
 Staff find open disputes on the Answer reviews page (`GET /api/admin/courses/:courseId/evidence-disputes`,
 `evidence.review` on that course through the admin permission check). Each row has the dispute's state, the
-objective, the evidence reference (item, recorded result, course version) and its age, never the learner's
-reason. Resolving (`POST .../evidence-disputes/:disputeId/resolve`, `accept` or `reject` with a note) is the
-same evidence review as on the enrollment: `accept` upholds a result Core can acknowledge (independent,
-unassisted, passing deterministic answers only) without changing it, and `reject` invalidates the evidence and
-recomputes progress. Either one closes the dispute, is idempotent by key, refuses the learner's own dispute and
+objective, the evidence reference (item, kind of answer, check mode, recorded result, course version) and its
+age, never the learner's reason. Any result can be disputed: a choice, a number, a trace, code, a written
+answer or a delayed retention check. Resolving (`POST .../evidence-disputes/:disputeId/resolve`, `accept` or
+`reject` with a note) is the same evidence review as on the enrollment: `accept` keeps the result as recorded
+(any result that did not pass, which grants nothing, or a pass Core can acknowledge: independent, unassisted,
+passing deterministic answers), and `reject` invalidates the evidence and recomputes progress; for a delayed
+check it also rebuilds the review schedule without that result. An automatically graded practice or
+independent answer can instead be graded again (scoped regrade, `canRegrade` on the row). Either one closes the dispute, is idempotent by key, refuses the learner's own dispute and
 a closed one, and is audited (the enrollment event names the dispute; a course-level
 `admin.evidence_dispute.resolved` event records who decided).
 
