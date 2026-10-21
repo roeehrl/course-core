@@ -62,7 +62,7 @@ function preview(overrides: Partial<PackagePreview> = {}): PackagePreview {
       {
         code: "HOST_REQUIREMENT_MISSING",
         severity: "warning",
-        detail: "verifier.json: configure it.",
+        params: { name: "verifier.json", sha256: "0123456789ab" },
       },
     ],
     installable: true,
@@ -317,7 +317,7 @@ describe("installing a course package", () => {
             {
               code: "CORE_VERSION_TOO_OLD",
               severity: "blocking",
-              detail: "Requires Core 9.0.0.",
+              params: { required: "9.0.0", current: "0.1.52" },
             },
           ],
         }),
@@ -331,7 +331,7 @@ describe("installing a course package", () => {
       screen.getByRole("button", { name: "Inspect package" }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "1 blocking problemCORE_VERSION_TOO_OLD — Requires Core 9.0.0.",
+      "1 blocking problemNeeds Core 9.0.0; this Core is 0.1.52. Update Core first. CORE_VERSION_TOO_OLD",
     );
     expect(
       screen.getByRole("button", { name: "Install draft" }),
@@ -404,7 +404,7 @@ describe("installing a course package", () => {
             {
               code: "OLDER_THAN_INSTALLED",
               severity: "warning",
-              detail: "Version 1.2.0 is already installed.",
+              params: { newest: "1.2.0" },
             },
           ],
         }),
@@ -638,7 +638,7 @@ describe("installing a course package", () => {
               {
                 code: "CORE_VERSION_TOO_OLD",
                 severity: "blocking",
-                detail: "Requires Core 9.0.0.",
+                params: { required: "9.0.0", current: "0.1.52" },
               },
               { code: "W1", severity: "warning" },
               { code: "W2", severity: "warning" },

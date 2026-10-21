@@ -1,3 +1,4 @@
+import { serverMessageSchema } from "./serverMessages";
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
 import type { AiServicesPort } from "./aiServices";
@@ -132,11 +133,11 @@ export const releaseSchema = z.object({
   /** warning: passed, but a standing limit staff should read (never blocks review). */
   checks: z.array(
     z.object({
-      label: text,
+      /** Server checks carry a code (`releaseChecks.<code>.*`); demo and older checks carry text. */
+      label: text.optional(),
       passed: z.boolean(),
-      detail: text,
+      detail: text.optional(),
       warning: z.boolean().optional(),
-      /** A check the app can explain in the reader's language (`courseView.check.code.<code>`). */
       code: z.string().max(80).optional(),
       params: z.record(z.string(), z.string().max(2000)).optional(),
     }),
@@ -197,7 +198,11 @@ export const providerSchema = z.object({
   verification: z.enum(["not_run", "failed", "verified"]),
   connectionLabel: text,
   environment: text,
-  detail: text,
+  /** A role slot's runtime status code when no model is configured. */
+  runtimeStatus: z.string().max(80).optional(),
+  enabled: z.boolean().optional(),
+  /** A metadata change request awaits server operator review. */
+  requestPending: z.boolean().optional(),
 });
 export type Provider = z.infer<typeof providerSchema>;
 export const runSummarySchema = z.object({
@@ -359,7 +364,7 @@ export const mutationSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.enum(["saved", "pending_review", "reserved", "published"]),
   }),
-  message: text,
+  message: serverMessageSchema,
 });
 export type MutationResult = z.infer<typeof mutationSchema>;
 export interface MutationContext {

@@ -1,3 +1,4 @@
+import { serverMessageSchema } from "./serverMessages";
 import { z } from "zod";
 // Presentation projection of policy v0.1.0. No client model grants learning credit.
 const id = z.string().min(1).max(256);
@@ -342,7 +343,7 @@ export const proposalResultSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.literal("proposed"),
   }),
-  message: z.string(),
+  message: serverMessageSchema,
 });
 export type LearningPolicy = z.infer<typeof learningPolicySchema>;
 export type ScopePolicy = z.infer<typeof scopeSchema>;
@@ -382,7 +383,7 @@ export const policyMigrationResultSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.literal("migrated"),
   }),
-  message: z.string(),
+  message: serverMessageSchema,
 });
 export type PolicyMigrationPreview = z.infer<
   typeof policyMigrationPreviewSchema
@@ -420,7 +421,7 @@ export const accommodationResultSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.literal("accommodated"),
   }),
-  message: z.string(),
+  message: serverMessageSchema,
 });
 export type AccommodationPreview = z.infer<typeof accommodationPreviewSchema>;
 export type AccommodationResult = z.infer<typeof accommodationResultSchema>;
