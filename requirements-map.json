@@ -445,6 +445,8 @@
       "core:services/api/test/api.integration.test.ts::practice and corrected repeats remain ineligible for independent mastery"
     ],
     "F04": [
+      "core:services/api/test/gate-decision.integration.test.ts::grades a prediction stated in a unit of the same kind after converting it, and records the answer as sent",
+      "core:services/api/test/gates.test.ts::converts a value stated in a unit of the same kind to the declared unit before grading",
       "core:services/api/test/rubric-assist.integration.test.ts",
       "core:services/api/test/rubric.integration.test.ts"
     ],
@@ -469,7 +471,13 @@
       "sdk:tests/validation.test.ts"
     ],
     "G02": [
+      "core:apps/admin/tests/assessmentPolicy.test.tsx::explains the limit and wait in plain words and previews the exact draft before saving",
+      "core:apps/admin/tests/real/policy.real.spec.ts::a graded-attempt limit refuses the next check until an administrator allows one more attempt",
+      "core:apps/learner/tests/attemptLimits.test.ts::says when the next graded attempt may start, in the learner's language",
       "core:packages/policy/test/hierarchy.test.mjs::G03: organization and enrollment levels bind below them",
+      "core:services/api/test/assessment-policy.integration.test.ts::lets an owner or administrator allow one more attempt, with a reason, after showing the use per check",
+      "core:services/api/test/assessment-policy.integration.test.ts::makes the learner wait after an unsuccessful graded attempt, says until when, and not after a pass",
+      "core:services/api/test/assessment-policy.integration.test.ts::refuses a graded attempt past the limit with the count, never limits practice and keeps recorded evidence",
       "core:services/api/test/policy-levels.integration.test.ts::previews ceilings against every course before saving"
     ],
     "G03": [
