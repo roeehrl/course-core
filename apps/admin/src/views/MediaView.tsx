@@ -1243,7 +1243,6 @@ function ReviewForm({
         transcript: transcript.trim(),
         visualDescription: description.trim(),
         captionsVtt: captions,
-        captionsLanguage,
       };
   return (
     <form
@@ -1259,7 +1258,10 @@ function ReviewForm({
           assetSha256: sha,
           findings: checks,
           rationale: rationale.trim(),
-          ...(approving ? text : {}),
+          // The caption language is recorded with the review; the check compares text only.
+          ...(approving
+            ? { ...text, ...(image ? {} : { captionsLanguage }) }
+            : {}),
         });
       }}
     >

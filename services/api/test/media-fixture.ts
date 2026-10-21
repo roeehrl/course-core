@@ -132,7 +132,7 @@ export const mediaJobPolicy = (microUsd: number) => ({ allowance: { microUsd, to
 export async function approveRevisionsForTest(db: Database, workspaceId: string, configuration: unknown) {
   const revisions = await roleRevisions(providerConfigurationSchema.parse(configuration));
   const suite = publicSuite();
-  const owner = (await db.query<{ user_id: string }>("SELECT user_id FROM memberships WHERE workspace_id=$1 AND role='owner' ORDER BY user_id LIMIT 1", [workspaceId])).rows[0]!.user_id;
+  const owner = (await db.query<{ user_id: string }>("SELECT user_id FROM memberships WHERE workspace_id=$1 AND role IN ('owner','admin') ORDER BY role='owner' DESC,user_id LIMIT 1", [workspaceId])).rows[0]!.user_id;
   for (const revision of Object.values(revisions))
     await db.query(`INSERT INTO provider_eval_overrides(id,workspace_id,role,revision_digest,suite_id,suite_digest,reason,actor_id,idempotency_key,request_digest)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [randomUUID(), workspaceId, revision!.role, revision!.digest, suite.id, suite.digest,

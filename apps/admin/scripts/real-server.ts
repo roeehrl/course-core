@@ -63,6 +63,7 @@ import {
   mediaConfiguration,
   mediaJobPolicy,
   pipelineConfiguration,
+  approveRevisionsForTest,
 } from "../../../services/api/test/media-fixture.ts";
 import {
   subscriptionAdapter,
@@ -1899,6 +1900,8 @@ app.post("/test/media-fixture", async () => {
   const enrollmentId = (await call("/api/enrollments", { releaseId }, learner))
     .id;
   const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  // Every agent role is gated (N07): the owner approves the scripted revisions first.
+  await approveRevisionsForTest(db, workspaceId, mediaConfiguration());
   await call(setup, {
     expectedRevision: 0,
     idempotencyKey: "media-" + randomUUID(),
@@ -2022,6 +2025,12 @@ app.post("/test/media-pipeline-fixture", async () => {
   const enrollmentId = (await call("/api/enrollments", { releaseId }, learner))
     .id;
   const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  // Every agent role is gated (N07): the owner approves the scripted revisions first.
+  await approveRevisionsForTest(
+    db,
+    workspaceId,
+    pipelineConfiguration("video"),
+  );
   await call(setup, {
     expectedRevision: 0,
     idempotencyKey: "media-" + randomUUID(),
@@ -2550,6 +2559,8 @@ app.post("/test/learner-view-media-fixture", async () => {
     learner,
   );
   const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  // Every agent role is gated (N07): the owner approves the scripted revisions first.
+  await approveRevisionsForTest(db, workspaceId, mediaConfiguration());
   await call(setup, {
     expectedRevision: 0,
     idempotencyKey: "media-" + randomUUID(),
