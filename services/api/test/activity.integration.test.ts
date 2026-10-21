@@ -192,13 +192,13 @@ describe('admin release checks', () => {
     await publish(sandboxedCourse());
     const course = (await call(owner, 'GET', '/api/admin/session')).json().courses.find((c: { workspaceId?: string }) => c.workspaceId === workspace);
     const view = (await call(owner, 'GET', `/api/admin/courses/${course.id}`)).json();
-    const warning = view.releases[0].checks.find((c: { label: string }) => c.label === 'Sandboxed web activities');
-    expect(warning).toMatchObject({ passed: true, warning: true });
-    expect(warning.detail).toMatch(/Never put sensitive data in activity state/);
+    const warning = view.releases[0].checks.find((c: { code: string }) => c.code === 'SANDBOXED_WEB_ACTIVITIES');
+    // A code the admin app words (releaseChecks namespace); no English prose from the server.
+    expect(warning).toEqual({ code: 'SANDBOXED_WEB_ACTIVITIES', passed: true, warning: true });
     const bare = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [declarativeActivityRuntime()] });
     try {
       const checks = (await call(owner, 'GET', `/api/admin/courses/${course.id}`, undefined, bare)).json().releases[0].checks;
-      expect(checks.map((c: { label: string }) => c.label)).not.toContain('Sandboxed web activities');
+      expect(checks.map((c: { code: string }) => c.code)).not.toContain('SANDBOXED_WEB_ACTIVITIES');
     } finally { await bare.close(); }
   });
 });

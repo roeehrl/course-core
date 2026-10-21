@@ -7,6 +7,9 @@ const text = z.string().max(4000);
 const problemSchema = z.object({
   code: z.string().max(100),
   severity: z.enum(["blocking", "warning"]),
+  /** Values for the problem's message (`installCourse.problem.<code>`); `check: "runtime"` marks a runtime refusal. */
+  params: z.record(z.string(), z.string().max(400)).optional(),
+  /** Free text from servers before codes; shown only when no message matches the code. */
   detail: text.optional(),
 });
 export const packageSourceSchema = z.union([

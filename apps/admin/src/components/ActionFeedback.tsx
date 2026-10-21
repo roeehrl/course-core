@@ -1,8 +1,10 @@
 import type { WorkspaceActions } from "../hooks/useAdmin";
-import { useT } from "../i18n";
+import { useI18n } from "../i18n";
+import { serverMessageText } from "../domain/serverMessages";
 import { ErrorState, Notice } from "./ui";
 export function ActionFeedback({ actions }: { actions: WorkspaceActions }) {
-  const t = useT();
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <>
       {actions.error && (
@@ -10,7 +12,7 @@ export function ActionFeedback({ actions }: { actions: WorkspaceActions }) {
       )}
       {actions.receipt && (
         <Notice tone="green">
-          <span>{actions.receipt.message}</span>
+          <span>{serverMessageText(i18n, actions.receipt.message)}</span>
           <small className="receipt">
             {actions.receipt.receipt.authority === "demo"
               ? t("actionFeedback.demoReceipt")

@@ -107,5 +107,15 @@
   "steps.registryConsent": "I approve the packaged recovery registry ({count, plural, one {# profile} other {# profiles}}, digest {digest}) for version {version}.",
   "steps.approveRegistry": "Approve recovery registry",
   "steps.ownerMustApprove": "An owner or administrator must approve the registry.",
-  "status.slow": "Still working. A large package takes longer on a slow connection; keep this window open."
+  "status.slow": "Still working. A large package takes longer on a slow connection; keep this window open.",
+  "problem.runtime": "This host cannot run the course as declared. Install what the course needs, then check the package again.",
+  "problem.SDK_UNSUPPORTED": "Built with SDK {sdkVersion}; this Core supports {min} up to (not including) {maxExclusive}. Rebuild the course with a supported SDK.",
+  "problem.SDK_NEWER_THAN_CORE": "Built with SDK {sdkVersion}, newer than this Core's SDK {coreSdkVersion}. Core checked it with its own SDK and the course digest matches.",
+  "problem.SDK_OLDER_THAN_CORE": "Built with SDK {sdkVersion}, older than this Core's SDK {coreSdkVersion}. Core checked it with its own SDK and the course digest matches.",
+  "problem.CORE_VERSION_TOO_OLD": "Needs Core {required}; this Core is {current}. Update Core first.",
+  "problem.RELEASE_VERSION_CONFLICT": "Version {version} already exists here with different content. Give the package a new version number.",
+  "problem.OLDER_THAN_INSTALLED": "Version {newest} is already installed, so this one is older.",
+  "problem.HOST_REQUIREMENT_MISSING": "{name}: the server operator must add this exact file (sha256 {sha256}…).",
+  "problem.HOST_REQUIREMENT_DIFFERENT": "{name}: the server has a different file under this name; the operator must install the exact file (sha256 {sha256}…).",
+  "problem.ADAPTATION_REGISTRY_NOT_APPROVABLE": "The packaged recovery registry cannot be approved on this server yet ({reason})."
 }

@@ -29,9 +29,7 @@ test("read-only staff see every agent role's capability slot without a configure
     [...roles].sort(),
   );
   for (const provider of course.providers)
-    expect(provider.detail).toBe(
-      "Runtime status: configuration_missing. No live verification is claimed.",
-    );
+    expect(provider.runtimeStatus).toBe("configuration_missing");
 
   await page.getByRole("button", { name: "AI services", exact: true }).click();
   // Read-only staff see a plain summary: job names, not role ids, and no setup controls.
