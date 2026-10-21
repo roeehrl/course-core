@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { CodeEditorProps } from "./CodeEditor";
 import {
-  CODE_PROTOCOL,
+  codeProtocol,
   MAX_CODE_BYTES,
   codeSubmissionError,
   utf8Bytes,
@@ -24,7 +24,7 @@ export function CodeEditor({
   const [importing, setImporting] = useState(false),
     [fileError, setFileError] = useState(""),
     [fileNotice, setFileNotice] = useState("");
-  const error = codeSubmissionError(language, value);
+  const error = codeSubmissionError(language, value, t);
   useEffect(
     () => () => {
       generation.current++;
@@ -105,7 +105,7 @@ export function CodeEditor({
         </span>
       </div>
       <p id={`${id}-protocol`} className="connected-code-protocol">
-        {CODE_PROTOCOL}
+        {codeProtocol(t)}
       </p>
       <div className="connected-code-tools">
         <button type="button" disabled={disabled} onClick={insertSpaces}>

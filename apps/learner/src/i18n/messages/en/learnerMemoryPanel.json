@@ -210,5 +210,9 @@
   "summary.noPreference": "No preference",
   "summary.claim": "{objective}: {statement}",
   "summary.thoughts": "Thoughts: {thoughts}",
-  "summary.noThoughts": "Thoughts: None saved."
+  "summary.noThoughts": "Thoughts: None saved.",
+  "history.mode.practice": "practice",
+  "history.mode.independent": "independent check",
+  "history.mode.placement": "placement",
+  "history.mode.retention": "later check"
 }

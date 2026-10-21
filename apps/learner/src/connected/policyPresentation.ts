@@ -48,12 +48,8 @@ export type QuotaMetric = "additionalMinutes" | "additionalEpisodes" | "remediat
 export function quotaName(metric: QuotaMetric, t: Translate = englishTranslator().t): string {
   return t(`policyPresentation.quota.${metric}` as MessageKey);
 }
-/** English names, for callers that have not moved to `quotaName(metric, t)`. */
-export const quotaLabel: Record<QuotaMetric, string> = {
-  additionalMinutes: quotaName("additionalMinutes"),
-  additionalEpisodes: quotaName("additionalEpisodes"),
-  remediationCyclesPerConcept: quotaName("remediationCyclesPerConcept"),
-};
+/** Every work allowance, in display order. */
+export const QUOTA_METRICS: readonly QuotaMetric[] = ["additionalMinutes", "additionalEpisodes", "remediationCyclesPerConcept"];
 export function previewPolicyAvailable(
   policy: LearningPolicy | undefined,
 ): policy is LearningPolicy {

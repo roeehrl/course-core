@@ -213,7 +213,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [pending, setPending] = useState(false),
     busy = useRef(false),
     [error, setError] = useState(""),
-    [notice, setNotice] = useState("");
+    // A notice is rendered at display time, so it follows a language switch while it shows.
+    [notice, setNotice] = useState<{ render: (t: Translate) => string } | null>(null);
   const slowRequest = useSlow(pending);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]),
     [catalog, setCatalog] = useState<CatalogCourse[]>([]);
@@ -610,8 +611,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     }
     const recovered = api.takeRecovered(id);
     if (recovered?.action === "answers")
-      setNotice(t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }));
-    if (recovered?.action === "companion") setNotice(t("connectedHost.notice.recoveredMessage"));
+      setNotice({ render: (t) => t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }) });
+    if (recovered?.action === "companion") setNotice({ render: (t) => t("connectedHost.notice.recoveredMessage") });
     return value;
   }
   async function loadAccount() {
@@ -665,7 +666,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     busy.current = true;
     setPending(true);
     setError("");
-    setNotice("");
+    setNotice(null);
     try {
       return await action();
     } catch (cause) {
@@ -756,7 +757,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setEpisodeId(id);
     setPlacement(asPlacement);
     setError("");
-    setNotice("");
+    setNotice(null);
     setView("learn");
   }
   async function submitAnswer(item: Challenge) {
@@ -778,7 +779,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
       }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice(answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t));
+      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t) });
     } finally {
       setCheckingAnswer(false);
     }
@@ -787,7 +788,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   async function abstain(item: Challenge) {
     const chosen = confidence[item.challengeId];
     const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-    setNotice(answerFeedback(result, false, t));
+    setNotice({ render: (t) => answerFeedback(result, false, t) });
   }
   function startCheck(assessmentId?: string) {
     return run(() => {
@@ -805,7 +806,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       await command("complete", { episodeId, ...(placement ? { placement: true } : {}), ...(decisionId && !placement ? { gateDecisionId: decisionId } : {}) });
       setEpisodeId(undefined);
       setPlacement(false);
-      setNotice(t("connectedHost.notice.progressSaved"));
+      setNotice({ render: (t) => t("connectedHost.notice.progressSaved") });
     });
   }
   /** A next step offered by the server's gate decision. Each one only navigates or starts a
@@ -844,7 +845,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const decisionId = gate.decisionId ?? (await api.request<{ decision: { decisionId: string } }>(
         `/api/enrollments/${encodeURIComponent(server.enrollmentId)}/gates/${gateId}/decision`)).decision.decisionId;
       await command(`gates/${gateId}/review-requests`, { decisionId, reason });
-      setNotice(t("connectedHost.notice.reviewRequested"));
+      setNotice({ render: (t) => t("connectedHost.notice.reviewRequested") });
     });
   }
   async function startCourse(course: CatalogCourse) {
@@ -880,15 +881,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           true,
         );
         await refresh(server.enrollmentId);
-        setNotice(
-          result.offer.state === "granted"
+        setNotice({ render: (t) => result.offer.state === "granted"
             ? t("connectedHost.notice.extensionGranted")
-            : t("connectedHost.notice.extensionAwaitingApproval"),
-        );
+            : t("connectedHost.notice.extensionAwaitingApproval"), });
       } else {
         await policyClient.decline(server, policy.data, offer);
         await refresh(server.enrollmentId);
-        setNotice(t("connectedHost.notice.offerDeclined"));
+        setNotice({ render: (t) => t("connectedHost.notice.offerDeclined") });
       }
     } finally {
       policy.reload();
@@ -1083,7 +1082,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 server && policy.data?.coverage
                   ? t("connectedHost.menu.signedInWithCoverage", {
                       name: account.displayName,
-                      coverage: coverageText(policy.data.coverage).core,
+                      coverage: coverageText(policy.data.coverage, t).core,
                     })
                   : t("connectedHost.menu.signedIn", { name: account.displayName })
               }
@@ -1177,7 +1176,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               )}
             </Notice>
           )}
-          {notice && <Notice>{notice}</Notice>}
+          {notice && <Notice>{notice.render(t)}</Notice>}
           {server && (storageUnavailable || drafts.unavailable) && (
             <Notice>
               {t("connectedHost.storageUnavailable")}
@@ -1208,7 +1207,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onClose={(changed) => {
                 setChangingPassword(false);
                 if (changed)
-                  setNotice(t("connectedHost.passwordChanged"));
+                  setNotice({ render: (t) => t("connectedHost.passwordChanged") });
               }}
             />
           )}
@@ -1338,7 +1337,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   run(async () => {
                     await command("profile", { profile, identityOnly: true });
                     setView("learn");
-                    setNotice(t("connectedHost.notice.profileSaved"));
+                    setNotice({ render: (t) => t("connectedHost.notice.profileSaved") });
                   })
                 }
               />
@@ -1361,7 +1360,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   setView("learn");
                   run(async () => {
                     await loadAccount();
-                    setNotice(t("connectedHost.notice.dataErased"));
+                    setNotice({ render: (t) => t("connectedHost.notice.dataErased") });
                   });
                 }} />
               <ConnectedAgentsPanel key={server.enrollmentId} api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title} />
@@ -1481,13 +1480,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       const restore = keepLessonPlace(scroller);
                       const result = await command<{ status: string }>("personal-changes/pending/apply", { pendingId });
                       restore();
-                      setNotice(result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed"));
+                      setNotice({ render: (t) => result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed") });
                     })
                   }
                   onDecline={(pendingId) =>
                     run(async () => {
                       await command("personal-changes/pending/decline", { pendingId });
-                      setNotice(t("pendingChanges.declined"));
+                      setNotice({ render: (t) => t("pendingChanges.declined") });
                     })
                   }
                 />
@@ -1518,7 +1517,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     "solution",
                     { challengeId: item.challengeId },
                   );
-                  setNotice(result.explanation);
+                  setNotice({ render: () => result.explanation });
                 })
               }
               onComplete={completeEpisode}

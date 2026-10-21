@@ -42,5 +42,5 @@ it("shows the entry beside the lesson for an authorized owner and frames the ins
   const snapshot = await openLesson({ available: true, role: "owner", permissions: ["learner.view", "run.inspect"], path: "/admin/inspector", receipt: "learner.viewed_by_staff" });
   fireEvent.click(await screen.findByRole("button", { name: "Debug inspector" }));
   const frame = await screen.findByTitle("Debug inspector for this lesson");
-  expect(frame.getAttribute("src")).toBe(`/admin/inspector?enrollment=${snapshot.enrollmentId}&episode=intro&block=reading`);
+  expect(frame.getAttribute("src")).toBe(`/admin/inspector?enrollment=${snapshot.enrollmentId}&episode=intro&block=reading&locale=en`);
 });

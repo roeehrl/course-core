@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { WindowClass } from "../domain/windowClass";
 import { openInspectorBridge } from "../client/inspectorBridge";
 import { inspectorUrl, type InspectorAccess } from "../client/inspectorClient";
-import { useT } from "../i18n";
+import { useI18n } from "../i18n";
 
 export interface DebugInspectorProps {
   /** From the server; the entry renders nothing unless it says the inspector is available. */
@@ -26,7 +26,7 @@ export interface DebugInspectorProps {
  * server records each load as a staff view the learner can see.
  */
 export function DebugInspector({ access, enrollmentId, episodeId, blockId, windowSize }: DebugInspectorProps) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -60,7 +60,7 @@ export function DebugInspector({ access, enrollmentId, episodeId, blockId, windo
   useLayoutEffect(() => { if (open) panel.current?.focus({ preventScroll: true }); }, [open]);
   if (!access.available) return null;
   const placement = windowSize === "expanded" ? "is-side" : windowSize === "medium" ? "is-pane" : "is-full";
-  const src = inspectorUrl(access.path, { enrollmentId, episodeId, blockId: openedBlock.current });
+  const src = inspectorUrl(access.path, { enrollmentId, episodeId, blockId: openedBlock.current, locale });
   return (
     <>
       <div className="connected-debug-entry">

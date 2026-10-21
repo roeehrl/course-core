@@ -949,7 +949,12 @@ function MemoryPanel({
                               item.passed
                                 ? "learnerMemoryPanel.history.passed"
                                 : "learnerMemoryPanel.history.notPassed",
-                              { mode: item.mode },
+                              {
+                                // A mode this app does not know yet is shown as its code.
+                                mode: i18n.has(`learnerMemoryPanel.history.mode.${item.mode}` as MessageKey)
+                                  ? t(`learnerMemoryPanel.history.mode.${item.mode}` as MessageKey)
+                                  : item.mode,
+                              },
                             )
                       }
                       tone="neutral"
