@@ -187,6 +187,12 @@
   max-width: 70ch;
   min-width: 0;
 }
+/* The text blocks set their own font stack, which can resolve to a narrower font
+ * than the container's (on Linux, for one), so each block also keeps 70 of its own
+ * characters. */
+.connected-prose [dir] {
+  max-width: 70ch;
+}
 .connected-part-top {
   display: flex;
   justify-content: space-between;
