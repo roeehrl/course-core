@@ -142,6 +142,13 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     // The learner's own words asking for a gate review are for the reviewer deciding it (the review
     // queue), not for staff copies of the record: see learner-privacy.ts.
     gateReviewRequests: (await client.query(`SELECT id,gate_id,decision_id,${mayRead(audience, "gate-review-reason") ? "reason" : "NULL AS reason"},state,reviewer_note,exception_course_digest,exception_gate_version,created_at,decided_at FROM gate_review_requests WHERE enrollment_id=$1 ORDER BY created_at,id`, id)).rows,
+    // First-class records of the learner's path (migration 109): identifiers, codes and dates only.
+    records: {
+      learningSteps: await rows(client, "SELECT course_digest,step_id,episode_id,kind,requirement,status,completed_block_count,started_at,completed_at,revision FROM learning_step_instances WHERE enrollment_id=$1 ORDER BY started_at,step_id", id),
+      playbackContexts: await rows(client, "SELECT course_digest,episode_id,block_id,resource_kind,resource_id,renderer_id,renderer_version,scene_fingerprint,outcome,recorded_at FROM playback_contexts WHERE enrollment_id=$1 ORDER BY recorded_at,id", id),
+      platformCapabilities: await rows(client, "SELECT target,app_version,sdk_version,layout_class,input_modes,capabilities,renderer_ids,native_modules,first_reported_at,last_reported_at,report_count FROM platform_capability_snapshots WHERE enrollment_id=$1 ORDER BY first_reported_at,id", id),
+      decisions: await rows(client, "SELECT kind,subject_ref,course_digest,policy_revision,gate_version,input_evidence_refs,outcome,reason,decided_by_kind,decided_at FROM decision_records WHERE enrollment_id=$1 ORDER BY decided_at,id", id),
+    },
     companion: mayRead(audience, "companion")
       ? await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id)
       : null,

@@ -641,7 +641,14 @@
       "core:services/supervisor/test/outbox.test.ts"
     ],
     "M02": [
+      "core:apps/learner/tests/connected-web/window-classes.spec.ts::the app reports what it can do once per window class",
       "core:services/api/test/deadline-timers.integration.test.ts::The closure report is a first-class record",
+      "core:services/api/test/first-class-records.integration.test.ts::a learning step instance follows progress",
+      "core:services/api/test/first-class-records.integration.test.ts::keeps one snapshot per distinct report",
+      "core:services/api/test/first-class-records.integration.test.ts::projects each trace with the records it wrote",
+      "core:services/api/test/first-class-records.integration.test.ts::records each runtime extension a stored course version declares",
+      "core:services/api/test/first-class-records.integration.test.ts::records gate, placement, closure, extension and intervention decisions",
+      "core:services/api/test/interactive-flow.integration.test.ts::visual completion is one observation",
       "core:services/api/test/policy-levels.integration.test.ts::Every policy revision is a first-class record",
       "core:services/api/test/policy-records.integration.test.ts::projects work reservations and the policy at each revision",
       "core:services/api/test/policy-records.integration.test.ts::records each gate of a stored release"

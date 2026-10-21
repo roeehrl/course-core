@@ -182,6 +182,12 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     policy_constraint_snapshots: {}, policy_timer_plans: {}, work_reservations: {},
     policy_deadline_timers: { phase: "cap" },
     continuation_tracks: { state: "active" },
+    // First-class records (109): identifiers, codes, versions and dates only.
+    learning_step_instances: { course_digest: hex("d"), status: "current", requirement: "required", block_ids: ["synthetic.block"] },
+    playback_contexts: { course_digest: hex("d"), resource_kind: "visual", outcome: "completed", renderer_integrity: null, event_id: null },
+    platform_capability_snapshots: { target: "web_mobile", layout_class: "compact", input_modes: ["touch"], capabilities: [], renderer_ids: [], native_modules: [] },
+    debug_traces: { trace_id: ids.job.replaceAll("-", "") },
+    decision_records: { kind: "gate", course_digest: hex("d"), decided_by_kind: "host_policy" },
     wakeup_signals: { kind: "retention_due" },
   };
 }
