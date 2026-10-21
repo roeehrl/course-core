@@ -8,18 +8,7 @@ import type {
 } from "../domain/policyLedger";
 import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
-import { useI18n, type MessageKey } from "../i18n";
-
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
 /** One action at a time, with a stable idempotency key per reviewed preview and reason. */
 export function useSingleFlight() {
@@ -70,7 +59,7 @@ export function LedgerActionDialog({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const [action, setAction] = useState(initial);
   const [preview, setPreview] = useState<LedgerPreview>();
   const [reason, setReason] = useState("");

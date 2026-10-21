@@ -19,18 +19,14 @@ import {
   Stat,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { useI18n, useT, type MessageKey, type Translate } from "../i18n";
+import {
+  useFormatters,
+  useI18n,
+  useT,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
 
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
 /** A server code shown through the catalog; an unknown code is shown as is. */
 const codeLabel = (
   t: Translate,
@@ -337,7 +333,7 @@ function EnrollmentPlacementPanel({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const view = useRemote(
     (signal) => port.enrollment(enrollmentId, signal),
     [port, enrollmentId],
@@ -432,7 +428,7 @@ function ExemptionCard({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const id = useId();
   const key = useRef("placement-revoke-" + randomId());
   const [reason, setReason] = useState("");

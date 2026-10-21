@@ -27,18 +27,7 @@ import {
 import { PolicySettingsCard } from "../components/PolicySettingsCard";
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
-import { useI18n, useT, type MessageKey } from "../i18n";
-
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 export function PolicyView({
   data,
@@ -139,7 +128,7 @@ function PolicyWorkspace({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const [policy, setPolicy] = useState(initial);
   const scopeLabel = (scopeId: string) =>
     policy.scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;

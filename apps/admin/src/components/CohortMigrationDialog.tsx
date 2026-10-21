@@ -4,18 +4,7 @@ import type { LearningPolicy } from "../domain/policy";
 import type { CohortPreview, CohortResult } from "../domain/policyLedger";
 import { useSingleFlight } from "./LedgerActionDialog";
 import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
-import { useI18n, type MessageKey } from "../i18n";
-
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
 /** A reviewed policy change for every active learner of this course. The server previews
  * each enrollment, names every grant the change would shorten, and applies nothing until
@@ -35,7 +24,7 @@ export function CohortMigrationDialog({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const deadlineOrNone = (iso: string | null) =>
     iso ? when(iso) : t("cohortMigrationDialog.none");
   const grantKind = (kind: string) => {

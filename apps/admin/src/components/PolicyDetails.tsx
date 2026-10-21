@@ -1,17 +1,12 @@
 import type { LearningPolicy, Quota, ScopePolicy } from "../domain/policy";
 import { Badge, Card, EmptyState, Notice } from "./ui";
-import { useI18n, type MessageKey, type Translate } from "../i18n";
+import {
+  useFormatters,
+  useI18n,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
 
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
 export const metricLabel = (t: Translate, metric: Quota["metric"]) =>
   t(`policyDetails.metric.${metric}` as MessageKey);
 export function ScopeDetails({
@@ -25,7 +20,7 @@ export function ScopeDetails({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const scopeLabel = (scopeId: string) =>
     policy.scopes.find((item) => item.scopeId === scopeId)?.label ?? scopeId;
   return (

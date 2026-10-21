@@ -10,12 +10,15 @@ const pseudo = (english: string) =>
 /** Phone and desktop widths every converted view must fit without horizontal scrolling. */
 const widths = [390, 1280];
 
+/** No horizontal scrolling: compared with the configured viewport, because a mobile
+ * browser widens its layout viewport (and innerWidth) to fit content that overflows. */
 async function expectNoHorizontalOverflow(page: Page) {
+  const width = page.viewportSize()!.width;
   expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
+    await page.evaluate(() =>
+      Math.max(document.documentElement.scrollWidth, window.innerWidth),
     ),
-  ).toBeLessThanOrEqual(0);
+  ).toBeLessThanOrEqual(width);
 }
 async function expectAccessible(page: Page) {
   expect(
@@ -33,7 +36,8 @@ async function expectRightToLeft(page: Page) {
 /** Under the en-XA pseudo-locale every catalog string is framed in ⟦ … ⟧. Text with Latin
  * letters outside a frame is hardcoded, unless it is data: user or course text and ids carry
  * dir or sit in bdi, options, inputs and code; dates and numbers format as English. Course
- * text shown through a string-only prop is listed by the caller. */
+ * text shown through a string-only prop is listed by the caller. Overflow is checked in
+ * Hebrew, not here: the pseudo padding ("~~~~⟧") is one unbreakable token wider than a phone. */
 async function untranslatedText(page: Page, root: string, data: string[] = []) {
   const found = await page.evaluate((selector) => {
     const scope = document.querySelector(selector);
@@ -125,7 +129,6 @@ test.describe("demo workspace", () => {
     expect(
       await untranslatedText(page, "#main-content", ["Chapter · Foundations"]),
     ).toEqual([]);
-    await expectNoHorizontalOverflow(page);
     await page
       .getByRole("button", { name: pseudo("Enrollments") })
       .first()
@@ -372,7 +375,6 @@ test.describe("connected workspace", () => {
       page.getByRole("heading", { name: pseudo("Workspace members") }),
     ).toBeVisible();
     expect(await untranslatedText(page, "#main-content")).toEqual([]);
-    await expectNoHorizontalOverflow(page);
     await page
       .getByRole("button", { name: pseudo("Placement") })
       .first()

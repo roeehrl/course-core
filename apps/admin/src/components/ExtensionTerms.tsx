@@ -4,18 +4,8 @@ import type {
   LearningPolicy,
 } from "../domain/policy";
 import { metricLabel } from "./PolicyDetails";
-import { useI18n, type MessageKey } from "../i18n";
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
 type Terms = Pick<
   ExtensionPreview,
   | "currentEffectiveDeadline"
@@ -39,7 +29,7 @@ export function ExtensionTerms({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   /** The pool's unit code, selected inside the messages; "units" when unknown. */
   const unit = (poolId: string) =>
     pools.find((pool) => pool.poolId === poolId)?.unit ?? "units";

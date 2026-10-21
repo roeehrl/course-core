@@ -19,18 +19,7 @@ import {
   Notice,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { useI18n, type MessageKey } from "../i18n";
-
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
 type Port = NonNullable<AdminClient["people"]>;
 const REASON = /^[a-z][a-z0-9_]{0,63}$/;
@@ -50,7 +39,7 @@ export function CourseAccessCard({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const scopedRole = roleLabel("course_scoped", t);
   const id = useId();
   const list = useRemote(

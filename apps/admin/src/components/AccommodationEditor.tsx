@@ -8,18 +8,7 @@ import type {
 } from "../domain/policy";
 import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
-import { useI18n } from "../i18n";
-
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
+import { useFormatters, useI18n } from "../i18n";
 
 /** An individual accommodation or approved pause for one learner. It is
  * authorized and audited separately; extension pools and other learners are
@@ -40,7 +29,7 @@ export function AccommodationEditor({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   const scope = policy.scopes.find((s) => s.scopeId === scopeId)!;
   const deadlineKind: "window" | "absolute" | null = scope.window
     ? "window"

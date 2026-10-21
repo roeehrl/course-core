@@ -7,18 +7,7 @@ import type {
 import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
 import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
-import { useI18n, useT, type MessageKey } from "../i18n";
-
-/** Server times in UTC with the zone name, formatted for the active locale. */
-const utc: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const optional = (value: string) => (value.trim() ? Number(value) : null);
 const text = (value: number | null) => (value === null ? "" : String(value));
@@ -78,7 +67,7 @@ function SettingsForm({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const when = (iso: string) => i18n.dateTime(iso, utc);
+  const { when } = useFormatters();
   /** A server code shown through the catalog; an unknown code falls back. */
   const label = (key: string, fallback: string) =>
     i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
