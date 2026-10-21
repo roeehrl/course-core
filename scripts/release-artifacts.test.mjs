@@ -94,7 +94,7 @@ test('only failure-diagnostic steps in ci.yml are conditional, matching the skip
   assert.deepEqual([...new Set(conditional.map(step=>step.name))].sort(),[...FAILURE_ONLY_CI_STEPS].sort());
 });
 test('source and web allowlists include actual Expo CSS and reject private paths, maps and arbitrary code',()=>{
-  assert(sourceAllowed('services/api/src/server.ts'));assert(sourceAllowed('scripts/release-artifacts.test.mjs'));assert(webAllowed('_expo/static/css/connected-abcd.css','learner'));
+  assert(sourceAllowed('services/api/src/server.ts'));assert(sourceAllowed('scripts/release-artifacts.test.mjs'));assert(sourceAllowed('scripts/tests/release-rehearsal.test.mjs'));assert(!sourceAllowed('scripts/tests/nested/x.mjs'));assert(!sourceAllowed('scripts/other/x.mjs'));assert(webAllowed('_expo/static/css/connected-abcd.css','learner'));
   for(const p of ['../escape','/absolute','a//b','a/./b','a\\b'])assert.throws(()=>safePath(p));
   assert(sourceAllowed('docs/threat-model.md'));
   for(const p of ['docs/nested/page.md','docs/diagram.png','docs/run.sh'])assert.equal(sourceAllowed(p),false);
