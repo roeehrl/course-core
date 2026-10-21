@@ -42,10 +42,12 @@ import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
 import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
+import { generatedContentFixture, lineScene, syntheticCodeEvaluator } from "../test/generated-content-fixture.js";
 import { recoveryFixture } from "../test/recovery-fixture.js";
 import {
   approveAdaptationRegistry,
   createAdaptationRuntime,
+  withInstalledExtensions,
 } from "../src/adaptation-store.js";
 import { codeEvaluator } from "../src/code-evaluator.js";
 import { offsetClock } from "../src/clock.js";
@@ -135,6 +137,15 @@ optionalFixture.course.adaptation!.limits.allowedClassifications = ["required", 
 const optionalReleaseId = randomUUID(),
   optionalCourse = compileCourse(optionalFixture.course);
 const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
+// The generated-content course (set below, once the renderer is installed): the supervisor writes a simulation.
+let contentCourseDigest = "";
+const contentScript = (round: number) =>
+  round === 0
+    ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }
+    : round === 1
+      ? { decision: "tool", tool: "create_teaching", summary: "", argumentsJson: JSON.stringify({ profileId: "simulation-profile", kind: "simulation",
+          scene: lineScene("browser-line"), objectiveIds: ["minimum"], sourceRefs: ["ordering-author-reference"] }) }
+      : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "A simulation of a straight line for the minimum lesson." };
 const repairOperations = new Set<string>();
 const modelAdapter: ProviderAdapter = {
   providerId: "browser-supervisor",
@@ -187,6 +198,8 @@ const modelAdapter: ProviderAdapter = {
                     argumentsJson: "{}",
                     summary: "Use the repaired independently checked example.",
                   }
+          : prompt.context.course.digest === contentCourseDigest
+            ? contentScript(round)
           : prompt.context.course.digest === generatedCourse.digest || prompt.context.course.digest === optionalCourse.digest
             ? round === 0
               ? {
@@ -321,7 +334,11 @@ const renderer = await svgRenderer(),
     Buffer.from(JSON.stringify(comparisonFixtures)),
     sandbox,
   ),
-  codeRecovery = codeRecoveryFixture(grader);
+  codeRecovery = codeRecoveryFixture(grader),
+  content = generatedContentFixture(renderer),
+  contentReleaseId = randomUUID(),
+  contentCourse = compileCourse(content.course);
+contentCourseDigest = contentCourse.digest;
 // Test-only generated media: a scripted video adapter behind its own provider store.
 // Only the media service uses it; the supervisor keeps the fixed test providers.
 const mediaVideo = new ScriptedVideo(),
@@ -353,6 +370,7 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
     ...generatedFixture.runtime.adapters.filter(
       (a) => a.kind === "generated-teaching",
     ),
+    content.adapter,
   ]),
   providers,
   supervisor: supervisorOptions,
@@ -484,8 +502,19 @@ await approveAdaptationRegistry(
   },
   codeRecovery.runtime,
 );
+await db.query(
+  "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+  [contentReleaseId, workspaceId, contentCourse.server.id, contentCourse.server.version, contentCourse.digest, JSON.stringify(contentCourse.server), JSON.stringify(contentCourse.learner), ownerId],
+);
+// Approval checks generated content against the installed renderer and a generated-test evaluator.
+await approveAdaptationRegistry(
+  db,
+  { id: ownerId, displayName: "Test owner" },
+  { releaseId: contentReleaseId, expectedRegistryRevision: 0, configuration: content.config },
+  withInstalledExtensions(content.runtime, [renderer, syntheticCodeEvaluator()]),
+);
 // Raw fixture inserts must establish the same catalogue records as real import.
-for (const id of [releaseId, generatedReleaseId, optionalReleaseId, codeReleaseId]) await ensureCatalog(db, id);
+for (const id of [releaseId, generatedReleaseId, optionalReleaseId, codeReleaseId, contentReleaseId]) await ensureCatalog(db, id);
 app.post("/test/code-session", async () => {
   const userId = randomUUID();
   await db.query(
@@ -1107,6 +1136,9 @@ app.post("/test/model-session", async (request) => {
     (request.body as { generated?: boolean } | undefined)?.generated === true;
   const optional =
     (request.body as { optional?: boolean } | undefined)?.optional === true;
+  // A generated simulation; with midAttempt the learner has a practice question open meanwhile.
+  const generatedContent = (request.body as { content?: boolean } | undefined)?.content === true;
+  const midAttempt = (request.body as { midAttempt?: boolean } | undefined)?.midAttempt === true;
   const userId = randomUUID();
   await db.query(
     "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
@@ -1132,7 +1164,7 @@ app.post("/test/model-session", async (request) => {
     method: "POST",
     url: "/api/enrollments",
     headers,
-    payload: { releaseId: optional ? optionalReleaseId : generated ? generatedReleaseId : releaseId },
+    payload: { releaseId: generatedContent ? contentReleaseId : optional ? optionalReleaseId : generated ? generatedReleaseId : releaseId },
   });
   if (enrolled.statusCode !== 200)
     throw Error("Model fixture enrollment failed");
@@ -1150,6 +1182,12 @@ app.post("/test/model-session", async (request) => {
   });
   if (permission.statusCode !== 200)
     throw Error("Model fixture consent failed");
+  if (midAttempt) {
+    const revision = (await app.inject({ url: `/api/enrollments/${id}`, headers })).json().revision;
+    const opened = await app.inject({ method: "POST", url: `/api/enrollments/${id}/challenges`, headers,
+      payload: { expectedRevision: revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-a", mode: "practice" } });
+    if (opened.statusCode !== 200) throw Error("Model fixture challenge failed");
+  }
   await transaction(db, (client) =>
     appendEvent(client, {
       workspaceId,
