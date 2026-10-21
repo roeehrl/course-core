@@ -958,7 +958,12 @@ profile, attempts and evidence, companion conversations, learner model,
 deadline/extension records, supervision summaries, the generated media staff
 requested for them (`media`: title, objective, script, review text, captions and
 attachment state; clips are listed by digest, not embedded) and events. Course content,
-grading keys and other learners are excluded. Owners and admins can export on a
+grading keys and other learners are excluded. Personal teaching
+(`supervision.personalTeaching`) goes through an allowlist
+(`services/api/src/learner-export.ts`): text, episodes, media, visuals and
+suggestions as delivered, and a generated item variant as its question only
+(the same `publicQuestion` allowlist every learner-facing item route uses), never
+its grading key, hidden fixtures, numeric recipe or generator. Owners and admins can export on a
 learner's request through `/api/admin/enrollments/:id/export`; instructors and
 other staff cannot. A staff copy (`audience: "staff"`) follows the learner
 privacy rule below: `companion` and `learnerModel` are `null` and `withheld`

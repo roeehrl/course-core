@@ -20,6 +20,7 @@ import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { eraseCrossCourseWithin, exportCrossCourse } from "./cross-course.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 import { withArtifactContent } from './artifact-store.js';
+import { learnerTeachingArtifact } from "./learner-export.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -175,7 +176,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       permission: (await client.query("SELECT revision,adaptive_teaching,updated_at FROM supervisor_permissions WHERE enrollment_id=$1", id)).rows[0] ?? null,
       jobs: await rows(client, "SELECT id,role,state,created_at,updated_at FROM supervisor_jobs WHERE enrollment_id=$1 ORDER BY created_at", id),
       adaptations: (await client.query("SELECT id,summary,state,created_at FROM supervisor_adaptations WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
-      personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
+      // Each artifact through the learner allowlist: a generated item's question, never its key or hidden fixtures.
+      personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1 ORDER BY artifact_id", id)).rows
+        .map((r) => learnerTeachingArtifact(r.artifact_id, r.body)),
       research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,refusal_code,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       suggestedResources: (await client.query("SELECT objective_id,episode_id,attachment_id,created_at,ended_at,end_reason FROM research_resource_choices WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
