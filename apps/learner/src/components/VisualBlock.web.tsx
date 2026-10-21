@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { fromVisualExperience, VisualRuntime, type Frame } from "@course-core/visuals/headless";
-import { VisualRuntimePlayer } from "@course-core/visuals/react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fromVisualExperience, type Frame, type VisualRuntime } from "@course-core/visuals/headless";
+import { LazyVisualPlayer, type VisualCompletion } from "@course-core/visuals/react";
 import "@course-core/visuals/styles.css";
 import type { VisualBlockProps, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
 import { Text, View } from "react-native";
@@ -8,6 +8,7 @@ import { styles } from "./ui";
 import { companionFocus } from "../client/companionFocus";
 import { registerVisualRuntime } from "../client/inspectorBridge";
 import { useT } from "../i18n";
+import { useVisualMessages } from "./visualMessages";
 
 /** Labelled parts of a scene, in authoring order (bounded). */
 function labelledParts(nodes: unknown, found: { id: string; label: string }[] = [], depth = 0) {
@@ -21,10 +22,11 @@ function labelledParts(nodes: unknown, found: { id: string; label: string }[] = 
   }
   return found;
 }
-export type { VisualBlockProps, VisualContextSource, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
+export type { VisualBlockProps, VisualContextSource, VisualContextChange, VisualInteractionContext, VisualCompletionReport } from "./VisualBlock";
 
-export function VisualBlock({ experience, source, onContextChange, companionAvailable = true }: VisualBlockProps) {
+export function VisualBlock({ experience, source, onContextChange, onComplete, companionAvailable = true }: VisualBlockProps) {
   const t = useT();
+  const { messages, locale } = useVisualMessages();
   const callback = useRef(onContextChange);
   callback.current = onContextChange;
   const hasCallback = Boolean(onContextChange);
@@ -40,9 +42,9 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
     try {
       if (!data) return undefined;
       const visual = JSON.parse(data);
+      // Validated now; the runtime is created only when the player nears the viewport.
       const scene = fromVisualExperience(visual);
-      const runtime = new VisualRuntime(scene);
-      return { runtime, scene, rendererId: visual.rendererId as string, fingerprint: runtime.exportReplay().sceneFingerprint };
+      return { scene, rendererId: visual.rendererId as string };
     } catch {
       return undefined;
     }
@@ -61,22 +63,25 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
     lastFrame.current = null;
     callback.current?.({ kind: "unavailable", source: identity, reason });
   }, [identity]);
+  // The live runtime (null until loaded, and again once disposed off-screen).
+  const [runtime, setRuntime] = useState<VisualRuntime | null>(null);
+  const fingerprint = useMemo(() => runtime?.exportReplay().sceneFingerprint, [runtime]);
   // The live runtime, for the debug inspector's visual-state panel (shown only to authorized staff).
   useEffect(() => {
-    if (!prepared || !episodeId || !blockId) return;
-    return registerVisualRuntime(episodeId, blockId, prepared.runtime, experience);
-  }, [prepared, episodeId, blockId, experience]);
+    if (!runtime || !episodeId || !blockId) return;
+    return registerVisualRuntime(episodeId, blockId, runtime, experience);
+  }, [runtime, episodeId, blockId, experience]);
   useEffect(() => {
     if (!prepared) unavailable("unsupported");
     else if (!identity) unavailable("missing-source");
     return () => unavailable("unmounted");
   }, [prepared, identity, unavailable, hasCallback]);
   const onFrame = useCallback((frame: Frame) => {
-    if (!prepared || !identity || !callback.current) return;
+    if (!prepared || !identity || !fingerprint || !callback.current) return;
     const context: VisualInteractionContext = {
       schemaVersion: 1, sceneVersion: prepared.scene.version,
       ...identity, rendererId: prepared.rendererId,
-      sceneFingerprint: prepared.fingerprint,
+      sceneFingerprint: fingerprint,
       state: Object.freeze({ ...frame.state }), timeMs: frame.timeMs,
       layout: frame.layout, reducedMotion: frame.reducedMotion,
     };
@@ -90,7 +95,13 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
     if (lastFrame.current === serialized) return;
     lastFrame.current = serialized;
     callback.current({ kind: "frame", context: Object.freeze(context) });
-  }, [prepared, identity, unavailable, hasCallback]);
+  }, [prepared, identity, fingerprint, unavailable, hasCallback]);
+  // Completion is an observation the host records once; it never counts as learning.
+  const completed = useRef(onComplete);
+  completed.current = onComplete;
+  const complete = useCallback((completion: VisualCompletion) => {
+    if (identity) completed.current?.({ ...identity, sceneFingerprint: completion.sceneFingerprint });
+  }, [identity]);
   const onError = useCallback(() => unavailable("render-error"), [unavailable]);
   const description =
     typeof experience?.accessibility?.description === "string" &&
@@ -139,7 +150,19 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
             : t("visualBlock.current", { lesson: source.episodeTitle || t("visualBlock.currentLesson") })}
         </Text>
       )}
-      {prepared ? <VisualRuntimePlayer runtime={prepared.runtime} fallback={fallback} onFrame={onFrame} onError={onError} /> : fallback}
+      {prepared ? (
+        <LazyVisualPlayer
+          scene={prepared.scene}
+          placeholder={<p dir="auto">{prepared.scene.accessibility.text}</p>}
+          onRuntime={setRuntime}
+          fallback={fallback}
+          onFrame={onFrame}
+          onError={onError}
+          onComplete={complete}
+          messages={messages}
+          locale={locale}
+        />
+      ) : fallback}
       {pointer}
     </View>
   );

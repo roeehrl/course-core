@@ -77,3 +77,38 @@ it('forged or stale context rolls back help consent, message, revision and outbo
   expect((await db.query('SELECT count(*) FROM companion_messages WHERE enrollment_id=$1',[f.id])).rows[0].count).toBe('0');
   expect((await db.query("SELECT count(*) FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested'",[f.id])).rows[0].count).toBe('0');
 });
+it('visual completion is one observation: replay, scrub, remount and concurrent reports add nothing, and it grants nothing (L10)',async()=> {
+  const f=await fresh(), url=`/api/enrollments/${f.id}/visual-completions`;
+  const body={episodeId:'min',blockId:'diagram-one',visualId:visual.id,sceneFingerprint:frame.sceneFingerprint};
+  const before=await revision(f.id);
+  const first=await app.inject({method:'POST',url,headers:f.headers,payload:body});
+  expect(first.statusCode,first.body).toBe(200);
+  expect(first.json()).toMatchObject({recorded:true,duplicate:false,grantsMastery:false});
+  // A replayed, scrubbed or remounted player reports again, also concurrently: one event.
+  const again=await Promise.all(Array.from({length:6},()=>app.inject({method:'POST',url,headers:f.headers,payload:body})));
+  for(const response of again){expect(response.statusCode,response.body).toBe(200);expect(response.json()).toMatchObject({duplicate:true,eventId:first.json().eventId});}
+  const events=(await db.query("SELECT event_type,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='visual.completed'",[f.id])).rows;
+  expect(events).toEqual([{event_type:'visual.completed',payload:{episodeId:'min',blockId:'diagram-one',visualId:visual.id,observation:true,grantsMastery:false}}]);
+  // An observation, never evidence, progress or a revision change.
+  expect((await db.query('SELECT count(*) FROM evidence WHERE enrollment_id=$1',[f.id])).rows[0].count).toBe('0');
+  expect((await db.query('SELECT count(*) FROM episode_progress WHERE enrollment_id=$1',[f.id])).rows[0].count).toBe('0');
+  expect(await revision(f.id)).toBe(before);
+  // Refusals: a stale or forged scene, a block that is not this visual, malformed input.
+  const refuse=async(payload:Record<string,unknown>,status:number,code?:string)=>{
+    const response=await app.inject({method:'POST',url,headers:f.headers,payload});
+    expect(response.statusCode,response.body).toBe(status);if(code)expect(response.json().error).toBe(code);
+  };
+  const other=await fresh();
+  await refuse({...body,sceneFingerprint:'123-a-b'},409,'VISUAL_COMPLETION_STALE');
+  await refuse({...body,visualId:'some-other-visual'},400,'VISUAL_COMPLETION_OUT_OF_SCOPE');
+  await refuse({...body,blockId:'missing-block'},400,'VISUAL_COMPLETION_OUT_OF_SCOPE');
+  await refuse({...body,score:1},400);
+  await refuse({...body,sceneFingerprint:'<script>'},400);
+  // Only the enrollment's own learner; signed-out and cross-site requests are refused.
+  const foreign=await app.inject({method:'POST',url,headers:other.headers,payload:body});
+  expect(foreign.statusCode,foreign.body).toBe(404);
+  expect((await app.inject({method:'POST',url,headers:{origin},payload:body})).statusCode).toBe(401);
+  const {['x-csrf-token']:_,...noCsrf}=f.headers;
+  expect((await app.inject({method:'POST',url,headers:noCsrf,payload:body})).statusCode).toBe(403);
+  expect((await db.query("SELECT count(*) FROM learning_events WHERE event_type='visual.completed' AND enrollment_id=ANY($1)",[[f.id,other.id]])).rows[0].count).toBe('1');
+});
