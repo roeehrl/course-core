@@ -30,8 +30,24 @@ the app's own rendering and API round trips, not network latency to a remote hos
 ## Budgets
 
 The navigation, feedback and acknowledgement budgets are the T01 product targets
-themselves. First-token time (3 s) for AI answers is not measured here: it needs a
-live provider, and scripted adapters answer at once.
+themselves. First-token time (3 s) for AI answers is measured separately, below.
+
+### First reply from the companion (T01, 3 s)
+
+Core does not stream a reply word by word: the learner sees the whole verified reply at once,
+so "first token" here is the first reply. Its time is the sum of:
+
+| Part | Where it is measured or set | Value |
+| --- | --- | --- |
+| Wait for the dispatcher to pick the question up | `SUPERVISOR_DISPATCH_INTERVAL_MS` (default 2,000 ms, minimum 1,000) | 0 to one interval |
+| Core's pipeline: dispatch, workflow, provider call, verification, application, reply readable | `services/api/qualification/supervised-flow.ts` (`firstReplyPipelineMs`, real PostgreSQL, real Temporal, a loopback provider that answers at once); fails above 1,500 ms | 396 ms locally (2026-10-21) |
+| The learner app noticing the reply | event stream poll (`services/api/src/event-stream.ts`, 1,000 ms) | 0 to 1 s |
+| The model's own time | live provider only | not measured |
+
+With the defaults the worst case before the model's own time is about 3.4 s, so the 3 s
+target cannot be met for every question. Setting `SUPERVISOR_DISPATCH_INTERVAL_MS=1000` brings
+the worst case to about 2.4 s plus the model. Meeting 3 s with a real model needs streamed
+replies, which Core does not have yet, and a live measurement, which needs the owner's provider.
 
 | Budget | Threshold | Measured locally (2026-10-21) | Product target |
 | --- | --- | --- | --- |
