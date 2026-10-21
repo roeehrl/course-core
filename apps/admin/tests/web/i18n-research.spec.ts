@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { accent } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
 
 /** Research sources, generated media, studies and concept mappings in Hebrew and in en-XA. */
@@ -158,6 +159,12 @@ const job = (n: number, state: string, failureCode: string | null) => ({
   id: uuid(40 + n),
   state,
   failureCode,
+  kind: "generated_short_video",
+  paid: true,
+  storyboardId: null,
+  shotId: null,
+  referenceVisualId: null,
+  source: null,
   title: n === 1 ? "Insertion sort animation" : "Shifting items clip",
   objective: "See how items shift.",
   script: "Five cards. The third card moves left.",
@@ -190,14 +197,25 @@ const job = (n: number, state: string, failureCode: string | null) => ({
 const mediaLibrary = {
   release: { id: uuid(1), version: "1.0.0" },
   episodes: [{ id: "ep-1", title: "Insertion sort" }],
+  visuals: [],
+  clipRendering: "toolchain_missing",
   enrollments: [{ id: uuid(51), name: "Dana Levi", status: "active" }],
   provider: {
     revision: 1,
+    kind: "video",
     modelId: "video-model-1",
     settings,
     pricing,
     availability: "ready",
     estimateMicroUsd: 400_000,
+    units: { outputSeconds: 8, images: 0, requests: 1 },
+    capabilities: {
+      kind: "video",
+      billing: "per_output_second",
+      cancellation: "best_effort",
+      maxPromptCharacters: 2000,
+      retention: { outputHours: 48, providerStoresRequest: false },
+    },
     perJobAllowanceMicroUsd: 1_000_000,
   },
   permissions: { request: true, review: true, attach: true },
@@ -398,6 +416,9 @@ async function signIn(page: Page, locale: "he" | null) {
   await page.route("**/api/admin/releases/*/media-jobs", (route) =>
     route.fulfill({ json: mediaLibrary }),
   );
+  await page.route("**/api/admin/releases/*/media-storyboards", (route) =>
+    route.fulfill({ json: { storyboards: [] } }),
+  );
   await page.route("**/api/admin/media-jobs/*", (route) =>
     route.fulfill({ json: mediaLibrary.jobs[0] }),
   );
@@ -530,11 +551,13 @@ test("the en-XA pseudo-locale leaves no untranslated text in research, media, st
   await signIn(page, null);
   await page.goto("/admin/?locale=en-XA");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-XA");
-  // Navigation order in AdminApp: …, answer keys, placement, people, policy, mappings, research, media, providers, supervision, studies.
-  const nav = page.locator(".nav-links button");
-  for (const index of [8, 9, 10, 13]) {
-    await nav.nth(index).click();
-    if (index === 8) {
+  for (const view of views) {
+    // By accessible name (accented English under en-XA), so new navigation items do not shift it.
+    await page
+      .locator(".nav-links")
+      .getByRole("button", { name: accent(view.nav.en) })
+      .click();
+    if (view.nav.en === "Concept mappings") {
       const pickers = page.locator(".mapping-pickers select");
       await pickers.nth(0).selectOption(releaseA);
       await pickers.nth(1).selectOption(releaseB);

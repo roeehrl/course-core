@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { accent } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
 
 /** Hebrew catalogs, read as data so the checks follow the translations. */
@@ -18,6 +19,17 @@ const he = (namespace: string) => {
   };
 };
 const nav = he("adminApp");
+const enNav = JSON.parse(
+  readFileSync(
+    new URL("../../src/i18n/messages/en/adminApp.json", import.meta.url),
+    "utf8",
+  ),
+) as Record<string, string>;
+/** A navigation button by its accessible name under en-XA (accented English), not its position. */
+const pseudoNav = (page: Page, name: string) =>
+  page
+    .locator(".nav-links")
+    .getByRole("button", { name: accent(enNav[`nav.${name}`] ?? name) });
 
 const WORKSPACE_ID = "00000000-0000-4000-8000-0000000000aa";
 const session = demoSession("administrator");
@@ -326,12 +338,9 @@ const SECTION_DATA = ["Glaze lab"];
 const SUPERVISION_CODES = ["assessment submitted", "delivery failed"];
 const DEMO_RUN_DATA = [
   "Optional practice proposal",
-  "pending review",
-  "blocked",
   "Recorded",
   "Blocked",
   "Pending review",
-  "denied",
 ];
 
 test.beforeEach(async ({ page }, info) => {
@@ -436,14 +445,19 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
   context,
 }) => {
   await connected(page, context, "en-XA");
-  const buttons = page.locator(".nav-links button");
-  // Overview, Audit log and the course section, by position (answer keys sits after reviews).
-  for (const index of [0, 15, 16]) {
-    await buttons.nth(index).click();
+  // Overview, Audit log and the course section (its title is course data, not accented).
+  for (const name of ["overview", "audit"]) {
+    await pseudoNav(page, name).click();
     await expect(page.locator("main .loading")).toHaveCount(0);
     expect(await untranslated(page, SECTION_DATA)).toEqual([]);
   }
-  await buttons.nth(12).click();
+  await page
+    .locator(".nav-links")
+    .getByRole("button", { name: "Glaze lab" })
+    .click();
+  await expect(page.locator("main .loading")).toHaveCount(0);
+  expect(await untranslated(page, SECTION_DATA)).toEqual([]);
+  await pseudoNav(page, "supervision").click();
   await page.locator("main select").first().selectOption(learner.id);
   await expect(page.getByRole("table").first()).toBeVisible();
   expect(await untranslated(page, SUPERVISION_CODES)).toEqual([]);
@@ -454,7 +468,7 @@ test("no hardcoded text under the en-XA pseudo-locale in the run inspector", asy
   page,
 }) => {
   await page.goto("/admin/demo?locale=en-XA");
-  await page.locator(".nav-links button").nth(14).click();
+  await pseudoNav(page, "runs").click();
   const views = page.locator("main nav[aria-label] button");
   await views.first().waitFor();
   const count = await views.count();
