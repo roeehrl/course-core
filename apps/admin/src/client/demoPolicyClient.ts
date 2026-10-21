@@ -12,10 +12,13 @@ import {
 } from "../data/policyFixtures";
 import { AdminError } from "../domain/errors";
 import { sha256Hex } from "../domain/webCrypto";
+import { englishTranslator, type Translate } from "../i18n";
 
 export function createDemoPolicyClient(
   getEnrollment: (id: string) => Enrollment,
   canPropose: (id: string) => void,
+  /** The translator for simulated server messages, read at the time of each call. */
+  translate: () => Translate = () => englishTranslator().t,
 ): Pick<AdminClient, "getPolicy" | "previewExtension" | "proposeExtension"> {
   const policies = new Map<string, LearningPolicy>();
   const receipts = new Map<
@@ -230,8 +233,7 @@ export function createDemoPolicyClient(
             authority: "demo",
             outcome: "proposed",
           },
-          message:
-            "Demo offer proposed. Awaiting the learner’s exact consent; no deadline, work cap or allowance balance changed.",
+          message: translate()("demoPolicyClient.offerProposed"),
         };
         policies.set(id, next);
         receipts.set(key, { fingerprint, result: structuredClone(response) });

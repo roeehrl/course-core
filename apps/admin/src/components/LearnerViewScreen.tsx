@@ -12,7 +12,15 @@ import type {
   LearnerView,
   LearnerViewMedia,
 } from "../domain/learnerView";
-import { Badge, Button, Card, EmptyState, Notice, Status, when } from "./ui";
+import { contentAttributes } from "@course-core/i18n";
+import {
+  useFormatters,
+  useI18n,
+  useT,
+  type AdminTranslator,
+  type MessageKey,
+} from "../i18n";
+import { Badge, Button, Card, EmptyState, Notice, Status } from "./ui";
 import {
   blockLabel,
   InspectorContext,
@@ -23,18 +31,14 @@ import {
   type InspectorAccess,
 } from "./LearnerInspector";
 
-const GATE_STATUS = {
-  ready: "ready to continue",
-  needs_evidence: "more evidence needed",
-  needs_help: "help suggested",
-  under_review: "under review",
-  closed_with_gaps: "closed with gaps",
-} as const;
-const REVIEW_STATE = {
-  open: "open",
-  upheld: "upheld",
-  exception_granted: "exception granted",
-} as const;
+/** A server code's label, or the code itself (underscores as spaces) when it is unknown. */
+function codeLabel(i18n: AdminTranslator, key: string, code: string) {
+  return i18n.has(key as MessageKey)
+    ? i18n.t(key as MessageKey)
+    : code.replaceAll("_", " ");
+}
+// Course content keeps its own direction; the released SDK does not declare its language yet.
+const content = contentAttributes(undefined);
 
 type Snapshot = LearnerView["snapshot"];
 
@@ -48,6 +52,9 @@ export function LearnerViewScreen({
   view: LearnerView;
   inspector?: InspectorAccess;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const { snapshot } = view;
   // The debug inspector (owner/admin learner view with run.inspect): a side pane, full screen on phones.
   const [inspected, setInspected] = useState<InspectedBlock>();
@@ -88,68 +95,95 @@ export function LearnerViewScreen({
       <div className="learner-view" data-read-only="true">
         <Notice
           tone="gold"
-          title={`Read-only view of ${view.learner.displayName}'s learning space`}
+          title={t("learnerViewScreen.banner.title", {
+            learner: view.learner.displayName,
+          })}
         >
           <p>
-            Opened {when(view.view.viewedAt)} by {view.view.viewer.name} (
-            {view.view.viewer.role}). This view is recorded and the learner can
-            see that you opened it. Nothing here changes their learning:
-            reading, answers and messages come only from the learner.
+            {t("learnerViewScreen.banner.body", {
+              when: when(view.view.viewedAt),
+              viewer: view.view.viewer.name,
+              role: t(`learnerViewScreen.role.${view.view.viewer.role}`),
+            })}
           </p>
         </Notice>
-        <Notice tone="blue" title="Not shown to staff">
+        <Notice tone="blue" title={t("learnerViewScreen.withheld.title")}>
           <ul className="learner-view-withheld">
             {view.withheld.map((item) => (
-              <li key={item.id}>
-                <strong>{item.label}.</strong> {item.reason}
+              // The label and reason are the server's text, not a catalog message.
+              <li key={item.id} dir="auto">
+                {i18n.rich(
+                  "learnerViewScreen.withheld.item",
+                  { label: item.label, reason: item.reason },
+                  {
+                    strong: (children, key) => (
+                      <strong key={key}>{children}</strong>
+                    ),
+                  },
+                )}
               </li>
             ))}
           </ul>
         </Notice>
         <dl className="facts learner-view-facts">
           <div className="learner-view-goal">
-            <dt>Learning goal</dt>
-            <dd>{view.learner.goal || "No learning goal provided."}</dd>
-          </div>
-          <div>
-            <dt>Required lessons</dt>
-            <dd>
-              {done} of {required.length}
-              {snapshot.complete ? " · course complete" : ""}
+            <dt>{t("learnerViewScreen.facts.goal")}</dt>
+            <dd dir="auto">
+              {view.learner.goal || t("learnerViewScreen.facts.noGoal")}
             </dd>
           </div>
           <div>
-            <dt>Next lesson</dt>
+            <dt>{t("learnerViewScreen.facts.required")}</dt>
             <dd>
+              {t(
+                snapshot.complete
+                  ? "learnerViewScreen.facts.requiredDoneComplete"
+                  : "learnerViewScreen.facts.requiredDone",
+                { done, total: required.length },
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("learnerViewScreen.facts.next")}</dt>
+            <dd {...(next ? content : {})}>
               {next?.title ??
                 (snapshot.complete
-                  ? "None, the path is complete"
-                  : "None available")}
+                  ? t("learnerViewScreen.facts.nextComplete")
+                  : t("learnerViewScreen.facts.nextNone"))}
             </dd>
           </div>
           <div>
-            <dt>Personal plan</dt>
+            <dt>{t("learnerViewScreen.facts.plan")}</dt>
             <dd>
               {snapshot.planRevision
-                ? `Revision ${snapshot.planRevision}`
-                : "Course as published"}
+                ? t("learnerViewScreen.facts.planRevision", {
+                    revision: snapshot.planRevision,
+                  })
+                : t("learnerViewScreen.facts.planPublished")}
             </dd>
           </div>
           <div>
-            <dt>Enrollment</dt>
+            <dt>{t("learnerViewScreen.facts.enrollment")}</dt>
             <dd>
-              {snapshot.status} · revision {snapshot.revision}
+              {t("learnerViewScreen.facts.enrollmentState", {
+                status: codeLabel(
+                  i18n,
+                  `learnerViewScreen.enrollmentStatus.${snapshot.status}`,
+                  snapshot.status,
+                ),
+                revision: snapshot.revision,
+              })}
             </dd>
           </div>
         </dl>
         <div className={`learner-view-layout${inspected ? " inspecting" : ""}`}>
           <nav
-            aria-label="Learner's learning path"
+            aria-label={t("learnerViewScreen.path.label")}
             className="learner-view-path"
           >
             {snapshot.course.chapters.map((chapter) => (
               <section key={chapter.id}>
-                <h3>{chapter.title}</h3>
+                <h3 {...content}>{chapter.title}</h3>
                 <ol>
                   {chapter.episodes.map((row) => (
                     <li key={row.id}>
@@ -169,8 +203,8 @@ export function LearnerViewScreen({
             {episode ? (
               <EpisodeView key={episode.id} view={view} episode={episode} />
             ) : (
-              <EmptyState title="No lessons">
-                This course has no lessons.
+              <EmptyState title={t("learnerViewScreen.empty.lessons.title")}>
+                {t("learnerViewScreen.empty.lessons.body")}
               </EmptyState>
             )}
           </div>
@@ -189,12 +223,6 @@ export function LearnerViewScreen({
   );
 }
 
-const statusLabel: Record<string, string> = {
-  completed: "Completed",
-  placed: "Placed out",
-  available: "Available",
-  locked: "Locked",
-};
 function PathItem({
   snapshot,
   episode,
@@ -206,6 +234,7 @@ function PathItem({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const t = useT();
   const lesson = snapshot.lessons.find((row) => row.id === episode.id);
   const personal = snapshot.adaptationRequirements.some(
     (r) => r.episodeId === episode.id && r.insertedEpisode,
@@ -229,13 +258,19 @@ function PathItem({
     >
       <Icon size={18} aria-hidden="true" />
       <span>
-        <strong>{episode.title}</strong>
+        <strong {...content}>{episode.title}</strong>
         <small>
-          {statusLabel[status] ?? status}
-          {snapshot.nextEpisodeId === episode.id ? " · next" : ""}
-          {lesson?.requirement === "optional" ? " · optional" : ""}
-          {personal ? " · personal" : ""}
-          {closed ? " · access closed" : ""}
+          {[
+            t(`learnerViewScreen.lessonStatus.${status}`),
+            snapshot.nextEpisodeId === episode.id &&
+              t("learnerViewScreen.step.next"),
+            lesson?.requirement === "optional" &&
+              t("learnerViewScreen.step.optional"),
+            personal && t("learnerViewScreen.step.personal"),
+            closed && t("learnerViewScreen.step.closed"),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </small>
       </span>
     </button>
@@ -249,6 +284,9 @@ function EpisodeView({
   view: LearnerView;
   episode: LearnerEpisode;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const { snapshot } = view;
   const lesson = snapshot.lessons.find((row) => row.id === episode.id);
   const closed = snapshot.inaccessibleEpisodeIds.includes(episode.id);
@@ -275,24 +313,36 @@ function EpisodeView({
     >
       <header className="stack">
         <div className="tag-row">
-          <Status value={lesson?.status ?? "locked"} />
+          <Status
+            value={lesson?.status ?? "locked"}
+            label={t(
+              `learnerViewScreen.statusBadge.${lesson?.status ?? "locked"}`,
+            )}
+          />
           <Badge>
-            {lesson?.requirement ?? episode.requirement ?? "required"}
+            {t(
+              `learnerViewScreen.requirement.${lesson?.requirement ?? episode.requirement ?? "required"}`,
+            )}
           </Badge>
-          {closed && <Badge tone="red">access closed</Badge>}
+          {closed && (
+            <Badge tone="red">{t("learnerViewScreen.badge.closed")}</Badge>
+          )}
         </div>
-        <h2 id={`lv-${episode.id}`}>{episode.title}</h2>
-        <p>{objectives.join(" ")}</p>
+        <h2 id={`lv-${episode.id}`} {...content}>
+          {episode.title}
+        </h2>
+        <p {...content}>{objectives.join(" ")}</p>
       </header>
       {closed ? (
-        <Notice tone="red">
-          The learner sees: this episode's access window has closed.
-        </Notice>
+        <Notice tone="red">{t("learnerViewScreen.episode.closed")}</Notice>
       ) : (
         <>
           {reading.length > 0 && (
             <p className="learner-view-progress">
-              {read} of {reading.length} parts read
+              {t("learnerViewScreen.episode.progress", {
+                read,
+                total: reading.length,
+              })}
             </p>
           )}
           {episode.blocks.map((block, index) => (
@@ -313,26 +363,38 @@ function EpisodeView({
         </>
       )}
       {lesson?.gate && (
-        <Card title="Gate evidence" eyebrow="What unlocks the next lesson">
+        <Card
+          title={t("learnerViewScreen.gate.title")}
+          eyebrow={t("learnerViewScreen.gate.eyebrow")}
+        >
           <ul className="learner-view-gate">
             {lesson.gate.objectives.map((objective) => (
               <li key={objective.id}>
-                <span>
+                <span {...content}>
                   {snapshot.course.objectives.find((o) => o.id === objective.id)
                     ?.description ?? objective.id}
                 </span>
                 <span>
-                  {objective.families.length} of {objective.required}{" "}
-                  independent item families
+                  {t("learnerViewScreen.gate.families", {
+                    count: objective.families.length,
+                    required: objective.required,
+                  })}
                 </span>
-                <Status value={objective.passed ? "eligible" : "pending"} />
+                <Status
+                  value={objective.passed ? "eligible" : "pending"}
+                  label={t(
+                    objective.passed
+                      ? "learnerViewScreen.statusBadge.eligible"
+                      : "learnerViewScreen.statusBadge.pending",
+                  )}
+                />
               </li>
             ))}
           </ul>
           <small>
             {lesson.gate.passed
-              ? "Gate passed."
-              : "Gate not yet passed. Only verified independent checks count."}
+              ? t("learnerViewScreen.gate.passed")
+              : t("learnerViewScreen.gate.notPassed")}
           </small>
           {lesson.gate.status && (
             <div
@@ -340,26 +402,32 @@ function EpisodeView({
               data-status={lesson.gate.status}
             >
               <strong>
-                Checkpoint decision: {GATE_STATUS[lesson.gate.status]}
+                {t("learnerViewScreen.gate.decision", {
+                  status: t(
+                    `learnerViewScreen.gateStatus.${lesson.gate.status}`,
+                  ),
+                })}
               </strong>
               {lesson.gate.learnerVisibleReason && (
-                <p>{lesson.gate.learnerVisibleReason}</p>
+                <p dir="auto">{lesson.gate.learnerVisibleReason}</p>
               )}
               {(lesson.gate.criterionResults ?? []).length > 0 && (
                 <ul
                   className="learner-view-list"
-                  aria-label="Readiness criteria"
+                  aria-label={t("learnerViewScreen.gate.criteria")}
                 >
                   {lesson.gate.criterionResults!.map((criterion) => (
                     <li key={criterion.criterionId}>
                       <span>
-                        {criterion.met === true
-                          ? "Done"
-                          : criterion.met === "pending"
-                            ? "Waiting for review"
-                            : "Still needed"}
-                        {" · "}
-                        {criterion.reason}
+                        {t("learnerViewScreen.gate.criterion", {
+                          met:
+                            criterion.met === true
+                              ? t("learnerViewScreen.gate.met")
+                              : criterion.met === "pending"
+                                ? t("learnerViewScreen.gate.metPending")
+                                : t("learnerViewScreen.gate.metNo"),
+                          reason: criterion.reason,
+                        })}
                       </span>
                     </li>
                   ))}
@@ -367,34 +435,37 @@ function EpisodeView({
               )}
               {(lesson.gate.nextActions ?? []).length > 0 && (
                 <>
-                  <small>
-                    Next steps the learner is shown (not available here):
-                  </small>
+                  <small>{t("learnerViewScreen.gate.nextSteps")}</small>
                   <ul
                     className="learner-view-list"
-                    aria-label="Learner next steps"
+                    aria-label={t("learnerViewScreen.gate.nextStepsLabel")}
                   >
                     {lesson.gate.nextActions!.map((action, index) => (
-                      <li key={`${action.kind}:${index}`}>{action.label}</li>
+                      <li key={`${action.kind}:${index}`} dir="auto">
+                        {action.label}
+                      </li>
                     ))}
                   </ul>
                 </>
               )}
               {lesson.gate.review && (
                 <p>
-                  Review request {when(lesson.gate.review.requestedAt)}:{" "}
-                  {REVIEW_STATE[lesson.gate.review.state]}
-                  {lesson.gate.review.reviewerNote
-                    ? ` · “${lesson.gate.review.reviewerNote}”`
-                    : ""}
+                  {t(
+                    lesson.gate.review.reviewerNote
+                      ? "learnerViewScreen.gate.reviewNote"
+                      : "learnerViewScreen.gate.review",
+                    {
+                      when: when(lesson.gate.review.requestedAt),
+                      state: t(
+                        `learnerViewScreen.reviewState.${lesson.gate.review.state}`,
+                      ),
+                      note: lesson.gate.review.reviewerNote ?? "",
+                    },
+                  )}
                 </p>
               )}
               {(lesson.gate.exception || lesson.exception) && (
-                <p>
-                  A staff exception lets this learner continue past this
-                  checkpoint. It is not a pass; open criteria stay recorded as
-                  gaps.
-                </p>
+                <p>{t("learnerViewScreen.gate.exception")}</p>
               )}
             </div>
           )}
@@ -402,21 +473,26 @@ function EpisodeView({
       )}
       {challenge && (
         <Card
-          title="Open check"
-          eyebrow={`${challenge.mode} · expires ${when(challenge.expiresAt)}`}
+          title={t("learnerViewScreen.check.title")}
+          eyebrow={t("learnerViewScreen.check.eyebrow", {
+            mode: codeLabel(
+              i18n,
+              `learnerViewScreen.checkMode.${challenge.mode}`,
+              challenge.mode,
+            ),
+            expires: when(challenge.expiresAt),
+          })}
         >
           <Question question={challenge.question} />
           <small>
             {challenge.independentEligible
-              ? "Counts as independent evidence if answered without help."
-              : "Practice only: will not count as independent evidence."}
+              ? t("learnerViewScreen.check.independent")
+              : t("learnerViewScreen.check.practice")}
           </small>
         </Card>
       )}
       {recovery && (
-        <Notice tone="blue">
-          The learner is offered a fresh recovery check for this lesson.
-        </Notice>
+        <Notice tone="blue">{t("learnerViewScreen.recovery")}</Notice>
       )}
     </article>
   );
@@ -426,15 +502,15 @@ function EpisodeView({
  * shows them: title, what it shows, the player with captions, and the transcript
  * and description. Playback is local; nothing here is recorded as learner activity. */
 function GeneratedMedia({ items }: { items: LearnerViewMedia[] }) {
+  const t = useT();
   if (!items.length) return null;
   return (
     <Card
-      title="Optional help"
-      eyebrow="Course-made videos the learner is shown for this lesson"
+      title={t("learnerViewScreen.media.title")}
+      eyebrow={t("learnerViewScreen.media.eyebrow")}
     >
       <p className="learner-view-media-note">
-        The learner sees these under this lesson's optional help. Watching is
-        optional and never counts toward progress or checks.
+        {t("learnerViewScreen.media.note")}
       </p>
       <ul className="learner-view-list learner-view-media">
         {items.map((clip) => (
@@ -450,23 +526,30 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
     () => document.createElement("video").canPlayType(clip.mimeType) !== "",
     [clip.mimeType],
   );
+  const t = useT();
+  const { rich } = useI18n();
+  const { when } = useFormatters();
   const [failed, setFailed] = useState(false);
   const headingId = `lv-media-${clip.id}`;
   return (
     <li>
       <div className="split-line">
-        <h3 id={headingId}>{clip.title}</h3>
+        <h3 id={headingId} {...content}>
+          {clip.title}
+        </h3>
         <span className="tag-row">
-          <Badge tone="green">shown to learner</Badge>
+          <Badge tone="green">{t("learnerViewScreen.media.shown")}</Badge>
         </span>
       </div>
       <small>
-        Course-made video · reviewed {when(clip.reviewedAt)} · shown until{" "}
-        {when(clip.expiresAt)}
+        {t("learnerViewScreen.media.meta", {
+          reviewed: when(clip.reviewedAt),
+          until: when(clip.expiresAt),
+        })}
       </small>
       <p>
-        <strong>What it shows: </strong>
-        {clip.objective}
+        <strong>{t("learnerViewScreen.media.objective")} </strong>
+        <span {...content}>{clip.objective}</span>
       </p>
       {playable && !failed ? (
         <div className="learner-view-video">
@@ -487,7 +570,7 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
                 kind="captions"
                 src={clip.captionsUrl}
                 srcLang="en"
-                label="English captions"
+                label={t("learnerViewScreen.media.captionsTrack")}
                 default
               />
             )}
@@ -495,33 +578,47 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
         </div>
       ) : (
         <div className="learner-view-media-placeholder" role="note">
-          <strong>Video not playable here.</strong> This browser cannot play
-          this clip ({clip.mimeType}). The learner gets the same transcript and
-          description shown below.
+          {rich(
+            "learnerViewScreen.media.unplayable",
+            {
+              type: clip.mimeType,
+            },
+            {
+              strong: (children, key) => <strong key={key}>{children}</strong>,
+            },
+          )}
         </div>
       )}
       <dl className="facts learner-view-media-facts">
         <div>
-          <dt>Captions</dt>
-          <dd>{clip.captions ? "English captions" : "None"}</dd>
+          <dt>{t("learnerViewScreen.media.captions")}</dt>
+          <dd>
+            {clip.captions
+              ? t("learnerViewScreen.media.captionsTrack")
+              : t("learnerViewScreen.media.none")}
+          </dd>
         </div>
         <div>
-          <dt>Transcript</dt>
-          <dd>{clip.transcript ? "Available" : "None"}</dd>
+          <dt>{t("learnerViewScreen.media.transcript")}</dt>
+          <dd>
+            {clip.transcript
+              ? t("learnerViewScreen.media.available")
+              : t("learnerViewScreen.media.none")}
+          </dd>
         </div>
       </dl>
       {(clip.transcript || clip.visualDescription) && (
         <div className="learner-view-media-text">
           {clip.transcript && (
             <>
-              <h4>Transcript</h4>
-              <p>{clip.transcript}</p>
+              <h4>{t("learnerViewScreen.media.transcript")}</h4>
+              <p {...content}>{clip.transcript}</p>
             </>
           )}
           {clip.visualDescription && (
             <>
-              <h4>What the video shows</h4>
-              <p>{clip.visualDescription}</p>
+              <h4>{t("learnerViewScreen.media.description")}</h4>
+              <p {...content}>{clip.visualDescription}</p>
             </>
           )}
         </div>
@@ -535,9 +632,10 @@ function Question({
 }: {
   question: LearnerView["snapshot"]["activeChallenges"][number]["question"];
 }) {
+  const t = useT();
   return (
-    <fieldset className="learner-view-question" disabled>
-      <legend>Question as the learner sees it</legend>
+    <fieldset className="learner-view-question" disabled {...content}>
+      <legend>{t("learnerViewScreen.question.legend")}</legend>
       <Markdown markdown={question.prompt} />
       {question.options?.map((option) => (
         <label key={option.id}>
@@ -554,14 +652,21 @@ function Question({
         <ul>
           {question.criteria.map((c) => (
             <li key={c.id}>
-              {c.description} {c.required ? "(required)" : "(optional)"}
+              {t(
+                c.required
+                  ? "learnerViewScreen.question.required"
+                  : "learnerViewScreen.question.optional",
+                { criterion: c.description },
+              )}
             </li>
           ))}
         </ul>
       )}
       {!question.options && !question.criteria && (
         <p className="learner-view-answer-slot">
-          The learner answers here ({question.type}).
+          {t("learnerViewScreen.question.answerSlot", {
+            type: question.type,
+          })}
         </p>
       )}
     </fieldset>
@@ -581,6 +686,7 @@ function BlockView({
   part: number;
   read: boolean;
 }) {
+  const t = useT();
   const { snapshot } = view;
   const inspector = useInspector();
   const personal = snapshot.adaptationRequirements.find(
@@ -612,47 +718,53 @@ function BlockView({
     body = media ? (
       <div className="stack">
         <small>
-          {media.type} · {media.review}. Playback is not loaded in the staff
-          view; the text alternative the learner also receives:
+          {t("learnerViewScreen.block.media", {
+            type: media.type,
+            review: media.review,
+          })}
         </small>
         <Markdown markdown={media.alternativeMarkdown} />
       </div>
     ) : (
-      <p>This media item is unavailable to the learner.</p>
+      <p>{t("learnerViewScreen.block.mediaMissing")}</p>
     );
   } else if (block.type === "assessment") {
-    body = (
-      <p>
-        The learner opens an independent check here. Its question appears only
-        once issued (see Open check).
-      </p>
-    );
+    body = <p>{t("learnerViewScreen.block.assessment")}</p>;
   } else {
     body = (
       <p>
-        Interactive activity ({block.extensionId}). Activities are completed by
-        the learner in their app.
+        {t("learnerViewScreen.block.activity", {
+          extension: block.extensionId,
+        })}
       </p>
     );
   }
   return (
     <section
       className="learner-view-block"
-      aria-label={`Part ${part}: ${label}`}
+      aria-label={t("learnerViewScreen.block.label", { part, label })}
     >
       <div className="split-line">
         <span className="eyebrow">
-          Part {part} · {label}
+          {t("learnerViewScreen.block.eyebrow", { part, label })}
         </span>
         <span className="tag-row">
           {personal && (
-            <Badge tone="blue">personal · {personal.classification}</Badge>
+            <Badge tone="blue">
+              {t("learnerViewScreen.block.personal", {
+                classification: t(
+                  `learnerViewScreen.classification.${personal.classification}`,
+                ),
+              })}
+            </Badge>
           )}
-          {read && <Badge tone="green">read</Badge>}
+          {read && (
+            <Badge tone="green">{t("learnerViewScreen.block.read")}</Badge>
+          )}
           {inspector && (
             <Button
               kind="quiet"
-              aria-label={`Inspect part ${part}`}
+              aria-label={t("learnerViewScreen.block.inspectLabel", { part })}
               onClick={(e) =>
                 inspector.open(
                   { episode, block, part, label, read },
@@ -660,7 +772,7 @@ function BlockView({
                 )
               }
             >
-              Inspect
+              {t("learnerViewScreen.block.inspect")}
             </Button>
           )}
         </span>
@@ -680,10 +792,13 @@ function Sources({
   const cited = ids
     .map((id) => sources.find((s) => s.id === id))
     .filter((s): s is NonNullable<typeof s> => Boolean(s));
+  const t = useT();
   if (!cited.length) return null;
   return (
     <p className="learner-view-sources">
-      Sources: {cited.map((s) => s.title).join("; ")}
+      {t("learnerViewScreen.sources", {
+        sources: cited.map((s) => s.title).join("; "),
+      })}
     </p>
   );
 }
@@ -706,14 +821,15 @@ function Visual({
       return undefined;
     }
   }, [experience]);
+  const t = useT();
   useRegisterRuntime(blockId, prepared, experience);
-  const description =
-    experience?.accessibility?.description?.trim() ||
-    "This illustration is unavailable to the learner.";
+  const authored = experience?.accessibility?.description?.trim();
   const fallback = (
     <div className="stack">
-      <strong>Illustration · text equivalent</strong>
-      <p>{description}</p>
+      <strong>{t("learnerViewScreen.visual.fallback")}</strong>
+      <p {...(authored ? content : {})}>
+        {authored || t("learnerViewScreen.visual.unavailable")}
+      </p>
     </div>
   );
   return (
@@ -730,19 +846,25 @@ function Visual({
 /** The learner app's non-executable prose subset: paragraphs, headings, bold,
  * inline code and fenced code. HTML and links stay plain text. */
 export function Markdown({ markdown }: { markdown: string }) {
+  const t = useT();
   const parts = markdown.split(/(```[^\n]*\n[\s\S]*?```)/g);
   return (
-    <div className="learner-view-prose">
+    <div className="learner-view-prose" {...content}>
       {parts.map((part, index) => {
         if (part.startsWith("```")) {
           const firstLine = part.indexOf("\n");
           const language = part.slice(3, firstLine).trim();
           return (
             <figure key={index} className="learner-view-code">
-              <figcaption>{language || "Example"}</figcaption>
+              <figcaption dir="ltr">
+                {language || t("learnerViewScreen.code.example")}
+              </figcaption>
               <pre
                 tabIndex={0}
-                aria-label={`${language || "Example"} code, scrollable`}
+                dir="ltr"
+                aria-label={t("learnerViewScreen.code.label", {
+                  language: language || t("learnerViewScreen.code.example"),
+                })}
               >
                 <code>{part.slice(firstLine + 1, -3).trimEnd()}</code>
               </pre>
@@ -780,10 +902,13 @@ export function Markdown({ markdown }: { markdown: string }) {
 }
 
 function PersonalChanges({ view }: { view: LearnerView }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   return (
     <Card
-      title="Personal changes"
-      eyebrow="Applied adaptations the learner sees"
+      title={t("learnerViewScreen.changes.title")}
+      eyebrow={t("learnerViewScreen.changes.eyebrow")}
     >
       {view.personalChanges.length ? (
         <ul className="learner-view-list">
@@ -791,28 +916,42 @@ function PersonalChanges({ view }: { view: LearnerView }) {
             <li key={`${change.proposalId}-${change.blockId}`}>
               <div className="split-line">
                 <strong>
-                  {change.kind.replaceAll("_", " ")} · {change.episodeTitle}
+                  {t("learnerViewScreen.changes.heading", {
+                    kind: codeLabel(
+                      i18n,
+                      `learnerViewScreen.changeKind.${change.kind}`,
+                      change.kind,
+                    ),
+                    episode: change.episodeTitle,
+                  })}
                 </strong>
                 <span className="tag-row">
-                  <Badge>{change.classification}</Badge>
+                  <Badge>
+                    {t(
+                      `learnerViewScreen.classification.${change.classification}`,
+                    )}
+                  </Badge>
                   {change.hidden && (
                     <Badge tone="gold">
-                      <EyeOff size={12} aria-hidden="true" /> hidden by learner
+                      <EyeOff size={12} aria-hidden="true" />{" "}
+                      {t("learnerViewScreen.changes.hidden")}
                     </Badge>
                   )}
                 </span>
               </div>
-              {change.why && <p>{change.why}</p>}
+              {change.why && <p dir="auto">{change.why}</p>}
               <small>
-                Applied {when(change.appliedAt)} · plan revision{" "}
-                {change.planRevision}. Evidence is unaffected.
+                {t("learnerViewScreen.changes.applied", {
+                  when: when(change.appliedAt),
+                  revision: change.planRevision,
+                })}
               </small>
             </li>
           ))}
         </ul>
       ) : (
-        <EmptyState title="No personal changes">
-          The learner follows the course as published.
+        <EmptyState title={t("learnerViewScreen.changes.empty.title")}>
+          {t("learnerViewScreen.changes.empty.body")}
         </EmptyState>
       )}
     </Card>
@@ -820,6 +959,9 @@ function PersonalChanges({ view }: { view: LearnerView }) {
 }
 
 function Reviews({ view }: { view: LearnerView }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const titles = Object.fromEntries(
     view.snapshot.course.chapters
       .flatMap((c) => c.episodes)
@@ -827,64 +969,98 @@ function Reviews({ view }: { view: LearnerView }) {
   );
   return (
     <Card
-      title="Written answers and reviews"
-      eyebrow="Pending and decided reviews the learner sees"
+      title={t("learnerViewScreen.reviews.title")}
+      eyebrow={t("learnerViewScreen.reviews.eyebrow")}
     >
       {view.reviews.length ? (
         <ul className="learner-view-list">
           {view.reviews.map((review) => (
             <li key={review.attemptId}>
               <div className="split-line">
-                <strong>{titles[review.episodeId] ?? review.episodeId}</strong>
-                <Status value={review.status} />
+                <strong {...content}>
+                  {titles[review.episodeId] ?? review.episodeId}
+                </strong>
+                <Status
+                  value={review.status}
+                  label={
+                    i18n.has(
+                      `learnerViewScreen.statusBadge.${review.status}` as MessageKey,
+                    )
+                      ? t(
+                          `learnerViewScreen.statusBadge.${review.status}` as MessageKey,
+                        )
+                      : undefined
+                  }
+                />
               </div>
               <small>
-                Submitted {when(review.submittedAt)}
-                {review.reviewedAt
-                  ? ` · reviewed ${when(review.reviewedAt)}`
-                  : ""}
-                {review.appeal
-                  ? ` · second opinion ${review.appeal.state.replaceAll("_", " ")}`
-                  : ""}
+                {[
+                  t("learnerViewScreen.reviews.submitted", {
+                    when: when(review.submittedAt),
+                  }),
+                  review.reviewedAt &&
+                    t("learnerViewScreen.reviews.reviewed", {
+                      when: when(review.reviewedAt),
+                    }),
+                  review.appeal &&
+                    t("learnerViewScreen.reviews.appeal", {
+                      state: codeLabel(
+                        i18n,
+                        `learnerViewScreen.appealState.${review.appeal.state}`,
+                        review.appeal.state,
+                      ),
+                    }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </small>
               {review.learnerNote && (
-                <p>Reviewer's note: {review.learnerNote}</p>
+                <p>
+                  {t("learnerViewScreen.reviews.note", {
+                    note: review.learnerNote,
+                  })}
+                </p>
               )}
               {review.appeal && (
                 <small>
-                  The learner's reason for a second opinion is not shown here;
-                  reviewers read it where they decide the appeal.
-                  {review.appeal.note
-                    ? ` Second reviewer's note: “${review.appeal.note}”`
-                    : ""}
+                  {t(
+                    review.appeal.note
+                      ? "learnerViewScreen.reviews.appealHiddenNote"
+                      : "learnerViewScreen.reviews.appealHidden",
+                    { note: review.appeal.note ?? "" },
+                  )}
                 </small>
               )}
               <ul>
                 {review.criteria.map((c) => (
                   <li key={c.id}>
-                    {c.description}{" "}
-                    {c.met === null
-                      ? "(awaiting review)"
-                      : c.met
-                        ? "(met)"
-                        : "(not met)"}
-                    {c.quote ? ` · quoted: "${c.quote}"` : ""}
+                    {t(
+                      c.quote
+                        ? "learnerViewScreen.reviews.criterionQuote"
+                        : "learnerViewScreen.reviews.criterion",
+                      {
+                        criterion: c.description,
+                        met:
+                          c.met === null ? "pending" : c.met ? "met" : "unmet",
+                        quote: c.quote ?? "",
+                      },
+                    )}
                   </li>
                 ))}
               </ul>
               {(review.canReply || review.canAppeal) && (
                 <small>
                   {review.canReply
-                    ? "The learner can reply to the reviewer."
-                    : "The learner can ask for a second opinion."}
+                    ? t("learnerViewScreen.reviews.canReply")
+                    : t("learnerViewScreen.reviews.canAppeal")}
                 </small>
               )}
             </li>
           ))}
         </ul>
       ) : (
-        <EmptyState title="No written answers">
-          Nothing is waiting for review.
+        <EmptyState title={t("learnerViewScreen.reviews.empty.title")}>
+          {t("learnerViewScreen.reviews.empty.body")}
         </EmptyState>
       )}
     </Card>

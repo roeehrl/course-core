@@ -1,1 +1,13 @@
-{}
+{
+  "error.FORBIDDEN": "Your role cannot make this decision. Reviewers may uphold; owners, admins and instructors may also grant exceptions.",
+  "error.INVALID_INPUT": "Write a note of at least {min} characters for the learner.",
+  "error.SELF_REVIEW_FORBIDDEN": "This is your own request. Another staff member must decide it.",
+  "error.INDEPENDENT_REVIEWER_REQUIRED": "This gate needs a reviewer who did not judge this learner's evidence.",
+  "error.GATE_REVIEW_ALREADY_DECIDED": "This request was already decided. Refresh the queue.",
+  "error.GATE_REVIEW_NOT_FOUND": "This request no longer exists. Refresh the queue.",
+  "error.GATE_CHANGED": "The course changed this gate. The request cannot be decided under the new version.",
+  "error.GATE_ALREADY_READY": "The learner now meets the gate; no exception is needed. Uphold the request instead.",
+  "error.GATE_CAP_REACHED": "The course limit or deadline has been reached. An exception cannot lift it.",
+  "error.ENROLLMENT_ERASED": "The learner's data was erased.",
+  "error.fallback": "The decision could not be saved. Nothing changed."
+}

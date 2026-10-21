@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MessageKey, Translate } from "../i18n";
 
 export const pendingReviewsSchema = z.object({
   pending: z
@@ -186,33 +187,24 @@ export class ReviewActionError extends Error {
     this.name = "ReviewActionError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Only owners, admins, instructors and reviewers can review written answers.",
-  SELF_REVIEW_FORBIDDEN:
-    "You cannot review your own answer. Ask another reviewer.",
-  RUBRIC_QUOTE_REQUIRED:
-    "Every criterion marked as met needs an exact quotation (10+ characters) from the learner's answer.",
-  RUBRIC_CRITERIA_INCOMPLETE: "Record a finding for every criterion.",
-  RUBRIC_DECISION_INCONSISTENT:
-    "The decision must match the findings: met only when every required criterion is met.",
-  CLARIFICATION_NOTE_REQUIRED:
-    "Write a note telling the learner what to clarify.",
-  ALREADY_REVIEWED: "This answer was already reviewed. Refresh the queue.",
-  RUBRIC_CHANGED:
-    "The rubric changed after this answer was submitted; it cannot be reviewed under the new rubric.",
-  RUBRIC_ASSIST_CONSENT_REQUIRED:
-    "The learner has not allowed AI drafts for their written answers.",
-  RUBRIC_ASSIST_UNAVAILABLE:
-    "No reviewer-drafts model is configured for this workspace.",
-  SECOND_REVIEWER_REQUIRED:
-    "A different reviewer must give the second opinion.",
-  APPEAL_ALREADY_DECIDED: "This appeal was already decided. Refresh the queue.",
-  PROBE_ONLY_FOR_CLARIFICATION:
-    "Only a clarification request can be marked as a neutral question.",
-  RUBRIC_SUGGESTION_MISMATCH:
-    "That draft belongs to a different answer. Refresh the queue.",
-};
-export const reviewErrorMessage = (error: unknown) =>
-  messages[error instanceof ReviewActionError ? error.code : ""] ??
-  "The review could not be saved. Nothing changed.";
+const codes = new Set([
+  "FORBIDDEN",
+  "SELF_REVIEW_FORBIDDEN",
+  "RUBRIC_QUOTE_REQUIRED",
+  "RUBRIC_CRITERIA_INCOMPLETE",
+  "RUBRIC_DECISION_INCONSISTENT",
+  "CLARIFICATION_NOTE_REQUIRED",
+  "ALREADY_REVIEWED",
+  "RUBRIC_CHANGED",
+  "RUBRIC_ASSIST_CONSENT_REQUIRED",
+  "RUBRIC_ASSIST_UNAVAILABLE",
+  "SECOND_REVIEWER_REQUIRED",
+  "APPEAL_ALREADY_DECIDED",
+  "PROBE_ONLY_FOR_CLARIFICATION",
+  "RUBRIC_SUGGESTION_MISMATCH",
+]);
+/** The message for a refusal in the caller's locale; an unknown code gets the generic message. */
+export const reviewErrorMessage = (error: unknown, t: Translate) =>
+  error instanceof ReviewActionError && codes.has(error.code)
+    ? t(`reviews.error.${error.code}` as MessageKey)
+    : t("reviews.error.fallback");

@@ -1,126 +1,24 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { stripBidiControls } from "@course-core/i18n";
+import { createAdminTranslator } from "../src/i18n";
+import { LocaleProvider } from "../src/i18n/LocaleProvider";
+import { LearnerDataCard } from "../src/components/LearnerDataCard";
+import {
+  LearnerDataError,
+  learnerDataErrorMessage,
+} from "../src/domain/learnerData";
 import { createFetchAdminClient } from "../src/client/fetchClient";
 import { LearnerViewCard } from "../src/components/LearnerViewCard";
 import { Markdown } from "../src/components/LearnerViewScreen";
 import {
   learnerViewErrorMessage,
   LearnerViewError,
-  type LearnerView,
 } from "../src/domain/learnerView";
 import type { AdminClient, Enrollment } from "../src/domain/contracts";
+import { enrollmentId, sample } from "./learnerViewFixture";
 
-const enrollmentId = "6b0e4c2a-8a1c-4d7e-9f3a-1c2b3d4e5f60";
-function sample(): LearnerView {
-  return {
-    readOnly: true,
-    view: {
-      id: "0b0e4c2a-8a1c-4d7e-9f3a-1c2b3d4e5f61",
-      viewedAt: "2026-10-14T10:00:00.000Z",
-      viewer: { id: "owner", name: "Owner", role: "owner" },
-      visibleToLearner: true,
-    },
-    learner: {
-      displayName: "Sam",
-      goal: "Compare values with confidence.",
-      pace: "steady",
-    },
-    snapshot: {
-      enrollmentId,
-      revision: 4,
-      status: "active",
-      profile: { displayName: "Sam" },
-      planRevision: 0,
-      adaptationRequirements: [],
-      lessons: [
-        {
-          id: "one",
-          requirement: "required",
-          status: "available",
-          completedBlockIds: ["one-text"],
-          gate: {
-            passed: false,
-            objectives: [
-              { id: "o1", families: ["a"], required: 2, passed: false },
-            ],
-          },
-        },
-        {
-          id: "two",
-          requirement: "required",
-          status: "locked",
-          completedBlockIds: [],
-          gate: null,
-        },
-      ],
-      complete: false,
-      nextEpisodeId: "one",
-      course: {
-        title: "Public course",
-        summary: "",
-        objectives: [{ id: "o1", description: "Compare values." }],
-        chapters: [
-          {
-            id: "c",
-            title: "Chapter",
-            episodes: [
-              {
-                id: "one",
-                title: "First lesson",
-                objectiveIds: ["o1"],
-                blocks: [
-                  {
-                    id: "one-text",
-                    type: "text",
-                    markdown: "Hello **world** <script>x</script>",
-                  },
-                ],
-                gateId: "g",
-              },
-              {
-                id: "two",
-                title: "Second lesson",
-                objectiveIds: ["o1"],
-                blocks: [{ id: "two-text", type: "text", markdown: "Later." }],
-              },
-            ],
-          },
-        ],
-        visuals: [],
-        media: [],
-        sources: [],
-      },
-      recovery: [],
-      inaccessibleEpisodeIds: [],
-      closureReport: null,
-      activeChallenges: [
-        {
-          challengeId: "1b0e4c2a-8a1c-4d7e-9f3a-1c2b3d4e5f62",
-          episodeId: "one",
-          question: {
-            id: "q",
-            type: "choice",
-            prompt: "Which is smaller?",
-            options: [
-              { id: "a", text: "2" },
-              { id: "b", text: "5" },
-            ],
-          },
-          mode: "independent",
-          independentEligible: true,
-          expiresAt: "2026-10-14T11:00:00.000Z",
-        },
-      ],
-    },
-    personalChanges: [],
-    reviews: [],
-    generatedMedia: [],
-    withheld: [
-      { id: "companion", label: "Companion conversation", reason: "Private." },
-    ],
-  };
-}
 const enrollment = { id: enrollmentId, status: "active" } as Enrollment;
 
 describe("read-only learner view", () => {
@@ -473,5 +371,90 @@ describe("read-only learner view", () => {
     expect(screen.getByRole("heading", { name: "Title" })).toBeVisible();
     expect(screen.getByText("min").tagName).toBe("CODE");
     expect(screen.getByText("print(1)")).toBeVisible();
+  });
+
+  it("renders in Hebrew, right to left, with course text isolated and codes left to right", async () => {
+    window.history.replaceState(null, "", "/admin/?locale=he");
+    const open = vi.fn(async () => sample());
+    try {
+      render(
+        <LocaleProvider>
+          <LearnerViewCard
+            client={{ learnerView: { open } } as unknown as AdminClient}
+            enrollment={enrollment}
+          />
+        </LocaleProvider>,
+      );
+      expect(document.documentElement).toHaveAttribute("dir", "rtl");
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "פתיחת תצוגת הלומד/ת לקריאה בלבד",
+        }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      const text = stripBidiControls(dialog.textContent ?? "");
+      expect(text).toContain("תצוגה לקריאה בלבד של מרחב הלמידה של Sam");
+      expect(text).toContain("1 מתוך 1 חלקים נקראו");
+      expect(text).toContain("מטרת הלמידה");
+      expect(text).not.toMatch(/parts read|Learning goal|Gate evidence/);
+      // Course text keeps its own direction; the learner's goal too.
+      expect(
+        within(dialog).getByRole("heading", { name: "First lesson" }),
+      ).toHaveAttribute("dir", "auto");
+      expect(
+        within(dialog).getByText("Compare values with confidence."),
+      ).toHaveAttribute("dir", "auto");
+    } finally {
+      window.history.replaceState(null, "", "/");
+      document.documentElement.lang = "";
+      document.documentElement.dir = "";
+    }
+  });
+
+  it("translates learner view and learner data refusals, defaulting to the unavailable message", () => {
+    const he = createAdminTranslator("he").t;
+    expect(learnerViewErrorMessage(new LearnerViewError("FORBIDDEN"), he)).toBe(
+      "רק בעלים ומנהלים של סביבת העבודה יכולים לצפות במרחב של לומד/ת.",
+    );
+    expect(learnerViewErrorMessage(new LearnerViewError("SOMETHING_NEW"))).toBe(
+      "The learner view is unavailable right now. Nothing was changed.",
+    );
+    expect(
+      learnerDataErrorMessage(new LearnerDataError("ALREADY_ERASED"), he),
+    ).toBe("נתוני הלמידה של ההרשמה הזו כבר נמחקו.");
+    expect(learnerDataErrorMessage(new Error("boom"), he)).toBe(
+      "שירות הנתונים לא זמין. שום דבר לא יוצא ולא נמחק.",
+    );
+  });
+
+  it("asks for the erasure phrase left to right in the Hebrew data card", () => {
+    window.history.replaceState(null, "", "/admin/?locale=he");
+    try {
+      render(
+        <LocaleProvider>
+          <LearnerDataCard
+            client={
+              {
+                learnerData: { exportEnrollment: vi.fn(), erase: vi.fn() },
+              } as unknown as AdminClient
+            }
+            enrollment={enrollment}
+            onErased={() => {}}
+          />
+        </LocaleProvider>,
+      );
+      expect(
+        screen.getByRole("button", { name: "ייצוא נתוני הלומד/ת" }),
+      ).toBeVisible();
+      const phrase = `ERASE ${enrollmentId.slice(0, 8)}`;
+      const input = screen.getByLabelText(
+        (label) => stripBidiControls(label) === `כדי לאשר, יש להקליד ${phrase}`,
+      );
+      expect(input).toHaveAttribute("dir", "ltr");
+    } finally {
+      window.history.replaceState(null, "", "/");
+      document.documentElement.lang = "";
+      document.documentElement.dir = "";
+    }
   });
 });

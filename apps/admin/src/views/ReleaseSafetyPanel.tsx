@@ -15,6 +15,7 @@ import type {
   RollbackImpact,
 } from "../domain/releaseSafety";
 import { Badge, Button, Dialog, Field, Notice } from "../components/ui";
+import { useT } from "../i18n";
 
 type Port = ReleaseSafetyPort;
 
@@ -33,6 +34,7 @@ export function ReleaseSafetyPanel({
   active: Release | undefined;
 }) {
   const port = client.releaseSafety;
+  const t = useT();
   const [diff, setDiff] = useState<ReleaseDiff>();
   const [diffError, setDiffError] = useState<unknown>();
   const [defecting, setDefecting] = useState(false);
@@ -53,8 +55,8 @@ export function ReleaseSafetyPanel({
                 .then(setDiff, setDiffError);
             }}
           >
-            <GitCompare size={16} aria-hidden="true" /> Compare with the live
-            release
+            <GitCompare size={16} aria-hidden="true" />{" "}
+            {t("releaseSafetyPanel.compare")}
           </Button>
         )}
         {release.state === "published" && !isActive && canPublish && (
@@ -73,7 +75,8 @@ export function ReleaseSafetyPanel({
               )
             }
           >
-            <Archive size={16} aria-hidden="true" /> Archive release
+            <Archive size={16} aria-hidden="true" />{" "}
+            {t("releaseSafetyPanel.archive")}
           </Button>
         )}
         {port && canPublish && (
@@ -85,19 +88,16 @@ export function ReleaseSafetyPanel({
               setDefecting(true);
             }}
           >
-            <TriangleAlert size={16} aria-hidden="true" /> Mark an item
-            defective
+            <TriangleAlert size={16} aria-hidden="true" />{" "}
+            {t("releaseSafetyPanel.markDefective")}
           </Button>
         )}
       </div>
       {release.state === "archived" && (
-        <Notice tone="blue">
-          Archived: no new learner starts on it. Learners already on it keep
-          their release, evidence and support.
-        </Notice>
+        <Notice tone="blue">{t("releaseSafetyPanel.archivedNotice")}</Notice>
       )}
       {diffError !== undefined && (
-        <Notice tone="red">{errorMessage(diffError)}</Notice>
+        <Notice tone="red">{errorMessage(diffError, t)}</Notice>
       )}
       {diff && <DiffSummary diff={diff} />}
       {defecting && port && (
@@ -114,19 +114,27 @@ export function ReleaseSafetyPanel({
 }
 
 function DiffSummary({ diff }: { diff: ReleaseDiff }) {
+  const t = useT();
   return (
     <section
-      aria-label={`Changes from version ${diff.from.version} to ${diff.to.version}`}
+      aria-label={t("releaseSafetyPanel.diff.label", {
+        from: diff.from.version,
+        to: diff.to.version,
+      })}
       className="release-diff"
     >
       <p>
         <strong>
-          Version {diff.from.version} → {diff.to.version}
+          {t("releaseSafetyPanel.diff.versions", {
+            from: diff.from.version,
+            to: diff.to.version,
+          })}
         </strong>{" "}
         ·{" "}
-        {diff.identical
-          ? "identical content"
-          : `${diff.changes} change${diff.changes === 1 ? "" : "s"}`}
+        {t("releaseSafetyPanel.diff.summary", {
+          identical: diff.identical ? "yes" : "no",
+          count: diff.changes,
+        })}
       </p>
       <ul className="impact-list">
         {Object.entries(diff.kinds)
@@ -135,7 +143,7 @@ function DiffSummary({ diff }: { diff: ReleaseDiff }) {
           )
           .map(([kind, k]) => (
             <li key={kind}>
-              <span>
+              <span dir="ltr">
                 {kind}:{" "}
                 {[
                   ...k.added.map((i) => `+${i}`),
@@ -143,7 +151,11 @@ function DiffSummary({ diff }: { diff: ReleaseDiff }) {
                   ...k.changed.map((i) => `~${i}`),
                 ].join(", ")}
               </span>
-              <Badge>{k.unchanged} unchanged</Badge>
+              <Badge>
+                {t("releaseSafetyPanel.diff.unchanged", {
+                  count: k.unchanged,
+                })}
+              </Badge>
             </li>
           ))}
       </ul>
@@ -167,6 +179,7 @@ export function RollbackDialog({
   client: AdminClient;
   onClose: () => void;
 }) {
+  const t = useT();
   const [impact, setImpact] = useState<RollbackImpact>();
   const [error, setError] = useState<unknown>();
   const [loading, setLoading] = useState(false);
@@ -184,39 +197,52 @@ export function RollbackDialog({
   }, [impact === undefined]);
   return (
     <Dialog
-      title={`Roll back new learners to version ${release.version}`}
-      eyebrow="Rollback impact"
+      title={t("releaseSafetyPanel.rollback.title", {
+        version: release.version,
+      })}
+      eyebrow={t("releaseSafetyPanel.rollback.eyebrow")}
       onClose={onClose}
       pending={actions.pending}
     >
       <ActionFeedback actions={actions} />
-      {loading && <p>Working out the impact…</p>}
-      {error !== undefined && <Notice tone="red">{errorMessage(error)}</Notice>}
+      {loading && <p>{t("releaseSafetyPanel.rollback.loading")}</p>}
+      {error !== undefined && (
+        <Notice tone="red">{errorMessage(error, t)}</Notice>
+      )}
       {impact && (
         <div className="stack">
           <ul className="impact-list">
             <li>
-              <span>New learners will start on</span>
-              <Badge>{impact.impact.to.version}</Badge>
+              <span>{t("releaseSafetyPanel.rollback.newStart")}</span>
+              <Badge>
+                <span dir="ltr">{impact.impact.to.version}</span>
+              </Badge>
             </li>
             <li>
               <span>
-                Learners on {impact.impact.from.version} (they stay on it)
+                {t("releaseSafetyPanel.rollback.pinnedToActive", {
+                  version: impact.impact.from.version,
+                })}
               </span>
               <Badge>{impact.impact.learnersPinnedToActive}</Badge>
             </li>
             <li>
-              <span>Learners already on {impact.impact.to.version}</span>
+              <span>
+                {t("releaseSafetyPanel.rollback.pinnedToTarget", {
+                  version: impact.impact.to.version,
+                })}
+              </span>
               <Badge>{impact.impact.learnersPinnedToTarget}</Badge>
             </li>
             <li>
-              <span>Content changes between the versions</span>
+              <span>{t("releaseSafetyPanel.rollback.contentChanges")}</span>
               <Badge>{impact.impact.contentChanges}</Badge>
             </li>
             <li>
               <span>
-                Evidence on items that differ (
-                {impact.impact.learnersWithEvidenceOnChangedItems} learners)
+                {t("releaseSafetyPanel.rollback.evidenceOnChanged", {
+                  count: impact.impact.learnersWithEvidenceOnChangedItems,
+                })}
               </span>
               <Badge
                 tone={impact.impact.evidenceOnChangedItems ? "gold" : "neutral"}
@@ -226,12 +252,17 @@ export function RollbackDialog({
             </li>
           </ul>
           {impact.impact.targetDefectiveItems.length > 0 && (
-            <Notice tone="gold" title="Items marked defective on this version">
-              {impact.impact.targetDefectiveItems.join(", ")}
+            <Notice
+              tone="gold"
+              title={t("releaseSafetyPanel.rollback.defectiveTitle")}
+            >
+              <span dir="ltr">
+                {impact.impact.targetDefectiveItems.join(", ")}
+              </span>
             </Notice>
           )}
           <Notice tone="blue">
-            Nobody is moved: existing learners keep the version they started on.
+            {t("releaseSafetyPanel.rollback.nobodyMoved")}
           </Notice>
           <Button
             kind="primary"
@@ -258,7 +289,7 @@ export function RollbackDialog({
               else setImpact(undefined);
             }}
           >
-            Confirm rollback
+            {t("releaseSafetyPanel.rollback.confirm")}
           </Button>
         </div>
       )}
@@ -279,6 +310,7 @@ function DefectDialog({
   release: Release;
   onClose: () => void;
 }) {
+  const t = useT();
   const id = useId();
   const [item, setItem] = useState("");
   const [preview, setPreview] = useState<DefectPreview>();
@@ -288,8 +320,10 @@ function DefectDialog({
   const p = preview?.preview;
   return (
     <Dialog
-      title={`Mark an item defective in version ${release.version}`}
-      eyebrow="Defective item"
+      title={t("releaseSafetyPanel.defect.title", {
+        version: release.version,
+      })}
+      eyebrow={t("releaseSafetyPanel.defect.eyebrow")}
       onClose={onClose}
       pending={actions.pending}
     >
@@ -305,12 +339,13 @@ function DefectDialog({
         }}
       >
         <Field
-          label="Item ID"
+          label={t("releaseSafetyPanel.defect.item.label")}
           htmlFor={`${id}-item`}
-          hint="The assessment's ID in the course bundle."
+          hint={t("releaseSafetyPanel.defect.item.hint")}
         >
           <input
             id={`${id}-item`}
+            dir="ltr"
             value={item}
             maxLength={200}
             onChange={(e) => {
@@ -320,10 +355,12 @@ function DefectDialog({
           />
         </Field>
         <Button type="submit" disabled={!item.trim()}>
-          Preview the impact
+          {t("releaseSafetyPanel.defect.preview")}
         </Button>
       </form>
-      {error !== undefined && <Notice tone="red">{errorMessage(error)}</Notice>}
+      {error !== undefined && (
+        <Notice tone="red">{errorMessage(error, t)}</Notice>
+      )}
       {p && preview && (
         <form
           className="stack"
@@ -345,43 +382,46 @@ function DefectDialog({
         >
           {p.alreadyDefective ? (
             <Notice tone="gold">
-              This item is already marked defective on this release.
+              {t("releaseSafetyPanel.defect.already")}
             </Notice>
           ) : (
             <ul
               className="impact-list"
-              aria-label="What marking it defective does"
+              aria-label={t("releaseSafetyPanel.defect.impactLabel")}
             >
               <li>
-                <span>Evidence records invalidated (with your reason)</span>
+                <span>{t("releaseSafetyPanel.defect.evidence")}</span>
                 <Badge tone="gold">{p.evidenceToInvalidate}</Badge>
               </li>
               <li>
-                <span>Learners affected</span>
+                <span>{t("releaseSafetyPanel.defect.learners")}</span>
                 <Badge>{p.affectedEnrollments}</Badge>
               </li>
               <li>
-                <span>Open questions closed</span>
+                <span>{t("releaseSafetyPanel.defect.questions")}</span>
                 <Badge>{p.openChallengesToClose}</Badge>
               </li>
               <li>
-                <span>Replacement items</span>
+                <span>{t("releaseSafetyPanel.defect.replacements")}</span>
                 <Badge tone={p.replacement.available ? "green" : "red"}>
-                  {p.replacement.available
-                    ? p.replacement.itemIds.join(", ")
-                    : "none"}
+                  {p.replacement.available ? (
+                    <span dir="ltr">{p.replacement.itemIds.join(", ")}</span>
+                  ) : (
+                    t("releaseSafetyPanel.defect.noReplacement")
+                  )}
                 </Badge>
               </li>
             </ul>
           )}
           <Field
-            label="Reason (learners' records keep it)"
+            label={t("releaseSafetyPanel.defect.reason.label")}
             htmlFor={`${id}-reason`}
-            hint="At least 10 characters."
+            hint={t("releaseSafetyPanel.defect.reason.hint")}
           >
             <textarea
               id={`${id}-reason`}
               rows={3}
+              dir="auto"
               maxLength={2000}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -394,8 +434,7 @@ function DefectDialog({
                 checked={acknowledge}
                 onChange={(e) => setAcknowledge(e.target.checked)}
               />
-              No other item replaces it: learners lose this route to the
-              checkpoint until a new release adds one
+              {t("releaseSafetyPanel.defect.acknowledge")}
             </label>
           )}
           <Button
@@ -408,7 +447,7 @@ function DefectDialog({
               (!p.replacement.available && !acknowledge)
             }
           >
-            Mark defective and invalidate evidence
+            {t("releaseSafetyPanel.defect.submit")}
           </Button>
         </form>
       )}

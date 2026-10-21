@@ -11,6 +11,7 @@ import { CourseView } from "../src/views/CourseView";
 import { useWorkspace } from "../src/hooks/useAdmin";
 import { releaseSchema } from "../src/domain/contracts";
 import { demo } from "./helpers";
+import { createAdminTranslator } from "../src/i18n";
 
 const warning = {
   label: "Sandboxed web activities",
@@ -45,4 +46,28 @@ it("shows a standing activity-runtime warning as a warning, without blocking rev
     within(item).getByText(/Never put sensitive data in activity state/),
   ).toBeVisible();
   expect(within(item).queryByText("Recorded")).toBeNull();
+});
+
+it("words the release comparison summary in English and Hebrew", () => {
+  const en = createAdminTranslator("en"),
+    he = createAdminTranslator("he");
+  const summary = (identical: boolean, count: number) => ({
+    identical: identical ? "yes" : "no",
+    count,
+  });
+  expect(en.t("releaseSafetyPanel.diff.summary", summary(true, 0))).toBe(
+    "identical content",
+  );
+  expect(en.t("releaseSafetyPanel.diff.summary", summary(false, 1))).toBe(
+    "1 change",
+  );
+  expect(en.t("releaseSafetyPanel.diff.summary", summary(false, 3))).toBe(
+    "3 changes",
+  );
+  expect(he.t("releaseSafetyPanel.diff.summary", summary(false, 2))).toBe(
+    "שני שינויים",
+  );
+  expect(he.t("releaseSafetyPanel.diff.summary", summary(true, 0))).toBe(
+    "תוכן זהה",
+  );
 });

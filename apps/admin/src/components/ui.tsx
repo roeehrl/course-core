@@ -47,8 +47,13 @@ const statusTone = (status: string) =>
       : /denied|failed|rejected|blocked|stale|absent|missing/.test(status)
         ? "red"
         : "neutral";
-export function Status({ value }: { value: string }) {
-  return <Badge tone={statusTone(value)}>{value.replaceAll("_", " ")}</Badge>;
+/** A state badge. Pass a translated `label`; without one the raw code is shown. */
+export function Status({ value, label }: { value: string; label?: string }) {
+  return (
+    <Badge tone={statusTone(value)}>
+      {label ?? value.replaceAll("_", " ")}
+    </Badge>
+  );
 }
 export function Card({
   title,
@@ -57,7 +62,7 @@ export function Card({
   actions,
   className = "",
 }: PropsWithChildren<{
-  title?: string;
+  title?: ReactNode;
   eyebrow?: string;
   actions?: ReactNode;
   className?: string;
@@ -122,7 +127,7 @@ export function ErrorState({
   const t = useT();
   return (
     <div className="stack">
-      <Notice tone="red">{errorMessage(error)}</Notice>
+      <Notice tone="red">{errorMessage(error, t)}</Notice>
       {onRetry && (
         <Button onClick={onRetry}>
           {t("ui.retry")}{" "}

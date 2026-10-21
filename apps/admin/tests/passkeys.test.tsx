@@ -16,6 +16,8 @@ import {
 } from "../src/Passkeys";
 import { ConnectedHost } from "../src/ConnectedHost";
 import { AuthRequestError } from "../src/SignIn";
+import { createAdminTranslator } from "../src/i18n";
+import { stripBidiControls } from "@course-core/i18n";
 
 beforeEach(() => {
   webauthn.browserSupportsWebAuthn.mockReturnValue(true);
@@ -132,6 +134,22 @@ describe("passkey sign-in", () => {
       "Passkey on Android",
     );
     expect(defaultPasskeyName("")).toBe("Passkey");
+  });
+
+  it("names passkeys and explains failures in Hebrew", () => {
+    const { t } = createAdminTranslator("he");
+    expect(
+      stripBidiControls(
+        defaultPasskeyName("Mozilla/5.0 (Linux; Android 15)", t),
+      ),
+    ).toBe("מפתח גישה ב-Android");
+    expect(defaultPasskeyName("", t)).toBe("מפתח גישה");
+    expect(
+      passkeyErrorMessage(new AuthRequestError("PASSKEY_LIMIT"), t),
+    ).toMatch(/^הגעת למספר המרבי של מפתחות גישה/);
+    expect(passkeyErrorMessage({ name: "NotAllowedError" }, t)).toBe(
+      "בקשת מפתח הגישה בוטלה או שפג הזמן שלה.",
+    );
   });
 });
 

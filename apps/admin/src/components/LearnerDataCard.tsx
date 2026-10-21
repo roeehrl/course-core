@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { Download, Eraser } from "lucide-react";
 import type { AdminClient, Enrollment } from "../domain/contracts";
 import { learnerDataErrorMessage } from "../domain/learnerData";
+import { useT } from "../i18n";
 import { Button, Card, Field, Notice } from "./ui";
 
 /** Owner/admin data requests for one enrollment. Erasure is irreversible. */
@@ -14,6 +15,7 @@ export function LearnerDataCard({
   enrollment: Enrollment;
   onErased: () => void;
 }) {
+  const t = useT();
   const id = useId();
   const phrase = `ERASE ${enrollment.id.slice(0, 8)}`;
   const [pending, setPending] = useState(false);
@@ -36,21 +38,15 @@ export function LearnerDataCard({
     }
   }
   return (
-    <Card title="Learner data requests" eyebrow="Export or erase on request">
+    <Card
+      title={t("learnerDataCard.title")}
+      eyebrow={t("learnerDataCard.eyebrow")}
+    >
       {enrollment.status === "erased" ? (
-        <Notice tone="gold">
-          This enrollment's learning data was erased. Only an audit skeleton
-          remains.
-        </Notice>
+        <Notice tone="gold">{t("learnerDataCard.erased")}</Notice>
       ) : (
         <>
-          <p>
-            Export or erase this learner's personal data for this course when
-            they ask. Each action is audited, and each export is shown to the
-            learner with your name and role. Your export leaves out the
-            learner's companion conversation and their own notes; the learner's
-            own download includes them.
-          </p>
+          <p>{t("learnerDataCard.intro")}</p>
           <Button
             disabled={pending}
             onClick={() =>
@@ -69,42 +65,38 @@ export function LearnerDataCard({
                 link.click();
                 link.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
-                setMessage(
-                  "Export prepared. Deliver it to the learner through a private channel.",
-                );
+                setMessage(t("learnerDataCard.exported"));
               })
             }
           >
-            <Download size={16} aria-hidden="true" /> Export learner data
+            <Download size={16} aria-hidden="true" />{" "}
+            {t("learnerDataCard.export")}
           </Button>
           <details>
-            <summary>Erase this learner's course data</summary>
+            <summary>{t("learnerDataCard.erase.summary")}</summary>
             <div className="stack">
-              <Notice tone="red">
-                Irreversible. Answers, conversations, learner model and personal
-                teaching are redacted; the learner cannot continue this
-                enrollment. Usage and extension accounting remain without
-                content.
-              </Notice>
+              <Notice tone="red">{t("learnerDataCard.erase.warning")}</Notice>
               <Field
-                label="Reason (kept with the erasure record)"
+                label={t("learnerDataCard.erase.reason")}
                 htmlFor={id + "-reason"}
               >
                 <textarea
                   id={id + "-reason"}
                   rows={2}
+                  dir="auto"
                   maxLength={1000}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
               </Field>
               <Field
-                label={`Type ${phrase} to confirm`}
+                label={t("learnerDataCard.erase.confirm", { phrase })}
                 htmlFor={id + "-confirm"}
               >
                 <input
                   id={id + "-confirm"}
                   autoComplete="off"
+                  dir="ltr"
                   value={confirmation}
                   onChange={(e) => setConfirmation(e.target.value)}
                 />
@@ -123,12 +115,13 @@ export function LearnerDataCard({
                       confirmation.trim(),
                       reason.trim(),
                     );
-                    setMessage("Learning data erased.");
+                    setMessage(t("learnerDataCard.erased.done"));
                     onErased();
                   })
                 }
               >
-                <Eraser size={16} aria-hidden="true" /> Erase permanently
+                <Eraser size={16} aria-hidden="true" />{" "}
+                {t("learnerDataCard.erase.submit")}
               </Button>
             </div>
           </details>
@@ -137,7 +130,7 @@ export function LearnerDataCard({
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
         {error !== undefined && (
-          <Notice tone="red">{learnerDataErrorMessage(error)}</Notice>
+          <Notice tone="red">{learnerDataErrorMessage(error, t)}</Notice>
         )}
       </div>
     </Card>

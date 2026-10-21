@@ -5,6 +5,7 @@ import {
   learnerViewErrorMessage,
   type LearnerView,
 } from "../domain/learnerView";
+import { useT } from "../i18n";
 import { Button, Card, Dialog, Loading, Notice } from "./ui";
 
 // The renderer (with the visual runtime) loads only when a view is opened.
@@ -25,6 +26,7 @@ export function LearnerViewCard({
   /** With run.inspect, each block of the view opens the debug inspector. */
   permissions?: readonly Permission[];
 }) {
+  const t = useT();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [view, setView] = useState<LearnerView>();
@@ -43,31 +45,33 @@ export function LearnerViewCard({
     }
   }
   return (
-    <Card title="View as learner" eyebrow="Read-only debugging">
-      <p>
-        See this learner's path, current lesson, personal changes, gate evidence
-        and pending reviews exactly as their app shows them. You cannot act as
-        the learner. Each opening is recorded and the learner can see that you
-        viewed their record. Their companion conversation and their own notes
-        are not shown.
-      </p>
+    <Card
+      title={t("learnerViewCard.title")}
+      eyebrow={t("learnerViewCard.eyebrow")}
+    >
+      <p>{t("learnerViewCard.intro")}</p>
       <Button disabled={pending || erased} onClick={() => void open()}>
         <Eye size={16} aria-hidden="true" />{" "}
-        {pending ? "Opening…" : "Open read-only learner view"}
+        {pending ? t("learnerViewCard.opening") : t("learnerViewCard.open")}
       </Button>
       <div aria-live="polite">
         {error !== undefined && (
-          <Notice tone="red">{learnerViewErrorMessage(error)}</Notice>
+          <Notice tone="red">{learnerViewErrorMessage(error, t)}</Notice>
         )}
       </div>
       {view && (
         <Dialog
-          title={`${view.learner.displayName} · ${view.snapshot.course.title}`}
-          eyebrow="Read-only learner view"
+          title={t("learnerViewCard.dialog.title", {
+            learner: view.learner.displayName,
+            course: view.snapshot.course.title,
+          })}
+          eyebrow={t("learnerViewCard.dialog.eyebrow")}
           className="learner-view-dialog"
           onClose={() => setView(undefined)}
         >
-          <Suspense fallback={<Loading label="Preparing the learner view…" />}>
+          <Suspense
+            fallback={<Loading label={t("learnerViewCard.preparing")} />}
+          >
             <LearnerViewScreen
               view={view}
               inspector={

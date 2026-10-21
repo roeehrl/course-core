@@ -1,1 +1,17 @@
-{}
+{
+  "error.FORBIDDEN": "רק בעלים, מנהלים, מדריכים ובודקים יכולים לבדוק תשובות כתובות.",
+  "error.SELF_REVIEW_FORBIDDEN": "אי אפשר לבדוק תשובה שכתבת. אפשר לבקש מבודק/ת אחר/ת.",
+  "error.RUBRIC_QUOTE_REQUIRED": "כל קריטריון שמסומן כמתקיים צריך ציטוט מדויק (10 תווים לפחות) מהתשובה של הלומד/ת.",
+  "error.RUBRIC_CRITERIA_INCOMPLETE": "יש לתעד ממצא לכל קריטריון.",
+  "error.RUBRIC_DECISION_INCONSISTENT": "ההחלטה צריכה להתאים לממצאים: \"מתקיים\" רק כשכל הקריטריונים הנדרשים מתקיימים.",
+  "error.CLARIFICATION_NOTE_REQUIRED": "יש לכתוב הודעה שמסבירה ללומד/ת מה להבהיר.",
+  "error.ALREADY_REVIEWED": "התשובה הזו כבר נבדקה. כדאי לרענן את התור.",
+  "error.RUBRIC_CHANGED": "המחוון השתנה אחרי שהתשובה הוגשה; אי אפשר לבדוק אותה לפי המחוון החדש.",
+  "error.RUBRIC_ASSIST_CONSENT_REQUIRED": "הלומד/ת לא אישר/ה טיוטות AI לתשובות הכתובות שלו/ה.",
+  "error.RUBRIC_ASSIST_UNAVAILABLE": "לא הוגדר בסביבת העבודה הזו מודל לטיוטות של בודקים.",
+  "error.SECOND_REVIEWER_REQUIRED": "חוות הדעת השנייה צריכה להגיע מבודק/ת אחר/ת.",
+  "error.APPEAL_ALREADY_DECIDED": "כבר התקבלה החלטה בערעור הזה. כדאי לרענן את התור.",
+  "error.PROBE_ONLY_FOR_CLARIFICATION": "רק בקשת הבהרה יכולה להיות מסומנת כשאלה ניטרלית.",
+  "error.RUBRIC_SUGGESTION_MISMATCH": "הטיוטה הזו שייכת לתשובה אחרת. כדאי לרענן את התור.",
+  "error.fallback": "לא ניתן היה לשמור את הבדיקה. שום דבר לא השתנה."
+}

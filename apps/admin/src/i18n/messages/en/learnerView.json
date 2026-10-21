@@ -1,1 +1,7 @@
-{}
+{
+  "error.FORBIDDEN": "Only workspace owners and admins can view a learner's space.",
+  "error.ENROLLMENT_NOT_FOUND": "This enrollment is not in a workspace you administer.",
+  "error.ENROLLMENT_ERASED": "This learner's data was erased. There is nothing to view.",
+  "error.UNAUTHENTICATED": "Your session ended. Sign in again to continue.",
+  "error.unavailable": "The learner view is unavailable right now. Nothing was changed."
+}
