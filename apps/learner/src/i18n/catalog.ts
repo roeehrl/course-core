@@ -44,6 +44,7 @@ import en_policyPresentation from "./messages/en/policyPresentation.json";
 import en_practiceRunner from "./messages/en/practiceRunner.json";
 import en_presentation from "./messages/en/presentation.json";
 import en_profile from "./messages/en/profile.json";
+import en_profileDetails from "./messages/en/profileDetails.json";
 import en_profileEditor from "./messages/en/profileEditor.json";
 import en_pythonRunner from "./messages/en/pythonRunner.json";
 import en_resources from "./messages/en/resources.json";
@@ -107,6 +108,7 @@ import he_policyPresentation from "./messages/he/policyPresentation.json";
 import he_practiceRunner from "./messages/he/practiceRunner.json";
 import he_presentation from "./messages/he/presentation.json";
 import he_profile from "./messages/he/profile.json";
+import he_profileDetails from "./messages/he/profileDetails.json";
 import he_profileEditor from "./messages/he/profileEditor.json";
 import he_pythonRunner from "./messages/he/pythonRunner.json";
 import he_resources from "./messages/he/resources.json";
@@ -172,6 +174,7 @@ export const en = {
   practiceRunner: en_practiceRunner,
   presentation: en_presentation,
   profile: en_profile,
+  profileDetails: en_profileDetails,
   profileEditor: en_profileEditor,
   pythonRunner: en_pythonRunner,
   resources: en_resources,
@@ -237,6 +240,7 @@ export const he: PartialCatalog<typeof en> = {
   practiceRunner: he_practiceRunner,
   presentation: he_presentation,
   profile: he_profile,
+  profileDetails: he_profileDetails,
   profileEditor: he_profileEditor,
   pythonRunner: he_pythonRunner,
   resources: he_resources,
