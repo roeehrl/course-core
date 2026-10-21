@@ -405,7 +405,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const mediaResolver=options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined);
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,mediaResolver,options.media?.options));
   // Storyboards staff review before generation, and automated checks of generated media (media-pipeline.ts).
-  registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver));
+  registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver,{inspection:options.media?.options?.mediaInspection??null}));
   registerPolicyAdminRoutes(app, db, auth);
   registerAssessmentPolicyRoutes(app, db, auth);
   registerPolicyScopeRoutes(app, db, auth);

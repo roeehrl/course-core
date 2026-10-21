@@ -16,7 +16,8 @@ function tool(name: string, body: string) {
   return file;
 }
 const rasterizer = tool("raster", `
-if (args.join(' ') !== '-w ' + args[1] + ' -h ' + args[3] + ' -f png') process.exit(3);
+// Frames are drawn on white, as the learner's page shows them; a transparent PNG would encode as black.
+if (args.join(' ') !== '-w ' + args[1] + ' -h ' + args[3] + ' -b white -f png') process.exit(3);
 const input = fs.readFileSync(0, 'utf8');
 if (!input.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')) process.exit(4);
 fs.appendFileSync(${JSON.stringify(log)}, 'frame ' + args[1] + 'x' + args[3] + '\\n');
