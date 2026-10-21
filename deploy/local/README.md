@@ -412,8 +412,16 @@ What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
   name, metric and attribute passes a fixed allowlist in which each value must
   match an enum or identifier pattern; anything else is dropped. Resources carry
   only `service.name` and `service.namespace` (no host or process detection).
-  Browser-supplied `traceparent` headers are ignored; only `/v1/` service routes
-  continue a caller's trace.
+  Only `/v1/` service routes continue a caller's trace. A browser's `traceparent`
+  (the admin and learner apps send a fresh one with every request) is never
+  adopted as the parent and never decides sampling: the API span records it as a
+  span link and sets `course.client.trace_linked`. Its `tracestate` and baggage are
+  never read.
+- Correlation attributes: a request that records an attempt carries
+  `course.attempt.id` (a random UUID) and `course.artifact.hash` (the digest of the
+  course release that graded it; never a digest of the learner's answer, which could
+  be guessed). The transaction that stores a supervisor artifact carries that
+  artifact's digest, inside the worker's trace.
 
 Learning events, supervisor jobs and provider dispatches record the ID of the trace
 that wrote them in a `trace_id` column (migration 079), so a row can be found from a

@@ -196,6 +196,66 @@ Selection revalidates the immutable bundle and installed runtime capabilities.
 Migration015 chooses the newest already-published release for existing catalogues
 without changing any saved enrollment. Published content remains immutable.
 
+### Editing a draft safely
+
+Staff edit a draft's chapters and lessons as forms in the admin app: titles,
+summaries, order, which lessons are required, which objectives a lesson teaches,
+and its reading text. Checks, visuals, media and activities stay as they are and
+are changed in the whole manifest file (still available as an advanced tab).
+Saving always asks the server first:
+
+- `POST /api/admin/courses/:courseId/releases/:releaseId/check` (`course.write`)
+  validates a manifest exactly as saving would, without saving it: SDK problem
+  codes with their JSON paths, whether the course id and version match the draft,
+  whether this runtime could run it (the publication gate's code), and what it
+  changes against the live release.
+- `POST /api/admin/courses/:courseId/releases/:releaseId/preview` shows the saved
+  release, or an unsaved manifest, as four made-up representative learners (just
+  starting, tested out of placeable objectives, finished the first chapter, nearly
+  finished). Each roadmap is computed by the learner engine; completed gated lessons
+  use the engine's own staff-exception path on that exact digest, so no evidence is
+  invented. Drafts and unsaved manifests are visible to owners, admins, authors and
+  reviewers only.
+- `GET /api/admin/courses/:courseId/releases/:releaseId/publish-impact`
+  (`release.publish`) is the affected-learner analysis for publishing forward:
+  who stays on the live release (nobody moves), how many are part-way through a
+  lesson the draft changes or removes, recent enrollments, changes by kind, and
+  which defective items the draft fixes or carries over, with an `impactDigest`.
+  Publishing from the admin route requires that digest while any learner is pinned
+  to the live release (428 `IMPACT_CONFIRMATION_REQUIRED`, 409 `IMPACT_CHANGED`).
+
+## Platform operations
+
+Owners and administrators of a workspace have two more admin pages.
+
+- **Platform** (`GET /api/admin/workspaces/:id/platform-readiness`): the database
+  (PostgreSQL version, latency, migrations applied against the ones this build
+  ships), the Temporal worker (when it last reached this API, waiting and held-back
+  events), the grading sandbox, telemetry export (spans sent and dropped), versions
+  (Core, SDK, Node, course file format), and backups. The recovery targets are
+  checked from the backup tool's reports (`platform_backup_reports`, migration 100;
+  see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup,
+  RTO 60 minutes from the latest restore drill, drills at most 7 days old. Each
+  failing part says what to do. Worker contact is kept in memory per API process.
+- **Integrations** (`GET /api/admin/workspaces/:id/integrations`): installed
+  extensions, whether each course's live release can run on them, course package
+  install receipts, update checks, AI provider connections (status only) and
+  whether telemetry export is on.
+- **Billed versus estimated cost** (`GET|POST /api/admin/workspaces/:id/billing-statements`):
+  staff type in what a provider billed for up to 92 days (from its invoice or usage
+  page; never a card or account number). Each figure is listed next to the spend
+  ledger's estimate for the same UTC days, its unsettled part and the difference.
+  Core never fetches billing data, and every cost the admin app shows is labelled
+  as an estimate.
+- **Audit export** (`GET /api/admin/workspaces/:id/audit/export?format=csv|json&from=&to=`,
+  `audit.export`: owners and admins) downloads up to 10,000 events of at most one
+  year, with the audit page's privacy projection. CSV cells that a spreadsheet
+  would run as formulas are prefixed with a quote mark. The download is itself an
+  `audit.exported` event with the file's digest.
+- **Policy history** (`GET /api/admin/courses/:id/policy-history`, `policy.read`):
+  course policy settings, placement settings and the learning policy of each
+  published release, each as a field-by-field diff from the one before.
+
 ## Installing a course
 
 Administration installs a course from one **course package** (course-package v1, a
@@ -681,9 +741,22 @@ learner's record (in the audit log without the reason), and are refused for an
 erased (410) or a completed or policy-closed (409 `ENROLLMENT_CLOSED`)
 enrollment. Erasure redacts their reasons and a regrade's quoted findings.
 
+- `POST /api/admin/courses/:courseId/runs/:runId/cancel` (`supervision.control`:
+  owners, admins and instructors) stops one live run before it applies anything.
+  It sets the job's cancellation flag, which the bridge honours at the run's next
+  step before any provider call, queues a `staff_cancelled` wake-up so a running
+  call or wait ends now, and records a `supervisor.run_cancel_requested` staff
+  event (`supervisor_run_cancellations`, migration 099). The learner's AI
+  supervision and other runs are untouched. A run that already ended (409
+  `RUN_ALREADY_ENDED`) or was already asked to stop (409
+  `RUN_CANCEL_ALREADY_REQUESTED`) is refused.
+- `POST /api/admin/courses/:courseId/runs/replay` (`run.inspect`) replays up to 20
+  of the course's latest finished supervisor runs that kept a plan, each in the
+  same read-only sandbox as a single replay, with its own new replay id and
+  `run.replayed` receipt. It returns each run's verdict and a summary.
 - `POST /api/admin/courses/:courseId/runs/:runId/retry` (`run.retry`, owners and
-  admins) runs a supervisor run that failed, or ended with an uncertain provider
-  call, again as a new run: a `supervisor.run_retry_requested` event that the
+  admins) runs a supervisor run that failed, ended with an uncertain provider
+  call, or was stopped by staff, again as a new run: a `supervisor.run_retry_requested` event that the
   dispatcher prepares through the normal path (supervision control, consent,
   policy, fence and budgets, verifier, application) and never coalesces. The
   old run is not changed; the run inspector shows each run's `retry` links. A
