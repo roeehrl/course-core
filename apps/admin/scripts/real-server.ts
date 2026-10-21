@@ -833,10 +833,14 @@ app.post("/test/course-package-fixture", async () => {
   const other = fixture();
   other.id = "ordering-companion";
   other.title = "Ordering companion";
+  // An older version than the published 1.0.0: installing it needs an explicit choice.
+  const older = fixture();
+  older.version = "0.9.0";
   return {
     code: await issueLoginCode(db, ownerId),
     update: buildPackage(update).bytes.toString("base64"),
     newCourse: buildPackage(other).bytes.toString("base64"),
+    older: buildPackage(older).bytes.toString("base64"),
   };
 });
 // Test-only: an owner with version 1.0.0 published and a folder in the test package directory

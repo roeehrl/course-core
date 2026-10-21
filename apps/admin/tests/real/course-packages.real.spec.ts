@@ -23,7 +23,7 @@ async function signIn(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  return fixture as { update: string; newCourse: string };
+  return fixture as { update: string; newCourse: string; older: string };
 }
 
 test("install a synthetic course package by upload, then review and publish it on the same screen", async ({
@@ -131,6 +131,49 @@ test("install a new course with approve-and-publish in one confirmed step, then 
     page.getByLabel("Course", { exact: true }).locator("option:checked"),
   ).toHaveText("Ordering companion");
   await accessible(page);
+});
+
+test("installing and publishing an older version than the published one needs an explicit choice", async ({
+  page,
+}, info) => {
+  const fixture = await signIn(page);
+  const file = info.outputPath("ordering-0.9.0.course.tgz");
+  writeFileSync(file, Buffer.from(fixture.older, "base64"));
+  await page.getByRole("button", { name: "Install course" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await dialog.getByLabel("Course package file").setInputFiles(file);
+  await dialog.getByRole("button", { name: "Inspect package" }).click();
+  await expect(dialog.getByText("This is an older version")).toBeVisible();
+  await expect(
+    dialog.getByText(
+      /Version 1\.0\.0 of this course is already installed here, and this package is version 0\.9\.0\./,
+    ),
+  ).toBeVisible();
+  const install = dialog.getByRole("button", { name: "Install draft" });
+  await expect(install).toBeDisabled();
+  await accessible(page);
+  await dialog
+    .getByRole("checkbox", {
+      name: "I want to install the older version 0.9.0",
+    })
+    .check();
+  await dialog
+    .getByRole("checkbox", {
+      name: "Also approve the review and publish this version now",
+    })
+    .check();
+  await dialog.getByLabel("Type 0.9.0 to confirm publication").fill("0.9.0");
+  await dialog
+    .getByRole("button", { name: "Install, approve and publish" })
+    .click();
+  await expect(
+    dialog.getByRole("heading", { name: "Release 0.9.0 installed" }),
+  ).toBeFocused();
+  await expect(dialog.getByText("Available to new learners")).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath("package-older-version.png"),
+    fullPage: true,
+  });
 });
 
 test("a GitHub link is refused clearly when it is not a GitHub release link", async ({
