@@ -73,6 +73,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "GET /api/admin/courses/:courseId/releases/:releaseId/assessments": "perm:course.write",
   "PUT /api/admin/courses/:courseId/releases/:releaseId/assessments/:assessmentId/key": "perm:course.write",
   "POST /api/admin/courses/:courseId/releases/:releaseId/assessments/:assessmentId/key/preview": "perm:course.write",
+  "GET /api/admin/courses/:courseId/releases/:releaseId/sources": "perm:course.read",
   "POST /api/admin/courses/:courseId/releases/:releaseId/check": "perm:course.write",
   "GET /api/admin/courses/:courseId/releases/:releaseId/defective-items": "perm:course.read",
   "POST /api/admin/courses/:courseId/releases/:releaseId/defective-items": "roles:owner,admin",
