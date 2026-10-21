@@ -90,11 +90,15 @@ async function backupStatus(client: Sql, now: Date) {
   const drillAgeDays = drill ? Math.floor((now.getTime() - drill.finished_at.getTime()) / 86_400_000) : null;
   const rtoStatus: CheckStatus = !drill ? 'no_data' : drill.outcome === 'failed' || drillMinutes! > RECOVERY_TARGETS.rtoMinutes ? 'failing'
     : drillAgeDays! > RECOVERY_TARGETS.drillMaxAgeDays ? 'warning' : 'ok';
+  // T03 asks for encrypted backups: the newest copy says whether it was (age, deploy/local/README.md).
+  const encryption = { latestEncrypted: newest ? newest.encrypted : null,
+    status: (!newest ? 'no_data' : newest.encrypted ? 'ok' : 'warning') as CheckStatus };
   const lastFailure = lastAttempts.find(r => r.outcome === 'failed' && (!newest || r.finished_at > newest.finished_at)) ?? null;
   return {
     lastSnapshot: view(snapshot), lastBackup: view(backup), lastRestoreDrill: view(drill), lastFailure: view(lastFailure),
     rpo: { targetMinutes: RECOVERY_TARGETS.rpoMinutes, currentMinutes: rpoMinutes, status: rpoStatus },
     rto: { targetMinutes: RECOVERY_TARGETS.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: RECOVERY_TARGETS.drillMaxAgeDays, status: rtoStatus },
+    encryption,
   };
 }
 
@@ -147,11 +151,11 @@ export async function platformReadiness(db: Database, options: PlatformOptions, 
       courseSchemaVersion: 1, installedExtensions: options.installedExtensions.length } };
 
   const backups = await backupStatus(db, now);
-  const backupCheck = { id: 'backups' as const, status: worst([backups.rpo.status, backups.rto.status, backups.lastFailure ? 'warning' : 'ok']),
+  const backupCheck = { id: 'backups' as const, status: worst([backups.rpo.status, backups.rto.status, backups.encryption.status, backups.lastFailure ? 'warning' : 'ok']),
     facts: { lastSnapshot: backups.lastSnapshot, lastBackup: backups.lastBackup, lastRestoreDrill: backups.lastRestoreDrill, lastFailure: backups.lastFailure } };
 
   const checks = [databaseCheck, temporalCheck, sandboxCheck, collectorCheck, versionCheck, backupCheck];
-  return { generatedAt: now.toISOString(), overall: worst(checks.map(c => c.status)), checks, targets: { rpo: backups.rpo, rto: backups.rto } };
+  return { generatedAt: now.toISOString(), overall: worst(checks.map(c => c.status)), checks, targets: { rpo: backups.rpo, rto: backups.rto, encryption: backups.encryption } };
 }
 
 // ---------------------------------------------------------------- integrations

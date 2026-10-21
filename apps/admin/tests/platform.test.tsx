@@ -260,6 +260,31 @@ describe("platform readiness (Q11, T03)", () => {
     expect(screen.getAllByText("Encrypted").length).toBeGreaterThan(0);
   });
 
+  it("says when the newest backup is not encrypted and what to do (T03)", async () => {
+    const base = readiness();
+    const platform = port({
+      readiness: vi.fn(async () => ({
+        ...base,
+        targets: {
+          ...base.targets,
+          encryption: { latestEncrypted: false, status: "warning" as const },
+        },
+      })),
+    });
+    render(
+      <PlatformView
+        data={workspace("owner")}
+        client={{ platform } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText("The newest copy is not encrypted."),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Install age on the server, put an age public key/),
+    ).toBeVisible();
+  });
+
   it("explains how to meet a missed RPO, and refuses other roles", async () => {
     const platform = port({
       readiness: vi.fn(async () =>

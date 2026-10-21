@@ -84,5 +84,10 @@
   "run.succeeded": "{at} · נמשך {seconds} שניות · {size} MB",
   "run.failed": "נכשל {at}",
   "run.encrypted": "מוצפן",
-  "run.plain": "לא מוצפן"
+  "run.plain": "לא מוצפן",
+  "targets.encryption": "גיבויים מוצפנים",
+  "targets.encryptionNone": "עדיין לא דווחו תמונת מצב או גיבוי.",
+  "targets.encryptionOn": "העותק החדש ביותר מוצפן.",
+  "targets.encryptionOff": "העותק החדש ביותר אינו מוצפן.",
+  "targets.encryptionHelp": "כל מי שמקבל עותק של גיבוי לא מוצפן יכול לקרוא את הנתונים של כל הלומדים. יש להתקין את age בשרת, להגדיר מפתח ציבורי של age בהגדרות הפיילוט כנמען הגיבוי, ולשמור את המפתח הפרטי במקום אחר (ראו במדריך הפיילוט, \"Encrypting backups with age\")."
 }
