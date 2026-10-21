@@ -26,6 +26,8 @@ import {qualifySupervisorTools,ToolsFlowFailure} from './supervisor-tools-flow.j
 
 // Required combined-system gate. Only the external model service and transport faults are synthetic.
 // Errors/logs intentionally expose fixed checkpoint codes, never assertion values or raw HTTP bodies.
+/** Core's share of the 3 s first-reply target (T01) on this host, with an instant provider. */
+const FIRST_REPLY_PIPELINE_BUDGET_MS = 1500;
 class GateFailure extends Error { constructor(readonly code: string) { super(code); } }
 function check(value: unknown, code: string): asserts value { if (!value) throw new GateFailure(code); }
 function equal(actual: unknown, expected: unknown, code: string) { check(isDeepStrictEqual(actual, expected), code); }
@@ -83,6 +85,7 @@ async function main() {
   const cleanupFailures: string[] = [];
   let decodedPayloads = 0, replayedHistories = 0, workerRestarts = 0, lostStartAcks = 0, lostSettleAcks = 0;
   let supervisorToolModelCalls = 0, supervisorToolWorkerRestarts = 0, supervisorApplyAckLoss = 0;
+  let firstReplyPipelineMs: number | null = null;
   const pass = (name: string) => { passed.push(name); process.stdout.write(`${JSON.stringify({ gate: 'supervised-flow', check: name, status: 'passed' })}\n`); };
   try {
     const version = Number((await admin.query("SELECT current_setting('server_version_num') AS version")).rows[0].version);
@@ -316,8 +319,15 @@ async function main() {
     await database.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)",
       [randomUUID(), peer, peerCanary, JSON.stringify({ episodeId: 'min' })]);
     const queue1 = `qualification-success-${randomUUID()}`, run1 = await startWorker(success, queue1), start1 = starter(queue1);
+    // T01 first reply: Core's own part of the time to a companion answer, from the dispatcher
+    // picking the question up to the reply being readable by the learner, with a provider that
+    // answers at once. The dispatcher's poll interval, the learner app's event stream and the
+    // model's own time come on top of this (docs/performance-budgets.md).
+    const replyStarted = performance.now();
     const delivered = await dispatch(success, start1); check(delivered.deferred === 0, 'success_outbox_deferred');
     const applied = await finish(success, 'applied', null); await finishStarted();
+    firstReplyPipelineMs = Math.round(performance.now() - replyStarted);
+    check(firstReplyPipelineMs < FIRST_REPLY_PIPELINE_BUDGET_MS, 'first_reply_pipeline_over_budget');
     check(Number(fakeCalls.length) === 1 && fakeCalls[0]!.context.question === success.question && fakeCalls[0]!.context.learner.profile.goal === success.profile, 'provider_context_not_current');
     await cost(success, true);
     await start1.start(applied.ref, applied.id); // Reject duplicate CLOSED workflow IDs too.
@@ -482,7 +492,7 @@ async function main() {
     process.exitCode = 1;
   } else process.stdout.write(`${JSON.stringify({ gate: 'supervised-flow', status: 'passed', checks: passed.length,
     storage: 'real-postgresql', orchestration: 'real-temporal', api: 'real-http', externalProvider: 'synthetic-loopback-http',
-    providerCalls: fakeCalls.length, supervisorToolModelCalls, workerRestarts:workerRestarts+supervisorToolWorkerRestarts, lostStartAcks, lostSettleAcks, supervisorApplyAckLoss, replayedHistories, decodedPayloads,
+    providerCalls: fakeCalls.length, supervisorToolModelCalls, firstReplyPipelineMs, workerRestarts:workerRestarts+supervisorToolWorkerRestarts, lostStartAcks, lostSettleAcks, supervisorApplyAckLoss, replayedHistories, decodedPayloads,
     liveProviderVerified: false, earnedCredit: false, cleanup: 'completed' })}\n`);
 }
 await main().catch(() => {
