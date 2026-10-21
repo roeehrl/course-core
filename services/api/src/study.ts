@@ -147,10 +147,15 @@ export interface StudyRow {
   usability_measures: boolean; next_allocation: number; revision: number; created_by: string; created_at: Date; updated_at: Date; opened_at: Date | null; closed_at: Date | null;
 }
 
+/** A warning staff see on a study, as a code the admin app words (studyView.warning.<code>). */
+export type StudyWarning =
+  | { code: 'TRANSFER_ROLE_UNDECLARED'; params: { item: string } }
+  | { code: 'ITEM_COUNTS_TOWARD_GATE'; params: { item: string; set: 'pre' | 'post' | 'transfer' } }
+  | { code: 'PRE_POST_UNMATCHED' };
 /** Problems that refuse a definition, and warnings shown to staff. Uses the SDK 0.5 assessment
  * `role` where the author declared one, and the course's retention policy for delayed checks. */
 export function validateDefinition(course: CourseManifest, definition: StudyDefinition, opening = false) {
-  const errors: string[] = [], warnings: string[] = [];
+  const errors: string[] = [], warnings: StudyWarning[] = [];
   const ids = definition.arms.map((a) => a.id);
   if (new Set(ids).size !== ids.length) errors.push('STUDY_ARM_DUPLICATE');
   const items = new Map(course.assessments.map((a) => [a.id, a]));
@@ -168,23 +173,24 @@ export function validateDefinition(course: CourseManifest, definition: StudyDefi
   for (const id of definition.instruments.transfer) {
     const role = items.get(id)?.role;
     if (role !== undefined && role !== 'transfer') errors.push('STUDY_TRANSFER_ROLE');
-    if (role === undefined && items.has(id)) warnings.push(`Item ${id} has no declared SDK role; confirm it is a novel transfer task.`);
+    if (role === undefined && items.has(id)) warnings.push({ code: 'TRANSFER_ROLE_UNDECLARED', params: { item: id } });
   }
   const retention = new Set(course.retention?.assessmentIds ?? []);
   // Delayed checks are scheduled by the course's retention policy, so only its held-out items qualify.
   for (const id of definition.instruments.delayed) if (!retention.has(id)) errors.push('STUDY_DELAYED_NOT_RETENTION');
   const gated = new Set(course.gates.flatMap((g) => ('assessmentIds' in g && Array.isArray(g.assessmentIds) ? g.assessmentIds : [])));
   for (const set of ['pre', 'post', 'transfer'] as const)
-    for (const id of definition.instruments[set]) if (gated.has(id)) warnings.push(`Item ${id} (${set}) also counts toward a gate, so learners may meet it during instruction.`);
+    for (const id of definition.instruments[set]) if (gated.has(id)) warnings.push({ code: 'ITEM_COUNTS_TOWARD_GATE', params: { item: id, set } });
   const objectives = (set: InstrumentSet) => new Set(definition.instruments[set].flatMap((id) => items.get(id)?.objectiveIds ?? []));
   const pre = objectives('pre'), post = objectives('post');
   if (pre.size && post.size && (pre.size !== post.size || [...pre].some((o) => !post.has(o))))
-    warnings.push('The pre-test and post-test cover different objectives, so they are not matched.');
+    warnings.push({ code: 'PRE_POST_UNMATCHED' });
   if (opening) {
     if (!definition.instruments.pre.length) errors.push('STUDY_PRE_REQUIRED');
     if (!definition.instruments.post.length) errors.push('STUDY_POST_REQUIRED');
   }
-  return { errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
+  const unique = new Map(warnings.map((w) => [JSON.stringify(w), w]));
+  return { errors: [...new Set(errors)], warnings: [...unique.values()] };
 }
 
 /**
