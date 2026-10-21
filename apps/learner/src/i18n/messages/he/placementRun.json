@@ -17,11 +17,19 @@
   "seeResult": "הצגת התוצאה שלי",
   "result.title": "תוצאת השיבוץ שלך",
   "result.exempt": "הראית שמה שהחלקים האלה מלמדים כבר ידוע לך, ואפשר לקבל עליהם פטור:",
-  "result.shown": "הוכח באופן עצמאי: {list}",
   "result.nothing": "שום דבר לא ידולג. התחלה מההתחלה היא המסלול הנכון.",
   "result.pending": "ממתין לבדיקה, לא סומן כשגוי: {list}",
   "startAt": "התחלה מ“{title}”",
   "placeOutAll": "פטור מכל מה שמוצג",
   "retake": "חזרה על השיבוץ",
-  "reviewTitle": "תשובות שיבוץ שהבודק/ת שאל/ה עליהן"
+  "reviewTitle": "תשובות שיבוץ שהבודק/ת שאל/ה עליהן",
+  "result.shownIntro": "הוכח באופן עצמאי:",
+  "result.supportedBy": "({count, plural, one {בשאלה הזו} two {בשתי השאלות האלה} other {ב-# השאלות האלה}})",
+  "result.notShownIntro": "נוסה אבל עוד לא הוכח. אלה נשארים במסלול שלך:",
+  "result.notShown.answer_not_correct": "{count, plural, one {התשובה לא הייתה נכונה} other {אחת התשובות לא הייתה נכונה}}",
+  "result.notShown.help_used": "נעזרת בעזרה, ולכן זה לא נחשב עצמאי",
+  "result.notShown.more_evidence_needed": "צריך עוד שאלות עצמאיות מסוגים אחרים",
+  "result.untestedIntro": "לא נשאל בבדיקת השיבוץ הזו ({count, plural, one {מטרת למידה אחת} two {שתי מטרות למידה} other {# מטרות למידה}}). אלה נשארים במסלול שלך:",
+  "result.untestedNote": "מטרות למידה שלא מופיעות כאן לא נבדקו ונשארות במסלול שלך; אין בזה שיפוט של יכולת.",
+  "result.shown": "הוכח באופן עצמאי: {list}"
 }

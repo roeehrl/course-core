@@ -125,7 +125,7 @@ export function PlacementRun(props: PlacementRunProps) {
               })}
             </Text>
           )}
-          <Text style={styles.small}>{view.run.proposal.untestedNote}</Text>
+          <Text style={styles.small}>{t("placementRun.result.untestedNote")}</Text>
           <Retake retake={retakeState(view, i18n)} busy={busy} onRetake={actions.start} />
           <View style={styles.row}>
             {view.run.proposal.exempt.length > 0 && (

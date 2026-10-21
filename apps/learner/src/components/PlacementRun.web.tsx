@@ -4,7 +4,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import type { PlacementRunProps } from "./PlacementRun";
 import { PLACEMENT_PANEL_ID } from "../client/presentation";
 import { ReviewStatus } from "./ReviewStatus";
-import { useI18n } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 import { abstainHint, placementReason, retakeState, unavailableMessage, usePlacementRun } from "./placementRunState";
 
 /** Optional, bounded, resumable placement. Nothing is skipped until the learner
@@ -112,11 +112,29 @@ export function PlacementRun(props: PlacementRunProps) {
                   </li>
                 ))}
               </ul>
-              <p className="connected-muted">
-                {t("placementRun.result.shown", {
-                  list: view.run.proposal.demonstrated.map((d) => d.description).join(" "),
-                })}
-              </p>
+              <p className="connected-muted">{t("placementRun.result.shownIntro")}</p>
+              <ul className="connected-placement-evidence">
+                {view.run.proposal.demonstrated.map((d) => (
+                  <li key={d.objectiveId}>
+                    <span dir="auto">{d.description}</span>
+                    {(d.supportingItems?.length ?? 0) > 0 && (
+                      <span className="connected-muted">
+                        {" "}
+                        {t("placementRun.result.supportedBy", { count: d.supportingItems!.length })}
+                      </span>
+                    )}
+                    {(d.supportingItems?.length ?? 0) > 0 && (
+                      <ul>
+                        {d.supportingItems!.map((item) => (
+                          <li key={item.assessmentId} dir="auto">
+                            {item.prompt}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </>
           ) : (
             <p>{t("placementRun.result.nothing")}</p>
@@ -128,9 +146,32 @@ export function PlacementRun(props: PlacementRunProps) {
               })}
             </p>
           )}
-          <p className="connected-muted" dir="auto">
-            {view.run.proposal.untestedNote}
-          </p>
+          {(view.run.proposal.notShown?.length ?? 0) > 0 && (
+            <>
+              <p className="connected-muted">{t("placementRun.result.notShownIntro")}</p>
+              <ul className="connected-placement-evidence">
+                {view.run.proposal.notShown!.map((o) => (
+                  <li key={o.objectiveId}>
+                    <span dir="auto">{o.description}</span>{" "}
+                    <span className="connected-muted">{t(`placementRun.result.notShown.${o.reason}` as MessageKey, { count: o.questions })}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {(view.run.proposal.untested?.length ?? 0) > 0 && (
+            <>
+              <p className="connected-muted">{t("placementRun.result.untestedIntro", { count: view.run.proposal.untestedCount ?? view.run.proposal.untested!.length })}</p>
+              <ul className="connected-placement-evidence">
+                {view.run.proposal.untested!.map((o) => (
+                  <li key={o.objectiveId} dir="auto">
+                    {o.description}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="connected-muted">{t("placementRun.result.untestedNote")}</p>
           <RetakePlacement retake={retakeState(view, i18n)} busy={busy} onRetake={actions.start} />
           <div className="connected-actions">
             {view.run.proposal.exempt.length > 0 && (

@@ -2359,3 +2359,11 @@ html:has(.connected-host:not(.is-compact)) {
   margin: 0;
   flex: 1 1 260px;
 }
+.connected-placement-evidence {
+  margin: 4px 0 12px;
+  padding-inline-start: 20px;
+}
+.connected-placement-evidence ul {
+  margin: 4px 0;
+  padding-inline-start: 18px;
+}

@@ -7,7 +7,7 @@ import { CourseApiError } from "../src/client/apiClient";
 const finished = (extra: Record<string, unknown>) => ({
   available: true, maxItems: 4, studied: false, state: "finished",
   run: { itemsUsed: 2, pendingChallengeId: null, nextItem: null, stopReason: "not_demonstrated",
-    proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNote: "Not tested." } },
+    proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNoteCode: "not_a_judgement" as const } },
   ...extra,
 });
 const renderWith = (view: unknown, command = vi.fn()) => {

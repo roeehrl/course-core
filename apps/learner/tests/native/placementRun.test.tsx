@@ -7,7 +7,7 @@ import { CourseApiError } from "../../src/client/apiClient";
 
 type View = Record<string, unknown> & { state: string; run: Record<string, unknown> | null };
 const proposal = (extra: Record<string, unknown> = {}) => ({
-  exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNote: "Topics after this were not tested.", ...extra,
+  exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNoteCode: "not_a_judgement" as const, ...extra,
 });
 const inProgress = (extra: Record<string, unknown> = {}): View => ({
   available: true, maxItems: 4, studied: false, state: "in_progress",

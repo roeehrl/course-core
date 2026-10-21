@@ -281,3 +281,153 @@ describe("exemptions", () => {
     expect((await db.query("SELECT reason FROM placement_exemption_overrides WHERE enrollment_id=$1", [enrollment])).rows).toEqual([{ reason: "[erased]" }]);
   });
 });
+
+describe("the author's placement policy (H02)", () => {
+  /** A fresh course whose manifest declares the SDK 0.5 placement policy fields, with one learner. */
+  async function authored(extra: Record<string, unknown>) {
+    workspace = randomUUID();
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "ph-" + workspace, "Placement policy"]);
+    owner = await person("owner");
+    learner = await person("learner");
+    const manifest = fixture() as unknown as Record<string, unknown>;
+    manifest.version = `4.0.${versions++}`;
+    manifest.placement = { ...(manifest.placement as object), ...extra };
+    const created = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, manifest);
+    expect(created.statusCode, created.body).toBe(200);
+    release = created.json().id;
+    expect((await call(owner, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
+    catalog = (await call(owner, "GET", "/api/admin/session")).json().courses[0].id;
+    enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: release })).json().id;
+  }
+  const policy = { retestPolicy: { maxAttempts: 2, cooldownDays: 1 }, assistancePolicy: "unassisted_only",
+    evidenceThresholds: { minimumIndependentFamilies: 2, skipRequiresCriticalPrerequisites: true } };
+
+  it("bounds staff retests, cooldown and evidence by the author's, and refuses settings that loosen them", async () => {
+    await authored(policy);
+    const view = await settings();
+    expect(view.authorBounds).toEqual({ maxRuns: 2, minCooldownHours: 24, minFamiliesPerEpisode: 2 });
+    expect(view.author).toMatchObject({ retestPolicy: policy.retestPolicy, assistancePolicy: "unassisted_only", evidenceThresholds: policy.evidenceThresholds });
+    // Before any staff setting, the author's own policy applies.
+    expect(view.effective).toMatchObject({ maxRuns: 2, retestCooldownHours: 24, minFamiliesPerEpisode: 2, unassistedOnly: true });
+    expect((await save({ maxRuns: 3, retestCooldownHours: 24 })).json().error).toBe("PLACEMENT_RETESTS_LOOSEN_AUTHOR");
+    expect((await save({ maxRuns: 2, retestCooldownHours: 0 })).json().error).toBe("PLACEMENT_COOLDOWN_LOOSENS_AUTHOR");
+    expect((await save({ maxRuns: 2, retestCooldownHours: 24, minFamiliesPerEpisode: 1 })).json().error).toBe("PLACEMENT_EVIDENCE_LOOSENS_AUTHOR");
+    expect((await settings()).settings.revision).toBe(0);
+    expect((await save({ maxRuns: 1, retestCooldownHours: 48, minFamiliesPerEpisode: 2 })).statusCode).toBe(200);
+    expect((await settings()).effective).toMatchObject({ maxRuns: 1, retestCooldownHours: 48, minFamiliesPerEpisode: 2 });
+    // Stored bundles are trusted as-is: even a row saved before the author tightened is clamped.
+    await db.query("UPDATE placement_settings SET max_runs=5,retest_cooldown_hours=0,min_families_per_episode=1 WHERE workspace_id=$1", [workspace]);
+    expect((await settings()).effective).toMatchObject({ maxRuns: 2, retestCooldownHours: 24, minFamiliesPerEpisode: 2 });
+  });
+
+  it("refuses a revealed answer or companion help on a placement item when the author says unassisted only", async () => {
+    await authored(policy);
+    expect((await save({ maxRuns: 2, retestCooldownHours: 24 })).statusCode).toBe(200);
+    expect((await send("placement/start")).statusCode).toBe(200);
+    const next = (await state()).run.nextItem;
+    const issued = (await send("challenges", { episodeId: next.episodeId, assessmentId: next.assessmentId, mode: "placement" })).json();
+    expect((await send("solution", { challengeId: issued.challengeId })).json().error).toBe("PLACEMENT_UNASSISTED_ONLY");
+    expect((await send("companion", { episodeId: "min", content: "What is the answer?", allowAssessmentAssistance: true })).json().error).toBe("PLACEMENT_UNASSISTED_ONLY");
+    // The item stays independent: nothing was downgraded.
+    expect((await db.query("SELECT assistance,independent_eligible FROM assessment_challenges WHERE id=$1", [issued.challengeId])).rows[0]).toEqual({ assistance: "none", independent_eligible: true });
+  });
+
+  it("without the policy, a revealed placement answer is allowed and only marks it assisted", async () => {
+    await authored({});
+    expect((await save({})).statusCode).toBe(200);
+    expect((await send("placement/start")).statusCode).toBe(200);
+    const next = (await state()).run.nextItem;
+    const issued = (await send("challenges", { episodeId: next.episodeId, assessmentId: next.assessmentId, mode: "placement" })).json();
+    expect((await send("solution", { challengeId: issued.challengeId })).statusCode).toBe(200);
+  });
+
+  it("never places out past an episode whose prerequisites this run did not show (skipRequiresCriticalPrerequisites)", () => {
+    const course = fixture();
+    course.objectives.find((o) => o.id === "maximum")!.prerequisites = ["minimum"];
+    course.placement = { ...course.placement!, ...policy } as typeof course.placement;
+    const attempt = (id: string) => ({ episodeId: "max", assessmentId: id, familyId: course.assessments.find((a) => a.id === id)!.familyId,
+      objectiveIds: ["maximum"], passed: true, independent: true, evidence: [{ id: randomUUID(), objectiveId: "maximum", passed: true }] });
+    // Shown "maximum" alone, without its prerequisite: the walk stops at the first episode.
+    const plan = placementPlan(course, "d", [attempt("max-a"), attempt("max-b")], [], { allowNextItem: false, minFamiliesPerEpisode: 2 });
+    expect(plan).toMatchObject({ exemptEpisodeIds: [], stoppedAtEpisodeId: "min" });
+  });
+});
+
+describe("placement blueprint and protected units (Q06)", () => {
+  it("leaves author items out of the blueprint: never offered, never issued", async () => {
+    expect((await save({ excludedAssessmentIds: ["min-a"] })).statusCode).toBe(200);
+    const view = await settings();
+    expect(view.settings.excludedAssessmentIds).toEqual(["min-a"]);
+    expect(view.effective.assessmentIds).toEqual(["min-b", "max-a", "max-b"]);
+    expect(view.blueprint.find((e: { episodeId: string }) => e.episodeId === "min")).toMatchObject({ status: "placeable", questions: 1, families: 1 });
+    expect(view.author.items.map((i: { assessmentId: string }) => i.assessmentId)).toEqual(["min-a", "min-b", "max-a", "max-b"]);
+    expect((await send("placement/start")).statusCode).toBe(200);
+    expect((await state()).run.nextItem).toEqual({ episodeId: "min", assessmentId: "min-b" });
+    expect((await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "placement" })).json().error).toBe("PLACEMENT_UNAVAILABLE");
+    // With one family left, the first episode cannot be placed out of: it stays on the path.
+    await take();
+    expect((await state()).run).toMatchObject({ stopReason: "no_fresh_items", nextItem: null });
+  });
+
+  it("protects more episodes and narrows placeable objectives, but never un-protects or adds", async () => {
+    expect((await save({ protectedEpisodeIds: ["max"] })).statusCode).toBe(200);
+    let view = await settings();
+    expect(view.blueprint.map((e: { episodeId: string; status: string }) => [e.episodeId, e.status])).toEqual([["min", "placeable"], ["max", "protected_by_staff"]]);
+    expect((await send("placement/start")).statusCode).toBe(200);
+    await take();
+    await take();
+    const run = (await state()).run;
+    expect(run).toMatchObject({ stopReason: "protected_episode", nextItem: null });
+    expect(run.proposal.exempt.map((e: { episodeId: string }) => e.episodeId)).toEqual(["min"]);
+    expect((await save({ protectedEpisodeIds: [], excludedObjectiveIds: ["maximum"] })).statusCode).toBe(200);
+    view = await settings();
+    expect(view.blueprint.find((e: { episodeId: string }) => e.episodeId === "max")).toMatchObject({ status: "not_placeable", objectives: [{ objectiveId: "maximum", placeable: false }] });
+    // Only narrowing: an unknown item, a non-placeable objective, an unknown episode are refused.
+    expect((await save({ excludedAssessmentIds: ["not-in-blueprint"] })).json().error).toBe("PLACEMENT_ITEM_NOT_IN_BLUEPRINT");
+    expect((await save({ excludedObjectiveIds: ["no-such-objective"] })).json().error).toBe("PLACEMENT_OBJECTIVE_NOT_PLACEABLE");
+    expect((await save({ protectedEpisodeIds: ["no-such-episode"] })).json().error).toBe("PLACEMENT_EPISODE_UNKNOWN");
+    expect((await save({ excludedAssessmentIds: "min-a" })).statusCode).toBe(400);
+    expect((await save({ protectedEpisodeIds: ["min"] }, instructor)).statusCode).toBe(403);
+  });
+
+  it("previews what new settings would do without saving them", async () => {
+    const body = { expectedRevision: 0, enabled: true, retestCooldownHours: 0, maxRuns: 1, maxItems: null, minFamiliesPerEpisode: null, protectedEpisodeIds: ["min"], excludedAssessmentIds: ["max-a"] };
+    const preview = await call(owner, "POST", `/api/admin/courses/${catalog}/placement/settings/preview`, body);
+    expect(preview.statusCode, preview.body).toBe(200);
+    expect(preview.json().blueprint.map((e: { episodeId: string; status: string; questions: number }) => [e.episodeId, e.status, e.questions]))
+      .toEqual([["min", "protected_by_staff", 2], ["max", "placeable", 1]]);
+    expect(preview.json().current.map((e: { status: string }) => e.status)).toEqual(["placeable", "placeable"]);
+    expect((await settings()).settings).toMatchObject({ revision: 0, protectedEpisodeIds: [], excludedAssessmentIds: [] });
+    expect((await call(instructor, "POST", `/api/admin/courses/${catalog}/placement/settings/preview`, body)).statusCode).toBe(403);
+    expect((await call(owner, "POST", `/api/admin/courses/${catalog}/placement/settings/preview`, { ...body, maxItems: 9 })).json().error).toBe("PLACEMENT_LIMIT_LOOSENS_AUTHOR");
+  });
+});
+
+describe("placement result (H04)", () => {
+  it("names the questions behind each objective shown and the specific areas left uncertain, without English prose", async () => {
+    await save({});
+    expect((await send("placement/start")).statusCode).toBe(200);
+    await take();
+    await take();
+    await take(wrong); // the first "maximum" question, answered wrongly
+    expect((await send("placement/finish")).statusCode).toBe(200);
+    const proposal = (await state()).run.proposal;
+    expect(proposal.demonstrated).toEqual([{ objectiveId: "minimum", description: expect.any(String), families: 2, supportingItems: [
+      { assessmentId: "min-a", familyId: "compare", prompt: "Which is smaller?" }, { assessmentId: "min-b", familyId: "select", prompt: "Minimum of 4 and 9?" }] }]);
+    expect(proposal.notShown).toEqual([{ objectiveId: "maximum", description: expect.any(String), questions: 1, reason: "answer_not_correct" }]);
+    expect(proposal.untested).toEqual([]);
+    expect(proposal.untestedNoteCode).toBe("not_a_judgement");
+    expect(proposal).not.toHaveProperty("untestedNote");
+  });
+  it("lists placeable objectives that were never asked", async () => {
+    await save({});
+    expect((await send("placement/start")).statusCode).toBe(200);
+    await take();
+    expect((await send("placement/finish")).statusCode).toBe(200);
+    const proposal = (await state()).run.proposal;
+    expect(proposal.demonstrated).toEqual([]);
+    expect(proposal.notShown).toEqual([{ objectiveId: "minimum", description: expect.any(String), questions: 1, reason: "more_evidence_needed" }]);
+    expect(proposal.untested).toEqual([{ objectiveId: "maximum", description: expect.any(String) }]);
+    expect(proposal.untestedCount).toBe(1);
+  });
+});
