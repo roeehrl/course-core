@@ -21,6 +21,11 @@ import { roleRevisions } from "../../../services/api/src/agent-evals/revision.ts
 import { fixture } from "../../../services/api/test/fixture.ts";
 import { retentionCourse } from "../../../services/api/test/retention-fixture.ts";
 import { buildPackage } from "../../../services/api/test/course-package-fixture.ts";
+import {
+  activityCourse,
+  sandboxedActivity,
+  sandboxedDeclaration,
+} from "../../../services/api/test/activity-fixture.ts";
 import { packageDirectories } from "../../../services/api/src/course-package-directory.ts";
 import {
   chmodSync,
@@ -1010,8 +1015,33 @@ app.post("/test/course-package-fixture", async () => {
   // An older version than the published 1.0.0: installing it needs an explicit choice.
   const older = fixture();
   older.version = "0.9.0";
+  // A course that brings its own sandboxed activity script (course-supplied-extensions.ts). The
+  // id is new on every call, so each run sees a file that still needs approval.
+  const labId = `lab-activity-${randomUUID().slice(0, 8)}`;
+  const labScript = `(() => { "use strict"; window.courseActivity.onInit(() => { document.getElementById("activity").textContent = "${labId}"; }); })();`;
+  const lab = activityCourse(
+    {
+      ...sandboxedActivity(),
+      rendererRefs: [
+        { target: "web_desktop", rendererId: labId },
+        { target: "web_mobile", rendererId: labId },
+      ],
+    },
+    {},
+  );
+  lab.id = "ordering-lab";
+  lab.title = "Ordering lab";
+  lab.extensions = lab.extensions.filter((row) => row.execution !== "server");
+  lab.extensions.push({
+    ...sandboxedDeclaration(labScript),
+    id: labId,
+    entrypoint: "activities/lab.js",
+  });
   return {
     code: await issueLoginCode(db, ownerId),
+    supplied: buildPackage(lab, {
+      extra: [{ name: "lab.js", bytes: Buffer.from(labScript), role: "other" }],
+    }).bytes.toString("base64"),
     update: buildPackage(update).bytes.toString("base64"),
     newCourse: buildPackage(other).bytes.toString("base64"),
     older: buildPackage(older).bytes.toString("base64"),
