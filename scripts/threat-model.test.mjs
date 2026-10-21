@@ -15,9 +15,16 @@ test('the threat model covers authentication, tenant retrieval, generated code, 
   for (const required of ['Authentication', 'Authorization and tenant isolation', 'Prompt injection and generated content', 'Generated and learner code',
     'Course packages and installers', 'Telemetry and logs', 'Supply chain', 'Summary of residual risks'])
     assert.ok(headings.includes(required), `threat model section ${required}`);
-  // Every threat table row names the mitigation in code and the residual risk.
-  for (const row of doc.split('\n').filter(line => /^\| [^-|]/.test(line) && !line.startsWith('| Threat |')))
-    assert.equal(row.split(' | ').length, 3, `three columns: ${row.slice(0, 80)}`);
+  // Every row of a threat table names the mitigation in code and the residual risk.
+  let threatTable = false, rows = 0;
+  for (const line of doc.split('\n')) {
+    if (!line.startsWith('|')) { threatTable = false; continue; }
+    if (line.startsWith('| Threat | Mitigation in code | Residual risk |')) { threatTable = true; continue; }
+    if (!threatTable || line.startsWith('| ---')) continue;
+    rows++;
+    assert.equal(line.split(' | ').length, 3, `three columns: ${line.slice(0, 80)}`);
+  }
+  assert.ok(rows >= 30, 'threat tables have rows');
   assert.match(await readFile(path.join(ROOT, 'SECURITY.md'), 'utf8'), /\(docs\/threat-model\.md\)/, 'SECURITY.md links the threat model');
 });
 
