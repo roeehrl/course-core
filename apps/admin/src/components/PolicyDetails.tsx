@@ -1,3 +1,4 @@
+import { useScopeLabel } from "./scopeLabel";
 import type { LearningPolicy, Quota, ScopePolicy } from "../domain/policy";
 import { Badge, Card, EmptyState, Notice } from "./ui";
 import {
@@ -21,10 +22,14 @@ export function ScopeDetails({
   const i18n = useI18n();
   const t = i18n.t;
   const { when } = useFormatters();
+  const scopeNames = useScopeLabel();
   const scopeLabel = (scopeId: string) =>
-    policy.scopes.find((item) => item.scopeId === scopeId)?.label ?? scopeId;
+    scopeNames.byId(policy.scopes, scopeId);
   return (
-    <Card title={scope.label} eyebrow={t("policyDetails.calendarPolicy")}>
+    <Card
+      title={scopeNames.name(scope, scope.scopeId)}
+      eyebrow={t("policyDetails.calendarPolicy")}
+    >
       <div className="split-line">
         <Badge tone={scope.mode === "bounded" ? "blue" : "gold"}>
           {t(`policyDetails.mode.${scope.mode}` as MessageKey)}
@@ -160,6 +165,40 @@ export function ScopeDetails({
       {!constraint.bindingDeadlines.length && (
         <small>{t("policyDetails.binding.none")}</small>
       )}
+      {constraint.binding && (
+        <div className="stack" aria-label={t("policyDetails.why")}>
+          <h3>{t("policyDetails.why")}</h3>
+          <p>
+            {constraint.binding.deadline
+              ? t("policyDetails.why.deadline", {
+                  level: scopeNames.level(constraint.binding.deadline.level),
+                  scope: scopeLabel(constraint.binding.deadline.scopeId),
+                  date: when(constraint.binding.deadline.at),
+                })
+              : t("policyDetails.why.noDeadline")}
+          </p>
+          {constraint.binding.quotas.length > 0 && (
+            <ul>
+              {constraint.binding.quotas.map((q, i) => (
+                <li key={i}>
+                  {t("policyDetails.why.quota", {
+                    metric: q.conceptId
+                      ? t("policyDetails.metricWithConcept", {
+                          metric: metricLabel(t, q.metric),
+                          concept: q.conceptId,
+                        })
+                      : metricLabel(t, q.metric),
+                    level: scopeNames.level(q.level),
+                    scope: scopeLabel(q.scopeId),
+                    remaining: q.remaining,
+                    limit: q.limit,
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <h3>{t("policyDetails.ancestorCaps")}</h3>
       {constraint.deadlines
         .filter((d) => d.scopeId !== scope.scopeId || d.kind === "ultimate")
@@ -186,6 +225,7 @@ export function ScopeQuotas({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
+  const scopeNames = useScopeLabel();
   if (!quotas.length)
     return (
       <EmptyState title={t("policyDetails.quotas.empty.title")}>
@@ -214,10 +254,7 @@ export function ScopeQuotas({
           {quotas.map((q, i) => (
             <tr key={i}>
               <th scope="row">
-                <bdi>
-                  {scopes.find((s) => s.scopeId === q.scopeId)?.label ??
-                    q.scopeId}
-                </bdi>
+                <bdi>{scopeNames.byId(scopes, q.scopeId)}</bdi>
                 <small>
                   {q.conceptId
                     ? t("policyDetails.metricWithConcept", {

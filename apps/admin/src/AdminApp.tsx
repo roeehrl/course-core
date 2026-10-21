@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Gauge,
   History,
+  Hourglass,
   Compass,
   FlaskConical,
   Bot,
@@ -28,6 +29,7 @@ import { Badge, Button, ErrorState, Loading, Notice } from "./components/ui";
 import { CourseView } from "./views/CourseView";
 import { EnrollmentsView } from "./views/EnrollmentsView";
 import { PolicyView } from "./views/PolicyView";
+import { AllowancesView } from "./views/AllowancesView";
 import { ProvidersView } from "./views/ProvidersView";
 import { FirstRun } from "./components/FirstRun";
 import { RunsView } from "./views/RunsView";
@@ -55,6 +57,7 @@ const views = [
   { id: "placement", titleKey: "adminApp.nav.placement", icon: Compass },
   { id: "people", titleKey: "adminApp.nav.people", icon: Contact },
   { id: "policy", titleKey: "adminApp.nav.policy", icon: ShieldCheck },
+  { id: "allowances", titleKey: "adminApp.nav.allowances", icon: Hourglass },
   { id: "mappings", titleKey: "adminApp.nav.mappings", icon: Network },
   { id: "research", titleKey: "adminApp.nav.research", icon: Library },
   { id: "media", titleKey: "adminApp.nav.media", icon: Clapperboard },
@@ -185,11 +188,14 @@ function CourseWorkspace({
     content: true,
   }));
   const navigation = [
-    ...views.map((item) => ({
-      ...item,
-      title: t(item.titleKey),
-      content: false,
-    })),
+    // A view whose port this client lacks (for example the demo) is not offered.
+    ...views
+      .filter((item) => item.id !== "allowances" || client.getAllowances)
+      .map((item) => ({
+        ...item,
+        title: t(item.titleKey),
+        content: false,
+      })),
     ...sectionNav,
   ];
   const activeView =
@@ -364,6 +370,9 @@ function CourseWorkspace({
               )}
               {view === "policy" && (
                 <PolicyView data={data} client={client} actions={actions} />
+              )}
+              {view === "allowances" && client.getAllowances && (
+                <AllowancesView data={data} client={client} />
               )}
               {view === "providers" && (
                 <ProvidersView data={data} client={client} actions={actions} />

@@ -50,5 +50,9 @@
   "quotas.limit": "מגבלה",
   "quotas.consumed": "נוצל",
   "quotas.reserved": "שמור",
-  "quotas.remaining": "נותר"
+  "quotas.remaining": "נותר",
+  "why": "מה קובע את המגבלות",
+  "why.deadline": "מה קובע את המועד: {level} ({scope}), {date}. מועד מוקדם יותר ברמה גבוהה יותר תמיד גובר; רמה נמוכה יכולה רק להקדים אותו.",
+  "why.noDeadline": "אין כאן מועד בלוח השנה. רק מגבלות עבודה יכולות לעצור הוספת עבודה.",
+  "why.quota": "{metric}: מוגבל על ידי {level} ({scope}) — נותרו {remaining} מתוך {limit}."
 }

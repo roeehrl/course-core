@@ -583,4 +583,40 @@ export interface AdminClient {
       acknowledgedShortenedGrantIds: string[];
     },
   ): Promise<import("./policyLedger").CohortResult>;
+  /** Organization ceilings (the outermost policy level), previewed against every course. */
+  getPolicyCeilings?(
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./policyLevels").CeilingsView>;
+  previewPolicyCeilings?(
+    workspaceId: string,
+    ceilings: import("./policyLevels").OrganizationCeilings,
+  ): Promise<import("./policyLevels").CeilingsView>;
+  savePolicyCeilings?(
+    workspaceId: string,
+    input: {
+      expectedRevision: number;
+      ceilings: import("./policyLevels").OrganizationCeilings;
+      reason: string;
+    },
+  ): Promise<import("./policyLevels").CeilingsView>;
+  /** Extension offers, accommodations and pool use across every learner of a course. */
+  getAllowances?(
+    courseId: string,
+    view: "pending" | "all",
+    signal?: AbortSignal,
+  ): Promise<import("./policyLevels").Allowances>;
+  /** One reviewed accommodation or outage adjustment for several learners at once. */
+  previewAccommodationBatch?(
+    courseId: string,
+    input: import("./policyLevels").BatchRequest,
+  ): Promise<import("./policyLevels").BatchPreview>;
+  applyAccommodationBatch?(
+    courseId: string,
+    input: { batchId: string; previewDigest: string; reason: string },
+  ): Promise<import("./policyLevels").BatchResult>;
+  getAccommodationBatches?(
+    courseId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./policyLevels").Batches>;
 }
