@@ -19,6 +19,7 @@ import {
   PREVIEW_DEVICES,
   VisualInspector,
 } from "../src/react.js";
+import { englishVisualMessages } from "../src/messages.js";
 import { VisualRuntime } from "../src/runtime.js";
 import { parseScene } from "../src/schema.js";
 import { renderSvg } from "../src/svg.js";
@@ -281,7 +282,7 @@ test("device preview frames follow the runtime and render like the headless expo
     assert.equal(
       renderSvg(frameAtWidth(motion, device.width), {
         idPrefix: prefix,
-        title: `${motionStudyDemo.title} (${device.name})`,
+        title: `${motionStudyDemo.title} (${englishVisualMessages.devices[device.id as "phone"]})`,
       }),
       svgs[i],
     );

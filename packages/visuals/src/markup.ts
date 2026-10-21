@@ -1,3 +1,4 @@
+import { errorText } from "./errors.js";
 import { VisualError } from "./expression.js";
 
 /** A plain element tree. Both the React view and the headless serializer render this tree. */
@@ -54,6 +55,8 @@ const SVG_TAGS: Record<string, string[]> = {
     "lengthAdjust",
   ],
   linearGradient: ["x1", "y1", "x2", "y2"],
+  radialGradient: ["cx", "cy", "r"],
+  image: ["href", "width", "height", "preserveAspectRatio"],
   stop: ["offset", "stop-color"],
   marker: [
     "markerWidth",
@@ -82,6 +85,9 @@ const MATH_TAGS: Record<string, string[]> = {
   mfrac: [],
   msqrt: [],
   mover: ["accent"],
+  mtable: ["columnalign"],
+  mtr: [],
+  mtd: [],
 };
 const HTML = ["id", "class", "aria-label", "aria-labelledby", "aria-current"];
 /** Elements of the HTML panes (synchronized table, code and formula). */
@@ -126,8 +132,8 @@ const COLOR =
   /^(?:#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|none|transparent)$/;
 const LOCAL = /^url\(#([A-Za-z][A-Za-z0-9_-]{0,191})\)$/;
 const REFERENCES: Readonly<Record<string, readonly string[]>> = {
-  fill: ["linearGradient"],
-  stroke: ["linearGradient"],
+  fill: ["linearGradient", "radialGradient"],
+  stroke: ["linearGradient", "radialGradient"],
   "stop-color": [],
   "clip-path": ["clipPath"],
   mask: ["mask"],
@@ -139,6 +145,8 @@ const FORMAT: Readonly<Record<string, RegExp>> = {
   style: /^aspect-ratio:[0-9.]+\/[0-9.]+$/,
   xmlns: /^http:\/\/www\.w3\.org\/2000\/svg$/,
   "font-family": /^[A-Za-z0-9 ,'-]+$/,
+  preserveAspectRatio: /^(?:none|xMidYMid (?:meet|slice))$/,
+  columnalign: /^(?:(?:left|center|right) ?){1,16}$/,
   viewBox: /^-?[0-9.e]+ -?[0-9.e]+ [0-9.e]+ [0-9.e]+$/,
 };
 
@@ -184,6 +192,16 @@ export function sanitizeMarkup(root: MarkupElement): MarkupElement {
       if (typeof value !== "string") fail(`${name} must be text`);
       if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value))
         fail(`${name} contains control characters`);
+      if (name === "href" && el.tag === "image") {
+        // Only an embedded raster image, verified against its digest at parse time.
+        if (
+          !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(
+            value,
+          )
+        )
+          fail(errorText("imageHref"));
+        continue;
+      }
       if (name === "href") {
         const target = /^#([A-Za-z][A-Za-z0-9_-]{0,191})$/.exec(value)?.[1];
         if (!target || ids.get(target) !== "symbol")

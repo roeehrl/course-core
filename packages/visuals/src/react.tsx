@@ -14,9 +14,13 @@ import type {
   PointerEvent,
   ReactNode,
 } from "react";
+import { CompletionLatch } from "./completion.js";
+import type { VisualCompletion } from "./completion.js";
 import { equationMathML } from "./equation.js";
 import { flattenNodes } from "./geometry.js";
 import type { MarkupElement } from "./markup.js";
+import { formatNumber, visualMessages } from "./messages.js";
+import type { VisualMessages } from "./messages.js";
 import { buildPanesMarkup } from "./panes.js";
 import { buildSceneMarkup } from "./svg.js";
 import { OffscreenPause } from "./visibility.js";
@@ -30,19 +34,25 @@ import type {
 } from "./types.js";
 
 /** Upper-case label of a layout mode. */
-export const layoutLabel = (mode: LayoutMode) => LAYOUT_LABELS[mode];
-const LAYOUT_LABELS: Record<LayoutMode, string> = {
-  compact: "COMPACT",
-  expanded: "EXPANDED",
-  tabletPortrait: "TABLET PORTRAIT",
-  tabletLandscape: "TABLET LANDSCAPE",
-  wide: "WIDE",
-};
+export const layoutLabel = (
+  mode: LayoutMode,
+  messages: Partial<VisualMessages> = {},
+) => visualMessages(messages).layout[mode];
+
+/** Translation props shared by the React components (0.5). */
+export interface VisualI18nProps {
+  /** Overrides of the English messages, from the host's catalog. */
+  messages?: Partial<VisualMessages>;
+  /** BCP 47 locale for displayed numbers; defaults to "en". */
+  locale?: string;
+}
 
 export interface SceneViewProps {
   frame: Frame;
   title: string;
   className?: string;
+  /** Spoken after a draggable part's name; defaults to English. */
+  dragHint?: string;
   onPointer?: (id: string, point: { x: number; y: number }) => void;
   onKey?: (id: string, key: string, shift: boolean) => boolean;
 }
@@ -100,6 +110,7 @@ export function SceneView({
   frame,
   title,
   className,
+  dragHint,
   onPointer,
   onKey,
 }: SceneViewProps) {
@@ -112,8 +123,9 @@ export function SceneView({
         title,
         className,
         interactive: Boolean(onPointer || onKey),
+        dragHint,
       }),
-    [frame, uid, title, className, Boolean(onPointer || onKey)],
+    [frame, uid, title, className, dragHint, Boolean(onPointer || onKey)],
   );
   const byId = new Map(flattenNodes(frame.nodes).map((n) => [n.id, n]));
   const convert = (event: PointerEvent<SVGElement>, id: string) => {
@@ -186,13 +198,21 @@ function frameEquations(frame: Frame): GeometryNode[] {
     ...(frame.defs?.symbols ?? []).flatMap((s) => flattenNodes(s.nodes)),
   ].filter((n) => n.kind === "equation" && n.visible);
 }
-export interface VisualRuntimePlayerProps {
+export interface VisualRuntimePlayerProps extends VisualI18nProps {
   runtime: VisualRuntime;
   className?: string;
   style?: CSSProperties;
   reducedMotion?: boolean;
   onFrame?: (frame: Frame) => void;
   onError?: (error: Error) => void;
+  /**
+   * Called once when the viewer first reaches the end of the timeline (by playback or by
+   * scrubbing). Replaying, scrubbing and resetting never call it again for this runtime.
+   * It is an observation for the host to record, never evidence of learning.
+   */
+  onComplete?: (completion: VisualCompletion) => void;
+  /** The host already recorded completion (e.g. a reloaded lazy player): never call onComplete. */
+  completed?: boolean;
   /** Trusted React fallback provided by the embedding app, never scene JSON. */
   fallback?: ReactNode;
 }
@@ -247,12 +267,7 @@ export function VisualPlayer({
   if (!created.runtime)
     return (
       <section className={`ccv-player ${props.className ?? ""}`} role="alert">
-        {fallback ?? (
-          <p>
-            This visual could not be displayed. Its scene data failed
-            validation.
-          </p>
-        )}
+        {fallback ?? <p>{visualMessages(props.messages).invalidScene}</p>}
       </section>
     );
   return (
@@ -270,8 +285,15 @@ export function VisualRuntimePlayer({
   reducedMotion,
   onFrame,
   onError,
+  onComplete,
+  completed,
   fallback,
+  messages: overrides,
+  locale,
 }: VisualRuntimePlayerProps) {
+  const m = useMemo(() => visualMessages(overrides), [overrides]);
+  const seconds = (ms: number, digits = 1) =>
+    formatNumber(locale, ms / 1000, { min: digits, max: digits });
   const snapshot = useSyncExternalStore(
       runtime.subscribe,
       runtime.getSnapshot,
@@ -354,6 +376,24 @@ export function VisualRuntimePlayer({
   useEffect(() => {
     onFrame?.(frame);
   }, [frame, onFrame]);
+  // Completion: once per runtime, whatever the viewer replays or scrubs afterwards.
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const latch = useMemo(
+    () =>
+      new CompletionLatch(
+        runtime,
+        (completion) => onCompleteRef.current?.(completion),
+        completed,
+      ),
+    [runtime],
+  );
+  useEffect(() => {
+    if (completed) latch.markCompleted();
+  }, [latch, completed]);
+  useEffect(() => {
+    latch.observe(frame);
+  }, [latch, frame]);
   useEffect(() => {
     if (!playing || reduced) return;
     let id = 0,
@@ -399,26 +439,26 @@ export function VisualRuntimePlayer({
       <header className="ccv-heading">
         <div>
           <span className="ccv-eyebrow">
-            INTERACTIVE STUDY <span aria-hidden="true">/</span>{" "}
-            {LAYOUT_LABELS[frame.layout]}
+            {m.eyebrow} <span aria-hidden="true">/</span>{" "}
+            {m.layout[frame.layout]}
           </span>
           <h2>{runtime.scene.title}</h2>
           <p>{runtime.scene.description}</p>
         </div>
         <span className="ccv-badge">
-          <span /> {reduced ? "Still mode" : "Live canvas"}
+          <span /> {reduced ? m.stillMode : m.liveCanvas}
         </span>
       </header>
       {error && (
         <div className="ccv-error" role="alert">
-          {fallback ??
-            "This step could not be displayed. The last valid frame is preserved. Reset to try again."}
+          {fallback ?? m.stepError}
         </div>
       )}
       <div className="ccv-stage">
         <SceneView
           frame={frame}
           title={runtime.scene.title}
+          dragHint={m.dragHint}
           onPointer={(id, point) =>
             safely(() => runtime.manipulatePointer(id, point))
           }
@@ -444,22 +484,21 @@ export function VisualRuntimePlayer({
           onClick={() =>
             control(() => (playing ? runtime.pause() : runtime.play()))
           }
-          aria-label={playing ? "Pause animation" : "Play animation"}
+          aria-label={playing ? m.pauseAnimation : m.playAnimation}
         >
           {playing ? "Ⅱ" : "▶"}
-          <span>{playing ? "Pause" : "Play"}</span>
+          <span>{playing ? m.pause : m.play}</span>
         </button>
         <div className="ccv-timeline">
           <label htmlFor={`${uid}-time`}>
-            Timeline{" "}
+            {m.timeline}{" "}
             <output aria-live="off">
-              {(frame.timeMs / 1000).toFixed(1)} /{" "}
-              {(duration / 1000).toFixed(1)} s
+              {m.timeReadout(seconds(frame.timeMs), seconds(duration))}
             </output>
           </label>
           <input
             id={`${uid}-time`}
-            aria-label="Timeline"
+            aria-label={m.timeline}
             type="range"
             min={0}
             max={duration}
@@ -472,7 +511,7 @@ export function VisualRuntimePlayer({
                 runtime.seek(Number(e.target.value));
               })
             }
-            aria-valuetext={`${(frame.timeMs / 1000).toFixed(1)} seconds. ${frame.cue}`}
+            aria-valuetext={m.timelineValue(seconds(frame.timeMs), frame.cue)}
           />
         </div>
         <button
@@ -480,12 +519,12 @@ export function VisualRuntimePlayer({
           className="ccv-reset"
           onClick={() => control(() => runtime.reset())}
         >
-          Reset
+          {m.reset}
         </button>
       </div>
       {(runtime.scene.controls?.length ?? 0) > 0 && (
         <fieldset className="ccv-controls">
-          <legend>Explore the state</legend>
+          <legend>{m.exploreState}</legend>
           {runtime.scene.controls!.map((key) => {
             const field = runtime.scene.state[key]!,
               value = frame.state[key]!;
@@ -500,7 +539,7 @@ export function VisualRuntimePlayer({
                   {field.kind === "number" && (
                     <output aria-live="off">
                       {typeof value === "number"
-                        ? Number(value.toFixed(2))
+                        ? formatNumber(locale, value, { max: 2 })
                         : value}
                     </output>
                   )}
@@ -543,11 +582,11 @@ export function VisualRuntimePlayer({
       )}
       <details className="ccv-text" open={reduced}>
         <summary>
-          Text equivalent {reduced && "· reduced motion enabled"}
+          {m.textEquivalent} {reduced && m.reducedMotionEnabled}
         </summary>
         <p aria-live="off">{frame.text}</p>
         {equations.length > 0 && (
-          <ul className="ccv-equations" aria-label="Equations">
+          <ul className="ccv-equations" aria-label={m.equations}>
             {equations.map((n) => (
               <li key={n.id}>
                 <span>{n.label}</span>{" "}
@@ -561,7 +600,7 @@ export function VisualRuntimePlayer({
         <ol>
           {runtime.scene.timeline.cues.map((cue, i) => (
             <li key={i}>
-              <time>{(cue.atMs / 1000).toFixed(1)} s</time>
+              <time>{m.seconds(seconds(cue.atMs))}</time>
               {cue.text}
             </li>
           ))}
@@ -576,3 +615,8 @@ export {
   VisualInspector,
 } from "./inspector.js";
 export type { PreviewDevice } from "./inspector.js";
+export { ExportControls, exportFileName } from "./export.js";
+export { LazyVisualPlayer } from "./lazy.js";
+export type { LazyVisualPlayerProps } from "./lazy.js";
+export type { VisualCompletion } from "./completion.js";
+export type { VisualMessages } from "./messages.js";

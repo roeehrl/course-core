@@ -1,10 +1,13 @@
 import { layoutEquation } from "./equation.js";
 import { DEFAULT_SPRING, layoutMode, springProgress } from "./motion.js";
+import { checkCamera } from "./schema.js";
+import { visualError } from "./errors.js";
 import { evaluate, finite, VisualError } from "./expression.js";
 import type { EvaluationContext } from "./expression.js";
 import type {
   Anchor,
   Bounds,
+  ColorKeyframe,
   Expression,
   Frame,
   FrameDefs,
@@ -105,9 +108,56 @@ export function interpolate(track: Track, timeMs: number): number {
   }
   return keys[keys.length - 1]!.value;
 }
+/** A colour track's colour at a time: sRGB channels and alpha interpolated (0.5). */
+export function interpolateColor(
+  keys: readonly ColorKeyframe[],
+  timeMs: number,
+): string {
+  finite(timeMs);
+  const rgba = (hex: string) => {
+    const h = hex.slice(1),
+      full = h.length <= 4 ? [...h].map((c) => c + c).join("") : h;
+    return [0, 2, 4, 6].map((i) =>
+      i < full.length ? parseInt(full.slice(i, i + 2), 16) : 255,
+    );
+  };
+  const format = (c: number[]) =>
+    "#" +
+    c
+      .slice(0, c[3] === 255 ? 3 : 4)
+      .map((v) => Math.round(v).toString(16).padStart(2, "0"))
+      .join("");
+  if (timeMs <= keys[0]!.atMs) return format(rgba(keys[0]!.color));
+  for (let i = 1; i < keys.length; i++) {
+    const right = keys[i]!,
+      left = keys[i - 1]!;
+    if (timeMs <= right.atMs) {
+      let t = (timeMs - left.atMs) / (right.atMs - left.atMs);
+      switch (right.ease ?? "linear") {
+        case "smooth":
+          t = t * t * (3 - 2 * t);
+          break;
+        case "in":
+          t *= t;
+          break;
+        case "out":
+          t = 1 - (1 - t) * (1 - t);
+          break;
+        case "step":
+          t = t === 1 ? 1 : 0;
+          break;
+      }
+      const a = rgba(left.color),
+        b = rgba(right.color);
+      return format(a.map((v, k) => v + (b[k]! - v) * t));
+    }
+  }
+  return format(rgba(keys[keys.length - 1]!.color));
+}
 const SPRING_RANGE: Partial<Record<Track["property"], [number, number]>> = {
   opacity: [0, 1],
   progress: [0, 1],
+  morph: [0, 1],
   scale: [0.001, 100],
   width: [0, 100_000],
   height: [0, 100_000],
@@ -175,7 +225,13 @@ export function createGeometry(
   const symbols = new Map(
     (scene.defs?.symbols ?? []).map((symbol) => [symbol.id, symbol]),
   );
-  const tracks = new Map<string, number>();
+  const tracks = new Map<string, number>(),
+    colors = new Map<string, string>();
+  for (const track of scene.timeline.colorTracks ?? [])
+    colors.set(
+      `${track.node}.${track.property}`,
+      interpolateColor(track.keyframes, timeMs),
+    );
   for (const track of scene.timeline.tracks)
     tracks.set(`${track.node}.${track.property}`, interpolate(track, timeMs));
   for (const stagger of scene.timeline.staggers ?? [])
@@ -209,7 +265,7 @@ export function createGeometry(
         (v < 0 || v > 100_000)
       )
         throw new VisualError("GEOMETRY", "Invalid size");
-      if (["opacity", "progress"].includes(prop) && (v < 0 || v > 1))
+      if (["opacity", "progress", "morph"].includes(prop) && (v < 0 || v > 1))
         throw new VisualError("GEOMETRY", "Opacity/progress outside 0..1");
       if (prop === "scale" && (v < 0.001 || v > 100))
         throw new VisualError("GEOMETRY", "Scale outside .001..100");
@@ -257,23 +313,29 @@ export function createGeometry(
       progress: num("progress", 1),
       opacity: num("opacity", 1) * parentOpacity,
       visible: rawVisible && parentVisible,
-      fill: node.fill ?? "#7dd3fc",
-      stroke: node.stroke ?? "none",
+      fill: colors.get(`${node.id}.fill`) ?? node.fill ?? "#7dd3fc",
+      stroke: colors.get(`${node.id}.stroke`) ?? node.stroke ?? "none",
       strokeWidth: node.strokeWidth ?? 1.5,
       bounds: { x: 0, y: 0, width: 0, height: 0 },
       cornerRadius: node.kind === "rect" ? (node.cornerRadius ?? 0) : 0,
       manipulate: node.manipulate,
     };
+    if (node.kind === "path" && node.morphTo) g.morph = num("morph", 0);
+    if (node.kind === "image") {
+      g.image = node.image;
+      g.fit = node.fit ?? "contain";
+    }
     if (node.clip !== undefined) g.clip = node.clip;
     if (node.mask !== undefined) g.mask = node.mask;
     byId.set(node.id, g);
     const world = (p: Point) => transformPoint(matrix, p);
-    const n = (e: Expression) => {
+    const coordinate = (e: Expression) => {
       const v = evaluate(e, context);
       if (typeof v !== "number")
         throw new VisualError("TYPE", "Coordinate must be a number");
       return finite(v);
     };
+    const n = coordinate;
     if (node.kind === "group") {
       g.children = node.children.map((child) =>
         visit(child, matrix, g.opacity, g.visible),
@@ -316,14 +378,25 @@ export function createGeometry(
         start = current;
       const extrema: Point[] = [],
         parts: string[] = [];
-      for (const c of node.commands) {
+      // A morphing path interpolates every coordinate towards morphTo (same commands).
+      const morph = g.morph ?? 0;
+      node.commands.forEach((c, index) => {
+        const to = node.morphTo?.[index] as
+          | Record<string, Expression>
+          | undefined;
+        const at = (key: "x" | "y" | "x1" | "y1" | "x2" | "y2") => {
+          const from = coordinate((c as Record<string, Expression>)[key]!);
+          return to && morph > 0
+            ? finite(from + (coordinate(to[key]!) - from) * morph)
+            : from;
+        };
         if (c.command === "Z") {
           parts.push("Z");
           extrema.push(world(current), world(start));
           current = start;
-          continue;
+          return;
         }
-        const end = { x: n(c.x), y: n(c.y) };
+        const end = { x: at("x"), y: at("y") };
         if (c.command === "M") {
           start = end;
           parts.push(`M${fmt(end.x)} ${fmt(end.y)}`);
@@ -332,8 +405,8 @@ export function createGeometry(
           parts.push(`L${fmt(end.x)} ${fmt(end.y)}`);
           extrema.push(world(current), world(end));
         } else {
-          const p1 = { x: n(c.x1), y: n(c.y1) },
-            p2 = c.command === "C" ? { x: n(c.x2), y: n(c.y2) } : undefined;
+          const p1 = { x: at("x1"), y: at("y1") },
+            p2 = c.command === "C" ? { x: at("x2"), y: at("y2") } : undefined;
           parts.push(
             `${c.command}${fmt(p1.x)} ${fmt(p1.y)} ${p2 ? `${fmt(p2.x)} ${fmt(p2.y)} ` : ""}${fmt(end.x)} ${fmt(end.y)}`,
           );
@@ -344,7 +417,7 @@ export function createGeometry(
           );
         }
         current = end;
-      }
+      });
       g.path = parts.join(" ");
       g.bounds = boundsOf(extrema);
     } else if (node.kind === "plot") {
@@ -422,6 +495,7 @@ export function createGeometry(
       height: row.height,
       nodes: draw(row.nodes),
     })),
+    ...(scene.defs.images ? { images: scene.defs.images } : {}),
   };
   for (const { node, geometry: g } of links) {
     const from = byId.get(node.from.node)!,
@@ -488,7 +562,36 @@ export function createGeometry(
     reducedMotion,
     ...(defs ? { defs } : {}),
     ...(scene.panes ? { panes: scene.panes.map(pane) } : {}),
+    ...(scene.camera ? { camera: camera(scene.camera) } : {}),
   };
+  /** The camera: a track, else its expression, else the layout's centre and zoom 1. */
+  function camera(c: NonNullable<Scene["camera"]>) {
+    const at = (prop: "x" | "y" | "zoom", fallback: number) => {
+      const track = scene.timeline.cameraTracks?.find(
+        (t) => t.property === prop,
+      );
+      const input = c[prop];
+      const v = track
+        ? interpolate(
+            { node: "camera", property: "x", keyframes: track.keyframes },
+            timeMs,
+          )
+        : input === undefined
+          ? fallback
+          : evaluate(input, context);
+      if (typeof v !== "number")
+        throw visualError("TYPE", "cameraNumeric", { property: prop });
+      // A spring keyframe may overshoot: keep a tracked zoom in range instead of failing.
+      if (track && prop === "zoom") return Math.min(20, Math.max(0.1, v));
+      checkCamera(prop, v);
+      return v;
+    };
+    return {
+      x: at("x", layout.width / 2),
+      y: at("y", layout.height / 2),
+      zoom: at("zoom", 1),
+    };
+  }
   /** Pane values come from the same evaluation context as the geometry. */
   function pane(p: NonNullable<Scene["panes"]>[number]): PaneFrame {
     const show = (e: Expression) => {

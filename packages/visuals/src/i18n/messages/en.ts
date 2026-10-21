@@ -1,0 +1,72 @@
+import type { VisualMessages } from "./visual-messages.js";
+
+/** The English messages (the visuals catalog). Hosts translate the same keys. */
+export const englishVisualMessages: VisualMessages = Object.freeze({
+  layout: Object.freeze({
+    compact: "COMPACT",
+    expanded: "EXPANDED",
+    tabletPortrait: "TABLET PORTRAIT",
+    tabletLandscape: "TABLET LANDSCAPE",
+    wide: "WIDE",
+  }),
+  invalidScene:
+    "This visual could not be displayed. Its scene data failed validation.",
+  eyebrow: "INTERACTIVE STUDY",
+  stillMode: "Still mode",
+  liveCanvas: "Live canvas",
+  stepError:
+    "This step could not be displayed. The last valid frame is preserved. Reset to try again.",
+  play: "Play",
+  pause: "Pause",
+  playAnimation: "Play animation",
+  pauseAnimation: "Pause animation",
+  timeline: "Timeline",
+  timeReadout: (current: string, total: string) => `${current} / ${total} s`,
+  timelineValue: (seconds: string, cue: string) => `${seconds} seconds. ${cue}`,
+  seconds: (value: string) => `${value} s`,
+  milliseconds: (value: string) => `${value} ms`,
+  reset: "Reset",
+  exploreState: "Explore the state",
+  textEquivalent: "Text equivalent",
+  reducedMotionEnabled: "· reduced motion enabled",
+  equations: "Equations",
+  dragHint:
+    "Use arrow keys; Home and End set limits. Shift changes by ten steps.",
+  lazyPlaceholder: "This visual loads when you scroll to it.",
+  lazyLoad: "Show the visual now",
+  inspectorTitle: (scene: string) => `Inspector · ${scene}`,
+  scene: "Scene",
+  layoutHeading: "Layout",
+  time: "Time",
+  features: "Features",
+  none: "none",
+  changeRefused: "Change refused",
+  parameters: "Parameters",
+  inspectorTime: "Inspector time",
+  keyframes: "Keyframes",
+  node: "Node",
+  selectedNode: "Selected node",
+  computedProperties: (node: string) => `Computed properties of ${node}`,
+  publishChecks: "Publish checks",
+  checkCounts: (invariants: number, goldens: number) =>
+    `${invariants} invariants, ${goldens} goldens.`,
+  runChecks: "Run checks",
+  allChecksPass: "All checks pass at every layout.",
+  checkKind: Object.freeze({ invariant: "invariant", golden: "golden" }),
+  devicePreview: "Device preview",
+  devices: Object.freeze({
+    phone: "Phone",
+    tabletPortrait: "Tablet portrait",
+    tabletLandscape: "Tablet landscape",
+    desktop: "Desktop",
+  }),
+  previewCaption: (device: string, width: string, layout: string) =>
+    `${device} · ${width} px · ${layout}`,
+  previewTitle: (scene: string, device: string) => `${scene} (${device})`,
+  exportHeading: "Export",
+  downloadSvg: "Download SVG",
+  downloadPng: "Download PNG",
+  exportDone: (file: string) => `Saved ${file}.`,
+  exportFailed:
+    "The image could not be created. Try SVG, or reload the page and try again.",
+});

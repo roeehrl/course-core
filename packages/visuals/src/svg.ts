@@ -1,8 +1,10 @@
+import { visualError } from "./errors.js";
 import { VisualError } from "./expression.js";
 import { flattenNodes } from "./geometry.js";
+import { imageHref } from "./image.js";
 import { sanitizeMarkup, serializeMarkup } from "./markup.js";
 import type { MarkupElement } from "./markup.js";
-import type { Frame, GeometryNode } from "./types.js";
+import type { Frame, FrameCamera, GeometryNode } from "./types.js";
 
 export interface SceneMarkupOptions {
   /** Prefix for every element id. Must be unique per scene instance on a page. */
@@ -13,7 +15,11 @@ export interface SceneMarkupOptions {
   interactive?: boolean;
   /** Adds the SVG namespace, for a standalone .svg file. */
   xmlns?: boolean;
+  /** Spoken after a draggable part's name (interactive only); defaults to English. */
+  dragHint?: string;
 }
+const DRAG_HINT =
+  "Use arrow keys; Home and End set limits. Shift changes by ten steps.";
 
 const EQUATION_FONT =
   "STIX Two Text, Cambria, Times New Roman, Latin Modern Roman, serif";
@@ -25,6 +31,22 @@ const el = (
 ): MarkupElement => ({ tag, attrs, children });
 const paint = (uid: string, n: GeometryNode) =>
   typeof n.fill === "string" ? n.fill : `url(#${uid}-fill-${n.id})`;
+const ASPECT = {
+  contain: "xMidYMid meet",
+  cover: "xMidYMid slice",
+  fill: "none",
+} as const;
+const short = (n: number) => String(Math.round(n * 1e4) / 1e4);
+/** The viewBox a camera shows: `zoom` times closer, centred on (x, y). */
+export function cameraViewBox(
+  frame: Pick<Frame, "width" | "height"> & { camera?: FrameCamera },
+): string {
+  const c = frame.camera;
+  if (!c) return `0 0 ${frame.width} ${frame.height}`;
+  const w = frame.width / c.zoom,
+    h = frame.height / c.zoom;
+  return [c.x - w / 2, c.y - h / 2, w, h].map(short).join(" ");
+}
 
 /**
  * The SVG for one frame, as a sanitized element tree. React (react.tsx) and the headless
@@ -40,6 +62,7 @@ export function buildSceneMarkup(
   if (!PREFIX.test(uid))
     throw new VisualError("ID_PREFIX", "idPrefix must be a short identifier");
   const interactive = Boolean(options.interactive);
+  const images = new Map((frame.defs?.images ?? []).map((i) => [i.id, i]));
   const shape = (n: GeometryNode): MarkupElement[] => {
     switch (n.kind) {
       case "rect":
@@ -85,6 +108,21 @@ export function buildSceneMarkup(
                 : undefined,
           }),
         ];
+      case "image": {
+        const image = images.get(n.image!);
+        if (!image)
+          throw visualError("IMAGE", "imageUnknown", { image: n.image! });
+        return [
+          el("image", {
+            href: imageHref(image),
+            width: n.width,
+            height: n.height,
+            preserveAspectRatio: ASPECT[n.fit ?? "contain"],
+            role: "img",
+            "aria-label": n.label,
+          }),
+        ];
+      }
       case "use":
         return [
           el("use", {
@@ -169,7 +207,7 @@ export function buildSceneMarkup(
             : "group"
           : undefined,
         "aria-label": handle
-          ? `${n.label}. ${n.manipulate?.x || n.manipulate?.y ? "Use arrow keys; Home and End set limits. Shift changes by ten steps." : ""}`
+          ? `${n.label}. ${n.manipulate?.x || n.manipulate?.y ? (options.dragHint ?? DRAG_HINT) : ""}`
           : undefined,
         class: handle ? "ccv-handle" : undefined,
       },
@@ -211,7 +249,24 @@ export function buildSceneMarkup(
       .filter((n) => n.kind !== "group")
       .map((n) =>
         el("g", {}, [
-          ...(typeof n.fill !== "string"
+          ...(typeof n.fill !== "string" && n.fill.kind === "radial"
+            ? [
+                el(
+                  "radialGradient",
+                  {
+                    id: `${uid}-fill-${n.id}`,
+                    cx: n.fill.cx ?? 0.5,
+                    cy: n.fill.cy ?? 0.5,
+                    r: n.fill.r ?? 0.5,
+                  },
+                  [
+                    el("stop", { "stop-color": n.fill.from }),
+                    el("stop", { offset: "1", "stop-color": n.fill.to }),
+                  ],
+                ),
+              ]
+            : []),
+          ...(typeof n.fill !== "string" && n.fill.kind === "linear"
             ? [
                 el(
                   "linearGradient",
@@ -306,7 +361,7 @@ export function buildSceneMarkup(
       {
         xmlns: options.xmlns ? "http://www.w3.org/2000/svg" : undefined,
         class: `ccv-scene ${options.className ?? ""}`,
-        viewBox: `0 0 ${frame.width} ${frame.height}`,
+        viewBox: cameraViewBox(frame),
         role: "group",
         "aria-labelledby": `${uid}-title`,
         "aria-describedby": `${uid}-description`,

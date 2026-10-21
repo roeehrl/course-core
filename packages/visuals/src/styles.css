@@ -524,3 +524,124 @@
   height: auto;
   display: block;
 }
+/* Device chrome around preview frames (0.5); decorative, hidden from assistive technology. */
+.ccv-device {
+  position: relative;
+  border: 1px solid #c9d1de;
+  background: #f6f8fb;
+  overflow: hidden;
+}
+.ccv-device-screen {
+  background: #fff;
+}
+.ccv-device-phone {
+  padding: 4px 6px 14px;
+  border-radius: 22px;
+  border-width: 6px;
+  border-color: #1d2433;
+  background: #1d2433;
+}
+.ccv-device-phone .ccv-device-screen {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.ccv-device-phone .ccv-device-bar {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 5px;
+}
+.ccv-device-phone .ccv-device-bar span:first-child {
+  width: 34%;
+  height: 6px;
+  border-radius: 3px;
+  background: #3a4458;
+}
+.ccv-device-phone .ccv-device-bar span + span {
+  display: none;
+}
+.ccv-device-tablet {
+  padding: 4px 10px 12px;
+  border-radius: 16px;
+  border-width: 4px;
+  border-color: #2a3243;
+  background: #2a3243;
+}
+.ccv-device-tablet .ccv-device-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0 0 4px;
+}
+.ccv-device-tablet .ccv-device-bar span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4a5468;
+}
+.ccv-device-tablet .ccv-device-bar span + span {
+  display: none;
+}
+.ccv-device-desktop {
+  border-radius: 8px;
+}
+.ccv-device-desktop .ccv-device-bar {
+  display: flex;
+  gap: 5px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #dde3ed;
+  background: #eef1f6;
+}
+.ccv-device-desktop .ccv-device-bar span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c3cad6;
+}
+/* Export controls (0.5). */
+.ccv-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ccv-export button {
+  font: inherit;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--ccv-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ccv-ink);
+  cursor: pointer;
+}
+.ccv-export p {
+  flex-basis: 100%;
+  margin: 0;
+  min-height: 1.2em;
+}
+.ccv-export-error {
+  color: #a3261b;
+}
+/* A lazily loaded player before it loads (0.5). */
+.ccv-lazy-placeholder {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 12px;
+  min-height: 16rem;
+}
+.ccv-lazy-placeholder button {
+  font: inherit;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--ccv-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ccv-ink);
+  cursor: pointer;
+}
+@media (forced-colors: active) {
+  .ccv-device,
+  .ccv-device-bar span {
+    forced-color-adjust: auto;
+  }
+}
