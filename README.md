@@ -99,6 +99,17 @@ renderer extension does not declare `accessibility.keyboard: true` and a non-bla
 `textAlternative`, or a visual with a blank description. SDK 0.6 validate refuses the same
 (`INACCESSIBLE_VISUAL`, `MISSING_TEXT_ALTERNATIVE`); Core no longer relies on it.
 
+Watching a lesson visual to the end is an observation, never evidence or mastery. The learner
+app reports it once per mounted block (`POST /api/enrollments/:id/visual-completions` with the
+episode, block, visual and scene fingerprint); the API checks that the block shows that visual
+in a lesson the learner can open and that the fingerprint is the released scene's
+(`VISUAL_COMPLETION_OUT_OF_SCOPE`, `VISUAL_COMPLETION_STALE`), then appends one
+`visual.completed` learning event keyed by enrollment, course version and block. Replays,
+scrubbing, remounts and concurrent reports return the same event (`duplicate: true`); nothing
+else changes, not even the enrollment revision. Lesson visuals load lazily: the runtime is
+created near the viewport and released after a minute away from it (state kept), and they load
+eagerly while the debug inspector is open.
+
 ### Gates and assessment (SDK 0.5)
 
 Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`).
