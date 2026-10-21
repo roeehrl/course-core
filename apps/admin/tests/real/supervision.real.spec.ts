@@ -49,7 +49,9 @@ test("an instructor pauses, stops and resumes a learner's AI supervision; a revi
   ).toBeVisible();
   await expect(undelivered.getByText("refused", { exact: true })).toBeVisible();
   await expect(
-    undelivered.getByText("supervisor companion context invalid"),
+    undelivered.getByText(
+      "the companion request no longer matched the learner's lesson",
+    ),
   ).toBeVisible();
   // A quarantined request is listed too, but only owners and admins may re-queue it.
   await expect(
