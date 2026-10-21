@@ -33,7 +33,8 @@ export type AdminErrorCode =
   | "outage_deadline_only"
   | "cohort_too_large"
   | "no_active_learners"
-  | "pause_not_allowed";
+  | "pause_not_allowed"
+  | "visual_inaccessible";
 export class AdminError extends Error {
   constructor(
     public readonly code: AdminErrorCode,

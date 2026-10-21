@@ -80,6 +80,23 @@ describe("fetch admin adapter", () => {
       /newer version of this course is already published/,
     );
   });
+  it("maps an inaccessible-visual publication refusal to its own message (S12)", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          error: "PUBLISH_VISUAL_INACCESSIBLE",
+          details: { visualId: "bars", reasons: ["keyboard"] },
+        },
+        { status: 409 },
+      ),
+    );
+    const client = createFetchAdminClient({ baseUrl: "/api", fetch: fetcher });
+    const refused = await client
+      .previewExtension(enrollmentId, calendarRequest)
+      .catch((error: unknown) => error);
+    expect(refused).toMatchObject({ code: "visual_inaccessible" });
+    expect(errorMessage(refused)).toMatch(/keyboard support and a text alternative/);
+  });
   it("encodes identifiers, includes cookie credentials, revisions and idempotency headers", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

@@ -79,6 +79,7 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     if (block.type === 'assessment') required.add(block.assessmentId);
     if (block.type === 'visual') {
       const visual = course.visuals.find(visual => visual.id === block.visualId)!, adapter = requireAdapter(visual.rendererId);
+      assertVisualAccessible(course, visual.rendererId, { visualId: visual.id }, visual.accessibility.description);
       if (!adapter.validateVisual) throw new ApiError(409, 'PUBLISH_VISUAL_VALIDATOR_MISSING');
       let required: readonly string[];
       try { adapter.validateVisual(visual); required = adapter.visualFeatures?.(visual) ?? []; }
@@ -90,6 +91,7 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
   // Renderer definitions for visuals name the features they need; the declared build must have them.
   for (const renderer of course.renderers ?? []) {
     const adapter = installed.find(row => row.id === renderer.extensionId), declaration = course.extensions.find(row => row.id === renderer.extensionId);
+    if (renderer.surface === 'visual' && declaration) assertVisualAccessible(course, renderer.extensionId, { rendererDefinitionId: renderer.id });
     if (renderer.surface !== 'visual' || !adapter?.renderFeatures || !declarationMatchesInstalled(declaration, adapter)) continue;
     assertRenderFeatures(course, adapter, renderer.extensionId, renderer.features, { rendererDefinitionId: renderer.id });
   }
@@ -139,6 +141,26 @@ function visualRefusal(visualId: string, error: unknown): ApiError {
   if (!mapped) return new ApiError(409, 'PUBLISH_VISUAL_INVALID');
   // The message names the author's check, layout and time; it carries no learner data.
   return new ApiError(409, mapped, mapped, { visualId, check: String((error as Error).message).slice(0, 400) });
+}
+
+/**
+ * Visuals are required lesson content (S12): the renderer a course declares for one must declare
+ * keyboard support and a non-blank text alternative, and the visual itself a non-blank
+ * description. SDK 0.6 validate refuses the same (INACCESSIBLE_VISUAL, MISSING_TEXT_ALTERNATIVE);
+ * Core refuses it here for bundles from every supported SDK release, whatever the SDK checked.
+ * `reasons` are stable codes: keyboard, renderer_text_alternative, visual_description.
+ */
+function assertVisualAccessible(course: CourseManifest, extensionId: string, subject: Record<string, string>, description?: string) {
+  const declared = course.extensions.find(row => row.id === extensionId);
+  if (!declared) return;
+  const blank = (value: unknown) => typeof value !== 'string' || value.trim() === '';
+  const access = declared.accessibility as Partial<CourseManifest['extensions'][number]['accessibility']> | undefined;
+  const reasons = [
+    ...(access?.keyboard !== true ? ['keyboard'] : []),
+    ...(blank(access?.textAlternative) ? ['renderer_text_alternative'] : []),
+    ...(description !== undefined && blank(description) ? ['visual_description'] : []),
+  ];
+  if (reasons.length) throw new ApiError(409, 'PUBLISH_VISUAL_INACCESSIBLE', 'PUBLISH_VISUAL_INACCESSIBLE', { ...subject, rendererId: extensionId, reasons });
 }
 
 /** Refuses, at publication, a visual or renderer definition needing a render feature the declared

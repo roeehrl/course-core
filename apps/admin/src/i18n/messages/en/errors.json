@@ -31,5 +31,6 @@
   "error.outage_deadline_only": "An outage adjustment can only move a deadline. Remove the extra minutes or episodes, or use an accommodation instead.",
   "error.cohort_too_large": "Too many learners for one batch (at most 500). Choose fewer learners and adjust them in several batches.",
   "error.no_active_learners": "No active learner matches this selection, so there is nothing to adjust.",
-  "error.pause_not_allowed": "An approved pause can only move a relative window that allows pauses. Use an accommodation for other deadlines."
+  "error.pause_not_allowed": "An approved pause can only move a relative window that allows pauses. Use an accommodation for other deadlines.",
+  "error.visual_inaccessible": "Publication is blocked: a lesson visual is not accessible. Its renderer must declare keyboard support and a text alternative, and the visual needs a text description. Update the course package and upload it again."
 }

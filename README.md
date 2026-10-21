@@ -92,6 +92,13 @@ Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in
 
 `packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0 and 0.5.0 and the pin move kept visuals 0.1.1. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, 0.4.0 added publish-time scene checks (invariants, goldens) and authoring tools, and 0.5.0 adds images, radial gradients, matrix equations, path morph, colour animation and a camera, with export, device chrome, lazy loading, completion observations and translatable player texts. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
 
+Lesson visuals must be accessible whatever SDK built the bundle: publication refuses
+(`PUBLISH_VISUAL_INACCESSIBLE`, details `reasons`: `keyboard`, `renderer_text_alternative`,
+`visual_description`) a visual block or a `surface: "visual"` renderer definition whose
+renderer extension does not declare `accessibility.keyboard: true` and a non-blank
+`textAlternative`, or a visual with a blank description. SDK 0.6 validate refuses the same
+(`INACCESSIBLE_VISUAL`, `MISSING_TEXT_ALTERNATIVE`); Core no longer relies on it.
+
 ### Gates and assessment (SDK 0.5)
 
 Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`). Every learner-visible sentence of a decision also comes as a message code with parameters beside the SDK record (`messages`: the reason, each criterion by ID and each next action by position; stored in `gate_decisions.messages`), and the learner app shows it in the learner's language; the codes are not part of the decision's inputs digest. Decisions recorded before codes existed show their English text.
@@ -1065,6 +1072,18 @@ asked about. An answer, a new independent check and changes to profile,
 policy, learner model or evidence still fence it. Capsules are part of the
 companion conversation for privacy: they appear in the learner's export only
 and are erased with it.
+
+The capsule is a public, versioned contract (`schemaVersion: 1`):
+`services/api/src/contracts/context-capsule.ts` is a dependency-free type module
+(no imports) that the SDK can adopt verbatim, `contracts/context-capsule-schema.ts`
+is its runtime schema, and `docs/contracts/context-capsule.v1.schema.json` is the
+JSON Schema generated from it. `services/api/test/context-capsule-contract.test.ts`
+checks that the contract type equals the capsule the server stores, field for field
+(the resolved policy view is an open object in the contract), and that the committed
+JSON Schema is current (`UPDATE_CONTRACTS=1` regenerates it); the companion
+integration test validates a stored capsule against it. Within version 1 fields are
+only added. Adopting the type in `@course-core/sdk` is a separate SDK release; Core
+does not depend on it.
 
 ## Personal changes the learner controls
 
