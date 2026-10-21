@@ -24,6 +24,7 @@ import type {SupervisorJobPolicy} from './provider-setup.js';
 import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { telemetry } from '@course-core/supervisor/telemetry';
+import { noteBridgeContact } from './platform-operations.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
@@ -779,6 +780,7 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
       const header = request.headers.authorization;
       const token = typeof header === 'string' && /^Bearer \S+$/.test(header) ? header.slice(7) : '';
       requireCondition(timingSafeEqual(expected, createHash('sha256').update(token).digest()), 'SUPERVISOR_UNAUTHENTICATED', 401);
+      noteBridgeContact();
       const parsed = rpcRequestSchema.safeParse(request.body);
       requireCondition(parsed.success, 'SUPERVISOR_INVALID_REQUEST');
       const body = parsed.data;
@@ -950,6 +952,8 @@ async function storeArtifactRow(db: Database, ref: RunRef, operationId: string, 
     await client.query(`INSERT INTO supervisor_artifacts (id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content,content_object_id,content_kind)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, ref.jobId, ref.enrollmentId, ref.workspaceId, operationId, ownerId, digest,
       staged ? null : JSON.stringify(value), staged?.id ?? null, staged ? value.kind : null]);
+    // The bridge request continues the worker's trace: the artifact digest joins it to the stored row.
+    telemetry().annotate({ 'course.artifact.hash': digest });
     return { artifactId: id, digest, claimed: staged !== null };
   });
 }

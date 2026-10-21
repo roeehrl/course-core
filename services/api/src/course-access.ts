@@ -39,7 +39,9 @@ export type AdminPermission =
   /** Define, open and close an educational evaluation study (owner/admin only). */
   | "study.manage"
   /** Download a study's pseudonymous research export, audit-logged (owner/admin only). */
-  | "study.export";
+  | "study.export"
+  /** Download the workspace audit log as CSV or JSON, itself audit-logged (owner/admin only). */
+  | "audit.export";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -65,6 +67,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "study.read",
       "study.manage",
       "study.export",
+      "audit.export",
     ],
     admin: [
       "course.read",
@@ -89,6 +92,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "study.read",
       "study.manage",
       "study.export",
+      "audit.export",
     ],
     author: ["course.read", "course.write"],
     instructor: [

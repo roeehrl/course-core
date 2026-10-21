@@ -77,6 +77,17 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'provider.connection.removed': keep,
   'provider.service_key.changed': keep,
   'provider.setup.activated': keep,
+  // Staff cancelled one run: ids, role and previous state; the staff reason stays in supervisor_run_cancellations.
+  'supervisor.run_cancel_requested': keep,
+  // Course policy and placement settings: the settings and the staff reason for the change.
+  'policy.settings_changed': keep,
+  'placement.settings_changed': keep,
+  'release.archived': keep,
+  'release.rolled_back': keep,
+  // A provider-billed figure typed in for cost reconciliation: label, period and amount.
+  'provider.billed_statement_recorded': keep,
+  // An audit export: format, range, row count and file digest.
+  'audit.exported': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 
@@ -106,4 +117,30 @@ export async function workspaceAudit(client: Sql, workspaceId: string, query: { 
       enrollmentId: row.enrollment_id, payload, payloadWithheld: payload === null };
   });
   return { events, nextBefore: events.length === query.limit ? events.at(-1)!.sequence : null };
+}
+
+/** Audit rows in a time range, oldest first, with the same projection as the page. */
+export async function auditExportRows(client: Sql, workspaceId: string, query: { from: Date; to: Date; actorKind?: string | undefined; limit: number }) {
+  const rows = (await client.query<{ sequence: string; id: string; created_at: Date; actor_kind: AuditRow['actorKind']; actor_name: string | null; event_type: string; enrollment_id: string | null; payload: unknown }>(
+    `SELECT l.sequence::text,l.id,l.created_at,l.actor_kind,CASE WHEN l.actor_kind='staff' THEN u.display_name END AS actor_name,l.event_type,l.enrollment_id,
+        CASE WHEN l.actor_kind IN ('staff','system') AND l.event_type = ANY($4::text[]) THEN l.payload END AS payload
+       FROM learning_events l LEFT JOIN app_users u ON u.id=l.actor_id
+      WHERE l.workspace_id=$1 AND l.created_at>=$2 AND l.created_at<$3 AND ($5::text IS NULL OR l.actor_kind=$5)
+      ORDER BY l.sequence LIMIT $6`,
+    [workspaceId, query.from, query.to, Object.keys(AUDIT_PAYLOAD_PROJECTIONS), query.actorKind ?? null, query.limit])).rows;
+  return rows.map((row): AuditRow => {
+    const payload = auditPayload(row.actor_kind, row.event_type, row.payload);
+    return { sequence: row.sequence, id: row.id, at: row.created_at.toISOString(), actorKind: row.actor_kind, actor: row.actor_name, type: row.event_type,
+      enrollmentId: row.enrollment_id, payload, payloadWithheld: payload === null };
+  });
+}
+/** One CSV cell. Text that a spreadsheet would run as a formula is prefixed with a quote mark. */
+function cell(value: unknown) {
+  let text = value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+export const AUDIT_CSV_COLUMNS = ['sequence', 'id', 'at', 'actorKind', 'actor', 'type', 'enrollmentId', 'payloadWithheld', 'payload'] as const;
+export function auditCsv(rows: readonly AuditRow[]) {
+  return [AUDIT_CSV_COLUMNS.join(','), ...rows.map(row => AUDIT_CSV_COLUMNS.map(column => cell(row[column])).join(','))].join('\r\n') + '\r\n';
 }

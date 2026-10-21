@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
@@ -50,6 +51,7 @@ import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from '.
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
+import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerConceptMappingRoutes } from './concept-mappings.js';
@@ -110,7 +112,11 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** Runs due automatic course updates this often (ms, at least 60 000); omitted: never. */
   courseUpdateTickMs?: number;
   /** Browser practice runs of Python (python-runner.ts). Omitted: enabled with default limits. */
-  pythonRunner?: PythonRunnerOptions }) {
+  pythonRunner?: PythonRunnerOptions;
+  /** The grading sandbox this host runs, for the platform-readiness page; omitted when none. */
+  sandbox?: PlatformOptions['sandbox'];
+  /** The migrations this build ships, compared with the database on the platform-readiness page. */
+  migrationsDirectory?: string }) {
   const clock = serverClock(options.clock);
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
@@ -345,6 +351,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);
+  registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
+    supervisorConfigured: Boolean(options.supervisor), migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
   const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] };
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
