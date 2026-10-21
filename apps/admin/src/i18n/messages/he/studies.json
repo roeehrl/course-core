@@ -22,5 +22,9 @@
   "problem.STUDY_DELAYED_NOT_RETENTION": "פריטים מאוחרים חייבים להיות פריטי השימור השמורים של הקורס, כדי שלוח הזמנים של השימור יציג אותם.",
   "problem.STUDY_ARM_DUPLICATE": "לשתי זרועות יש אותו מזהה.",
   "problem.STUDY_PRE_REQUIRED": "כדי לפתוח צריך לפחות פריט אחד במבחן המקדים.",
-  "problem.STUDY_POST_REQUIRED": "כדי לפתוח צריך לפחות פריט אחד במבחן המסכם."
+  "problem.STUDY_POST_REQUIRED": "כדי לפתוח צריך לפחות פריט אחד במבחן המסכם.",
+  "warning.unknown": "כדאי לבדוק את כלי המדידה של המחקר ({code}).",
+  "warning.TRANSFER_ROLE_UNDECLARED": "לפריט {item} אין תפקיד SDK מוצהר; יש לוודא שזו משימת העברה חדשה.",
+  "warning.ITEM_COUNTS_TOWARD_GATE": "הפריט {item} ({set}) נחשב גם לנקודת בקרה, כך שלומדים עשויים לפגוש אותו במהלך הלימוד.",
+  "warning.PRE_POST_UNMATCHED": "המבחן המקדים והמבחן המסכם מכסים מטרות למידה שונות, ולכן הם לא תואמים."
 }

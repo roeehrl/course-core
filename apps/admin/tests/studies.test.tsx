@@ -67,7 +67,10 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
   openedAt: state === "draft" ? null : "2026-10-02T10:00:00.000Z",
   closedAt: null,
   warnings: [
-    "Item pre-min (pre) also counts toward a gate, so learners may meet it during instruction.",
+    {
+      code: "ITEM_COUNTS_TOWARD_GATE",
+      params: { item: "pre-min", set: "pre" },
+    },
   ],
 });
 const studies = (overrides: Partial<Studies> = {}): Studies => ({
@@ -440,4 +443,26 @@ describe("study definition from a file and usability timing (W01, P15)", () => {
       ),
     ).toBeVisible();
   });
+});
+
+it("words study warnings from codes in Hebrew, and keeps older English or unknown codes readable", async () => {
+  const { studyWarningText } = await import("../src/domain/studies");
+  const { createAdminTranslator } = await import("../src/i18n");
+  const he = createAdminTranslator("he");
+  expect(
+    studyWarningText(
+      {
+        code: "ITEM_COUNTS_TOWARD_GATE",
+        params: { item: "pre-min", set: "pre" },
+      },
+      he.t,
+      he.has,
+    ),
+  ).toContain("מבחן מקדים");
+  expect(studyWarningText("Older English warning.", he.t, he.has)).toBe(
+    "Older English warning.",
+  );
+  expect(studyWarningText({ code: "NEW_WARNING" })).toBe(
+    "Check this study's instruments (NEW_WARNING).",
+  );
 });
