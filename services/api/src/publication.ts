@@ -117,7 +117,6 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
   }
   for (const gate of course.gates) {
     if (isVersionedGate(gate)) assertVersionedGateRules(course, gate);
-    else assertLegacyGateRules(course, gate);
     if (isVersionedGate(gate) ? !gate.conversationalRubricRef : !gate.conversationalEvaluatorId) continue;
     const resolved = gateConversation(course, gate);
     // Model impressions are not evidence: the rubric must require quotes, and a human or an installed
@@ -162,13 +161,16 @@ function assertLegacyConversationReachable(course: CourseManifest, gate: LegacyP
     throw new ApiError(409, 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', { gateId: gate.id });
 }
 
-/** The false-mastery rule for an unversioned 0.4 gate at publication: recognition alone cannot
- * demonstrate understanding, so the gate must offer a task beyond choosing among given answers (or
- * a judged conversation). Already-published releases keep running; see evaluateGate. */
-export function assertLegacyGateRules(course: CourseManifest, gate: LegacyProgressionGate) {
-  const items = gateAssessmentIds(gate).map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
-  if (!gate.conversationalEvaluatorId && items.length > 0 && items.every(item => RECOGNITION_TYPES.has(item.type)))
-    throw new ApiError(409, 'PUBLISH_RECOGNITION_ONLY_GATE', 'PUBLISH_RECOGNITION_ONLY_GATE', { gateId: gate.id });
+/** Unversioned 0.4 gates whose items are all recognition (choosing among given answers) and that
+ * have no judged conversation. SDK 0.4 bundles stay publishable unchanged (the compatibility
+ * promise), so these are not refused; staff see them as a release warning, because such a gate can
+ * be passed on recognition alone. Where a 0.4 gate offers any produced-answer task, evaluateGate
+ * requires one, and declared critical misconceptions block it, as for versioned gates. */
+export function recognitionOnlyLegacyGates(course: CourseManifest): string[] {
+  return course.gates.filter((gate): gate is LegacyProgressionGate => !isVersionedGate(gate) && !gate.conversationalEvaluatorId).filter(gate => {
+    const items = gateAssessmentIds(gate).map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
+    return items.length > 0 && items.every(item => RECOGNITION_TYPES.has(item.type));
+  }).map(gate => gate.id);
 }
 /** Assessment rules for versioned gates, enforced again here although the SDK validates them at
  * import: recognition alone cannot pass, transfer evidence must be collectable, and declared

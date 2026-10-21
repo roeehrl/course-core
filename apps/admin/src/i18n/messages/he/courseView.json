@@ -54,5 +54,7 @@
   "olderLabel": "אני רוצה לפרסם את הגרסה הישנה יותר {version}",
   "confirm": "אישור הפרסום",
   "previewAsLearners": "תצוגה כמו של לומדים",
-  "previewDialog": "גרסה {version} כפי שלומדים פוגשים אותה"
+  "previewDialog": "גרסה {version} כפי שלומדים פוגשים אותה",
+  "check.code.LEGACY_RECOGNITION_ONLY_GATES.label": "נקודות בקרה שעוברים רק בבחירת תשובות",
+  "check.code.LEGACY_RECOGNITION_ONLY_GATES.detail": "נקודות הבקרה {gates} (SDK 0.4) כוללות רק שאלות בחירה, כך שאפשר לעבור אותן בזיהוי בלבד. כדאי להוסיף משימה שבה הלומד/ת מפיק/ה תשובה בעצמו/ה, או להעביר את הקורס לנקודות בקרה של SDK 0.5."
 }

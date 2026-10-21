@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decideGate, type CourseManifest, type VersionedProgressionGate } from "@course-core/sdk";
-import { assertCourseRunnable, assertLegacyGateRules, assertVersionedGateRules } from "../src/publication.js";
+import { assertCourseRunnable, assertVersionedGateRules, recognitionOnlyLegacyGates } from "../src/publication.js";
 import { evaluateGate, type AttemptSignal, type GateEvidence } from "../src/gates.js";
 import { gradeDeterministic, numericAnswer, publicQuestion } from "../src/learning.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
@@ -178,10 +178,17 @@ describe("false-mastery rules on unversioned 0.4 gates", () => {
     const cleared = evaluateGate(c, g, [b, row("e3", "min-a", "compare")], digest, { signals: [wrong] });
     expect(cleared).toMatchObject({ status: "ready", unresolvedMisconceptionIds: [] });
   });
-  it("refuses to publish a 0.4 gate of recognition items only", () => {
-    const { c, g } = legacyCourse({ items: ["min-a"] });
-    expect(() => assertLegacyGateRules(c, g)).toThrowError(/PUBLISH_RECOGNITION_ONLY_GATE/);
-    expect(() => assertLegacyGateRules(legacyCourse().c, legacyCourse().g)).not.toThrow();
+  it("keeps a 0.4 gate of recognition items only publishable (SDK compatibility) but names it for a staff warning", () => {
+    const { c } = legacyCourse({ items: ["min-a"] });
+    expect(recognitionOnlyLegacyGates(c)).toEqual(["min-gate"]);
+    expect(() => assertCourseRunnable(c, [])).not.toThrow();
+    expect(recognitionOnlyLegacyGates(legacyCourse().c)).toEqual([]);
+    // Such a gate keeps its 0.4 rule: two recognition families pass it, as SDK 0.4 promised.
+    const { c: only, g } = legacyCourse({ items: ["min-a"] });
+    only.assessments.push({ id: "min-c", type: "choice", objectiveIds: ["minimum"], familyId: "pick", prompt: "Which is smaller, 7 or 3?", options: [{ id: "three", text: "3" }, { id: "seven", text: "7" }],
+      grading: { correctOptionId: "three", explanation: "3 is below 7." } });
+    g.assessmentIds.push("min-c");
+    expect(evaluateGate(only, g, [row("e1", "min-a", "compare"), row("e2", "min-c", "pick")], digest).status).toBe("ready");
   });
 });
 

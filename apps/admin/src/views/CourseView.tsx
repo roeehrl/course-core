@@ -6,7 +6,7 @@ import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
-import { useI18n, useT } from "../i18n";
+import { useI18n, useT, type MessageKey } from "../i18n";
 import {
   ArrowUpRight,
   Check,
@@ -50,6 +50,15 @@ export function CourseView({
 }) {
   const i18n = useI18n();
   const t = useT();
+  /** A server check with a code, in the reader's language; undefined keeps the server's text. */
+  const checkText = (
+    check: { code?: string; params?: Record<string, string> },
+    part: "label" | "detail",
+  ) => {
+    const key =
+      `courseView.check.code.${check.code ?? ""}.${part}` as MessageKey;
+    return check.code && i18n.has(key) ? i18n.t(key, check.params) : undefined;
+  };
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);
   const selected =
     data.releases.find((item) => item.id === selectedId) ?? data.releases[0];
@@ -258,8 +267,8 @@ export function CourseView({
                   {check.passed && !check.warning ? <Check size={16} /> : "!"}
                 </span>
                 <div>
-                  <strong>{check.label}</strong>
-                  <small>{check.detail}</small>
+                  <strong>{checkText(check, "label") ?? check.label}</strong>
+                  <small>{checkText(check, "detail") ?? check.detail}</small>
                 </div>
                 <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
                   {check.warning

@@ -135,6 +135,9 @@ export const releaseSchema = z.object({
       passed: z.boolean(),
       detail: text,
       warning: z.boolean().optional(),
+      /** A check the app can explain in the reader's language (`courseView.check.code.<code>`). */
+      code: z.string().max(80).optional(),
+      params: z.record(z.string(), z.string().max(2000)).optional(),
     }),
   ),
 });
