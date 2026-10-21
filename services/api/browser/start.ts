@@ -10,6 +10,7 @@ import { composeProviders } from "../src/provider-composition.js";
 import {
   configureSupervisorBudget,
   createPostgresSupervisorBridge,
+  parkSupervisorJob,
   recordSupervisorVerification,
   storeSupervisorArtifact,
 } from "../src/supervisor-bridge.js";
@@ -834,6 +835,37 @@ app.post("/test/hypothesis-session", async (request) => {
     for (const block of min.blocks) if (block.type !== "assessment") await send("read", { episodeId: "min", blockId: block.id });
     await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
   }
+  return { token: await issueLoginCode(db, userId) };
+});
+// A learner of the hypothesis course who opted in to personal support: a confident wrong answer
+// started a teaching action (B03), and a supervisor job waits for them to decide a new overall
+// goal it proposed (B06). The job is parked (needs_input) exactly as the plan verifier parks it.
+app.post("/test/supervisor-requests-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "requests-browser:" + userId, "Requests learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [hypothesisWorkspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: hypothesisReleaseId } })).json().id as string;
+  const send = async (action: string, body: Record<string, unknown>) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision;
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/${action}`, headers, payload: { expectedRevision: revision, idempotencyKey: randomUUID(), ...body } });
+    if (r.statusCode !== 200) throw Error("Requests fixture failed: " + r.body);
+    return r.json();
+  };
+  await send("supervision", { adaptiveTeaching: true });
+  await send("profile", { profile: { displayName: "Requests learner", goal: "Order small lists", pace: "steady" } });
+  const issued = await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
+  await send("answers", { challengeId: issued.challengeId, answer: "nine", confidence: 5 });
+  const review = await transaction(db, (client) => appendEvent(client, { workspaceId: hypothesisWorkspaceId, enrollmentId: enrollment, actorId: userId, actorKind: "learner",
+    type: "learning.review_requested", payload: { episodeId: "min" }, idempotencyKey: randomUUID(), supervise: true }));
+  const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [hypothesisWorkspaceId] });
+  const lease = await bridge.claimOutboxEvent(review.id, randomUUID(), 30_000);
+  const [job] = lease ? await bridge.prepareOutbox(lease) : [];
+  if (!job || !lease || !(await bridge.ackOutbox(lease))) throw Error("Requests fixture job failed");
+  await parkSupervisorJob(db, job, "needs_input");
+  await db.query(`INSERT INTO supervisor_authority_requests(id,enrollment_id,workspace_id,job_id,kind,approver,proposal) VALUES($1,$2,$3,$4,'goal_change','learner',$5)`,
+    [randomUUID(), enrollment, hypothesisWorkspaceId, job.jobId, JSON.stringify({ goal: "Find minima and maxima", reason: "You asked about maxima twice." })]);
   return { token: await issueLoginCode(db, userId) };
 });
 // Closes a /test/session enrollment at its reached cap with read-only material and a
