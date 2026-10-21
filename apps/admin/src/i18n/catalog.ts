@@ -68,6 +68,7 @@ import en_policyHistory from "./messages/en/policyHistory.json";
 import en_policyMigrationEditor from "./messages/en/policyMigrationEditor.json";
 import en_policySettingsCard from "./messages/en/policySettingsCard.json";
 import en_policyView from "./messages/en/policyView.json";
+import en_privacyRules from "./messages/en/privacyRules.json";
 import en_providerCosts from "./messages/en/providerCosts.json";
 import en_providerEvals from "./messages/en/providerEvals.json";
 import en_providerSetup from "./messages/en/providerSetup.json";
@@ -85,6 +86,7 @@ import en_reviewsView from "./messages/en/reviewsView.json";
 import en_rubricFindings from "./messages/en/rubricFindings.json";
 import en_runInspector from "./messages/en/runInspector.json";
 import en_runInspectorPanels from "./messages/en/runInspectorPanels.json";
+import en_runText from "./messages/en/runText.json";
 import en_runsView from "./messages/en/runsView.json";
 import en_scopeLabel from "./messages/en/scopeLabel.json";
 import en_serverMessages from "./messages/en/serverMessages.json";
@@ -167,6 +169,7 @@ import he_policyHistory from "./messages/he/policyHistory.json";
 import he_policyMigrationEditor from "./messages/he/policyMigrationEditor.json";
 import he_policySettingsCard from "./messages/he/policySettingsCard.json";
 import he_policyView from "./messages/he/policyView.json";
+import he_privacyRules from "./messages/he/privacyRules.json";
 import he_providerCosts from "./messages/he/providerCosts.json";
 import he_providerEvals from "./messages/he/providerEvals.json";
 import he_providerSetup from "./messages/he/providerSetup.json";
@@ -184,6 +187,7 @@ import he_reviewsView from "./messages/he/reviewsView.json";
 import he_rubricFindings from "./messages/he/rubricFindings.json";
 import he_runInspector from "./messages/he/runInspector.json";
 import he_runInspectorPanels from "./messages/he/runInspectorPanels.json";
+import he_runText from "./messages/he/runText.json";
 import he_runsView from "./messages/he/runsView.json";
 import he_scopeLabel from "./messages/he/scopeLabel.json";
 import he_serverMessages from "./messages/he/serverMessages.json";
@@ -268,6 +272,7 @@ export const en = {
   policyMigrationEditor: en_policyMigrationEditor,
   policySettingsCard: en_policySettingsCard,
   policyView: en_policyView,
+  privacyRules: en_privacyRules,
   providerCosts: en_providerCosts,
   providerEvals: en_providerEvals,
   providerSetup: en_providerSetup,
@@ -285,6 +290,7 @@ export const en = {
   rubricFindings: en_rubricFindings,
   runInspector: en_runInspector,
   runInspectorPanels: en_runInspectorPanels,
+  runText: en_runText,
   runsView: en_runsView,
   scopeLabel: en_scopeLabel,
   serverMessages: en_serverMessages,
@@ -369,6 +375,7 @@ export const he: PartialCatalog<typeof en> = {
   policyMigrationEditor: he_policyMigrationEditor,
   policySettingsCard: he_policySettingsCard,
   policyView: he_policyView,
+  privacyRules: he_privacyRules,
   providerCosts: he_providerCosts,
   providerEvals: he_providerEvals,
   providerSetup: he_providerSetup,
@@ -386,6 +393,7 @@ export const he: PartialCatalog<typeof en> = {
   rubricFindings: he_rubricFindings,
   runInspector: he_runInspector,
   runInspectorPanels: he_runInspectorPanels,
+  runText: he_runText,
   runsView: he_runsView,
   scopeLabel: he_scopeLabel,
   serverMessages: he_serverMessages,

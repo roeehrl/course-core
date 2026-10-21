@@ -62,34 +62,35 @@ export async function runWorkflow(client: Sql, job: RunRow) {
     "SELECT id,verdict,revoked_at FROM supervisor_verifications WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3", scope)).rows[0];
   const application = (await client.query<{ id: string; application_kind: string }>(
     "SELECT id,application_kind FROM supervisor_applications WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3", scope)).rows[0];
-  type Node = { id: string; kind: string; label: string; status: string; parentId: string | null };
+  // `facts` are IDs, codes and counts; the admin app words each node kind from them.
+  type Node = { id: string; kind: string; facts: Record<string, string | number>; status: string; parentId: string | null };
   const nodes: Node[] = [];
-  if (event) nodes.push({ id: `event:${event.id}`, kind: "input_event", label: `${event.event_type} (#${event.sequence})`, status: "recorded", parentId: null });
+  if (event) nodes.push({ id: `event:${event.id}`, kind: "input_event", facts: { eventType: event.event_type, sequence: Number(event.sequence) }, status: "recorded", parentId: null });
   const runNode = `run:${job.id}`;
-  nodes.push({ id: runNode, kind: "run", label: `${job.role} run · workflow ${job.workflow_id}`, status: job.state, parentId: event ? `event:${event.id}` : null });
+  nodes.push({ id: runNode, kind: "run", facts: { role: job.role, workflowId: job.workflow_id }, status: job.state, parentId: event ? `event:${event.id}` : null });
   const checkpoints = snapshot?.specification.checkpoints ?? [];
   for (const checkpoint of checkpoints) {
     const checkpointNode = `checkpoint:${checkpoint.id}`;
     const operations = (snapshot?.operations ?? []).filter((o) => o.checkpointId === checkpoint.id);
-    nodes.push({ id: checkpointNode, kind: "checkpoint", label: `Checkpoint ${checkpoint.id}${checkpoint.phase ? ` (${checkpoint.phase})` : ""}`,
+    nodes.push({ id: checkpointNode, kind: "checkpoint", facts: { checkpointId: checkpoint.id, ...(checkpoint.phase ? { phase: checkpoint.phase } : {}) },
       status: operations.at(-1)?.status ?? "not_started", parentId: runNode });
     for (const operation of operations) {
       const operationNode = `operation:${operation.id}:${operation.attempt}`;
       const dispatch = dispatches.find((d) => d.operation_id === operation.id);
-      nodes.push({ id: operationNode, kind: "operation", label: `Attempt ${operation.attempt}${dispatch ? ` · provider ${dispatch.state}` : ""}`, status: operation.status, parentId: checkpointNode });
+      nodes.push({ id: operationNode, kind: "operation", facts: { attempt: operation.attempt, ...(dispatch ? { providerState: dispatch.state } : {}) }, status: operation.status, parentId: checkpointNode });
       for (const call of tools.filter((t) => t.operation_id === operation.id))
-        nodes.push({ id: `tool:${call.id}`, kind: "tool_call", label: `Step ${call.step}: ${call.tool}`, status: "recorded", parentId: operationNode });
+        nodes.push({ id: `tool:${call.id}`, kind: "tool_call", facts: { step: call.step, tool: call.tool }, status: "recorded", parentId: operationNode });
       for (const artifact of artifacts.filter((a) => a.operation_id === operation.id))
-        nodes.push({ id: `artifact:${artifact.id}`, kind: "artifact", label: `${artifact.kind ?? "artifact"} ${artifact.id}`, status: "stored", parentId: operationNode });
+        nodes.push({ id: `artifact:${artifact.id}`, kind: "artifact", facts: { artifactId: artifact.id, ...(artifact.kind ? { artifactKind: artifact.kind } : {}) }, status: "stored", parentId: operationNode });
     }
   }
   // Tool calls or artifacts whose operation the snapshot no longer lists still appear, under the run.
   const listed = new Set(nodes.map((n) => n.id));
-  for (const call of tools) if (!listed.has(`tool:${call.id}`)) nodes.push({ id: `tool:${call.id}`, kind: "tool_call", label: `Step ${call.step}: ${call.tool}`, status: "recorded", parentId: runNode });
+  for (const call of tools) if (!listed.has(`tool:${call.id}`)) nodes.push({ id: `tool:${call.id}`, kind: "tool_call", facts: { step: call.step, tool: call.tool }, status: "recorded", parentId: runNode });
   for (const artifact of artifacts) if (!listed.has(`artifact:${artifact.id}`))
-    nodes.push({ id: `artifact:${artifact.id}`, kind: "artifact", label: `${artifact.kind ?? "artifact"} ${artifact.id}`, status: "stored", parentId: runNode });
-  if (verification) nodes.push({ id: `verification:${verification.id}`, kind: "verification", label: "Host verification", status: verification.revoked_at ? "revoked" : verification.verdict, parentId: runNode });
-  if (application) nodes.push({ id: `application:${application.id}`, kind: "application", label: `Applied as ${application.application_kind}`, status: "applied",
+    nodes.push({ id: `artifact:${artifact.id}`, kind: "artifact", facts: { artifactId: artifact.id, ...(artifact.kind ? { artifactKind: artifact.kind } : {}) }, status: "stored", parentId: runNode });
+  if (verification) nodes.push({ id: `verification:${verification.id}`, kind: "verification", facts: {}, status: verification.revoked_at ? "revoked" : verification.verdict, parentId: runNode });
+  if (application) nodes.push({ id: `application:${application.id}`, kind: "application", facts: { applicationKind: application.application_kind }, status: "applied",
     parentId: verification ? `verification:${verification.id}` : runNode });
   return { workflowId: job.workflow_id, generation: snapshot?.generation ?? null, nodes, truncated: tools.length >= 200 };
 }

@@ -80,7 +80,9 @@ test("an owner inspects a learner's lesson from the read-only view: visual state
   await expect(
     pane.getByText(/is on the learner's record and in the audit log/),
   ).toBeVisible();
-  await expect(pane.getByText("Not revealed: learner model.")).toBeVisible();
+  await expect(
+    pane.getByText("Not revealed: the learner's private model."),
+  ).toBeVisible();
   await expect(pane.getByText("LEARNER_MODEL_CANARY")).toHaveCount(0);
   await expect(pane.getByText(/Offer the number-line/)).toHaveCount(0);
   await expect(pane.getByLabel("supervised_plan content")).toContainText(

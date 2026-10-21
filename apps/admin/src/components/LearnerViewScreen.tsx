@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import { privacyRuleText } from "../domain/privacyRules";
 import {
   fromVisualExperience,
   VisualRuntime,
@@ -112,11 +113,10 @@ export function LearnerViewScreen({
         <Notice tone="blue" title={t("learnerViewScreen.withheld.title")}>
           <ul className="learner-view-withheld">
             {view.withheld.map((item) => (
-              // The label and reason are the server's text, not a catalog message.
               <li key={item.id} dir="auto">
                 {i18n.rich(
                   "learnerViewScreen.withheld.item",
-                  { label: item.label, reason: item.reason },
+                  privacyRuleText(i18n, item),
                   {
                     strong: (children, key) => (
                       <strong key={key}>{children}</strong>

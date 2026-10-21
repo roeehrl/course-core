@@ -71,8 +71,10 @@ describe("run inspector views", () => {
     expect(body.payload).toBe("withheld");
     const kinds = body.workflow.nodes.map((n: { kind: string }) => n.kind);
     expect(kinds).toEqual(["input_event", "run", "checkpoint", "operation", "tool_call", "tool_call", "tool_call", "tool_call", "artifact"]);
-    expect(body.workflow.nodes.find((n: { kind: string }) => n.kind === "operation").label).toBe("Attempt 1 · provider completed");
-    expect(body.workflow.nodes.filter((n: { kind: string }) => n.kind === "tool_call").map((n: { label: string }) => n.label)).toEqual(calls.map((c) => `Step ${c.step}: ${c.tool}`));
+    // Facts only (IDs, codes, counts): the admin app words each node, so no English leaves the server.
+    expect(body.workflow.nodes.find((n: { kind: string }) => n.kind === "operation")).toMatchObject({ facts: { attempt: 1, providerState: "completed" } });
+    expect(body.workflow.nodes.filter((n: { kind: string }) => n.kind === "tool_call").map((n: { facts: unknown }) => n.facts)).toEqual(calls.map((c) => ({ step: c.step, tool: c.tool })));
+    expect(body.workflow.nodes.every((n: object) => !("label" in n))).toBe(true);
     expect(body.policies).toMatchObject({ jobBudget: { microUsd: 900, tokens: 800 }, charged: { microUsd: 300, tokens: 120 },
       operations: [{ reservation: { microUsd: 900, tokens: 800 }, usage: { microUsd: 300, tokens: 120 } }],
       enrollmentBudget: { limit: { microUsd: 5000, tokens: 4000 }, used: { microUsd: 300 }, daily: { microUsd: 2000, tokens: null } }, supervision: { state: "active" } });
@@ -220,7 +222,7 @@ describe("inspector entry from the learner's activity", () => {
     const { jobId } = await recordRun();
     const listed = await call(instructor, "GET", `/api/admin/enrollments/${enrollment}/runs?episodeId=min`);
     expect(listed.statusCode, listed.body).toBe(200);
-    expect(listed.json()).toEqual({ courseId: catalog, runs: [{ id: jobId, label: "supervisor run", status: "ready", startedAt: expect.any(String), episodeId: "min", blockId: null }] });
+    expect(listed.json()).toEqual({ courseId: catalog, runs: [{ id: jobId, role: "supervisor", status: "ready", startedAt: expect.any(String), episodeId: "min", blockId: null }] });
     expect((await call(instructor, "GET", `/api/admin/enrollments/${enrollment}/runs?episodeId=max`)).json().runs).toEqual([]);
     expect((await call(observer, "GET", `/api/admin/enrollments/${enrollment}/runs`)).statusCode).toBe(403);
     expect((await call(learner, "GET", `/api/admin/enrollments/${enrollment}/runs`)).statusCode).toBe(403);
