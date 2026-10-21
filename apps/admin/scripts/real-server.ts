@@ -783,6 +783,57 @@ app.post("/test/release-safety-fixture", async () => {
   await publish(second);
   return { code: await issueLoginCode(db, ownerId) };
 });
+// Test-only (Q09): an owner with version 1.0.0 of the fixture course published and a draft of
+// 1.0.1, so the answer keys page can test a key change against test answers and save it.
+app.post("/test/answer-keys-fixture", async () => {
+  const workspaceId = randomUUID(),
+    ownerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `keys-${workspaceId}`,
+    "Answer keys workspace",
+  ]);
+  await db.query(
+    "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+    [ownerId, `keys:${ownerId}`, "Keys owner"],
+  );
+  await db.query(
+    "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+    [workspaceId, ownerId, "owner"],
+  );
+  const r = await app.inject({
+    method: "POST",
+    url: "/auth/redeem",
+    headers: { origin },
+    payload: { token: await issueLoginCode(db, ownerId) },
+  });
+  const owner = {
+    cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+    origin,
+    "x-csrf-token": r.json().csrfToken,
+  };
+  const create = async (version: string) => {
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspaceId}/releases`,
+      headers: owner,
+      payload: { ...fixture(), version },
+    });
+    if (created.statusCode !== 200)
+      throw new Error(`Answer keys fixture import failed: ${created.body}`);
+    return created.json().id as string;
+  };
+  const published = await create("1.0.0");
+  const publish = await app.inject({
+    method: "POST",
+    url: `/api/releases/${published}/publish`,
+    headers: owner,
+  });
+  if (publish.statusCode !== 200)
+    throw new Error("Answer keys fixture publication failed");
+  await create("1.0.1");
+  return { code: await issueLoginCode(db, ownerId) };
+});
 // Test-only: an owner with version 1.0.0 of the fixture course published, and synthetic
 // course-package files built in-process from public fixtures (a new version, a new course).
 app.post("/test/course-package-fixture", async () => {

@@ -907,6 +907,13 @@ assignment validation, policy work caps, plan and evidence fences, an audited
 `stageOnly: true` only verifies and stages it for the existing apply route.
 Retries with the same key replay the stored result.
 
+**Return point after a detour.** When the learner opens a lesson off their path
+(an optional lesson, authored or inserted for them, or one they already
+finished) while their current step is elsewhere, the lesson names where they
+return to: the current lesson and the part they stopped at, or its check when
+every part is read, with a button that takes them there (`returnPoint` in
+`apps/learner/src/connected/ConnectedLesson.web.tsx`).
+
 ## Delayed retention checks
 
 Courses declaring SDK 0.3 `retention` get one schedule per retention objective,
