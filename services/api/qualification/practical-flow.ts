@@ -55,7 +55,7 @@ try {
       inputs: [{ name: 'slope', label: 'Slope', min: -5, max: 5, step: 1, initial: 2 }, { name: 'x', label: 'x', min: 0, max: 10, step: 1, initial: 3 }, { name: 'intercept', label: 'b', min: -10, max: 10, step: 1, initial: 1 }],
       outputs: [{ name: 'y', label: 'y' }],
       tests: [{ id: 'start', input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: 'steep', input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } }, { id: 'flat', input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }] };
-    const text = (c: typeof component) => ({ ...common, kind: 'practice', markdown: componentText(c), digest: '0'.repeat(64) }) as never;
+    const text = (c: typeof component) => ({ ...common, kind: 'practice', markdown: componentText(c, context.course.locale), digest: '0'.repeat(64) }) as never;
     assert.deepEqual(await componentChecks(component, text(component), registry.id, context), { failedCheckIds: [], problems: [] });
     const wrong = { ...component, tests: component.tests.map((t, i) => i ? t : { ...t, expected: { y: 8 } }) };
     assert.deepEqual((await componentChecks(wrong, text(wrong), registry.id, context)).problems, ['component_tests_failed']);

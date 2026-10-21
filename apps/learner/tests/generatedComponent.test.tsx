@@ -40,3 +40,13 @@ it("says so when models cannot run here, and keeps the text alternative as the w
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Run the model" })); });
   expect(screen.getByText(/Models cannot run in this browser/)).toBeVisible();
 });
+
+it("shows the grader-verified starting values before a run, and only at the starting position", () => {
+  render(<GeneratedComponentPanel component={{ ...component, start: { outputs: { y: 6 } } }} loadRunner={async () => null} />);
+  expect(screen.getByText("6")).toBeVisible();
+  expect(screen.getByText(/values at the starting position, checked before this was added/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Slope"), { target: { value: "4" } });
+  // Another position was never checked: nothing is claimed for it until the learner runs the model.
+  expect(screen.queryByText("6")).toBeNull();
+  expect(screen.getByText("Run the model to see this.")).toBeVisible();
+});
