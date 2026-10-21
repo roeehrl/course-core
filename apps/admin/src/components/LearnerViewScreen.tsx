@@ -5,6 +5,7 @@ import {
 } from "@course-core/visuals/headless";
 import { VisualRuntimePlayer } from "@course-core/visuals/react";
 import "@course-core/visuals/styles.css";
+import { useVisualMessages } from "./visualMessages";
 import { CheckCircle2, Circle, EyeOff, Lock, MapPin } from "lucide-react";
 import type {
   LearnerBlock,
@@ -826,6 +827,7 @@ function Visual({
     }
   }, [experience]);
   const t = useT();
+  const visualText = useVisualMessages();
   useRegisterRuntime(blockId, prepared, experience);
   const authored = experience?.accessibility?.description?.trim();
   const fallback = (
@@ -839,7 +841,12 @@ function Visual({
   return (
     <div className="learner-view-visual">
       {prepared ? (
-        <VisualRuntimePlayer runtime={prepared} fallback={fallback} />
+        <VisualRuntimePlayer
+          runtime={prepared}
+          fallback={fallback}
+          messages={visualText.messages}
+          locale={visualText.locale}
+        />
       ) : (
         fallback
       )}
