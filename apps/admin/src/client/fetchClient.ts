@@ -164,6 +164,7 @@ import {
 import {
   AssessmentAdminError,
   assessmentListSchema,
+  sourceFreshnessSchema,
   fixtureListSchema,
   fixtureResultSchema,
   fixtureRunSchema,
@@ -1650,6 +1651,15 @@ export function createFetchAdminClient(
       },
     },
     assessments: {
+      sources: (catalogId, releaseId, windowDays, signal) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/sources?windowDays=${windowDays}`,
+          sourceFreshnessSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
       list: (catalogId, releaseId, signal) =>
         direct(
           `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments`,
