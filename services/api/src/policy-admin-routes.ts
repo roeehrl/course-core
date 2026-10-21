@@ -111,7 +111,8 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
     const check = release ? await publicationPolicyCheck(client, release.id, release.server_bundle, new Date().toISOString(), override ?? current.settings) : null;
     return { courseId: catalog.id, source: current.source, revision: current.revision, changedAt: current.changedAt,
       settings: current.settings, defaults: DEFAULT_COURSE_POLICY_SETTINGS, releaseId: release?.id ?? null,
-      preview: check && { settings: check.settings, feasibility: check.feasibility, calendar: check.calendar },
+      // What each allowance pool can extend for a learner enrolling now (unusable scopes are flagged).
+      preview: check && { settings: check.settings, feasibility: check.feasibility, calendar: check.calendar, pools: check.pools },
       appliesTo: "new_enrollments" as const };
   }
   app.get(`${course}/policy-settings`, async (request) => {
@@ -139,6 +140,8 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
       await client.query(`INSERT INTO course_policy_settings(catalog_id,workspace_id,revision,settings,changed_by) VALUES($1,$2,$3,$4,$5)
         ON CONFLICT(catalog_id) DO UPDATE SET revision=EXCLUDED.revision,settings=EXCLUDED.settings,changed_by=EXCLUDED.changed_by,changed_at=clock_timestamp()`,
         [catalog.id, catalog.workspace_id, revision, JSON.stringify(input.settings), actor.id]);
+      await client.query("INSERT INTO policy_setting_revisions(workspace_id,level,catalog_id,revision,settings,reason,changed_by) VALUES($1,'course',$2,$3,$4,$5,$6)",
+        [catalog.workspace_id, catalog.id, revision, JSON.stringify(input.settings), input.reason, actor.id]);
       await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "policy.settings_changed",
         payload: { courseId: catalog.id, revision, settings: input.settings, reason: input.reason }, idempotencyKey: `policy-settings:${catalog.id}:${revision}` });
       return { ...(await settingsView(client, catalog)), message: "Policy settings saved. They apply to new enrollments; existing learners keep their current terms." };

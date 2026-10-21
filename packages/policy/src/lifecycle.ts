@@ -105,7 +105,9 @@ export function previewAccommodation(input: PolicyState, request: z.input<typeof
   // An outage gives back time the service took away; it never adds work.
   if (args.kind === 'outage') assert(args.change.deadline && !args.change.work, 'OUTAGE_DEADLINE_ONLY', 'An outage adjustment moves a deadline and adds no work');
   const adjustment = buildAdjustment(state, args.scopeId, args.change);
-  const preview = { ...args, enrollmentId: state.enrollmentId, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision, adjustment };
+  const before = resolveInternal(state, args.scopeId), after = resolveInternal(state, args.scopeId, adjustment);
+  const preview = { ...args, enrollmentId: state.enrollmentId, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision, adjustment,
+    effectiveDeadlineBefore: before.effectiveDeadline, effectiveDeadlineAfter: after.effectiveDeadline, bindingAfter: after.binding };
   return { ...preview, previewDigest: digest(preview) };
 }
 

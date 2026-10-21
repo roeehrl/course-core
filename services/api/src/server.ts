@@ -56,6 +56,8 @@ import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
+import { registerPolicyScopeRoutes } from './policy-scope-routes.js';
+import { registerContinuationRoutes } from './continuation.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerConceptMappingRoutes } from './concept-mappings.js';
 import { registerCrossCourseRoutes } from './cross-course.js';
@@ -367,6 +369,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
   registerPolicyAdminRoutes(app, db, auth);
+  registerPolicyScopeRoutes(app, db, auth);
+  registerContinuationRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);

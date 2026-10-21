@@ -1,6 +1,6 @@
 import type { CourseManifest, LearningPolicy } from '@course-core/sdk';
 import { getEpisodeRequirement } from '@course-core/sdk';
-import { checkAction, checkFeasibility, createPolicyState, previewCalendarRule, resolveCalendarWindow, resolveConstraints,
+import { checkAction, checkFeasibility, createPolicyState, poolBalances, previewCalendarRule, resolveCalendarWindow, resolveConstraints,
   type PolicyState, type ScopePolicy } from '@course-core/policy';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
@@ -351,4 +351,42 @@ export async function assertGradeAllowed(client: PoolClient, input: { enrollment
     submissionReceipt: { receiptId: input.attemptId, enrollmentId: input.enrollmentId, scopeId, attemptId: input.attemptId, submittedAt, eligible: true, policyRevision: state.policyRevision } });
   if (!result.allowed) throw new ApiError(409, result.violations[0]!.code);
   return result.snapshot;
+}
+
+/** What an extension request asks for, in named units, and optionally which pools pay. */
+export const extensionAmountsSchema = z.strictObject({
+  days: z.number().int().min(1).max(366).optional(),
+  minutes: z.number().int().min(1).max(100_000).optional(),
+  episodes: z.number().int().min(1).max(1_000).optional(),
+  poolIds: z.array(z.string().min(1).max(256)).min(1).max(10).optional(),
+});
+export type ExtensionAmounts = z.infer<typeof extensionAmountsSchema>;
+const UNIT_POOLS = { days: ['calendar_day', 'scope_calendar_day'], minutes: ['planned_minute'], episodes: ['episode'] } as const;
+/** Turns days, planned minutes and episodes into an exact extension change with one pool debit
+ * per unit. Each unit is paid by one pool enabled at this scope: the one the caller names, else
+ * the most specific (fewest scopes, then name) that can fund it. The policy still checks every
+ * balance, per-grant maximum and ancestor cap, so a request can never overdraw a pool. */
+export function extensionRequest(state: PolicyState, scopeId: string, amounts: ExtensionAmounts) {
+  const scope = state.scopes.find(row => row.scopeId === scopeId);
+  requireCondition(scope, 'UNKNOWN_SCOPE', 404);
+  requireCondition(amounts.days || amounts.minutes || amounts.episodes, 'INVALID_REQUEST');
+  requireCondition(scope.extensions?.enabled, 'EXTENSIONS_DISABLED', 409);
+  const debits: { poolId: string; amount: number }[] = [];
+  const balances = new Map(poolBalances(state).map(b => [b.poolId, b]));
+  for (const unit of ['days', 'minutes', 'episodes'] as const) {
+    const amount = amounts[unit];
+    if (!amount) continue;
+    const candidates = state.pools
+      .filter(p => scope.extensions!.poolIds.includes(p.poolId) && (UNIT_POOLS[unit] as readonly string[]).includes(p.unit) && (!amounts.poolIds || amounts.poolIds.includes(p.poolId)))
+      .sort((a, b) => a.scopeIds.length - b.scopeIds.length || (a.poolId < b.poolId ? -1 : a.poolId > b.poolId ? 1 : 0));
+    requireCondition(candidates.length, unit === 'days' ? 'EXTENSIONS_DISABLED' : 'NO_POOL_FOR_UNIT', 409);
+    const funded = candidates.find(p => { const b = balances.get(p.poolId)!; return amount <= p.maxPerGrant && amount <= b.remaining && b.grantsRemaining > 0; });
+    // None can fund it: let the policy explain why with the first candidate's limits.
+    debits.push({ poolId: (funded ?? candidates[0]!).poolId, amount });
+  }
+  if (amounts.days) requireCondition(scope.window || scope.hardDeadline, 'NO_DEADLINE_TO_EXTEND', 409);
+  const work = { ...(amounts.minutes ? { additionalMinutes: amounts.minutes } : {}), ...(amounts.episodes ? { additionalEpisodes: amounts.episodes } : {}) };
+  return { scopeId, change: { ...(amounts.days ? { deadline: { kind: scope.window ? 'window' as const : 'absolute' as const, calendarDays: amounts.days } } : {}),
+    ...(Object.keys(work).length ? { work } : {}) },
+    addedWork: { additionalMinutes: 0, additionalEpisodes: 0, remediation: [] }, poolDebits: debits };
 }
