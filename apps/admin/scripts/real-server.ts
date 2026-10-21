@@ -214,6 +214,7 @@ const { googleAdapterFactory } =
 const { PUBLIC_SCRIPTED_MODELS } =
   await import("../../../services/api/src/agent-evals/public-suite.ts");
 let scriptedDialogue: string | undefined;
+const scriptedRounds = new Map<string, number>();
 const syntheticGemini: typeof fetch = async (input, init) => {
   const url = new URL(String(input));
   if (
@@ -232,10 +233,24 @@ const syntheticGemini: typeof fetch = async (input, init) => {
       }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
+  // A tool-loop conversation answers round by round (every agent role is evaluated, N07).
+  const round = (scriptedRounds.get(scriptedDialogue!) ?? 0) + 1;
+  scriptedRounds.set(scriptedDialogue!, round);
   const text =
     output.kind === "text"
       ? output.text
-      : JSON.stringify({ summary: output.summary, needs: output.needs });
+      : output.kind === "plan"
+        ? JSON.stringify({ summary: output.summary, needs: output.needs })
+        : output.kind === "tool_script"
+          ? JSON.stringify(
+              output.rounds[Math.min(round, output.rounds.length) - 1],
+            )
+          : output.kind === "review_answer"
+            ? JSON.stringify({
+                summary: output.summary,
+                criteria: output.criteria,
+              })
+            : JSON.stringify(output);
   const prompt = Math.ceil(String(init.body).length / 4),
     answer = Math.ceil(text.length / 4);
   return new Response(
