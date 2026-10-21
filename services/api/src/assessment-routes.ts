@@ -10,6 +10,7 @@ import { appendEvent } from './events.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext } from './repository.js';
 import { episodes, gateDecision, gradeDeterministic, publicQuestion, requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
+import { assertReviewAllowed } from './continuation.js';
 import type { RuntimeExtension } from './publication.js';
 import { closeCompletedCourse } from './closure.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
@@ -138,7 +139,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       requireCondition(challenge.course_digest === context.release.digest, 'COURSE_VERSION_CHANGED', 409);
       const course = context.release.server_bundle;
       if (challenge.mode !== 'placement') requireAvailable(course, context.release.digest, context.progress, context.evidence, challenge.episode_id);
-      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
+      // A spaced review answer is also allowed on a closed course's opt-in continuation track.
+      if (challenge.mode === 'retention') await assertReviewAllowed(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
+      else await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
       const assessment = findAssessment(course, challenge.assessment_id)!;
       // Confidence is optional, only on items that declare it, and never part of grading.
       if (input.confidence !== undefined) requireCondition(assessment.confidence && input.confidence <= assessment.confidence.scale.maximum, 'INVALID_CONFIDENCE');

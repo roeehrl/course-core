@@ -11,7 +11,7 @@ import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { episodes, gateDecision, publicQuestion } from "./learning.js";
 import { DETERMINISTIC_ITEM_TYPES } from "./gates.js";
-import { assertPolicyAction } from "./policy-adapter.js";
+import { assertReviewAllowed, continuationTrack } from "./continuation.js";
 import { systemClock, type Clock } from "./clock.js";
 
 const DAY = 86_400_000;
@@ -111,7 +111,9 @@ export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth
     return enrollmentCommand(db, actor, enrollmentId, "retention.check", input, async (client, context) => {
       const course = context.release.server_bundle, retention = retentionOf(course);
       requireCondition(retention?.objectiveIds.includes(input.objectiveId), "RETENTION_UNAVAILABLE", 409);
-      requireCondition(context.enrollment.status === "active" || context.enrollment.status === "completed", "ENROLLMENT_INACTIVE", 409);
+      // A closed course keeps review only on the learner's opt-in continuation track (continuation.ts).
+      const track = context.enrollment.status === "closed" ? await continuationTrack(client, enrollmentId) : null;
+      requireCondition(context.enrollment.status === "active" || context.enrollment.status === "completed" || track?.state === "active", "ENROLLMENT_INACTIVE", 409);
       await syncSchedules(client, context);
       const schedule = (await client.query("SELECT * FROM retention_schedules WHERE enrollment_id=$1 AND objective_id=$2 FOR UPDATE", [enrollmentId, input.objectiveId])).rows[0];
       requireCondition(schedule, "OBJECTIVE_NOT_DEMONSTRATED", 409);
@@ -124,7 +126,7 @@ export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth
       requireCondition(assessment, "RETENTION_ITEMS_EXHAUSTED", 409);
       requireCondition(DETERMINISTIC_ITEM_TYPES.has(assessment.type), "EVALUATOR_NOT_CONFIGURED", 409);
       const episode = episodes(course).find((e) => e.objectiveIds.includes(input.objectiveId))!;
-      await assertPolicyAction(client, enrollmentId, episode.id, "plan", now.toISOString());
+      await assertReviewAllowed(client, enrollmentId, episode.id, "plan", now.toISOString());
       const challengeId = randomUUID();
       await client.query(
         `INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,expires_at)

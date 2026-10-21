@@ -51,6 +51,8 @@ import {
   activateWindows,
   assertPublishable,
   enrollmentPolicy,
+  extensionAmountsSchema,
+  extensionRequest,
   loadPolicy,
 } from "./policy-adapter.js";
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
@@ -685,8 +687,11 @@ export async function savePolicy(
 export async function policyView(client: Sql, context: EnrollmentContext) {
   const policy = await loadPolicy(client as PoolClient, context.enrollment.id),
     course = context.release.server_bundle;
+  // The organization and enrollment levels have no course title: the admin app names them by level.
   const label = (scope: ScopePolicy) =>
-    scope.kind === "course"
+    scope.kind === "organization" || scope.kind === "enrollment"
+      ? null
+      : scope.kind === "course"
       ? course.title
       : scope.kind === "chapter"
         ? (course.chapters.find((c) => `chapter:${c.id}` === scope.scopeId)
@@ -725,33 +730,6 @@ export async function policyView(client: Sql, context: EnrollmentContext) {
     })),
   };
 }
-function extensionArgs(state: PolicyState, scopeId: string, days: number) {
-  const scope = state.scopes.find((s) => s.scopeId === scopeId);
-  requireCondition(scope, "UNKNOWN_SCOPE", 404);
-  const pool = state.pools.find(
-    (p) =>
-      scope.extensions?.poolIds.includes(p.poolId) &&
-      ["calendar_day", "scope_calendar_day"].includes(p.unit),
-  );
-  requireCondition(pool, "EXTENSIONS_DISABLED", 409);
-  requireCondition(
-    scope.window || scope.hardDeadline,
-    "NO_DEADLINE_TO_EXTEND",
-    409,
-  );
-  return {
-    scopeId,
-    change: {
-      deadline: {
-        kind: scope.window ? ("window" as const) : ("absolute" as const),
-        calendarDays: days,
-      },
-    },
-    addedWork: { additionalMinutes: 0, additionalEpisodes: 0, remediation: [] },
-    poolDebits: [{ poolId: pool.poolId, amount: days }],
-  };
-}
-
 /** Static conditions under which staff may acknowledge (accept) existing evidence as valid:
  * an independent, unassisted, passing deterministic answer on the enrollment's current course
  * version. Acknowledging never changes a grade; the route also regrades the stored answer. */
@@ -1800,9 +1778,9 @@ function registerAdminPolicyRoutes(
       ),
     );
   });
-  const daysSchema = z.strictObject({
+  // Days move a deadline; planned minutes and episodes raise a work cap; at least one is required.
+  const daysSchema = extensionAmountsSchema.extend({
     scopeId: z.string().min(1).max(200),
-    days: z.number().int().min(1).max(366),
   });
   app.post(`${enrollmentPath}/extensions/preview`, async (request) => {
     const actor = await auth.authenticate(request),
@@ -1818,13 +1796,15 @@ function registerAdminPolicyRoutes(
       return {
         enrollmentId: context.enrollment.id,
         scopeId: input.scopeId,
-        days: input.days,
+        days: input.days ?? null,
+        minutes: input.minutes ?? null,
+        episodes: input.episodes ?? null,
         revision: context.enrollment.revision,
         policyRevision: state.policyRevision,
         ledgerRevision: state.ledgerRevision,
         ...previewExtension(
           state,
-          extensionArgs(state, input.scopeId, input.days),
+          extensionRequest(state, input.scopeId, input),
         ),
       };
     });
@@ -1881,7 +1861,7 @@ function registerAdminPolicyRoutes(
         const now = new Date().toISOString(),
           offerId = randomUUID();
         const transition = proposeExtension(state, {
-          ...extensionArgs(state, input.scopeId, input.days),
+          ...extensionRequest(state, input.scopeId, input),
           now,
           offerId,
           expectedPolicyRevision: state.policyRevision,
@@ -2072,7 +2052,7 @@ function registerAdminPolicyRoutes(
   // audited authority, separate from learner-requested extensions and pools.
   const adjustmentSchema = z.strictObject({
     scopeId: z.string().min(1).max(200),
-    kind: z.enum(["accommodation", "approved_pause"]),
+    kind: z.enum(["accommodation", "approved_pause", "outage"]),
     change: z.strictObject({
       deadline: z.strictObject({ kind: z.enum(["absolute", "window"]), calendarDays: z.number().int().min(1).max(366) }).optional(),
       work: z.strictObject({ additionalMinutes: z.number().int().min(1).max(100000).optional(), additionalEpisodes: z.number().int().min(1).max(1000).optional() }).optional(),
@@ -2130,7 +2110,7 @@ function registerAdminPolicyRoutes(
         return {
           policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
           receipt: { id: audit.id, authority: "server", outcome: "accommodated" },
-          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
+          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : p.kind === "outage" ? "Outage adjustment applied to this learner only. Pools and other learners are unchanged." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
         };
       },
     );
