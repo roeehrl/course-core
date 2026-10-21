@@ -110,6 +110,41 @@ test.describe("demo workspace", () => {
     }
   });
 
+  test("graded attempts: the policy is explained and an administrator allows one more attempt, in Hebrew at phone and desktop widths", async ({
+    page,
+  }) => {
+    await page.goto("/admin/demo?locale=he");
+    await expectRightToLeft(page);
+    await page.getByRole("button", { name: "מדיניות והארכות" }).click();
+    // The course setting, explained in plain words beside its two fields.
+    await expect(page.getByLabel("מספר ניסיונות לכל נקודת בקרה")).toHaveValue(
+      "3",
+    );
+    await expect(page.locator("#assessment-policy-summary")).toContainText(
+      "לכל נקודת בקרה יש 3 ניסיונות.",
+    );
+    const card = page.getByRole("region", { name: "ניסיונות לפי נקודת בקרה" });
+    await expect(card.getByRole("row").nth(2)).toContainText("3 מתוך 3");
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    }
+    await card.getByRole("button", { name: "מתן ניסיון נוסף" }).click();
+    const confirm = page.getByRole("button", { name: "מתן הניסיון" });
+    await expect(confirm).toBeDisabled();
+    await page
+      .getByLabel("סיבה", { exact: true })
+      .fill("החיבור נותק במהלך הבדיקה");
+    await expectAccessible(page);
+    await confirm.click();
+    await expect(
+      page.getByText("ניתן ניסיון נוסף. אפשר להתחיל אותו עכשיו."),
+    ).toBeVisible();
+    await expect(card.getByRole("row").nth(2)).toContainText("3 מתוך 4");
+    await expectNoHorizontalOverflow(page);
+  });
+
   test("policy and enrollments have no untranslated text under the pseudo-locale", async ({
     page,
   }) => {

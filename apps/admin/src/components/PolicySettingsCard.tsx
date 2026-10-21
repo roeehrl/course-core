@@ -8,6 +8,7 @@ import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
 import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
 import { ExtensionPoolsEditor } from "./ExtensionPoolsEditor";
+import { AssessmentPolicyFields } from "./AssessmentPolicy";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const optional = (value: string) => (value.trim() ? Number(value) : null);
@@ -332,6 +333,11 @@ function SettingsForm({
           />
         </Field>
       </div>
+      <AssessmentPolicyFields
+        value={draft.assessment}
+        canWrite={canWrite}
+        onChange={(assessment) => update({ ...draft, assessment })}
+      />
       <ExtensionPoolsEditor
         pools={draft.extensionPools}
         ultimateDeadline={draft.extensions.ultimateDeadline}

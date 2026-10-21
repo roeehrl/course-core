@@ -50,6 +50,7 @@ import {
   packagePreviewSchema,
 } from "../domain/coursePackages";
 import { checkResultSchema, updatesViewSchema } from "../domain/courseUpdates";
+import { assessmentAttemptsSchema } from "../domain/assessmentAttempts";
 import {
   moveCancelResultSchema,
   moveDetailSchema,
@@ -2378,6 +2379,26 @@ export function createFetchAdminClient(
         policySettingsViewSchema,
         "PUT",
         input,
+      ),
+    getAssessmentAttempts: (id, signal) =>
+      request(
+        `/enrollments/${encodeURIComponent(id)}/assessment-attempts`,
+        assessmentAttemptsSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    grantAssessmentAttempt: (id, input, ctx) =>
+      request(
+        `/enrollments/${encodeURIComponent(id)}/assessment-attempts/grant`,
+        assessmentAttemptsSchema,
+        "POST",
+        {
+          ...input,
+          expectedRevision: ctx.expectedRevision,
+          idempotencyKey: ctx.idempotencyKey,
+        },
       ),
     approveExtension: (id, offerId, ctx) =>
       request(
