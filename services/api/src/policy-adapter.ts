@@ -8,6 +8,7 @@ import { ApiError, requireCondition } from './errors.js';
 import { coreObjectiveIds, episodes } from './learning.js';
 import type { Database } from './database.js';
 import { policyEpisodeIdFor, type Enrollment } from './repository.js';
+import { assessmentPolicySchema, DEFAULT_ASSESSMENT_POLICY } from './assessment-policy.js';
 
 /** Host policy settings a release cannot author with SDK 0.5: the hard-deadline time zone,
  * DST disambiguation, extension approvals and offer limits, reserved core headroom, the
@@ -58,6 +59,9 @@ export const coursePolicySettingsSchema = z.strictObject({
     finalAssessmentMinutes: z.number().int().min(1).max(1_440).nullable(),
     studyMinutesPerDay: z.number().int().min(1).max(1_440).nullable(),
   }),
+  /** Graded-attempt limit and retry wait per check (assessment-policy.ts). Settings saved
+   * before it existed read as today's behaviour: no limit, no wait. */
+  assessment: assessmentPolicySchema.default({ ...DEFAULT_ASSESSMENT_POLICY }),
 });
 export type CoursePolicySettings = z.infer<typeof coursePolicySettingsSchema>;
 export const DEFAULT_COURSE_POLICY_SETTINGS: CoursePolicySettings = Object.freeze({
@@ -67,6 +71,7 @@ export const DEFAULT_COURSE_POLICY_SETTINGS: CoursePolicySettings = Object.freez
   headroom: { core: { additionalMinutes: 0, additionalEpisodes: 0 }, finalAssessment: { additionalMinutes: 0, additionalEpisodes: 0 } },
   closedQuestionBudget: 20,
   pacing: { minutesPerRequiredEpisode: null, finalAssessmentMinutes: null, studyMinutesPerDay: null },
+  assessment: { ...DEFAULT_ASSESSMENT_POLICY },
 }) as CoursePolicySettings;
 /** Organization ceilings: the outermost policy level, set per workspace. Every level below
  * may only tighten them. Absent ceilings bound nothing (the organization level is then open). */
