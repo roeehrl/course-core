@@ -9,7 +9,7 @@ import { useVisualMessages } from "../src/components/visualMessages";
 import { I18nProvider, createAdminTranslator } from "../src/i18n";
 import en from "../src/i18n/messages/en/visualErrors.json";
 
-const inLocale = (locale: string) =>
+const inLocale = (locale: Parameters<typeof createAdminTranslator>[0]) =>
   renderHook(() => useVisualMessages(), {
     wrapper: ({ children }) => (
       <I18nProvider value={createAdminTranslator(locale)}>
