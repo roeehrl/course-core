@@ -1059,6 +1059,10 @@
       "core:services/api/test/agent-evals.test.ts::runs an external held-out suite directory",
       "core:services/api/test/agent-evals.test.ts::the known-bad model fails",
       "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes"
+    ],
+    "I01": [
+      "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane",
+      "core:apps/learner/tests/windowClass.test.ts"
     ]
   },
   "critical": [
