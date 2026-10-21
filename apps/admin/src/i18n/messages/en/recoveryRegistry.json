@@ -1,1 +1,20 @@
-{}
+{
+  "error.load": "Recovery settings could not be loaded. Your draft is preserved.",
+  "error.loadShort": "Recovery settings could not be loaded.",
+  "error.json": "Provide a bounded valid JSON registry configuration.",
+  "approved": "Registry approved for this immutable release. Generation still rechecks learner scope, evidence, cost and course limits.",
+  "error.approve": "Approval could not be confirmed. Refresh the registry revision before retrying; your draft is preserved.",
+  "title": "Verified recovery checks",
+  "eyebrow": "Release-scoped author approval",
+  "intro": "Install trusted creators on the server, then approve their exact implementations, canonical families, reviewed banks and assignment costs. This does not grant mastery or expand a course allowance.",
+  "notAllowed": "A connected owner or administrator can configure qualified recovery.",
+  "release": "Recovery release",
+  "releaseOption": "{version} · {state}",
+  "installed": "Installed trusted creators",
+  "noCreators": "No recovery creators are installed. The server operator must enable qualified implementations first.",
+  "revision": "Registry revision {revision} · {state, select, approved {approved} other {not approved}}",
+  "configuration": "Recovery registry configuration",
+  "configurationHint": "Server-only answer banks belong here. Learner views never receive this configuration. Changing costs or implementations requires a new checked approval.",
+  "refresh": "Refresh recovery registry",
+  "approve": "Approve recovery registry"
+}

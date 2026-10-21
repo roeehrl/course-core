@@ -1,7 +1,6 @@
 import {
-  createContext,
-  useContext,
   useEffect,
+  useMemo,
   useId,
   useRef,
   type PropsWithChildren,
@@ -10,7 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from "lucide-react";
 import { randomId } from "../../domain/webCrypto";
-import { aiTranslator, type AiKey, type AiText } from "../../text/aiServices";
+import { useI18n, type MessageKey } from "../../i18n";
 import {
   AiServicesError,
   type Job,
@@ -18,8 +17,43 @@ import {
   type SectionState,
 } from "../../domain/aiServices";
 
-export const TextContext = createContext<AiText>(aiTranslator("en"));
-export const useAiText = () => useContext(TextContext);
+export type AiKey = MessageKey;
+export type MessageArgs = Record<string, string | number>;
+/** The page's translator (`aiServices` namespace) and the formatters it uses. String arguments
+ * are isolated left to right in right-to-left locales by the translator itself. */
+export interface AiText {
+  locale: string;
+  dir: "ltr" | "rtl";
+  t: (key: MessageKey, args?: MessageArgs) => string;
+  money: (microUsd: number) => string;
+  date: (value: string | Date) => string;
+  relative: (iso: string) => string;
+  list: (items: string[]) => string;
+}
+export function useAiText(): AiText {
+  const i18n = useI18n();
+  return useMemo(
+    () => ({
+      locale: i18n.locale,
+      dir: i18n.dir,
+      t: (key, args) => i18n.t(key, args),
+      money: (microUsd) => {
+        const usd = microUsd / 1000000,
+          small = usd > 0 && usd < 0.01;
+        return i18n
+          .currency(usd, "USD", {
+            minimumFractionDigits: small ? 4 : 2,
+            maximumFractionDigits: small ? 6 : 2,
+          })
+          .replace(/[\u200e\u200f]/g, "");
+      },
+      date: (value) => i18n.date(value, "medium"),
+      relative: (iso) => i18n.relativeFrom(iso),
+      list: (items) => i18n.list(items),
+    }),
+    [i18n],
+  );
+}
 export const newKey = () => `ai-services:${randomId()}`;
 /**
  * Idempotency keys for one form's requests. A request whose answer was lost (the server may
@@ -60,18 +94,18 @@ export const sectionAnchor = (section: SectionId | "advanced") =>
   `ai-${section}`;
 
 const PILL_KEYS: Record<SectionState["pill"], AiKey> = {
-  working: "pill.working",
-  done: "pill.done",
-  notConnected: "pill.notConnected",
-  notTested: "pill.notTested",
-  modelNeeded: "pill.modelNeeded",
-  waitingCheck: "pill.waitingCheck",
-  notOn: "pill.notOn",
-  priceNeeded: "pill.priceNeeded",
-  spendingOff: "pill.spendingOff",
-  learnerLimitNeeded: "pill.learnerLimitNeeded",
-  keyProblem: "pill.keyProblem",
-  nothingYet: "pill.nothingYet",
+  working: "aiServices.pill.working",
+  done: "aiServices.pill.done",
+  notConnected: "aiServices.pill.notConnected",
+  notTested: "aiServices.pill.notTested",
+  modelNeeded: "aiServices.pill.modelNeeded",
+  waitingCheck: "aiServices.pill.waitingCheck",
+  notOn: "aiServices.pill.notOn",
+  priceNeeded: "aiServices.pill.priceNeeded",
+  spendingOff: "aiServices.pill.spendingOff",
+  learnerLimitNeeded: "aiServices.pill.learnerLimitNeeded",
+  keyProblem: "aiServices.pill.keyProblem",
+  nothingYet: "aiServices.pill.nothingYet",
 };
 export function StatusPill({
   state,
@@ -98,7 +132,9 @@ export function StatusPill({
           {t(PILL_KEYS[state.pill])}
         </span>
       )}
-      {unsaved && <span className="ai-pill unsaved">{t("pill.unsaved")}</span>}
+      {unsaved && (
+        <span className="ai-pill unsaved">{t("aiServices.pill.unsaved")}</span>
+      )}
     </span>
   );
 }
@@ -165,7 +201,7 @@ export function ErrorSummary({ errors }: { errors: FieldError[] }) {
   if (!errors.length) return null;
   return (
     <div className="ai-error-summary" role="alert" tabIndex={-1} ref={ref}>
-      <strong>{t("err.summary")}</strong>
+      <strong>{t("aiServices.err.summary")}</strong>
       <ul>
         {errors.map((e) => (
           <li key={e.field + e.message}>
@@ -230,18 +266,18 @@ export function jobName(t: AiText["t"], job: Job | string) {
   return (
     ["companion", "supervisor", "research", "reviewer", "media"] as string[]
   ).includes(job)
-    ? t(`role.${job}.name` as AiKey)
+    ? t(`aiServices.role.${job}.name` as AiKey)
     : job;
 }
 export function serviceName(t: AiText["t"], kind: string, fallback?: string) {
   return kind === "google" || kind === "anthropic"
-    ? t(`service.${kind}` as AiKey)
+    ? t(`aiServices.service.${kind}` as AiKey)
     : (fallback ?? kind);
 }
 /** The sentence for a refusal of the AI services API. Key-test codes have their own copy. */
 export function errorText(text: AiText, error: unknown, service = ""): string {
   const { t } = text;
-  if (!(error instanceof AiServicesError)) return t("err.generic");
+  if (!(error instanceof AiServicesError)) return t("aiServices.err.generic");
   const jobs = text.list(
     (error.details?.roles ?? []).map((r) => jobName(t, r)),
   );
@@ -250,37 +286,41 @@ export function errorText(text: AiText, error: unknown, service = ""): string {
     case "STALE_PROVIDER_BUDGET_REVISION":
     case "STALE_PROVIDER_PRICING_VERSION":
     case "STALE_PROVIDER_COST_SETTINGS":
-      return t("err.stale");
+      return t("aiServices.err.stale");
     case "FORBIDDEN":
-      return t("err.forbidden");
+      return t("aiServices.err.forbidden");
     case "UNAVAILABLE":
     case "INVALID_RESPONSE":
-      return t("err.unavailable");
+      return t("aiServices.err.unavailable");
     case "PROVIDER_EVAL_REQUIRED":
-      return t("err.evalRequired");
+      return t("aiServices.err.evalRequired");
     case "PROVIDER_CONNECTION_IN_USE":
-      return jobs ? t("err.connectionInUse", { jobs }) : t("err.generic");
+      return jobs
+        ? t("aiServices.err.connectionInUse", { jobs })
+        : t("aiServices.err.generic");
     case "PROVIDER_BUDGET_BELOW_USAGE":
-      return t("err.budgetBelowUsage");
+      return t("aiServices.err.budgetBelowUsage");
     case "PAID_WORK_CONSENT_REQUIRED":
-      return t("err.consent");
+      return t("aiServices.err.consent");
     case "PROVIDER_TOKEN_RESERVATION_TOO_SMALL":
-      return t("err.tooSmall");
+      return t("aiServices.err.tooSmall");
     case "PROVIDER_GUIDE_MODEL_UNAVAILABLE":
     case "PROVIDER_GUIDE_METHOD_UNSUPPORTED":
-      return t("err.modelUnavailable");
+      return t("aiServices.err.modelUnavailable");
     case "PROVIDER_GUIDE_CONTEXT_TOO_SMALL":
     case "PROVIDER_GUIDE_LIMITS_UNKNOWN":
-      return t("err.contextTooSmall");
+      return t("aiServices.err.contextTooSmall");
     case "PROVIDER_GUIDE_VIDEO_PARAMETERS_REQUIRED":
-      return t("models.errVideo");
+      return t("aiServices.models.errVideo");
     case "PROVIDER_CONFIGURATION_INVALID":
     case "PROVIDER_DRAFT_INVALID":
-      return t("err.configInvalid");
+      return t("aiServices.err.configInvalid");
     case "PROVIDER_SECRET_FIELD_FORBIDDEN":
-      return t("err.secretField");
+      return t("aiServices.err.secretField");
     default:
-      return keyProblemText(text, error.code, service) ?? t("err.generic");
+      return (
+        keyProblemText(text, error.code, service) ?? t("aiServices.err.generic")
+      );
   }
 }
 /** Copy for a key test or model-list refusal code; undefined when the code is not about the key. */
@@ -294,31 +334,31 @@ export function keyProblemText(
   switch (code) {
     case "PROVIDER_METADATA_KEY_INVALID":
     case "PROVIDER_METADATA_CREDENTIAL_MISSING":
-      return t("connect.errRejected", s);
+      return t("aiServices.connect.errRejected", s);
     case "PROVIDER_METADATA_API_NOT_ENABLED":
     case "PROVIDER_METADATA_KEY_RESTRICTED":
     case "PROVIDER_METADATA_PERMISSION_DENIED":
-      return t("connect.errForbidden", s);
+      return t("aiServices.connect.errForbidden", s);
     case "PROVIDER_METADATA_RATE_LIMITED":
     case "PROVIDER_METADATA_REJECTED":
-      return t("connect.errQuota", s);
+      return t("aiServices.connect.errQuota", s);
     case "PROVIDER_METADATA_NETWORK":
     case "PROVIDER_METADATA_TIMEOUT":
     case "PROVIDER_METADATA_UPSTREAM_ERROR":
-      return t("connect.errUnreachable", s);
+      return t("aiServices.connect.errUnreachable", s);
     case "PROVIDER_METADATA_CREDENTIAL_MALFORMED":
     case "PROVIDER_CREDENTIAL_MALFORMED":
-      return t("connect.errMalformed");
+      return t("aiServices.connect.errMalformed");
     case "PROVIDER_CREDENTIAL_EMPTY":
-      return t("connect.errEmpty", s);
+      return t("aiServices.connect.errEmpty", s);
     case "PROVIDER_KEY_TEST_RATE_LIMITED":
-      return t("connect.errRateLimited", { minutes: 1 });
+      return t("aiServices.connect.errRateLimited", { minutes: 1 });
     case "PROVIDER_METADATA_INVALID":
     case "PROVIDER_METADATA_TOO_LARGE":
     case "PROVIDER_METADATA_UNAVAILABLE":
     case "PROVIDER_METADATA_UNSUPPORTED":
     case "PROVIDER_KEY_TEST_INVALID":
-      return t("connect.errUnexpected");
+      return t("aiServices.connect.errUnexpected");
     default:
       return undefined;
   }
@@ -365,8 +405,6 @@ export function Confirm({
       className="dialog ai-confirm"
       aria-labelledby={titleId}
       aria-describedby={bodyId}
-      lang={text.locale}
-      dir={text.dir}
       onCancel={(event) => {
         event.preventDefault();
         if (!pending) onCancel();
@@ -381,7 +419,7 @@ export function Confirm({
           onClick={onCancel}
           disabled={pending}
         >
-          {text.t("confirm.cancel")}
+          {text.t("aiServices.confirm.cancel")}
         </button>
         <button
           type="button"
@@ -395,18 +433,4 @@ export function Confirm({
     </dialog>,
     document.body,
   );
-}
-/** "2 minutes ago" in the page's language. */
-export function relativeTime(locale: string, iso: string, now = Date.now()) {
-  const seconds = Math.round((new Date(iso).getTime() - now) / 1000),
-    format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["day", 86400],
-    ["hour", 3600],
-    ["minute", 60],
-  ];
-  for (const [unit, size] of units)
-    if (Math.abs(seconds) >= size)
-      return format.format(Math.round(seconds / size), unit);
-  return format.format(0, "minute");
 }

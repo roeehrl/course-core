@@ -41,15 +41,15 @@
 
     "src/components/PolicySettingsCard.tsx": 60,
 
-    "src/components/ProviderCostPanel.tsx": 88,
+    "src/components/ProviderCostPanel.tsx": 0,
 
-    "src/components/ProviderEvalPanel.tsx": 34,
+    "src/components/ProviderEvalPanel.tsx": 0,
 
-    "src/components/ProviderModelGuide.tsx": 44,
+    "src/components/ProviderModelGuide.tsx": 0,
 
-    "src/components/ProviderSetupPanel.tsx": 66,
+    "src/components/ProviderSetupPanel.tsx": 0,
 
-    "src/components/RecoveryRegistry.tsx": 21,
+    "src/components/RecoveryRegistry.tsx": 0,
 
     "src/components/RegradeDialog.tsx": 40,
 
@@ -85,11 +85,11 @@
 
     "src/domain/placementAdmin.ts": 7,
 
-    "src/domain/providerCosts.ts": 12,
+    "src/domain/providerCosts.ts": 0,
 
-    "src/domain/providerEvals.ts": 6,
+    "src/domain/providerEvals.ts": 0,
 
-    "src/domain/providerSetup.ts": 3,
+    "src/domain/providerSetup.ts": 0,
 
     "src/domain/research.ts": 26,
 
@@ -103,7 +103,7 @@
 
     "src/domain/webCrypto.ts": 1,
 
-    "src/text/providerSetup.ts": 42,
+    "src/text/providerSetup.ts": 0,
 
     "src/views/AdminSectionView.tsx": 34,
 
@@ -113,7 +113,7 @@
 
     "src/views/CourseAccessCard.tsx": 30,
 
-    "src/views/CourseView.tsx": 57,
+    "src/views/CourseView.tsx": 0,
 
     "src/views/EnrollmentsView.tsx": 58,
 
@@ -131,7 +131,7 @@
 
     "src/views/PolicyView.tsx": 96,
 
-    "src/views/ProvidersView.tsx": 31,
+    "src/views/ProvidersView.tsx": 0,
 
     "src/views/ReleaseSafetyPanel.tsx": 39,
 

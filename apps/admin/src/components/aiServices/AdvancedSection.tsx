@@ -33,7 +33,7 @@ function jsonError(
   const match = /position (\d+)/.exec(message);
   if (!match) return message;
   const before = source.slice(0, Number(match[1])).split("\n");
-  return t("advanced.jsonPosition", {
+  return t("aiServices.advanced.jsonPosition", {
     line: before.length,
     column: before.at(-1)!.length + 1,
   });
@@ -97,7 +97,7 @@ export function AdvancedSection(props: Props) {
         jobPolicy,
       });
       if (draft.waitingForCheck.length)
-        note(key, { tone: "info", text: t("advanced.jsonWaiting") });
+        note(key, { tone: "info", text: t("aiServices.advanced.jsonWaiting") });
       else if (await activate(draft)) note(key, { tone: "ok", text: done });
       setEditing(false);
       await reload();
@@ -114,11 +114,13 @@ export function AdvancedSection(props: Props) {
     } catch (error) {
       note("json", {
         tone: "error",
-        text: t("advanced.jsonInvalid", { message: jsonError(t, json, error) }),
+        text: t("aiServices.advanced.jsonInvalid", {
+          message: jsonError(t, json, error),
+        }),
       });
       return;
     }
-    void apply("json", parsed, policy, t("advanced.jsonSaved"));
+    void apply("json", parsed, policy, t("aiServices.advanced.jsonSaved"));
   }
   function saveLimits() {
     const numbers = {
@@ -145,7 +147,10 @@ export function AdvancedSection(props: Props) {
       numbers.attempts >= 1 &&
       numbers.attempts <= 5;
     if (!ok) {
-      note("limits", { tone: "error", text: t("advanced.limitsInvalid") });
+      note("limits", {
+        tone: "error",
+        text: t("aiServices.advanced.limitsInvalid"),
+      });
       return;
     }
     void apply(
@@ -157,7 +162,7 @@ export function AdvancedSection(props: Props) {
         timeoutMs: numbers.timeout * 1000,
         maxAttempts: numbers.attempts,
       },
-      t("advanced.limitsSaved"),
+      t("aiServices.advanced.limitsSaved"),
     );
   }
   const subscriptions = (configuration.adapters ?? []).filter(
@@ -181,7 +186,12 @@ export function AdvancedSection(props: Props) {
       enabled,
       ...(slot ? { credentialEnv: slot } : {}),
     };
-    await apply(`fallback-${adapterId}`, next, policy, t("advanced.jsonSaved"));
+    await apply(
+      `fallback-${adapterId}`,
+      next,
+      policy,
+      t("aiServices.advanced.jsonSaved"),
+    );
   }
   async function serviceKey(value: string | null) {
     setBusy(true);
@@ -196,8 +206,8 @@ export function AdvancedSection(props: Props) {
       note("youtube", {
         tone: "ok",
         text: value
-          ? t("advanced.serviceKeyStored")
-          : t("advanced.serviceKeyRemoved"),
+          ? t("aiServices.advanced.serviceKeyStored")
+          : t("aiServices.advanced.serviceKeyRemoved"),
       });
       await reload();
     } catch (error) {
@@ -223,7 +233,7 @@ export function AdvancedSection(props: Props) {
         requirePricing: rule.require,
         ...(rule.require ? {} : { acknowledgeConservativeCharge: rule.ack }),
       });
-      note("rule", { tone: "ok", text: t("advanced.ruleSaved") });
+      note("rule", { tone: "ok", text: t("aiServices.advanced.ruleSaved") });
       await reload();
     } catch (error) {
       note("rule", { tone: "error", text: errorText(text, error) });
@@ -259,22 +269,24 @@ export function AdvancedSection(props: Props) {
             aria-hidden="true"
             className="ai-chevron flip-rtl"
           />
-          <h2>{t("section.advanced")}</h2>
+          <h2>{t("aiServices.section.advanced")}</h2>
         </span>
         {props.unsaved && (
-          <span className="ai-pill unsaved">{t("pill.unsaved")}</span>
+          <span className="ai-pill unsaved">
+            {t("aiServices.pill.unsaved")}
+          </span>
         )}
       </summary>
-      <p>{t("advanced.intro")}</p>
+      <p>{t("aiServices.advanced.intro")}</p>
 
       <section className="ai-sub" aria-labelledby={`${base}-config`}>
-        <h3 id={`${base}-config`}>{t("advanced.configTitle")}</h3>
-        <p className="ai-muted">{t("advanced.configNote")}</p>
+        <h3 id={`${base}-config`}>{t("aiServices.advanced.configTitle")}</h3>
+        <p className="ai-muted">{t("aiServices.advanced.configNote")}</p>
         <p className="ai-muted">
-          {t("advanced.roleIds", { revision: data.setup.revision })}
+          {t("aiServices.advanced.roleIds", { revision: data.setup.revision })}
         </p>
         {editing ? (
-          <Field id={`${base}-json`} label={t("advanced.jsonLabel")}>
+          <Field id={`${base}-json`} label={t("aiServices.advanced.jsonLabel")}>
             <textarea
               id={`${base}-json`}
               dir="ltr"
@@ -291,7 +303,7 @@ export function AdvancedSection(props: Props) {
             dir="ltr"
             className="ai-json"
             tabIndex={0}
-            aria-label={t("advanced.configTitle")}
+            aria-label={t("aiServices.advanced.configTitle")}
           >
             {pretty}
           </pre>
@@ -302,14 +314,15 @@ export function AdvancedSection(props: Props) {
             type="button"
             className="button secondary"
             onClick={() => {
-              void navigator.clipboard
-                ?.writeText(pretty)
-                .then(() =>
-                  note("json", { tone: "ok", text: t("advanced.copied") }),
-                );
+              void navigator.clipboard?.writeText(pretty).then(() =>
+                note("json", {
+                  tone: "ok",
+                  text: t("aiServices.advanced.copied"),
+                }),
+              );
             }}
           >
-            {t("advanced.copy")}
+            {t("aiServices.advanced.copy")}
           </button>
           <label className="ai-check">
             <input
@@ -318,7 +331,7 @@ export function AdvancedSection(props: Props) {
               disabled={busy}
               onChange={(event) => setEditing(event.target.checked)}
             />
-            {t("advanced.editJson")}
+            {t("aiServices.advanced.editJson")}
           </label>
           {editing && (
             <button
@@ -327,22 +340,22 @@ export function AdvancedSection(props: Props) {
               disabled={busy}
               onClick={saveJson}
             >
-              {t("advanced.saveJson")}
+              {t("aiServices.advanced.saveJson")}
             </button>
           )}
         </div>
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-limits`}>
-        <h3 id={`${base}-limits`}>{t("advanced.limitsTitle")}</h3>
+        <h3 id={`${base}-limits`}>{t("aiServices.advanced.limitsTitle")}</h3>
         <div className="ai-grid">
           {(
             [
-              ["cost", "advanced.limitCost", "decimal"],
-              ["tokens", "advanced.limitTokens", "numeric"],
-              ["deadline", "advanced.limitDeadline", "numeric"],
-              ["timeout", "advanced.limitTimeout", "numeric"],
-              ["attempts", "advanced.limitAttempts", "numeric"],
+              ["cost", "aiServices.advanced.limitCost", "decimal"],
+              ["tokens", "aiServices.advanced.limitTokens", "numeric"],
+              ["deadline", "aiServices.advanced.limitDeadline", "numeric"],
+              ["timeout", "aiServices.advanced.limitTimeout", "numeric"],
+              ["attempts", "aiServices.advanced.limitAttempts", "numeric"],
             ] as const
           ).map(([key, label, mode]) => (
             <Field key={key} id={`${base}-${key}`} label={t(label)}>
@@ -367,13 +380,15 @@ export function AdvancedSection(props: Props) {
             disabled={busy || JSON.stringify(limits) === limitsKey}
             onClick={saveLimits}
           >
-            {t("advanced.saveLimits")}
+            {t("aiServices.advanced.saveLimits")}
           </button>
         </div>
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-fallback`}>
-        <h3 id={`${base}-fallback`}>{t("advanced.fallbackTitle")}</h3>
+        <h3 id={`${base}-fallback`}>
+          {t("aiServices.advanced.fallbackTitle")}
+        </h3>
         {subscriptions.length ? (
           subscriptions.map((adapter) => (
             <Fallback
@@ -388,16 +403,18 @@ export function AdvancedSection(props: Props) {
             />
           ))
         ) : (
-          <p className="ai-muted">{t("advanced.fallbackNone")}</p>
+          <p className="ai-muted">{t("aiServices.advanced.fallbackNone")}</p>
         )}
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-service`}>
-        <h3 id={`${base}-service`}>{t("advanced.serviceKeysTitle")}</h3>
+        <h3 id={`${base}-service`}>
+          {t("aiServices.advanced.serviceKeysTitle")}
+        </h3>
         <Field
           id={`${base}-youtube`}
-          label={t("advanced.youtube")}
-          hint={`${t("advanced.youtubeHint")} ${youtubeConfigured ? t("advanced.serviceSaved") : t("advanced.serviceNotSaved")}.`}
+          label={t("aiServices.advanced.youtube")}
+          hint={`${t("aiServices.advanced.youtubeHint")} ${youtubeConfigured ? t("aiServices.advanced.serviceSaved") : t("aiServices.advanced.serviceNotSaved")}.`}
         >
           <input
             id={`${base}-youtube`}
@@ -420,7 +437,7 @@ export function AdvancedSection(props: Props) {
             disabled={busy || !youtube.trim()}
             onClick={() => void serviceKey(youtube.trim())}
           >
-            {t("advanced.saveServiceKey")}
+            {t("aiServices.advanced.saveServiceKey")}
           </button>
           {youtubeConfigured && (
             <button
@@ -429,14 +446,14 @@ export function AdvancedSection(props: Props) {
               disabled={busy}
               onClick={() => void serviceKey(null)}
             >
-              {t("advanced.removeServiceKey")}
+              {t("aiServices.advanced.removeServiceKey")}
             </button>
           )}
         </div>
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-rule`}>
-        <h3 id={`${base}-rule`}>{t("advanced.pricingRuleTitle")}</h3>
+        <h3 id={`${base}-rule`}>{t("aiServices.advanced.pricingRuleTitle")}</h3>
         <label className="ai-check">
           <input
             type="checkbox"
@@ -446,7 +463,7 @@ export function AdvancedSection(props: Props) {
               setRule({ require: event.target.checked, ack: false })
             }
           />
-          {t("advanced.requirePricing")}
+          {t("aiServices.advanced.requirePricing")}
         </label>
         {!rule.require && (
           <label className="ai-check">
@@ -458,7 +475,7 @@ export function AdvancedSection(props: Props) {
                 setRule({ ...rule, ack: event.target.checked })
               }
             />
-            {t("advanced.requirePricingAck")}
+            {t("aiServices.advanced.requirePricingAck")}
           </label>
         )}
         {show("rule")}
@@ -473,29 +490,29 @@ export function AdvancedSection(props: Props) {
             }
             onClick={() => void saveRule()}
           >
-            {t("advanced.saveRule")}
+            {t("aiServices.advanced.saveRule")}
           </button>
         </div>
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-history`}>
-        <h3 id={`${base}-history`}>{t("advanced.historyTitle")}</h3>
-        <p className="ai-muted">{t("advanced.cli")}</p>
+        <h3 id={`${base}-history`}>{t("aiServices.advanced.historyTitle")}</h3>
+        <p className="ai-muted">{t("aiServices.advanced.cli")}</p>
         {history.length ? (
           <ul className="ai-list">
             {history.map((item) => (
               <li key={item.row.id}>
                 {item.kind === "result"
-                  ? t("advanced.historyResult", {
+                  ? t("aiServices.advanced.historyResult", {
                       job: jobName(t, item.row.role),
                       outcome: t(
                         item.row.outcome === "passed"
-                          ? "advanced.outcome.passed"
-                          : "advanced.outcome.failed",
+                          ? "aiServices.advanced.outcome.passed"
+                          : "aiServices.advanced.outcome.failed",
                       ),
                       date: text.date(item.at),
                     })
-                  : t("advanced.historyOverride", {
+                  : t("aiServices.advanced.historyOverride", {
                       job: jobName(t, item.row.role),
                       date: text.date(item.at),
                     })}
@@ -503,13 +520,15 @@ export function AdvancedSection(props: Props) {
                   <>
                     <br />
                     <span className="ai-muted" dir="auto">
-                      {t("advanced.historyReason", { reason: item.row.reason })}
+                      {t("aiServices.advanced.historyReason", {
+                        reason: item.row.reason,
+                      })}
                     </span>
                   </>
                 )}
                 <br />
                 <span className="ai-muted">
-                  {t("advanced.fingerprint")}:{" "}
+                  {t("aiServices.advanced.fingerprint")}:{" "}
                   <Ltr className="mono">
                     {item.row.revisionDigest.slice(0, 16)}
                   </Ltr>
@@ -518,7 +537,7 @@ export function AdvancedSection(props: Props) {
             ))}
           </ul>
         ) : (
-          <p className="ai-muted">{t("advanced.historyEmpty")}</p>
+          <p className="ai-muted">{t("aiServices.advanced.historyEmpty")}</p>
         )}
       </section>
     </details>
@@ -558,20 +577,20 @@ function Fallback({
           disabled={busy}
           onChange={(event) => setEnabled(event.target.checked)}
         />
-        {t("advanced.fallbackLabel", { name: adapter.id })}
+        {t("aiServices.advanced.fallbackLabel", { name: adapter.id })}
       </label>
-      <Field id={`${base}-slot`} label={t("advanced.fallbackKey")}>
+      <Field id={`${base}-slot`} label={t("aiServices.advanced.fallbackKey")}>
         <select
           id={`${base}-slot`}
           value={slot}
           disabled={busy}
           onChange={(event) => setSlot(event.target.value)}
         >
-          <option value="">{t("advanced.fallbackChoose")}</option>
+          <option value="">{t("aiServices.advanced.fallbackChoose")}</option>
           {keyed.map(({ c, slot: value }) => (
             <option key={value} value={value}>
               {(c.kind === "google" || c.kind === "anthropic"
-                ? t(`kind.${c.kind}`)
+                ? t(`aiServices.kind.${c.kind}`)
                 : c.label) + (c.name ? ` · ${c.name}` : "")}
             </option>
           ))}
@@ -585,7 +604,7 @@ function Fallback({
           disabled={busy || (enabled && !slot)}
           onClick={() => onSave(enabled, slot)}
         >
-          {t("advanced.saveFallback")}
+          {t("aiServices.advanced.saveFallback")}
         </button>
       </div>
     </div>

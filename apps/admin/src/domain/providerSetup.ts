@@ -1,49 +1,5 @@
 import { z } from "zod";
 /** Connection references are public routing handles; login material stays server-side. */
-export function subscriptionConnections(
-  configuration: string,
-): { id: string; enabled: boolean; credentialEnv: string }[] {
-  try {
-    const value = JSON.parse(configuration);
-    if (!Array.isArray(value?.adapters)) return [];
-    return value.adapters
-      .filter(
-        (a: any) =>
-          typeof a?.id === "string" && typeof a.subscriptionRef === "string",
-      )
-      .map((a: any) => ({
-        id: a.id as string,
-        enabled: a.automaticFallback?.enabled === true,
-        credentialEnv:
-          typeof a.automaticFallback?.credentialEnv === "string"
-            ? (a.automaticFallback.credentialEnv as string)
-            : "",
-      }));
-  } catch {
-    return [];
-  }
-}
-export function updateSubscriptionFallback(
-  configuration: string,
-  connectionId: string,
-  update: { enabled?: boolean; credentialEnv?: string },
-) {
-  const value = JSON.parse(configuration);
-  const connections = value?.adapters?.filter(
-    (a: any) => a?.id === connectionId && typeof a.subscriptionRef === "string",
-  );
-  if (!Array.isArray(connections) || connections.length !== 1)
-    throw Error("Select one subscription connection.");
-  const connection = connections[0],
-    fallback = {
-      enabled: connection.automaticFallback?.enabled === true,
-      ...connection.automaticFallback,
-      ...update,
-    };
-  if (!fallback.credentialEnv) delete fallback.credentialEnv;
-  connection.automaticFallback = fallback;
-  return JSON.stringify(value, null, 2);
-}
 const counter = z.number().int().nonnegative(),
   positive = z.number().int().positive();
 export const admissionSchema = z.object({
@@ -197,64 +153,6 @@ export function trimKey(value: string) {
     "",
   );
 }
-/** A place a key can be bound: an adapter's own credential, a subscription's paid fallback,
- * or a stored binding no connection references (for example a search API key). */
-export interface CredentialTarget {
-  name: string;
-  source: "connection" | "fallback" | "stored";
-  adapterId?: string;
-  kind?: string;
-}
-export function credentialTargets(
-  configuration: unknown,
-  stored: readonly { name: string }[],
-): CredentialTarget[] {
-  const targets: CredentialTarget[] = [],
-    seen = new Set<string>(),
-    adapters =
-      configuration &&
-      typeof configuration === "object" &&
-      "adapters" in configuration &&
-      Array.isArray(configuration.adapters)
-        ? (configuration.adapters as unknown[])
-        : [];
-  const add = (target: CredentialTarget) => {
-    if (seen.has(target.name)) return;
-    seen.add(target.name);
-    targets.push(target);
-  };
-  for (const adapter of adapters) {
-    if (!adapter || typeof adapter !== "object") continue;
-    const a = adapter as Record<string, unknown>;
-    if (typeof a.id !== "string") continue;
-    if (typeof a.credentialEnv === "string")
-      add({
-        name: a.credentialEnv,
-        source: "connection",
-        adapterId: a.id,
-        ...(typeof a.kind === "string" ? { kind: a.kind } : {}),
-      });
-    const fallback = a.automaticFallback as Record<string, unknown> | undefined;
-    if (fallback && typeof fallback.credentialEnv === "string")
-      add({
-        name: fallback.credentialEnv,
-        source: "fallback",
-        adapterId: a.id,
-      });
-  }
-  for (const credential of stored)
-    add({ name: credential.name, source: "stored" });
-  return targets;
-}
-/** The binding a key entered in the advanced fields applies to by default: the newest
- * connection's own binding, so a key never lands under an unused default name. */
-export function defaultCredentialName(setup: ProviderSetup) {
-  return (
-    credentialTargets(setup.configuration, [])
-      .filter((t) => t.source === "connection")
-      .at(-1)?.name ?? "GOOGLE_API_KEY"
-  );
-}
 export interface ProviderSetupPort {
   inspectModels?(
     workspace: string,
@@ -300,16 +198,4 @@ export interface ProviderSetupPort {
       paidWorkApproved: boolean;
     },
   ): Promise<z.infer<typeof budgetReceiptSchema>>;
-}
-export function usdToMicro(value: string) {
-  if (!/^\d{1,4}(?:\.\d{1,6})?$/.test(value))
-    throw Error("Enter USD with up to six decimal places.");
-  const [whole, fraction = ""] = value.split("."),
-    units = Number(BigInt(whole!) * 1000000n + BigInt(fraction.padEnd(6, "0")));
-  if (units > 1000000000) throw Error("The current maximum is 1,000 USD.");
-  return units;
-}
-export function microToUsd(value: number | string) {
-  const units = BigInt(value);
-  return `${units / 1000000n}.${String(units % 1000000n).padStart(6, "0")}`;
 }

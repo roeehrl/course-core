@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { Card, Notice } from "./ui";
+import { useT } from "../i18n";
 
 export function RecoveryRegistry({
   data,
@@ -9,6 +10,7 @@ export function RecoveryRegistry({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   const [releaseId, setReleaseId] = useState(data.releases[0]?.id ?? ""),
     [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(false),
@@ -42,9 +44,7 @@ export function RecoveryRegistry({
       setRuntime(installed);
       setRegistry(state);
     } catch {
-      setError(
-        "Recovery settings could not be loaded. Your draft is preserved.",
-      );
+      setError(t("recoveryRegistry.error.load"));
     } finally {
       setBusy(false);
     }
@@ -69,7 +69,7 @@ export function RecoveryRegistry({
         }
       })
       .catch(() => {
-        if (active) setError("Recovery settings could not be loaded.");
+        if (active) setError(t("recoveryRegistry.error.loadShort"));
       })
       .finally(() => {
         if (active) setBusy(false);
@@ -85,7 +85,7 @@ export function RecoveryRegistry({
       if (draft.length > 1500000) throw new Error();
       parsed = JSON.parse(draft);
     } catch {
-      setError("Provide a bounded valid JSON registry configuration.");
+      setError(t("recoveryRegistry.error.json"));
       return;
     }
     setBusy(true);
@@ -102,37 +102,27 @@ export function RecoveryRegistry({
         registryRevision: receipt.registryRevision,
         configured: true,
       });
-      setNotice(
-        "Registry approved for this immutable release. Generation still rechecks learner scope, evidence, cost and course limits.",
-      );
+      setNotice(t("recoveryRegistry.approved"));
     } catch {
-      setError(
-        "Approval could not be confirmed. Refresh the registry revision before retrying; your draft is preserved.",
-      );
+      setError(t("recoveryRegistry.error.approve"));
     } finally {
       setBusy(false);
     }
   }
   return (
     <Card
-      title="Verified recovery checks"
-      eyebrow="Release-scoped author approval"
+      title={t("recoveryRegistry.title")}
+      eyebrow={t("recoveryRegistry.eyebrow")}
     >
-      <p>
-        Install trusted creators on the server, then approve their exact
-        implementations, canonical families, reviewed banks and assignment
-        costs. This does not grant mastery or expand a course allowance.
-      </p>
+      <p>{t("recoveryRegistry.intro")}</p>
       {!allowed ? (
-        <Notice tone="gold">
-          A connected owner or administrator can configure qualified recovery.
-        </Notice>
+        <Notice tone="gold">{t("recoveryRegistry.notAllowed")}</Notice>
       ) : (
         <div className="page-stack">
           <label>
-            Recovery release
+            {t("recoveryRegistry.release")}
             <select
-              aria-label="Recovery release"
+              aria-label={t("recoveryRegistry.release")}
               value={releaseId}
               disabled={busy}
               onChange={(e) => {
@@ -142,42 +132,46 @@ export function RecoveryRegistry({
             >
               {data.releases.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.version} · {r.state}
+                  {t("recoveryRegistry.releaseOption", {
+                    version: r.version,
+                    state: r.state,
+                  })}
                 </option>
               ))}
             </select>
           </label>
           {runtime && (
             <div>
-              <h3>Installed trusted creators</h3>
+              <h3>{t("recoveryRegistry.installed")}</h3>
               {runtime.adapters.length ? (
                 runtime.adapters.map((a) => (
                   <p key={a.id}>
-                    <strong>{a.id}</strong> · {a.kind}
+                    <strong dir="ltr">{a.id}</strong> ·{" "}
+                    <span dir="ltr">{a.kind}</span>
                     <br />
-                    <code style={{ overflowWrap: "anywhere" }}>
+                    <code dir="ltr" style={{ overflowWrap: "anywhere" }}>
                       {a.implementationDigest}
                     </code>
                   </p>
                 ))
               ) : (
-                <Notice tone="gold">
-                  No recovery creators are installed. The server operator must
-                  enable qualified implementations first.
-                </Notice>
+                <Notice tone="gold">{t("recoveryRegistry.noCreators")}</Notice>
               )}
             </div>
           )}
           {registry && (
             <p>
-              Registry revision {registry.registryRevision} ·{" "}
-              {registry.configured ? "approved" : "not approved"}
+              {t("recoveryRegistry.revision", {
+                revision: registry.registryRevision,
+                state: registry.configured ? "approved" : "pending",
+              })}
             </p>
           )}
           <label>
-            Recovery registry configuration
+            {t("recoveryRegistry.configuration")}
             <textarea
-              aria-label="Recovery registry configuration"
+              aria-label={t("recoveryRegistry.configuration")}
+              dir="ltr"
               rows={10}
               value={draft}
               disabled={busy}
@@ -185,11 +179,7 @@ export function RecoveryRegistry({
               spellCheck={false}
             />
           </label>
-          <small>
-            Server-only answer banks belong here. Learner views never receive
-            this configuration. Changing costs or implementations requires a new
-            checked approval.
-          </small>
+          <small>{t("recoveryRegistry.configurationHint")}</small>
           {error && <Notice tone="red">{error}</Notice>}
           {notice && <Notice tone="green">{notice}</Notice>}
           <div className="button-row">
@@ -198,7 +188,7 @@ export function RecoveryRegistry({
               disabled={busy}
               onClick={() => void refresh()}
             >
-              Refresh recovery registry
+              {t("recoveryRegistry.refresh")}
             </button>
             <button
               type="button"
@@ -207,7 +197,7 @@ export function RecoveryRegistry({
               }
               onClick={() => void approve()}
             >
-              Approve recovery registry
+              {t("recoveryRegistry.approve")}
             </button>
           </div>
         </div>

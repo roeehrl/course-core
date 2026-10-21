@@ -1,8 +1,7 @@
-import { useMemo } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { AiServicesPage } from "../components/aiServices/AiServicesPage";
-import { aiTranslator, pageLocale, type AiKey } from "../text/aiServices";
+import { useAiText, type AiKey } from "../components/aiServices/shared";
 import "../components/aiServices/aiServices.css";
 
 /**
@@ -48,31 +47,33 @@ function ReadOnlyAiServices({
   data: CourseWorkspace;
   demo: boolean;
 }) {
-  const text = useMemo(() => aiTranslator(pageLocale()), []);
+  const text = useAiText();
   const { t } = text;
   return (
-    <div className="ai-page" lang={text.locale} dir={text.dir}>
+    <div className="ai-page">
       <p className="ai-intro">
-        {demo ? t("readonly.demo") : t("readonly.body")}
+        {demo ? t("aiServices.readonly.demo") : t("aiServices.readonly.body")}
       </p>
       <ul className="ai-connections">
         {data.providers.map((provider) => (
           <li className="ai-connection" key={provider.id}>
             <h2 className="ai-readonly-title" dir="auto">
               {JOB_IDS.includes(provider.id)
-                ? t(`role.${provider.id}.name` as AiKey)
+                ? t(`aiServices.role.${provider.id}.name` as AiKey)
                 : provider.name}
             </h2>
             <p dir="auto">
               {JOB_IDS.includes(provider.id)
-                ? t(`role.${provider.id}.purpose` as AiKey)
+                ? t(`aiServices.role.${provider.id}.purpose` as AiKey)
                 : provider.description}
             </p>
             <p className="ai-facts">
               <span
                 className={`ai-pill ${provider.configuration === "configured" ? "ok" : "warn"}`}
               >
-                {t(`readonly.status.${provider.configuration}` as AiKey)}
+                {t(
+                  `aiServices.readonly.status.${provider.configuration}` as AiKey,
+                )}
               </span>
             </p>
           </li>

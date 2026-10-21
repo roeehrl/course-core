@@ -70,20 +70,26 @@ export function SpendingSection(props: Props) {
     setMessage(undefined);
     const problems: FieldError[] = [];
     if (total === null)
-      problems.push({ field: totalId, message: t("spending.errAmount") });
+      problems.push({
+        field: totalId,
+        message: t("aiServices.spending.errAmount"),
+      });
     else if (total < used)
       problems.push({
         field: totalId,
-        message: t("spending.errBelowUsage", {
-          used: text.ltr(text.money(used)),
+        message: t("aiServices.spending.errBelowUsage", {
+          used: text.money(used),
         }),
       });
     if (learner === null)
-      problems.push({ field: learnerId, message: t("spending.errAmount") });
+      problems.push({
+        field: learnerId,
+        message: t("aiServices.spending.errAmount"),
+      });
     else if (total !== null && learner > total)
       problems.push({
         field: learnerId,
-        message: t("spending.errLearnerMore"),
+        message: t("aiServices.spending.errLearnerMore"),
       });
     setErrors(problems);
     if (problems.length || total === null || learner === null || !budgets)
@@ -121,7 +127,9 @@ export function SpendingSection(props: Props) {
       setTouched(false);
       setMessage({
         tone: "ok",
-        text: total ? t("spending.saved") : t("spending.savedOff"),
+        text: total
+          ? t("aiServices.spending.saved")
+          : t("aiServices.spending.savedOff"),
       });
       await reload();
     } catch (error) {
@@ -136,12 +144,12 @@ export function SpendingSection(props: Props) {
   return (
     <Section
       id="spending"
-      title={t("section.spending")}
+      title={t("aiServices.section.spending")}
       state={props.state}
       unsaved={props.unsaved}
     >
       {!budgets ? (
-        <Message tone="error">{t("err.unavailable")}</Message>
+        <Message tone="error">{t("aiServices.err.unavailable")}</Message>
       ) : (
         <form
           className="ai-form"
@@ -155,13 +163,13 @@ export function SpendingSection(props: Props) {
           <div className="ai-grid">
             <Field
               id={totalId}
-              label={t("spending.total")}
+              label={t("aiServices.spending.total")}
               error={totalError}
               hint={
                 savedTotal
-                  ? t("spending.used", {
-                      used: text.ltr(text.money(used)),
-                      limit: text.ltr(text.money(savedTotal)),
+                  ? t("aiServices.spending.used", {
+                      used: text.money(used),
+                      limit: text.money(savedTotal),
                     })
                   : undefined
               }
@@ -184,9 +192,9 @@ export function SpendingSection(props: Props) {
             </Field>
             <Field
               id={learnerId}
-              label={t("spending.perLearner")}
+              label={t("aiServices.spending.perLearner")}
               error={learnerError}
-              hint={t("spending.perLearnerHint")}
+              hint={t("aiServices.spending.perLearnerHint")}
             >
               <span className="ai-money" dir="ltr">
                 <span aria-hidden="true">$</span>
@@ -206,9 +214,9 @@ export function SpendingSection(props: Props) {
             </Field>
           </div>
           <p>
-            <strong>{t("spending.perRequest")}:</strong>{" "}
-            {t("spending.perRequestSummary", {
-              amount: text.ltr(text.money(policy.allowance.microUsd)),
+            <strong>{t("aiServices.spending.perRequest")}:</strong>{" "}
+            {t("aiServices.spending.perRequestSummary", {
+              amount: text.money(policy.allowance.microUsd),
               minutes: Math.max(1, Math.round(policy.durationMs / 60000)),
             })}{" "}
             <a
@@ -223,15 +231,17 @@ export function SpendingSection(props: Props) {
                 target?.querySelector("summary")?.focus();
               }}
             >
-              {t("spending.change")}
+              {t("aiServices.spending.change")}
             </a>
           </p>
           <p className="ai-muted">
             {kinds.length === 1
-              ? t("spending.note", { service: serviceName(t, kinds[0]!) })
-              : t("spending.noteGeneric")}
+              ? t("aiServices.spending.note", {
+                  service: serviceName(t, kinds[0]!),
+                })
+              : t("aiServices.spending.noteGeneric")}
           </p>
-          <p className="ai-muted">{t("spending.consent")}</p>
+          <p className="ai-muted">{t("aiServices.spending.consent")}</p>
           {message && <Message tone={message.tone}>{message.text}</Message>}
           <div className="ai-actions">
             <button
@@ -240,12 +250,14 @@ export function SpendingSection(props: Props) {
               disabled={saving || !changed}
             >
               {saving
-                ? t("spending.saving")
+                ? t("aiServices.spending.saving")
                 : total
-                  ? t("spending.allow", { amount: text.ltr(text.money(total)) })
+                  ? t("aiServices.spending.allow", {
+                      amount: text.money(total),
+                    })
                   : total === 0
-                    ? t("spending.noSpend")
-                    : t("spending.allow", { amount: form.total })}
+                    ? t("aiServices.spending.noSpend")
+                    : t("aiServices.spending.allow", { amount: form.total })}
             </button>
           </div>
         </form>
@@ -287,39 +299,39 @@ function SpendHistory({
       className="ai-history"
       onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}
     >
-      <summary>{t("history.title")}</summary>
-      {!view && open && <p role="status">{t("history.loading")}</p>}
+      <summary>{t("aiServices.history.title")}</summary>
+      {!view && open && <p role="status">{t("aiServices.history.loading")}</p>}
       {view === "failed" && (
-        <Message tone="error">{t("err.unavailable")}</Message>
+        <Message tone="error">{t("aiServices.err.unavailable")}</Message>
       )}
       {view && view !== "failed" && (
         <div className="ai-form">
           <dl className="ai-totals">
             <div>
-              <dt>{t("history.charged")}</dt>
+              <dt>{t("aiServices.history.charged")}</dt>
               <dd>{money(view.totals.charged)}</dd>
             </div>
             <div>
-              <dt>{t("history.actual")}</dt>
+              <dt>{t("aiServices.history.actual")}</dt>
               <dd>{money(view.totals.actual)}</dd>
             </div>
             <div>
-              <dt>{t("history.held")}</dt>
+              <dt>{t("aiServices.history.held")}</dt>
               <dd>{money(view.totals.held)}</dd>
             </div>
           </dl>
           {view.totals.calls === 0 ? (
-            <p className="ai-muted">{t("history.empty")}</p>
+            <p className="ai-muted">{t("aiServices.history.empty")}</p>
           ) : (
             <>
               <div className="ai-table-wrap">
                 <table>
-                  <caption>{t("history.byJob")}</caption>
+                  <caption>{t("aiServices.history.byJob")}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">{t("history.job")}</th>
-                      <th scope="col">{t("history.calls")}</th>
-                      <th scope="col">{t("history.charged")}</th>
+                      <th scope="col">{t("aiServices.history.job")}</th>
+                      <th scope="col">{t("aiServices.history.calls")}</th>
+                      <th scope="col">{t("aiServices.history.charged")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -333,7 +345,10 @@ function SpendHistory({
                   </tbody>
                 </table>
               </div>
-              <Field id={`${base}-period`} label={t("history.period")}>
+              <Field
+                id={`${base}-period`}
+                label={t("aiServices.history.period")}
+              >
                 <select
                   id={`${base}-period`}
                   value={period}
@@ -341,18 +356,18 @@ function SpendHistory({
                     setPeriod(event.target.value as "day" | "month")
                   }
                 >
-                  <option value="day">{t("history.day")}</option>
-                  <option value="month">{t("history.month")}</option>
+                  <option value="day">{t("aiServices.history.day")}</option>
+                  <option value="month">{t("aiServices.history.month")}</option>
                 </select>
               </Field>
               <div className="ai-table-wrap">
                 <table>
-                  <caption>{t("history.byPeriod")}</caption>
+                  <caption>{t("aiServices.history.byPeriod")}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">{t("history.when")}</th>
-                      <th scope="col">{t("history.calls")}</th>
-                      <th scope="col">{t("history.charged")}</th>
+                      <th scope="col">{t("aiServices.history.when")}</th>
+                      <th scope="col">{t("aiServices.history.calls")}</th>
+                      <th scope="col">{t("aiServices.history.charged")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -370,7 +385,7 @@ function SpendHistory({
               </div>
             </>
           )}
-          <p className="ai-muted">{t("history.note")}</p>
+          <p className="ai-muted">{t("aiServices.history.note")}</p>
         </div>
       )}
     </details>

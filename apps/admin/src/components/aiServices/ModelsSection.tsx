@@ -166,11 +166,11 @@ export function ModelsSection(props: Props) {
     return (
       <Section
         id="models"
-        title={t("section.models")}
+        title={t("aiServices.section.models")}
         state={props.state}
         unsaved={props.unsaved}
       >
-        <p>{t("models.needConnection")}</p>
+        <p>{t("aiServices.models.needConnection")}</p>
       </Section>
     );
   const kindOf = (connectionId: string) =>
@@ -180,7 +180,7 @@ export function ModelsSection(props: Props) {
     if (!c) return connectionId;
     const kind =
       c.kind === "google" || c.kind === "anthropic"
-        ? t(`kind.${c.kind}`)
+        ? t(`aiServices.kind.${c.kind}`)
         : c.label;
     return c.name ? `${kind} · ${c.name}` : kind;
   };
@@ -191,7 +191,7 @@ export function ModelsSection(props: Props) {
       if (!choices[job])
         problems.push({
           field: `${base}-${job}`,
-          message: t("models.errNeeded", { job: jobName(t, job) }),
+          message: t("aiServices.models.errNeeded", { job: jobName(t, job) }),
         });
     const media = choices.media?.media;
     if (
@@ -206,7 +206,7 @@ export function ModelsSection(props: Props) {
     )
       problems.push({
         field: `${base}-media-duration`,
-        message: t("models.errVideo"),
+        message: t("aiServices.models.errVideo"),
       });
     setErrors(problems);
     if (problems.length) return;
@@ -232,12 +232,12 @@ export function ModelsSection(props: Props) {
       if (created.waitingForCheck.length) {
         setMessage({
           tone: "info",
-          text: t("models.savedWaiting", {
+          text: t("aiServices.models.savedWaiting", {
             count: created.waitingForCheck.length,
           }),
         });
       } else if (await activate(created))
-        setMessage({ tone: "ok", text: t("models.saved") });
+        setMessage({ tone: "ok", text: t("aiServices.models.saved") });
       setTouched(false);
       await reload();
     } catch (error) {
@@ -253,7 +253,7 @@ export function ModelsSection(props: Props) {
     setMessage(undefined);
     try {
       if (await activate(draft))
-        setMessage({ tone: "ok", text: t("models.saved") });
+        setMessage({ tone: "ok", text: t("aiServices.models.saved") });
       await reload();
     } catch (error) {
       setMessage({ tone: "error", text: errorText(text, error) });
@@ -266,7 +266,7 @@ export function ModelsSection(props: Props) {
     try {
       await port.discardDraft(workspaceId);
       setTouched(false);
-      setMessage({ tone: "ok", text: t("models.discarded") });
+      setMessage({ tone: "ok", text: t("aiServices.models.discarded") });
       await reload();
     } catch (error) {
       setMessage({ tone: "error", text: errorText(text, error) });
@@ -346,8 +346,8 @@ export function ModelsSection(props: Props) {
       >
         <option value="">
           {NEEDED_JOBS.includes(job)
-            ? t("models.chooseModel")
-            : t("models.off")}
+            ? t("aiServices.models.chooseModel")
+            : t("aiServices.models.off")}
         </option>
         {options.map((group) => {
           const items = group.models.map((m) => (
@@ -362,9 +362,9 @@ export function ModelsSection(props: Props) {
                 ? `${m.displayName} (${m.remoteModel})`
                 : m.remoteModel}
               {m.remoteModel === group.suggested
-                ? ` — ${t("models.suggested")}`
+                ? ` — ${t("aiServices.models.suggested")}`
                 : ""}
-              {!m.fits ? ` — ${t("models.mayNotWork")}` : ""}
+              {!m.fits ? ` — ${t("aiServices.models.mayNotWork")}` : ""}
             </option>
           ));
           return usable.length > 1 ? (
@@ -401,7 +401,7 @@ export function ModelsSection(props: Props) {
             <h3>{jobName(t, job)}</h3>
           </div>
           <p className="ai-muted">
-            {t("models.notOffered", {
+            {t("aiServices.models.notOffered", {
               service: text.list([
                 ...new Set(usable.map((c) => serviceName(t, c.kind, c.label))),
               ]),
@@ -414,13 +414,13 @@ export function ModelsSection(props: Props) {
         <div className="ai-job-heading">
           <h3>{jobName(t, job)}</h3>
           {NEEDED_JOBS.includes(job) && (
-            <span className="ai-tag">{t("models.needed")}</span>
+            <span className="ai-tag">{t("aiServices.models.needed")}</span>
           )}
         </div>
-        <p className="ai-muted">{t(`role.${job}.purpose`)}</p>
+        <p className="ai-muted">{t(`aiServices.role.${job}.purpose`)}</p>
         <Field
           id={id}
-          label={t("models.modelFor", { job: jobName(t, job) })}
+          label={t("aiServices.models.modelFor", { job: jobName(t, job) })}
           error={error}
           hint={
             choice ? (
@@ -430,11 +430,11 @@ export function ModelsSection(props: Props) {
                   : ""}
                 <Ltr className="mono">{choice.remoteModel}</Ltr>
                 {suggestion && suggestion === choice.remoteModel
-                  ? ` · ${t("models.suggested")}`
+                  ? ` · ${t("aiServices.models.suggested")}`
                   : ""}
               </>
             ) : loading ? (
-              t("models.loading")
+              t("aiServices.models.loading")
             ) : undefined
           }
         >
@@ -442,7 +442,7 @@ export function ModelsSection(props: Props) {
         </Field>
         {failures.map(({ c, list }) => (
           <Message tone="warn" key={c.id}>
-            {t("models.listFailed")}{" "}
+            {t("aiServices.models.listFailed")}{" "}
             {keyProblemText(
               text,
               list.error,
@@ -470,14 +470,14 @@ export function ModelsSection(props: Props) {
   return (
     <Section
       id="models"
-      title={t("section.models")}
+      title={t("aiServices.section.models")}
       state={props.state}
       unsaved={props.unsaved}
     >
-      <p>{t("models.intro")}</p>
+      <p>{t("aiServices.models.intro")}</p>
       {draft && !changed && (
         <Message tone="warn">
-          {t("models.pending")}
+          {t("aiServices.models.pending")}
           <span className="ai-actions">
             {!draft.waitingForCheck.length && (
               <button
@@ -486,7 +486,7 @@ export function ModelsSection(props: Props) {
                 disabled={saving}
                 onClick={() => void turnOn()}
               >
-                {t("models.turnOn")}
+                {t("aiServices.models.turnOn")}
               </button>
             )}
             <button
@@ -495,7 +495,7 @@ export function ModelsSection(props: Props) {
               disabled={saving}
               onClick={() => void discard()}
             >
-              {t("models.discard")}
+              {t("aiServices.models.discard")}
             </button>
           </span>
         </Message>
@@ -515,7 +515,7 @@ export function ModelsSection(props: Props) {
           open={OPTIONAL_JOBS.some((job) => !!choices[job])}
         >
           <summary>
-            {t("models.optional", { count: OPTIONAL_JOBS.length })}:{" "}
+            {t("aiServices.models.optional", { count: OPTIONAL_JOBS.length })}:{" "}
             <span className="ai-muted">
               {text.list(OPTIONAL_JOBS.map((job) => jobName(t, job)))}
             </span>
@@ -528,9 +528,9 @@ export function ModelsSection(props: Props) {
             checked={showAll}
             onChange={(event) => setShowAll(event.target.checked)}
           />
-          {t("models.showAll")}
+          {t("aiServices.models.showAll")}
         </label>
-        <p className="ai-muted">{t("models.basis")}</p>
+        <p className="ai-muted">{t("aiServices.models.basis")}</p>
         {message && <Message tone={message.tone}>{message.text}</Message>}
         <div className="ai-actions">
           <button
@@ -538,7 +538,9 @@ export function ModelsSection(props: Props) {
             className="button primary"
             disabled={saving || (!changed && !draft?.stale)}
           >
-            {saving ? t("models.saving") : t("models.save")}
+            {saving
+              ? t("aiServices.models.saving")
+              : t("aiServices.models.save")}
           </button>
         </div>
       </form>
@@ -561,7 +563,7 @@ function MediaFields({
   return (
     <div className="ai-media">
       <fieldset className="ai-choice">
-        <legend>{t("models.mediaKind")}</legend>
+        <legend>{t("aiServices.models.mediaKind")}</legend>
         {(["image", "video"] as const).map((kind) => (
           <label key={kind}>
             <input
@@ -583,7 +585,11 @@ function MediaFields({
                 )
               }
             />
-            {t(kind === "image" ? "models.image" : "models.video")}
+            {t(
+              kind === "image"
+                ? "aiServices.models.image"
+                : "aiServices.models.video",
+            )}
           </label>
         ))}
       </fieldset>
@@ -591,7 +597,7 @@ function MediaFields({
         <div className="ai-grid">
           <Field
             id={`${base}-media-duration`}
-            label={t("models.videoDuration")}
+            label={t("aiServices.models.videoDuration")}
           >
             <input
               id={`${base}-media-duration`}
@@ -607,7 +613,10 @@ function MediaFields({
               }
             />
           </Field>
-          <Field id={`${base}-media-aspect`} label={t("models.videoAspect")}>
+          <Field
+            id={`${base}-media-aspect`}
+            label={t("aiServices.models.videoAspect")}
+          >
             <input
               id={`${base}-media-aspect`}
               dir="ltr"
@@ -620,7 +629,7 @@ function MediaFields({
           </Field>
           <Field
             id={`${base}-media-resolution`}
-            label={t("models.videoResolution")}
+            label={t("aiServices.models.videoResolution")}
           >
             <input
               id={`${base}-media-resolution`}
@@ -632,7 +641,10 @@ function MediaFields({
               }
             />
           </Field>
-          <Field id={`${base}-media-hosts`} label={t("models.videoHosts")}>
+          <Field
+            id={`${base}-media-hosts`}
+            label={t("aiServices.models.videoHosts")}
+          >
             <input
               id={`${base}-media-hosts`}
               dir="ltr"
@@ -649,7 +661,7 @@ function MediaFields({
               }
             />
           </Field>
-          <p className="ai-muted">{t("models.videoNote")}</p>
+          <p className="ai-muted">{t("aiServices.models.videoNote")}</p>
         </div>
       )}
     </div>
