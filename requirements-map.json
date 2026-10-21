@@ -322,8 +322,10 @@
       "core:services/api/test/learner-model.integration.test.ts::a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed"
     ],
     "C06": [
+      "core:apps/learner/tests/memory.test.tsx::states how uncertain a suggestion is and until when it is offered",
       "core:services/api/test/evidence-author.test.ts",
-      "core:services/api/test/learner-model.integration.test.ts::evidence refs name their evaluator and time"
+      "core:services/api/test/learner-model.integration.test.ts::evidence refs name their evaluator and time",
+      "core:services/api/test/learner-model.integration.test.ts::states how uncertain each suggestion is and until when it is offered"
     ],
     "C07": [
       "core:services/api/test/learner-model.integration.test.ts",
@@ -361,8 +363,11 @@
     ],
     "E03": [
       "core:apps/learner/tests/pendingChanges.test.tsx",
+      "core:apps/learner/tests/presence.test.tsx::reports a part open only once the learner uses it",
       "core:services/api/browser/generated-content.spec.ts::waits for them, then is added at the end of the lesson",
-      "core:services/api/test/generated-content.integration.test.ts::changes land only at a safe boundary (E03)"
+      "core:services/api/test/activity.integration.test.ts::grants only declared capabilities and makes evidence only from the evaluator result",
+      "core:services/api/test/generated-content.integration.test.ts::changes land only at a safe boundary (E03)",
+      "core:services/api/test/generated-content.integration.test.ts::waits until they leave it, and a report the app stops repeating lapses"
     ],
     "E04": [
       "core:packages/visuals/test/runtime.test.ts",
@@ -371,9 +376,11 @@
     ],
     "E05": [
       "core:apps/learner/tests/generatedComponent.test.tsx",
+      "core:apps/learner/tests/generatedComponent.test.tsx::shows the grader-verified starting values before a run",
       "core:services/api/browser/generated-content.spec.ts::a generated component runs in the sandboxed runner beside its text alternative",
       "core:services/api/qualification/practical-flow.ts::generatedComponentTested",
-      "core:services/api/test/generated-content.integration.test.ts::generated interactive components (E05)"
+      "core:services/api/test/generated-content.integration.test.ts::generated interactive components (E05)",
+      "core:services/api/test/generated-content.test.ts::describes steps, the verified starting values and one-control changes"
     ],
     "E06": [
       "core:apps/learner/tests/unverified.test.tsx::explains a generated question honestly",
