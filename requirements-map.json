@@ -251,8 +251,12 @@
       "core:examples/courses/tests/packs.test.mjs"
     ],
     "A06": [
+      "core:deploy/docker/compose.test.mjs::every service restarts unless stopped and the long-running ones have health checks",
+      "core:deploy/docker/compose.test.mjs::only the TLS proxy publishes ports; database, API and Temporal stay private",
+      "core:deploy/docker/smoke.test.mjs::the documented Docker self-host stack comes up, signs an owner in over TLS and restarts after exit",
       "core:deploy/local/backup.test.mjs",
-      "core:deploy/local/runtime.test.mjs"
+      "core:deploy/local/runtime.test.mjs",
+      "core:scripts/workflow-policy.test.mjs::the required Docker job brings up the documented self-host stack"
     ],
     "B02": [
       "core:services/api/test/teaching-loop.integration.test.ts::delivery schedules a follow-up and a transfer probe",
