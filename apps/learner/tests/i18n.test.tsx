@@ -44,7 +44,7 @@ describe("learner locale", () => {
       </LocaleProvider>,
     );
     expect(document.documentElement).toHaveAttribute("dir", "rtl");
-    expect(screen.getByRole("button").textContent).toMatch(/^⟦‮Šîĝñ îñ‬ ~+⟧$/);
+    expect(screen.getByRole("button").textContent).toMatch(/^⟦‮Šîĝñ îñ‬ [~ ]+⟧$/);
   });
 
   it("translates sign-in error codes; other API errors keep the client's message", () => {

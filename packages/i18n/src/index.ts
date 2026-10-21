@@ -49,6 +49,6 @@ export {
   type Translator,
   type TranslatorOptions,
 } from './translator.ts';
-export { accent, pseudoNodes } from './pseudo.ts';
+export { accent, PSEUDO_PAD_RUN, pseudoFrame, pseudoNodes } from './pseudo.ts';
 export { FSI, LRI, PDI, RLI, contentAttributes, isolate, isolateLtr, languageDirection, stripBidiControls } from './bidi.ts';
 export { applyDocumentLocale, type DocumentLike } from './document.ts';
