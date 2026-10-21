@@ -34,7 +34,6 @@ import {
   Notice,
   Stat,
 } from "../components/ui";
-import { isolate } from "@course-core/i18n";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 const stateTone = {
@@ -206,7 +205,8 @@ function StudyCard({
     );
   return (
     <Card
-      title={isolate(study.title)}
+      title={study.title}
+      titleDir="auto"
       eyebrow={
         release
           ? t("studyView.release", { version: release.version })
