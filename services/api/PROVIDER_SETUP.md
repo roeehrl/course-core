@@ -251,11 +251,27 @@ can be requested; a request names its storyboard and shot and must be of the sho
 Once every shot has an approved clip, "Join the approved clips" composes them, in shot
 order, into one clip that is reviewed again as a whole.
 
-**Generated images.** With the media role bound to an image model, staff request an image
-from a prompt. It is admitted, reserved and settled like a clip (priced per image or per
+**Generated images.** With the media role bound to an image model, or an image model bound
+beside its video model, staff request an image from a prompt. It is admitted, reserved and settled like a clip (priced per image or per
 request), comes back in the submission's own response (an unknown outcome stays held and is
 never resent), is stored content-addressed, and is approved with alt text (the visual
 description) instead of captions and a transcript.
+
+**An image model and a video model together.** The media role is one model, image or video.
+A video binding may also carry `imageModel` (`{modelId, maxInputCharacters, maxOutputTokens,
+image?}`), a second, image-only model: clips use the video model, images the image model. On
+the AI services page, choosing a short-video model for "Images and video" offers "Model for
+images too" (same connection). The media page shows both models, and "Check cost" estimates
+with the model the request will use (`POST …/media-jobs/estimate` takes an optional `kind`).
+The image model is priced like any other model (Providers > Model prices lists it under the
+media job), and it is part of the media role's evaluated revision: changing it needs a new
+quality check or an owner's approval. A configuration without `imageModel` behaves exactly as
+before.
+
+**Guided Google setup** creates image models on the Interactions API (`transport:
+"image_interaction"`, `packages/providers/README.md`) with one aspect ratio and size (16:9 and
+1K unless chosen), returned inline and not stored by Google. Image models saved earlier on
+`generate_content` keep working until they are set up again.
 
 **Exact clips** are rendered on the server from a verified course visual of the release,
 frame by frame, by an `rsvg-convert`-compatible rasterizer and `ffmpeg` (`clip-export.ts`).
@@ -280,6 +296,18 @@ is refused (`MEDIA_FACTUAL_CHECK_FAILED`, with the findings) when either finds a
 contradiction for that exact asset and text; such media must be rejected. These checks read
 the reviewer's description, not the pixels: they catch a contradiction the reviewer
 records, and they do not watch the video.
+
+**Frame check.** When `ffmpeg` and `ffprobe` are set (`CLIP_FFMPEG_PATH`, and
+`CLIP_FFPROBE_PATH` or an `ffprobe` beside ffmpeg), "Check before saving" also inspects the file
+itself (`media-pixels.ts`): its duration, frame size and two sampled frames per second
+scaled to a 32x18 grey grid, compared with what the job asked for. It reports a length off by
+more than 0.5 s and 20%, a different aspect ratio or resolution, at least half the sampled
+frames blank, and, without blocking, a video that never visibly moves or a composed video
+with fewer visible cuts than storyboard shots. Findings are codes and numbers, stored as a
+`pixels` check (migration 110) once per asset and request. It informs the reviewer and does
+not refuse approval; it checks technical properties, never whether the media shows the right
+thing. `npm run test:clip-export` also runs it with the real tools. Exact clips are drawn on
+white, as the learner's page shows the visual (a transparent frame would encode as black).
 
 ## Model pricing and cost reconciliation
 

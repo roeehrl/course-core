@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { clipToolchainFromEnvironment, composeClips, exportSceneClip } from '../src/clip-export.js';
+import { inspectMedia } from '../src/media-pixels.js';
 import { largeVisual } from '../test/large-course-fixture.js';
 
 /**
@@ -15,6 +16,8 @@ import { largeVisual } from '../test/large-course-fixture.js';
  *
  * It renders a public synthetic scene into an MP4 and a WebM, checks each with ffprobe (codec,
  * size, frame count, duration), checks that a second export is byte-identical, and composes both.
+ * It also runs the frame and pixel inspection of generated media (media-pixels.ts) on the real
+ * clips: the rendered scene passes, and a blank clip and a clip of the wrong length are reported.
  */
 const toolchain = clipToolchainFromEnvironment(process.env);
 if (!toolchain) throw new Error('Set CLIP_RASTERIZER_PATH and CLIP_FFMPEG_PATH to qualify clip export.');
@@ -46,6 +49,18 @@ try {
   const composedProbe = probe(composed.bytes, 'composed.mp4');
   assert.equal(composedProbe.codec_name, 'h264');
   assert.ok(Math.abs(composedProbe.duration - 3) < 0.25, `composed duration ${composedProbe.duration}`);
+  // Frame and pixel inspection with the real tools.
+  const inspection = { ffmpegPath: toolchain.ffmpegPath, ffprobePath: ffprobe };
+  const rendered = await inspectMedia(mp4.bytes, 'video/mp4', { kind: 'video', durationSeconds: 2 }, inspection);
+  assert.equal(rendered.verdict, 'consistent', JSON.stringify(rendered.findings));
+  const wrongLength = await inspectMedia(mp4.bytes, 'video/mp4', { kind: 'video', durationSeconds: 8 }, inspection);
+  assert.deepEqual(wrongLength.findings.map((f) => f.code), ['MEDIA_DURATION_MISMATCH']);
+  const blankFile = path.join(directory, 'blank.mp4');
+  const made = spawnSync(toolchain.ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=320x180:d=2:r=12', '-pix_fmt', 'yuv420p', blankFile]);
+  assert.equal(made.status, 0, 'ffmpeg could not make the blank clip');
+  const blank = await inspectMedia(new Uint8Array(readFileSync(blankFile)), 'video/mp4', { kind: 'video', durationSeconds: 2, aspectRatio: '16:9' }, inspection);
+  assert.deepEqual([blank.verdict, blank.findings.map((f) => f.code)], ['contradicted', ['MEDIA_BLANK_FRAMES']]);
+  console.log(JSON.stringify({ inspection: { rendered: rendered.verdict, wrongLength: wrongLength.verdict, blank: blank.verdict } }));
   console.log(JSON.stringify({ mp4: { bytes: mp4.byteLength, ...mp4Probe }, webm: { bytes: webm.byteLength, ...webmProbe },
     composed: { bytes: composed.byteLength, ...composedProbe }, deterministic: true, elapsedMs: Math.round(performance.now() - started) }));
 } finally { rmSync(directory, { recursive: true, force: true }); }
