@@ -58,18 +58,25 @@ export function requireAvailable(course: CourseManifest, digest: string, progres
   return episode;
 }
 
-/** The learner-visible question: never a key, family, role, misconception link or tolerance. */
+/** The learner-visible question: never a key, family, role, misconception link or tolerance.
+ * An allowlist: only the fields named here leave the server, so a hidden fixture, recipe or any
+ * field an item (or a generated variant) gains later never reaches the learner. */
 export function publicQuestion(assessment: Assessment, course?: CourseManifest) {
-  const { grading: _private, familyId: _family, role: _role, misconceptionIds: _misconceptions, ...question } = assessment;
-  const common = { ...question, allowAbstain: assessment.allowAbstain !== false };
+  const common = { id: assessment.id, type: assessment.type, objectiveIds: [...assessment.objectiveIds], prompt: assessment.prompt,
+    allowAbstain: assessment.allowAbstain !== false, ...(assessment.confidence ? { confidence: structuredClone(assessment.confidence) } : {}) };
+  if (assessment.type === 'code' || assessment.type === 'code_repair') return { ...common, language: assessment.language, starterCode: assessment.starterCode };
+  if (assessment.type === 'trace') return { ...common, steps: assessment.steps.map(({ id, prompt }) => ({ id, prompt })) };
   // Rubric criteria are the visible success requirements, not a hidden key.
   if (assessment.type === 'rubric')
     return { ...common, criteria: assessment.grading.rubric.map(({ id, description, required }) => ({ id, description, required })) };
   if (assessment.type === 'counterexample' || assessment.type === 'experiment_design' || assessment.type === 'teach_back')
-    return { ...common, criteria: (course && reviewedRubric(course, assessment.id)?.criteria) ?? [] };
+    return { ...common, criteria: ((course && reviewedRubric(course, assessment.id)?.criteria) ?? []).map(({ id, description, required }) => ({ id, description, required })) };
   // A distractor's misconception link would reveal that it is wrong.
   if (assessment.type === 'choice') return { ...common, options: assessment.options.map(({ id, text }) => ({ id, text })) };
-  if ((assessment.type === 'numeric' || assessment.type === 'prediction') && assessment.grading.unit !== undefined) return { ...common, unit: assessment.grading.unit };
+  if (assessment.type === 'numeric' || assessment.type === 'prediction') {
+    const observation = assessment.type === 'prediction' && assessment.observationRef !== undefined ? { observationRef: assessment.observationRef } : {};
+    return { ...common, ...observation, ...(assessment.grading.unit !== undefined ? { unit: assessment.grading.unit } : {}) };
+  }
   return common;
 }
 
