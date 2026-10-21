@@ -61,5 +61,7 @@
   "error.STALE_REVISION": "Someone else changed these settings. Reload and try again.",
   "error.FORBIDDEN": "Your role cannot do this.",
   "error.UNAVAILABLE": "The server could not be reached.",
-  "error.unknown": "The server refused this step ({code})."
+  "error.unknown": "The server refused this step ({code}).",
+  "error.UPLOAD_INTERRUPTED": "The upload stopped before the server received the whole file, so nothing was installed. Check your connection, then choose Inspect package again; the file stays selected.",
+  "error.INSTALL_UNCONFIRMED": "The connection dropped before the server confirmed the install. Choose Install draft again: it is safe, because the same package is recognised and never installed twice."
 }

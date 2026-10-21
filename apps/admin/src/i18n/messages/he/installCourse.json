@@ -103,5 +103,6 @@
   "steps.registryApproved": "אושר (גיבוב {digest}).",
   "steps.registryConsent": "אני מאשר/ת את מרשם ההתאוששות שבחבילה ({count, plural, one {פרופיל אחד} two {שני פרופילים} other {# פרופילים}}, גיבוב {digest}) לגרסה {version}.",
   "steps.approveRegistry": "אישור מרשם ההתאוששות",
-  "steps.ownerMustApprove": "בעלים או מנהל/ת צריכים לאשר את המרשם."
+  "steps.ownerMustApprove": "בעלים או מנהל/ת צריכים לאשר את המרשם.",
+  "status.slow": "עדיין בתהליך. חבילה גדולה לוקחת יותר זמן בחיבור איטי; כדאי להשאיר את החלון הזה פתוח."
 }

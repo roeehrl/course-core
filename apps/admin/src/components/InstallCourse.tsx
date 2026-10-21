@@ -20,6 +20,8 @@ import { useI18n, type AdminTranslator, type MessageKey } from "../i18n";
 
 /** An idempotency key from the shared helper, which also works on non-secure origins. */
 const newKey = () => `package-${randomId()}`;
+/** How long a step runs before the form says it is still working. */
+export const SLOW_MS = 8000;
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
 const megabytes = (i18n: AdminTranslator, bytes: number) =>
   bytes < 1024 * 1024
@@ -104,6 +106,14 @@ export function InstallCourse({
   const stepsHeading = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
+  // A slow connection: after a while, say that the step is still running.
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (!pending) return;
+    const timer = setTimeout(() => setSlow(true), SLOW_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
   // After the enclosing dialog has opened (its showModal focuses its first control), move focus.
   useEffect(() => {
     if (!preview || installation) return;
@@ -258,6 +268,7 @@ export function InstallCourse({
       <p className="sr-only" role="status" aria-live="polite">
         {status}
       </p>
+      {pending && slow && <Notice>{t("installCourse.status.slow")}</Notice>}
       {!installation && !alreadyReleaseId && !initialPreview && (
         <form
           className="stack"
