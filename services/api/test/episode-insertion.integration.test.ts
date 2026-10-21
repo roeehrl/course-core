@@ -10,7 +10,7 @@ import { transaction } from "../src/database.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
-import { scanWakeups } from "../src/wakeups.js";
+import { scanWakeups, WAKEUP_RETRY_MS } from "../src/wakeups.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
 import { DEFAULT_COURSE_POLICY_SETTINGS } from "../src/policy-adapter.js";
 
@@ -440,8 +440,9 @@ describe("staff insertion of a reviewed remedial episode over HTTP (no model)", 
       expect(issued.statusCode, issued.body).toBe(200);
       expect((await send(s, "answers", { challengeId: issued.json().challengeId, answer })).json().result.passed).toBe(false);
     }
-    // Every check is used, the gate is unmet and no more added work fits: closure with a gaps report.
-    await scan();
+    // Every check is used, the gate is unmet and no more added work fits: closure with a gaps report
+    // when the exhausted quota is next re-checked (wakeups.ts WAKEUP_RETRY_MS).
+    for (let i = 0; i < 10; i++) if ((await scanWakeups(db, { now: new Date(Date.now() + 2 * WAKEUP_RETRY_MS) })).wrapped) break;
     expect(await status()).toBe("closed");
     const closed = (await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='enrollment.closed'", [s.enrollment])).rows;
     expect(closed).toEqual([{ payload: { reason: "cap", cap: "work_quota", coverage: "partial" } }]);

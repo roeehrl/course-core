@@ -157,7 +157,10 @@ export function closeEnrollment(input: PolicyState, request: z.input<typeof clos
   const replay = begin(state, args, 'close_enrollment'); if (replay) return replay;
   const preview = previewClosure(state, { now: args.now, reason: args.reason, coveredObjectiveIds: args.coveredObjectiveIds, demonstratedConceptIds: args.demonstratedConceptIds });
   assert(preview.previewDigest === args.previewDigest, 'STALE_PREVIEW', 'Closure report changed');
-  requireAuthority(state, args.authorityReceipt, 'close_enrollment', envelopeScopeId(state), preview.previewDigest, args.now);
+  // Authority over the enrollment envelope or any level above it (course, organization) may close it.
+  const chain = scopePath(state, envelopeScopeId(state)).map(s => s.scopeId);
+  assert(chain.includes(args.authorityReceipt.scopeId), 'AUTHORITY_REQUIRED', 'Closing needs authority over the enrollment or a level above it');
+  requireAuthority(state, args.authorityReceipt, 'close_enrollment', args.authorityReceipt.scopeId, preview.previewDigest, args.now);
   const next = structuredClone(state); next.status = 'closed'; next.closure = preview.report;
   for (const reservation of next.reservations) if (reservation.state === 'reserved') reservation.state = 'cancelled';
   for (const offer of next.offers) if (['proposed', 'accepted_pending_admin'].includes(offer.state)) {

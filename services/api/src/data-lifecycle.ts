@@ -334,6 +334,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   // Plain digests of what was just redacted could be brute-forced back (erased-digests.ts).
   Object.assign(counts, await eraseEnrollmentDigests(client, enrollmentId));
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");
+  // An erased enrollment takes no more review on the continuation track (its timers end with the status change, 096).
+  await run("continuationTrack", "UPDATE continuation_tracks SET state='stopped',stopped_at=clock_timestamp(),revision=revision+1 WHERE enrollment_id=$1 AND state='active'");
   await run("enrollment", "UPDATE enrollments SET profile='{}'::jsonb,status='erased',closed_at=coalesce(closed_at,clock_timestamp()) WHERE id=$1");
   await client.query("UPDATE supervisor_permissions SET adaptive_teaching=false,revision=revision+1 WHERE enrollment_id=$1 AND adaptive_teaching", [enrollmentId]);
   await client.query("SELECT set_config('course_core.erasure_enrollment','',true)");

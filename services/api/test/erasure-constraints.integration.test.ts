@@ -170,6 +170,11 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     teaching_actions: { action: "contrast_case", objective_ids: ["objective.one"], origin: "trigger", state: "started", rule_id: "T1", job_id: ids.job, outcome: { objectives: [] } },
     supervisor_authority_requests: { job_id: ids.job, kind: "goal_change", approver: "learner", proposal: { goal: "Goal: " + secret }, state: "approved", decided_at: new Date().toISOString(), previous: { goal: "Earlier: " + secret } },
     wakeup_failures: { stage: "retention", code: "SYNTHETIC_FAILURE" },
+    // Policy records (095, 096) and the continuation track (094): identifiers, units, dates and states only.
+    accommodation_overrides: {}, closure_reports: {}, extension_offers: {}, extension_pools: {}, learning_policy_revisions: {},
+    policy_constraint_snapshots: {}, policy_timer_plans: {}, work_reservations: {},
+    policy_deadline_timers: { phase: "cap" },
+    continuation_tracks: { state: "active" },
     wakeup_signals: { kind: "retention_due" },
   };
 }
