@@ -1,0 +1,8 @@
+{
+  "title": "Your course was updated",
+  "moved": "On {date}, your course was moved from version {from} to version {to}.",
+  "kept": "Your answers and the lessons you completed stay in your learning record.",
+  "checkpoints": "A checkpoint you passed on the earlier version may ask you to pass it again, and new lessons may have been added.",
+  "deadlines": "Your deadlines and limits are unchanged.",
+  "dismiss": "Got it"
+}

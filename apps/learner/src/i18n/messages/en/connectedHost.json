@@ -72,5 +72,7 @@
   "record.event.companion_requested": "Companion message saved",
   "record.event.profile_updated": "Learning profile updated",
   "record.event.visual_completed": "Illustration watched to the end",
+  "record.event.course_version_moved": "Course moved to a newer version",
+  "record.event.course_version_move_undone": "Course moved back to the earlier version",
   "record.event.other": "Learning activity saved"
 }

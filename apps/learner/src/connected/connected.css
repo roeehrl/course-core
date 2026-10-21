@@ -2349,6 +2349,12 @@ html:has(.connected-host:not(.is-compact)) {
   gap: 12px;
   margin-top: 8px;
 }
+/* "Your course was updated" (course version moves). */
+.connected-version-notice ul {
+  margin: 0 0 12px;
+  padding-inline-start: 22px;
+  line-height: 1.6;
+}
 
 /* Internationalization: see docs/i18n.md. Directional glyphs and icons mirror in
    right-to-left locales. */
