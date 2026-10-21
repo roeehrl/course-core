@@ -3,6 +3,7 @@ import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
+import { useI18n, useT } from "../i18n";
 import {
   ArrowUpRight,
   Check,
@@ -43,6 +44,8 @@ export function CourseView({
   /** Switch administration to another course (after installing a new one). */
   onOpenCourse?: (courseId: string) => void;
 }) {
+  const i18n = useI18n();
+  const t = useT();
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);
   const selected =
     data.releases.find((item) => item.id === selectedId) ?? data.releases[0];
@@ -81,10 +84,11 @@ export function CourseView({
       <ActionFeedback actions={actions} />
       <div className="hero-card">
         <div>
-          <p className="eyebrow">A considered learning experience</p>
+          <p className="eyebrow">{t("courseView.hero.eyebrow")}</p>
           <h2>
-            A clear path.
-            <br />A release you can stand behind.
+            {i18n.rich("courseView.hero.title", undefined, {
+              br: (_children, key) => <br key={key} />,
+            })}
           </h2>
           <p>{data.course.description}</p>
           <Button
@@ -92,7 +96,8 @@ export function CourseView({
             onClick={() => open("details")}
             disabled={!canWrite || actions.pending}
           >
-            Edit course details <ArrowUpRight size={16} aria-hidden="true" />
+            {t("courseView.editDetails")}{" "}
+            <ArrowUpRight size={16} aria-hidden="true" />
           </Button>
         </div>
         <div className="hero-art" aria-hidden="true">
@@ -101,41 +106,41 @@ export function CourseView({
           <span>02</span>
           <i />
           <span className="gold-step">03</span>
-          <small>DESIGN → REVIEW → RELEASE</small>
+          <small>{t("courseView.hero.steps")}</small>
         </div>
       </div>
       <div className="stats-grid">
         <Stat
-          label="Current release"
-          value={activeRelease?.version ?? "None"}
+          label={t("courseView.stat.current")}
+          value={activeRelease?.version ?? t("courseView.stat.none")}
           detail={
             client.mode === "demo"
-              ? "Fictional release record"
-              : "Selected for new learners"
+              ? t("courseView.stat.fictional")
+              : t("courseView.stat.selected")
           }
         />
         <Stat
-          label="Enrolled learners"
+          label={t("courseView.stat.enrolled")}
           value={data.enrollments.length}
-          detail="Pinned to a course release"
+          detail={t("courseView.stat.pinned")}
         />
         <Stat
-          label="Required objectives"
+          label={t("courseView.stat.objectives")}
           value={data.course.objectives.length}
-          detail="Evidence governs progression"
+          detail={t("courseView.stat.evidence")}
         />
         <Stat
-          label="Awaiting review"
+          label={t("courseView.stat.awaiting")}
           value={
             data.releases.filter((item) => item.state === "pending_review")
               .length
           }
-          detail="Release decisions to make"
+          detail={t("courseView.stat.decisions")}
         />
       </div>
       <Card
-        title="Course releases"
-        eyebrow="Versioned, reviewable changes"
+        title={t("courseView.releases.title")}
+        eyebrow={t("courseView.releases.eyebrow")}
         actions={
           <div className="button-row">
             {canInstall && (
@@ -147,7 +152,7 @@ export function CourseView({
                 disabled={actions.pending}
               >
                 <PackagePlus size={16} aria-hidden="true" />
-                Install course
+                {t("courseView.install")}
               </Button>
             )}
             <Button
@@ -155,7 +160,7 @@ export function CourseView({
               disabled={!canWrite || actions.pending}
             >
               <Plus size={16} aria-hidden="true" />
-              New draft
+              {t("courseView.newDraft")}
             </Button>
           </div>
         }
@@ -177,10 +182,14 @@ export function CourseView({
                 <GitBranch size={20} aria-hidden="true" />
               </span>
               <span className="grow">
-                <strong>Version {release.version}</strong>
+                <strong>
+                  {t("courseView.release.version", {
+                    version: release.version,
+                  })}
+                </strong>
                 <small>{release.notes}</small>
                 {release.availableForNewLearners && (
-                  <small>Available to new learners</small>
+                  <small>{t("courseView.release.available")}</small>
                 )}
               </span>
               <Status value={release.state} />
@@ -205,8 +214,10 @@ export function CourseView({
         )}
       {selected && (
         <Card
-          title={`Release ${selected.version}`}
-          eyebrow="Release inspection"
+          title={t("courseView.inspection.title", {
+            version: selected.version,
+          })}
+          eyebrow={t("courseView.inspection.eyebrow")}
         >
           <div className="split-line">
             <Status value={selected.state} />
@@ -228,19 +239,16 @@ export function CourseView({
                 </div>
                 <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
                   {check.warning
-                    ? "Warning"
+                    ? t("courseView.check.warning")
                     : check.passed
-                      ? "Recorded"
-                      : "Required"}
+                      ? t("courseView.check.recorded")
+                      : t("courseView.check.required")}
                 </Badge>
               </li>
             ))}
           </ul>
           {selected.state === "pending_review" && (
-            <Notice tone="gold">
-              This release is pending review. Publication remains unavailable
-              until an authorized reviewer approves it.
-            </Notice>
+            <Notice tone="gold">{t("courseView.pendingReview")}</Notice>
           )}
           {selected.state === "draft" && (
             <>
@@ -253,13 +261,12 @@ export function CourseView({
                 }
                 onClick={() => void transition(selected, "submit-review")}
               >
-                {actions.pending ? "Saving…" : "Submit for review"}
+                {actions.pending
+                  ? t("courseView.saving")
+                  : t("courseView.submitReview")}
               </Button>
               {selected.checks.some((item) => !item.passed) && (
-                <small>
-                  Server-side bundle validation is required before this draft
-                  can enter review.
-                </small>
+                <small>{t("courseView.validationRequired")}</small>
               )}
             </>
           )}
@@ -277,9 +284,11 @@ export function CourseView({
                 }
                 onClick={() => void transition(selected, "approve")}
               >
-                {actions.pending ? "Recording…" : "Approve review"}
+                {actions.pending
+                  ? t("courseView.recording")
+                  : t("courseView.approveReview")}
               </Button>
-              <Button disabled>Publish after approval</Button>
+              <Button disabled>{t("courseView.publishAfter")}</Button>
             </>
           )}
           {selected.state === "approved" && (
@@ -296,7 +305,7 @@ export function CourseView({
                 }
                 onClick={() => open("publish")}
               >
-                Publish release
+                {t("courseView.publish")}
               </Button>
             </>
           )}
@@ -311,17 +320,14 @@ export function CourseView({
                   setEditingBundle(true);
                 }}
               >
-                Edit draft bundle
+                {t("courseView.editBundle")}
               </Button>
             )}
           {selected.state === "published" && (
             <>
-              <Notice tone="blue">
-                This release is immutable. Make changes in a new draft. Existing
-                enrollments keep their pinned version.
-              </Notice>
+              <Notice tone="blue">{t("courseView.immutable")}</Notice>
               {selected.availableForNewLearners ? (
-                <Notice>This version is selected for new learners.</Notice>
+                <Notice>{t("courseView.selectedForNew")}</Notice>
               ) : (
                 <Button
                   disabled={
@@ -342,7 +348,7 @@ export function CourseView({
                     } else void transition(selected, "activate");
                   }}
                 >
-                  Use for new learners
+                  {t("courseView.useForNew")}
                 </Button>
               )}
             </>
@@ -358,7 +364,7 @@ export function CourseView({
       )}
       {/* Release-scoped: moved here from the AI services page. */}
       <RecoveryRegistry data={data} client={client} />
-      <Card title="Learning objectives">
+      <Card title={t("courseView.objectives")}>
         <ol className="objectives">
           {data.course.objectives.map((objective) => (
             <li key={objective}>{objective}</li>
@@ -377,8 +383,8 @@ export function CourseView({
       )}
       {installing && data.course.workspaceId && (
         <Dialog
-          title="Install course"
-          eyebrow="Course package"
+          title={t("courseView.install")}
+          eyebrow={t("courseView.installDialog.eyebrow")}
           className="install-dialog"
           pending={installPending}
           onClose={() => setInstalling(false)}
@@ -409,10 +415,10 @@ export function CourseView({
         <Dialog
           title={
             dialog === "details"
-              ? "Edit course details"
+              ? t("courseView.editDetails")
               : dialog === "draft"
-                ? "Create a release draft"
-                : "Publish reviewed release"
+                ? t("courseView.dialog.draft")
+                : t("courseView.dialog.publish")
           }
           onClose={() => setDialog(undefined)}
           pending={actions.pending}
@@ -475,6 +481,7 @@ function CourseForm({
   pending: boolean;
   onSave: (input: { first: string; second: string }) => void;
 }) {
+  const t = useT();
   const [first, setFirst] = useState(
     kind === "details" ? data.course.title : "",
   );
@@ -490,13 +497,13 @@ function CourseForm({
       }}
     >
       <Field
-        label={kind === "details" ? "Course title" : "Version"}
-        htmlFor="course-first"
-        hint={
-          kind === "draft"
-            ? "Use a unique semantic version, for example 1.2.0."
-            : undefined
+        label={
+          kind === "details"
+            ? t("courseView.form.title")
+            : t("courseView.form.version")
         }
+        htmlFor="course-first"
+        hint={kind === "draft" ? t("courseView.form.versionHint") : undefined}
       >
         <input
           id="course-first"
@@ -509,7 +516,11 @@ function CourseForm({
         />
       </Field>
       <Field
-        label={kind === "details" ? "Course description" : "Release notes"}
+        label={
+          kind === "details"
+            ? t("courseView.form.description")
+            : t("courseView.form.notes")
+        }
         htmlFor="course-second"
       >
         <textarea
@@ -523,10 +534,10 @@ function CourseForm({
       </Field>
       <Button kind="primary" type="submit" disabled={pending}>
         {pending
-          ? "Saving…"
+          ? t("courseView.saving")
           : kind === "details"
-            ? "Save course details"
-            : "Create draft"}
+            ? t("courseView.form.saveDetails")
+            : t("courseView.form.createDraft")}
       </Button>
     </form>
   );
@@ -542,6 +553,8 @@ function PublishConfirmation({
   pending: boolean;
   onSubmit: () => void;
 }) {
+  const i18n = useI18n();
+  const t = useT();
   const [consent, setConsent] = useState(false);
   return (
     <form
@@ -552,16 +565,19 @@ function PublishConfirmation({
       }}
     >
       <p>
-        Version <strong>{version}</strong> has an approved review. New
-        enrollments may use this release; existing ones keep their pinned
-        version.
+        {i18n.rich(
+          "courseView.publishBody",
+          { version },
+          {
+            strong: (children, key) => (
+              <strong key={key} dir="ltr">
+                {children}
+              </strong>
+            ),
+          },
+        )}
       </p>
-      {demo && (
-        <Notice tone="gold">
-          Demo only. This changes an in-memory release record and does not
-          deploy anything.
-        </Notice>
-      )}
+      {demo && <Notice tone="gold">{t("courseView.demoOnly")}</Notice>}
       <label className="check-label">
         <input
           type="checkbox"
@@ -569,10 +585,10 @@ function PublishConfirmation({
           onChange={(e) => setConsent(e.target.checked)}
           disabled={pending}
         />
-        I confirm publication of version {version}.
+        {t("courseView.confirmLabel", { version })}
       </label>
       <Button kind="primary" type="submit" disabled={!consent || pending}>
-        {pending ? "Recording…" : "Confirm publication"}
+        {pending ? t("courseView.recording") : t("courseView.confirm")}
       </Button>
     </form>
   );

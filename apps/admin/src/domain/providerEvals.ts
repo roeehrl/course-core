@@ -117,20 +117,3 @@ export interface ProviderEvalPort {
     },
   ): Promise<z.infer<typeof overrideReceiptSchema>>;
 }
-export const STATUS_TEXT: Record<(typeof EVAL_STATUSES)[number], string> = {
-  passed: "Evaluated · passed",
-  override: "Owner override",
-  failed: "Evaluation failed",
-  stale: "Evaluation out of date",
-  not_evaluated: "Not evaluated",
-  not_covered: "No eval suite for this role",
-};
-export const REASON_TEXT: Record<
-  EvalRequired["roles"][number]["reason"],
-  string
-> = {
-  not_evaluated: "no evaluation recorded",
-  failed: "the recorded evaluation failed",
-  stale_suite: "evaluated against an older suite",
-};
-export const shortDigest = (value: string) => value.slice(0, 12);

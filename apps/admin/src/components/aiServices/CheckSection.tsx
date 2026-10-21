@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { activeRoles, type SectionState } from "../../domain/aiServices";
-import type { AiKey } from "../../text/aiServices";
 import type { SectionProps } from "./AiServicesPage";
 import {
   ErrorSummary,
@@ -13,6 +12,7 @@ import {
   jobName,
   useRequestKeys,
   useAiText,
+  type AiKey,
   type FieldError,
 } from "./shared";
 
@@ -54,7 +54,9 @@ export function CheckSection(props: Props) {
     if (!draft) return;
     setMessage(undefined);
     if (reason.trim().length < MIN_REASON) {
-      setErrors([{ field: reasonId, message: t("check.errReason") }]);
+      setErrors([
+        { field: reasonId, message: t("aiServices.check.errReason") },
+      ]);
       return;
     }
     setErrors([]);
@@ -70,7 +72,7 @@ export function CheckSection(props: Props) {
       keys.settle();
       if (await activate(draft)) {
         setReason("");
-        setMessage({ tone: "ok", text: t("check.approved") });
+        setMessage({ tone: "ok", text: t("aiServices.check.approved") });
       }
       await reload();
     } catch (error) {
@@ -84,14 +86,14 @@ export function CheckSection(props: Props) {
   return (
     <Section
       id="check"
-      title={t("section.check")}
+      title={t("aiServices.section.check")}
       state={props.state}
       unsaved={props.unsaved}
     >
       {message && <Message tone={message.tone}>{message.text}</Message>}
       {waiting.length ? (
         <>
-          <p>{t("check.notChecked", { count: waiting.length })}</p>
+          <p>{t("aiServices.check.notChecked", { count: waiting.length })}</p>
           <ul className="ai-list">
             {waiting.map((r) => (
               <li key={r.role}>
@@ -100,9 +102,11 @@ export function CheckSection(props: Props) {
               </li>
             ))}
           </ul>
-          {dialogues > 0 && <p>{t("check.explain", { dialogues })}</p>}
-          <Message tone="info">{t("check.notHere")}</Message>
-          <p className="ai-muted">{t("check.disclaimer")}</p>
+          {dialogues > 0 && (
+            <p>{t("aiServices.check.explain", { dialogues })}</p>
+          )}
+          <Message tone="info">{t("aiServices.check.notHere")}</Message>
+          <p className="ai-muted">{t("aiServices.check.disclaimer")}</p>
           {owner ? (
             <form
               className="ai-form ai-approve"
@@ -112,12 +116,12 @@ export function CheckSection(props: Props) {
                 void approve();
               }}
             >
-              <h3>{t("check.approveTitle")}</h3>
+              <h3>{t("aiServices.check.approveTitle")}</h3>
               <ErrorSummary errors={errors} />
               <Field
                 id={reasonId}
-                label={t("check.reasonLabel")}
-                hint={t("check.reasonHint")}
+                label={t("aiServices.check.reasonLabel")}
+                hint={t("aiServices.check.reasonHint")}
                 error={reasonError}
               >
                 <textarea
@@ -132,7 +136,9 @@ export function CheckSection(props: Props) {
                 />
               </Field>
               <p className="ai-muted" aria-live="polite">
-                {t("check.reasonCount", { count: reason.trim().length })}
+                {t("aiServices.check.reasonCount", {
+                  count: reason.trim().length,
+                })}
               </p>
               <div className="ai-actions">
                 <button
@@ -140,18 +146,22 @@ export function CheckSection(props: Props) {
                   className="button primary"
                   disabled={saving}
                 >
-                  {saving ? t("check.approving") : t("check.approve")}
+                  {saving
+                    ? t("aiServices.check.approving")
+                    : t("aiServices.check.approve")}
                 </button>
               </div>
             </form>
           ) : (
-            <Message tone="warn">{t("check.approveOwnersOnly")}</Message>
+            <Message tone="warn">
+              {t("aiServices.check.approveOwnersOnly")}
+            </Message>
           )}
         </>
       ) : (
-        <p>{t("check.nothingWaiting")}</p>
+        <p>{t("aiServices.check.nothingWaiting")}</p>
       )}
-      <h3>{t("check.onTitle")}</h3>
+      <h3>{t("aiServices.check.onTitle")}</h3>
       {active.length ? (
         <ul className="ai-list">
           {active.map((role) => {
@@ -163,7 +173,7 @@ export function CheckSection(props: Props) {
                 {state && (
                   <span className="ai-muted">
                     {" "}
-                    · {t(`check.state.${state.status}` as AiKey)}
+                    · {t(`aiServices.check.state.${state.status}` as AiKey)}
                   </span>
                 )}
               </li>
@@ -171,7 +181,7 @@ export function CheckSection(props: Props) {
           })}
         </ul>
       ) : (
-        <p className="ai-muted">{t("check.noneOn")}</p>
+        <p className="ai-muted">{t("aiServices.check.noneOn")}</p>
       )}
     </Section>
   );

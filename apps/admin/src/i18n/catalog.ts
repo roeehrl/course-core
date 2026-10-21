@@ -6,6 +6,7 @@ import en_actionFeedback from "./messages/en/actionFeedback.json";
 import en_adminApp from "./messages/en/adminApp.json";
 import en_adminSectionView from "./messages/en/adminSectionView.json";
 import en_adminSections from "./messages/en/adminSections.json";
+import en_aiServices from "./messages/en/aiServices.json";
 import en_auditView from "./messages/en/auditView.json";
 import en_cohortMigrationDialog from "./messages/en/cohortMigrationDialog.json";
 import en_conceptMappings from "./messages/en/conceptMappings.json";
@@ -27,6 +28,7 @@ import en_evidenceDisputeQueue from "./messages/en/evidenceDisputeQueue.json";
 import en_evidenceDisputes from "./messages/en/evidenceDisputes.json";
 import en_extensionComposer from "./messages/en/extensionComposer.json";
 import en_extensionTerms from "./messages/en/extensionTerms.json";
+import en_firstRun from "./messages/en/firstRun.json";
 import en_gateReviewQueue from "./messages/en/gateReviewQueue.json";
 import en_gateReviews from "./messages/en/gateReviews.json";
 import en_installCourse from "./messages/en/installCourse.json";
@@ -53,13 +55,9 @@ import en_policyDetails from "./messages/en/policyDetails.json";
 import en_policyMigrationEditor from "./messages/en/policyMigrationEditor.json";
 import en_policySettingsCard from "./messages/en/policySettingsCard.json";
 import en_policyView from "./messages/en/policyView.json";
-import en_providerCostPanel from "./messages/en/providerCostPanel.json";
 import en_providerCosts from "./messages/en/providerCosts.json";
-import en_providerEvalPanel from "./messages/en/providerEvalPanel.json";
 import en_providerEvals from "./messages/en/providerEvals.json";
-import en_providerModelGuide from "./messages/en/providerModelGuide.json";
 import en_providerSetup from "./messages/en/providerSetup.json";
-import en_providerSetupPanel from "./messages/en/providerSetupPanel.json";
 import en_providersView from "./messages/en/providersView.json";
 import en_recoveryRegistry from "./messages/en/recoveryRegistry.json";
 import en_regradeDialog from "./messages/en/regradeDialog.json";
@@ -86,6 +84,7 @@ import he_actionFeedback from "./messages/he/actionFeedback.json";
 import he_adminApp from "./messages/he/adminApp.json";
 import he_adminSectionView from "./messages/he/adminSectionView.json";
 import he_adminSections from "./messages/he/adminSections.json";
+import he_aiServices from "./messages/he/aiServices.json";
 import he_auditView from "./messages/he/auditView.json";
 import he_cohortMigrationDialog from "./messages/he/cohortMigrationDialog.json";
 import he_conceptMappings from "./messages/he/conceptMappings.json";
@@ -107,6 +106,7 @@ import he_evidenceDisputeQueue from "./messages/he/evidenceDisputeQueue.json";
 import he_evidenceDisputes from "./messages/he/evidenceDisputes.json";
 import he_extensionComposer from "./messages/he/extensionComposer.json";
 import he_extensionTerms from "./messages/he/extensionTerms.json";
+import he_firstRun from "./messages/he/firstRun.json";
 import he_gateReviewQueue from "./messages/he/gateReviewQueue.json";
 import he_gateReviews from "./messages/he/gateReviews.json";
 import he_installCourse from "./messages/he/installCourse.json";
@@ -133,13 +133,9 @@ import he_policyDetails from "./messages/he/policyDetails.json";
 import he_policyMigrationEditor from "./messages/he/policyMigrationEditor.json";
 import he_policySettingsCard from "./messages/he/policySettingsCard.json";
 import he_policyView from "./messages/he/policyView.json";
-import he_providerCostPanel from "./messages/he/providerCostPanel.json";
 import he_providerCosts from "./messages/he/providerCosts.json";
-import he_providerEvalPanel from "./messages/he/providerEvalPanel.json";
 import he_providerEvals from "./messages/he/providerEvals.json";
-import he_providerModelGuide from "./messages/he/providerModelGuide.json";
 import he_providerSetup from "./messages/he/providerSetup.json";
-import he_providerSetupPanel from "./messages/he/providerSetupPanel.json";
 import he_providersView from "./messages/he/providersView.json";
 import he_recoveryRegistry from "./messages/he/recoveryRegistry.json";
 import he_regradeDialog from "./messages/he/regradeDialog.json";
@@ -168,6 +164,7 @@ export const en = {
   adminApp: en_adminApp,
   adminSectionView: en_adminSectionView,
   adminSections: en_adminSections,
+  aiServices: en_aiServices,
   auditView: en_auditView,
   cohortMigrationDialog: en_cohortMigrationDialog,
   conceptMappings: en_conceptMappings,
@@ -189,6 +186,7 @@ export const en = {
   evidenceDisputes: en_evidenceDisputes,
   extensionComposer: en_extensionComposer,
   extensionTerms: en_extensionTerms,
+  firstRun: en_firstRun,
   gateReviewQueue: en_gateReviewQueue,
   gateReviews: en_gateReviews,
   installCourse: en_installCourse,
@@ -215,13 +213,9 @@ export const en = {
   policyMigrationEditor: en_policyMigrationEditor,
   policySettingsCard: en_policySettingsCard,
   policyView: en_policyView,
-  providerCostPanel: en_providerCostPanel,
   providerCosts: en_providerCosts,
-  providerEvalPanel: en_providerEvalPanel,
   providerEvals: en_providerEvals,
-  providerModelGuide: en_providerModelGuide,
   providerSetup: en_providerSetup,
-  providerSetupPanel: en_providerSetupPanel,
   providersView: en_providersView,
   recoveryRegistry: en_recoveryRegistry,
   regradeDialog: en_regradeDialog,
@@ -250,6 +244,7 @@ export const he: PartialCatalog<typeof en> = {
   adminApp: he_adminApp,
   adminSectionView: he_adminSectionView,
   adminSections: he_adminSections,
+  aiServices: he_aiServices,
   auditView: he_auditView,
   cohortMigrationDialog: he_cohortMigrationDialog,
   conceptMappings: he_conceptMappings,
@@ -271,6 +266,7 @@ export const he: PartialCatalog<typeof en> = {
   evidenceDisputes: he_evidenceDisputes,
   extensionComposer: he_extensionComposer,
   extensionTerms: he_extensionTerms,
+  firstRun: he_firstRun,
   gateReviewQueue: he_gateReviewQueue,
   gateReviews: he_gateReviews,
   installCourse: he_installCourse,
@@ -297,13 +293,9 @@ export const he: PartialCatalog<typeof en> = {
   policyMigrationEditor: he_policyMigrationEditor,
   policySettingsCard: he_policySettingsCard,
   policyView: he_policyView,
-  providerCostPanel: he_providerCostPanel,
   providerCosts: he_providerCosts,
-  providerEvalPanel: he_providerEvalPanel,
   providerEvals: he_providerEvals,
-  providerModelGuide: he_providerModelGuide,
   providerSetup: he_providerSetup,
-  providerSetupPanel: he_providerSetupPanel,
   providersView: he_providersView,
   recoveryRegistry: he_recoveryRegistry,
   regradeDialog: he_regradeDialog,
