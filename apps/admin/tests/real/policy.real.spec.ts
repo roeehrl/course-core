@@ -98,7 +98,7 @@ test("course policy settings are previewed for feasibility before saving, at eve
     }),
   ).toBeVisible();
   await expect(
-    card.getByText(/Needs \d+ minutes; \d+ available\./).first(),
+    card.getByText(/Needs [\d,]+ minutes; [\d,]+ available\./).first(),
   ).toBeVisible();
   await accessible(page);
 });
