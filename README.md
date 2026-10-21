@@ -1376,6 +1376,16 @@ The learner's own statements about themselves follow one rule:
 - **Autonomous supervisor work:** it receives them only under the course-scoped supervision opt-in, like teaching hypotheses. Without the opt-in, the supervisor's context says `withheld: "supervision_opt_in_required"`. Withdrawing the opt-in takes them out of new supervisor work.
 - **Thoughts:** the learner's private thoughts never reach any model.
 
+Every suggestion about the learner (pace, explanation style, an objective to review)
+carries its provenance (C06, migration 106): the source events it cites, an
+`uncertainty` Core states from how much of the learner's own activity it rests on
+(one event `high`, two or three `medium`, four or more `low`; never the model's own
+claim) and an `expiresAt` 30 days after it was made. A suggestion still undecided at
+its expiry is listed as `expired`: it was never applied, never reaches a model, and
+can still be disputed but not accepted or corrected (`PROPOSAL_EXPIRED`). A decision
+made in time keeps the learner's later choices open. Older suggestions keep `null`
+for both.
+
 Each objective's state (`not_assessed`, `needs_evidence`, `practicing`,
 `demonstrated`, `retained`, `needs_review`, `disputed`) carries a plain
 `explanation` of why it was given. The learner has two controls over any piece

@@ -700,6 +700,27 @@ describe("learner-owned memory panel through HTTP", () => {
       unmount();
     }
   });
+  it("states how uncertain a suggestion is and until when it is offered; an expired one can only be disputed (C06)", async () => {
+    const snapshot = fixture();
+    const first = snapshot.suggestions.items[0]!;
+    snapshot.suggestions.items = [{ ...first, uncertainty: "high", expiresAt: "2026-11-20T09:00:00.000Z" },
+      { ...first, proposalId: "4b2e0c0e-1d1f-4a55-9a0c-1a6c1a3f0b11", status: "expired", uncertainty: "low", expiresAt: "2026-10-01T09:00:00.000Z" }];
+    const h = harness(snapshot);
+    render(<LearnerMemoryPanel {...h.props} />);
+    await ready();
+    expect(screen.getByText("Uncertain: based on one of your activities.")).toBeVisible();
+    expect(screen.getByText("Fairly certain: based on several of your activities.")).toBeVisible();
+    expect(screen.getByText(/^Open for your review until /)).toBeVisible();
+    expect(screen.getByText("Expired · not applied")).toBeVisible();
+    expect(screen.getByText(/so it was never applied\. You can still dispute it\./)).toBeVisible();
+    // Accept and correct only on the open one; dispute on both.
+    expect(screen.getAllByRole("button", { name: "Accept suggestion" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Dispute suggestion" })).toHaveLength(2);
+    // Unknown uncertainty values or malformed expiry dates are refused, not shown.
+    expect(() => parseMemorySnapshot({ ...snapshot, suggestions: { ...snapshot.suggestions, items: [{ ...first, uncertainty: "certain" } as never] } }, scope)).toThrow();
+    expect(() => parseMemorySnapshot({ ...snapshot, suggestions: { ...snapshot.suggestions, items: [{ ...first, expiresAt: "soon" } as never] } }, scope)).toThrow();
+  });
+
   it("rejects inconsistent skill projections from the server", () => {
     const model = fixture();
     const gated = model.understanding[0]! as Extract<MemorySnapshot["understanding"][number], { gateId: string }>;
