@@ -538,7 +538,12 @@ export function LearnerBudgetCard({
           />
         </Field>
       </div>
-      <p className="muted">{t("supervisionSettings.budget.utc")}</p>
+      <p className="muted">
+        {b.dayBoundary === "course_time_zone" && b.dayTimeZone
+          ? t("supervisionSettings.budget.courseZone", { zone: b.dayTimeZone })
+          : t("supervisionSettings.budget.utc")}{" "}
+        {t("supervisionSettings.budget.mediaCounts")}
+      </p>
       <div aria-live="polite">
         {invalid && (
           <Notice tone="gold">{t("supervisionSettings.budget.invalid")}</Notice>

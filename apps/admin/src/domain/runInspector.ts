@@ -74,6 +74,23 @@ export const policiesSchema = z.object({
     .nullable(),
   workspaceBudget: z.object({ limit: pair, used: pair }).nullable(),
   providerConfiguration: text(200),
+  /** Where the run's AI setup came from. Older servers omit it. */
+  providerSource: z.enum(["host_file", "workspace"]).optional(),
+  /** Which strategy answered each provider call and whether its exact revision was checked
+   * or approved when it ran (requirement B08). Older servers omit it. */
+  strategies: z
+    .array(
+      z.object({
+        operationId: text(200),
+        strategyId: text(200),
+        version: text(64).nullable(),
+        source: z.enum(["core", "course"]),
+        revisionDigest: text(64).nullable(),
+        evalStanding: z.enum(["passed", "approved", "not_checked", "unknown"]),
+      }),
+    )
+    .max(50)
+    .optional(),
   supervision: z.object({ state: text(40), revision: z.number() }),
   reason: text(80).nullable(),
 });

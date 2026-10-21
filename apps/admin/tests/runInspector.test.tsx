@@ -133,6 +133,17 @@ const run: SupervisorRun = {
     },
     workspaceBudget: null,
     providerConfiguration: "host fallback",
+    providerSource: "host_file",
+    strategies: [
+      {
+        operationId: "j/generate",
+        strategyId: "example.supervisor.read-first",
+        version: "1.0.0",
+        source: "course",
+        revisionDigest: "e".repeat(64),
+        evalStanding: "not_checked",
+      },
+    ],
     supervision: { state: "paused", revision: 2 },
     reason: null,
   },
@@ -295,6 +306,18 @@ describe("run inspector completion", () => {
       screen.getByRole("table", { name: "Reservations and usage per attempt" }),
     ).toHaveTextContent("900 micro-USD · 800 tokens300 micro-USD · 120 tokens");
     expect(screen.getByText("paused · revision 2")).toBeVisible();
+    // Which AI setup answered, and that nobody had checked it when it ran (B08).
+    expect(screen.getByText(/The server's provider file/)).toBeVisible();
+    expect(
+      screen.getByText(
+        "The course's narrower setup example.supervisor.read-first (version 1.0.0)",
+        { exact: false },
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Not checked when it ran")).toBeVisible();
+    expect(
+      screen.getByText(/had no passing quality check and no owner approval/),
+    ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: "Client & sync" }),
     );

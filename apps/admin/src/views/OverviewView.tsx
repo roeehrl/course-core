@@ -208,6 +208,13 @@ function Overview({
       )}
       {o.supervisorHealth && (
         <Card title={t("overviewView.health.title")}>
+          {!!o.supervisorHealth.uncheckedCallsLast7Days && (
+            <Notice tone="gold" title={t("overviewView.health.uncheckedTitle")}>
+              {t("overviewView.health.uncheckedBody", {
+                count: o.supervisorHealth.uncheckedCallsLast7Days,
+              })}
+            </Notice>
+          )}
           <p>
             {o.supervisorHealth.oldestOpenJobAgeSeconds === null
               ? t("overviewView.health.failed", {
