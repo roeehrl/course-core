@@ -188,3 +188,17 @@ describe("candidate grammar", () => {
       wrongSolutions: ["y"], objectiveIds: ["minimum"], sourceRefs: ["source"] }).success).toBe(false);
   });
 });
+
+describe("generated components' text alternative", () => {
+  it("is written by the host from the labels, so a model cannot inject links, images or HTML into the lesson", async () => {
+    const { componentText } = await import("../src/generated-content.js");
+    const { accessibilityProblems } = await import("../src/teaching-accessibility.js");
+    const text = componentText({ title: "Click [here](https://example.test) <b>now</b>", description: "![x](y) A line.", source: "def solve(inputs):\n    return {}\n",
+      inputs: [{ name: "x", label: "Input x", min: -1, max: 1, step: 0.5, initial: 0 }], outputs: [{ name: "y", label: "Output y" }],
+      tests: [{ id: "a", input: { x: 0 }, expected: { y: 0 } }, { id: "b", input: { x: 1 }, expected: { y: 1 } }, { id: "c", input: { x: -1 }, expected: { y: 1 } }] });
+    expect(text).not.toMatch(/(?<!\\)\[here\]\(/);
+    expect(text).not.toMatch(/(?<!\\)<b>/);
+    expect(text).toContain("- Input x: -1 – 1 (0)");
+    expect(accessibilityProblems([text])).toEqual([]);
+  });
+});

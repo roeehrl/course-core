@@ -13,7 +13,7 @@ import { svgRenderer } from "../src/svg-renderer.js";
 import { withInstalledExtensions, checkAdaptationConfiguration, createAdaptationRuntime } from "../src/adaptation-store.js";
 import type { RuntimeExtension } from "../src/publication.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
-import { generatedContentFixture, lineScene, syntheticCodeEvaluator } from "./generated-content-fixture.js";
+import { generatedContentFixture, lineScene, LINE_COMPONENT_SOURCE, syntheticCodeEvaluator } from "./generated-content-fixture.js";
 
 /**
  * Supervisor-generated simulations, check questions and code exercises through the real pipeline
@@ -207,7 +207,7 @@ describe("generated check questions keyed by the course's model (E01, E04)", () 
     expect((await outcome(run.j, "list_generation_profiles")).result.profiles.find((p: any) => p.id === "check-profile").models[0])
       .toMatchObject({ visualId: fixture.authoredVisualId, formulas: [{ pane: "rule", symbols: ["y", "m"] }] });
     // The tool result never carries a key; the staged candidate holds the derived one.
-    expect(JSON.stringify((await outcome(run.j, "create_teaching")).result)).not.toContain("13");
+    expect(Object.keys((await outcome(run.j, "create_teaching")).result).sort()).toEqual(["artifactDigest", "delivery", "doesNotGrantMastery", "profileId", "selected"]);
     expect((await outcome(run.j, "create_teaching")).generatedTeaching.artifact.assessment.grading.expected).toBe(13);
     expect(run.verified).toBe("ready");
     expect(await run.apply()).toBe("applied");
@@ -279,6 +279,58 @@ describe("generated code exercises (E01, E05)", () => {
   }, 60000);
 });
 
+const lineComponent = (over: Record<string, unknown> = {}) => ({ title: "Line explorer", description: "Move the slope, x and intercept and watch y change.",
+  source: LINE_COMPONENT_SOURCE,
+  inputs: [{ name: "slope", label: "Slope", min: -5, max: 5, step: 1, initial: 2 }, { name: "x", label: "Input x", min: 0, max: 10, step: 1, initial: 3 },
+    { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
+  outputs: [{ name: "y", label: "Output y" }],
+  tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }], ...over });
+const component = (over: Record<string, unknown> = {}) => () => ({ profileId: "component-profile", kind: "component", component: lineComponent(over), ...base });
+
+describe("generated interactive components (E05)", () => {
+  it("a component is tested in the grader, published immutable beside its text alternative, offered to the learner without its tests, and undoable", async () => {
+    const learner = await enroll();
+    codeRuns.length = 0;
+    const run = await deliver(learner, component());
+    expect((await outcome(run.j, "list_generation_profiles")).result.profiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "component-profile", creates: "component", contract: expect.stringContaining("def solve(inputs)") })]));
+    expect((await outcome(run.j, "check_teaching")).result).toMatchObject({ verification: "passed", failedCheckIds: [] });
+    expect(codeRuns).toEqual([LINE_COMPONENT_SOURCE, LINE_COMPONENT_SOURCE]);
+    expect(await run.apply()).toBe("applied");
+    const added = (await lesson(learner)).blocks.at(-1);
+    // The lesson block is the component's text alternative, written by the host from its labels.
+    expect(added).toMatchObject({ type: "text" });
+    expect(added.markdown).toContain("### Line explorer");
+    expect(added.markdown).toContain("- Slope: -5 – 5 (2)\n- Input x: 0 – 10 (3)");
+    const listed = await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(learner.learner) });
+    expect(listed.statusCode, listed.body).toBe(200);
+    expect(listed.json().components).toEqual([expect.objectContaining({ episodeId: "min", blockId: added.id, source: LINE_COMPONENT_SOURCE,
+      inputs: lineComponent().inputs, outputs: lineComponent().outputs, digest: expect.stringMatching(/^[a-f0-9]{64}$/) })]);
+    expect(listed.json().components[0]).not.toHaveProperty("tests");
+    expect((await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(await login()) })).statusCode).toBeGreaterThanOrEqual(403);
+    // Published bytes cannot change.
+    await expect(db.query("UPDATE generated_components SET body='{}'::jsonb WHERE enrollment_id=$1", [learner.id])).rejects.toMatchObject({ code: "23514" });
+    expect(await evidence(learner)).toBe(0);
+    const [change] = await changes(learner);
+    expect(change).toMatchObject({ kind: "append_teaching", unverified: true, revertable: true });
+    expect((await learner.command("personal-changes/revert", { proposalId: change.proposalId, expectedPlanRevision: 1 })).statusCode).toBe(200);
+    expect((await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(learner.learner) })).json().components).toEqual([]);
+  }, 60000);
+  it("a component that fails its tests, whose tests cannot tell positions apart, or that leaves its controls unchecked is never ready", async () => {
+    const learner = await enroll();
+    const wrong = lineComponent().tests.map((t, i) => i === 1 ? { ...t, expected: { y: 41 } } : t);
+    const same = lineComponent().tests.map((t) => ({ ...t, expected: { y: 7 } }));
+    for (const [over, problem] of [[{ tests: wrong }, "component_tests_failed"], [{ tests: same }, "component_tests_trivial"],
+      [{ tests: lineComponent().tests.slice(1).concat({ id: "other", input: { slope: 1, x: 1, intercept: 1 }, expected: { y: 2 } }) }, "component_tests_unbound"]] as const) {
+      const run = await deliver(learner, component(over));
+      expect((await outcome(run.j, "check_teaching")).result, problem).toMatchObject({ verification: "rejected", failedCheckIds: ["host-component-tests"], contentProblems: [problem] });
+      expect(run.verified).not.toBe("ready");
+    }
+    expect((await learner.snapshot()).planRevision ?? 0).toBe(0);
+  }, 60000);
+});
+
 describe("changes land only at a safe boundary (E03)", () => {
   it("an addition while the learner is mid-question waits, can be added after the attempt, and keeps their place", async () => {
     const learner = await enroll();
@@ -343,7 +395,7 @@ describe("registry approval of generated content", () => {
     expect(checkAdaptationConfiguration(fixture.course, fixture.config, bare)).toEqual({ valid: false, code: "GENERATED_SIMULATION_RENDERER_UNAVAILABLE" });
     const noCode = { ...fixture.config, profiles: fixture.config.profiles.filter((p) => p.id !== "simulation-profile") };
     expect(checkAdaptationConfiguration(fixture.course, noCode, withInstalledExtensions(bare, [renderer]))).toEqual({ valid: false, code: "GENERATED_CODE_EVALUATOR_UNAVAILABLE" });
-    expect(checkAdaptationConfiguration(fixture.course, fixture.config, withInstalledExtensions(bare, [renderer, syntheticCodeEvaluator()]))).toEqual({ valid: true, profiles: 3 });
+    expect(checkAdaptationConfiguration(fixture.course, fixture.config, withInstalledExtensions(bare, [renderer, syntheticCodeEvaluator()]))).toEqual({ valid: true, profiles: 4 });
     const keyless = { ...fixture.config, profiles: [{ ...fixture.config.profiles[1]!, canonicalAssessmentId: undefined }] };
     expect(checkAdaptationConfiguration(fixture.course, JSON.parse(JSON.stringify(keyless)), withInstalledExtensions(bare, [renderer, syntheticCodeEvaluator()])))
       .toEqual({ valid: false, code: "GENERATED_TEACHING_PROFILE_INVALID" });

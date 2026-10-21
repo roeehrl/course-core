@@ -42,6 +42,30 @@ export type SceneModelBinding = z.infer<typeof sceneModelBindingSchema>;
 /** A hidden test of a generated code exercise, in the installed fixture-registry case format. */
 const codeCase = z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$(?![\s\S])/), input: z.unknown(), expected: z.unknown() });
 const solution = z.string().min(1).max(16000).refine((v) => v.trim().length > 0);
+const name = z.string().regex(/^[a-z][a-z0-9_]{0,31}$(?![\s\S])/);
+const label = prose(80);
+const unique = <T extends { name: string }>(v: T[]) => new Set(v.map((x) => x.name)).size === v.length;
+/** A generated interactive component: a small Python model `solve(inputs) -> outputs` the
+ * learner drives with labelled number controls. Its tests are run in the isolated grader before
+ * delivery; the learner's browser runs it only in Core's sandboxed runner frame. */
+export const componentSchema = z.strictObject({
+  title: prose(120),
+  description: prose(2000),
+  source: solution.max(12000),
+  inputs: z
+    .array(z.strictObject({ name, label, min: z.number().finite(), max: z.number().finite(), step: z.number().finite().positive(), initial: z.number().finite() })
+      .refine((i) => i.min < i.max && i.initial >= i.min && i.initial <= i.max && (i.max - i.min) / i.step <= 10000))
+    .min(1).max(6).refine(unique),
+  outputs: z.array(z.strictObject({ name, label })).min(1).max(8).refine(unique),
+  tests: z
+    .array(z.strictObject({
+      id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$(?![\s\S])/),
+      input: z.record(name, z.number().finite()),
+      expected: z.record(name, z.union([z.number().finite(), z.string().max(200)])),
+    }))
+    .min(3).max(12).refine((v) => new Set(v.map((c) => c.id)).size === v.length),
+});
+export type GeneratedComponent = z.infer<typeof componentSchema>;
 
 /** A candidate, not a proof. Every identity, price, classification and revision
  * is resolved by the host from a course-approved profile. */
@@ -79,6 +103,14 @@ export const generatedTeachingInputSchema = z.discriminatedUnion("kind", [
     model: sceneModelBindingSchema,
     answer: z.number().finite().optional(),
     explanation: prose(2000),
+    objectiveIds: references,
+    sourceRefs: references,
+  }),
+  /** An interactive component; its text alternative becomes a practice block of the lesson. */
+  z.strictObject({
+    profileId: id,
+    kind: z.literal("component"),
+    component: componentSchema,
     objectiveIds: references,
     sourceRefs: references,
   }),
@@ -148,6 +180,8 @@ export const generatedTeachingSelectionSchema = z.strictObject({
   configurationDigest: hash,
   baseCourseDigest: hash,
   artifact: generatedArtifactSchema,
+  /** A component published beside the artifact, which is its text alternative. */
+  component: componentSchema.optional(),
 });
 export type GeneratedTeachingSelection = z.infer<
   typeof generatedTeachingSelectionSchema

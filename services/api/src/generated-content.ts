@@ -8,7 +8,7 @@ import { digestJson } from './repository.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
 import { codeView } from './gates.js';
 import { generatedFixtureRef, isGeneratedFixtureRef, qualifiedCodeEvaluator, qualifiedGeneratedCodeEvaluator } from './code-evaluator.js';
-import type { GeneratedTeachingInput, GeneratedTeachingSelection, SceneModelBinding } from './generated-teaching.js';
+import type { GeneratedComponent, GeneratedTeachingInput, GeneratedTeachingSelection, SceneModelBinding } from './generated-teaching.js';
 import type { RuntimeExtension } from './publication.js';
 
 /**
@@ -33,11 +33,13 @@ import type { RuntimeExtension } from './publication.js';
 export const MODEL_CHECK_ID = 'host-model-agreement';
 export const ANSWER_KEY_CHECK_ID = 'host-answer-key';
 export const CODE_REFERENCE_CHECK_ID = 'host-code-reference';
+export const COMPONENT_CHECK_ID = 'host-component-tests';
 export type ContentProblem =
   | 'scene_invalid' | 'renderer_unavailable' | 'render_feature_unsupported' | 'no_model_invariant' | 'model_invariant_failed'
   | 'model_unknown_visual' | 'model_state_invalid' | 'model_read_invalid' | 'answer_key_diverges' | 'prompt_missing_inputs'
   | 'canonical_mismatch' | 'objective_scope' | 'code_runner_unavailable' | 'code_fixture_mismatch' | 'reference_failed'
-  | 'starter_passes' | 'wrong_solution_passes';
+  | 'starter_passes' | 'wrong_solution_passes' | 'component_text_mismatch' | 'component_tests_trivial' | 'component_tests_unbound'
+  | 'component_tests_failed' | 'component_runner_unavailable';
 type Kind = 'simulation' | 'check_item' | 'code_exercise';
 type Input<K extends Kind> = Extract<GeneratedTeachingInput, { kind: K }>;
 type Artifact = GeneratedTeachingSelection['artifact'];
@@ -275,9 +277,10 @@ export async function gradeCodeAnswer(client: PoolClient, enrollmentId: string, 
 
 // ------------------------------------------------------------------- what a profile creates
 
-export type Creates = 'teaching_block' | 'episode' | 'simulation' | 'check_item' | 'code_exercise';
+export type Creates = 'teaching_block' | 'episode' | 'simulation' | 'check_item' | 'code_exercise' | 'component';
 /** What a generated-teaching profile lets the supervisor create, from its approved operation. */
-export function profileCreates(profile: { operation: string; canonicalAssessmentId?: string | undefined }, course: CourseManifest): Creates {
+export function profileCreates(profile: { operation: string; canonicalAssessmentId?: string | undefined; component?: unknown }, course: CourseManifest): Creates {
+  if (profile.component) return 'component';
   if (profile.operation === 'insert_episode') return 'episode';
   if (profile.operation === 'attach_visual') return 'simulation';
   if (profile.operation === 'add_assessment_variant')
@@ -287,9 +290,10 @@ export function profileCreates(profile: { operation: string; canonicalAssessment
 /** The candidate kinds a profile accepts, and the SDK artifact kind each becomes. */
 export const CREATES_INPUT: Record<Creates, readonly GeneratedTeachingInput['kind'][]> = {
   teaching_block: ['explanation', 'practice'], episode: ['episode'], simulation: ['simulation'], check_item: ['check_item'], code_exercise: ['code_exercise'],
+  component: ['component'],
 };
 export const sdkKind = (kind: GeneratedTeachingInput['kind']) =>
-  kind === 'simulation' ? 'visual' : kind === 'check_item' || kind === 'code_exercise' ? 'assessment_variant' : kind;
+  kind === 'simulation' ? 'visual' : kind === 'check_item' || kind === 'code_exercise' ? 'assessment_variant' : kind === 'component' ? 'practice' : kind;
 /**
  * The scenes of a lesson a generated question may be keyed by, described by structure only: the
  * model state it can set (with bounds) and the reads it can name. Values and keys are never listed.
@@ -321,5 +325,53 @@ export function generatedDraft(input: GeneratedTeachingInput, common: Common, co
   if (input.kind === 'code_exercise') return canonical ? codeExerciseDraft(input, common, canonical) : { problems: ['canonical_mismatch'] };
   if (input.kind === 'episode')
     return { draft: { ...common, kind: 'episode', title: input.title, blocks: input.blocks.map((b, i) => ({ id: `${common.id}--part-${i + 1}`, markdown: b.markdown })) } };
+  // A component's lesson block is its accessible text alternative, written by the host.
+  if (input.kind === 'component') return { draft: { ...common, kind: 'practice', markdown: componentText(input.component) } };
   return { draft: { ...common, kind: input.kind, markdown: input.markdown } };
+}
+
+// ------------------------------------------------------------------- generated components (E05)
+
+/** Markdown text without markup of its own: a model cannot inject links, images or HTML here. */
+const plain = (text: string) => text.replace(/[\\`*_{}\[\]()#+\-.!<>|~]/g, c => '\\' + c).replace(/\s+/g, ' ').trim();
+/**
+ * The component's text block: what it models, each control with its range and starting value,
+ * and each value it shows.
+ * It is the accessible alternative read by everyone, including where the component cannot run,
+ * and the part the course's own verifier checks.
+ */
+export function componentText(component: GeneratedComponent): string {
+  return [`### ${plain(component.title)}`, '', plain(component.description), '',
+    // Language-neutral: labels are the model's, in the course's language; ranges are numbers.
+    ...component.inputs.map(i => `- ${plain(i.label)}: ${i.min} – ${i.max} (${i.initial})`),
+    ...component.outputs.map(o => `- ${plain(o.label)}`)].join('\n');
+}
+export const componentDigest = (component: GeneratedComponent) => digestJson(component);
+/** The component's tests in the grader's case format. */
+export const componentCases = (component: GeneratedComponent): Case[] =>
+  component.tests.map(t => ({ id: t.id, input: t.input as Json, expected: t.expected as Json }));
+/**
+ * Builds and tests a component in the isolated grader before it may be published: its text
+ * block must be exactly the host's alternative, every test must use exactly the declared
+ * controls (within range) and outputs, one test must be the starting position, the tests must
+ * tell different positions apart, and the model must pass every test in the sandbox. Evaluator:
+ * the course's installed code evaluator named by the approved profile.
+ */
+export async function componentChecks(component: GeneratedComponent, artifact: Artifact, evaluatorId: string,
+  { course, installed, signal }: ContentCheckContext): Promise<ContentCheck> {
+  if (artifact.kind !== 'practice' || artifact.markdown !== componentText(component)) return failed(COMPONENT_CHECK_ID, ['component_text_mismatch']);
+  const inputs = component.inputs.map(i => i.name).sort(), outputs = component.outputs.map(o => o.name).sort();
+  const inRange = (values: Record<string, number>) => component.inputs.every(i => values[i.name]! >= i.min && values[i.name]! <= i.max);
+  if (component.tests.some(t => digestJson(Object.keys(t.input).sort()) !== digestJson(inputs) || digestJson(Object.keys(t.expected).sort()) !== digestJson(outputs) || !inRange(t.input))
+    || !component.tests.some(t => component.inputs.every(i => t.input[i.name] === i.initial)))
+    return failed(COMPONENT_CHECK_ID, ['component_tests_unbound']);
+  if (new Set(component.tests.map(t => digestJson(t.expected))).size < 2) return failed(COMPONENT_CHECK_ID, ['component_tests_trivial']);
+  const cases = componentCases(component);
+  const probe = { id: `${artifact.id}--component`, type: 'code', objectiveIds: artifact.objectiveIds, familyId: 'generated-component', prompt: component.title,
+    language: 'python', starterCode: '', grading: { evaluatorId, fixtureRef: generatedFixtureRef(cases) } } as Assessment;
+  let grade: ReturnType<typeof qualifiedGeneratedCodeEvaluator>;
+  try { grade = qualifiedGeneratedCodeEvaluator(probe, course.extensions, installed); } catch { return failed(COMPONENT_CHECK_ID, ['component_runner_unavailable']); }
+  if (signal?.aborted) throw new ApiError(409, 'ADAPTATION_CANCELLED');
+  try { return failed(COMPONENT_CHECK_ID, (await grade(probe, cases, component.source)).passed ? [] : ['component_tests_failed']); }
+  catch { return failed(COMPONENT_CHECK_ID, ['component_runner_unavailable']); }
 }

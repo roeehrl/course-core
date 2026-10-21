@@ -77,6 +77,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     // A change waiting for a safe boundary (migration 092): the candidate is redacted, the status kept.
     adaptation_pending_changes: { job_id: ids.job, episode_id: "min", artifact_kind: "visual", selection: said, reason: "attempt_in_progress", status: "waiting" },
     adaptation_states: { snapshot: said },
+    // A published generated component (migration 093): its model and tests are redacted, identifiers kept.
+    generated_components: { episode_id: "min", block_id: "operation-one", digest: hex("6"), artifact_digest: hex("7"), body: said },
     // A resolved check amended by an appeal (migration 070): identifiers, states and times only, kept as the record.
     adaptation_transfer_checks: { status: "failed", objective_id: "objective.one", attempt_id: ids.attempt, resolved_at: new Date().toISOString(),
       amended_status: "passed", amended_at: new Date().toISOString(), amended_by_appeal_id: ids.appeal },

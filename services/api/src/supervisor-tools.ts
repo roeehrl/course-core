@@ -759,6 +759,9 @@ function scopedTools(
                 ...(profileCreates(p, release.server_bundle) === "check_item"
                   ? { models: sceneModels(effective!, p.episodeId) as unknown as Json }
                   : {}),
+                ...(profileCreates(p, release.server_bundle) === "component"
+                  ? { contract: "python: def solve(inputs) -> outputs; inputs maps each control name to a number; outputs maps each output name to a number or short text" }
+                  : {}),
                 ...(profileCreates(p, release.server_bundle) === "code_exercise"
                   ? { language: release.server_bundle.assessments.find((a: { id: string }) => a.id === p.canonicalAssessmentId)?.language ?? null }
                   : {}),
@@ -869,6 +872,8 @@ function scopedTools(
                 ...draft,
                 digest: await digestTeachingArtifact(draft),
               } as GeneratedTeachingSelection["artifact"],
+              // A component is published beside its text block once delivered.
+              ...(input.kind === "component" ? { component: input.component } : {}),
             };
             generatedTeaching = staged;
             result = {
