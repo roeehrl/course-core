@@ -46,7 +46,8 @@ export function auditText(label, text) {
   for (const match of text.matchAll(/postgres(?:ql)?:\/\/[^\s"'`<>]+/gi)) {
     let url;
     try { url = new URL(match[0]); } catch { throw new Error(`${label}: malformed database URL (value redacted)`); }
-    if (!url.password || /^\$\{[A-Z_]+\}$/.test(url.password)) continue;
+    // A ${NAME} placeholder (as in a compose file) is substituted at deploy time; URL parsing encodes its braces.
+    if (!url.password || /^\$\{[A-Z_]+\}$/.test(decodeURIComponent(url.password))) continue;
     ensure(['localhost', '127.0.0.1', '[::1]', 'postgres'].includes(url.hostname) && url.username === 'course_ci' &&
       url.password === 'course_ci_test_only' && /^\/course_core_(?:ci|test)$/.test(url.pathname), `${label}: non-demo database credential (value redacted)`);
   }
