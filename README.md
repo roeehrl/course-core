@@ -520,6 +520,17 @@ the reviewer may ask again with a fresh request.
 A draft is never evidence or a grade; only a gate's deterministic evaluator (see
 "Gates and assessment") may confirm one. See `services/api/RUBRIC_ASSIST.md`.
 
+## Supervision loop
+
+After a learner's opt-in the supervisor's trigger table starts teaching actions as
+supervisor work (contrast cases, changes of representation, transfer checks, worked
+examples, review preparation), runs new material as a planner, two concurrent builders and
+an evaluator that alone commits, and follows a delivered change up 24 and 72 hours later
+through parked `follow_up_due` jobs. Goal, grading and paid-ceiling changes wait
+(`needs_input`) for the learner or an owner/admin. Owners and admins set the autonomy
+level, permitted tool families and each learner's daily and per-lesson AI limits. See
+`services/api/SUPERVISION_LOOP.md`.
+
 ## Agent evaluations
 
 `npm run eval:agents` (in `services/api`) runs Core's public agent eval suite: curated
@@ -530,8 +541,10 @@ strategy and adapter path with an offline scripted model; a live mode needs an e
 opt-in and operator credentials and never runs in CI. A course can run its own private
 held-out set with `--fixtures DIR`.
 
-A new or changed provider, model or prompt revision of an evaluated role activates only
-with a passing recorded evaluation of that exact revision or an owner's audited
+Every agent role is evaluated: companion, supervisor plan and tool loop, research,
+reviewer and media (`--all-roles`). A new or changed provider, model or prompt revision of
+any role activates only with a passing recorded evaluation of that exact revision or an
+owner's audited override; a role bound to a strategy the suite does not cover needs the
 override. Revisions active before the gate stay active and show as not evaluated. See
 `services/api/AGENT_EVALS.md`.
 
@@ -631,7 +644,9 @@ restarts do not duplicate it, and learners sharing one absolute deadline each
 get their own. Every scan examines a bounded batch of active enrollments (500)
 after a shared keyset cursor (`wakeup_scan_cursors`) and wraps around, so every
 enrollment is reached in turn however many there are and concurrent processes
-take different batches. Wake-ups only prompt the supervisor; commit-time policy
+take different batches. A `retention.due` boundary is also the trigger table's review-due
+signal (T10): with the learner's opt-in it starts preparing the next review as a teaching
+action. Wake-ups only prompt the supervisor; commit-time policy
 checks remain authoritative, and a late or missed wake-up never extends, unlocks
 or grants anything.
 

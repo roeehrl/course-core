@@ -250,21 +250,45 @@
       "core:deploy/local/backup.test.mjs",
       "core:deploy/local/runtime.test.mjs"
     ],
+    "B02": [
+      "core:services/api/test/teaching-loop.integration.test.ts::delivery schedules a follow-up and a transfer probe",
+      "core:services/api/test/teaching-loop.integration.test.ts::review_due (T10) prepares the next review"
+    ],
+    "B03": [
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::Core starts the worked example it recommends",
+      "core:services/api/test/teaching-loop.integration.test.ts::a confident wrong answer starts a contrast case"
+    ],
     "B04": [
       "core:services/api/test/supervisor-tools.integration.test.ts",
-      "core:services/supervisor/test/state-machine.test.ts"
+      "core:services/api/test/teaching-loop.integration.test.ts::two concurrent builders and an evaluator",
+      "core:services/supervisor/test/state-machine.test.ts",
+      "core:services/supervisor/test/state-machine.test.ts::alternative builders run concurrently",
+      "core:services/supervisor/test/temporal.integration.ts::alternative builders run concurrently and only the evaluator commits"
+    ],
+    "B05": [
+      "core:services/api/test/teaching-loop.integration.test.ts::a goal change waits for the learner",
+      "core:services/supervisor/test/state-machine.test.ts::the job record names its objective"
     ],
     "B06": [
-      "core:services/api/test/supervisor-tools.integration.test.ts"
+      "core:services/api/browser/supervisor-requests.spec.ts::the learner decides a proposed goal, can undo it",
+      "core:services/api/test/supervisor-tools.integration.test.ts",
+      "core:services/api/test/teaching-loop.integration.test.ts::separate authority for goal, grading and paid-ceiling changes"
     ],
     "B07": [
       "core:services/supervisor/test/temporal.integration.ts"
     ],
+    "B08": [
+      "core:services/api/test/course-strategies.test.ts::course-declared agent strategies narrow"
+    ],
     "B09": [
+      "core:apps/admin/tests/real/supervision.real.spec.ts::sets a learner's daily limits",
+      "core:services/api/test/teaching-loop.integration.test.ts::the daily limit stops paid work with its reason",
       "core:services/supervisor/test/state-machine.test.ts"
     ],
     "C01": [
-      "core:apps/learner/tests/memory.test.tsx"
+      "core:apps/learner/tests/memory.test.tsx",
+      "core:apps/learner/tests/memory.test.tsx::edits declared languages, experience, depth",
+      "core:services/api/test/learner-model.integration.test.ts::declares languages, experience, depth"
     ],
     "C02": [
       "core:apps/learner/tests/memory.test.tsx",
@@ -273,6 +297,10 @@
     ],
     "C03": [
       "core:services/api/test/learner-model.integration.test.ts"
+    ],
+    "C06": [
+      "core:services/api/test/evidence-author.test.ts",
+      "core:services/api/test/learner-model.integration.test.ts::evidence refs name their evaluator and time"
     ],
     "C07": [
       "core:services/api/test/learner-model.integration.test.ts"
@@ -503,12 +531,20 @@
     "M05": [
       "core:services/api/test/interactive-context.test.ts"
     ],
+    "N01": [
+      "core:services/api/test/agent-strategies.test.ts::assessment, visual/media and delegation tools",
+      "core:services/api/test/teaching-loop.integration.test.ts::validates visual choices"
+    ],
     "N03": [
       "core:packages/sandbox/test/docker-hardening.test.mjs",
       "core:packages/sandbox/test/docker.test.mjs"
     ],
     "N05": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "N07": [
+      "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes",
+      "core:services/api/test/provider-evals.integration.test.ts::every role is gated"
     ],
     "O01": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
@@ -581,6 +617,11 @@
     ],
     "Q07": [
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
+    ],
+    "Q08": [
+      "core:apps/admin/tests/real/supervision.real.spec.ts::an owner checks and saves the supervision settings",
+      "core:services/api/test/admin-roles.integration.test.ts::supervision settings",
+      "core:services/api/test/teaching-loop.integration.test.ts::AI supervision settings for owners and admins"
     ],
     "Q09": [
       "core:apps/admin/tests/appeals.test.tsx",

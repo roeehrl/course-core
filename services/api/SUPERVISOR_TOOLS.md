@@ -56,6 +56,23 @@ viewer remains a separate capability.
   fetched or treated as instructions.
 - `list_support` / `choose_support`: only the current episode's active, approved
   support bank. No arbitrary URL, SQL, user, tenant, grade or proof parameters.
+- `propose_practice_check` (assessment family): Core, not the model, picks a new
+  practice item for an objective of the lesson from a problem family the learner has
+  not tried; never a gate, placement, retention or probe item or its family. Applied
+  after verification as a suggested problem the learner sees; never evidence.
+- `list_visuals` / `choose_visual` (visual/media family): the course's registered
+  visuals shown in lessons for these objectives. A chosen visual must have been listed
+  in this run, run on the web and carry an accessible description.
+- `request_authority` (learner-model family): asks for a change only a separate
+  authority may make (a new goal: the learner; required objectives, grading standards,
+  a higher paid ceiling: an owner or admin). See `SUPERVISION_LOOP.md`.
+- `compare_alternatives` / `choose_alternative` (delegation family): the evaluator of
+  a multi-builder job reads the builders' drafts and commits to one; the plan then
+  carries exactly that draft.
+
+Every call is also checked against the checkpoint's logical role (a planner never
+builds, builders only build and read, only the evaluator delegates) and the workspace's
+permitted tool families; a refused call ends the run with a definite refusal.
 
 Receipts use stable operation/step IDs. Concurrent identical retries return the
 same receipt; changed arguments conflict. Model-supplied receipt/selection
