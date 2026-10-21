@@ -22,7 +22,7 @@ export function sampleCapsule(): ContextCapsule {
     historyRefs: [{ messageId: 'm1', role: 'learner', eventId: null, createdAt: '2026-10-21T00:00:00.000Z', characters: 12, clipped: false }],
     summary: null, sourceRefs: [], authorizationScopes: ['episode:min'], extensionAllowanceRefs: [], pendingGateDecisionRef: null,
     resolvedConstraintSnapshot: { digest: 'b'.repeat(64), deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1,
-      view: { authority: 'server_resolved_policy_not_model_permission', scopeId: 'episode:min' } },
+      view: { authority: 'server_resolved_policy_not_model_permission' } },
   };
 }
 
@@ -36,6 +36,9 @@ describe('the public ContextCapsule contract', () => {
   it('the runtime schema accepts a full capsule and readers tolerate added fields', () => {
     expect(contextCapsuleSchema.safeParse(sampleCapsule()).success).toBe(true);
     expect(contextCapsuleSchema.safeParse({ ...sampleCapsule(), futureField: 1 }).success).toBe(true);
+    const capsule = sampleCapsule();
+    expect(contextCapsuleSchema.safeParse({ ...capsule, resolvedConstraintSnapshot: { ...capsule.resolvedConstraintSnapshot,
+      view: { authority: 'server_resolved_policy_not_model_permission', scopeId: 'episode:min', quotas: [] } } }).success).toBe(true);
   });
   it('refuses capsules that break the contract', () => {
     const broken: Record<string, unknown>[] = [
