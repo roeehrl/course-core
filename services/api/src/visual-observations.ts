@@ -59,7 +59,8 @@ export function registerVisualObservationRoutes(app: FastifyInstance, db: Databa
       catch { fingerprint = undefined; }
       requireCondition(fingerprint !== undefined, 'VISUAL_COMPLETION_OUT_OF_SCOPE');
       requireCondition(fingerprint === input.sceneFingerprint, 'VISUAL_COMPLETION_STALE', 409);
-      const idempotencyKey = `visual-completed:${release.digest}:${input.episodeId}:${input.blockId}`;
+      // Event keys are unique per workspace, so the key names the enrollment too.
+      const idempotencyKey = `${enrollmentId}:visual-completed:${release.digest}:${input.episodeId}:${input.blockId}`;
       const prior = (await client.query<{ id: string }>('SELECT id FROM learning_events WHERE enrollment_id=$1 AND idempotency_key=$2',
         [enrollmentId, idempotencyKey])).rows[0];
       if (prior) return { recorded: true, duplicate: true, eventId: prior.id, grantsMastery: false };
