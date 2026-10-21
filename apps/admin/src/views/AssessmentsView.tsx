@@ -567,7 +567,12 @@ function KeyEditor({
           )}
           {item.type === "trace" &&
             (item.steps ?? []).map((s) => (
-              <Field key={s.id} label={s.prompt} htmlFor={`${id}-step-${s.id}`}>
+              <Field
+                key={s.id}
+                label={s.prompt}
+                labelDir="auto"
+                htmlFor={`${id}-step-${s.id}`}
+              >
                 <input
                   id={`${id}-step-${s.id}`}
                   value={steps[s.id] ?? ""}
@@ -798,7 +803,12 @@ function FixturesEditor({
           </Field>
         ) : item.type === "trace" ? (
           (item.steps ?? []).map((s) => (
-            <Field key={s.id} label={s.prompt} htmlFor={`${id}-fx-${s.id}`}>
+            <Field
+              key={s.id}
+              label={s.prompt}
+              labelDir="auto"
+              htmlFor={`${id}-fx-${s.id}`}
+            >
               <input
                 id={`${id}-fx-${s.id}`}
                 value={steps[s.id] ?? ""}

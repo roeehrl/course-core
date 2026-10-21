@@ -6,7 +6,7 @@ import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
-import { useI18n, useT, type MessageKey } from "../i18n";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import {
   ArrowUpRight,
   Check,
@@ -33,7 +33,6 @@ import {
   PermissionHint,
   Stat,
   Status,
-  when,
 } from "../components/ui";
 
 export function CourseView({
@@ -50,6 +49,7 @@ export function CourseView({
 }) {
   const i18n = useI18n();
   const t = useT();
+  const { when } = useFormatters();
   /** A server check with a code, in the reader's language; undefined keeps the server's text. */
   const checkText = (
     check: { code?: string; params?: Record<string, string> },
@@ -123,7 +123,7 @@ export function CourseView({
               br: (_children, key) => <br key={key} />,
             })}
           </h2>
-          <p>{data.course.description}</p>
+          <p dir="auto">{data.course.description}</p>
           <Button
             kind="primary"
             onClick={() => open("details")}
@@ -220,7 +220,7 @@ export function CourseView({
                     version: release.version,
                   })}
                 </strong>
-                <small>{release.notes}</small>
+                <small dir="auto">{release.notes}</small>
                 {release.availableForNewLearners && (
                   <small>{t("courseView.release.available")}</small>
                 )}
@@ -256,7 +256,7 @@ export function CourseView({
             <Status value={selected.state} />
             <small>{when(selected.createdAt)}</small>
           </div>
-          <p>{selected.notes}</p>
+          <p dir="auto">{selected.notes}</p>
           <ul className="checklist">
             {selected.checks.map((check) => (
               <li key={check.label}>
@@ -412,7 +412,9 @@ export function CourseView({
       <Card title={t("courseView.objectives")}>
         <ol className="objectives">
           {data.course.objectives.map((objective) => (
-            <li key={objective}>{objective}</li>
+            <li key={objective} dir="auto">
+              {objective}
+            </li>
           ))}
         </ol>
       </Card>

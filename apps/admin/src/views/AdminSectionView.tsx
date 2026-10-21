@@ -100,6 +100,7 @@ export function AdminSectionView({
       </div>
       <Card
         title={header.title}
+        titleDir="auto"
         eyebrow={t("adminSectionView.declaredBy", {
           release: course.data.release.version,
           version: header.version,
