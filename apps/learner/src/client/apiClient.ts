@@ -4,7 +4,7 @@ import type { Profile } from "../domain/types";
 import type { ClosureReport } from "./policyClient";
 import { useEffect } from "react";
 import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
-import { randomId } from "./webCrypto";
+import { randomId, randomTraceparent } from "./webCrypto";
 
 /** What every learner-visible question may carry: "I don't know" is offered unless the author
  * turned it off, and confidence is captured only when the item declares a scale. */
@@ -364,6 +364,7 @@ export function createCourseApi(
             : { "Content-Type": "application/json" }),
           ...(method === "GET" ? {} : { "X-CSRF-Token": csrf() }),
           ...envelope,
+          traceparent: randomTraceparent(),
         },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       });
