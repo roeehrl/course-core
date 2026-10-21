@@ -14,6 +14,7 @@ import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
 import type { CoursePackagePort } from "./coursePackages";
 import type { CourseUpdatesPort } from "./courseUpdates";
+import type { VersionMovesPort } from "./versionMoves";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
@@ -484,6 +485,8 @@ export interface AdminClient {
   coursePackages?: CoursePackagePort;
   /** A course's update source, manual checks and automatic-update setting. Absent in demos. */
   courseUpdates?: CourseUpdatesPort;
+  /** Move enrolled learners to a newer version of their course: preview, confirm, undo. */
+  versionMoves?: VersionMovesPort;
   enroll(
     courseId: string,
     input: { learnerRef: string; profile: Profile; releaseId?: string },
