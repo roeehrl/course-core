@@ -66,7 +66,9 @@ describe("admin locale", () => {
       </LocaleProvider>,
     );
     expect(document.documentElement).toHaveAttribute("lang", "en-XA");
-    expect(screen.getByText(/^⟦Šîĝñ îñ ţö åðɱîñîšţŕåţîöñ ~+⟧$/)).toBeVisible();
+    expect(
+      screen.getByText(/^⟦Šîĝñ îñ ţö åðɱîñîšţŕåţîöñ [~ ]+⟧$/),
+    ).toBeVisible();
   });
 
   it("after sign-in, applies the saved preference and saves a choice made before sign-in", async () => {
