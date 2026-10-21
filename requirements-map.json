@@ -345,14 +345,18 @@
       "sdk:tests/validation.test.ts"
     ],
     "G03": [
-      "core:packages/policy/test/resolver.test.mjs"
+      "core:packages/policy/test/hierarchy.test.mjs::a changed child level can only tighten its parent",
+      "core:packages/policy/test/resolver.test.mjs",
+      "core:services/api/test/policy-levels.integration.test.ts::refuses an enrollment-level change that loosens its parent"
     ],
     "G04": [
       "core:packages/policy/test/time.test.mjs",
       "core:services/api/test/api.integration.test.ts"
     ],
     "G05": [
-      "core:packages/policy/test/lifecycle.test.mjs"
+      "core:packages/policy/test/hierarchy.test.mjs::G05: an outage adjustment moves a deadline",
+      "core:packages/policy/test/lifecycle.test.mjs",
+      "core:services/api/test/policy-levels.integration.test.ts::previews one outage adjustment for every active learner"
     ],
     "G07": [
       "core:services/api/test/teaching-constraints.test.ts"
@@ -361,7 +365,9 @@
       "core:packages/adaptation/test/application.test.mjs"
     ],
     "G09": [
-      "core:packages/policy/test/extensions.test.mjs"
+      "core:packages/policy/test/extensions.test.mjs",
+      "core:packages/policy/test/hierarchy.test.mjs::G09: one grant can draw minutes and episodes from separate pools",
+      "core:services/api/test/policy-levels.integration.test.ts::configures minute and per-chapter day pools"
     ],
     "G10": [
       "core:services/api/test/api.integration.test.ts"
@@ -375,14 +381,18 @@
       "core:services/api/test/supervisor-bridge.integration.test.ts"
     ],
     "G13": [
-      "core:packages/policy/test/resolver.test.mjs"
+      "core:packages/policy/test/resolver.test.mjs",
+      "core:services/api/test/deadline-timers.integration.test.ts::fences a due timer against a policy change committed while it waited",
+      "core:services/api/test/wakeups.integration.test.ts::plans and fires per-deadline timers in bounded batches"
     ],
     "G14": [
       "core:packages/policy/test/lifecycle.test.mjs"
     ],
     "G15": [
+      "core:packages/policy/test/hierarchy.test.mjs::G15: the continuation track permits reading and review only",
       "core:packages/policy/test/lifecycle.test.mjs",
-      "core:services/api/test/completed-course.integration.test.ts"
+      "core:services/api/test/completed-course.integration.test.ts",
+      "core:services/api/test/policy-levels.integration.test.ts::offers an explicit opt-in that allows review only"
     ],
     "G17": [
       "core:packages/policy/test/resolver.test.mjs",
@@ -575,7 +585,8 @@
     ],
     "Q05": [
       "core:apps/admin/tests/accommodation.test.tsx",
-      "core:services/api/test/admin.integration.test.ts"
+      "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/policy-levels.integration.test.ts::queues the approval across learners"
     ],
     "Q07": [
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
@@ -700,6 +711,14 @@
       "core:apps/admin/tests/real/studies.real.spec.ts",
       "core:apps/learner/tests/connected-web/study.spec.ts",
       "core:services/api/test/study.integration.test.ts"
+    ],
+    "G02": [
+      "core:packages/policy/test/hierarchy.test.mjs::G03: organization and enrollment levels bind below them",
+      "core:services/api/test/policy-levels.integration.test.ts::previews ceilings against every course before saving"
+    ],
+    "M02": [
+      "core:services/api/test/deadline-timers.integration.test.ts::The closure report is a first-class record",
+      "core:services/api/test/policy-levels.integration.test.ts::Every policy revision is a first-class record"
     ]
   }
 }
