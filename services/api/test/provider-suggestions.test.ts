@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { NEEDED_ROLES, suggestModel } from "../src/provider-suggestions.js";
 
+const model = (remoteModel: string, methods: string[]) => ({
+  remoteModel,
+  displayName: remoteModel,
+  description: "",
+  inputTokenLimit: null,
+  outputTokenLimit: null,
+  methods,
+});
 const listed = (...ids: string[]) => ({
-  models: ids.map((remoteModel) => ({ remoteModel, methods: ["generateContent", "messages", "structured_outputs", "web_search"] })),
+  models: ids.map((remoteModel) => model(remoteModel, ["generateContent", "messages", "structured_outputs", "web_search"])),
 });
 
 describe("model suggestions", () => {
@@ -21,7 +29,7 @@ describe("model suggestions", () => {
     const catalog = listed("claude-sonnet-8-1", "claude-sonnet-9", "claude-haiku-9", "claude-opus-9");
     expect(suggestModel("anthropic", "companion", catalog, "messages")).toBe("claude-sonnet-9");
     expect(suggestModel("anthropic", "research", catalog, "web_search")).toBe("claude-haiku-9");
-    expect(suggestModel("anthropic", "companion", { models: [{ remoteModel: "claude-sonnet-9", methods: [] }] }, "messages")).toBeNull();
+    expect(suggestModel("anthropic", "companion", { models: [model("claude-sonnet-9", [])] }, "messages")).toBeNull();
   });
   it("suggests nothing when no listed model matches", () => {
     expect(suggestModel("google", "companion", listed("public-text-model"), "generateContent")).toBeNull();
