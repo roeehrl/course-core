@@ -715,6 +715,7 @@
       "core:packages/visuals/test/checks.test.tsx::device preview frames follow the runtime"
     ],
     "L09": [
+      "core:packages/visuals/test/browser/studio.spec.ts::a lazy player in a scrolling pane preloads within the margin of the pane",
       "core:packages/visuals/test/browser/studio.spec.ts::a lazy player loads near the viewport, is disposed away from it",
       "core:packages/visuals/test/runtime.test.ts",
       "core:packages/visuals/test/studio.test.tsx::lazy player and export controls render accessibly"

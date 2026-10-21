@@ -110,6 +110,11 @@ loading and disposal, completion as an observation and translatable messages. It
 0.1.x to 0.4.0 declarations, each limited to its own build's features: a 0.4.0 declaration
 gets 0.4.0's features and cannot use any 0.5 primitive. 0.4 scenes keep their frames and
 golden digests.
+
+Visuals 0.5.1 changes only the React wrapper: a lazy player observes the container it
+scrolls in, so its preload margin works inside a scrolling lesson pane instead of only
+around the viewport. Its headless code is byte-identical to 0.5.0, so it serves 0.5.0
+declarations with all of their features, and 0.1.x to 0.4.0 declarations as before.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
