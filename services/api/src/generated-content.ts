@@ -10,6 +10,7 @@ import { codeView } from './gates.js';
 import { generatedFixtureRef, isGeneratedFixtureRef, qualifiedCodeEvaluator, qualifiedGeneratedCodeEvaluator } from './code-evaluator.js';
 import type { GeneratedComponent, GeneratedTeachingInput, GeneratedTeachingSelection, SceneModelBinding } from './generated-teaching.js';
 import type { RuntimeExtension } from './publication.js';
+import { presenceOpen } from './activity-presence.js';
 
 /**
  * Generated interactive content: simulations, check questions and code exercises the supervisor
@@ -253,18 +254,18 @@ export type BoundaryReason = 'attempt_in_progress' | 'activity_in_progress';
  * The rule for when a personal change may land in a lesson (E03). Inserting a whole lesson after
  * the current one is a clearly marked insertion and is always safe: it never changes the lesson
  * the learner is in. Anything added to a lesson waits while the learner is mid-attempt there:
- * an issued, unanswered and unexpired question, or an activity they changed in the last ten
- * minutes and have not finished. Additions only ever append, so the learner's place, read parts,
- * code drafts and activity state are kept when they land.
+ * an issued, unanswered and unexpired question, or a part of the lesson they are using now (an
+ * activity, simulation or component the learner app reports open, or an activity whose state was
+ * just saved; activity-presence.ts). Leaving that part lets the change land at once; a report the
+ * app stops repeating lapses within PRESENCE_TTL_SECONDS. Additions only ever append, so the
+ * learner's place, read parts, code drafts and activity state are kept when they land.
  */
 export async function safeBoundary(client: PoolClient, enrollmentId: string, episodeId: string, operation: string): Promise<{ safe: true } | { safe: false; reason: BoundaryReason }> {
   if (operation === 'insert_episode') return { safe: true };
   const attempt = await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND episode_id=$2 AND attempt_id IS NULL AND expires_at>clock_timestamp() LIMIT 1",
     [enrollmentId, episodeId]);
   if (attempt.rowCount) return { safe: false, reason: 'attempt_in_progress' };
-  const activity = await client.query(`SELECT 1 FROM activity_instances WHERE enrollment_id=$1 AND episode_id=$2 AND satisfied_at IS NULL AND state_revision>1
-    AND updated_at>clock_timestamp()-interval '10 minutes' LIMIT 1`, [enrollmentId, episodeId]);
-  if (activity.rowCount) return { safe: false, reason: 'activity_in_progress' };
+  if (await presenceOpen(client, enrollmentId, episodeId)) return { safe: false, reason: 'activity_in_progress' };
   return { safe: true };
 }
 
