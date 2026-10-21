@@ -113,6 +113,13 @@ export async function runPolicies(client: Sql, job: RunRow) {
   const control = (await client.query<{ state: string; revision: number }>("SELECT state,revision FROM supervisor_controls WHERE enrollment_id=$1 AND workspace_id=$2",
     [job.enrollment_id, job.workspace_id])).rows[0];
   const current = (await client.query<{ revision: number }>("SELECT revision FROM enrollments WHERE id=$1", [job.enrollment_id])).rows[0];
+  // Which strategy answered each provider call, the role revision it ran as, and whether that
+  // revision had a passing check or an owner's approval at the time (requirement B08).
+  const strategies = (await client.query<{ operation_id: string; strategy_id: string; strategy_version: string | null; strategy_source: string | null;
+    role_revision_digest: string | null; eval_standing: string | null }>(
+    `SELECT operation_id,strategy_id,strategy_version,strategy_source,role_revision_digest,eval_standing FROM provider_dispatches
+     WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND strategy_id IS NOT NULL ORDER BY started_at LIMIT 50`,
+    [job.id, job.enrollment_id, job.workspace_id])).rows;
   const pair = (row: Record<string, string | null> | undefined, prefix: string) => ({ microUsd: num(row?.[`${prefix}micro_usd`]), tokens: num(row?.[`${prefix}tokens`]) });
   return {
     fence: spec ? { ...spec.fence, enrollmentRevisionNow: current?.revision ?? null } : null,
@@ -125,6 +132,9 @@ export async function runPolicies(client: Sql, job: RunRow) {
     enrollmentBudget: enrollment ? { limit: pair(enrollment, "limit_"), used: pair(enrollment, "used_"), daily: pair(enrollment, "daily_limit_"), perArtifact: pair(enrollment, "artifact_limit_") } : null,
     workspaceBudget: workspace ? { limit: pair(workspace, "limit_"), used: pair(workspace, "used_") } : null,
     providerConfiguration: job.provider_revision === null ? "host fallback" : `workspace provider revision ${job.provider_revision}`,
+    providerSource: job.provider_revision === null ? "host_file" as const : "workspace" as const,
+    strategies: strategies.map((r) => ({ operationId: r.operation_id, strategyId: r.strategy_id, version: r.strategy_version, source: r.strategy_source ?? "core",
+      revisionDigest: r.role_revision_digest, evalStanding: r.eval_standing ?? "unknown" })),
     supervision: control ? { state: control.state, revision: control.revision } : { state: "active", revision: 0 },
     reason: snapshot?.reason ?? null,
   };
