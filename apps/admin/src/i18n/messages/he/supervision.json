@@ -11,5 +11,10 @@
   "error.SUPERVISION_CONSENT_WITHDRAWN": "הלומד/ת ביטל/ה את ההסכמה לפיקוח AI מאז הבקשה הזו. היא לא הוחזרה לתור.",
   "error.RUBRIC_ASSIST_CONSENT_WITHDRAWN": "הלומד/ת ביטל/ה את ההסכמה לטיוטות בדיקה מאז הבקשה הזו. היא לא הוחזרה לתור.",
   "error.INVALID_REQUEST": "יש לכתוב סיבה באורך 10 תווים לפחות.",
-  "error.unavailable": "פיקוח ה-AI לא זמין כרגע. שום דבר לא השתנה."
+  "error.unavailable": "פיקוח ה-AI לא זמין כרגע. שום דבר לא השתנה.",
+  "error.SUPERVISION_SETTINGS_CHANGED": "מישהו אחר שינה את ההגדרות בינתיים. יש לרענן את הדף כדי לראות את השינוי שלו, ואז לנסות שוב.",
+  "error.SUPERVISION_LESSON_LIMIT_ABOVE_DAILY": "המגבלה לשיעור גבוהה מהמגבלה היומית, ולכן אי אפשר להגיע אליה. יש להוריד אותה או להעלות את המגבלה היומית.",
+  "error.AUTHORITY_REQUEST_CLOSED": "הבקשה כבר הוכרעה או הסתיימה. יש לרענן כדי לראות את מצבה.",
+  "error.AUTHORITY_DECIDED_BY_LEARNER": "רק הלומד/ת יכול/ה להחליט על זה: זה נוגע למטרה שלו/ה.",
+  "error.AUTHORITY_REQUEST_NOT_FOUND": "הבקשה כבר לא קיימת. יש לרענן את הרשימה."
 }

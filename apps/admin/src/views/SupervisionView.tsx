@@ -20,6 +20,11 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import {
+  AuthorityQueueCard,
+  LearnerBudgetCard,
+  SupervisionSettingsCard,
+} from "./SupervisionSettings";
 
 const stateTone: Record<SupervisionState, "green" | "gold" | "red"> = {
   active: "green",
@@ -51,8 +56,30 @@ export function SupervisionView({
       </Card>
     );
   const learners = data.enrollments.filter((e) => e.status !== "erased");
+  // Workspace settings, spending limits and authority decisions: owners and admins only.
+  const settings =
+    client.supervision.settings &&
+    data.course.workspaceId &&
+    data.permissions.includes("supervision.settings")
+      ? {
+          port: client.supervision.settings,
+          workspaceId: data.course.workspaceId,
+        }
+      : null;
   return (
     <div className="page-stack">
+      {settings && (
+        <>
+          <SupervisionSettingsCard
+            port={settings.port}
+            workspaceId={settings.workspaceId}
+          />
+          <AuthorityQueueCard
+            port={settings.port}
+            workspaceId={settings.workspaceId}
+          />
+        </>
+      )}
       <Card title={t("supervisionView.chooseLearner")}>
         <Field label={t("supervisionView.learner")} htmlFor={`${id}-learner`}>
           <select
@@ -74,6 +101,7 @@ export function SupervisionView({
           key={enrollmentId}
           port={client.supervision}
           enrollmentId={enrollmentId}
+          settings={settings}
         />
       )}
     </div>
@@ -83,9 +111,14 @@ export function SupervisionView({
 function SupervisionPanel({
   port,
   enrollmentId,
+  settings,
 }: {
   port: SupervisionPort;
   enrollmentId: string;
+  settings: {
+    port: NonNullable<SupervisionPort["settings"]>;
+    workspaceId: string;
+  } | null;
 }) {
   const i18n = useI18n();
   const t = i18n.t;
@@ -486,6 +519,13 @@ function SupervisionPanel({
               </Notice>
             )}
           </>
+        )}
+        {settings && (
+          <LearnerBudgetCard
+            port={settings.port}
+            workspaceId={settings.workspaceId}
+            enrollmentId={enrollmentId}
+          />
         )}
       </div>
     </Card>

@@ -74,6 +74,7 @@ import en_signIn from "./messages/en/signIn.json";
 import en_studies from "./messages/en/studies.json";
 import en_studyView from "./messages/en/studyView.json";
 import en_supervision from "./messages/en/supervision.json";
+import en_supervisionSettings from "./messages/en/supervisionSettings.json";
 import en_supervisionView from "./messages/en/supervisionView.json";
 import en_teachingHypothesesCard from "./messages/en/teachingHypothesesCard.json";
 import en_ui from "./messages/en/ui.json";
@@ -152,6 +153,7 @@ import he_signIn from "./messages/he/signIn.json";
 import he_studies from "./messages/he/studies.json";
 import he_studyView from "./messages/he/studyView.json";
 import he_supervision from "./messages/he/supervision.json";
+import he_supervisionSettings from "./messages/he/supervisionSettings.json";
 import he_supervisionView from "./messages/he/supervisionView.json";
 import he_teachingHypothesesCard from "./messages/he/teachingHypothesesCard.json";
 import he_ui from "./messages/he/ui.json";
@@ -232,6 +234,7 @@ export const en = {
   studies: en_studies,
   studyView: en_studyView,
   supervision: en_supervision,
+  supervisionSettings: en_supervisionSettings,
   supervisionView: en_supervisionView,
   teachingHypothesesCard: en_teachingHypothesesCard,
   ui: en_ui,
@@ -312,6 +315,7 @@ export const he: PartialCatalog<typeof en> = {
   studies: he_studies,
   studyView: he_studyView,
   supervision: he_supervision,
+  supervisionSettings: he_supervisionSettings,
   supervisionView: he_supervisionView,
   teachingHypothesesCard: he_teachingHypothesesCard,
   ui: he_ui,
