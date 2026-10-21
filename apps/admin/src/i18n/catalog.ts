@@ -9,6 +9,7 @@ import en_adminSections from "./messages/en/adminSections.json";
 import en_aiServices from "./messages/en/aiServices.json";
 import en_allowancesView from "./messages/en/allowancesView.json";
 import en_assessmentAdmin from "./messages/en/assessmentAdmin.json";
+import en_assessmentPolicy from "./messages/en/assessmentPolicy.json";
 import en_assessmentsView from "./messages/en/assessmentsView.json";
 import en_auditExport from "./messages/en/auditExport.json";
 import en_auditView from "./messages/en/auditView.json";
@@ -106,6 +107,7 @@ import he_adminSections from "./messages/he/adminSections.json";
 import he_aiServices from "./messages/he/aiServices.json";
 import he_allowancesView from "./messages/he/allowancesView.json";
 import he_assessmentAdmin from "./messages/he/assessmentAdmin.json";
+import he_assessmentPolicy from "./messages/he/assessmentPolicy.json";
 import he_assessmentsView from "./messages/he/assessmentsView.json";
 import he_auditExport from "./messages/he/auditExport.json";
 import he_auditView from "./messages/he/auditView.json";
@@ -205,6 +207,7 @@ export const en = {
   aiServices: en_aiServices,
   allowancesView: en_allowancesView,
   assessmentAdmin: en_assessmentAdmin,
+  assessmentPolicy: en_assessmentPolicy,
   assessmentsView: en_assessmentsView,
   auditExport: en_auditExport,
   auditView: en_auditView,
@@ -304,6 +307,7 @@ export const he: PartialCatalog<typeof en> = {
   aiServices: he_aiServices,
   allowancesView: he_allowancesView,
   assessmentAdmin: he_assessmentAdmin,
+  assessmentPolicy: he_assessmentPolicy,
   assessmentsView: he_assessmentsView,
   auditExport: he_auditExport,
   auditView: he_auditView,

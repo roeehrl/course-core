@@ -60,6 +60,7 @@ const settings: PolicySettings = {
     finalAssessmentMinutes: null,
     studyMinutesPerDay: null,
   },
+  assessment: { maxGradedAttemptsPerCheck: null, retryCooldownMinutes: 0 },
 };
 const view = (over: Partial<PolicySettingsView> = {}): PolicySettingsView => ({
   courseId: "course-1",

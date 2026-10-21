@@ -26,6 +26,7 @@ import {
   useSingleFlight,
 } from "../components/LedgerActionDialog";
 import { PolicySettingsCard } from "../components/PolicySettingsCard";
+import { AssessmentAttemptsCard } from "../components/AssessmentPolicy";
 import { OrganizationCeilingsCard } from "../components/OrganizationCeilingsCard";
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
@@ -304,6 +305,22 @@ function PolicyWorkspace({
             )}
           </div>
         </Card>
+      )}
+      {client.getAssessmentAttempts && (
+        <AssessmentAttemptsCard
+          client={client}
+          enrollmentId={policy.enrollmentId}
+          revision={policy.revision}
+          canGrant={canMigrate}
+          onGranted={(text) => {
+            setMessage(text);
+            void onChanged();
+            // The grant moved the enrollment revision; reload this learner's policy in place.
+            void client
+              .getPolicy(policy.enrollmentId)
+              .then(setPolicy, () => undefined);
+          }}
+        />
       )}
       {accommodating && scopeId && (
         <AccommodationEditor

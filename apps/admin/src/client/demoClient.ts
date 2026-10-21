@@ -1,4 +1,5 @@
 import { createDemoPolicyClient } from "./demoPolicyClient";
+import { createDemoAssessmentAttempts } from "./demoAssessmentAttempts";
 import { createDemoAssessments } from "./demoAssessments";
 import { createDemoMedia } from "./demoMedia";
 import { createDemoPlatform } from "./demoPlatform";
@@ -143,6 +144,24 @@ export function createDemoAdminClient({
       mutating = false;
     }
   }
+  const courseOf = (enrollmentId: string) => {
+    const course = [...courses.values()].find((course) =>
+      course.enrollments.some((item) => item.id === enrollmentId),
+    );
+    if (!course) throw new AdminError("not_found");
+    return course;
+  };
+  const policyClient = createDemoPolicyClient(
+    (enrollmentId) => {
+      const enrollment = courseOf(enrollmentId).enrollments.find(
+        (item) => item.id === enrollmentId,
+      );
+      if (!enrollment) throw new AdminError("not_found");
+      return enrollment;
+    },
+    (enrollmentId) => permit(courseOf(enrollmentId), "extension.propose"),
+    translate,
+  );
   return {
     mode: "demo",
     // In-memory stand-ins for the connected server's ports: fictional data, no provider calls.
@@ -379,23 +398,13 @@ export function createDemoAdminClient({
           };
         },
       ),
-    ...createDemoPolicyClient(
-      (enrollmentId) => {
-        const enrollment = [...courses.values()]
-          .flatMap((course) => course.enrollments)
-          .find((item) => item.id === enrollmentId);
-        if (!enrollment) throw new AdminError("not_found");
-        return enrollment;
-      },
-      (enrollmentId) => {
-        const course = [...courses.values()].find((course) =>
-          course.enrollments.some((item) => item.id === enrollmentId),
-        );
-        if (!course) throw new AdminError("not_found");
-        permit(course, "extension.propose");
-      },
-      translate,
-    ),
+    ...policyClient,
+    ...createDemoAssessmentAttempts({
+      revisionOf: async (enrollmentId) =>
+        (await policyClient.getPolicy(enrollmentId)).revision,
+      permitGrant: (enrollmentId) =>
+        permit(courseOf(enrollmentId), "policy.write"),
+    }),
     requestProviderConfig: (id, providerId, input, context) =>
       mutate(
         id,
