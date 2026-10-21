@@ -22,5 +22,6 @@
   "conflict.keepShown": "שמירת הגרסה שמוצגת כאן",
   "conflict.useOther": "שימוש בגרסה האחרת",
   "conflict.shownSaved": "הגרסה שמוצגת כאן נשמרה ב-{time}.",
-  "conflict.shownSavedEarlier": "הגרסה שמוצגת כאן נשמרה קודם."
+  "conflict.shownSavedEarlier": "הגרסה שמוצגת כאן נשמרה קודם.",
+  "slow": "השרת עונה לאט. כדאי להשאיר את הדף פתוח: כל מה ששלחת נשמר במכשיר הזה עד שהשרת מאשר אותו."
 }
