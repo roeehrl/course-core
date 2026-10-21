@@ -10,8 +10,9 @@ import { closeCappedCourse } from './closure.js';
 import { episodes, learningSnapshot } from './learning.js';
 import { systemClock, type Clock } from './clock.js';
 import { recordReviewDue } from './teaching-hypotheses.js';
+import { endLearnerSession, quietSessions, SESSION_IDLE_MS } from './learner-sessions.js';
 
-export type WakeupStage = 'retention' | 'deadline' | 'closure';
+export type WakeupStage = 'retention' | 'deadline' | 'closure' | 'session';
 /** A failed step for one enrollment: only the stable error code, never a message or payload. */
 export interface WakeupFailure { enrollmentId: string; stage: WakeupStage; code: string }
 export interface WakeupOptions {
@@ -23,6 +24,8 @@ export interface WakeupOptions {
   limit?: number;
   /** Maximum enrollments planned, and maximum due timers fired, per scan. */
   batchSize?: number;
+  /** How long without a learner event before a study session counts as ended (trigger T10). */
+  sessionIdleMs?: number;
   /** Called for every recorded failure, e.g. to log it. Must not throw. */
   onFailure?: (failure: WakeupFailure) => void;
 }
@@ -64,7 +67,8 @@ const errorCode = (error: unknown) => {
 export async function scanWakeups(db: Database, options: WakeupOptions = {}) {
   const now = options.now ?? (options.clock ?? systemClock).now(), lead = options.deadlineLeadMs ?? 48 * 3_600_000;
   const limit = options.limit ?? 200, batchSize = options.batchSize ?? 500;
-  const result = { emitted: 0, closed: 0, planned: 0, fired: 0 };
+  const idleMs = options.sessionIdleMs ?? SESSION_IDLE_MS;
+  const result = { emitted: 0, closed: 0, planned: 0, fired: 0, sessionsEnded: 0 };
   const failures: WakeupFailure[] = [];
   const fail = async (enrollmentId: string, stage: WakeupStage, error: unknown) => {
     const failure = { enrollmentId, stage, code: errorCode(error) };
@@ -91,6 +95,16 @@ export async function scanWakeups(db: Database, options: WakeupOptions = {}) {
         `${row.objective_id}:${row.step}:${row.due_at.toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`, { objectiveId: row.objective_id, dueAt: row.due_at.toISOString() }))
         .then(emitted => { result.emitted += emitted; });
     } catch (error) { await fail(row.enrollment_id, 'retention', error); }
+  }
+
+  // Study sessions the learner left without the app saying so end after a quiet period: trigger
+  // T10's "session ended" (learner-sessions.ts). Activity that arrives meanwhile keeps one open.
+  const quietSince = new Date(now.getTime() - idleMs);
+  for (const enrollmentId of await quietSessions(db, now, idleMs, limit)) {
+    try {
+      const ended = await transaction(db, client => endLearnerSession(client, enrollmentId, 'idle', { quietSince }));
+      if (ended) result.sessionsEnded++;
+    } catch (error) { await fail(enrollmentId, 'session', error); }
   }
 
   // Plan: enrollments whose policy document or status changed, oldest first.

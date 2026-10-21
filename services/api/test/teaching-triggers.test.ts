@@ -159,6 +159,16 @@ describe('trigger table rows', () => {
     const due = evaluateTriggers({ kind: 'review_due', objectiveIds: ['minimum'] }, empty(), contracts);
     expect([due.ruleIds, due.recommendations.map(r => r.action), due.effects]).toEqual([['T10'], ['prepare_review'], []]);
   });
+  it('T10 session ended prepares the next lesson, once per cooldown, and nothing when every lesson is finished', () => {
+    const ended = evaluateTriggers({ kind: 'session_ended', objectiveIds: ['minimum'] }, empty(), contracts);
+    expect([ended.ruleIds, ended.recommendations.map(r => r.action), ended.effects, ended.affectsEvidence]).toEqual([['T10'], ['prepare_review'], [], false]);
+    expect(ended.restraints).toEqual(expect.arrayContaining(['notifications_follow_explicit_preferences', 'one_preparation_per_session']));
+    // A review that came due for the same objective just now: not prepared twice.
+    const coalesced = evaluateTriggers({ kind: 'session_ended', objectiveIds: ['minimum'] }, { ...empty(), recentRecommendations: ['prepare_review:minimum'] }, contracts);
+    expect([coalesced.recommendations, coalesced.skipped.map(s => s.reason)]).toEqual([[], ['recommendation_cooldown']]);
+    const finished = evaluateTriggers({ kind: 'session_ended', objectiveIds: [] }, empty(), contracts);
+    expect([finished.recommendations, finished.skipped]).toEqual([[], [{ ruleId: 'T10', what: 'recommend:prepare_review', reason: 'nothing_to_prepare' }]]);
+  });
   it('a recommendation inside its cooldown is skipped, not repeated', () => {
     const d = evaluateTriggers(answer({ confidence: 'high' }), { ...empty(), recentRecommendations: ['contrast_case:minimum'] }, contracts);
     expect(d.recommendations).toEqual([]);
