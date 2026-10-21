@@ -261,7 +261,12 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     const summaryResponse=await app.inject({url:path(f.enrollmentId),headers:headers(f.learner)});expect(summaryResponse.body).not.toMatch(/UNISSUED_BANK_FIXTURE|Choose the smaller|correctOptionId|minimum-recipe/);
     const priorEvidence={id:randomUUID(),objective_id:'minimum',family_id:'compare',assessment_id:'min-a',course_digest:f.baseDigest,independent:true,result:{passed:true}};
     const freshEvidence={...priorEvidence,id:randomUUID(),assessment_id:variant.id,family_id:variant.familyId};
-    expect(gateDecision(f.course,gate,[priorEvidence,freshEvidence],f.baseDigest).passed).toBe(true);
+    // The fresh question counts as a new independent family beside the retained base evidence…
+    expect(gateDecision(f.course,gate,[priorEvidence,freshEvidence],f.baseDigest).objectives[0]).toMatchObject({families:['compare','select']});
+    // …and, as both are choices and the gate offers a produced answer, a produced answer still completes it (0.4 false-mastery rule).
+    const produced={...priorEvidence,id:randomUUID(),assessment_id:'min-b',family_id:'select'};
+    expect(gateDecision(f.course,gate,[priorEvidence,freshEvidence],f.baseDigest).passed).toBe(false);
+    expect(gateDecision(f.course,gate,[priorEvidence,freshEvidence,produced],f.baseDigest).passed).toBe(true);
     expect(gateDecision(f.course,gate,[freshEvidence,{...freshEvidence,id:randomUUID()}],f.baseDigest).passed).toBe(false);
   });
 

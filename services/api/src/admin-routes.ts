@@ -54,7 +54,7 @@ import {
   enrollmentPolicy,
   loadPolicy,
 } from "./policy-adapter.js";
-import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
+import { recognitionOnlyLegacyGates, assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
 import { authorPlacementBounds, authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementBlueprint, placementBoundsError, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
@@ -279,6 +279,11 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
     ...(installed(options).some((extension) => extension.activityRuntime?.kind === "sandboxed_web")
       ? [{ label: "Sandboxed web activities", passed: true, warning: true, detail: SANDBOXED_ACTIVITY_WARNING }]
       : []),
+    // Not a failure: SDK 0.4 bundles stay publishable, but staff should know a checkpoint can be passed on recognition alone.
+    ...((gates) => gates.length
+      ? [{ label: "Checkpoints passed by choosing answers alone", passed: true, warning: true, code: "LEGACY_RECOGNITION_ONLY_GATES", params: { gates: gates.join(", ") },
+        detail: `SDK 0.4 checkpoints ${gates.join(", ")} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates.` }]
+      : [])(recognitionOnlyLegacyGates(release.server_bundle)),
   ];
 }
 /** Shown wherever a sandboxed_web activity runtime is installed (see README "Activity runtime"). */
