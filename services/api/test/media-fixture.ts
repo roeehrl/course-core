@@ -1,5 +1,9 @@
 import { classifyHttpError, ProviderError, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
-import type { AdapterFactory } from "../src/provider-composition.js";
+import { createHash, randomUUID } from "node:crypto";
+import { providerConfigurationSchema, type AdapterFactory } from "../src/provider-composition.js";
+import type { Database } from "../src/database.js";
+import { roleRevisions } from "../src/agent-evals/revision.js";
+import { publicSuite } from "../src/agent-evals/public-suite.js";
 
 /** Public synthetic bytes with an MP4 `ftyp` header. Not playable media; never a real clip. */
 export const SYNTHETIC_MP4 = Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
@@ -113,3 +117,17 @@ export function mediaConfiguration(pricing: { microUsdPerOutputSecond: number } 
   };
 }
 export const mediaJobPolicy = (microUsd: number) => ({ allowance: { microUsd, tokens: 100_000 }, durationMs: 300_000, timeoutMs: 60_000, maxAttempts: 3 });
+/**
+ * Every agent role is gated on an evaluated revision (N07); the scripted video adapter is not in
+ * the public suite's scripted configuration, so these fixtures record an owner's override for the
+ * exact revisions they activate, as an owner would through the provider-evals route.
+ */
+export async function approveRevisionsForTest(db: Database, workspaceId: string, configuration: unknown) {
+  const revisions = await roleRevisions(providerConfigurationSchema.parse(configuration));
+  const suite = publicSuite();
+  const owner = (await db.query<{ user_id: string }>("SELECT user_id FROM memberships WHERE workspace_id=$1 AND role='owner' ORDER BY user_id LIMIT 1", [workspaceId])).rows[0]!.user_id;
+  for (const revision of Object.values(revisions))
+    await db.query(`INSERT INTO provider_eval_overrides(id,workspace_id,role,revision_digest,suite_id,suite_digest,reason,actor_id,idempotency_key,request_digest)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [randomUUID(), workspaceId, revision!.role, revision!.digest, suite.id, suite.digest,
+      "Synthetic test fixture: an owner approves the scripted media revision.", owner, "fixture-" + randomUUID(), createHash("sha256").update(randomUUID()).digest("hex")]);
+}

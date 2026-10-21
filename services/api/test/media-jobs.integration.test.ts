@@ -10,7 +10,7 @@ import { canTransition, createMediaJobService, sniffVideo, validCaptions, worksp
 import type { SpendEvent } from "../src/provider-costs.js";
 import { afterCommitTransaction, onCommit } from "../src/after-commit.js";
 import { fixture } from "./fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome, approveRevisionsForTest } from "./media-fixture.js";
 
 // Every spend-telemetry emission, observed at the real recorder (which it still calls).
 const spendEmitted = vi.hoisted(() => [] as SpendEvent[]);
@@ -41,6 +41,7 @@ const post = (s: Session, url: string, payload: unknown = {}) => app.inject({ me
 const get = (s: Session, url: string, extra: Record<string, string> = {}) => app.inject({ url, headers: { ...headers(s), ...extra } });
 let providerRevision = 0;
 async function configure(configuration: unknown, allowance: number) {
+  await approveRevisionsForTest(db, workspace, configuration);
   const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
     configuration, jobPolicy: mediaJobPolicy(allowance), credentials: providerRevision === 0 ? { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } : {} });
   expect(r.statusCode, r.body).toBe(200);

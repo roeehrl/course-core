@@ -224,7 +224,8 @@ for (const locale of ["en", "he"] as Locale[]) {
     await expect(row.locator("bdi[dir=ltr]").first()).toHaveText("7Q2c");
     await expect(row).toContainText(t("row.working"));
 
-    // Models: the suggestion for each needed job is prefilled; saving waits for a quality check.
+    // Models: the suggestion for each needed job is prefilled; saving waits for a quality check
+    // of both jobs (every agent role is gated on an evaluated revision, N07).
     const tutor = page.getByLabel(
       t("models.modelFor", { job: t("role.companion.name") }),
     );
@@ -238,10 +239,10 @@ for (const locale of ["en", "he"] as Locale[]) {
     ).toContainText("gemini-9.0-flash");
     await page.getByRole("button", { name: t("models.save") }).click();
     await expect(
-      page.getByText(t("models.savedWaiting", { count: 1 })),
+      page.getByText(t("models.savedWaiting", { count: 2 })),
     ).toBeVisible();
     await expect(
-      status.getByRole("link", { name: t("issue.check", { count: 1 }) }),
+      status.getByRole("link", { name: t("issue.check", { count: 2 }) }),
     ).toBeVisible();
     await expect(
       status.getByRole("link", { name: t("issue.prices", { count: 1 }) }),
@@ -274,7 +275,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     // conversations of 3000 input and 600 output tokens at $0.30 / $2.50 per million), runs on the
     // server against the synthetic model, passes, and the waiting model is turned on.
     const check = page.locator("#ai-check");
-    await expect(check).toContainText(t("check.notChecked", { count: 1 }));
+    await expect(check).toContainText(t("check.notChecked", { count: 2 }));
     await expect(check.locator("bdi[dir=ltr]").first()).toHaveText(
       "gemini-9.0-flash",
     );
@@ -360,7 +361,7 @@ test("an administrator cannot approve without a check; a connection in use canno
   await expect(page.locator(".ai-connection")).toContainText(t("row.keySaved"));
   await page.getByRole("button", { name: t("models.save") }).click();
   await expect(
-    page.getByText(t("models.savedWaiting", { count: 1 })),
+    page.getByText(t("models.savedWaiting", { count: 2 })),
   ).toBeVisible();
   const check = page.locator("#ai-check");
   await expect(check.getByText(t("check.approveOwnersOnly"))).toBeVisible();
