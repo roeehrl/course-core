@@ -131,3 +131,10 @@ test('PR and release CI fail on test-level skips: every test command is skip-che
   for (const command of commands)
     if (!scripts.includes(command)) assert.match(command, /^node (?:\.\.\/\.\.\/)?scripts\/test-skips\.mjs -- /, command);
 });
+
+test('the required Docker job brings up the documented self-host stack', () => {
+  const sandbox = jobs(workflows['ci.yml']).sandbox;
+  assert.match(sandbox, /^ {4}name: Sandbox \/ real Docker Linux$/m, 'required check name is bound by branch protection and release evidence');
+  assert.ok(sandbox.indexOf('npm run test:self-host') > sandbox.indexOf('npm run check:sandbox:docker'), 'runs after the sandbox Docker suites');
+  assert.equal(Object.values(jobs(workflows['ci.yml'])).filter(body => body.includes('npm run test:self-host')).length, 1);
+});
