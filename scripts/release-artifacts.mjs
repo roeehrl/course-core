@@ -54,7 +54,9 @@ export function sourceAllowed(filename) {
     || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
   // Project documentation: flat Markdown files only.
   if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename);
-  if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename);
+  // deploy/docker is the documented Linux/Docker self-host stack; its .env.example holds placeholders only.
+  if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename)
+    || /^deploy\/docker\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md|compose\.yaml|Caddyfile|Dockerfile|Dockerfile\.dockerignore|\.env\.example)$/.test(filename);
   const base = MODULE_PATHS.find(directory => filename.startsWith(`${directory}/`));
   if (!base) return false;
   const relative = filename.slice(base.length + 1);
