@@ -487,11 +487,15 @@ and the key for sealed provider credentials.** Keep it on encrypted, private
 storage (for example a FileVault-protected disk); never copy it into a
 repository or share it. `manifest.json` records every file's size and SHA-256,
 the Core version, PostgreSQL server version, applied migrations and per-table
-row counts.
+row counts. The counts are taken before and after the dump; if they differ,
+another client wrote to the database during the backup and `create` fails with
+`database_changed_during_backup`, naming the tables.
 
 `verify` is a restore drill: it re-hashes every file (extra, missing, changed or
 group/world-readable files fail), restores the dump into a NEW randomly named
-database on the same server, compares row counts and migrations, checks the
+database on the same server, compares exact per-table row counts (by table
+name, so the order PostgreSQL returns them in does not matter; a mismatch names
+each table with its recorded and restored counts) and migrations, checks the
 Temporal store with `sqlite3 PRAGMA integrity_check`, and drops the disposable
 database. It never touches the live database. Restoring over a live installation
 is a deliberate operator procedure: stop the pilot, restore into a new database,
@@ -676,7 +680,21 @@ node "$NEW_ROOT/deploy/local/upgrade.mjs" --from "$OLD_ROOT" --to "$NEW_ROOT" --
 
 It stops the owned pilot, takes a consistent backup, proves the backup restores
 into a disposable database, starts the new runtime on the same state and waits
-for it to report running and healthy. If the new runtime does not come up, it is
-stopped and the previous runtime is started again; the reported backup is the
-recovery point if the new API already migrated the database. Health is process
-and API readiness, not learner, provider or deployment acceptance.
+for it to report running and healthy. Any failure after the pilot was stopped
+(backup, restore drill, launch or health of the new runtime) stops whatever the
+upgrade started and starts the previous runtime again. The command then exits 1
+with one JSON line on stderr, for example:
+
+```json
+{"status":"blocked","code":"upgrade_failed_previous_runtime_restarted","reason":"restored_row_counts_differ","lastCompletedStep":"backed_up","backup":"/…/backup-…","tables":[{"table":"…","recorded":3,"restored":2}]}
+```
+
+`reason` is the code of the step that failed and `backup` is present once a
+backup was written. Other codes: `upgrade_failed_previous_runtime_not_restarted`
+(the failure came before the new runtime ran, so the database is untouched;
+start the previous runtime by hand), `upgrade_failed_restore_from_backup` (the
+new runtime ran and the previous one did not come back; the reported backup is
+the recovery point if the new API already migrated the database),
+`upgrade_failed_new_runtime_not_stopped`, and `upgrade_failed_pilot_left_stopped`
+(the pilot was not running when the upgrade began, and stays stopped). Health is
+process and API readiness, not learner, provider or deployment acceptance.

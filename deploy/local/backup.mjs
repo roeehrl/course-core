@@ -66,9 +66,25 @@ async function tableCounts(pgBin, url) {
     "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"])).trim().split('\n').filter(Boolean);
   ensure(tables.every(name => /^[a-z_][a-z0-9_]{0,62}$/.test(name)), 'unexpected_table_name');
   if (!tables.length) return {};
-  const sql = tables.map(name => `SELECT '${name}',count(*) FROM public."${name}"`).join(' UNION ALL ');
+  // Exact count(*) per table. A UNION ALL has no defined row order: PostgreSQL
+  // may plan it as a Parallel Append, whose output order depends on table
+  // statistics. ORDER BY keeps the recorded order stable, and comparisons below
+  // never depend on order anyway.
+  const sql = tables.map(name => `SELECT '${name}',count(*) FROM public."${name}"`).join(' UNION ALL ') + ' ORDER BY 1';
   const rows = (await tool(pgBin, 'psql', [url.href, '-XAtF', '\t', '-c', sql])).trim().split('\n');
   return Object.fromEntries(rows.map(line => { const [name, count] = line.split('\t'); return [name, Number(count)]; }));
+}
+/** Per-table differences between two count maps, independent of key order.
+ * A table missing on one side is reported with `null` there. */
+export function tableCountDifferences(expected = {}, actual = {}, [left, right] = ['recorded', 'restored']) {
+  const value = (counts, name) => Object.hasOwn(counts, name) ? counts[name] : null;
+  return [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort()
+    .filter(name => value(expected, name) !== value(actual, name))
+    .map(name => ({ table: name, [left]: value(expected, name), [right]: value(actual, name) }));
+}
+function ensureSameCounts(expected, actual, code, labels) {
+  const tables = tableCountDifferences(expected, actual, labels);
+  if (tables.length) throw Object.assign(new PilotError(code), { details: { tables } });
 }
 /** Recompute every recorded file digest; any changed, missing or extra file fails. */
 export async function verifyManifest(directory) {
@@ -111,6 +127,10 @@ export async function createBackup({ root, state, output, pgBin, ageBin }) {
     await encryptFile(ageBin, recipients, source, path.join(directory, name + ENCRYPTED_SUFFIX));
     return record(name + ENCRYPTED_SUFFIX, { bytes: bytes.length, sha256: hash(bytes) });
   };
+  // Counted before and after the dump: the pilot is stopped, so any change
+  // means another client wrote to the database while the dump ran, and the
+  // recorded counts would not describe the dump.
+  const before = await tableCounts(pgBin, url);
   if (recipients.length) {
     const plaintext = await dumpEncrypted(pgBin, ageBin, url, recipients, path.join(directory, 'database.dump' + ENCRYPTED_SUFFIX));
     await record('database.dump' + ENCRYPTED_SUFFIX, plaintext);
@@ -119,6 +139,7 @@ export async function createBackup({ root, state, output, pgBin, ageBin }) {
     await record('database.dump');
   }
   const counts = await tableCounts(pgBin, url);
+  ensureSameCounts(before, counts, 'database_changed_during_backup', ['before', 'after']);
   const server = (await tool(pgBin, 'psql', [url.href, '-XAtc', 'SHOW server_version'])).trim();
   const migrations = (await tool(pgBin, 'psql', [url.href, '-XAtc', 'SELECT name FROM schema_migrations ORDER BY name'])).trim().split('\n').filter(Boolean);
   for (const name of ['config.json', 'temporal.db', 'installation.json']) {
@@ -208,7 +229,7 @@ async function restoreDrill({ loaded, directory, manifest, pgBin, keep }) {
   try {
     await tool(pgBin, 'pg_restore', ['--no-owner', '--no-privileges', '--exit-on-error', '--dbname', target.href, path.join(directory, 'database.dump')]);
     const counts = await tableCounts(pgBin, target);
-    ensure(JSON.stringify(counts) === JSON.stringify(manifest.tableCounts), 'restored_row_counts_differ');
+    ensureSameCounts(manifest.tableCounts, counts, 'restored_row_counts_differ');
     const migrations = (await tool(pgBin, 'psql', [target.href, '-XAtc', 'SELECT name FROM schema_migrations ORDER BY name'])).trim().split('\n').filter(Boolean);
     ensure(JSON.stringify(migrations) === JSON.stringify(manifest.migrations), 'restored_migrations_differ');
     let temporal = 'absent';
@@ -263,5 +284,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const run = { create: createBackup, prune: pruneBackups, verify: verifyBackup, decrypt: decryptBackup }[options.mode];
   run(options)
     .then(result => process.stdout.write(JSON.stringify(result) + '\n'))
-    .catch(error => { process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'backup_operation_failed' }) + '\n'); process.exitCode = 1; });
+    .catch(error => { process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'backup_operation_failed', ...(error?.details ? error.details : {}) }) + '\n'); process.exitCode = 1; });
 }
