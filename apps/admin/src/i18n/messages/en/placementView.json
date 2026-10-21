@@ -17,7 +17,7 @@
   "stat.repetitions.detail": "Studied although already shown",
   "saved": "Placement settings saved.",
   "settings": "Settings",
-  "settings.summary": "{state, select, on {Enabled} other {Off}} · up to {items} questions · {runs} run(s) · {hours} h between runs",
+  "settings.summary": "{state, select, on {Enabled} other {Off}} · up to {items, plural, one {# question} other {# questions}} · {runs, plural, one {# run} other {# runs}} · {hours} h between runs",
   "learnerCard.title": "A learner's placement",
   "learner": "Learner",
   "chooseLearner": "Choose a learner",
