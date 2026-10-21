@@ -856,6 +856,7 @@
       "core:apps/learner/tests/web/connected.spec.ts"
     ],
     "P05": [
+      "core:apps/learner/tests/connected-web/course-page-settle.spec.ts::the course page appears only after its panels load",
       "core:apps/learner/tests/web/learner.spec.ts"
     ],
     "P07": [
@@ -914,16 +915,20 @@
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
     ],
     "Q08": [
+      "core:apps/admin/tests/real/supervision.real.spec.ts::Stricter checkpoint confirmation",
       "core:apps/admin/tests/real/supervision.real.spec.ts::an owner checks and saves the supervision settings",
       "core:services/api/test/admin-roles.integration.test.ts::supervision settings",
+      "core:services/api/test/conversational-gate-runtime.integration.test.ts::leaves every conversation to a person when the workspace asks for people only",
       "core:services/api/test/teaching-loop.integration.test.ts::AI supervision settings for owners and admins"
     ],
     "Q09": [
       "core:apps/admin/tests/appeals.test.tsx",
       "core:apps/admin/tests/assessments.test.tsx",
+      "core:apps/admin/tests/assessments.test.tsx::lists each source with when it was last checked",
       "core:apps/admin/tests/real/answer-keys.real.spec.ts",
       "core:apps/admin/tests/real/reviews.real.spec.ts",
-      "core:services/api/test/assessment-admin.integration.test.ts"
+      "core:services/api/test/assessment-admin.integration.test.ts",
+      "core:services/api/test/assessment-admin.integration.test.ts::Q09 source freshness"
     ],
     "Q10": [
       "core:services/api/test/people.integration.test.ts",
@@ -972,6 +977,7 @@
     "R02": [
       "core:scripts/infra.test.mjs",
       "core:scripts/sandbox-ci.test.mjs",
+      "core:scripts/workflow-policy.test.mjs::release-compat.mjs rehearse --candidate",
       "core:services/api/test/api.integration.test.ts",
       "core:services/api/test/api.integration.test.ts::denies author actions to learners and cross-workspace administrators",
       "core:services/api/test/deadline-allowance-races.integration.test.ts::accepts only answers checked before the deadline",
@@ -1072,17 +1078,22 @@
     ],
     "S12": [
       "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:apps/learner/tests/connected-web/screen-reader.spec.ts::a lesson read in document order",
+      "core:apps/learner/tests/connected-web/screen-reader.spec.ts::keyboard Tab order follows the reading order",
       "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
       "core:services/api/test/visual-accessibility.test.ts"
     ],
     "T01": [
       "core:services/api/browser/budgets.spec.ts::feedbackMs",
+      "core:services/api/qualification/supervised-flow.ts::firstReplyPipelineMs",
       "core:services/api/test/release-transition-latency.integration.test.ts"
     ],
     "T03": [
+      "core:apps/admin/tests/platform.test.tsx::says when the newest backup is not encrypted",
       "core:deploy/local/backup-drill.test.mjs::online snapshot of a running database",
       "core:deploy/local/backup.test.mjs",
       "core:deploy/local/backup.test.mjs::pilot snapshot schedule",
+      "core:services/api/test/admin-operations.integration.test.ts::a newer copy written without encryption",
       "core:services/api/test/admin-operations.integration.test.ts::recovery targets"
     ],
     "T04": [
@@ -1110,11 +1121,13 @@
       "core:apps/learner/tests/apiClient.test.ts::traceparent",
       "core:services/api/test/telemetry.integration.test.ts::course.client.trace_linked",
       "core:services/supervisor/test/telemetry-buffer.test.ts::a browser trace context is linked, never adopted",
+      "core:services/supervisor/test/temporal-tracing.test.ts::continue-as-new keeps the coordinator in its trace",
       "core:services/supervisor/test/temporal-tracing.test.ts::with telemetry on, a start inside a span carries its trace and the activity continues it",
       "core:services/supervisor/test/temporal.integration.ts::real server: a traced start links the workflow, its child jobs and their activities to the starting trace"
     ],
     "U04": [
       "core:apps/admin/tests/platform.test.tsx::records a billed amount next to the estimate",
+      "core:apps/admin/tests/runInspector.test.tsx::every amount is labelled as an estimate",
       "core:services/api/test/admin-operations.integration.test.ts::records a provider-billed figure",
       "core:services/api/test/admin.integration.test.ts"
     ],
@@ -1139,7 +1152,10 @@
     ],
     "W01": [
       "core:apps/admin/tests/real/studies.real.spec.ts",
+      "core:apps/admin/tests/real/studies.real.spec.ts::an owner fills a study in from the course's definition file",
+      "core:apps/admin/tests/studies.test.tsx::fills the form from a course's study.json",
       "core:apps/learner/tests/connected-web/study.spec.ts",
+      "core:services/api/test/study-usability.integration.test.ts::runs a course's study definition end to end",
       "core:services/api/test/study.integration.test.ts"
     ],
     "K03": [
@@ -1154,6 +1170,12 @@
     "I01": [
       "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane",
       "core:apps/learner/tests/windowClass.test.ts"
+    ],
+    "P15": [
+      "core:apps/learner/tests/connected-web/study.spec.ts::in a study that asked for usability timings",
+      "core:apps/learner/tests/usability.test.ts::times the course page to its required step",
+      "core:services/api/test/study-usability.integration.test.ts::are stored only for a consented participant of a study that asked",
+      "core:services/api/test/study-usability.integration.test.ts::are summarised per participant in the export"
     ]
   },
   "critical": [
