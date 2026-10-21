@@ -1,0 +1,15 @@
+{
+  "unknown.label": "בדיקה {code}",
+  "code.SDK_DIGEST_MATCHES.label": "אימות SDK וגיבוב",
+  "code.SDK_DIGEST_MATCHES.detail": "האימות של ה-SDK שפורסם תואם לגיבוב החבילה השמורה.",
+  "code.SDK_DIGEST_MISMATCH.label": "אימות SDK וגיבוב",
+  "code.SDK_DIGEST_MISMATCH.detail": "אימות החבילה נכשל או שהגיבוב לא תואם.",
+  "code.RUNTIME_SUPPORTED.label": "יכולות סביבת ההרצה המותקנת",
+  "code.RUNTIME_SUPPORTED.detail": "סביבת ההרצה המותקנת תומכת בכל מה שהקורס דורש.",
+  "code.RUNTIME_UNSUPPORTED.label": "יכולות סביבת ההרצה המותקנת",
+  "code.RUNTIME_UNSUPPORTED.detail": "השרת הזה לא יכול להריץ את כל מה שהקורס דורש ({reason}). יש להתקין את היכולת החסרה ולבדוק שוב.",
+  "code.SANDBOXED_WEB_ACTIVITIES.label": "פעילויות אינטרנט בסביבה מבודדת",
+  "code.SANDBOXED_WEB_ACTIVITIES.detail": "מותקנת סביבת הרצה לפעילויות אינטרנט מבודדות. דפדפנים לא יכולים לחסום לגמרי גישה של הסקריפט של פעילות לרשת (ב-Safari רמזי הרשת נחסמים רק על ידי מגן הסקריפטים של Core, והמסגרת עדיין יכולה לנווט לאתר הזה או לשירות הווידאו שנבדק), ולכן פעילות עלולה לשלוח החוצה את המידע שבידה. אין לשים מידע רגיש במצב או בהגדרות של פעילות, ויש להתקין רק קוד פעילות שנבדק.",
+  "code.LEGACY_RECOGNITION_ONLY_GATES.label": "נקודות בקרה שעוברים רק בבחירת תשובות",
+  "code.LEGACY_RECOGNITION_ONLY_GATES.detail": "נקודות הבקרה {gates} (SDK 0.4) כוללות רק שאלות בחירה, כך שאפשר לעבור אותן בזיהוי בלבד. כדאי להוסיף משימה שבה הלומד/ת מפיק/ה תשובה בעצמו/ה, או להעביר את הקורס לנקודות בקרה של SDK 0.5."
+}

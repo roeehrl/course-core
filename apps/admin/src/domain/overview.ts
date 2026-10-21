@@ -55,8 +55,10 @@ export const overviewSchema = z.object({
       activeReleaseChecksFailing: z
         .array(
           z.object({
-            label: z.string().max(200),
-            detail: z.string().max(2000),
+            code: z.string().max(80).optional(),
+            params: z.record(z.string(), z.string().max(2000)).optional(),
+            label: z.string().max(200).optional(),
+            detail: z.string().max(2000).optional(),
           }),
         )
         .max(50),

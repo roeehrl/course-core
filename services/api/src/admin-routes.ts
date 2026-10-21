@@ -65,6 +65,7 @@ import { authorPlacementBounds, authorPlacementLimit, effectivePlacement, enroll
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 import { withArtifactContent } from './artifact-store.js';
+import { staffMessage, type ReleaseCheckCode, type StaffMessage } from "./staff-messages.js";
 
 type Sql = Database | PoolClient;
 type Auth = ReturnType<typeof authService>;
@@ -253,10 +254,14 @@ function installed(options: AdminRuntimeOptions): RuntimeExtension[] {
       : (options.installedExtensions ?? [])),
   ];
 }
-function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
+/**
+ * The checks shown on a release, as codes the admin app words (releaseChecks namespace):
+ * SDK_DIGEST_MATCHES / SDK_DIGEST_MISMATCH, RUNTIME_SUPPORTED / RUNTIME_UNSUPPORTED (params.reason
+ * is the refusal code), SANDBOXED_WEB_ACTIVITIES and LEGACY_RECOGNITION_ONLY_GATES (warnings).
+ */
+export function validation(release: ReleaseRow, options: AdminRuntimeOptions): ReleaseCheck[] {
   let valid = true,
-    runnable = true,
-    code = "Installed runtime supports required paths.";
+    reason: string | null = null;
   try {
     const compiled = compileCourse(release.server_bundle);
     valid = compiled.digest === release.digest;
@@ -266,56 +271,53 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
   try {
     assertCourseRunnable(release.server_bundle, installed(options));
   } catch (error) {
-    runnable = false;
-    code =
-      error instanceof ApiError ? error.code : "PUBLISH_CAPABILITY_MISSING";
+    reason = error instanceof ApiError ? error.code : "PUBLISH_CAPABILITY_MISSING";
   }
   return [
-    {
-      label: "SDK validation and digest",
-      passed: valid,
-      detail: valid
-        ? "Released SDK validation matches the stored bundle digest."
-        : "Bundle validation or digest mismatch.",
-    },
-    { label: "Installed runtime capabilities", passed: runnable, detail: code },
-    // Not a failure: a standing limit staff must know about before they publish such activities.
+    { code: valid ? "SDK_DIGEST_MATCHES" : "SDK_DIGEST_MISMATCH", passed: valid },
+    reason === null ? { code: "RUNTIME_SUPPORTED", passed: true } : { code: "RUNTIME_UNSUPPORTED", passed: false, params: { reason } },
+    // Not a failure: a standing limit staff must know about before they publish such activities (README "Activity runtime").
     ...(installed(options).some((extension) => extension.activityRuntime?.kind === "sandboxed_web")
-      ? [{ label: "Sandboxed web activities", passed: true, warning: true, detail: SANDBOXED_ACTIVITY_WARNING }]
+      ? [{ code: "SANDBOXED_WEB_ACTIVITIES" as const, passed: true, warning: true }]
       : []),
     // Not a failure: SDK 0.4 bundles stay publishable, but staff should know a checkpoint can be passed on recognition alone.
     ...((gates) => gates.length
-      ? [{ label: "Checkpoints passed by choosing answers alone", passed: true, warning: true, code: "LEGACY_RECOGNITION_ONLY_GATES", params: { gates: gates.join(", ") },
-        detail: `SDK 0.4 checkpoints ${gates.join(", ")} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates.` }]
+      ? [{ code: "LEGACY_RECOGNITION_ONLY_GATES" as const, passed: true, warning: true, params: { gates: gates.join(", ") } }]
       : [])(recognitionOnlyLegacyGates(release.server_bundle)),
   ];
 }
-/** Shown wherever a sandboxed_web activity runtime is installed (see README "Activity runtime"). */
-export const SANDBOXED_ACTIVITY_WARNING = "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints are blocked only by Core's script guard, and the frame can still navigate to this site or the reviewed video host), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.";
+export interface ReleaseCheck {
+  code: ReleaseCheckCode;
+  passed: boolean;
+  warning?: boolean;
+  params?: Record<string, string>;
+}
+/** Model slots for the read-only AI services list. Names and descriptions are IDs; the admin app
+ * words them (`aiServices.role.<role>.*`, `providersView.provider`). Status is not verification. */
 async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
   const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
     return AGENT_ROLES.map((role) => ({
       id: role,
-      name: `${role} provider`,
-      description: "Trusted runtime capability slot.",
+      name: role,
+      description: "",
       capabilities: [role],
       configuration: "absent",
       verification: "not_run",
       connectionLabel: "",
       environment: "",
-      detail: `Runtime status: ${status?.roles[role]?.status ?? "configuration_missing"}. No live verification is claimed.`,
+      runtimeStatus: status?.roles[role]?.status ?? "configuration_missing",
     }));
   return status.models.map((model) => ({
     id: model.id,
     name: model.id,
-    description: `Provider: ${model.providerId}`,
+    description: model.providerId,
     capabilities: model.capabilities.map(String),
     configuration: model.configuration,
     verification: "not_run",
     connectionLabel: model.providerId,
     environment: "",
-    detail: `Registry ${model.enabled ? "enabled" : "disabled"}; credential configuration ${model.configuration}. Configuration is not verification.`,
+    enabled: model.enabled,
   }));
 }
 async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
@@ -477,8 +479,8 @@ async function workspaceView(
   for (const provider of providers) {
     const request = requests.find((row) => row.provider_id === provider.id);
     if (request) {
-      provider.detail +=
-        " Metadata change request awaits server operator review.";
+      // A metadata change request awaits server operator review.
+      Object.assign(provider, { requestPending: true });
       if (provider.configuration === "absent")
         provider.configuration = "pending_review";
     }
@@ -552,7 +554,7 @@ async function courseCommand(
     catalog: Catalog,
   ) => Promise<{
     outcome: "saved" | "pending_review" | "published";
-    message: string;
+    message: StaffMessage;
     /** The learner this command concerns when the request does not name it (a new enrollment). */
     enrollmentId?: string;
   }>,
@@ -623,7 +625,8 @@ async function courseCommand(
 }
 interface CourseCommandReceipt {
   receipt: { id: string; authority: "server"; outcome: "saved" | "pending_review" | "published" };
-  message: string;
+  /** A code since the admin app translates outcomes; receipts stored before that hold English. */
+  message: StaffMessage | string;
 }
 /** A course command's reply: the stored receipt with the workspace as it is now. The first reply
  * and every replay are built the same way, so a replay answers exactly as the command did when
@@ -836,9 +839,7 @@ export async function reviewEvidenceWithin(
     outcome: "saved" as const,
     eventId: event.id,
     message:
-      input.decision === "accept"
-        ? "Valid evidence review acknowledged; its grade and independence did not change."
-        : "Evidence invalidated. Progress and descendant availability are recomputed from remaining evidence.",
+      staffMessage(input.decision === "accept" ? "EVIDENCE_REVIEW_ACCEPTED" : "EVIDENCE_INVALIDATED"),
   };
 }
 /**
@@ -855,7 +856,7 @@ export async function transitionReleaseWithin(
     /** Staff publishing from the admin page confirm the forward impact (release-editing.ts). */
     confirmForward?: boolean },
   options: AdminRuntimeOptions,
-): Promise<{ outcome: "saved" | "pending_review" | "published"; message: string }> {
+): Promise<{ outcome: "saved" | "pending_review" | "published"; message: StaffMessage }> {
   const row = (await releasesFor(client, catalog)).find(
     (r) => r.id === releaseId,
   );
@@ -874,7 +875,7 @@ export async function transitionReleaseWithin(
     const pinned = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM enrollments WHERE course_release_id=$1 AND status IN ('active','paused')", [release.id])).rows[0]!.n;
     await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.archived",
       payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, pinnedLearners: pinned }, idempotencyKey: `release:${release.id}:archive` });
-    return { outcome: "saved", message: `Release archived. ${pinned} learner(s) on it keep their release, evidence and support.` };
+    return { outcome: "saved", message: staffMessage("RELEASE_ARCHIVED", { learners: pinned }) };
   }
   if (input.action === "activate") {
     requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
@@ -893,7 +894,7 @@ export async function transitionReleaseWithin(
     assertCourseRunnable(release.server_bundle, installed(options));
     await assertPublishable(client, release.id, release.server_bundle);
     await selectCatalogueReleaseWithin(client, catalog.id, release.id);
-    return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
+    return { outcome: "saved", message: staffMessage("RELEASE_ACTIVATED") };
   }
   requireCondition(
     release.status === "draft",
@@ -943,7 +944,7 @@ export async function transitionReleaseWithin(
     return {
       outcome: "published",
       message:
-        "Reviewed release published. Existing enrollments remain pinned.",
+        staffMessage("RELEASE_PUBLISHED"),
     };
   }
   await client.query(
@@ -958,9 +959,7 @@ export async function transitionReleaseWithin(
   return {
     outcome: input.action === "approve" ? "saved" : "pending_review",
     message:
-      input.action === "approve"
-        ? "Approval recorded for this exact bundle digest."
-        : "Release submitted for review.",
+      staffMessage(input.action === "approve" ? "RELEASE_APPROVED" : "RELEASE_SUBMITTED"),
   };
 }
 export function registerAdminRoutes(
@@ -1160,7 +1159,7 @@ export function registerAdminRoutes(
         return {
           outcome: "saved",
           message:
-            "Course catalog details saved. Published release content is unchanged.",
+            staffMessage("COURSE_SAVED"),
         };
       },
     );
@@ -1219,7 +1218,7 @@ export function registerAdminRoutes(
         return {
           outcome: "saved",
           message:
-            "A validated draft bundle was created. Runtime readiness and review still govern publication.",
+            staffMessage("DRAFT_CREATED"),
         };
       },
     );
@@ -1304,7 +1303,7 @@ export function registerAdminRoutes(
           return {
             outcome: "saved",
             message:
-              "Draft bundle validated and saved. Previous approval was cleared.",
+              staffMessage("DRAFT_SAVED"),
           };
         },
       );
@@ -1498,7 +1497,7 @@ export function registerAdminRoutes(
             assessmentId: input.assessmentId, evidence: row.n, idempotencyKey: `closed-record:defect:${release.id}:${input.assessmentId}:${row.enrollment_id}` });
         }
         summary = { evidence: invalidated.reduce((n, r) => n + r.n, 0), enrollments: invalidated.length };
-        return { outcome: "saved", message: `Item ${input.assessmentId} marked defective. ${summary.evidence} evidence record(s) for ${summary.enrollments} learner(s) were invalidated with the reason.` };
+        return { outcome: "saved", message: staffMessage("ITEM_DEFECTIVE", { assessmentId: input.assessmentId, evidence: summary.evidence, learners: summary.enrollments }) };
       });
     return response;
   });
@@ -1592,7 +1591,7 @@ export function registerAdminRoutes(
         return {
           outcome: "saved",
           message:
-            "Enrollment created for the selected workspace member. No consent or mastery was granted.",
+            staffMessage("ENROLLMENT_CREATED"),
           enrollmentId: id,
         };
       },
@@ -1655,7 +1654,7 @@ export function registerAdminRoutes(
           });
           return {
             outcome: "saved",
-            message: "Profile saved. Evidence and mastery are unchanged.",
+            message: staffMessage("PROFILE_SAVED"),
           };
         },
       );
@@ -1739,7 +1738,7 @@ export function registerAdminRoutes(
           return {
             outcome: "pending_review",
             message:
-              "Metadata request recorded for server operator review. Runtime configuration and verification were not changed.",
+              staffMessage("PROVIDER_REQUESTED"),
           };
         },
       );
@@ -2063,7 +2062,7 @@ function registerAdminPolicyRoutes(
           policy,
           receipt: { id: event.id, authority: "server", outcome: "proposed" },
           message:
-            "Offer proposed for exact learner acceptance. No grant, allowance debit, work-cap change or deadline change occurred.",
+            staffMessage("OFFER_PROPOSED"),
         };
       },
     );
@@ -2206,7 +2205,7 @@ function registerAdminPolicyRoutes(
           ),
           receipt: { id: audit.id, authority: "server", outcome: "migrated" },
           message:
-            "Reviewed policy migration applied. Existing anchors, pools, grants and ledger history were preserved.",
+            staffMessage("POLICY_MIGRATED"),
         };
       },
     );
@@ -2273,7 +2272,7 @@ function registerAdminPolicyRoutes(
         return {
           policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
           receipt: { id: audit.id, authority: "server", outcome: "accommodated" },
-          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : p.kind === "outage" ? "Outage adjustment applied to this learner only. Pools and other learners are unchanged." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
+          message: staffMessage(p.kind === "approved_pause" ? "PAUSE_APPLIED" : p.kind === "outage" ? "OUTAGE_APPLIED" : "ACCOMMODATION_APPLIED"),
         };
       },
     );

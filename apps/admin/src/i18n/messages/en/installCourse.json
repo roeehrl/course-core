@@ -121,5 +121,16 @@
   "supplied.reason.INVALID_SCRIPT": "The activity file is not readable text. Ask the course author to fix it and publish a new package.",
   "supplied.reason.EXTENSION_ID_CONFLICT": "This server already runs a different file under the same name. Ask the course author to rename it, or remove the other one first.",
   "supplied.reason.other": "Core cannot use this file here.",
-  "supplied.approve": "{count, plural, one {I approve the file this course brings. Core runs it only in its isolated grader or sealed activity frame.} other {I approve the # files this course brings. Core runs them only in its isolated grader or sealed activity frame.}}"
+  "supplied.approve": "{count, plural, one {I approve the file this course brings. Core runs it only in its isolated grader or sealed activity frame.} other {I approve the # files this course brings. Core runs them only in its isolated grader or sealed activity frame.}}",
+  "problem.runtime": "This host cannot run the course as declared. Install what the course needs, then check the package again.",
+  "problem.SDK_UNSUPPORTED": "Built with SDK {sdkVersion}; this Core supports {min} up to (not including) {maxExclusive}. Rebuild the course with a supported SDK.",
+  "problem.SDK_OLDER_THAN_CORE": "Built with SDK {sdkVersion}, older than this Core's SDK {coreSdkVersion}. Core checked it with its own SDK and the course digest matches.",
+  "problem.CORE_VERSION_TOO_OLD": "Needs Core {required}; this Core is {current}. Update Core first.",
+  "problem.RELEASE_VERSION_CONFLICT": "Version {version} already exists here with different content. Give the package a new version number.",
+  "problem.OLDER_THAN_INSTALLED": "Version {newest} is already installed, so this one is older.",
+  "problem.HOST_REQUIREMENT_MISSING": "{name}: the server operator must add this exact file (sha256 {sha256}…).",
+  "problem.HOST_REQUIREMENT_DIFFERENT": "{name}: the server has a different file under this name; the operator must install the exact file (sha256 {sha256}…).",
+  "problem.COURSE_SUPPLIED_UNAVAILABLE": "{member}: Core cannot use this file the course brings on this server ({reason}). See \"Files the course brings\" for what to do.",
+  "problem.COURSE_SUPPLIED_APPROVAL_REQUIRED": "The course brings {count, plural, one {# file} other {# files}} that Core runs only in its sandboxes. Installing approves them.",
+  "problem.ADAPTATION_REGISTRY_NOT_APPROVABLE": "The packaged recovery registry cannot be approved on this server yet ({reason})."
 }
