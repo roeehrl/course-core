@@ -272,7 +272,7 @@ describe("the tool loop's own round checks end the run instead of waiting as unc
       await db.query("UPDATE adaptation_registries SET status='active' WHERE course_release_id=$1", [releaseId]);
     }
     expect(await receipts(j.ref.jobId)).toEqual([{ tool: "list_generation_profiles", step: 0 }]);
-    expect((await runView(j.ref.jobId)).summary).toContain("not the model's output: tool_loop_runtime_unavailable.");
+    expect((await runView(j.ref.jobId)).outcome).toMatchObject({ refusal: "tool_loop_runtime_unavailable", refusalBy: "host" });
     const listed = (await learnerTools(j)).find((c) => c.tool === "list_generation_profiles")!;
     expect(listed.jobState).toBe("failed");
   }, 30000);
