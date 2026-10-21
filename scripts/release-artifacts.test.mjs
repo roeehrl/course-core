@@ -95,7 +95,8 @@ test('source and web allowlists include actual Expo CSS and reject private paths
   assert(sourceAllowed('services/api/src/server.ts'));assert(sourceAllowed('scripts/release-artifacts.test.mjs'));assert(webAllowed('_expo/static/css/connected-abcd.css','learner'));
   for(const p of ['../escape','/absolute','a//b','a/./b','a\\b'])assert.throws(()=>safePath(p));
   assert(sourceAllowed('docs/threat-model.md'));
-  for(const p of ['docs/nested/page.md','docs/diagram.png','docs/run.sh'])assert.equal(sourceAllowed(p),false);
+  assert(sourceAllowed('docs/contracts/context-capsule.v1.schema.json'));
+  for(const p of ['docs/nested/page.md','docs/diagram.png','docs/run.sh','docs/contracts/notes.json','docs/contracts/x.v1.schema.js','docs/contracts/deep/x.v1.schema.json'])assert.equal(sourceAllowed(p),false);
   for(const p of ['.local/config.json','apps/learner/dist/index.html','unknown/repository.ts'])assert.equal(sourceAllowed(p),false);
   for(const p of ['assets/index.js.map','../../secret'])assert.throws(()=>webAllowed(p,'learner'));
   for(const p of ['arbitrary.ts','source/index.js'])assert(!webAllowed(p,'learner'));

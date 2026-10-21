@@ -50,8 +50,9 @@ export function sourceAllowed(filename) {
   if (filename.startsWith('.github/')) return /^\.github\/(?:workflows\/[A-Za-z0-9_-]+\.ya?ml|CODEOWNERS|dependabot\.ya?ml)$/.test(filename);
   if (filename.startsWith('scripts/')) return /^scripts\/[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
     || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
-  // Project documentation: flat Markdown files only.
-  if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename);
+  // Project documentation: flat Markdown files, and the published JSON Schemas of versioned contracts.
+  if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename)
+    || /^docs\/contracts\/[a-z0-9-]+\.v[0-9]+\.schema\.json$/.test(filename);
   if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename);
   const base = MODULE_PATHS.find(directory => filename.startsWith(`${directory}/`));
   if (!base) return false;
