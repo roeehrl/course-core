@@ -102,6 +102,10 @@ const state = enrollmentState;
 
 /** The page policy. Only the debug inspector page (framed by the learner app) relaxes frame-ancestors, to this origin. */
 const contentSecurityPolicy = (frameAncestors: "'none'" | "'self'") => `default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; frame-ancestors ${frameAncestors}; object-src 'none'; base-uri 'none'; form-action 'self'`;
+export interface RegisteredRoute { method: string; url: string; schema: Record<string, unknown> | undefined }
+const registeredRouteLists = new WeakMap<FastifyInstance, RegisteredRoute[]>();
+/** The routes a server created by createServer registered (HEAD routes Fastify adds for GET excluded). */
+export const registeredRoutes = (app: FastifyInstance): readonly RegisteredRoute[] => registeredRouteLists.get(app) ?? [];
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
@@ -120,6 +124,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const clock = serverClock(options.clock);
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
+  const routes: RegisteredRoute[] = [];
+  registeredRouteLists.set(app, routes);
+  // Every route as registered, so the role-matrix test can require an access entry for each one.
+  app.addHook('onRoute', route => { for (const method of [route.method].flat()) if (method !== 'HEAD') routes.push({ method, url: route.url, schema: route.schema as Record<string, unknown> | undefined }); });
   registerHttpTelemetry(app);
   registerClientEnvelope(app);
   await app.register(cookie);
