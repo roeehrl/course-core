@@ -2,7 +2,7 @@ import { layoutEquation } from "./equation.js";
 import { DEFAULT_SPRING, layoutMode, springProgress } from "./motion.js";
 import { checkCamera } from "./schema.js";
 import { visualError } from "./errors.js";
-import { evaluate, finite, VisualError } from "./expression.js";
+import { evaluate, finite } from "./expression.js";
 import type { EvaluationContext } from "./expression.js";
 import type {
   Anchor,
@@ -42,7 +42,7 @@ export function transformPoint(m: Matrix, p: Point): Point {
 export function inversePoint(m: Matrix, p: Point): Point {
   const det = finite(m[0] * m[3] - m[1] * m[2]);
   if (Math.abs(det) < 1e-12)
-    throw new VisualError("TRANSFORM", "Noninvertible transform");
+    throw visualError("TRANSFORM", "noninvertibleTransform");
   return {
     x: finite((m[3] * (p.x - m[4]) - m[2] * (p.y - m[5])) / det),
     y: finite((-m[1] * (p.x - m[4]) + m[0] * (p.y - m[5])) / det),
@@ -258,17 +258,20 @@ export function createGeometry(
         tracks.get(`${node.id}.${prop}`) ??
         (input === undefined ? fallback : evaluate(input, context));
       if (typeof v !== "number")
-        throw new VisualError("TYPE", `${node.id}.${prop} must be numeric`);
+        throw visualError("TYPE", "propertyNumeric", {
+          node: node.id,
+          property: prop,
+        });
       finite(v);
       if (
         ["width", "height", "radius", "fontSize"].includes(prop) &&
         (v < 0 || v > 100_000)
       )
-        throw new VisualError("GEOMETRY", "Invalid size");
+        throw visualError("GEOMETRY", "invalidSize");
       if (["opacity", "progress", "morph"].includes(prop) && (v < 0 || v > 1))
-        throw new VisualError("GEOMETRY", "Opacity/progress outside 0..1");
+        throw visualError("GEOMETRY", "opacityProgressRange");
       if (prop === "scale" && (v < 0.001 || v > 100))
-        throw new VisualError("GEOMETRY", "Scale outside .001..100");
+        throw visualError("GEOMETRY", "scaleRange");
       return v;
     }
     const x = num("x", 0),
@@ -287,7 +290,7 @@ export function createGeometry(
     const rawVisible =
       node.visible === undefined ? true : evaluate(node.visible, context);
     if (typeof rawVisible !== "boolean")
-      throw new VisualError("TYPE", "Visibility must be boolean");
+      throw visualError("TYPE", "visibilityMustBeBoolean");
     const g: GeometryNode = {
       id: node.id,
       kind: node.kind,
@@ -331,8 +334,7 @@ export function createGeometry(
     const world = (p: Point) => transformPoint(matrix, p);
     const coordinate = (e: Expression) => {
       const v = evaluate(e, context);
-      if (typeof v !== "number")
-        throw new VisualError("TYPE", "Coordinate must be a number");
+      if (typeof v !== "number") throw visualError("TYPE", "coordinateNumeric");
       return finite(v);
     };
     const n = coordinate;
@@ -437,10 +439,7 @@ export function createGeometry(
           (p) => p.x < 0 || p.x > g.width || p.y < 0 || p.y > g.height,
         )
       )
-        throw new VisualError(
-          "PLOT_RANGE",
-          "Plot points must remain within domains",
-        );
+        throw visualError("PLOT_RANGE", "plotPointsOutsideDomains");
       g.path = g.points
         .map((p, i) => `${i ? "L" : "M"}${fmt(p.x)} ${fmt(p.y)}`)
         .join(" ");
@@ -604,7 +603,7 @@ export function createGeometry(
       if (e === undefined) return null;
       const v = evaluate(e, context);
       if (typeof v !== "number")
-        throw new VisualError("TYPE", "Pane highlight must be numeric");
+        throw visualError("TYPE", "paneHighlightMustBeNumeric");
       return Number.isInteger(v) && v >= from && v < from + count ? v : null;
     };
     if (p.kind === "table")

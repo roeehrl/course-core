@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { checkEquation, EQUATION_LIMITS } from "./equation.js";
 import { MAX_VALUE, VisualError, operatorArity } from "./expression.js";
-import { visualError } from "./errors.js";
+import { errorText, visualError } from "./errors.js";
 import type { ErrorKey, englishErrorMessages } from "./errors.js";
 import { verifyImageAsset } from "./image.js";
 import { SPRING_LIMITS } from "./motion.js";
@@ -46,7 +46,7 @@ const reserved = new Set(["__proto__", "prototype", "constructor"]);
 const id = z
   .string()
   .regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)
-  .refine((v) => !reserved.has(v), "Reserved identifier");
+  .refine((v) => !reserved.has(v), errorText("reservedIdentifier"));
 const text = z.string().max(2048);
 const number = z.number().finite().min(-MAX_VALUE).max(MAX_VALUE);
 const positive = z.number().finite().min(0).max(100_000);
@@ -72,7 +72,7 @@ const expression: z.ZodType<Expression> = z.lazy(() =>
         if (v.args.length < min || v.args.length > max)
           ctx.addIssue({
             code: "custom",
-            message: `Invalid arity for ${v.op}`,
+            message: errorText("invalidArity", { op: v.op }),
           });
       }),
   ]),
@@ -80,7 +80,7 @@ const expression: z.ZodType<Expression> = z.lazy(() =>
 const binding = z
   .object({ state: id, from: number, to: number })
   .strict()
-  .refine((v) => v.from !== v.to, "Binding range must be nonzero");
+  .refine((v) => v.from !== v.to, errorText("bindingRangeZero"));
 const base = {
   id,
   label: text.optional(),
@@ -367,7 +367,7 @@ const probe: z.ZodType<Probe> = z.lazy(() =>
         if (v.args.length < min || v.args.length > max)
           ctx.addIssue({
             code: "custom",
-            message: `Invalid arity for ${v.op}`,
+            message: errorText("invalidArity", { op: v.op }),
           });
       }),
     z
@@ -435,14 +435,14 @@ const keyframe = z
         (s) =>
           s.stiffness / s.mass <= springLimits.stiffnessPerMass &&
           s.damping / s.mass <= springLimits.dampingPerMass,
-        "Spring is too stiff or too damped for its mass",
+        errorText("springTooStiff"),
       )
       .optional(),
   })
   .strict()
   .refine(
     (k) => k.spring === undefined || k.ease === "spring",
-    "spring parameters require ease: spring",
+    errorText("springNeedsEase"),
   );
 const keyframes = z.array(keyframe).min(1).max(LIMITS.keyframes);
 const solid = z
@@ -636,25 +636,24 @@ export function preflight(input: unknown): void {
     size = 0;
   function walk(value: unknown, depth: number): void {
     if (++nodes > 70_000 || depth > 64)
-      throw new VisualError("PAYLOAD_LIMIT", "JSON structure exceeds limits");
+      throw visualError("PAYLOAD_LIMIT", "jsonStructureLimits");
     if (typeof value === "string") {
       size += value.length * 3;
     } else if (typeof value === "number") {
       if (!Number.isFinite(value))
-        throw new VisualError("NON_FINITE", "JSON contains nonfinite numbers");
+        throw visualError("NON_FINITE", "jsonNonfinite");
       size += 16;
     } else if (value !== null && typeof value === "object") {
-      if (parents.has(value))
-        throw new VisualError("CYCLE", "Cyclic scene data");
+      if (parents.has(value)) throw visualError("CYCLE", "cyclicSceneData");
       const prototype = Object.getPrototypeOf(value);
       if (
         prototype !== Object.prototype &&
         prototype !== Array.prototype &&
         prototype !== null
       )
-        throw new VisualError("JSON", "Only plain JSON is supported");
+        throw visualError("JSON", "onlyPlainJson");
       if (Array.isArray(value) && value.length > LIMITS.points)
-        throw new VisualError("PAYLOAD_LIMIT", "Array exceeds limits");
+        throw visualError("PAYLOAD_LIMIT", "arrayExceedsLimits");
       const keys = Reflect.ownKeys(value);
       if (
         Array.isArray(value) &&
@@ -667,23 +666,23 @@ export function preflight(input: unknown): void {
                 Number(key) >= value.length),
           ))
       )
-        throw new VisualError("JSON", "Arrays must be dense JSON data");
+        throw visualError("JSON", "arraysDenseJson");
       parents.add(value);
       for (const key of keys) {
         if (typeof key !== "string" || reserved.has(key))
-          throw new VisualError("JSON", "Unsafe object key");
+          throw visualError("JSON", "unsafeObjectKey");
         if (Array.isArray(value) && key === "length") continue;
         const d = Object.getOwnPropertyDescriptor(value, key)!;
         if (!("value" in d))
-          throw new VisualError("JSON", "Accessors are not allowed");
+          throw visualError("JSON", "accessorsAreNotAllowed");
         size += key.length * 3;
         walk(d.value, depth + 1);
       }
       parents.delete(value);
     } else if (value !== null && typeof value !== "boolean")
-      throw new VisualError("JSON", "Expected JSON data");
+      throw visualError("JSON", "expectedJsonData");
     if (size > LIMITS.bytes)
-      throw new VisualError("PAYLOAD_LIMIT", "Scene exceeds byte budget");
+      throw visualError("PAYLOAD_LIMIT", "sceneExceedsByteBudget");
   }
   walk(input, 0);
 }
@@ -691,7 +690,7 @@ export function assertStateValue(
   field: StateField | undefined,
   value: Value,
 ): void {
-  if (!field) throw new VisualError("STATE", "Unknown state field");
+  if (!field) throw visualError("STATE", "unknownStateField");
   if (
     field.kind === "number" &&
     (typeof value !== "number" ||
@@ -699,14 +698,14 @@ export function assertStateValue(
       value < field.min ||
       value > field.max)
   )
-    throw new VisualError("STATE_RANGE", "Number outside state bounds");
+    throw visualError("STATE_RANGE", "numberOutsideStateBounds");
   if (field.kind === "boolean" && typeof value !== "boolean")
-    throw new VisualError("STATE_TYPE", "Expected boolean state");
+    throw visualError("STATE_TYPE", "expectedBooleanState");
   if (
     field.kind === "enum" &&
     (typeof value !== "string" || !field.options.includes(value))
   )
-    throw new VisualError("STATE_TYPE", "Unknown enum value");
+    throw visualError("STATE_TYPE", "unknownEnumValue");
 }
 /** Camera bounds: zoom 0.1–20, centre within ±100,000. */
 export function checkCamera(prop: "x" | "y" | "zoom", value: number): void {
@@ -741,11 +740,11 @@ export function supportsProperty(
 export function parseScene(input: unknown): Scene {
   if (typeof input === "string") {
     if (input.length > LIMITS.bytes)
-      throw new VisualError("PAYLOAD_LIMIT", "Scene JSON is too large");
+      throw visualError("PAYLOAD_LIMIT", "sceneJsonTooLarge");
     try {
       input = JSON.parse(input);
     } catch {
-      throw new VisualError("JSON", "Invalid scene JSON");
+      throw visualError("JSON", "invalidSceneJson");
     }
   }
   preflight(input);
@@ -759,9 +758,6 @@ export function parseScene(input: unknown): Scene {
         .join("; "),
     );
   const scene = result.data as Scene;
-  const fail = (message: string): never => {
-    throw new VisualError("SCHEMA", message);
-  };
   const failWith = <K extends ErrorKey>(
     key: K,
     ...params: Parameters<(typeof englishErrorMessages)[K]>
@@ -769,7 +765,7 @@ export function parseScene(input: unknown): Scene {
     throw visualError("SCHEMA", key, ...params);
   };
   const stateKeys = Object.keys(scene.state);
-  if (stateKeys.length > LIMITS.state) fail("Too many state fields");
+  if (stateKeys.length > LIMITS.state) failWith("tooManyStateFields");
   for (const f of Object.values(scene.state)) {
     if (
       f.kind === "number" &&
@@ -777,27 +773,29 @@ export function parseScene(input: unknown): Scene {
         f.step > f.max - f.min ||
         !Number.isFinite(f.max - f.min))
     )
-      fail("Invalid state range/step");
+      failWith("invalidStateRangeStep");
     if (f.kind === "enum" && new Set(f.options).size !== f.options.length)
-      fail("Duplicate enum options");
+      failWith("duplicateEnumOptions");
     assertStateValue(f, f.initial);
   }
   for (const key of scene.controls ?? [])
-    if (!Object.hasOwn(scene.state, key)) fail(`Unknown control ${key}`);
+    if (!Object.hasOwn(scene.state, key))
+      failWith("unknownControl", { control: key });
   if (new Set(scene.controls).size !== (scene.controls?.length ?? 0))
-    fail("Duplicate controls");
+    failWith("duplicateControls");
   const checkNumber = (prop: string, value: unknown) => {
     if (typeof value === "object") return; // AST values are checked when evaluated.
-    if (typeof value !== "number") fail(`${prop} must be numeric`);
+    if (typeof value !== "number")
+      failWith("propertyMustBeNumeric", { property: prop });
     const n = value as number;
     if (
       ["width", "height", "radius", "fontSize"].includes(prop) &&
       (n < 0 || n > 100_000)
     )
-      fail(`Invalid ${prop}`);
+      failWith("invalidProperty", { property: prop });
     if (["opacity", "progress", "morph"].includes(prop) && (n < 0 || n > 1))
-      fail(`Invalid ${prop}`);
-    if (prop === "scale" && (n < 0.001 || n > 100)) fail("Invalid scale");
+      failWith("invalidProperty", { property: prop });
+    if (prop === "scale" && (n < 0.001 || n > 100)) failWith("invalidScale");
   };
   const all = new Map<string, SceneNode>();
   const definitions = new Set<string>();
@@ -835,21 +833,21 @@ export function parseScene(input: unknown): Scene {
     depth: number,
     within?: keyof typeof DEF_KINDS,
   ): void {
-    if (depth > LIMITS.depth) fail("Scene nesting exceeds limit");
+    if (depth > LIMITS.depth) failWith("sceneNestingExceedsLimit");
     for (const n of nodes) {
-      if (all.has(n.id)) fail(`Duplicate node ${n.id}`);
+      if (all.has(n.id)) failWith("duplicateNode", { node: n.id });
       if (within) {
         if (!DEF_KINDS[within]!.includes(n.kind))
-          fail(`A ${within} cannot contain ${n.kind} nodes`);
+          failWith("definitionCannotContain", {
+            definition: within,
+            kind: n.kind,
+          });
         if (n.manipulate || n.clip !== undefined || n.mask !== undefined)
-          fail(
-            `Nodes inside a ${within} cannot be manipulated, clipped or masked`,
-          );
+          failWith("definitionNodesFixed", { definition: within });
         definitions.add(n.id);
       }
       if (n.kind === "equation") {
-        if (!n.label?.trim())
-          fail(`Equation ${n.id} requires a label as its text alternative`);
+        if (!n.label?.trim()) failWith("equationLabel", { node: n.id });
         checkEquation(n.tex);
       }
       if (n.kind === "image" && !n.label?.trim())
@@ -859,16 +857,16 @@ export function parseScene(input: unknown): Scene {
         if (value !== undefined) checkNumber(prop, value);
       }
       all.set(n.id, n);
-      if (all.size > LIMITS.nodes) fail("Too many scene nodes");
+      if (all.size > LIMITS.nodes) failWith("tooManySceneNodes");
       if (n.kind === "group") collect(n.children, depth + 1, within);
       if (n.kind === "plot") {
         if (n.domainX[0] >= n.domainX[1] || n.domainY[0] >= n.domainY[1])
-          fail("Plot domains must increase");
+          failWith("plotDomainsMustIncrease");
         points += n.points.length;
       }
       if (n.kind === "path") {
         points += n.commands.length + (n.morphTo?.length ?? 0);
-        if (n.commands[0]?.command !== "M") fail("Paths must begin with M");
+        if (n.commands[0]?.command !== "M") failWith("pathsMustBeginWithM");
         if (n.morph !== undefined && !n.morphTo)
           failWith("morphNeedsTarget", { node: n.id });
         if (
@@ -879,12 +877,12 @@ export function parseScene(input: unknown): Scene {
           failWith("morphShape", { node: n.id });
       }
       if (n.manipulate) {
-        if (!n.label) fail("Manipulable nodes require a label");
+        if (!n.label) failWith("manipulableNeedsLabel");
         if (!n.manipulate.x && !n.manipulate.y && !n.manipulate.activate)
-          fail("Empty manipulation");
+          failWith("emptyManipulation");
         for (const binding of [n.manipulate.x, n.manipulate.y])
           if (binding && scene.state[binding.state]?.kind !== "number")
-            fail("Drag bindings require numeric state");
+            failWith("dragBindingsRequireNumericState");
         if (n.manipulate.activate)
           assertStateValue(
             scene.state[n.manipulate.activate.state],
@@ -899,12 +897,16 @@ export function parseScene(input: unknown): Scene {
           n.scale !== undefined ||
           n.manipulate)
       )
-        fail("Links cannot transform or manipulate");
+        failWith("linksCannotTransformOrManipulate");
     }
   }
   collect(scene.nodes, 1);
-  const reference = (code: string, message: string): never => {
-    throw new VisualError(code, message);
+  const reference = <K extends ErrorKey>(
+    code: string,
+    key: K,
+    ...params: Parameters<(typeof englishErrorMessages)[K]>
+  ): never => {
+    throw visualError(code, key, ...params);
   };
   const regions = {
     clip: new Set<string>(),
@@ -923,30 +925,32 @@ export function parseScene(input: unknown): Scene {
     ["mask", scene.defs?.masks ?? []],
   ] as const)
     for (const row of rows) {
-      if (regions[kind].has(row.id)) fail(`Duplicate ${kind} ${row.id}`);
+      if (regions[kind].has(row.id))
+        failWith("duplicateRegion", { kind, id: row.id });
       regions[kind].add(row.id);
       collect(row.nodes, 2, kind);
     }
   for (const symbol of scene.defs?.symbols ?? []) {
-    if (regions.symbol.has(symbol.id)) fail(`Duplicate symbol ${symbol.id}`);
+    if (regions.symbol.has(symbol.id))
+      failWith("duplicateSymbol", { symbol: symbol.id });
     const before = all.size;
     collect(symbol.nodes, 2, "symbol");
     regions.symbol.set(symbol.id, all.size - before);
   }
-  if (points > LIMITS.points) fail("Too many path/plot points");
+  if (points > LIMITS.points) failWith("tooManyPathPlotPoints");
   let rendered = all.size,
     instances = 0;
   for (const n of all.values()) {
     if (n.clip !== undefined && !regions.clip.has(n.clip))
-      reference(
-        "UNDEFINED_REFERENCE",
-        `Node ${n.id} references undefined clip ${n.clip}`,
-      );
+      reference("UNDEFINED_REFERENCE", "undefinedClip", {
+        node: n.id,
+        clip: n.clip,
+      });
     if (n.mask !== undefined && !regions.mask.has(n.mask))
-      reference(
-        "UNDEFINED_REFERENCE",
-        `Node ${n.id} references undefined mask ${n.mask}`,
-      );
+      reference("UNDEFINED_REFERENCE", "undefinedMask", {
+        node: n.id,
+        mask: n.mask,
+      });
     if (n.kind === "image" && !regions.image.has(n.image))
       throw visualError("UNDEFINED_REFERENCE", "imageReference", {
         node: n.id,
@@ -955,10 +959,10 @@ export function parseScene(input: unknown): Scene {
     if (n.kind === "use") {
       const size = regions.symbol.get(n.symbol);
       if (size === undefined)
-        reference(
-          "UNDEFINED_REFERENCE",
-          `Node ${n.id} references undefined symbol ${n.symbol}`,
-        );
+        reference("UNDEFINED_REFERENCE", "undefinedSymbol", {
+          node: n.id,
+          symbol: n.symbol,
+        });
       rendered += size!;
       instances++;
     }
@@ -966,30 +970,29 @@ export function parseScene(input: unknown): Scene {
       for (const end of [n.from, n.to]) {
         const target = all.get(end.node);
         if (!target || target.kind === "link" || definitions.has(end.node))
-          fail("Links must reference a non-link node");
+          failWith("linksNeedNodeTarget");
       }
   }
   if (instances > LIMITS.uses)
-    reference("USE_LIMIT", `More than ${LIMITS.uses} symbol uses`);
+    reference("USE_LIMIT", "tooManyUses", { limit: LIMITS.uses });
   if (rendered > LIMITS.renderedNodes)
-    reference("USE_LIMIT", "Symbol uses expand beyond the rendered node limit");
+    reference("USE_LIMIT", "usesExpandBeyondLimit");
   const set = [
     scene.layouts.tabletPortrait,
     scene.layouts.tabletLandscape,
     scene.layouts.wide,
   ];
-  if (set.some(Boolean) && !set.every(Boolean))
-    fail("The layout set needs tabletPortrait, tabletLandscape and wide");
+  if (set.some(Boolean) && !set.every(Boolean)) failWith("layoutSetIncomplete");
   if (set.every(Boolean) && scene.layouts.breakpoint !== undefined)
-    fail("breakpoint applies only to the compact/expanded form");
+    failWith("breakpointCompactOnly");
   for (const l of [scene.layouts.compact, scene.layouts.expanded, ...set])
     if (l)
       for (const [key, patch] of Object.entries(l.overrides ?? {})) {
         const target = all.get(key);
-        if (!target) fail(`Unknown layout node ${key}`);
+        if (!target) failWith("unknownLayoutNode", { node: key });
         for (const [prop, value] of Object.entries(patch)) {
           if (!supportsProperty(target!, prop as NumericProperty))
-            fail(`Invalid layout property ${key}.${prop}`);
+            failWith("invalidLayoutProperty", { node: key, property: prop });
           checkNumber(prop, value);
         }
       }
@@ -1003,7 +1006,7 @@ export function parseScene(input: unknown): Scene {
     const target = all.get(node),
       key = `${node}.${property}`;
     if (!target || !supportsProperty(target, property) || tracks.has(key))
-      fail(`Invalid/duplicate track ${key}`);
+      failWith("invalidTrack", { track: key });
     tracks.add(key);
     let previous = -1;
     for (const k of keys) {
@@ -1060,16 +1063,16 @@ export function parseScene(input: unknown): Scene {
     else if (value !== undefined && typeof value !== "object")
       failWith("cameraNumeric", { property: prop });
   }
-  if (tracks.size > LIMITS.tracks) fail("Too many tracks");
+  if (tracks.size > LIMITS.tracks) failWith("tooManyTracks");
   const paneIds = new Set<string>();
   for (const p of scene.panes ?? []) {
-    if (paneIds.has(p.id)) fail(`Duplicate pane ${p.id}`);
+    if (paneIds.has(p.id)) failWith("duplicatePane", { pane: p.id });
     paneIds.add(p.id);
     if (
       p.kind === "table" &&
       p.rows.some((row) => row.length !== p.columns.length)
     )
-      fail(`Pane ${p.id}: every row needs one cell per column`);
+      failWith("paneRowCells", { pane: p.id });
     if (p.kind === "formula") checkEquation(p.tex);
   }
   // Publish-time checks: every probe must name something the frame has.
@@ -1078,11 +1081,11 @@ export function parseScene(input: unknown): Scene {
     if (p === null || typeof p !== "object") return;
     if ("op" in p) return p.args.forEach(checkProbe);
     if ("node" in p && !all.has(p.node))
-      fail(`Invariant probes unknown node ${p.node}`);
+      failWith("invariantUnknownNode", { node: p.node });
     if ("cell" in p) {
       const pane = panesById.get(p.cell.pane);
       if (pane?.kind !== "table" || p.cell.column >= pane.columns.length)
-        fail(`Invariant probes unknown table cell in ${p.cell.pane}`);
+        failWith("invariantUnknownCell", { pane: p.cell.pane });
       checkProbe(p.cell.row);
     }
     if ("value" in p) {
@@ -1091,12 +1094,12 @@ export function parseScene(input: unknown): Scene {
         pane?.kind !== "formula" ||
         !pane.values?.some((v) => v.symbol === p.value.symbol)
       )
-        fail(`Invariant probes unknown formula value ${p.value.symbol}`);
+        failWith("invariantUnknownFormulaValue", { symbol: p.value.symbol });
     }
     if ("highlight" in p) {
       const pane = panesById.get(p.highlight);
       if (!pane || pane.kind === "formula")
-        fail(`Invariant probes unknown highlight ${p.highlight}`);
+        failWith("invariantUnknownHighlight", { pane: p.highlight });
     }
   };
   const modes = set.every(Boolean) ? 4 : 2;
@@ -1112,12 +1115,13 @@ export function parseScene(input: unknown): Scene {
     scene.timeline.durationMs,
   ];
   for (const inv of scene.invariants ?? []) {
-    if (invariantIds.has(inv.id)) fail(`Duplicate invariant ${inv.id}`);
+    if (invariantIds.has(inv.id))
+      failWith("duplicateInvariant", { invariant: inv.id });
     invariantIds.add(inv.id);
     checkProbe(inv.assert);
     for (const t of inv.times ?? defaultTimes) {
       if (t > scene.timeline.durationMs)
-        fail(`Invariant ${inv.id}: time outside duration`);
+        failWith("invariantTimeOutside", { invariant: inv.id });
       checkTimes.add(t);
     }
     for (const overrides of inv.states ?? []) {
@@ -1127,30 +1131,30 @@ export function parseScene(input: unknown): Scene {
     }
   }
   if (modes * (1 + checkStates.size) * checkTimes.size > LIMITS.checkFrames)
-    fail("Invariants request too many checked frames");
+    failWith("invariantsRequestTooManyChecked");
   const goldenKeys = new Set<string>();
   for (const g of scene.goldens ?? []) {
     if (!modeNames.includes(g.layout))
-      fail(`Golden layout ${g.layout} is not a layout of this scene`);
+      failWith("goldenLayoutUnknown", { layout: g.layout });
     if (g.atMs > scene.timeline.durationMs)
-      fail("Golden time outside duration");
+      failWith("goldenTimeOutsideDuration");
     const key = `${g.layout}@${g.atMs}`;
-    if (goldenKeys.has(key)) fail(`Duplicate golden ${key}`);
+    if (goldenKeys.has(key)) failWith("duplicateGolden", { golden: key });
     goldenKeys.add(key);
   }
   let cueTime = -1;
   for (const cue of scene.timeline.cues) {
     if (cue.atMs < cueTime || cue.atMs > scene.timeline.durationMs)
-      fail("Cues must be ordered within duration");
+      failWith("cuesMustBeOrderedWithin");
     cueTime = cue.atMs;
   }
   if (scene.accessibility.reducedMotion.atMs > scene.timeline.durationMs)
-    fail("Reduced motion frame is outside duration");
+    failWith("reducedMotionFrameIsOutside");
   function inspect(value: unknown, depth = 0): void {
     if (!value || typeof value !== "object") return;
     if ("op" in value && typeof value.op === "string" && "args" in value) {
       if (depth > LIMITS.expressionDepth)
-        fail("Expression nesting exceeds limit");
+        failWith("expressionNestingExceedsLimit");
       const e = value as unknown as { args: unknown[] };
       for (const a of e.args) inspect(a, depth + 1);
       return;
@@ -1160,13 +1164,13 @@ export function parseScene(input: unknown): Scene {
       typeof value.state === "string" &&
       !Object.hasOwn(scene.state, value.state)
     )
-      fail(`Unknown state ${value.state}`);
+      failWith("unknownStateReference", { state: value.state });
     for (const v of Object.values(value)) inspect(v, depth);
   }
   inspect(scene);
   for (const key of Object.keys(scene.simulation?.updates ?? {}))
     if (!Object.hasOwn(scene.state, key))
-      fail(`Unknown simulation state ${key}`);
+      failWith("unknownSimulationState", { state: key });
   return deepFreeze(scene);
 }
 export function deepFreeze<T>(value: T): T {
