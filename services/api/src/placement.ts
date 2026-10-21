@@ -294,6 +294,7 @@ async function view(client: PoolClient, context: EnrollmentContext) {
         })
       : run.proposal!;
   const titles = Object.fromEntries(episodes(course).map((e) => [e.id, e.title]));
+  const explained = explainPlacement(course, plan, attempts);
   return {
     ...base,
     run: {
@@ -308,18 +309,50 @@ async function view(client: PoolClient, context: EnrollmentContext) {
         exempt: plan.exemptEpisodeIds.map((id) => ({ episodeId: id, title: titles[id] })),
         startEpisodeId: plan.startEpisodeId,
         startTitle: plan.startEpisodeId ? titles[plan.startEpisodeId] : null,
-        demonstrated: plan.demonstrated.map((d) => ({
-          objectiveId: d.objectiveId,
-          description: course.objectives.find((o) => o.id === d.objectiveId)?.description ?? d.objectiveId,
-          families: d.families.length,
-        })),
+        demonstrated: explained.demonstrated,
         // Awaiting evaluation is neither a pass nor a fail; these stay on the path unless later evidence decides them.
-        pending: (plan.pendingObjectiveIds ?? []).map((id) => ({ objectiveId: id, description: course.objectives.find((o) => o.id === id)?.description ?? id })),
-        untestedNote: "Objectives not listed were not tested and stay on your path; this is not a judgement of ability.",
+        pending: (plan.pendingObjectiveIds ?? []).map((id) => ({ objectiveId: id, description: describe(course, id) })),
+        // The specific areas that stay uncertain, and why: tried without being shown, or never asked.
+        notShown: explained.notShown,
+        untested: explained.untested,
+        untestedCount: explained.untestedCount,
+        // Translated by the learner app: objectives not tested stay on the path; no judgement of ability.
+        untestedNoteCode: "not_a_judgement" as const,
       },
       acceptedStartEpisodeId: run.start_episode_id,
     },
   };
+}
+
+const describe = (course: CourseManifest, id: string) => course.objectives.find((o) => o.id === id)?.description ?? id;
+const clip = (text: string, max = 140) => { const t = text.replace(/\s+/g, " ").trim(); return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t; };
+const UNTESTED_SHOWN = 20;
+/**
+ * What a placement result rests on (H04): for each objective shown, the questions that showed it;
+ * for each objective tried but not shown, why (a wrong answer, help was used, or more independent
+ * question families are needed); and the placeable objectives on the path that were never asked.
+ * Course text only, never answers. No global level is derived from any of it.
+ */
+export function explainPlacement(course: CourseManifest, plan: Pick<PlacementPlan, "demonstrated" | "exemptEpisodeIds" | "pendingObjectiveIds">, attempts: RunAttempt[]) {
+  const item = (id: string) => course.assessments.find((a) => a.id === id);
+  const demonstrated = plan.demonstrated.map((d) => {
+    // In the order the learner answered them.
+    const ids = new Set(d.evidenceIds);
+    const supporting = [...new Map(attempts.filter((a) => a.evidence.some((e) => ids.has(e.id))).map((a) => [a.assessmentId, a])).values()];
+    return { objectiveId: d.objectiveId, description: describe(course, d.objectiveId), families: d.families.length,
+      supportingItems: supporting.map((a) => ({ assessmentId: a.assessmentId, familyId: a.familyId, prompt: clip(item(a.assessmentId)?.prompt ?? a.assessmentId) })) };
+  });
+  const shown = new Set(plan.demonstrated.map((d) => d.objectiveId)), pending = new Set(plan.pendingObjectiveIds ?? []);
+  const tried = new Map<string, RunAttempt[]>();
+  for (const a of attempts.filter((x) => !x.pending)) for (const o of a.objectiveIds) tried.set(o, [...(tried.get(o) ?? []), a]);
+  const notShown = [...tried].filter(([o]) => !shown.has(o) && !pending.has(o)).map(([objectiveId, rows]) => ({
+    objectiveId, description: describe(course, objectiveId), questions: rows.length,
+    reason: rows.some((a) => !a.passed) ? "answer_not_correct" as const : rows.some((a) => !a.independent) ? "help_used" as const : "more_evidence_needed" as const,
+  }));
+  const placeable = new Set(course.placement?.objectiveIds ?? []), exempt = new Set(plan.exemptEpisodeIds);
+  const untestedAll = [...new Set(episodes(course).filter((e) => e.requirement !== "optional" && !exempt.has(e.id)).flatMap((e) => e.objectiveIds))]
+    .filter((o) => placeable.has(o) && !shown.has(o) && !pending.has(o) && !tried.has(o));
+  return { demonstrated, notShown, untested: untestedAll.slice(0, UNTESTED_SHOWN).map((o) => ({ objectiveId: o, description: describe(course, o) })), untestedCount: untestedAll.length };
 }
 
 export type { EffectivePlacement };

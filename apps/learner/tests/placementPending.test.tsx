@@ -7,7 +7,7 @@ const finished = (stopReason: string, pending: { objectiveId: string; descriptio
   available: true, maxItems: 4, studied: false, state: "finished",
   run: { itemsUsed: 2, pendingChallengeId: null, nextItem: null, stopReason,
     proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending,
-      untestedNote: "Objectives not listed were not tested and stay on your path; this is not a judgement of ability." } },
+      untestedNoteCode: "not_a_judgement" as const } },
 });
 
 it("shows an answer awaiting evaluation as undecided, never as wrong", async () => {

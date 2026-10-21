@@ -59,7 +59,7 @@ describe("where browser practice runs are offered", () => {
     const loads = runner.loads;
     const state = { available: true, maxItems: 4, studied: false, state: "in_progress",
       run: { itemsUsed: 0, pendingChallengeId: null, nextItem: { episodeId: "min", assessmentId: "program" }, stopReason: "continuing",
-        proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNote: "Not tested." } } };
+        proposal: { exempt: [], startEpisodeId: "min", startTitle: "Minimum", demonstrated: [], pending: [], untestedNoteCode: "not_a_judgement" as const } } };
     const api = { request: vi.fn(async (url: string) => (url.endsWith("/reviews") ? { reviews: [] } : state)) };
     const command = vi.fn(async (action: string) => (action === "challenges" ? { challengeId: "p1", question: codeQuestion } : {}));
     render(<PlacementRun api={api as never} command={command as never} enrollmentId="e1" firstEpisodeId="min" onFinished={() => {}} />);
