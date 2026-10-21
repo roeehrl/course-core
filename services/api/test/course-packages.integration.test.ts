@@ -160,6 +160,22 @@ describe('course-package installation', () => {
     expect(response.json().installation).toMatchObject({ state: 'published', availableForNewLearners: true });
     expect((await db.query("SELECT payload FROM learning_events WHERE event_type='course_package.installed' AND payload->>'version'='2.0.0'")).rows[0].payload.published).toBe(true);
   });
+  it('refuses a version older than the newest installed unless explicitly confirmed, and records the choice', async () => {
+    // 2.0.0 is installed and published (above); 1.5.0 goes back.
+    const pkg = buildPackage(version('1.5.0'));
+    const preview = (await upload(sessions.admin!, pkg.bytes)).json();
+    expect(preview.problems).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'OLDER_THAN_INSTALLED', severity: 'warning' })]));
+    const refused = await install(sessions.admin!, pkg.sha256);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'OLDER_VERSION_CONFIRMATION_REQUIRED', details: { version: '1.5.0', newestVersion: '2.0.0' } });
+    expect((await install(sessions.admin!, pkg.sha256, { confirmOlderVersion: false })).statusCode).toBe(400);
+    expect((await db.query("SELECT 1 FROM course_releases WHERE workspace_id=$1 AND version='1.5.0'", [workspaceId])).rowCount).toBe(0);
+    const response = await install(sessions.admin!, pkg.sha256, { confirmOlderVersion: true, approveAndPublish: { confirmVersion: '1.5.0' } });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().installation).toMatchObject({ state: 'published', course: { version: '1.5.0' } });
+    const event = (await db.query("SELECT payload FROM learning_events WHERE event_type='course_package.installed' AND payload->>'version'='1.5.0'")).rows[0];
+    expect(event.payload).toMatchObject({ olderVersionConfirmed: true, newestVersion: '2.0.0', published: true });
+  });
   it('installs a new course with its adaptation registry staged, and approves exactly that digest', async () => {
     const pkg = buildPackage(recovery.course, { registry: recovery.config });
     const preview = (await upload(sessions.owner!, pkg.bytes)).json();

@@ -31,6 +31,7 @@ import { workspaceAudit } from "./workspace-audit.js";
 import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runRetryLinks, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
+import { assertPublishVersion } from "./course-versions.js";
 import { requireSameRequest } from "./erased-digests.js";
 import { appendEvent } from "./events.js";
 import {
@@ -856,7 +857,7 @@ export async function transitionReleaseWithin(
   actor: Actor,
   catalog: Catalog,
   releaseId: string,
-  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined },
+  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined; confirmOlderVersion?: true | undefined },
   options: AdminRuntimeOptions,
 ): Promise<{ outcome: "saved" | "pending_review" | "published"; message: string }> {
   const row = (await releasesFor(client, catalog)).find(
@@ -928,11 +929,16 @@ export async function transitionReleaseWithin(
       "RELEASE_REVIEW_REQUIRED",
       428,
     );
+    // Versions move forward; publishing an older one needs explicit confirmation (course-versions.ts).
+    const backFrom = await assertPublishVersion(client, release, input.confirmOlderVersion === true);
     await assertPublishable(client, release.id, release.server_bundle);
     await client.query(
       "UPDATE course_releases SET status='published' WHERE id=$1",
       [release.id],
     );
+    if (backFrom)
+      await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.older_version_published",
+        payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, newestPublished: backFrom }, idempotencyKey: `release:${release.id}:older-version` });
     await selectCatalogueReleaseWithin(client, catalog.id, release.id);
     return {
       outcome: "published",
@@ -1261,6 +1267,8 @@ export function registerAdminRoutes(
             action: z.enum(["submit-review", "approve", "publish", "activate", "archive"]),
             /** Required to select an older release (rollback): the digest of its current impact. */
             impactDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+            /** Required to publish a version lower than one already published (course-versions.ts). */
+            confirmOlderVersion: z.literal(true).optional(),
           }),
           request.body,
         );

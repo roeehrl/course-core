@@ -252,7 +252,8 @@ API (owner/admin with `course.write`; approval and publication keep `release.rev
 - `POST /api/admin/course-packages/inspect?workspaceId=<id>` with the package bytes
   (`Content-Type: application/gzip` or `application/octet-stream`) or JSON `{"url", "asset"?}`.
 - `POST /api/admin/course-packages/:sha256/install` with `{workspaceId, idempotencyKey, notes?,
-  approveAndPublish?: {confirmVersion}, approveRegistry?: {configurationDigest}}`.
+  approveAndPublish?: {confirmVersion}, approveRegistry?: {configurationDigest},
+  confirmOlderVersion?: true}`.
 - `GET /api/admin/course-packages/installs/:releaseId` and
   `POST /api/admin/course-packages/installs/:releaseId/registry` with
   `{configurationDigest, expectedRegistryRevision}`.
@@ -260,6 +261,26 @@ API (owner/admin with `course.write`; approval and publication keep `release.rev
 Inspections and installations are recorded as `course_package.inspected` and
 `course_package.installed` workspace audit events (package digest, course, version, source; no
 learner data). Migration 077 adds the staging and release-package tables.
+
+**Version direction.** Course versions are semantic versions and move forward in a workspace
+(`services/api/src/course-versions.ts`):
+
+- Installing a package whose version is lower than the newest installed version of the same
+  course is refused with `OLDER_VERSION_CONFIRMATION_REQUIRED` (409, with both versions) unless the
+  install request says `confirmOlderVersion: true`. Administration shows the older version
+  plainly and asks for that choice with a checkbox. The confirmed install records
+  `olderVersionConfirmed` in its `course_package.installed` audit event.
+- Publication refuses a release whose version is not a semantic version (`PUBLISH_VERSION_INVALID`)
+  and one lower than a version of the same course already published (or published and later
+  archived) with `PUBLISH_VERSION_OLDER_THAN_PUBLISHED` (409, with `newestPublished`), unless the
+  publish request says `confirmOlderVersion: true`. This applies to the reviewed transition
+  (`POST /api/admin/courses/:id/releases/:releaseId/transitions` with `action: "publish"`), the
+  direct `POST /api/releases/:releaseId/publish` (optional body `{"confirmOlderVersion": true}`) and
+  install-and-publish. A confirmed older publication is recorded (`release.older_version_published`
+  or `olderVersionConfirmed` on `course.published`).
+- Returning to a version that was already published is a rollback: select it again with its
+  reviewed impact instead of publishing anything. Automatic course updates only ever move to a
+  newer version.
 
 ## Course updates
 

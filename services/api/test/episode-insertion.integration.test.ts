@@ -293,11 +293,13 @@ describe("learner undo of a personal change", () => {
   }, 30000);
 });
 
+let headroomReleases = 1;
 describe("core remediation funded from enrollment headroom", () => {
   /** A release whose course settings reserve core headroom for every new enrollment. */
   async function headroomSetup(classification: "required" | "optional") {
     const course = remedialCourse(adapter);
-    course.version = "2." + Math.floor(Math.random() * 1_000_000) + ".0";
+    // Each release is newer than the last in this workspace: publication refuses going back unconfirmed.
+    course.version = "2." + headroomReleases++ + ".0";
     course.policy.work = { additionalMinutes: 60, additionalEpisodes: 4, remediationCyclesPerConcept: 4 };
     const created = await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course);
     expect(created.statusCode, created.body).toBe(200);
