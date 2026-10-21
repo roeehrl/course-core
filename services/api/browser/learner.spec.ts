@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { chooseFromMenu, openProfile } from "./learner-menu.js";
+import { recordRendererHealth, watchRenderer } from "./renderer-health.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Locator, Page, Request } from "@playwright/test";
 
@@ -84,6 +85,9 @@ async function declinePlacement(page: Page) {
     .click();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
 }
+// A failure in which the page itself stopped answering says so, and where it stopped.
+test.beforeEach(async ({ page }) => watchRenderer(page));
+test.afterEach(async ({ page }, testInfo) => recordRendererHealth(page, testInfo));
 test("compact companion reserves space without covering reading or activity, including short landscape windows", async ({
   page,
   request,
