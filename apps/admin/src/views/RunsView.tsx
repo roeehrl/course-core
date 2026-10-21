@@ -173,7 +173,12 @@ export function RunDetails({
     { id: "payload", label: t("runsView.view.payload") },
   ] as const;
   return (
-    <Card title={runName(i18n, run)} eyebrow={t("runsView.eyebrow")}>
+    <Card
+      title={runName(i18n, run)}
+      // An older server's (or the demo's) English label is data, in its own direction.
+      titleDir={run.role ? undefined : "auto"}
+      eyebrow={t("runsView.eyebrow")}
+    >
       <div className="split-line">
         <RunStatus value={run.status} />
         <small className="mono" dir="ltr">
@@ -243,9 +248,11 @@ export function RunDetails({
                   </small>
                 </div>
                 <Badge>
-                  {event.status === "recorded"
-                    ? t("runText.event.recorded")
-                    : event.status}
+                  {event.status === "recorded" ? (
+                    t("runText.event.recorded")
+                  ) : (
+                    <span dir="auto">{event.status}</span>
+                  )}
                 </Badge>
                 <p dir="auto">{event.detail ?? t("runText.event.detail")}</p>
               </div>
