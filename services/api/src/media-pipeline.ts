@@ -255,9 +255,10 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
     });
     return { ...storyboardView(row), ...(row.draft_status === "failed" ? { draftFailure: result.failure?.code ?? "MEDIA_STORYBOARD_DRAFT_INVALID" } : {}) };
   }
-  /** A storyboard command under the media command receipts (one transaction). */
-  async function storyboardCommand<T>(actor: Actor, storyboardId: string, permission: "release.publish" | "release.review", operation: string, idempotencyKey: string, semantic: unknown,
-    execute: (client: PoolClient, row: StoryboardRow) => Promise<T>) {
+  /** A storyboard command under the media command receipts (one transaction). The receipt keeps
+   * only identifiers, never the storyboard's text; a replay answers with the storyboard as it is now. */
+  async function storyboardCommand(actor: Actor, storyboardId: string, permission: "release.publish" | "release.review", operation: string, idempotencyKey: string, semantic: unknown,
+    execute: (client: PoolClient, row: StoryboardRow) => Promise<StoryboardRow>) {
     parse(z.string().uuid(), storyboardId);
     const row0 = (await db.query<StoryboardRow>("SELECT * FROM media_storyboards WHERE id=$1", [storyboardId])).rows[0];
     requireCondition(row0, "MEDIA_STORYBOARD_NOT_FOUND", 404);
@@ -265,13 +266,16 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
       await permitted(client, actor, row0.workspace_id, permission, row0.course_release_id);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-command:" + row0.workspace_id + ":" + idempotencyKey]);
       const digest = digestJson({ actorId: actor.id, operation, semantic });
-      const old = (await client.query("SELECT request_digest,response FROM media_command_receipts WHERE workspace_id=$1 AND idempotency_key=$2", [row0.workspace_id, idempotencyKey])).rows[0];
-      if (old) { requireSameRequest(old.request_digest, digest, "IDEMPOTENCY_CONFLICT"); return old.response as T; }
+      const old = (await client.query("SELECT request_digest FROM media_command_receipts WHERE workspace_id=$1 AND idempotency_key=$2", [row0.workspace_id, idempotencyKey])).rows[0];
+      if (old) {
+        requireSameRequest(old.request_digest, digest, "IDEMPOTENCY_CONFLICT");
+        return storyboardView((await client.query<StoryboardRow>("SELECT * FROM media_storyboards WHERE id=$1", [storyboardId])).rows[0]!);
+      }
       const row = (await client.query<StoryboardRow>("SELECT * FROM media_storyboards WHERE id=$1 FOR UPDATE", [storyboardId])).rows[0]!;
-      const response = await execute(client, row);
+      const updated = await execute(client, row);
       await client.query("INSERT INTO media_command_receipts(workspace_id,idempotency_key,request_digest,actor_id,response) VALUES($1,$2,$3,$4,$5)",
-        [row0.workspace_id, idempotencyKey, digest, actor.id, JSON.stringify(response)]);
-      return response;
+        [row0.workspace_id, idempotencyKey, digest, actor.id, JSON.stringify({ storyboardId, revision: updated.revision, state: updated.state })]);
+      return storyboardView(updated);
     });
   }
   function editStoryboard(actor: Actor, storyboardId: string, raw: unknown) {
@@ -282,9 +286,8 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
       const release = await releaseOf(client, row.course_release_id);
       const reference = input.referenceVisualId === undefined ? row.reference_visual_id : input.referenceVisualId;
       requireCondition(!reference || visualsOf(release).some((v) => v.id === reference), "MEDIA_REFERENCE_NOT_FOUND", 409);
-      const updated = (await client.query<StoryboardRow>(`UPDATE media_storyboards SET shots=$2,reference_visual_id=$3,revision=revision+1,draft_status='ready',updated_at=clock_timestamp()
+      return (await client.query<StoryboardRow>(`UPDATE media_storyboards SET shots=$2,reference_visual_id=$3,revision=revision+1,draft_status='ready',updated_at=clock_timestamp()
         WHERE id=$1 RETURNING *`, [row.id, JSON.stringify(input.shots), reference])).rows[0]!;
-      return storyboardView(updated);
     });
   }
   function reviewStoryboard(actor: Actor, storyboardId: string, raw: unknown) {
@@ -297,9 +300,8 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
         const problems = shotProblems(row.shots, await releaseOf(client, row.course_release_id), await videoDurations(client, row.workspace_id));
         if (problems.length) requireCondition(false, problems[0]!.code, 409);
       }
-      const updated = (await client.query<StoryboardRow>(`UPDATE media_storyboards SET state=$2,reviewed_by=$3,review_note=$4,reviewed_at=clock_timestamp(),updated_at=clock_timestamp()
+      return (await client.query<StoryboardRow>(`UPDATE media_storyboards SET state=$2,reviewed_by=$3,review_note=$4,reviewed_at=clock_timestamp(),updated_at=clock_timestamp()
         WHERE id=$1 RETURNING *`, [row.id, input.decision, actor.id, input.note ?? null])).rows[0]!;
-      return storyboardView(updated);
     });
   }
   async function listStoryboards(actor: Actor, releaseId: string) {

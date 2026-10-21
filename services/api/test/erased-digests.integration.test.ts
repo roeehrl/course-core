@@ -262,7 +262,7 @@ describe("digest coverage", () => {
   const tombstoned = new Set([
     "admin_command_receipts.request_digest", "command_receipts.request_digest", "companion_context_capsules.digest",
     "gate_review_requests.request_digest", "learner_model_sources.event_digest", "media_command_receipts.request_digest",
-    "media_jobs.request_digest", "people_command_receipts.request_digest", "rubric_assist_requests.response_digest",
+    "media_jobs.request_digest", "media_storyboards.request_digest", "people_command_receipts.request_digest", "rubric_assist_requests.response_digest",
     "supervisor_model_effects.selection_digest", "supervisor_tool_calls.request_digest",
     // The observation an activity reported (076).
     "activity_observations.request_digest",

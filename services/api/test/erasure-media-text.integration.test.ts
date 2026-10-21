@@ -287,7 +287,7 @@ describe("erasure redacts the media staff made for the learner", () => {
     const settled = await everything(erased.enrollment);
     expect(await erase(erased)).toMatchObject({ replayed: true, counts: result.counts });
     const again = await transaction(db, (client) => eraseEnrollmentMedia(client, erased.enrollment));
-    expect(again).toEqual({ mediaJobText: 0, mediaReviews: 0, mediaRevokeReasons: 0, mediaAssets: 0 });
+    expect(again).toEqual({ mediaJobText: 0, mediaReviews: 0, mediaRevokeReasons: 0, mediaAssets: 0, mediaStoryboards: 0, mediaChecks: 0, mediaCheckReceipts: 0, mediaStoryboardReceipts: 0 });
     expect(await everything(erased.enrollment)).toEqual(settled);
     for (const t of [2_000, 20_000]) await worker.run({ now: later(t) });
     expect(await everything(erased.enrollment)).toEqual(settled);

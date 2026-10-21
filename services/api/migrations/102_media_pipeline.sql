@@ -53,8 +53,6 @@ ALTER TABLE media_jobs ADD CONSTRAINT media_jobs_paid_charged
   CHECK(kind IN('scene_clip','composed_video') OR state IN('requested','failed','cancelled') OR charged_micro_usd > 0);
 ALTER TABLE media_jobs ADD CONSTRAINT media_jobs_render_unpaid
   CHECK(kind NOT IN('scene_clip','composed_video') OR (charged_micro_usd = 0 AND provider_revision IS NULL));
-ALTER TABLE media_jobs ADD CONSTRAINT media_jobs_paid_provider
-  CHECK(kind IN('scene_clip','composed_video') OR provider_revision IS NOT NULL);
 ALTER TABLE media_jobs
   ADD COLUMN storyboard_id uuid REFERENCES media_storyboards(id),
   ADD COLUMN shot_id text CHECK(shot_id IS NULL OR shot_id ~ '^[a-z][a-z0-9-]{0,31}$'),
