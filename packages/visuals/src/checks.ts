@@ -1,5 +1,6 @@
 import { sha256 } from "./digest.js";
-import { visualError } from "./errors.js";
+import { catalogText, visualError, VisualCatalogError } from "./errors.js";
+import type { CatalogText, ErrorKey } from "./errors.js";
 import { evaluate, finite, VisualError } from "./expression.js";
 import { flattenNodes } from "./geometry.js";
 import { hasLayoutSet, layoutWidth } from "./motion.js";
@@ -94,9 +95,10 @@ function resolve(
     };
   if ("node" in probe) {
     const node = flattenNodes(frame.nodes).find((n) => n.id === probe.node);
-    if (!node) throw new VisualError("PROBE", `Unknown node ${probe.node}`);
+    if (!node)
+      throw visualError("PROBE", "probeUnknownNode", { node: probe.node });
     if (!node.visible)
-      throw new VisualError("PROBE", `Node ${probe.node} is hidden`);
+      throw visualError("PROBE", "probeHiddenNode", { node: probe.node });
     const value =
       probe.property === "worldX"
         ? node.matrix[4]
@@ -113,12 +115,14 @@ function resolve(
   if ("cell" in probe) {
     const pane = scene.panes?.find((p) => p.id === probe.cell.pane);
     if (pane?.kind !== "table")
-      throw new VisualError("PROBE", `Unknown table ${probe.cell.pane}`);
+      throw visualError("PROBE", "probeUnknownTable", {
+        pane: probe.cell.pane,
+      });
     const row = read(resolve(probe.cell.row, scene, frame, read));
     const cell =
       typeof row === "number" ? pane.rows[row]?.[probe.cell.column] : undefined;
     if (cell === undefined)
-      throw new VisualError("PROBE", `No cell in ${pane.id}`);
+      throw visualError("PROBE", "probeNoCell", { pane: pane.id });
     return read(cell);
   }
   if ("value" in probe) {
@@ -128,16 +132,17 @@ function resolve(
         ? pane.values?.find((v) => v.symbol === probe.value.symbol)
         : undefined;
     if (!row)
-      throw new VisualError(
-        "PROBE",
-        `Unknown formula value ${probe.value.symbol}`,
-      );
+      throw visualError("PROBE", "probeUnknownFormulaValue", {
+        symbol: probe.value.symbol,
+      });
     return read(row.value);
   }
   if ("highlight" in probe) {
     const pane = frame.panes?.find((p) => p.id === probe.highlight);
     if (!pane || pane.kind === "formula")
-      throw new VisualError("PROBE", `Unknown highlight ${probe.highlight}`);
+      throw visualError("PROBE", "probeUnknownHighlight", {
+        pane: probe.highlight,
+      });
     const at = pane.kind === "table" ? pane.highlightRow : pane.highlightLine;
     return at ?? -1;
   }
@@ -150,7 +155,10 @@ export interface CheckFailure {
   layout: LayoutMode;
   atMs: number;
   state?: Record<string, Value>;
+  /** English text; `key` and `params` (when present) let a host translate it. */
   message: string;
+  key?: ErrorKey;
+  params?: Readonly<Record<string, string | number>>;
 }
 /** Runs every invariant and golden; returns failures (empty when the scene passes). */
 export function runSceneChecks(scene: Scene): CheckFailure[] {
@@ -173,14 +181,14 @@ export function runSceneChecks(scene: Scene): CheckFailure[] {
     for (const layout of layoutModes(scene))
       for (const state of [undefined, ...(invariant.states ?? [])])
         for (const atMs of invariant.times ?? defaults) {
-          const fail = (message: string) =>
+          const fail = (failure: CatalogText | { message: string }) =>
             failures.push({
               check: "invariant",
               id: invariant.id,
               layout,
               atMs,
               ...(state ? { state } : {}),
-              message,
+              ...failure,
             });
           try {
             const frame = frameFor(layout, atMs, state);
@@ -195,9 +203,24 @@ export function runSceneChecks(scene: Scene): CheckFailure[] {
             };
             const read = (e: Expression) => evaluate(e, context);
             const result = read(resolve(invariant.assert, scene, frame, read));
-            if (result !== true) fail(`${invariant.description} does not hold`);
+            if (result !== true)
+              fail(
+                catalogText("invariantDoesNotHold", {
+                  description: invariant.description,
+                }),
+              );
           } catch (error) {
-            fail(error instanceof Error ? error.message : "Check failed");
+            fail(
+              error instanceof VisualCatalogError
+                ? {
+                    message: error.message,
+                    key: error.key,
+                    params: error.params,
+                  }
+                : error instanceof Error
+                  ? { message: error.message }
+                  : catalogText("checkFailed"),
+            );
           }
         }
   for (const golden of scene.goldens ?? []) {
@@ -208,7 +231,7 @@ export function runSceneChecks(scene: Scene): CheckFailure[] {
         id: `${golden.layout}@${golden.atMs}`,
         layout: golden.layout,
         atMs: golden.atMs,
-        message: `Frame digest ${digest} differs from the golden ${golden.digest}`,
+        ...catalogText("goldenDiffers", { digest, golden: golden.digest }),
       });
   }
   return failures;
@@ -217,9 +240,16 @@ export function runSceneChecks(scene: Scene): CheckFailure[] {
 export function assertSceneChecks(scene: Scene): void {
   const first = runSceneChecks(scene)[0];
   if (!first) return;
-  throw new VisualError(
+  throw visualError(
     first.check === "invariant" ? "INVARIANT_FAILED" : "GOLDEN_MISMATCH",
-    `${first.check} ${first.id} at ${first.layout}, ${finite(first.atMs)} ms: ${first.message}`,
+    "sceneCheckFailed",
+    {
+      check: first.check,
+      id: first.id,
+      layout: first.layout,
+      atMs: finite(first.atMs),
+      message: first.message,
+    },
   );
 }
 

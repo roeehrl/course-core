@@ -27,18 +27,19 @@ export {
 } from "./image.js";
 export { sha256Bytes } from "./digest.js";
 export {
+  catalogText,
   englishErrorMessages,
   errorText,
   visualError,
   VisualCatalogError,
 } from "./errors.js";
-export type { ErrorKey } from "./errors.js";
+export type { CatalogText, ErrorKey } from "./errors.js";
 export {
   englishVisualMessages,
   formatNumber,
   visualMessages,
 } from "./messages.js";
-export type { VisualMessages } from "./messages.js";
+export type { DescribableError, VisualMessages } from "./messages.js";
 export { buildPanesMarkup, renderPanes } from "./panes.js";
 export { OffscreenPause } from "./visibility.js";
 export {

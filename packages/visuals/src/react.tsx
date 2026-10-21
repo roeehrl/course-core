@@ -15,6 +15,7 @@ import type {
   ReactNode,
 } from "react";
 import { CompletionLatch } from "./completion.js";
+import { errorText } from "./errors.js";
 import type { VisualCompletion } from "./completion.js";
 import { equationMathML } from "./equation.js";
 import { flattenNodes } from "./geometry.js";
@@ -257,7 +258,10 @@ export function VisualPlayer({
       };
     } catch (error) {
       return {
-        error: error instanceof Error ? error : new Error("Invalid visual"),
+        error:
+          error instanceof Error
+            ? error
+            : new Error(errorText("invalidVisual")),
       };
     }
   }, [scene, viewportWidth, seed, referenceChecks]);
@@ -315,7 +319,7 @@ export function VisualRuntimePlayer({
         const e =
           cause instanceof Error
             ? cause
-            : new Error("Visual evaluation failed");
+            : new Error(errorText("visualEvaluationFailed"));
         runtime.pause();
         setError(e);
         onErrorRef.current?.(e);

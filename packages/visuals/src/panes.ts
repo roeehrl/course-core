@@ -1,5 +1,5 @@
 import { equationMathML } from "./equation.js";
-import { VisualError } from "./expression.js";
+import { visualError } from "./errors.js";
 import { sanitizeMarkup, serializeMarkup } from "./markup.js";
 import type { MarkupElement } from "./markup.js";
 import type { Frame } from "./types.js";
@@ -23,8 +23,7 @@ export function buildPanesMarkup(
 ): MarkupElement | undefined {
   if (!frame.panes) return undefined;
   const uid = options.idPrefix;
-  if (!PREFIX.test(uid))
-    throw new VisualError("ID_PREFIX", "idPrefix must be a short identifier");
+  if (!PREFIX.test(uid)) throw visualError("ID_PREFIX", "idPrefixShort");
   const current = { class: "ccv-current", "aria-current": "true" };
   return sanitizeMarkup(
     el(
