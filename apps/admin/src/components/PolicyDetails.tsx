@@ -28,6 +28,7 @@ export function ScopeDetails({
   return (
     <Card
       title={scopeNames.name(scope, scope.scopeId)}
+      titleDir="auto"
       eyebrow={t("policyDetails.calendarPolicy")}
     >
       <div className="split-line">
