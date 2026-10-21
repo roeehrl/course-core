@@ -1,0 +1,21 @@
+# TLS-terminating reverse proxy for the Course Core API. Caddy obtains and renews a
+# public certificate for COURSE_HOSTNAME automatically (ports 80 and 443 must reach this
+# host). CADDY_GLOBAL_OPTIONS can add global options, for example `local_certs` for a
+# private network with Caddy's own certificate authority, or `email you@example.org`.
+{
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+{$COURSE_HOSTNAME} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy api:4310 {
+		# Bounded so a stalled upstream fails visibly instead of hanging requests.
+		transport http {
+			dial_timeout 5s
+		}
+	}
+}
