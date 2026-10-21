@@ -110,5 +110,8 @@ it('visual completion is one observation: replay, scrub, remount and concurrent 
   expect((await app.inject({method:'POST',url,headers:{origin},payload:body})).statusCode).toBe(401);
   const {['x-csrf-token']:_,...noCsrf}=f.headers;
   expect((await app.inject({method:'POST',url,headers:noCsrf,payload:body})).statusCode).toBe(403);
-  expect((await db.query("SELECT count(*) FROM learning_events WHERE event_type='visual.completed' AND enrollment_id=ANY($1)",[[f.id,other.id]])).rows[0].count).toBe('1');
+  // Another learner of the same workspace completing the same block gets their own observation.
+  const own=await app.inject({method:'POST',url:`/api/enrollments/${other.id}/visual-completions`,headers:other.headers,payload:body});
+  expect(own.statusCode,own.body).toBe(200);expect(own.json()).toMatchObject({duplicate:false});
+  expect((await db.query("SELECT enrollment_id FROM learning_events WHERE event_type='visual.completed' AND enrollment_id=ANY($1) ORDER BY enrollment_id",[[f.id,other.id]])).rows.map(r=>r.enrollment_id).sort()).toEqual([f.id,other.id].sort());
 });
