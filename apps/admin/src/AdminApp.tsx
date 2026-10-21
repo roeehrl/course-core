@@ -42,6 +42,7 @@ import { MediaView } from "./views/MediaView";
 import { OverviewView } from "./views/OverviewView";
 import { AuditView } from "./views/AuditView";
 import { PlacementView } from "./views/PlacementView";
+import { AssessmentsView } from "./views/AssessmentsView";
 import { SupervisionView } from "./views/SupervisionView";
 import { StudyView } from "./views/StudyView";
 import { AdminSectionView } from "./views/AdminSectionView";
@@ -58,6 +59,7 @@ const views = [
   { id: "course", titleKey: "adminApp.nav.course", icon: BookOpen },
   { id: "learners", titleKey: "adminApp.nav.learners", icon: UsersRound },
   { id: "reviews", titleKey: "adminApp.nav.reviews", icon: ClipboardCheck },
+  { id: "assessments", titleKey: "adminApp.nav.assessments", icon: ListChecks },
   { id: "placement", titleKey: "adminApp.nav.placement", icon: Compass },
   { id: "people", titleKey: "adminApp.nav.people", icon: Contact },
   { id: "policy", titleKey: "adminApp.nav.policy", icon: ShieldCheck },
@@ -393,6 +395,9 @@ function CourseWorkspace({
               )}
               {view === "reviews" && (
                 <ReviewsView data={data} client={client} />
+              )}
+              {view === "assessments" && (
+                <AssessmentsView data={data} client={client} />
               )}
               {view === "people" && <PeopleView data={data} client={client} />}
               {view === "research" && (

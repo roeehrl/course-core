@@ -19,6 +19,7 @@ import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
 import type { StudiesPort } from "./studies";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
+import type { AssessmentAdminPort } from "./assessmentAdmin";
 import type { AdminSectionsPort } from "./adminSections";
 import type { ConceptMappingPort } from "./conceptMappings";
 import {
@@ -396,6 +397,8 @@ export interface AdminClient {
   audit?: AuditPort;
   /** Placement settings, per-enrollment exemptions and overrides, quality counters. */
   placement?: PlacementAdminPort;
+  /** Answer keys, rubrics and test answers of the course's questions, with test runs. */
+  assessments?: AssessmentAdminPort;
   /** Pause, stop and resume one enrollment's AI supervision. */
   supervision?: SupervisionPort;
   /** Educational evaluation studies: setup, arm balance, consent counts and the research export. */

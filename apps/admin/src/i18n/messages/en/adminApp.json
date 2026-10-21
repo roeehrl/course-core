@@ -47,5 +47,6 @@
   "footer.authorization": "Server authorization governs every action.",
   "nav.allowances": "Extensions & accommodations",
   "nav.platform": "Platform",
-  "nav.integrations": "Integrations"
+  "nav.integrations": "Integrations",
+  "nav.assessments": "Answer keys"
 }

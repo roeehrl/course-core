@@ -158,6 +158,15 @@ import {
   regradeViewSchema,
 } from "../domain/corrections";
 import {
+  AssessmentAdminError,
+  assessmentListSchema,
+  fixtureListSchema,
+  fixtureResultSchema,
+  fixtureRunSchema,
+  fixtureRunsSchema,
+  keyImpactSchema,
+} from "../domain/assessmentAdmin";
+import {
   coursePlacementSchema,
   enrollmentPlacementSchema,
   PlacementAdminError,
@@ -1531,6 +1540,89 @@ export function createFetchAdminClient(
           contentType: format === "csv" ? "text/csv" : "application/json",
         };
       },
+    },
+    assessments: {
+      list: (catalogId, releaseId, signal) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments`,
+          assessmentListSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
+      previewKey: (catalogId, releaseId, assessmentId, grading) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments/${encodeURIComponent(assessmentId)}/key/preview`,
+          keyImpactSchema,
+          "POST",
+          { grading },
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      saveKey: (catalogId, releaseId, assessmentId, input) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments/${encodeURIComponent(assessmentId)}/key`,
+          keyImpactSchema.extend({ digest: z.string() }),
+          "PUT",
+          input,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      saveRubric: (catalogId, releaseId, rubricId, input) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/rubrics/${encodeURIComponent(rubricId)}`,
+          z.object({ digest: z.string() }),
+          "PUT",
+          input,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      fixtures: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/assessment-fixtures`,
+          fixtureListSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
+      addFixture: (catalogId, input) =>
+        direct(
+          `${course(catalogId)}/assessment-fixtures`,
+          fixtureResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      removeFixture: (catalogId, fixtureId) =>
+        direct(
+          `${course(catalogId)}/assessment-fixtures/${encodeURIComponent(fixtureId)}`,
+          z.record(z.string(), z.unknown()),
+          "DELETE",
+          undefined,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      run: (catalogId, releaseId) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/fixture-runs`,
+          fixtureRunSchema,
+          "POST",
+          undefined,
+          undefined,
+          (c) => new AssessmentAdminError(c),
+        ),
+      runs: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/fixture-runs`,
+          fixtureRunsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
     },
     placement: {
       course: (catalogId, signal) =>

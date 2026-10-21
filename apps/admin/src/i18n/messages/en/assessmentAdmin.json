@@ -1,0 +1,20 @@
+{
+  "error.FORBIDDEN": "Your role cannot see or change answer keys. Owners, admins and authors can.",
+  "error.RELEASE_NOT_FOUND": "That release no longer exists. Refresh and choose another.",
+  "error.PUBLISHED_RELEASE_IMMUTABLE": "Published releases never change. Create a draft of the next version and edit it there.",
+  "error.RELEASE_CHANGED": "Someone changed this draft since you opened it. Refresh, then make your change again.",
+  "error.INVALID_KEY": "Check the key: every field is needed, the right option must be one of the question's options and the allowed difference cannot be negative.",
+  "error.KEY_NOT_EDITABLE": "This question's key is held by an installed evaluator and is not edited here.",
+  "error.FIXTURES_FAIL": "Some test answers would be graded the wrong way. Check the change, then tick “Save anyway” if that is intended.",
+  "error.COURSE_INVALID": "The draft would no longer be a valid course with this change. Undo it and try again.",
+  "error.RUBRIC_VERSION_REQUIRED": "Changed criteria need a new rubric version, one that has not been published with other criteria.",
+  "error.RUBRIC_NOT_FOUND": "That rubric is not in this release. Refresh.",
+  "error.ASSESSMENT_NOT_FOUND": "That question is not in this release. Refresh.",
+  "error.FIXTURE_ANSWER_INVALID": "That answer does not fit the question (for example an option it does not have, or a unit it does not use). Change it and add again.",
+  "error.FIXTURE_DUPLICATE": "This question already has that test answer.",
+  "error.FIXTURE_LIMIT": "This question or course has reached its limit of test answers. Remove some first.",
+  "error.FIXTURE_NOT_RUNNABLE": "Test answers for code and written questions are not run here.",
+  "error.FIXTURE_NOT_FOUND": "That test answer was already removed. Refresh.",
+  "error.INVALID_REQUEST": "Check the values and try again.",
+  "error.unavailable": "This could not be done. Nothing changed; try again."
+}
