@@ -122,12 +122,27 @@ const metadata = googleMetadataAdapter(async (input, init) => {
     );
   return new Response(
     JSON.stringify({
+      // Synthetic names that follow the Gemini naming the suggestion rules read.
       models: [
         {
           name: "models/public-text-model",
           displayName: "Public test model",
           inputTokenLimit: 131072,
           outputTokenLimit: 4000,
+          supportedGenerationMethods: ["generateContent"],
+        },
+        {
+          name: "models/gemini-9.0-flash",
+          displayName: "Gemini 9 Flash",
+          inputTokenLimit: 1048576,
+          outputTokenLimit: 8192,
+          supportedGenerationMethods: ["generateContent"],
+        },
+        {
+          name: "models/gemini-9.0-pro",
+          displayName: "Gemini 9 Pro",
+          inputTokenLimit: 1048576,
+          outputTokenLimit: 8192,
           supportedGenerationMethods: ["generateContent"],
         },
       ],
@@ -261,6 +276,35 @@ if (!app.hasRoute({ method: "GET", url: "/admin/demo" }))
   app.get("/admin/demo", (_request, reply) =>
     reply.sendFile("index.html", directory),
   );
+// Test-only: a brand-new workspace with an owner and an administrator and no course.
+app.post("/test/empty-workspace-fixture", async () => {
+  const workspaceId = randomUUID(),
+    ownerId = randomUUID(),
+    adminId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `empty-${workspaceId}`,
+    "New school workspace",
+  ]);
+  for (const [id, role, name] of [
+    [ownerId, "owner", "New workspace owner"],
+    [adminId, "admin", "New workspace administrator"],
+  ] as const) {
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [id, `empty:${id}`, name],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspaceId, id, role],
+    );
+  }
+  return {
+    workspaceId,
+    ownerCode: await issueLoginCode(db, ownerId),
+    adminCode: await issueLoginCode(db, adminId),
+  };
+});
 // Test-only fixture endpoint on loopback, never imported by production code.
 app.post("/test/admin-fixture", async () => {
   const workspaceId = randomUUID(),

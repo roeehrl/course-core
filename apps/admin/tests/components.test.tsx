@@ -250,9 +250,13 @@ describe("admin presentation workflows", () => {
   it("shows configuration absent and never offers a fake provider test", async () => {
     render(<AdminApp client={demo()} />);
     await screen.findByRole("button", { name: "New draft" });
-    await userEvent.click(screen.getByRole("button", { name: "Providers" }));
-    expect(screen.getAllByText("absent")).toHaveLength(2);
-    expect(screen.getAllByText("Not verified")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "AI services" }));
+    expect(
+      screen.getByText(
+        "This is the demo. AI services are set up on a connected server.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Not set up").length).toBeGreaterThan(0);
     expect(
       screen.queryByRole("button", { name: /test connection/i }),
     ).not.toBeInTheDocument();

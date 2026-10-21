@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
+import type { AiServicesPort } from "./aiServices";
 import type { ProviderEvalPort } from "./providerEvals";
 import type { ProviderCostPort } from "./providerCosts";
 import type { ResearchAdminPort } from "./research";
@@ -97,6 +98,11 @@ export const sessionSchema = z.object({
     ]),
   }),
   courses: z.array(courseSummarySchema),
+  /** Workspaces this person owns or administers. Older servers omit it. */
+  workspaces: z
+    .array(z.object({ id, title: text, role: z.enum(["owner", "admin"]) }))
+    .max(50)
+    .default([]),
   /** Operator deployment switches staff should know about. Older servers omit it. */
   deployment: z
     .object({
@@ -361,6 +367,8 @@ export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
 export interface AdminClient {
   providerSetup?: ProviderSetupPort;
+  /** The "AI services" page (connections, drafts, prices, limits). Connected servers only. */
+  aiServices?: AiServicesPort;
   providerEvals?: ProviderEvalPort;
   /** Operator model pricing and reserved-versus-actual spend. Absent in demos. */
   providerCosts?: ProviderCostPort;

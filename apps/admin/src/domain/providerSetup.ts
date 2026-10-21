@@ -107,6 +107,9 @@ export const providerSetupSchema = z.object({
           })
           .nullable()
           .optional(),
+        /** Documentation links (never prices). Older servers omit them. */
+        pricingUrl: z.string().url().max(500).nullable().optional(),
+        keyHelpUrl: z.string().url().max(500).nullable().optional(),
       }),
     )
     .max(20)

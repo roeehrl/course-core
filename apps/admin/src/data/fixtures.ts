@@ -19,6 +19,7 @@ export type DemoRole = AdminSession["actor"]["role"];
 export function demoSession(role: DemoRole): AdminSession {
   return {
     actor: { id: "demo-operator", name: "Demo operator", role },
+    workspaces: [],
     courses: [
       {
         id: "sorting",

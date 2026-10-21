@@ -4,16 +4,26 @@ import { transaction, type Database } from "./database.js";
 import { requireCondition } from "./errors.js";
 import { WorkspaceProviders } from "./provider-setup.js";
 import { z } from "zod";
-const budgetSchema = z.strictObject({
-  expectedRevision: z.number().int().nonnegative(),
-  idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/),
-  enrollmentId: z.string().uuid().optional(),
-  limits: z.strictObject({
-    microUsd: z.number().int().min(0).max(1000000000),
-    tokens: z.number().int().min(0).max(1000000000),
-  }),
-  paidWorkApproved: z.boolean(),
-});
+/** Money is the binding limit when tokens are left out: their limit is then the maximum. */
+const MAX_LIMIT = 1000000000;
+const budgetSchema = z
+  .strictObject({
+    expectedRevision: z.number().int().nonnegative(),
+    idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/),
+    enrollmentId: z.string().uuid().optional(),
+    /** `default_enrollment` is the limit of every learner whose own limit was never set. */
+    scope: z.enum(["workspace", "enrollment", "default_enrollment"]).optional(),
+    limits: z.strictObject({
+      microUsd: z.number().int().min(0).max(MAX_LIMIT),
+      tokens: z.number().int().min(0).max(MAX_LIMIT).optional(),
+    }),
+    paidWorkApproved: z.boolean(),
+  })
+  .refine(
+    (input) =>
+      input.scope === undefined ||
+      (input.scope === "enrollment") === (input.enrollmentId !== undefined),
+  );
 export function registerProviderSetupRoutes(
   app: FastifyInstance,
   db: Database,
@@ -81,26 +91,49 @@ export function registerProviderSetupRoutes(
       const actor = await auth.authenticate(request),
         { workspaceId } = request.params as { workspaceId: string };
       await service.read(actor, workspaceId);
-      const workspace = (
+      const row = (
         await db.query(
-          "SELECT configuration_revision AS revision,limit_micro_usd,limit_tokens,used_micro_usd,used_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1",
+          `SELECT configuration_revision AS revision,limit_micro_usd::text,limit_tokens::text,used_micro_usd::text,used_tokens::text,
+             default_enrollment_revision,default_enrollment_limit_micro_usd::text,default_enrollment_limit_tokens::text
+           FROM supervisor_workspace_budgets WHERE workspace_id=$1`,
           [workspaceId],
         )
-      ).rows[0] ?? {
-        revision: 0,
-        limit_micro_usd: "0",
-        limit_tokens: "0",
-        used_micro_usd: "0",
-        used_tokens: "0",
+      ).rows[0];
+      const workspace = row
+        ? {
+            revision: row.revision,
+            limit_micro_usd: row.limit_micro_usd,
+            limit_tokens: row.limit_tokens,
+            used_micro_usd: row.used_micro_usd,
+            used_tokens: row.used_tokens,
+          }
+        : {
+            revision: 0,
+            limit_micro_usd: "0",
+            limit_tokens: "0",
+            used_micro_usd: "0",
+            used_tokens: "0",
+          };
+      const defaultEnrollment = {
+        revision: row?.default_enrollment_revision ?? 0,
+        limit_micro_usd: row?.default_enrollment_limit_micro_usd ?? null,
+        limit_tokens: row?.default_enrollment_limit_tokens ?? null,
       };
+      // A learner without an own limit shows the workspace default, which is what applies.
       const enrollments = (
         await db.query(
-          `SELECT e.id AS "enrollmentId",COALESCE(b.configuration_revision,0) AS revision,COALESCE(b.limit_micro_usd,0)::text AS limit_micro_usd,COALESCE(b.limit_tokens,0)::text AS limit_tokens,COALESCE(b.used_micro_usd,0)::text AS used_micro_usd,COALESCE(b.used_tokens,0)::text AS used_tokens FROM enrollments e LEFT JOIN supervisor_enrollment_budgets b ON b.enrollment_id=e.id AND b.workspace_id=e.workspace_id WHERE e.workspace_id=$1 ORDER BY e.started_at DESC,e.id LIMIT 100`,
-          [workspaceId],
+          `SELECT e.id AS "enrollmentId",COALESCE(b.configuration_revision,0) AS revision,COALESCE(b.limit_source,'default') AS "limitSource",
+             (CASE WHEN b.limit_source='own' THEN b.limit_micro_usd ELSE COALESCE($2::bigint,0) END)::text AS limit_micro_usd,
+             (CASE WHEN b.limit_source='own' THEN b.limit_tokens ELSE COALESCE($3::bigint,0) END)::text AS limit_tokens,
+             COALESCE(b.used_micro_usd,0)::text AS used_micro_usd,COALESCE(b.used_tokens,0)::text AS used_tokens
+           FROM enrollments e LEFT JOIN supervisor_enrollment_budgets b ON b.enrollment_id=e.id AND b.workspace_id=e.workspace_id
+           WHERE e.workspace_id=$1 ORDER BY e.started_at DESC,e.id LIMIT 100`,
+          [workspaceId, defaultEnrollment.limit_micro_usd, defaultEnrollment.limit_tokens],
         )
       ).rows;
       return {
         workspace,
+        defaultEnrollment,
         enrollments,
         maximumEnrollments: 100,
         usedIncludesReservations: true,
@@ -116,7 +149,17 @@ export function registerProviderSetupRoutes(
         { workspaceId } = request.params as { workspaceId: string },
         parsed = budgetSchema.safeParse(request.body);
       requireCondition(parsed.success, "PROVIDER_BUDGET_INVALID", 400);
-      const input = parsed.data;
+      const input = {
+          ...parsed.data,
+          limits: {
+            microUsd: parsed.data.limits.microUsd,
+            tokens:
+              parsed.data.limits.tokens ??
+              (parsed.data.limits.microUsd === 0 ? 0 : MAX_LIMIT),
+          },
+        },
+        scope =
+          input.scope ?? (input.enrollmentId ? "enrollment" : "workspace");
       requireCondition(
         input.paidWorkApproved ||
           (input.limits.microUsd === 0 && input.limits.tokens === 0),
@@ -177,6 +220,30 @@ export function registerProviderSetupRoutes(
             [workspaceId],
           )
         ).rows[0]!;
+        if (scope === "default_enrollment") {
+          requireCondition(
+            parent.default_enrollment_revision === input.expectedRevision,
+            "STALE_PROVIDER_BUDGET_REVISION",
+            409,
+          );
+          const revision = parent.default_enrollment_revision + 1;
+          await client.query(
+            "UPDATE supervisor_workspace_budgets SET default_enrollment_limit_micro_usd=$2,default_enrollment_limit_tokens=$3,default_enrollment_revision=$4 WHERE workspace_id=$1",
+            [workspaceId, input.limits.microUsd, input.limits.tokens, revision],
+          );
+          const result = {
+            revision,
+            limits: input.limits,
+            scope,
+            doesNotGrantMastery: true,
+            consentRecorded: input.paidWorkApproved,
+          };
+          await client.query(
+            "INSERT INTO provider_setup_receipts(workspace_id,idempotency_key,request_digest,result,actor_id,operation) VALUES($1,$2,$3,$4,$5,$6)",
+            [workspaceId, input.idempotencyKey, requestDigest, JSON.stringify(result), actor.id, "budget"],
+          );
+          return result;
+        }
         let target = parent;
         if (input.enrollmentId) {
           await client.query(
@@ -204,7 +271,7 @@ export function registerProviderSetupRoutes(
         const revision = target.configuration_revision + 1;
         if (input.enrollmentId)
           await client.query(
-            "UPDATE supervisor_enrollment_budgets SET limit_micro_usd=$3,limit_tokens=$4,configuration_revision=$5 WHERE enrollment_id=$1 AND workspace_id=$2",
+            "UPDATE supervisor_enrollment_budgets SET limit_micro_usd=$3,limit_tokens=$4,configuration_revision=$5,limit_source='own' WHERE enrollment_id=$1 AND workspace_id=$2",
             [
               input.enrollmentId,
               workspaceId,
@@ -221,7 +288,7 @@ export function registerProviderSetupRoutes(
         const result = {
           revision,
           limits: input.limits,
-          scope: input.enrollmentId ? "enrollment" : "workspace",
+          scope,
           doesNotGrantMastery: true,
           consentRecorded: input.paidWorkApproved,
         };

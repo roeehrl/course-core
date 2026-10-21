@@ -1,4 +1,20 @@
 import {
+  AiServicesError,
+  JOBS,
+  activationSchema,
+  aiPricingSchema,
+  budgetReceiptSchema as aiBudgetReceiptSchema,
+  budgetsSchema,
+  connectionReceiptSchema,
+  connectionsSchema,
+  connectionTestSchema,
+  currentDraftSchema,
+  draftSchema,
+  modelListSchema,
+  serviceKeyReceiptSchema,
+  type Job,
+} from "../domain/aiServices";
+import {
   learningPolicySchema,
   previewSchema,
   proposalResultSchema,
@@ -502,6 +518,62 @@ export function createFetchAdminClient(
       (c) => new ProviderCostError(c),
     );
   const workspacePath = (id: string) => `/workspaces/${encodeURIComponent(id)}`;
+  /** AI services calls keep the service's exact code and a few allowlisted facts. Never a body. */
+  async function ai<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    method = "GET",
+    payload?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const headers = new Headers(options.requestHeaders?.());
+    headers.set("Accept", "application/json");
+    if (payload !== undefined) headers.set("Content-Type", "application/json");
+    for (const [name, value] of Object.entries(envelope(method)))
+      headers.set(name, value);
+    let response: Response;
+    try {
+      response = await fetcher(`${base}${path}`, {
+        method,
+        headers,
+        credentials: "include",
+        cache: "no-store",
+        redirect: "error",
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+        signal,
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new AiServicesError("UNAVAILABLE", 0);
+    }
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const record = (body && typeof body === "object" ? body : {}) as {
+        error?: unknown;
+        details?: { roles?: unknown; count?: unknown };
+      };
+      const code =
+        typeof record.error === "string" && /^[A-Z0-9_]{1,80}$/.test(record.error)
+          ? record.error
+          : "UNAVAILABLE";
+      const roles = Array.isArray(record.details?.roles)
+        ? record.details.roles.filter(
+            (r): r is Job =>
+              typeof r === "string" && (JOBS as readonly string[]).includes(r),
+          )
+        : undefined;
+      const count =
+        typeof record.details?.count === "number" ? record.details.count : undefined;
+      throw new AiServicesError(code, response.status, {
+        ...(roles ? { roles } : {}),
+        ...(count !== undefined ? { count } : {}),
+      });
+    }
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) throw new AiServicesError("INVALID_RESPONSE", response.status);
+    return parsed.data;
+  }
+  const setupPath = (id: string) => `${workspacePath(id)}/provider-setup`;
   const people = <T>(
     path: string,
     schema: z.ZodType<T>,
@@ -942,6 +1014,99 @@ export function createFetchAdminClient(
           "GET",
           undefined,
           signal,
+        ),
+    },
+    aiServices: {
+      setup: (id, signal) => ai(setupPath(id), providerSetupSchema, "GET", undefined, signal),
+      connections: (id, signal) =>
+        ai(`${setupPath(id)}/connections`, connectionsSchema, "GET", undefined, signal),
+      testKey: (id, input) => ai(`${setupPath(id)}/test-key`, keyTestSchema, "POST", input),
+      addConnection: (id, input) =>
+        ai(`${setupPath(id)}/connections`, connectionReceiptSchema, "POST", input),
+      replaceKey: (id, connection, input) =>
+        ai(
+          `${setupPath(id)}/connections/${encodeURIComponent(connection)}/key`,
+          connectionReceiptSchema,
+          "PUT",
+          input,
+        ),
+      testConnection: (id, connection) =>
+        ai(
+          `${setupPath(id)}/connections/${encodeURIComponent(connection)}/test`,
+          connectionTestSchema,
+          "POST",
+          {},
+        ),
+      removeConnection: (id, connection, input) =>
+        ai(
+          `${setupPath(id)}/connections/${encodeURIComponent(connection)}`,
+          z.unknown(),
+          "DELETE",
+          input,
+        ),
+      models: (id, connection, signal) =>
+        ai(
+          `${setupPath(id)}/connections/${encodeURIComponent(connection)}/models`,
+          modelListSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      currentDraft: async (id, signal) =>
+        (
+          await ai(
+            `${setupPath(id)}/drafts/current`,
+            currentDraftSchema,
+            "GET",
+            undefined,
+            signal,
+          )
+        ).draft,
+      draftFromModels: (id, input) =>
+        ai(`${setupPath(id)}/drafts`, draftSchema, "POST", input),
+      draftFromJson: (id, input) =>
+        ai(`${setupPath(id)}/drafts/json`, draftSchema, "POST", input),
+      discardDraft: (id) =>
+        ai(`${setupPath(id)}/drafts/current`, z.unknown(), "DELETE"),
+      activate: (id, draft, input) =>
+        ai(
+          `${setupPath(id)}/drafts/${encodeURIComponent(draft)}/activate`,
+          activationSchema,
+          "POST",
+          input,
+        ),
+      approve: (id, input) =>
+        ai(
+          `${workspacePath(id)}/provider-evals/overrides`,
+          overrideReceiptSchema,
+          "POST",
+          input,
+        ),
+      pricing: (id, signal) =>
+        ai(`${workspacePath(id)}/provider-pricing`, aiPricingSchema, "GET", undefined, signal),
+      savePrice: (id, input) =>
+        ai(`${workspacePath(id)}/provider-pricing`, priceReceiptSchema, "POST", input),
+      saveCostSettings: (id, input) =>
+        ai(
+          `${workspacePath(id)}/provider-pricing/settings`,
+          costSettingsReceiptSchema,
+          "POST",
+          input,
+        ),
+      budgets: (id, signal) =>
+        ai(`${setupPath(id)}/budgets`, budgetsSchema, "GET", undefined, signal),
+      saveBudget: (id, input) =>
+        ai(`${setupPath(id)}/budgets`, aiBudgetReceiptSchema, "POST", input),
+      evals: (id, signal) =>
+        ai(`${workspacePath(id)}/provider-evals`, evalStatusSchema, "GET", undefined, signal),
+      spend: (id, period, signal) =>
+        ai(`${workspacePath(id)}/provider-spend?period=${period}`, spendViewSchema, "GET", undefined, signal),
+      setServiceKey: (id, service, input) =>
+        ai(
+          `${setupPath(id)}/service-keys/${encodeURIComponent(service)}`,
+          serviceKeyReceiptSchema,
+          "PUT",
+          input,
         ),
     },
     research: {

@@ -1,5 +1,6 @@
 import { DraftEditor } from "../components/DraftEditor";
 import { InstallCourse } from "../components/InstallCourse";
+import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
 import {
@@ -355,6 +356,8 @@ export function CourseView({
           />
         </Card>
       )}
+      {/* Release-scoped: moved here from the AI services page. */}
+      <RecoveryRegistry data={data} client={client} />
       <Card title="Learning objectives">
         <ol className="objectives">
           {data.course.objectives.map((objective) => (

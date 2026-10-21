@@ -150,7 +150,7 @@ async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
   if (input.context.episodeId !== undefined) c.scopeEpisodeId = await scopeEpisode(client, c, input.context.episodeId);
   return { snapshot, cancelled: row.cancellation_requested, current: c, episodeId: input.context.episodeId ?? null };
 }
-interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }
+interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string; default_enrollment_limit_micro_usd?: string | null; default_enrollment_limit_tokens?: string | null }
 /** Host-owned paid work outside the supervisor engine (media jobs) uses the same
  * enrollment/membership/release/policy locks and the same budget rows; there is
  * no second money path. Callers lock their own job row between the two calls. */
@@ -189,7 +189,7 @@ async function lockBudgets(client: PoolClient, ref: Pick<RunRef, 'workspaceId' |
 }
 /** Which ceiling a stopped job hit, so the state can be explained. */
 export type BudgetCeiling = 'workspace' | 'enrollment' | 'daily' | 'artifact';
-interface LimitRow extends BudgetRow { daily_limit_micro_usd: string | null; daily_limit_tokens: string | null; artifact_limit_micro_usd: string | null; artifact_limit_tokens: string | null }
+interface LimitRow extends BudgetRow { limit_source: 'default' | 'own'; daily_limit_micro_usd: string | null; daily_limit_tokens: string | null; artifact_limit_micro_usd: string | null; artifact_limit_tokens: string | null }
 /** Workspace, enrollment, per-UTC-day and per-artifact (this episode, this UTC day) headroom.
  * Day and artifact use come from the job spend ledger (reservations and charges) under the same
  * enrollment budget lock, so concurrent jobs see each other's reservations. */
@@ -199,9 +199,16 @@ async function lockBudgetCeilings(client: PoolClient, ref: Pick<RunRef, 'workspa
   await client.query('INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ref.enrollmentId, ref.workspaceId]);
   const enrollment = (await client.query<LimitRow>('SELECT * FROM supervisor_enrollment_budgets WHERE enrollment_id=$1 AND workspace_id=$2 FOR UPDATE', [ref.enrollmentId, ref.workspaceId])).rows[0];
   requireCondition(enrollment, 'SUPERVISOR_SCOPE_MISMATCH', 409);
+  // A learner whose own limit was never set gets the workspace default limit for each learner
+  // (none set: 0, so nothing paid runs until staff choose a default or a limit for the learner).
+  const own = enrollment.limit_source === 'own';
+  const enrollmentLimit = {
+    microUsd: Number(own ? enrollment.limit_micro_usd : workspace.default_enrollment_limit_micro_usd ?? 0),
+    tokens: Number(own ? enrollment.limit_tokens : workspace.default_enrollment_limit_tokens ?? 0),
+  };
   const remaining: { ceiling: BudgetCeiling; microUsd: number; tokens: number }[] = [
     { ceiling: 'workspace', microUsd: Number(workspace.limit_micro_usd) - Number(workspace.used_micro_usd), tokens: Number(workspace.limit_tokens) - Number(workspace.used_tokens) },
-    { ceiling: 'enrollment', microUsd: Number(enrollment.limit_micro_usd) - Number(enrollment.used_micro_usd), tokens: Number(enrollment.limit_tokens) - Number(enrollment.used_tokens) },
+    { ceiling: 'enrollment', microUsd: enrollmentLimit.microUsd - Number(enrollment.used_micro_usd), tokens: enrollmentLimit.tokens - Number(enrollment.used_tokens) },
   ];
   const periodic = async (ceiling: 'daily' | 'artifact', usd: string | null, tokens: string | null) => {
     if (usd === null && tokens === null) return;
@@ -819,8 +826,8 @@ export async function configureSupervisorBudget(db: Database, scope: { workspace
     if (scope.enrollmentId) {
       const enrollmentId = uuid.parse(scope.enrollmentId);
       requireCondition((await client.query('SELECT 1 FROM enrollments WHERE id=$1 AND workspace_id=$2', [enrollmentId, workspaceId])).rowCount, 'SUPERVISOR_NOT_FOUND', 404);
-      await client.query(`INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id,limit_micro_usd,limit_tokens) VALUES ($1,$2,$3,$4)
-        ON CONFLICT (enrollment_id) DO UPDATE SET limit_micro_usd=EXCLUDED.limit_micro_usd,limit_tokens=EXCLUDED.limit_tokens`, [enrollmentId, workspaceId, cap.microUsd, cap.tokens]);
+      await client.query(`INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id,limit_micro_usd,limit_tokens,limit_source) VALUES ($1,$2,$3,$4,'own')
+        ON CONFLICT (enrollment_id) DO UPDATE SET limit_micro_usd=EXCLUDED.limit_micro_usd,limit_tokens=EXCLUDED.limit_tokens,limit_source='own'`, [enrollmentId, workspaceId, cap.microUsd, cap.tokens]);
     } else await client.query(`INSERT INTO supervisor_workspace_budgets (workspace_id,limit_micro_usd,limit_tokens) VALUES ($1,$2,$3)
       ON CONFLICT (workspace_id) DO UPDATE SET limit_micro_usd=EXCLUDED.limit_micro_usd,limit_tokens=EXCLUDED.limit_tokens`, [workspaceId, cap.microUsd, cap.tokens]);
   });

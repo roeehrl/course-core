@@ -29,6 +29,7 @@ import { CourseView } from "./views/CourseView";
 import { EnrollmentsView } from "./views/EnrollmentsView";
 import { PolicyView } from "./views/PolicyView";
 import { ProvidersView } from "./views/ProvidersView";
+import { FirstRun } from "./components/FirstRun";
 import { RunsView } from "./views/RunsView";
 import { ResearchView } from "./views/ResearchView";
 import { PeopleView } from "./views/PeopleView";
@@ -96,13 +97,17 @@ export function AdminApp({ client }: AdminAppProps) {
         <ErrorState error={session.error} onRetry={session.reload} />
       </main>
     );
-  if (!session.data?.courses.length)
+  if (!session.data?.courses.length) {
+    // An owner or administrator can set up the workspace before any course exists.
+    const workspace = session.data?.workspaces?.[0];
+    if (workspace) return <FirstRun client={client} workspace={workspace} onCourseInstalled={openCourse} />;
     return (
       <main className="startup">
         <h1>{t("adminApp.noAccess.title")}</h1>
         <p>{t("adminApp.noAccess.body")}</p>
       </main>
     );
+  }
   return (
     <AdminWorkspace
       client={client}
