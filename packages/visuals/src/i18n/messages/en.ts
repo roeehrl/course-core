@@ -69,4 +69,7 @@ export const englishVisualMessages: VisualMessages = Object.freeze({
   exportDone: (file: string) => `Saved ${file}.`,
   exportFailed:
     "The image could not be created. Try SVG, or reload the page and try again.",
+  visibleProperty: "visible",
+  boundsProperty: "bounds",
+  describeError: (error: { message: string }) => error.message,
 });
