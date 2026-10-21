@@ -8,7 +8,7 @@ import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
 import { requireCondition } from './errors.js';
 import { AUTONOMY_LEVELS, supervisionSettingsWithin } from './supervision-settings.js';
-import { configureSupervisorPeriodBudgetWithin } from './supervisor-bridge.js';
+import { budgetDayZone, configureSupervisorPeriodBudgetWithin, periodUse } from './supervisor-bridge.js';
 import { SUPERVISOR_TOOLS, TOOL_FAMILIES, offeredTools } from './supervisor-tool-catalog.js';
 import { supervisorToolLoopStrategy } from './agent-strategies.js';
 
@@ -106,18 +106,16 @@ export function registerSupervisionSettingsRoutes(app: FastifyInstance, db: Data
     const row = (await client.query<{ limit_micro_usd: string; limit_tokens: string; limit_source: string; used_micro_usd: string; used_tokens: string;
       daily_limit_micro_usd: string | null; daily_limit_tokens: string | null; artifact_limit_micro_usd: string | null; artifact_limit_tokens: string | null }>(
       'SELECT * FROM supervisor_enrollment_budgets WHERE enrollment_id=$1 AND workspace_id=$2', [enrollmentId, workspaceId])).rows[0];
-    const used = async (episode: string | null) => (await client.query<{ usd: string; tokens: string }>(`SELECT COALESCE(sum(s.micro_usd),0) AS usd,COALESCE(sum(s.tokens),0) AS tokens
-      FROM supervisor_job_spend s JOIN supervisor_jobs j ON j.id=s.job_id AND j.enrollment_id=s.enrollment_id WHERE s.enrollment_id=$1 AND s.workspace_id=$2
-        AND j.created_at>=date_trunc('day',clock_timestamp(),'UTC') AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM supervisor_inputs i WHERE i.job_id=j.id AND i.context->>'episodeId'=$3))`,
-      [enrollmentId, workspaceId, episode])).rows[0]!;
+    // Days start at midnight in the course's time zone (UTC when it has none); media counts too.
+    const zone = await budgetDayZone(client, enrollmentId);
+    const used = (episode: string | null) => periodUse(client, { workspaceId, enrollmentId }, episode, zone);
     const pair = (usd: string | null | undefined, tokens: string | null | undefined) => usd === null || usd === undefined || tokens === null || tokens === undefined ? null : { microUsd: Number(usd), tokens: Number(tokens) };
     const today = await used(null), lesson = episodeId ? await used(episodeId) : null;
     return { enrollmentId, overall: row?.limit_source === 'own' ? pair(row.limit_micro_usd, row.limit_tokens) : null,
       daily: pair(row?.daily_limit_micro_usd, row?.daily_limit_tokens), artifact: pair(row?.artifact_limit_micro_usd, row?.artifact_limit_tokens),
       usedToday: { microUsd: Number(today.usd), tokens: Number(today.tokens) },
       usedInCurrentLessonToday: lesson ? { microUsd: Number(lesson.usd), tokens: Number(lesson.tokens) } : null, currentEpisodeId: episodeId,
-      // Days are counted in UTC.
-      dayBoundary: 'utc' as const };
+      dayBoundary: zone === 'UTC' ? 'utc' as const : 'course_time_zone' as const, dayTimeZone: zone };
   }
   app.get(enrollmentBase, async request => {
     const actor = await auth.authenticate(request), { workspaceId, enrollmentId } = parse(z.object({ workspaceId: uuid, enrollmentId: uuid }), request.params);

@@ -442,8 +442,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     const versioned = await versionedPricing(client, workspaceId, plan.modelId);
     return { ...bound, plan: versioned ? withPricing(bound.runtime, plan, versioned) : plan };
   }
-  async function budgets(client: PoolClient, workspaceId: string, enrollmentId: string) {
-    return lockPaidWorkBudgets(client, { workspaceId, enrollmentId });
+  /** What is left under every ceiling, including the learner's per-day and per-lesson limits
+   * (media for this lesson counts toward them like supervisor work, requirement B09). */
+  async function budgets(client: PoolClient, workspaceId: string, enrollmentId: string, episodeId: string) {
+    return lockPaidWorkBudgets(client, { workspaceId, enrollmentId, episodeId });
   }
 
   /** Read-only preview: what one job would cost and whether it would be admitted now. */
@@ -457,7 +459,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const bound = await binding(client, enrollment.workspace_id);
       const estimateMicroUsd = estimateFor(bound.plan), reserve = bound.jobPolicy.allowance.microUsd;
       const policy = await paidWorkPolicy(client, { workspaceId: enrollment.workspace_id, enrollmentId, episodeId: input.episodeId }, "admit_job");
-      const available = await budgets(client, enrollment.workspace_id, enrollmentId);
+      const available = await budgets(client, enrollment.workspace_id, enrollmentId, input.episodeId);
       const reason = bound.plan.availability !== "ready" ? "MEDIA_PROVIDER_UNAVAILABLE"
         : estimateMicroUsd === null ? "MEDIA_PRICING_UNAVAILABLE"
         : !policy.allowed ? "MEDIA_POLICY_DENIED"
@@ -526,7 +528,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,NULL,'requested',NULL,$2)", [job.id, actor.id]);
       const reserve = bound.jobPolicy.allowance.microUsd;
       const active = Number((await client.query("SELECT count(*) FROM media_jobs WHERE workspace_id=$1 AND state=ANY($2::text[])", [enrollment.workspace_id, IN_FLIGHT])).rows[0].count);
-      const available = await budgets(client, enrollment.workspace_id, enrollmentId);
+      const available = await budgets(client, enrollment.workspace_id, enrollmentId, input.episodeId);
       const refusal = !policy.allowed ? "MEDIA_POLICY_DENIED"
         : estimateMicroUsd! > reserve ? "MEDIA_PER_JOB_LIMIT"
         : active >= config.maxActivePerWorkspace ? "MEDIA_CAPACITY"
@@ -538,8 +540,8 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       // Charged at the full per-job allowance at admission, as every paid job is.
       await chargePaidWork(client, { workspaceId: enrollment.workspace_id, enrollmentId }, reserve, 0);
       onCommit(client, () => telemetry().count("course.media.cost.reserved", reserve));
-      await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
-        VALUES($1,'media',$2,1,$3,$4,'media',$5,'reserved',$6,0,$6)`, [randomUUID(), job.id, enrollment.workspace_id, enrollmentId, bound.plan.modelId, reserve]);
+      await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd,episode_id)
+        VALUES($1,'media',$2,1,$3,$4,'media',$5,'reserved',$6,0,$6,$7)`, [randomUUID(), job.id, enrollment.workspace_id, enrollmentId, bound.plan.modelId, reserve, input.episodeId]);
       spend(client, [{ kind: "reserved", role: "media", microUsd: reserve, modelId: bound.plan.modelId, basis: "reserved_ceiling" }]);
       // A provider that deletes its output after a while (O08 retention) also bounds the deadline.
       const deadlineMs = Math.min(policy.nowMs + config.jobDurationMs, policy.nowMs + retentionBoundMs(bound.plan), policy.effectiveDeadlineMs ?? Infinity);
