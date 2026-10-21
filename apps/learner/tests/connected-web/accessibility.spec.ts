@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
 
 /* I04/I05/P05/S12 on the connected lesson: 44 px targets in the lesson and the

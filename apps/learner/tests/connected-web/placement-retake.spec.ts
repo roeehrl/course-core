@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
 
 /* Placement retests, when staff allow them: a "Retake placement" entry point only

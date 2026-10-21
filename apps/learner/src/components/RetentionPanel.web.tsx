@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import type { RetentionPanelProps } from "./RetentionPanel";
 import { useI18n, type MessageKey } from "../i18n";
+import { useFirstLoadDone } from "../connected/firstLoad";
 
 interface RetentionItem {
   objectiveId: string;
@@ -37,6 +38,8 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAva
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [read, setRead] = useState(false);
+  useFirstLoadDone("retention", read);
   useEffect(() => {
     const controller = new AbortController();
     (api as CourseApi)
@@ -46,8 +49,13 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAva
         setItems(v.available ? v.items : []);
         setAvailability(v.availability ?? null);
         setDays(null);
+        setRead(true);
       })
-      .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
+      .catch((error) => {
+        if (controller.signal.aborted || isAbortError(error)) return;
+        setItems([]);
+        setRead(true);
+      });
     return () => controller.abort();
   }, [api, enrollmentId, revision]);
   if (!items.length) return null;
