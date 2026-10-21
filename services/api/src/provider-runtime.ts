@@ -128,11 +128,14 @@ export class ProviderRuntime {
     return (await this.router.startImage({ modelId: plan.modelId, accounting: { accountingKey }, prompt, maxOutputTokens: Math.max(1, binding.maxOutputTokens), ...plan.image },
       { signal, timeoutMs: 60000 })).output;
   }
-  /** The text model that drafts storyboards (the supervisor's) or checks media (the reviewer's). */
+  /** The text model that drafts storyboards (the supervisor's when it is ready, else the reviewer's)
+   * or checks media (the reviewer's). */
   mediaAssistant(purpose: 'storyboard' | 'check') {
-    const role: AgentRole = purpose === 'storyboard' ? 'supervisor' : 'reviewer', binding = this.bindings[role];
-    if (!binding) return undefined;
-    return { role, modelId: binding.modelId, availability: this.availability(role).status };
+    const roles: AgentRole[] = purpose === 'storyboard' ? ['supervisor', 'reviewer'] : ['reviewer'];
+    const role = roles.find(r => this.bindings[r] && this.availability(r).status === 'ready') ?? roles.find(r => this.bindings[r]);
+    const binding = role && this.bindings[role];
+    if (!role || !binding) return undefined;
+    return { role: role as 'supervisor' | 'reviewer', modelId: binding.modelId, availability: this.availability(role).status };
   }
   /** One bounded structured call for a media assistant. Its answer is a proposal the caller verifies. */
   async assistMedia(purpose: 'storyboard' | 'check', instruction: string, prompt: string, outputSchema: OutputSchema, accountingKey: string, signal: AbortSignal):

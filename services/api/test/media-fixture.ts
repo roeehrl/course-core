@@ -1,4 +1,4 @@
-import { classifyHttpError, priceMediaUnits, ProviderError, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
+import { classifyHttpError, priceMediaUnits, ProviderError, type ImageRequest, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
 import type { AdapterFactory } from "../src/provider-composition.js";
 
 /** Public synthetic bytes with an MP4 `ftyp` header. Not playable media; never a real clip. */
@@ -120,3 +120,78 @@ export function mediaConfiguration(pricing: { microUsdPerOutputSecond: number } 
   };
 }
 export const mediaJobPolicy = (microUsd: number) => ({ allowance: { microUsd, tokens: 100_000 }, durationMs: 300_000, timeoutMs: 60_000, maxAttempts: 3 });
+
+/** Public synthetic PNG signature plus arbitrary bytes. Not a viewable image; never a generated one. */
+export const SYNTHETIC_PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, ...Array.from({ length: 48 }, (_, i) => (i * 7) % 256)]);
+export type ImageOutcome = "ok" | "unknown" | "rejected" | "failed" | "not_an_image";
+/** A scripted, credential-free image adapter declared like a real one (per-image billing, nothing kept). */
+export class ScriptedImage {
+  calls: ImageRequest[] = [];
+  outcomes: ImageOutcome[] = [];
+  constructor(readonly providerId = "scripted-image") {}
+  factory(): AdapterFactory {
+    return ({ providerId }) => {
+      const self = this;
+      const usage = (request: ImageRequest, status: number | null): UsageReceipt => ({ accounting: request.accounting, providerId, modelId: request.modelId, operation: "image",
+        attempts: status === null ? [] : [{ attempt: 1, status, outcome: status === 200 ? "response" : "rejected", tokens: { input: 20, output: 1290, total: 1310, cachedInput: null, thoughts: null, toolInput: null } }],
+        inputCharacters: request.prompt.length, requestedMaxOutputTokens: request.maxOutputTokens, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null });
+      return {
+        providerId, validateModel() {},
+        ports: { image: {
+          discoverCapabilities: (modelId) => ({ modelId, providerId, kind: "image", maxPromptCharacters: 4000, cancellation: "not_applicable", billing: "per_image",
+            image: { aspectRatios: ["16:9", "1:1"], imageSizes: ["1K"], mimeTypes: ["image/png"], maxImagesPerRequest: 1 }, retention: { outputHours: null, providerStoresRequest: false } }),
+          estimateCost: (_request, price) => priceMediaUnits({ outputSeconds: 0, images: 1, requests: 1 }, price),
+          async startImage(request) {
+            self.calls.push(structuredClone(request));
+            const outcome = self.outcomes.shift() ?? "ok";
+            if (outcome === "unknown") throw new ProviderError("TIMEOUT", { submission: "unknown" });
+            if (outcome === "rejected") { const error = classifyHttpError(400); error.usage = usage(request, 400); throw error; }
+            if (outcome === "failed") throw new ProviderError("OPERATION_FAILED", { submission: "unknown" });
+            const bytes = outcome === "not_an_image" ? Uint8Array.from([60, 104, 116, 109, 108, 62, 1, 2, 3]) : SYNTHETIC_PNG;
+            return { usage: usage(request, 200), output: { state: "completed", text: "", images: [{ mimeType: "image/png", base64: Buffer.from(bytes).toString("base64"), byteLength: bytes.byteLength }] } };
+          },
+        } },
+      } satisfies ProviderAdapter;
+    };
+  }
+}
+/** A scripted structured-output model for storyboard drafts and media checks. It answers from a
+ * queue and records each prompt; it never contacts a network. */
+export class ScriptedAssist {
+  answers: unknown[] = [];
+  prompts: string[] = [];
+  failNext: ProviderError | null = null;
+  factory(): AdapterFactory {
+    return ({ providerId }) => {
+      const self = this;
+      return {
+        providerId, validateModel() {},
+        ports: { structured_assessment: {
+          async assess(request) {
+            self.prompts.push(request.messages.at(-1)!.text);
+            if (self.failNext) { const error = self.failNext; self.failNext = null; throw error; }
+            return { output: (self.answers.shift() ?? { claims: [] }) as never, usage: { accounting: request.accounting, providerId, modelId: request.modelId, operation: "assess",
+              attempts: [{ attempt: 1, status: 200, outcome: "response", tokens: { input: 1000, output: 200, total: 1200, cachedInput: null, thoughts: null, toolInput: null } }],
+              inputCharacters: request.messages[0]!.text.length, requestedMaxOutputTokens: request.maxOutputTokens, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null } };
+          },
+        } },
+      } satisfies ProviderAdapter;
+    };
+  }
+}
+/** Video or image media plus a scripted assistant bound to the reviewer role (it also drafts
+ * storyboards when no supervisor is bound). */
+export function pipelineConfiguration(media: "video" | "image") {
+  const base = mediaConfiguration();
+  const assistLimits = { maxInputCharacters: 100_000, maxOutputTokens: 4000 };
+  return {
+    registry: { revision: "media-pipeline-synthetic", models: [...base.registry.models,
+      { id: "picture", providerId: "scripted-image", remoteModel: "scripted/picture", providerConfig: {}, enabled: true, capabilities: ["image"], tools: [], limits: { maxInputCharacters: 20_000, maxOutputTokens: 10 } },
+      { id: "assist", providerId: "scripted-assist", remoteModel: "scripted/assist", providerConfig: {}, enabled: true, capabilities: ["structured_assessment"], tools: [], limits: assistLimits }] },
+    adapters: [...base.adapters, { id: "scripted-image", kind: "scripted-image", credentialEnv: MEDIA_CREDENTIAL }, { id: "scripted-assist", kind: "scripted-assist", credentialEnv: MEDIA_CREDENTIAL }],
+    roles: {
+      media: media === "video" ? base.roles.media : { modelId: "picture", maxInputCharacters: 4000, maxOutputTokens: 10, mediaKind: "image", image: { aspectRatio: "16:9" } },
+      reviewer: { modelId: "assist", maxInputCharacters: 20_000, maxOutputTokens: 2000 },
+    },
+  };
+}
