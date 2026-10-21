@@ -89,7 +89,7 @@ export interface Catalog {
   revision: number;
   active_release_id: string | null;
 }
-interface ReleaseRow extends Release {
+export interface ReleaseRow extends Release {
   version: string;
   course_key: string;
   created_by: string;
@@ -190,7 +190,7 @@ export async function catalogFor(
   const role = await permit(client, actor, catalog.workspace_id, permission, catalog.id);
   return { catalog, role };
 }
-async function releasesFor(client: Sql, catalog: Catalog) {
+export async function releasesFor(client: Sql, catalog: Catalog) {
   return (
     await client.query<ReleaseRow>(
       `SELECT r.*,v.state AS review_state,v.notes,v.reviewed_digest FROM course_releases r

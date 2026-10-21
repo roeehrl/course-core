@@ -82,6 +82,7 @@ import { registerRubricAppealRoutes } from './rubric-appeals.js';
 import { registerHttpTelemetry } from './telemetry.js';
 import { enrollmentState, learnerSnapshot } from './learner-snapshot.js';
 import { registerAssessmentRoutes } from './assessment-routes.js';
+import { registerAssessmentAdminRoutes } from './assessment-admin-routes.js';
 import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
@@ -367,6 +368,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricAppealRoutes(app, db, auth);
   registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
   registerRetentionRoutes(app,db,auth,clock,options.installedExtensions ?? []);
+  registerAssessmentAdminRoutes(app,db,auth);
   registerPersonalChangeRoutes(app,db,auth,adaptation);
   registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory) });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
