@@ -1,1 +1,18 @@
-{}
+{
+  "yourCode": "Your code",
+  "bytes": "{bytes, number} / {max, number} UTF-8 bytes",
+  "language.python": "Python · standard library",
+  "language.unsupported": "Unsupported language",
+  "insertSpaces": "Insert four spaces",
+  "reading": "Reading file…",
+  "import": "Import Python file",
+  "chooseFile": "Choose Python source file",
+  "tabHint": "Tab moves to the next control.",
+  "imported": "Imported {file}. Review it before submitting.",
+  "error.tooLarge": "Choose a file no larger than {max, number} bytes. Your current draft is unchanged.",
+  "error.type": "Choose a UTF-8 .py or .txt file. Your current draft is unchanged.",
+  "error.encoding": "This file is not valid UTF-8 text. Your current draft is unchanged.",
+  "error.nul": "Choose a text source file without null characters. Your current draft is unchanged.",
+  "error.failed": "File import failed. Your current draft is unchanged.",
+  "error.noRoom": "There is no room for more characters. Shorten the draft first."
+}

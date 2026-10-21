@@ -1,1 +1,27 @@
-{}
+{
+  "backToRoadmap": "← Course roadmap",
+  "meta": "{minutes, number} min · {title}",
+  "steps": "Lesson steps",
+  "stepButton": "{mark}  {title}",
+  "stepLabel": "{title}, {requirement, select, optional {optional step} other {required step}}",
+  "stepLabelCurrent": "{title}, {requirement, select, optional {optional step} other {required step}}, current",
+  "optionalDetour": "Optional detour",
+  "required": "Required",
+  "badge": "{requirement, select, required {Required} other {Optional}} · {kind, select, choice {check} reflection {reflection} other {explanation}}",
+  "diagram": "{label}: {values}. {caption}",
+  "complete": "This step is complete. You can review it and continue.",
+  "placed": "Available for review through placement. Reviewing is optional.",
+  "last": "You’re at the last step",
+  "upNext": "Up next",
+  "nextOptional": "{title} · optional",
+  "backToPath": "Back to your learning path",
+  "saving": "Saving…",
+  "returnToRoadmap": "Return to roadmap →",
+  "continue": "Continue →",
+  "markRead": "Mark read & continue →",
+  "checkAnswer": "Check answer",
+  "saveReflection": "Save reflection",
+  "skip": "Skip for now →",
+  "note.optional": "This side path is optional. Skipping it never blocks your next step.",
+  "note.required": "Required steps open in order. Your answer and place are saved on this device."
+}

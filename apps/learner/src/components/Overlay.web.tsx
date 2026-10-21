@@ -1,10 +1,12 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "../i18n";
 import { Button, colors } from "./ui";
 import type { OverlayProps } from "./Overlay";
 
 /** DOM concerns are isolated here; the shared learning UI uses native primitives. */
 export function Overlay({ title, onClose, children }: OverlayProps) {
+  const { t, dir } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -84,10 +86,11 @@ export function Overlay({ title, onClose, children }: OverlayProps) {
           padding: "24px",
           boxSizing: "border-box",
           outline: "none",
-          boxShadow: "-16px 0 60px #18323722",
+          // The sheet sits at the inline end; its shadow falls toward the page.
+          boxShadow: `${dir === "rtl" ? 16 : -16}px 0 60px #18323722`,
         }}
       >
-        <Button label={`Close ${title}`} onPress={onClose} kind="quiet" />
+        <Button label={t("overlay.close", { title })} onPress={onClose} kind="quiet" />
         {children}
       </div>
     </div>,

@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useT } from "../i18n";
 import { Button, colors } from "./ui";
 export interface OverlayProps {
   title: string;
@@ -14,6 +15,7 @@ export interface OverlayProps {
   children: React.ReactNode;
 }
 export function Overlay({ title, onClose, children }: OverlayProps) {
+  const t = useT();
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose}>
       <SafeAreaView
@@ -31,13 +33,13 @@ export function Overlay({ title, onClose, children }: OverlayProps) {
             accessibilityViewIsModal
             style={{
               backgroundColor: colors.paper,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
+              borderTopStartRadius: 24,
+              borderTopEndRadius: 24,
               padding: 20,
             }}
           >
             <ScrollView keyboardShouldPersistTaps="handled">
-              <Button label={`Close ${title}`} onPress={onClose} kind="quiet" />
+              <Button label={t("overlay.close", { title })} onPress={onClose} kind="quiet" />
               {children}
             </ScrollView>
           </View>

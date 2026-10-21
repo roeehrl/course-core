@@ -3,6 +3,7 @@ import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { YourDataPanelProps } from "./YourDataPanel";
 import { LoadingLine } from "./loadingLine.web";
 import { useReservedBlock } from "./reservedHeight";
+import { useI18n, type MessageKey } from "../i18n";
 
 interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
 interface StaffExport { id: string; exportedAt: string; exporterName: string; exporterRole: string }
@@ -20,12 +21,18 @@ function staffAccess(result: { views?: unknown; exports?: unknown } | undefined)
   }));
   return [...views, ...exports].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
 }
-const noAccessCopy = "No one on the course staff has viewed or downloaded your record.";
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Learner-owned export and erasure. Erasure is irreversible and typed-confirmed;
  * it first stops supervision and waits for running work before redacting. */
 export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: YourDataPanelProps) {
   const id = useId();
+  const i18n = useI18n(),
+    t = i18n.t;
+  const noAccessCopy = t("yourDataPanel.access.none");
+  const roleLabel = (role: string) => {
+    const key = `yourDataPanel.role.${role}` as MessageKey;
+    return i18n.has(key) ? t(key) : role;
+  };
   const phrase = `ERASE ${enrollmentId.slice(0, 8)}`;
   const [busy, setBusy] = useState<"" | "export" | "erase">("");
   const [status, setStatus] = useState("");
@@ -33,6 +40,7 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
   const [views, setViews] = useState<StaffAccess[] | "unavailable">();
+  // i18n-ignore: fixed confirmation phrase the server checks verbatim, typed in Latin letters
   const ACCOUNT_PHRASE = "ERASE MY ACCOUNT";
   const [accountConfirmation, setAccountConfirmation] = useState("");
   const [accountReason, setAccountReason] = useState("");
@@ -64,9 +72,9 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setStatus("Your data file was prepared. Check your downloads.");
+      setStatus(t("yourDataPanel.export.done"));
     } catch {
-      setError("Your data could not be exported right now. Nothing changed. Try again.");
+      setError(t("yourDataPanel.export.failed"));
     } finally {
       setBusy("");
     }
@@ -86,19 +94,19 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           return;
         } catch (cause) {
           if (cause instanceof CourseApiError && cause.code === "ERASURE_WAITING_FOR_SUPERVISION") {
-            setStatus("Stopping your course supervisor before erasing…");
+            setStatus(t("yourDataPanel.erase.stopping"));
             await pause(2500);
             continue;
           }
           throw cause;
         }
       }
-      setError("Supervision is still finishing. Nothing was erased yet. Try again in a minute.");
+      setError(t("yourDataPanel.erase.stillFinishing"));
     } catch (cause) {
       setError(
         cause instanceof CourseApiError && cause.code === "ERASURE_CONFIRMATION_REQUIRED"
-          ? `Type ${phrase} exactly to confirm.`
-          : "Erasure could not be completed. Nothing was erased. Check the confirmation and reason, then retry.",
+          ? t("yourDataPanel.erase.confirmationRequired", { phrase })
+          : t("yourDataPanel.erase.failed"),
       );
     } finally {
       setBusy("");
@@ -113,24 +121,24 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       for (let attempt = 0; attempt < 8; attempt++) {
         try {
           await (api as CourseApi).request("/api/account/erase", "POST", { confirmation: accountConfirmation.trim(), reason: accountReason.trim() });
-          setStatus("Your account and all your course data were erased. You are signed out.");
+          setStatus(t("yourDataPanel.account.erased"));
           window.location.replace("/");
           return;
         } catch (cause) {
           if (cause instanceof CourseApiError && cause.code === "ERASURE_WAITING_FOR_SUPERVISION") {
-            setStatus("Stopping your course supervisors before erasing…");
+            setStatus(t("yourDataPanel.account.stopping"));
             await pause(2500);
             continue;
           }
           throw cause;
         }
       }
-      setError("Supervision is still finishing. Nothing was erased yet. Try again in a minute.");
+      setError(t("yourDataPanel.erase.stillFinishing"));
     } catch (cause) {
       setError(
         cause instanceof CourseApiError && cause.code === "ACCOUNT_HAS_STAFF_ROLE"
-          ? "This account also has a course-team role. Ask an administrator to move that role before erasing the account."
-          : "Account erasure could not be completed. Nothing was erased. Check the confirmation and reason, then retry.",
+          ? t("yourDataPanel.account.error.ACCOUNT_HAS_STAFF_ROLE")
+          : t("yourDataPanel.account.failed"),
       );
     } finally {
       setBusy("");
@@ -138,62 +146,48 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   }
   return (
     <section className="connected-reading-card connected-data" aria-labelledby={id + "-title"}>
-      <h2 id={id + "-title"}>Your data</h2>
-      <p>
-        Download everything this course has recorded about you: profile, answers, checks, companion conversations,
-        learner model, deadlines and events. Course content and grading keys are not included.
-      </p>
+      <h2 id={id + "-title"}>{t("yourDataPanel.title")}</h2>
+      <p>{t("yourDataPanel.export.intro")}</p>
       <button type="button" className="connected-button" disabled={Boolean(busy)} onClick={() => void download()}>
-        {busy === "export" ? "Preparing…" : "Download my data (JSON)"}
+        {busy === "export" ? t("yourDataPanel.export.preparing") : t("yourDataPanel.export.download")}
       </button>
       <details className="connected-review">
-        <summary>Erase my learning data for {courseTitle}</summary>
+        <summary>{t("yourDataPanel.erase.summary", { course: courseTitle })}</summary>
         <div className="connected-data-erase">
-          <p>
-            This permanently removes your answers, companion conversations, learner model and personal teaching for
-            this course. Dates, event types and usage totals are kept without content so audit and budgets stay
-            correct. You will not be able to continue this enrollment. It is removed from the live service at once;
-            copies in backups made earlier remain until those backups are deleted under the operator&apos;s published
-            retention period. Download your data first if you want a copy.
-          </p>
-          <label htmlFor={id + "-reason"}>Why are you erasing it? (10+ characters, kept with the record)</label>
-          <textarea id={id + "-reason"} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <p>{t("yourDataPanel.erase.body")}</p>
+          <label htmlFor={id + "-reason"}>{t("yourDataPanel.erase.reason")}</label>
+          <textarea dir="auto" id={id + "-reason"} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
           <label htmlFor={id + "-confirm"}>
-            Type <strong>{phrase}</strong> to confirm
+            {i18n.rich("yourDataPanel.confirm", { phrase }, { strong: (children, key) => <strong key={key} dir="ltr">{children}</strong> })}
           </label>
-          <input id={id + "-confirm"} autoComplete="off" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
+          <input dir="ltr" id={id + "-confirm"} autoComplete="off" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
           <button
             type="button"
             className="connected-button connected-danger"
             disabled={Boolean(busy) || confirmation.trim() !== phrase || reason.trim().length < 10}
             onClick={() => void erase()}
           >
-            {busy === "erase" ? "Erasing…" : "Erase permanently"}
+            {busy === "erase" ? t("yourDataPanel.erase.erasing") : t("yourDataPanel.erase.button")}
           </button>
         </div>
       </details>
       <details className="connected-review">
-        <summary>Erase my whole account</summary>
+        <summary>{t("yourDataPanel.account.summary")}</summary>
         <div className="connected-data-erase">
-          <p>
-            This erases your learning data in every course you are enrolled in, then your account: your name, sign-in
-            name, password, passkeys and sessions, and your access to every workspace. Anything derived from your data,
-            such as suggestions and saved companion context, goes with it. It cannot be undone, and you will be signed
-            out on every device. Backups made earlier keep a copy until the operator&apos;s retention period ends.
-          </p>
-          <label htmlFor={id + "-account-reason"}>Why are you erasing your account? (10+ characters, kept with the record)</label>
-          <textarea id={id + "-account-reason"} rows={2} maxLength={1000} value={accountReason} onChange={(e) => setAccountReason(e.target.value)} />
+          <p>{t("yourDataPanel.account.body")}</p>
+          <label htmlFor={id + "-account-reason"}>{t("yourDataPanel.account.reason")}</label>
+          <textarea dir="auto" id={id + "-account-reason"} rows={2} maxLength={1000} value={accountReason} onChange={(e) => setAccountReason(e.target.value)} />
           <label htmlFor={id + "-account-confirm"}>
-            Type <strong>{ACCOUNT_PHRASE}</strong> to confirm
+            {i18n.rich("yourDataPanel.confirm", { phrase: ACCOUNT_PHRASE }, { strong: (children, key) => <strong key={key} dir="ltr">{children}</strong> })}
           </label>
-          <input id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
+          <input dir="ltr" id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
           <button
             type="button"
             className="connected-button connected-danger"
             disabled={Boolean(busy) || accountConfirmation.trim() !== ACCOUNT_PHRASE || accountReason.trim().length < 10}
             onClick={() => void eraseAccount()}
           >
-            {busy === "erase" ? "Erasing…" : "Erase my account permanently"}
+            {busy === "erase" ? t("yourDataPanel.erase.erasing") : t("yourDataPanel.account.button")}
           </button>
         </div>
       </details>
@@ -204,24 +198,21 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         aria-labelledby={id + "-views"}
         aria-busy={views === undefined}
       >
-        <h3 id={id + "-views"}>Staff access to your record</h3>
-        <p className="connected-muted">
-          Course owners and admins can open a read-only view of what you see here to help with your learning, and can download
-          a copy of your data when you ask for it. They cannot act as you, and neither the view nor their copy includes your
-          companion conversation or your own notes; only your own download does. Both include your profile: your display name,
-          learning goal and pace, which course staff who can see your enrollment also see. Every view and download is listed
-          here and in your data download.
-        </p>
+        <h3 id={id + "-views"}>{t("yourDataPanel.access.title")}</h3>
+        <p className="connected-muted">{t("yourDataPanel.access.body")}</p>
         {views === undefined ? (
           <LoadingLine reserve={noAccessCopy} />
         ) : views === "unavailable" ? (
-          <p className="connected-muted">This list could not be loaded right now.</p>
+          <p className="connected-muted">{t("yourDataPanel.access.unavailable")}</p>
         ) : views.length ? (
           <ul>
             {views.map((view) => (
               <li key={view.kind + view.id} data-kind={view.kind}>
-                {view.name} ({view.role}) {view.kind === "export" ? "downloaded a copy of your data" : "viewed your record"} ·{" "}
-                <time dateTime={view.at}>{new Date(view.at).toLocaleString()}</time>
+                {t(view.kind === "export" ? "yourDataPanel.access.downloaded" : "yourDataPanel.access.viewed", {
+                  name: view.name,
+                  role: roleLabel(view.role),
+                })}{" "}
+                · <time dateTime={view.at}>{i18n.dateTime(view.at)}</time>
               </li>
             ))}
           </ul>

@@ -1,1 +1,6 @@
-{}
+{
+  "title": "Reviews of your written answers",
+  "body": "A person reviews your written answers. You can let an AI draft notes for that reviewer to check. The AI sees the question, the rubric and your answers in that review conversation only — not your name, profile or history. It never grades you: the reviewer decides, or, at a checkpoint the course checks automatically, a fixed check that only accepts quotes of your own words.",
+  "saveFailed": "Your choice could not be saved. Nothing changed.",
+  "label": "Let an AI draft notes for my reviewer"
+}

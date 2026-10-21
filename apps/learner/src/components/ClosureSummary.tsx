@@ -2,47 +2,46 @@ import React from "react";
 import { Text, View } from "react-native";
 import type { ServerSnapshot } from "../client/apiClient";
 import { policyDate, policyTimeZone } from "../connected/policyPresentation";
+import { useT } from "../i18n";
 import { styles, Badge } from "./ui";
 export function ClosureSummary({ server }: { server: ServerSnapshot }) {
+  const t = useT();
   const report = server.closureReport;
   const notices = server.closedRecordNotices ?? [];
   if (!report && !server.complete) return null;
   const description = (id: string) =>
     server.course.objectives.find((row) => row.id === id)?.description ??
-    "A learning objective needs further attention.";
+    t("closureSummary.objectiveFallback");
   return (
     <View style={styles.card}>
-      <Badge label="Your learning record" />
+      <Badge label={t("closureSummary.badge")} />
       <Text accessibilityRole="header" style={styles.heading}>
         {report?.reason === "cap"
-          ? "Learning window closed"
+          ? t("closureSummary.title.cap")
           : report?.reason === "withdrawn"
-            ? "Enrollment ended"
-            : "Course learning steps complete"}
+            ? t("closureSummary.title.withdrawn")
+            : t("closureSummary.title.complete")}
       </Text>
       {report ? (
         <>
           <Text style={styles.small}>
-            Recorded{" "}
-            {policyDate(report.closedAt, policyTimeZone(server.course.policy))}
+            {t("closureSummary.recorded", {
+              date: policyDate(report.closedAt, policyTimeZone(server.course.policy)),
+            })}
           </Text>
           <Text style={styles.body}>
-            Material coverage:{" "}
             {report.coverage === "complete"
-              ? "Complete"
-              : "Some required material remains"}
-            .
+              ? t("closureSummary.coverage.complete")
+              : t("closureSummary.coverage.partial")}
           </Text>
           <Text style={styles.body}>
-            Independent understanding:{" "}
             {report.mastery === "demonstrated"
-              ? "Demonstrated in the course checks"
-              : "Further independent checks are needed"}
-            .
+              ? t("closureSummary.mastery.demonstrated")
+              : t("closureSummary.mastery.needed")}
           </Text>
           {report.uncoveredObjectiveIds.length > 0 && (
             <View style={{ gap: 8 }}>
-              <Text style={styles.heading}>Material to revisit</Text>
+              <Text style={styles.heading}>{t("closureSummary.revisit")}</Text>
               {report.uncoveredObjectiveIds.map((id) => (
                 <Text key={id} style={styles.small}>
                   {description(id)}
@@ -52,7 +51,7 @@ export function ClosureSummary({ server }: { server: ServerSnapshot }) {
           )}
           {report.unprovenConceptIds.length > 0 && (
             <View style={{ gap: 8 }}>
-              <Text style={styles.heading}>Checks still needed</Text>
+              <Text style={styles.heading}>{t("closureSummary.checksNeeded")}</Text>
               {report.unprovenConceptIds.map((id) => (
                 <Text key={id} style={styles.small}>
                   {description(id)}
@@ -61,39 +60,40 @@ export function ClosureSummary({ server }: { server: ServerSnapshot }) {
             </View>
           )}
           <Text style={styles.small}>
-            Further learning is a separate, optional choice; this course does
-            not expand automatically.
+            {t("closureSummary.furtherLearning")}
           </Text>
         </>
       ) : (
         <Text style={styles.body}>
-          Your course steps are recorded as complete. A detailed closure report
-          has not been issued.
+          {t("closureSummary.noReport")}
         </Text>
       )}
       {report && notices.length > 0 && (
         <View style={{ gap: 8 }}>
           <Text accessibilityRole="header" style={styles.heading}>
-            Changes after this record was made
+            {t("closureSummary.changes.title")}
           </Text>
           {notices.map((notice) => (
             <Text key={notice.evidenceId} style={styles.small}>
-              {policyDate(notice.withdrawnAt, policyTimeZone(server.course.policy))}
-              : a check you answered for “{description(notice.objectiveId)}” no
-              longer counts as evidence.
-              {notice.reason ? ` Reason: ${notice.reason}` : ""}
+              {t(
+                notice.reason
+                  ? "closureSummary.changes.withdrawnWithReason"
+                  : "closureSummary.changes.withdrawn",
+                {
+                  date: policyDate(notice.withdrawnAt, policyTimeZone(server.course.policy)),
+                  objective: description(notice.objectiveId),
+                  reason: notice.reason ?? "",
+                },
+              )}
             </Text>
           ))}
           <Text style={styles.small}>
-            Your course was not reopened and nothing new is required. The
-            record above shows what was recorded when the course closed. Any
-            further check is a separate, optional choice.
+            {t("closureSummary.changes.note")}
           </Text>
         </View>
       )}
       <Text style={styles.small}>
-        This is a record of course learning, not professional certification or
-        qualification.
+        {t("closureSummary.disclaimer")}
       </Text>
     </View>
   );

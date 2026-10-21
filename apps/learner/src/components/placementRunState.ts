@@ -3,6 +3,7 @@ import type { CourseApi, Question } from "../client/apiClient";
 import { CourseApiError, isAbortError } from "../client/apiClient";
 import { answerPayload } from "../connected/answers";
 import type { WrittenReview } from "./ReviewStatus";
+import { useI18n, type LearnerTranslator, type MessageKey, type Translate } from "../i18n";
 
 /** Placement state and actions shared by the web and native placement panels, so both follow the
  * same server contract: optional, bounded, resumable, and nothing skipped until a start is accepted. */
@@ -42,37 +43,45 @@ export interface PlacementView {
   };
 }
 
-export const placementReasons: Record<string, string> = {
-  not_demonstrated: "One answer was incorrect, assisted or marked “I don't know yet”, so placement stopped there. That topic stays on your path.",
-  protected_episode: "The next part of the course is a required experience everyone completes.",
-  not_placeable: "The next part of the course is not covered by placement.",
-  no_fresh_items: "There are no more unseen placement questions for the next topic.",
-  item_limit: "You reached this course's placement question limit.",
-  course_covered: "You answered every placement topic.",
-  stopped_by_learner: "You stopped placement. Unanswered topics stay on your path.",
-  pending_evaluation: "An answer is still waiting to be evaluated. It is not counted as wrong; until it is evaluated, that topic stays on your path.",
-};
+type PlacementTranslator = Pick<LearnerTranslator, "t" | "has" | "dateTime">;
 
-export const UNAVAILABLE_MESSAGE = "Placement is unavailable right now. You can start learning normally, or try again.";
+/** Why a placement run stopped, from the server's stop reason; undefined for an unknown reason. */
+export function placementReason(reason: string | undefined, i18n: Pick<LearnerTranslator, "t" | "has">) {
+  const key = `placementRunState.reason.${reason ?? ""}` as MessageKey;
+  return reason && i18n.has(key) ? i18n.t(key) : undefined;
+}
 
-export const ABSTAIN_HINT = "“I don't know yet” is not a wrong answer. Placement stops at that topic and it stays on your path.";
+export const unavailableMessage = (t: Translate) => t("placementRunState.unavailable");
 
-const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+export const abstainHint = (t: Translate) => t("placementRunState.abstainHint");
+
+const when = (iso: string, i18n: PlacementTranslator) =>
+  i18n.dateTime(iso, { dateStyle: "medium", timeStyle: "short" });
 
 /** "Retake placement" is offered only when the server says a retest is allowed now; otherwise the
  * learner sees when it will be, or that every attempt is used. A retake asks only unseen questions
  * and never changes the result until a new start point is accepted. */
-export function retakeState(view: PlacementView): null | { allowed: true; text: string } | { allowed: false; text: string } {
+export function retakeState(
+  view: PlacementView,
+  i18n: PlacementTranslator,
+): null | { allowed: true; text: string } | { allowed: false; text: string } {
   const maxRuns = view.maxRuns ?? 1, run = view.runNumber ?? 1;
   if (!view.retest || maxRuns <= 1) return null;
   if (view.retest.allowed)
     return {
       allowed: true,
-      text: `You can retake placement once you are ready: attempt ${run + 1} of ${maxRuns}. It uses only questions you have not seen, and nothing changes until you choose a start point.`,
+      text: i18n.t("placementRunState.retake.allowed", { next: run + 1, max: maxRuns }),
     };
   if (view.retest.availableAt && Date.parse(view.retest.availableAt) > Date.now())
-    return { allowed: false, text: `You can retake placement from ${when(view.retest.availableAt)} (attempt ${run + 1} of ${maxRuns}).` };
-  if (run >= maxRuns) return { allowed: false, text: `You have used all ${maxRuns} placement attempts this course allows.` };
+    return {
+      allowed: false,
+      text: i18n.t("placementRunState.retake.from", {
+        date: when(view.retest.availableAt, i18n),
+        next: run + 1,
+        max: maxRuns,
+      }),
+    };
+  if (run >= maxRuns) return { allowed: false, text: i18n.t("placementRunState.retake.used", { max: maxRuns }) };
   return null;
 }
 
@@ -81,6 +90,7 @@ const initialAnswer = (question: Question) =>
   question.type === "code" || question.type === "code_repair" ? (question.starterCode ?? "") : "";
 
 export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, onFinished, onOpenChange }: PlacementRunProps) {
+  const i18n = useI18n();
   const [view, setView] = useState<PlacementView>();
   const [item, setItem] = useState<{ challengeId: string; question: Question }>();
   const [answer, setAnswer] = useState("");
@@ -137,12 +147,14 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
     } catch (cause) {
       setError(
         cause instanceof CourseApiError && cause.code === "PLACEMENT_AFTER_STUDY"
-          ? "Placement is only offered before you start studying."
+          ? i18n.t("placementRunState.error.PLACEMENT_AFTER_STUDY")
           : cause instanceof CourseApiError && cause.code === "PLACEMENT_RUN_LIMIT"
-            ? "You have used every placement attempt this course allows. Your result above still stands."
+            ? i18n.t("placementRunState.error.PLACEMENT_RUN_LIMIT")
             : cause instanceof CourseApiError && cause.code === "PLACEMENT_RETEST_COOLDOWN"
-              ? `Placement can be retaken${typeof cause.details?.availableAt === "string" ? ` from ${when(cause.details.availableAt)}` : " later"}. Your result above still stands.`
-              : "That did not go through. Your progress is saved; try again.",
+              ? typeof cause.details?.availableAt === "string"
+                ? i18n.t("placementRunState.error.cooldownUntil", { date: when(cause.details.availableAt, i18n) })
+                : i18n.t("placementRunState.error.PLACEMENT_RETEST_COOLDOWN")
+              : i18n.t("placementRunState.error.generic"),
       );
       if (cause instanceof CourseApiError && cause.code.startsWith("PLACEMENT_")) await load().catch(() => undefined);
     } finally {

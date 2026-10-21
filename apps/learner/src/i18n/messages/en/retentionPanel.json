@@ -1,1 +1,13 @@
-{}
+{
+  "eyebrow": "OPTIONAL · KEEP IT",
+  "title": "Delayed checks",
+  "intro": "A fresh question days later shows what stayed with you. It never changes your progress; a miss just schedules a review.",
+  "state.demonstrated": "Shown once",
+  "state.retained": "Retained",
+  "state.needs_review": "Worth reviewing",
+  "meta.next": "{state} · next check {date}",
+  "meta.complete": "{state} · schedule complete",
+  "startFailed": "The check could not start. Nothing changed; try again.",
+  "start": "Take the delayed check",
+  "noFresh": "No unseen questions remain for this check."
+}

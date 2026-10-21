@@ -6,6 +6,7 @@ import {
   codeSubmissionError,
   utf8Bytes,
 } from "../connected/code";
+import { useT } from "../i18n";
 import { styles, colors } from "./ui";
 export interface CodeEditorProps {
   language: string;
@@ -22,13 +23,14 @@ export function CodeEditor({
   onChange,
   disabled,
 }: CodeEditorProps) {
+  const t = useT();
   const error = codeSubmissionError(language, value);
   return (
     <View style={{ gap: 12 }}>
-      <Text style={styles.heading}>Your code</Text>
+      <Text style={styles.heading}>{t("codeEditor.yourCode")}</Text>
       <Text style={styles.small}>{CODE_PROTOCOL}</Text>
       <TextInput
-        accessibilityLabel="Your code"
+        accessibilityLabel={t("codeEditor.yourCode")}
         multiline
         value={value}
         onChangeText={onChange}
@@ -45,6 +47,7 @@ export function CodeEditor({
           borderColor: colors.line,
           borderRadius: 12,
           fontFamily: "monospace",
+          writingDirection: "ltr",
           fontSize: 16,
           lineHeight: 24,
           color: colors.ink,
@@ -52,7 +55,7 @@ export function CodeEditor({
         }}
       />
       <Text style={styles.small}>
-        {utf8Bytes(value)} / {MAX_CODE_BYTES} UTF-8 bytes
+        {t("codeEditor.bytes", { bytes: utf8Bytes(value), max: MAX_CODE_BYTES })}
       </Text>
       {error && <Text style={styles.small}>{error}</Text>}
     </View>

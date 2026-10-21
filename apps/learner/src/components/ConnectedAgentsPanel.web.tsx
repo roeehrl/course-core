@@ -1,23 +1,23 @@
 import React, { useCallback, useEffect, useId, useState } from "react";
 import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { ConnectedAgentsPanelProps } from "./ConnectedAgentsPanel";
+import { useI18n, type MessageKey } from "../i18n";
 
 type Scope = "context" | "profile" | "evidence" | "history" | "propose_intervention";
 interface Grant { id: string; label: string; scopes: Scope[]; createdAt: string; expiresAt: string; revokedAt: string | null; lastUsedAt: string | null; state: "active" | "expired" | "revoked" }
 interface Listing { grants: Grant[]; recentCalls: { grantId: string; tool: string; outcome: string; at: string }[] }
-const SCOPES: { id: Scope; label: string; detail: string }[] = [
-  { id: "context", label: "Course position", detail: "the course, your current lesson and its objectives" },
-  { id: "profile", label: "Your stated preferences", detail: "pace, explanation style, prior knowledge you wrote, suggestions you accepted" },
-  { id: "evidence", label: "Your progress evidence", detail: "what your answers show per objective, without anything you excluded" },
-  { id: "history", label: "Your question history", detail: "your own questions and answer outcomes in a lesson" },
-  { id: "propose_intervention", label: "Suggest changes", detail: "suggestions that wait for your review here; they never give credit" },
-];
+const SCOPES: Scope[] = ["context", "profile", "evidence", "history", "propose_intervention"];
+const scopeLabel = (scope: string) => `connectedAgentsPanel.scope.${scope}.label` as MessageKey;
+const scopeDetail = (scope: Scope) => `connectedAgentsPanel.scope.${scope}.detail` as MessageKey;
 const DAYS = [1, 7, 30, 90];
-const when = (value: string) => new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const DATE: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" };
 
 /** The learner's own grants for external AI agents: scoped, expiring, revocable. The token is shown once. */
 export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: ConnectedAgentsPanelProps) {
   const id = useId();
+  const i18n = useI18n(), t = i18n.t;
+  const when = (value: string) => i18n.date(value, DATE);
+  const scopeName = (scope: string) => (i18n.has(scopeLabel(scope)) ? t(scopeLabel(scope)) : scope);
   const base = `/api/enrollments/${encodeURIComponent(enrollmentId)}/agent-grants`;
   const [listing, setListing] = useState<Listing | "unavailable">();
   const [label, setLabel] = useState("");
@@ -40,9 +40,9 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
       setLabel("");
       await load();
     } catch (cause) {
-      setError(cause instanceof CourseApiError && cause.code === "AGENT_GRANT_LIMIT"
-        ? "You already have the most connected agents allowed for this course. Disconnect one first."
-        : "The agent could not be connected. Nothing changed. Try again.");
+      setError(t(cause instanceof CourseApiError && cause.code === "AGENT_GRANT_LIMIT"
+        ? "connectedAgentsPanel.error.AGENT_GRANT_LIMIT"
+        : "connectedAgentsPanel.error.connect"));
     } finally { setBusy(false); }
   }
   async function disconnect(grant: Grant) {
@@ -50,7 +50,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
     try {
       await (api as CourseApi).request(`${base}/${encodeURIComponent(grant.id)}/revoke`, "POST", {});
       await load();
-    } catch { setError(`"${grant.label}" could not be disconnected. Try again.`); } finally { setBusy(false); }
+    } catch { setError(t("connectedAgentsPanel.error.disconnect", { label: grant.label })); } finally { setBusy(false); }
   }
   async function copy() {
     if (!created) return;
@@ -58,7 +58,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
     // such as a plain-http tailnet address, select the key so it can be copied by hand.
     try {
       const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
-      if (typeof clipboard?.writeText !== "function") throw new Error("clipboard unavailable");
+      if (typeof clipboard?.writeText !== "function") throw new Error("clipboard unavailable"); // i18n-ignore: internal control flow, caught below and never shown
       await clipboard.writeText(created.token); setCopied(true); setCopyFailed(false);
     } catch {
       setCopied(false); setCopyFailed(true);
@@ -66,75 +66,95 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
       if (field instanceof HTMLInputElement) { field.focus(); field.select(); }
     }
   }
-  const toggle = (scope: Scope, on: boolean) => setScopes(current => on ? SCOPES.map(s => s.id).filter(s => s === scope || current.includes(s)) : current.filter(s => s !== scope));
+  const toggle = (scope: Scope, on: boolean) => setScopes(current => on ? SCOPES.filter(s => s === scope || current.includes(s)) : current.filter(s => s !== scope));
   const active = listing && listing !== "unavailable" ? listing.grants.filter(g => g.state === "active") : [];
   const earlier = listing && listing !== "unavailable" ? listing.grants.filter(g => g.state !== "active") : [];
   return (
     <section className="connected-reading-card connected-agents" aria-labelledby={id + "-title"}>
-      <h2 id={id + "-title"}>Connected agents</h2>
+      <h2 id={id + "-title"}>{t("connectedAgentsPanel.title")}</h2>
       <p className="connected-muted">
-        Let an AI agent you use elsewhere read parts of your record for {courseTitle} and suggest changes for you to review.
-        You choose what it may read and for how long, and you can disconnect it at any time. It cannot answer checks, change
-        your progress or see your private notes, your course team&apos;s notes or other learners.
+        {t("connectedAgentsPanel.intro", { course: courseTitle })}
       </p>
       {created && (
         <div className="connected-agents-token" role="status">
-          <p><strong>Connected “{created.label}”.</strong> Copy this key into your agent now. It is shown only once; if you lose it, disconnect and connect again.</p>
-          <label htmlFor={id + "-token"}>Access key</label>
-          <input id={id + "-token"} readOnly value={created.token} onFocus={(e) => e.currentTarget.select()} />
+          <p>
+            {i18n.rich("connectedAgentsPanel.token.created", { label: created.label }, {
+              strong: (children, key) => <strong key={key}>{children}</strong>,
+            })}
+          </p>
+          <label htmlFor={id + "-token"}>{t("connectedAgentsPanel.token.label")}</label>
+          <input id={id + "-token"} dir="ltr" readOnly value={created.token} onFocus={(e) => e.currentTarget.select()} />
           <div className="connected-agents-actions">
-            <button type="button" className="connected-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy key"}</button>
-            <button type="button" className="connected-button connected-secondary" onClick={() => setCreated(undefined)}>I saved it</button>
+            <button type="button" className="connected-button" onClick={() => void copy()}>{t(copied ? "connectedAgentsPanel.token.copied" : "connectedAgentsPanel.token.copy")}</button>
+            <button type="button" className="connected-button connected-secondary" onClick={() => setCreated(undefined)}>{t("connectedAgentsPanel.token.saved")}</button>
           </div>
-          {copyFailed && <p className="connected-muted" role="alert">This page can&apos;t copy for you on this connection. The key is selected: copy it with Ctrl+C (⌘C on a Mac) or your device&apos;s copy menu.</p>}
-          <p className="connected-muted">Agents send it as <code>Authorization: Bearer</code> to <code>/api/agent-tools/mcp</code> (MCP) or <code>/api/agent-tools/v1/tools/…</code>.</p>
+          {copyFailed && <p className="connected-muted" role="alert">{t("connectedAgentsPanel.token.copyFailed")}</p>}
+          <p className="connected-muted">
+            {i18n.rich(
+              "connectedAgentsPanel.token.usage",
+              // i18n-ignore: HTTP header and API paths are code, shown left to right
+              { header: "Authorization: Bearer", mcp: "/api/agent-tools/mcp", rest: "/api/agent-tools/v1/tools/…" },
+              { code: (children, key) => <code key={key} dir="ltr">{children}</code> },
+            )}
+          </p>
         </div>
       )}
       <details className="connected-review">
-        <summary>Connect an agent</summary>
+        <summary>{t("connectedAgentsPanel.form.summary")}</summary>
         <div className="connected-agents-form">
-          <label htmlFor={id + "-label"}>Name for this agent</label>
-          <input id={id + "-label"} maxLength={80} autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <label htmlFor={id + "-label"}>{t("connectedAgentsPanel.form.name")}</label>
+          <input id={id + "-label"} maxLength={80} autoComplete="off" dir="auto" value={label} onChange={(e) => setLabel(e.target.value)} />
           <fieldset>
-            <legend>It may</legend>
+            <legend>{t("connectedAgentsPanel.form.scopes")}</legend>
             {SCOPES.map(scope => (
-              <label key={scope.id} className="connected-agents-scope">
-                <input type="checkbox" checked={scopes.includes(scope.id)} onChange={(e) => toggle(scope.id, e.target.checked)} />
-                <span><strong>{scope.label}</strong> — {scope.detail}</span>
+              <label key={scope} className="connected-agents-scope">
+                <input type="checkbox" checked={scopes.includes(scope)} onChange={(e) => toggle(scope, e.target.checked)} />
+                <span>{i18n.rich("connectedAgentsPanel.scope.line", { label: t(scopeLabel(scope)), detail: t(scopeDetail(scope)) }, {
+                  strong: (children, key) => <strong key={key}>{children}</strong>,
+                })}</span>
               </label>
             ))}
           </fieldset>
-          <label htmlFor={id + "-days"}>Disconnect automatically after</label>
+          <label htmlFor={id + "-days"}>{t("connectedAgentsPanel.form.expiry")}</label>
           <select id={id + "-days"} value={days} onChange={(e) => setDays(Number(e.target.value))}>
-            {DAYS.map(d => <option key={d} value={d}>{d === 1 ? "1 day" : `${d} days`}</option>)}
+            {DAYS.map(d => <option key={d} value={d}>{t("connectedAgentsPanel.form.days", { count: d })}</option>)}
           </select>
           <button type="button" className="connected-button" disabled={busy || !label.trim() || !scopes.length} onClick={() => void connect()}>
-            {busy ? "Connecting…" : "Connect agent"}
+            {t(busy ? "connectedAgentsPanel.form.connecting" : "connectedAgentsPanel.form.connect")}
           </button>
         </div>
       </details>
-      {listing === undefined ? <p className="connected-muted">Checking…</p>
-        : listing === "unavailable" ? <p className="connected-muted">Your connected agents could not be loaded right now.</p>
+      {listing === undefined ? <p className="connected-muted">{t("connectedAgentsPanel.checking")}</p>
+        : listing === "unavailable" ? <p className="connected-muted">{t("connectedAgentsPanel.unavailable")}</p>
           : (
             <>
               {active.length ? (
-                <ul className="connected-agents-list" aria-label="Agents connected now">
+                <ul className="connected-agents-list" aria-label={t("connectedAgentsPanel.active")}>
                   {active.map(grant => (
                     <li key={grant.id}>
                       <div>
-                        <strong>{grant.label}</strong>
-                        <span className="connected-muted"> · {grant.scopes.map(s => SCOPES.find(x => x.id === s)?.label ?? s).join(", ")}</span>
-                        <div className="connected-muted">Until {when(grant.expiresAt)} · {grant.lastUsedAt ? `last used ${when(grant.lastUsedAt)}` : "not used yet"}</div>
+                        <strong dir="auto">{grant.label}</strong>
+                        <span className="connected-muted"> · {i18n.list(grant.scopes.map(scopeName), "unit")}</span>
+                        <div className="connected-muted">
+                          {grant.lastUsedAt
+                            ? t("connectedAgentsPanel.grant.used", { until: when(grant.expiresAt), used: when(grant.lastUsedAt) })
+                            : t("connectedAgentsPanel.grant.unused", { until: when(grant.expiresAt) })}
+                        </div>
                       </div>
                       <button type="button" className="connected-button connected-danger" disabled={busy} onClick={() => void disconnect(grant)}
-                        aria-label={`Disconnect ${grant.label}`}>Disconnect</button>
+                        aria-label={t("connectedAgentsPanel.grant.disconnectLabel", { label: grant.label })}>{t("connectedAgentsPanel.grant.disconnect")}</button>
                     </li>
                   ))}
                 </ul>
-              ) : <p className="connected-muted">No agents are connected.</p>}
+              ) : <p className="connected-muted">{t("connectedAgentsPanel.none")}</p>}
               {earlier.length > 0 && (
                 <p className="connected-muted">
-                  Earlier: {earlier.map(g => `${g.label} (${g.state === "revoked" ? "disconnected" : "expired"})`).join(", ")}
+                  {t("connectedAgentsPanel.earlier", {
+                    grants: i18n.list(
+                      earlier.map(g => t(g.state === "revoked" ? "connectedAgentsPanel.earlier.revoked" : "connectedAgentsPanel.earlier.expired", { label: g.label })),
+                      "unit",
+                    ),
+                  })}
                 </p>
               )}
             </>

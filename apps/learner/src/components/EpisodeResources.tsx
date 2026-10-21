@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
 import type { EpisodeResource, GeneratedMedia, ResourcesClient } from "../client/resourcesClient";
+import { useT } from "../i18n";
 import { styles } from "./ui";
 
 export interface EpisodeResourcesProps {
@@ -11,6 +12,7 @@ export interface EpisodeResourcesProps {
 /** Native rendering keeps the same optional, non-credit semantics. Embedded
  * players are not used natively; links open in the system browser. */
 export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeResourcesProps) {
+  const t = useT();
   const [items, setItems] = useState<EpisodeResource[]>([]);
   const [clips, setClips] = useState<GeneratedMedia[]>([]);
   useEffect(() => {
@@ -29,12 +31,12 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
   if (!items.length && !clips.length) return null;
   return (
     <View style={{ gap: 12 }} accessibilityRole="summary">
-      <Text style={styles.heading}>Optional help · reviewed resources</Text>
-      <Text style={styles.small}>Optional. Does not count toward progress or checks.</Text>
+      <Text style={styles.heading}>{t("episodeResources.native.heading")}</Text>
+      <Text style={styles.small}>{t("episodeResources.native.optional")}</Text>
       {clips.map((clip) => (
         <View key={clip.id} style={{ gap: 6 }}>
-          <Text style={styles.body}>{clip.title} · course-made video</Text>
-          <Text style={styles.small}>Native playback is not connected. Transcript:</Text>
+          <Text style={styles.body}>{t("episodeResources.native.clipTitle", { title: clip.title })}</Text>
+          <Text style={styles.small}>{t("episodeResources.native.noPlayback")}</Text>
           <Text style={styles.small}>{clip.transcript}</Text>
         </View>
       ))}
@@ -44,7 +46,7 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
           <Text style={styles.small}>{item.whyUseful}</Text>
           {item.youtube && <Text style={styles.small}>{item.youtube.fallbackText}</Text>}
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(item.url)}>
-            <Text style={styles.small}>Open source</Text>
+            <Text style={styles.small}>{t("episodeResources.native.openSource")}</Text>
           </Pressable>
         </View>
       ))}

@@ -2,6 +2,7 @@ import React from "react";
 import { View } from "react-native";
 import { Overlay } from "./Overlay";
 import { Button, styles } from "./ui";
+import { useT } from "../i18n";
 export interface CompanionDockProps {
   /** The companion sits beside the lesson (medium and expanded windows of
    * sufficient height). Otherwise it is a full-height sheet. */
@@ -23,15 +24,16 @@ export function CompanionDock({
   onCollapsedChange,
   children,
 }: CompanionDockProps) {
+  const t = useT();
   if (wide && collapsed)
-    return <Button label="Companion" onPress={() => onCollapsedChange?.(false)} />;
+    return <Button label={t("companionDock.open")} onPress={() => onCollapsedChange?.(false)} />;
   return wide ? (
     <View style={styles.card}>{children}</View>
   ) : (
     <>
-      <Button label="Companion" onPress={() => onOpenChange(true)} />
+      <Button label={t("companionDock.open")} onPress={() => onOpenChange(true)} />
       {open && (
-        <Overlay title="companion" onClose={() => onOpenChange(false)}>
+        <Overlay title={t("companionDock.sheetTitle")} onClose={() => onOpenChange(false)}>
           {children}
         </Overlay>
       )}

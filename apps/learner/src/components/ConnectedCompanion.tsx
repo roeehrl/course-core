@@ -9,7 +9,6 @@ import {
   companionCouldNotAnswer,
   companionJobLabel,
   companionState,
-  companionStateLabel,
 } from "../client/companionClient";
 import { useOnline } from "../hooks/useOnline";
 import { CourseApiError } from "../client/apiClient";
@@ -21,6 +20,7 @@ import {
 } from "../client/companionFocus";
 import type { CompanionContextUsed } from "../client/companionClient";
 import { useLessonSelection } from "../hooks/useLessonSelection";
+import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "../i18n";
 export interface ConnectedCompanionProps {
   context: CompanionContext;
   messages: readonly CompanionMessage[];
@@ -45,13 +45,14 @@ function useCompanionFocus() {
 }
 const time = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
-const selectionLabel: Record<string, string> = {
-  text: "Lesson text",
-  formula: "Formula or code example",
-  log_entry: "Result feedback",
-  code_line: "Your code",
-  visual_node: "Part of the illustration",
-};
+const SELECTION_KINDS = new Set(["text", "formula", "log_entry", "code_line", "visual_node"]);
+const selectionLabel = (kind: string, t: Translate) =>
+  SELECTION_KINDS.has(kind)
+    ? t(`connectedCompanion.selectionKind.${kind}` as MessageKey)
+    : t("connectedCompanion.selectionKind.unknown");
+/** A learner excerpt, cut at 160 characters with an ellipsis. */
+const clip = (text: string, clipped = false) =>
+  `${text.slice(0, 160)}${clipped || text.length > 160 ? "…" : ""}`;
 /** The lesson a message belongs to, named; the current one says so. Rows saved
  * before messages carried their lesson, and lessons no longer in this course
  * version, say that instead of guessing. */
@@ -59,11 +60,12 @@ export function lessonLabel(
   episodeId: string | undefined | null,
   currentEpisodeId: string | undefined,
   titles: Readonly<Record<string, string>>,
+  t: Translate = englishTranslator().t,
 ): string {
-  if (!episodeId) return "Lesson not recorded";
+  if (!episodeId) return t("connectedCompanion.lesson.notRecorded");
   const title = Object.hasOwn(titles, episodeId) ? titles[episodeId] : undefined;
-  if (!title) return "A lesson no longer in this course";
-  return episodeId === currentEpisodeId ? `${title} (this lesson)` : title;
+  if (!title) return t("connectedCompanion.lesson.gone");
+  return episodeId === currentEpisodeId ? t("connectedCompanion.lesson.current", { title }) : title;
 }
 export function ConnectedCompanion({
   context,
@@ -80,6 +82,7 @@ export function ConnectedCompanion({
   onExcludeContext,
   onDeleteMessage,
 }: ConnectedCompanionProps) {
+  const t = useT();
   const [confirmDelete, setConfirmDelete] = useState("");
   async function remove(messageId: string) {
     if (!onDeleteMessage) return;
@@ -89,7 +92,7 @@ export function ConnectedCompanion({
       await onDeleteMessage(messageId);
       setConfirmDelete("");
     } catch {
-      setCorrectionError("The question could not be deleted. Refresh the conversation and try again.");
+      setCorrectionError(t("connectedCompanion.error.delete"));
     } finally {
       setCorrecting("");
     }
@@ -105,9 +108,7 @@ export function ConnectedCompanion({
     try {
       await onExcludeContext(messageId, excluded);
     } catch {
-      setCorrectionError(
-        "That change could not be saved. Refresh the conversation and try again.",
-      );
+      setCorrectionError(t("connectedCompanion.error.correct"));
     } finally {
       setCorrecting("");
     }
@@ -157,6 +158,7 @@ export function ConnectedCompanion({
     try {
       const receipt = await onSend(submitted, allow);
       if (!receipt?.messageId || receipt.state !== "queued")
+        // i18n-ignore: internal signal, caught below and replaced with a translated message
         throw new Error("Unconfirmed companion response");
       if (current.current.context.episodeId !== scope) return;
       if (current.current.draft === submitted) onDraftChange("");
@@ -172,55 +174,52 @@ export function ConnectedCompanion({
       setSendError(
         cause instanceof CourseApiError
           ? cause.message
-          : "Your message could not be confirmed. Your draft is preserved; retry the saved request before sending again.",
+          : t("connectedCompanion.error.send"),
       );
     }
   }
+  const stateLabel = t(`connectedCompanion.state.${state}` as MessageKey);
   return (
     <View style={{ gap: 18 }}>
-      <Badge label="Your saved conversation" tone="lilac" />
+      <Badge label={t("connectedCompanion.badge")} tone="lilac" />
       <View accessibilityRole="none" style={{ gap: 4 }}>
         <Text
           role="status"
           aria-live="polite"
-          accessibilityLabel={`Companion status: ${companionStateLabel[state]}`}
+          accessibilityLabel={t("connectedCompanion.statusLabel", { state: stateLabel })}
           style={styles.small}
         >
-          Companion: {companionStateLabel[state]}
+          {t("connectedCompanion.status", { state: stateLabel })}
         </Text>
         {heldOffline && (
           <Text style={styles.small}>
-            Your question is held on this device and will be sent when you are
-            back online, if you are still in this lesson.
+            {t("connectedCompanion.heldOffline")}
           </Text>
         )}
       </View>
       <View style={{ gap: 5 }}>
-        <Text style={styles.eyebrow}>Following your place</Text>
+        <Text style={styles.eyebrow}>{t("connectedCompanion.place")}</Text>
         <Text style={styles.heading}>
-          {context.episodeTitle ?? "Course roadmap"}
+          {context.episodeTitle ?? t("connectedCompanion.roadmap")}
         </Text>
         {context.blockTitle && (
           <Text style={styles.small}>{context.blockTitle}</Text>
         )}
       </View>
       <Text style={styles.small}>
-        Messages are saved to your course account. A reply appears here only
-        when the companion service returns one. Asking for help never grants
-        course credit.
+        {t("connectedCompanion.about")}
       </Text>
-      {!loaded && <Text style={styles.small}>Loading your conversation…</Text>}
+      {!loaded && <Text style={styles.small}>{t("connectedCompanion.loading")}</Text>}
       {error && <Notice error>{error}</Notice>}
       {loaded && !messages.length && (
         <Text style={styles.body}>
-          A question, a connection, a point to revisit. Keep it here as you
-          learn.
+          {t("connectedCompanion.empty")}
         </Text>
       )}
       <View
         role="log"
         aria-live="polite"
-        accessibilityLabel="Saved companion messages"
+        accessibilityLabel={t("connectedCompanion.log")}
         style={{ gap: 16 }}
       >
         {messages.map((message) => (
@@ -236,25 +235,33 @@ export function ConnectedCompanion({
             ]}
           >
             <Text style={styles.eyebrow}>
-              {message.role === "learner" ? "You" : "Companion"}
+              {t(message.role === "learner" ? "connectedCompanion.role.learner" : "connectedCompanion.role.companion")}
             </Text>
             <Text style={styles.small}>
-              {message.role === "assistant" ? "About" : "From"}:{" "}
-              {lessonLabel(
-                message.context_used?.episodeId ?? message.context.episodeId,
-                context.episodeId,
-                episodeTitles,
+              {t(
+                message.role === "assistant"
+                  ? (message.context_used?.blockId ?? message.context.blockId)
+                    ? "connectedCompanion.message.aboutMaterial"
+                    : "connectedCompanion.message.about"
+                  : (message.context_used?.blockId ?? message.context.blockId)
+                    ? "connectedCompanion.message.fromMaterial"
+                    : "connectedCompanion.message.from",
+                {
+                  lesson: lessonLabel(
+                    message.context_used?.episodeId ?? message.context.episodeId,
+                    context.episodeId,
+                    episodeTitles,
+                    t,
+                  ),
+                },
               )}
-              {(message.context_used?.blockId ?? message.context.blockId)
-                ? " · lesson material"
-                : ""}
             </Text>
             <MarkdownContent
               markdown={
                 message.content === "[deleted]"
                   ? message.role === "learner"
-                    ? "You deleted this question."
-                    : "Removed with the question you deleted."
+                    ? t("connectedCompanion.deleted.question")
+                    : t("connectedCompanion.deleted.answer")
                   : message.content
               }
             />
@@ -263,24 +270,24 @@ export function ConnectedCompanion({
             )}
             {companionCouldNotAnswer(message) && message.content !== "[deleted]" && (
               // Asking again is a new question: it goes back into the draft to send as usual.
-              <Button label="Ask this question again" kind="quiet" onPress={() => onDraftChange(message.content)} />
+              <Button label={t("connectedCompanion.askAgain")} kind="quiet" onPress={() => onDraftChange(message.content)} />
             )}
             {message.role === "learner" && message.excluded && (
               <Text style={styles.small}>
-                Not used as context for later answers.
+                {t("connectedCompanion.excluded")}
               </Text>
             )}
             {message.role === "learner" && message.content !== "[deleted]" && onDeleteMessage && (
               confirmDelete === message.id ? (
                 <View style={{ gap: 6 }}>
                   <Text style={styles.small}>
-                    Delete this question and its answer? Suggestions based on it are revoked. This cannot be undone.
+                    {t("connectedCompanion.delete.confirm")}
                   </Text>
-                  <Button label="Delete question" kind="primary" disabled={correcting === message.id} onPress={() => void remove(message.id)} />
-                  <Button label="Keep question" kind="quiet" onPress={() => setConfirmDelete("")} />
+                  <Button label={t("connectedCompanion.delete.yes")} kind="primary" disabled={correcting === message.id} onPress={() => void remove(message.id)} />
+                  <Button label={t("connectedCompanion.delete.no")} kind="quiet" onPress={() => setConfirmDelete("")} />
                 </View>
               ) : (
-                <Button label="Delete this question" kind="quiet" onPress={() => setConfirmDelete(message.id)} />
+                <Button label={t("connectedCompanion.delete.start")} kind="quiet" onPress={() => setConfirmDelete(message.id)} />
               )
             )}
             {message.role === "assistant" && message.context_used && (
@@ -300,7 +307,6 @@ export function ConnectedCompanion({
       </View>
       {sent && (
         <Notice>
-          Message saved.{" "}
           {messages.some(
             (message) =>
               message.role === "assistant" &&
@@ -308,29 +314,31 @@ export function ConnectedCompanion({
               message.job_id ===
                 messages.find((row) => row.id === sent)?.job_id,
           )
-            ? "A reply has arrived."
-            : "Waiting for the companion service to reply."}
+            ? t("connectedCompanion.sent.replied")
+            : t("connectedCompanion.sent.waiting")}
         </Notice>
       )}
       {sendError && <Notice error>{sendError}</Notice>}
       {correctionError && <Notice error>{correctionError}</Notice>}
       {(focus.selection || focus.media) && (
         <View
-          accessibilityLabel="Attached to your next message"
+          accessibilityLabel={t("connectedCompanion.attached")}
           style={[styles.card, { padding: 14, gap: 10, backgroundColor: "#F2EDFB" }]}
         >
-          <Text style={styles.eyebrow}>Attached to your next message</Text>
+          <Text style={styles.eyebrow}>{t("connectedCompanion.attached")}</Text>
           {focus.selection && (
             <View style={{ gap: 6 }}>
               <Text style={styles.small}>
                 {focus.selection.kind === "code"
-                  ? `Your code, line${focus.selection.lineStart === focus.selection.lineEnd ? ` ${focus.selection.lineStart}` : `s ${focus.selection.lineStart}–${focus.selection.lineEnd}`}`
+                  ? focus.selection.lineStart === focus.selection.lineEnd
+                    ? t("connectedCompanion.selection.codeLine", { line: focus.selection.lineStart })
+                    : t("connectedCompanion.selection.codeLines", { start: focus.selection.lineStart, end: focus.selection.lineEnd })
                   : focus.selection.kind === "visual_node"
-                    ? `Part of the illustration: ${focus.selection.label}`
-                    : `Selected: “${focus.selection.excerpt.slice(0, 160)}${focus.selection.excerpt.length > 160 ? "…" : ""}”`}
+                    ? t("connectedCompanion.selection.visual", { label: focus.selection.label })
+                    : t("connectedCompanion.selection.text", { excerpt: clip(focus.selection.excerpt) })}
               </Text>
               <Button
-                label="Remove selection"
+                label={t("connectedCompanion.selection.remove")}
                 kind="quiet"
                 onPress={() => companionFocus.setSelection(undefined)}
               />
@@ -339,42 +347,39 @@ export function ConnectedCompanion({
           {focus.media && (
             <View style={{ gap: 6 }}>
               <Text style={styles.small}>
-                {focus.media.label}
                 {focus.media.playbackSeconds !== undefined
-                  ? ` at ${time(focus.media.playbackSeconds)}`
-                  : ""}
+                  ? t("connectedCompanion.media.at", { label: focus.media.label, time: time(focus.media.playbackSeconds) })
+                  : focus.media.label}
               </Text>
               <Button
-                label="Remove video"
+                label={t("connectedCompanion.media.remove")}
                 kind="quiet"
                 onPress={() => companionFocus.setMedia(undefined)}
               />
             </View>
           )}
           <Text style={styles.small}>
-            Your companion sees this with your message. Select other text in
-            the lesson to change it.
+            {t("connectedCompanion.attachedHelp")}
           </Text>
         </View>
       )}
       <Field
-        label="Message to your companion"
+        label={t("connectedCompanion.draft.label")}
         multiline
         value={draft}
         onChangeText={onDraftChange}
         maxLength={4000}
-        placeholder="What would you like to understand?"
+        placeholder={t("connectedCompanion.draft.placeholder")}
         editable={!pending}
       />
       {!context.episodeId && (
         <Text style={styles.small}>
-          Open a lesson before sending. You can keep drafting here.
+          {t("connectedCompanion.noLesson")}
         </Text>
       )}
       {unavailable && (
         <Text style={styles.small}>
-          This lesson is not currently available for new requests. Your draft is
-          preserved.
+          {t("connectedCompanion.unavailable")}
         </Text>
       )}
       {consent ? (
@@ -382,21 +387,18 @@ export function ConnectedCompanion({
           style={[styles.card, { padding: 16, backgroundColor: "#FCF3DF" }]}
         >
           <Text accessibilityRole="header" style={styles.heading}>
-            Keep this check independent?
+            {t("connectedCompanion.consent.title")}
           </Text>
           <Text style={styles.body}>
-            Sending a question will switch every active independent check in
-            this course to practice before help is requested. Those attempts
-            will no longer earn independent credit. A new check may be needed
-            later.
+            {t("connectedCompanion.consent.body")}
           </Text>
           <Button
-            label="Keep independent attempt"
+            label={t("connectedCompanion.consent.keep")}
             disabled={pending}
             onPress={() => setConsent(false)}
           />
           <Button
-            label="Switch to practice & send"
+            label={t("connectedCompanion.consent.switch")}
             kind="primary"
             disabled={pending || !draft.trim() || unavailable}
             onPress={() => void send(true)}
@@ -404,15 +406,15 @@ export function ConnectedCompanion({
         </View>
       ) : (
         <Button
-          label={
+          label={t(
             pending
-              ? "Saving…"
+              ? "connectedCompanion.send.saving"
               : !online
                 ? heldOffline
-                  ? "Waiting for connection…"
-                  : "Send when back online"
-                : "Send message"
-          }
+                  ? "connectedCompanion.send.waiting"
+                  : "connectedCompanion.send.offline"
+                : "connectedCompanion.send.send",
+          )}
           kind="primary"
           disabled={
             pending ||
@@ -428,9 +430,7 @@ export function ConnectedCompanion({
         />
       )}
       <Text style={styles.small}>
-        {storageUnavailable
-          ? "Draft kept in this tab only because browser storage is unavailable."
-          : "Draft saved on this device. It is sent only when you choose Send."}
+        {t(storageUnavailable ? "connectedCompanion.draft.tabOnly" : "connectedCompanion.draft.saved")}
       </Text>
     </View>
   );
@@ -448,6 +448,7 @@ function ContextUsed({
   busy: string;
   onExclude?: (messageId: string, excluded: boolean) => void;
 }) {
+  const i18n = useI18n(), t = i18n.t;
   const [open, setOpen] = useState(false);
   const earlier = [
     ...used.history.filter((row) => row.messageId !== used.answersMessageId),
@@ -456,7 +457,7 @@ function ContextUsed({
   return (
     <View style={{ gap: 8 }}>
       <Button
-        label={`${open ? "Hide" : "Show"} context used`}
+        label={t(open ? "connectedCompanion.context.hide" : "connectedCompanion.context.show")}
         kind="quiet"
         selected={open}
         onPress={() => setOpen((value) => !value)}
@@ -465,51 +466,56 @@ function ContextUsed({
         <View style={{ gap: 8 }}>
           {question && (
             <Text style={styles.small}>
-              Answering: “{question.slice(0, 160)}
-              {question.length > 160 ? "…" : ""}”
+              {t("connectedCompanion.context.answering", { question: clip(question) })}
             </Text>
           )}
           {used.selection && (
             <Text style={styles.small}>
-              You pointed at ({selectionLabel[used.selection.kind] ?? "a selection"}): “
-              {used.selection.excerpt}”
-              {used.selection.lineStart
-                ? ` (line ${used.selection.lineStart}${used.selection.lineEnd !== used.selection.lineStart ? `–${used.selection.lineEnd}` : ""})`
-                : ""}
+              {!used.selection.lineStart
+                ? t("connectedCompanion.context.pointed", { kind: selectionLabel(used.selection.kind, t), excerpt: used.selection.excerpt })
+                : used.selection.lineEnd !== used.selection.lineStart
+                  ? t("connectedCompanion.context.pointedLines", {
+                      kind: selectionLabel(used.selection.kind, t),
+                      excerpt: used.selection.excerpt,
+                      start: used.selection.lineStart,
+                      end: used.selection.lineEnd ?? "",
+                    })
+                  : t("connectedCompanion.context.pointedLine", {
+                      kind: selectionLabel(used.selection.kind, t),
+                      excerpt: used.selection.excerpt,
+                      line: used.selection.lineStart,
+                    })}
             </Text>
           )}
           {used.media && (
             <Text style={styles.small}>
-              Course video
               {used.media.playbackSeconds !== null
-                ? ` at ${time(used.media.playbackSeconds)}`
-                : ""}
+                ? t("connectedCompanion.context.videoAt", { time: time(used.media.playbackSeconds) })
+                : t("connectedCompanion.context.video")}
             </Text>
           )}
           {used.simulation && (
             <Text style={styles.small}>
-              The illustration as you had set it ({used.simulation.settings}{" "}
-              settings).
+              {t("connectedCompanion.context.simulation", { settings: used.simulation.settings })}
             </Text>
           )}
           <Text style={styles.small}>
-            {earlier.length
-              ? `${earlier.length} earlier ${earlier.length === 1 ? "message" : "messages"} from this lesson:`
-              : "No earlier messages from this lesson."}
+            {t("connectedCompanion.context.earlier", { count: earlier.length })}
           </Text>
           {earlier.map((row) => (
             <View key={row.messageId} style={{ gap: 4 }}>
               <Text style={styles.small}>
-                {row.role === "learner" ? "You" : "Companion"}: “{row.excerpt}
-                {row.clipped || row.excerpt.length >= 160 ? "…" : ""}”
-                {row.excluded ? " · not used again" : ""}
+                {t(row.excluded ? "connectedCompanion.context.rowExcluded" : "connectedCompanion.context.row", {
+                  role: row.role === "learner" ? "learner" : "companion",
+                  excerpt: `${row.excerpt}${row.clipped || row.excerpt.length >= 160 ? "…" : ""}`,
+                })}
               </Text>
               {onExclude && row.role === "learner" && (
                 <Button
                   label={
-                    row.excluded
-                      ? "Use this message again"
-                      : "Don’t use this message again"
+                    t(row.excluded
+                      ? "connectedCompanion.context.useMessage"
+                      : "connectedCompanion.context.skipMessage")
                   }
                   kind="quiet"
                   disabled={busy === row.messageId}
@@ -521,25 +527,21 @@ function ContextUsed({
           {used.summary && (
             <View style={{ gap: 4 }}>
               <Text style={styles.small}>
-                {used.summary.count} earlier{" "}
-                {used.summary.count === 1 ? "question" : "questions"} named
-                briefly
                 {used.summary.omitted
-                  ? ` (${used.summary.omitted} not shown)`
-                  : ""}
-                :
+                  ? t("connectedCompanion.context.summaryOmitted", { count: used.summary.count, omitted: used.summary.omitted })
+                  : t("connectedCompanion.context.summary", { count: used.summary.count })}
               </Text>
               {used.summary.items.map((item) => (
                 <View key={item.messageId} style={{ gap: 4 }}>
                   <Text style={styles.small}>
-                    “{item.excerpt}”{item.excluded ? " · not used again" : ""}
+                    {t(item.excluded ? "connectedCompanion.context.itemExcluded" : "connectedCompanion.context.item", { excerpt: item.excerpt })}
                   </Text>
                   {onExclude && (
                     <Button
                       label={
-                        item.excluded
-                          ? "Use this question again"
-                          : "Don’t use this question again"
+                        t(item.excluded
+                          ? "connectedCompanion.context.useQuestion"
+                          : "connectedCompanion.context.skipQuestion")
                       }
                       kind="quiet"
                       disabled={busy === item.messageId}
@@ -551,23 +553,24 @@ function ContextUsed({
             </View>
           )}
           <Text style={styles.small}>
-            Rules it followed: {rule.deadline
-              ? `deadline ${new Date(rule.deadline).toLocaleDateString()}`
-              : "no deadline"}
-            {" · "}
-            {rule.independentAssessmentActive
-              ? "an independent check was open"
-              : "no independent check open"}
-            {" · "}
-            {rule.expansionAllowed
-              ? "extra practice allowed"
-              : "no extra practice beyond the lesson"}
-            .
+            {t("connectedCompanion.context.rules", {
+              deadline: rule.deadline
+                ? t("connectedCompanion.context.rules.deadline", { date: i18n.date(rule.deadline) })
+                : t("connectedCompanion.context.rules.noDeadline"),
+              independent: t(
+                rule.independentAssessmentActive
+                  ? "connectedCompanion.context.rules.independent"
+                  : "connectedCompanion.context.rules.noIndependent",
+              ),
+              expansion: t(
+                rule.expansionAllowed
+                  ? "connectedCompanion.context.rules.expansion"
+                  : "connectedCompanion.context.rules.noExpansion",
+              ),
+            })}
           </Text>
           <Text style={styles.small}>
-            Evidence it could see: {used.evidenceCount}{" "}
-            {used.evidenceCount === 1 ? "result" : "results"}. Context version{" "}
-            {used.contextRevision}.
+            {t("connectedCompanion.context.evidence", { count: used.evidenceCount, revision: used.contextRevision })}
           </Text>
         </View>
       )}

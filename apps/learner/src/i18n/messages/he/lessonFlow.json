@@ -1,1 +1,27 @@
-{}
+{
+  "backToRoadmap": "→ מפת הקורס",
+  "meta": "{minutes, number} דק׳ · {title}",
+  "steps": "שלבי השיעור",
+  "stepButton": "{mark}  {title}",
+  "stepLabel": "{title}, {requirement, select, optional {שלב לבחירה} other {שלב חובה}}",
+  "stepLabelCurrent": "{title}, {requirement, select, optional {שלב לבחירה} other {שלב חובה}}, השלב הנוכחי",
+  "optionalDetour": "הרחבה לבחירה",
+  "required": "חובה",
+  "badge": "{requirement, select, required {חובה} other {לא חובה}} · {kind, select, choice {בדיקה} reflection {רפלקציה} other {הסבר}}",
+  "diagram": "{label}: {values}. {caption}",
+  "complete": "השלב הזה הושלם. אפשר לעבור עליו שוב ולהמשיך.",
+  "placed": "זמין לחזרה בזכות השיבוץ. החזרה אינה חובה.",
+  "last": "זה השלב האחרון",
+  "upNext": "הבא בתור",
+  "nextOptional": "{title} · לא חובה",
+  "backToPath": "חזרה למסלול הלמידה שלך",
+  "saving": "שומרים…",
+  "returnToRoadmap": "חזרה למפת הקורס ←",
+  "continue": "המשך ←",
+  "markRead": "סימון כנקרא והמשך ←",
+  "checkAnswer": "בדיקת התשובה",
+  "saveReflection": "שמירת הרפלקציה",
+  "skip": "דילוג בינתיים ←",
+  "note.optional": "המסלול הצדדי הזה אינו חובה. דילוג עליו אף פעם לא חוסם את השלב הבא.",
+  "note.required": "שלבי החובה נפתחים לפי הסדר. התשובה והמיקום שלך נשמרים במכשיר הזה."
+}

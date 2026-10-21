@@ -1,1 +1,24 @@
-{}
+{
+  "shownElsewhere.title": "You already showed “{other}” in {course}",
+  "shownElsewhere.body": "It matches “{objective}” here. Confirming tells this course, which may offer you a shorter check. It does not count as passing here: this course still decides from its own checks.",
+  "prerequisite.title": "“{other}” in {course} comes before “{objective}”",
+  "prerequisite.body": "You have not shown it in {course} yet. You might review it there first.",
+  "pacing.title": "Pacing across your courses",
+  "pacing.body": "This lesson builds on {count, plural, one {an objective} other {# objectives}} in {course} you have not shown yet: {objectives}. Consider spending your next session there.",
+  "quoted": "“{text}”",
+  "error.save": "Your choice could not be saved. Nothing changed.",
+  "title": "Sharing between your courses",
+  "intro": "Your course teams linked some objectives of {course} with your other courses. If you turn sharing on for a pair, what you have shown in one may be used for suggestions in the other — only whether you met an objective, never your answers, questions, notes or goal. Course staff do not see these choices or suggestions. Turning sharing off removes everything shared through that pair.",
+  "notice.on": "Sharing with {course} is on.",
+  "notice.off": "Sharing with {course} is off. What was shared was removed.",
+  "share": "Share with {course}",
+  "unavailable": "Not available: one of the courses is closed or no longer linked.",
+  "suggestions": "Suggestions from your other courses",
+  "noSuggestions": "No open suggestions.",
+  "notice.confirmed": "Thanks. This course was told.",
+  "notice.dismissed": "Suggestion dismissed.",
+  "confirm": "Confirm<hidden>: {title}</hidden>",
+  "dismiss": "Dismiss<hidden>: {title}</hidden>",
+  "state.confirmed": "Confirmed",
+  "state.dismissed": "Dismissed"
+}

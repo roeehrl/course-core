@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import type { VisualExperience } from "@course-core/sdk";
 import { Text, View } from "react-native";
+import { useT } from "../i18n";
 import { styles } from "./ui";
 export interface VisualBlockProps {
   experience?: VisualExperience;
@@ -48,6 +49,7 @@ export type VisualContextChange =
     };
 
 export function VisualBlock({ experience, source, onContextChange }: VisualBlockProps) {
+  const t = useT();
   const callback = useRef(onContextChange);
   callback.current = onContextChange;
   const episodeId = source?.episodeId;
@@ -62,16 +64,16 @@ export function VisualBlock({ experience, source, onContextChange }: VisualBlock
   }, [episodeId, blockId, visualId, Boolean(onContextChange)]);
   return (
     <View style={{ gap: 12 }}>
-      {source && <Text style={styles.small}>Current illustration · {source.episodeTitle || "Current lesson"}</Text>}
-      <Text style={styles.heading}>Illustration · text equivalent</Text>
+      {source && (
+        <Text style={styles.small}>
+          {t("visualBlock.current", { lesson: source.episodeTitle || t("visualBlock.currentLesson") })}
+        </Text>
+      )}
+      <Text style={styles.heading}>{t("visualBlock.textEquivalent")}</Text>
       <Text style={styles.body}>
-        {experience?.accessibility.description ||
-          "This illustration is unavailable. Ask your course team for its explanation."}
+        {experience?.accessibility.description || t("visualBlock.unavailable")}
       </Text>
-      <Text style={styles.small}>
-        The interactive renderer is available in the web learner. Native
-        rendering is not yet connected.
-      </Text>
+      <Text style={styles.small}>{t("visualBlock.native.note")}</Text>
     </View>
   );
 }

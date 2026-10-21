@@ -22,6 +22,8 @@ import {
   type MemorySnapshot,
 } from "../src/client/memoryClient";
 import { LearnerMemoryPanel } from "../src/components/LearnerMemoryPanel";
+import { stripBidiControls } from "@course-core/i18n";
+import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { connectedSnapshot } from "./connectedFixtures";
 
 const account = { id: "learner-account", displayName: "Learner" };
@@ -291,6 +293,41 @@ describe("learner-owned memory panel through HTTP", () => {
       cache: "no-store",
       redirect: "error",
     });
+  });
+
+  it("renders in Hebrew: translated labels, plurals and error codes, ids kept left to right", async () => {
+    const h = harness();
+    const snapshot = fixture();
+    snapshot.understanding[0] = {
+      ...snapshot.understanding[0]!,
+      status: "practicing",
+      practiceAttempts: 2,
+    };
+    h.model = snapshot;
+    render(
+      <I18nProvider value={createLearnerTranslator("he")}>
+        <LearnerMemoryPanel {...h.props} />
+      </I18nProvider>,
+    );
+    await screen.findByRole("heading", { name: "מה שהעבודה שלך כבר הוכיחה" });
+    expect(screen.getByText("בתרגול")).toBeVisible();
+    expect(
+      screen.getByText(/עד עכשיו נרשמו שתי תשובות\./),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("textbox", { name: "היעד שלי בלמידה" }),
+    ).toBeVisible();
+    const show = screen.getByRole("button", {
+      name: (name) =>
+        stripBidiControls(name) === `הצגת ההפניות לראיות של ${title}`,
+    });
+    fireEvent.click(show);
+    const reference = screen.getByText(
+      (text) => stripBidiControls(text) === "ראיה: evidence-1",
+    );
+    // The id is isolated left to right inside the right-to-left sentence.
+    expect(reference.textContent).toContain("\u2066evidence-1\u2069");
+    expect(document.body.textContent).not.toMatch(/Show |Loading saved memory/);
   });
 
   it("names where each suggestion came from: the course's AI or the connected agent the learner labelled", async () => {
