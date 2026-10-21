@@ -478,6 +478,11 @@ open and what happens to their deadlines. Confirming needs that exact preview (b
   the permission, or after 7 days. Staff can stop waiting moves.
 - Undo moves a learner back only while they have done nothing on the new version and are not
   enrolled in the old one again. Scopes the move added stay in their policy (inert there).
+- The learner is told: for 30 days after a move, their course page shows "Your course was
+  updated" with both version numbers and what the move means for them (their record is kept, a
+  checkpoint may ask again, deadlines are unchanged), until they dismiss it on that device. The
+  snapshot carries versions only (`courseVersionNotice`); the app words it in the learner's
+  language. An undone move shows no notice, and their learning record lists both events.
 - Audited: `course_version.move_confirmed`, `course_version.moved`, `course_version.move_undone`
   and `course_version.move_cancelled` (ids, versions, codes and counts; the staff reason on the
   confirmation).

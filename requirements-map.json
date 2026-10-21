@@ -675,6 +675,7 @@
       "core:apps/admin/tests/real/version-moves.real.spec.ts::preview, confirm and undo a move of everyone on 1.0.0 to 1.1.0",
       "core:apps/admin/tests/versionMoves.test.tsx::moves demo learners only to a newer published version and moves them back",
       "core:apps/admin/tests/versionMoves.test.tsx::previews before anything moves, says what happens to each learner, and needs a reason and an acknowledgement",
+      "core:apps/learner/tests/courseVersionNotice.test.tsx::tells a moved learner what changed and what is kept, until they dismiss it on this device",
       "core:scripts/release-compat.test.mjs::compatibility versions follow semantic version order and the API package rule",
       "core:services/api/test/admin.integration.test.ts",
       "core:services/api/test/course-package.test.ts::refuses a pre-release of the upper bound of the range",

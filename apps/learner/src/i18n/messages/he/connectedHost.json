@@ -72,5 +72,7 @@
   "record.event.companion_requested": "הודעה למלווה נשמרה",
   "record.event.profile_updated": "פרופיל הלמידה עודכן",
   "record.event.visual_completed": "האיור נצפה עד הסוף",
+  "record.event.course_version_moved": "הקורס הועבר לגרסה חדשה יותר",
+  "record.event.course_version_move_undone": "הקורס הוחזר לגרסה הקודמת",
   "record.event.other": "פעילות למידה נשמרה"
 }

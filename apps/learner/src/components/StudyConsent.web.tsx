@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useState } from "react";
 import type { CourseApi, ServerSnapshot } from "../client/apiClient";
 import type { StudyConsentProps } from "./StudyConsent";
-import { useI18n } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 import { useFirstLoadDone } from "../connected/firstLoad";
 
 interface StudyView {
@@ -60,7 +60,8 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
   if (!study) return null;
   // A code this app has no words for (a newer server) shows as the code, never as nothing.
   const word = (group: "version" | "collected" | "neverCollected", code: string) => {
-    const key = `studyConsent.${group}.${code}` as Parameters<typeof t>[0];
+    const key = (group === "version" ? `studyConsent.version.${code}`
+      : group === "collected" ? `studyConsent.collected.${code}` : `studyConsent.neverCollected.${code}`) as MessageKey;
     return i18n.has(key) ? t(key) : code;
   };
   const undecided = !participation && study.state === "recruiting";

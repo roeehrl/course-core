@@ -148,6 +148,8 @@ describe("moving learners to a newer course version", () => {
     // The learner now sees v2: the first lesson is open again (its checkpoint counts v2 evidence only).
     const state = (await call(who, "GET", `/api/enrollments/${id}`)).json();
     expect(state.lessons.map((l: { id: string; status: string }) => [l.id, l.status])).toEqual([["min", "available"], ["max", "locked"], ["range", "locked"]]);
+    // The learner app is told the course was updated: versions only, no prose.
+    expect(state.courseVersionNotice).toEqual({ id: expect.any(String), fromVersion: "1.0.0", toVersion: "2.0.0", movedAt: expect.any(String) });
     // Existing scopes kept as they were; the new lesson got its own.
     const policy = (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [id])).rows[0].snapshot;
     expect(policy.scopes.map((s: { scopeId: string }) => s.scopeId)).toContain("episode:range");
@@ -163,7 +165,10 @@ describe("moving learners to a newer course version", () => {
     expect(undone.statusCode, undone.body).toBe(200);
     expect(undone.json()).toMatchObject({ undone: [id], refused: [], move: { totals: { moved: 0, undone: 1 } } });
     expect(await releaseOf(id)).toBe(v1);
-    expect((await call(who, "GET", `/api/enrollments/${id}`)).json().lessons[0].status).toBe("completed");
+    const back = (await call(who, "GET", `/api/enrollments/${id}`)).json();
+    expect(back.lessons[0].status).toBe("completed");
+    // Back on v1, so no "your course was updated" notice.
+    expect(back.courseVersionNotice).toBeNull();
   });
 
   it("refuses undo once the learner has continued on the new version", async () => {
