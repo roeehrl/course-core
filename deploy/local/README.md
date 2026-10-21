@@ -509,6 +509,61 @@ artifact in Postgres. If you enable the optional object store
 (`COURSE_ARTIFACT_STORE=s3`, see the root README), these backups do not contain
 the stored objects: back up that bucket separately.
 
+### Hourly online snapshots (1 hour RPO)
+
+A stopped backup needs downtime, so it cannot run every hour. An **online snapshot**
+can: it runs while the pilot serves learners and needs no password or prompt.
+
+```sh
+node deploy/local/backup.mjs snapshot --root "$ROOT" --state "$STATE" --output "$SNAPSHOTS" [--pg-bin …]
+node deploy/local/backup.mjs prune --output "$SNAPSHOTS" --keep 48 --kind snapshot
+```
+
+- **PostgreSQL** is read from one exported snapshot. A `REPEATABLE READ` transaction
+  is held open, and `pg_dump --snapshot`, the per-table row counts and the migration
+  list all read that snapshot. The dump and its recorded counts therefore always
+  agree, even while learners keep writing. No lock blocks writers.
+- **Temporal** is copied with sqlite's online backup (`sqlite3 .backup`), which is
+  consistent while the server writes. The copy is taken a few seconds after the
+  database snapshot. Temporal holds workflow state only; learner records and the
+  supervisor outbox live in PostgreSQL, so a restore loses no learner data.
+- **Configuration, installation record and provider vault** are copied as in `create`.
+  With `backupAgeRecipients` set, every file is encrypted to those public keys and the
+  dump goes straight into `age`. No plaintext dump touches the disk.
+- The connection uses `migrationDatabaseUrl` (or `databaseUrl`) through its socket,
+  trust auth or `~/.pgpass`. A URL with a password is refused, as for `create`.
+
+A snapshot directory is named `snapshot-…` and has the same manifest format as a
+backup, marked `"consistency": "online_snapshot"`. `verify` restores it the same way
+and `prune --kind snapshot` keeps it apart from stopped backups.
+
+**Let the pilot take them.** Add a `snapshots` key to `config.json`:
+
+```json
+"snapshots": { "directory": "/Users/you/CourseBackups/snapshots", "intervalMinutes": 60, "keep": 48 }
+```
+
+- `directory` must be an absolute path. It is created owner-only.
+- `intervalMinutes` must be from 15 to 60. 60 meets the 1 hour RPO.
+- `keep` must be from 2 to 1000. 48 keeps two days of hourly snapshots.
+
+While the pilot runs, it takes the first snapshot a minute after its services are
+ready and then one every interval. It runs one snapshot at a time, each as its own
+`backup.mjs` process with a 30 minute limit, and prunes after each success. The
+services log records only `snapshot_created`, `snapshot_failed` or
+`snapshot_prune_failed`. Stopping the pilot ends a snapshot that is still running,
+and no partial directory is left behind. Keep a daily stopped `create` as well if
+you want a copy whose Temporal store and database come from the same instant.
+
+**Reports.** `create`, `snapshot` and `verify` each write one row to the
+`platform_backup_reports` table (migration 100). The row holds the kind, the
+outcome, a failure code, the start and finish times, row and table counts, the
+total size and whether the copy was encrypted. It never holds a path or a
+credential. Writing the row is best effort: a database without the table, or one
+that cannot be reached, does not fail the backup, and the result says
+`"reported": false`. The admin **Platform** page reads these rows. It shows the
+latest snapshot, backup and restore drill and checks the recovery targets below.
+
 ### Encrypting backups with age (optional)
 
 Backups are not encrypted by default. To encrypt them, install the
@@ -579,25 +634,32 @@ backup is always kept. Run it after a successful `create` and `verify`.
 
 The pilot is one macOS host with one PostgreSQL server, one Temporal development
 server and no standby. The targets below are what this design can honestly
-support. They are operating targets for a single-host pilot, not measured service
-levels or a production SLA, and nothing in the repository monitors them.
+support. They are operating targets for a single-host pilot, not a production SLA.
+The admin **Platform** page monitors the RPO and RTO from the backup reports (see
+"Reports" above).
 
 | Target | Value for the local pilot | What it rests on |
 | --- | --- | --- |
 | Availability | 99.5% per calendar month (about 3.6 hours of unplanned downtime), counted only while the host is powered on and the operator is logged in. Planned backup and upgrade windows are excluded | launchd restarts after a failure (below); no redundancy for host, disk or PostgreSQL failures |
-| RPO (data loss on restore) | 24 hours with the recommended daily backup. In general it equals the time since the last backup that passed `verify` | `backup.mjs create` works only on a stopped pilot. There is no WAL archiving or point-in-time recovery, so anything written after the last backup is lost when you restore from it |
+| RPO (data loss on restore) | 1 hour with hourly online snapshots (`snapshots.intervalMinutes` 60 or less). Without snapshots it is the time since the last backup that passed `verify`: 24 hours with a daily stopped backup | Online snapshots need no downtime. There is no WAL archiving, so data written since the newest snapshot is lost on restore |
 | RTO (restore on the same host) | 1 hour | Restore of a small database takes seconds (below); the time goes into operator steps |
 | RTO (replacement host) | 4 hours | Install the pinned release, Node 26, PostgreSQL 17 and the Temporal CLI, then restore |
 
-**Why not an hourly RPO.** A backup needs a stopped pilot. A stop can take up to
-75 seconds (the children are stopped in turn: dispatcher, worker, API, Temporal;
-each gets 15 seconds, the worker 30) and a start up to about a minute (30 seconds
-of readiness polling each for Temporal and the API). Hourly backups would therefore
-cost up to about two minutes of downtime every hour, roughly 24 hours a month,
-which breaks the availability target. If you need a tighter RPO than daily, run
-`create` more often during quiet hours and accept that downtime, or add PostgreSQL
-WAL archiving outside this tool. The Temporal store has no equivalent and is only
-ever captured by a stopped backup.
+**How the Platform page checks them.**
+
+| Check | OK | Warning | Failing |
+| --- | --- | --- | --- |
+| RPO | The newest successful snapshot or backup finished at most 60 minutes ago | 61 to 120 minutes ago | Older than 120 minutes. "No data" when nothing was ever reported |
+| RTO | The latest restore drill succeeded, took at most 60 minutes and is at most 7 days old | The drill is older than 7 days | The latest drill failed or took longer than 60 minutes |
+
+The drill's duration (decryption included) stands in for the restore time. Run
+`verify` on a recent snapshot at least weekly so the RTO check stays current.
+
+**Why not WAL archiving.** Continuous WAL archiving would give a smaller RPO, but
+it needs PostgreSQL server settings (`archive_mode`, `archive_command`) and a
+restart of a server the pilot does not own. Hourly snapshots meet the 1 hour
+target with the database the operator already has. A stopped backup is still
+the only copy whose Temporal store and database come from the same instant.
 
 **Measured restore time.** On the development Mac, with other work running,
 `pg_dump --format=custom` of a disposable 225 MB database (one million rows plus

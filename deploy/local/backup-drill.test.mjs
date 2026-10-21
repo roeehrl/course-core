@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { privateDirectory, writePrivate } from './runtime.mjs';
-import { createBackup, verifyBackup, decryptBackup } from './backup.mjs';
+import { createBackup, createSnapshot, verifyBackup, decryptBackup } from './backup.mjs';
+import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
 async function fixture(body) { const directory = await mkdtemp('/tmp/cc-bk-'); try { return await body(await privateDirectory(directory)); } finally { await rm(directory, { recursive: true, force: true }); } }
@@ -132,6 +133,15 @@ test('an age-encrypted backup holds no plaintext, restores only with the identit
     console.log(`# encrypted backup + restore drill: ${Date.now() - started} ms`);
     assert.deepEqual((await readdir(state)).filter(n => n.startsWith('.restore-drill-')), []);
 
+    // An online snapshot is encrypted the same way, the dump streamed straight into age.
+    const snapshot = await createSnapshot({ root, state, output: path.join(base, 'snapshots'), ageBin });
+    assert.equal(snapshot.encrypted, true);
+    for (const file of (await readdir(snapshot.directory)).filter(f => f.endsWith('.age'))) {
+      const bytes = await readFile(path.join(snapshot.directory, file));
+      for (const needle of ['PGDMP', marker, serviceToken, 'SQLite format']) assert(!bytes.includes(needle), `${file} contains ${needle}`);
+    }
+    assert.equal((await verifyBackup({ root, state, backup: snapshot.directory, identity: owner.identity, ageBin })).status, 'restore_verified');
+
     // A manual restore starts from a decrypted plain copy; it verifies as an ordinary backup.
     const plain = await decryptBackup({ backup: created.directory, identity: owner.identity, output: path.join(base, 'plain'), ageBin });
     assert.equal(await readFile(path.join(plain.directory, 'config.json'), 'utf8'), await readFile(path.join(state, 'config.json'), 'utf8'));
@@ -154,6 +164,62 @@ test('an age-encrypted backup holds no plaintext, restores only with the identit
     await writePrivate(path.join(created.directory, 'manifest.json'), JSON.stringify(manifest));
     await assert.rejects(verifyBackup({ root, state, backup: created.directory, identity: owner.identity, ageBin }), /age_decrypt_failed/);
     assert.deepEqual((await readdir(state)).filter(n => n.startsWith('.restore-drill-')), []);
+  } finally {
+    await psql(admin.href, `DROP DATABASE IF EXISTS ${name}`);
+  }
+}));
+
+// The 1 hour RPO (T03): an online snapshot of a database that keeps changing while it is taken.
+// pg_dump, the recorded row counts and the migration list all read one exported snapshot, so the
+// restore drill matches the snapshot exactly even though the live table has moved on. Both runs
+// are reported to the platform_backup_reports table the admin readiness page reads.
+test('an online snapshot of a running database restores exactly what it captured and is reported', { skip: serverUrl ? false : 'BACKUP_TEST_DATABASE_URL missing (reported as a failure above)' }, () => fixture(async base => {
+  const url = new URL(serverUrl); assert(['127.0.0.1', 'localhost'].includes(url.hostname) && /^\/course_core_test/.test(url.pathname));
+  const name = `course_core_test_bk_${randomBytes(4).toString('hex')}`, admin = new URL(url.href); admin.pathname = '/postgres';
+  const db = new URL(url.href); db.pathname = '/' + name;
+  const psql = (target, sql) => exec('psql', [target, '-XAtc', sql]);
+  await psql(admin.href, `CREATE DATABASE ${name}`);
+  try {
+    const reports = await readFile(fileURLToPath(new URL('../../services/api/migrations/100_platform_backup_reports.sql', import.meta.url)), 'utf8');
+    await psql(db.href, "CREATE TABLE schema_migrations(name text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001_initial.sql'); CREATE TABLE learner_rows(id serial, note text); INSERT INTO learner_rows(note) SELECT 'row '||g FROM generate_series(1,500) g;");
+    await exec('psql', [db.href, '-XAtq', '-v', 'ON_ERROR_STOP=1', '-c', reports]);
+    const root = path.join(base, 'root'), state = await privateDirectory(path.join(base, 'state'), true), output = path.join(base, 'snapshots');
+    for (const file of ['.local/bin/temporal', 'services/api/dist/main.js', 'services/supervisor/dist/src/cli.js', 'apps/learner/dist/index.html', 'apps/admin/dist/index.html']) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), '', { mode: 0o755 });
+    }
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@course-core/repository', version: '9.9.9' }));
+    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: 'http://127.0.0.1:44440', databaseUrl: db.href,
+      temporalPort: 44441, temporalUiPort: 44442, serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'snapshot-test',
+      snapshots: { directory: output, intervalMinutes: 60, keep: 3 } }));
+    await exec('sqlite3', [path.join(state, 'temporal.db'), 'PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES (1);']); await chmod(path.join(state, 'temporal.db'), 0o600);
+    // The pilot is "running": its owner record is present, which blocks a stopped backup but not a snapshot.
+    await writePrivate(path.join(state, 'owner.json'), JSON.stringify({ schemaVersion: 2 }));
+    await assert.rejects(createBackup({ root, state, output: path.join(base, 'backups') }), /legacy_or_unknown_owner|pilot_running/);
+    let writing = true, written = 0;
+    const writer = (async () => { while (writing) { await psql(db.href, "INSERT INTO learner_rows(note) VALUES ('written during the snapshot')"); written++; } })();
+    let created;
+    try {
+      created = await createSnapshot({ root, state, output });
+    } finally { writing = false; await writer; }
+    assert.equal(created.status, 'snapshot_created'); assert.equal(created.reported, true); assert.equal(created.encrypted, false);
+    assert.match(path.basename(created.directory), /^snapshot-\d{17}-[a-f0-9]{6}$/);
+    const manifest = JSON.parse(await readFile(path.join(created.directory, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.consistency, 'online_snapshot');
+    const captured = manifest.tableCounts.learner_rows, live = Number((await psql(db.href, 'SELECT count(*) FROM learner_rows')).stdout.trim());
+    assert(written > 0 && captured >= 500 && captured <= live, `captured ${captured} of ${live} rows while ${written} inserts ran`);
+    assert.deepEqual((await readdir(state)).filter(n => n.startsWith('.snapshot-')), []);
+    const verified = await verifyBackup({ root, state, backup: created.directory });
+    assert.equal(verified.status, 'restore_verified'); assert.equal(verified.temporal, 'integrity_ok'); assert.equal(verified.reported, true);
+    assert.equal(verified.rows, Object.values(manifest.tableCounts).reduce((a, b) => a + b, 0));
+    const rows = (await psql(db.href, "SELECT kind||':'||outcome||':'||coalesce(code,'-')||':'||encrypted||':'||coalesce(core_version,'-') FROM platform_backup_reports ORDER BY finished_at")).stdout.trim().split('\n');
+    // The refused stopped backup above is reported too, with its code.
+    assert.deepEqual(rows, ['backup:failed:legacy_or_unknown_owner:false:9.9.9', 'snapshot:succeeded:-:false:9.9.9', 'restore_drill:succeeded:-:false:9.9.9']);
+    // A database that cannot be reached fails the snapshot and leaves no partial directory.
+    const broken = JSON.parse(await readFile(path.join(state, 'config.json'), 'utf8'));
+    await rm(path.join(state, 'config.json'));
+    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ ...broken, databaseUrl: new URL(`/${name}_missing`, db.href).href.replace(/^http/, 'postgresql') }));
+    await assert.rejects(createSnapshot({ root, state, output }), /snapshot_export_failed/);
+    assert.deepEqual((await readdir(output)).sort(), [path.basename(created.directory)]);
   } finally {
     await psql(admin.href, `DROP DATABASE IF EXISTS ${name}`);
   }

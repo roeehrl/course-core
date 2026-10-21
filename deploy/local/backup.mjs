@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -38,10 +38,10 @@ async function decryptFile(ageBin, identity, input, output) {
   await tool(ageBin, 'age', ['--decrypt', '--identity', identity, '--output', output, input], {}, 'age_decrypt');
 }
 /** pg_dump → age with no plaintext on disk; returns the plaintext size and digest. */
-function dumpEncrypted(pgBin, ageBin, url, recipients, output) {
+function dumpEncrypted(pgBin, ageBin, url, recipients, output, snapshot) {
   return new Promise((resolve, reject) => {
     const env = toolEnvironment(), digest = createHash('sha256'); let bytes = 0, failure;
-    const dump = spawn(pgBin ? path.join(pgBin, 'pg_dump') : 'pg_dump', ['--format=custom', '--no-owner', '--no-privileges', url.href], { env, stdio: ['ignore', 'pipe', 'ignore'] });
+    const dump = spawn(pgBin ? path.join(pgBin, 'pg_dump') : 'pg_dump', ['--format=custom', '--no-owner', '--no-privileges', ...(snapshot ? [`--snapshot=${snapshot}`] : []), url.href], { env, stdio: ['ignore', 'pipe', 'ignore'] });
     const age = spawn(ageBin ? path.join(ageBin, 'age') : 'age', ['--encrypt', ...recipients.flatMap(r => ['--recipient', r]), '--output', output], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     const fail = code => { failure ??= code; dump.kill(); age.kill(); };
     age.stdin.on('error', () => fail('age_encrypt_failed'));
@@ -61,9 +61,16 @@ async function identityFile(value) {
   await privateFile(file, false, 65_536).catch(error => { throw new PilotError(error?.code === 'insecure_private_file' ? 'insecure_age_identity_file' : 'age_identity_unreadable'); });
   return file;
 }
-async function tableCounts(pgBin, url) {
-  const tables = (await tool(pgBin, 'psql', [url.href, '-XAtc',
-    "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"])).trim().split('\n').filter(Boolean);
+/** Runs one read-only query, inside an exported snapshot when one is given (so every query sees
+ * exactly the data pg_dump saw), and returns psql's unaligned rows. */
+async function query(pgBin, url, sql, snapshot) {
+  const statements = snapshot
+    ? ['-c', 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY', '-c', `SET TRANSACTION SNAPSHOT '${snapshot}'`, '-c', sql, '-c', 'COMMIT']
+    : ['-c', sql];
+  return (await tool(pgBin, 'psql', [url.href, '-XAtq', '-F', '\t', '-v', 'ON_ERROR_STOP=1', ...statements])).trim().split('\n').filter(Boolean);
+}
+async function tableCounts(pgBin, url, snapshot) {
+  const tables = await query(pgBin, url, "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename", snapshot);
   ensure(tables.every(name => /^[a-z_][a-z0-9_]{0,62}$/.test(name)), 'unexpected_table_name');
   if (!tables.length) return {};
   // Exact count(*) per table. A UNION ALL has no defined row order: PostgreSQL
@@ -71,7 +78,7 @@ async function tableCounts(pgBin, url) {
   // statistics. ORDER BY keeps the recorded order stable, and comparisons below
   // never depend on order anyway.
   const sql = tables.map(name => `SELECT '${name}',count(*) FROM public."${name}"`).join(' UNION ALL ') + ' ORDER BY 1';
-  const rows = (await tool(pgBin, 'psql', [url.href, '-XAtF', '\t', '-c', sql])).trim().split('\n');
+  const rows = await query(pgBin, url, sql, snapshot);
   return Object.fromEntries(rows.map(line => { const [name, count] = line.split('\t'); return [name, Number(count)]; }));
 }
 /** Per-table differences between two count maps, independent of key order.
@@ -109,6 +116,9 @@ export async function verifyManifest(directory) {
  * store are captured at the same quiescent point. */
 export async function createBackup({ root, state, output, pgBin, ageBin }) {
   const loaded = await loadConfiguration(root, state);
+  return reported(loaded, pgBin, 'backup', () => stoppedBackup(loaded, { output, pgBin, ageBin }));
+}
+async function stoppedBackup(loaded, { output, pgBin, ageBin }) {
   ensure(!(await ownerRecord(loaded.state)), 'pilot_running');
   ensure((await Promise.all(loaded.ports.map(portFree))).every(Boolean), 'service_port_in_use');
   const recipients = loaded.config.backupAgeRecipients;
@@ -165,8 +175,155 @@ export async function createBackup({ root, state, output, pgBin, ageBin }) {
   await writePrivate(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await verifyManifest(directory);
   return { status: 'created', directory, coreVersion: manifest.coreVersion, tables: Object.keys(counts).length,
-    rows: Object.values(counts).reduce((a, b) => a + b, 0), files: files.length, encrypted: recipients.length > 0 };
+    rows: Object.values(counts).reduce((a, b) => a + b, 0), files: files.length, encrypted: recipients.length > 0,
+    bytes: files.reduce((n, f) => n + f.bytes, 0) };
 }
+// ---------------------------------------------------------------- online snapshots (T03)
+
+/** Snapshot directories, kept apart from stopped backups so pruning one never removes the other. */
+export const SNAPSHOT_PREFIX = 'snapshot';
+/**
+ * Holds one REPEATABLE READ transaction open and exports its snapshot. pg_dump and the row counts
+ * then read exactly that snapshot, so an online copy is as consistent as a stopped one for
+ * PostgreSQL, without stopping the pilot or holding any lock that blocks writers.
+ */
+async function exportSnapshot(pgBin, url) {
+  const child = spawn(pgBin ? path.join(pgBin, 'psql') : 'psql', ['-XAtq', '-v', 'ON_ERROR_STOP=1', url.href], { env: toolEnvironment(), stdio: ['pipe', 'pipe', 'ignore'] });
+  const closed = new Promise(resolve => { child.once('close', resolve); child.once('error', resolve); });
+  child.stdin.on('error', () => {});
+  child.stdin.write('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n');
+  const id = await new Promise(resolve => {
+    let text = '';
+    const timer = setTimeout(() => resolve(null), 30_000);
+    child.stdout.on('data', chunk => { text += chunk; if (text.includes('\n')) { clearTimeout(timer); resolve(text.split('\n')[0].trim()); } });
+    closed.then(() => { clearTimeout(timer); resolve(null); });
+  });
+  const release = async () => { child.stdin.end('COMMIT;\n'); const timer = setTimeout(() => child.kill(), 10_000); await closed; clearTimeout(timer); };
+  if (!id || !/^[0-9A-F]{8}-[0-9A-F]{8}-\d{1,10}$/.test(id)) { await release(); throw new PilotError('snapshot_export_failed'); }
+  return { id, release };
+}
+/** sqlite's online backup API copies a consistent Temporal store while the server keeps writing. */
+async function copyTemporalStore(source, target) {
+  ensure(!/['\x00-\x1f]/.test(target), 'unsafe_backup_path');
+  try { await lstat(source); } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  await exec('sqlite3', [source, `.backup '${target}'`], { env: toolEnvironment() }).catch(() => { throw new PilotError('temporal_store_copy_failed'); });
+  await chmod(target, 0o600);
+  return true;
+}
+/**
+ * An online snapshot of a running pilot: PostgreSQL from one exported snapshot (dump, row counts
+ * and migrations all read the same data), the Temporal store through sqlite's online backup, and
+ * the same configuration and sealed vault files as a stopped backup. It needs no stop and no
+ * password: the database connection uses the configured socket or ~/.pgpass, and encryption uses
+ * only the configured public recipients. Run hourly (pilot `snapshots` setting) it bounds data
+ * loss to the interval. The manifest has the stopped backup's format, so `verify` restores it.
+ */
+export async function createSnapshot({ root, state, output, pgBin, ageBin }) {
+  const loaded = await loadConfiguration(root, state);
+  return reported(loaded, pgBin, 'snapshot', async () => {
+    const recipients = loaded.config.backupAgeRecipients;
+    if (recipients.length) await requireAge(ageBin);
+    const url = connection(loaded.config.migrationDatabaseUrl ?? loaded.config.databaseUrl);
+    const parent = await privateDirectory(absolute(output), true);
+    const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17);
+    const directory = path.join(parent, `${SNAPSHOT_PREFIX}-${stamp}-${randomBytes(3).toString('hex')}`);
+    await mkdir(directory, { mode: 0o700 });
+    try {
+      const files = [];
+      const record = async (name, plaintext) => { const full = path.join(directory, name); await chmod(full, 0o600); const info = await lstat(full); files.push({ name, bytes: info.size, sha256: await digestFile(full), ...(plaintext ? { plaintext } : {}) }); };
+      const store = async (source, name) => {
+        if (!recipients.length) { await copyFile(source, path.join(directory, name)); return record(name); }
+        const bytes = await readFile(source);
+        await encryptFile(ageBin, recipients, source, path.join(directory, name + ENCRYPTED_SUFFIX));
+        return record(name + ENCRYPTED_SUFFIX, { bytes: bytes.length, sha256: hash(bytes) });
+      };
+      const snapshot = await exportSnapshot(pgBin, url);
+      let counts, migrations, server;
+      try {
+        if (recipients.length) {
+          // pg_dump → age with no plaintext on disk, reading the exported snapshot.
+          const plaintext = await dumpEncrypted(pgBin, ageBin, url, recipients, path.join(directory, 'database.dump' + ENCRYPTED_SUFFIX), snapshot.id);
+          await record('database.dump' + ENCRYPTED_SUFFIX, plaintext);
+        } else {
+          await tool(pgBin, 'pg_dump', ['--format=custom', '--no-owner', '--no-privileges', `--snapshot=${snapshot.id}`, '--file', path.join(directory, 'database.dump'), url.href]);
+          await record('database.dump');
+        }
+        counts = await tableCounts(pgBin, url, snapshot.id);
+        migrations = await query(pgBin, url, 'SELECT name FROM schema_migrations ORDER BY name', snapshot.id);
+        server = (await query(pgBin, url, 'SHOW server_version'))[0];
+      } finally { await snapshot.release(); }
+      // The Temporal copy goes through the private state directory, which already holds it in plain text.
+      const scratch = await mkdtemp(path.join(loaded.state, '.snapshot-'));
+      try {
+        await chmod(scratch, 0o700);
+        if (await copyTemporalStore(path.join(loaded.state, 'temporal.db'), path.join(scratch, 'temporal.db'))) await store(path.join(scratch, 'temporal.db'), 'temporal.db');
+      } finally { await rm(scratch, { recursive: true, force: true }); }
+      for (const name of ['config.json', 'installation.json']) {
+        try { await lstat(path.join(loaded.state, name)); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        await store(path.join(loaded.state, name), name);
+      }
+      for (const entry of await readdir(loaded.config.providerVaultDirectory, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        await mkdir(path.join(directory, 'provider-vault'), { mode: 0o700, recursive: true });
+        await store(path.join(loaded.config.providerVaultDirectory, entry.name), path.join('provider-vault', entry.name));
+      }
+      const runtime = JSON.parse(await readFile(path.join(loaded.root, 'package.json'), 'utf8'));
+      const manifest = { schemaVersion: recipients.length ? 2 : 1, kind: 'course-core-pilot-backup', consistency: 'online_snapshot', createdAt: new Date().toISOString(),
+        coreVersion: runtime.version, postgresServerVersion: server, migrations, tableCounts: counts, files,
+        ...(recipients.length ? { encryption: { scheme: 'age', recipients } } : {}),
+        contains: ['learner records', 'operator configuration', 'sealed provider credentials and vault key'] };
+      await writePrivate(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+      await verifyManifest(directory);
+      return { status: 'snapshot_created', directory, coreVersion: manifest.coreVersion, tables: Object.keys(counts).length,
+        rows: Object.values(counts).reduce((a, b) => a + b, 0), files: files.length, encrypted: recipients.length > 0,
+        bytes: files.reduce((n, f) => n + f.bytes, 0) };
+    } catch (error) {
+      // A failed snapshot leaves nothing half-written behind.
+      await rm(directory, { recursive: true, force: true });
+      throw error;
+    }
+  });
+}
+
+/**
+ * Records one run of a backup tool in the pilot database (platform_backup_reports, migration 100)
+ * for the admin readiness page. Best effort: a database without the table, or unreachable, never
+ * fails the backup itself; the result says whether the report was written. Only fixed codes,
+ * times, counts and sizes are written, all checked against strict patterns before use.
+ */
+export async function recordBackupReport(pgBin, url, report) {
+  const text = value => `'${value}'`;
+  const number = value => (Number.isSafeInteger(value) && value >= 0 ? String(value) : 'NULL');
+  const ok = ['snapshot', 'backup', 'restore_drill'].includes(report.kind) && ['succeeded', 'failed'].includes(report.outcome)
+    && (report.code === null || /^[a-z0-9_]{1,64}$/.test(report.code)) && (report.outcome === 'failed') === (report.code !== null)
+    && [report.startedAt, report.finishedAt].every(value => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
+    && (report.coreVersion === null || /^[0-9A-Za-z.+-]{1,40}$/.test(report.coreVersion));
+  if (!ok) return false;
+  const sql = `INSERT INTO platform_backup_reports(id,kind,outcome,code,started_at,finished_at,encrypted,core_version,tables,rows,bytes) VALUES (${[
+    text(randomUUID()), text(report.kind), text(report.outcome), report.code === null ? 'NULL' : text(report.code), text(report.startedAt), text(report.finishedAt),
+    report.encrypted ? 'true' : 'false', report.coreVersion === null ? 'NULL' : text(report.coreVersion), number(report.tables), number(report.rows), number(report.bytes)].join(',')})`;
+  return tool(pgBin, 'psql', [url.href, '-XAtq', '-v', 'ON_ERROR_STOP=1', '-c', sql]).then(() => true, () => false);
+}
+/** Runs one backup operation and records its outcome; the operation's own result or error is
+ * returned unchanged, with `reported` added to a result. */
+async function reported(loaded, pgBin, kind, work) {
+  const startedAt = new Date().toISOString();
+  let url;
+  try { url = connection(loaded.config.migrationDatabaseUrl ?? loaded.config.databaseUrl); } catch { return work(); }
+  let coreVersion = null;
+  try { coreVersion = JSON.parse(await readFile(path.join(loaded.root, 'package.json'), 'utf8')).version ?? null; } catch { /* unknown */ }
+  try {
+    const result = await work();
+    const written = await recordBackupReport(pgBin, url, { kind, outcome: 'succeeded', code: null, startedAt, finishedAt: new Date().toISOString(),
+      encrypted: Boolean(result.encrypted), coreVersion, tables: result.tables, rows: result.rows, bytes: result.bytes });
+    return { ...result, reported: written };
+  } catch (error) {
+    const code = error instanceof PilotError && /^[a-z0-9_]{1,64}$/.test(error.code) ? error.code : 'backup_operation_failed';
+    await recordBackupReport(pgBin, url, { kind, outcome: 'failed', code, startedAt, finishedAt: new Date().toISOString(), encrypted: false, coreVersion, tables: null, rows: null, bytes: null });
+    throw error;
+  }
+}
+
 /** Decrypt an encrypted backup into a new owner-only directory holding a plain
  * (schema 1) backup with its own manifest; every plaintext digest must match
  * what was recorded at creation. Used by restore drills and manual restores. */
@@ -203,9 +360,16 @@ export async function decryptBackup({ backup, identity, output, ageBin }) {
 /** Restore drill: restore into a NEW disposable database on the same server,
  * compare row counts and migrations, check the Temporal store, then drop it. */
 export async function verifyBackup({ root, state, backup, pgBin, ageBin, identity, keep = false }) {
+  const loaded = await loadConfiguration(root, state);
+  // The drill's duration (decryption included) is the restore time the readiness page compares with the RTO.
+  return reported(loaded, pgBin, 'restore_drill', async () => {
+    const result = await drill({ loaded, backup, pgBin, ageBin, identity, keep });
+    return { ...result, encrypted: Boolean(result.encrypted) };
+  });
+}
+async function drill({ loaded, backup, pgBin, ageBin, identity, keep }) {
   const original = await realpath(absolute(backup));
   const recorded = await verifyManifest(original);
-  const loaded = await loadConfiguration(root, state);
   if (recorded.schemaVersion !== 2) return restoreDrill({ loaded, directory: original, manifest: recorded, pgBin, keep });
   // Decrypted copies go to a scratch directory inside the private pilot state,
   // which already holds the same data unencrypted, and are always removed.
@@ -247,13 +411,15 @@ async function restoreDrill({ loaded, directory, manifest, pgBin, keep }) {
 /** Retention: keep the newest `keep` intact backups and delete older intact
  * ones. Anything unrecognised, changed or unreadable is left in place and
  * reported, so an operator decides; at least one backup is always kept. */
-export async function pruneBackups({ output, keep }) {
+export async function pruneBackups({ output, keep, kind = 'backup' }) {
   ensure(Number.isInteger(keep) && keep >= 1 && keep <= 1000, 'invalid_keep');
+  ensure(['backup', SNAPSHOT_PREFIX].includes(kind), 'invalid_arguments');
+  const pattern = new RegExp(`^${kind}-\\d{17}-[a-f0-9]{6}$`);
   const parent = absolute(output), info = await lstat(parent);
   ensure(info.isDirectory() && !info.isSymbolicLink(), 'backup_directory_missing');
   const intact = [], skipped = [];
   for (const entry of (await readdir(parent, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? 1 : -1))) {
-    if (!/^backup-\d{17}-[a-f0-9]{6}$/.test(entry.name)) continue;
+    if (!pattern.test(entry.name)) continue;
     if (!entry.isDirectory() || entry.isSymbolicLink()) { skipped.push(entry.name); continue; }
     try { await verifyManifest(path.join(parent, entry.name)); intact.push(entry.name); } catch { skipped.push(entry.name); }
   }
@@ -262,10 +428,11 @@ export async function pruneBackups({ output, keep }) {
   return { status: 'pruned', kept: intact.slice(0, keep), removed, skipped };
 }
 export function parseBackupArguments(args) {
-  const mode = args[0]; ensure(['create', 'verify', 'prune', 'decrypt'].includes(mode), 'invalid_command');
+  const mode = args[0]; ensure(['create', 'snapshot', 'verify', 'prune', 'decrypt'].includes(mode), 'invalid_command');
   if (mode === 'prune') {
-    ensure(args.length === 5 && args[1] === '--output' && args[3] === '--keep' && /^\d{1,4}$/.test(args[4] ?? ''), 'invalid_arguments');
-    return { mode, output: absolute(args[2]), keep: Number(args[4]) };
+    ensure((args.length === 5 || args.length === 7 && args[5] === '--kind' && ['backup', SNAPSHOT_PREFIX].includes(args[6]))
+      && args[1] === '--output' && args[3] === '--keep' && /^\d{1,4}$/.test(args[4] ?? ''), 'invalid_arguments');
+    return { mode, output: absolute(args[2]), keep: Number(args[4]), ...(args.length === 7 ? { kind: args[6] } : {}) };
   }
   const result = { mode, root: repositoryRoot, state: path.join(repositoryRoot, '.local/pilot') };
   for (let i = 1; i < args.length; i += 2) {
@@ -275,13 +442,13 @@ export function parseBackupArguments(args) {
     result[key] = absolute(value); result[`given_${key}`] = true;
   }
   for (const key of Object.keys(result)) if (key.startsWith('given_')) delete result[key];
-  ensure(mode === 'create' ? Boolean(result.output) && !result.identity
+  ensure(mode === 'create' || mode === 'snapshot' ? Boolean(result.output) && !result.identity
     : mode === 'decrypt' ? Boolean(result.backup && result.output && result.identity) : Boolean(result.backup), 'invalid_arguments');
   return result;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const options = parseBackupArguments(process.argv.slice(2));
-  const run = { create: createBackup, prune: pruneBackups, verify: verifyBackup, decrypt: decryptBackup }[options.mode];
+  const run = { create: createBackup, snapshot: createSnapshot, prune: pruneBackups, verify: verifyBackup, decrypt: decryptBackup }[options.mode];
   run(options)
     .then(result => process.stdout.write(JSON.stringify(result) + '\n'))
     .catch(error => { process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'backup_operation_failed', ...(error?.details ? error.details : {}) }) + '\n'); process.exitCode = 1; });
