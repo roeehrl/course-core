@@ -10,6 +10,8 @@ import {
   connectionTestSchema,
   currentDraftSchema,
   draftSchema,
+  qualityCheckSchema,
+  qualityStatusSchema,
   modelListSchema,
   serviceKeyReceiptSchema,
   type Job,
@@ -550,7 +552,12 @@ export function createFetchAdminClient(
     if (!response.ok) {
       const record = (body && typeof body === "object" ? body : {}) as {
         error?: unknown;
-        details?: { roles?: unknown; count?: unknown };
+        details?: {
+          roles?: unknown;
+          count?: unknown;
+          neededMicroUsd?: unknown;
+          availableMicroUsd?: unknown;
+        };
       };
       const code =
         typeof record.error === "string" &&
@@ -567,9 +574,17 @@ export function createFetchAdminClient(
         typeof record.details?.count === "number"
           ? record.details.count
           : undefined;
+      const amount = (value: unknown) =>
+        typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+          ? value
+          : undefined;
+      const neededMicroUsd = amount(record.details?.neededMicroUsd),
+        availableMicroUsd = amount(record.details?.availableMicroUsd);
       throw new AiServicesError(code, response.status, {
         ...(roles ? { roles } : {}),
         ...(count !== undefined ? { count } : {}),
+        ...(neededMicroUsd !== undefined ? { neededMicroUsd } : {}),
+        ...(availableMicroUsd !== undefined ? { availableMicroUsd } : {}),
       });
     }
     const parsed = schema.safeParse(body);
@@ -1125,6 +1140,24 @@ export function createFetchAdminClient(
         ai(`${setupPath(id)}/budgets`, budgetsSchema, "GET", undefined, signal),
       saveBudget: (id, input) =>
         ai(`${setupPath(id)}/budgets`, aiBudgetReceiptSchema, "POST", input),
+      qualityStatus: (id, signal) =>
+        ai(
+          `${setupPath(id)}/quality-check`,
+          qualityStatusSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      startQualityCheck: (id, input) =>
+        ai(`${setupPath(id)}/quality-check`, qualityCheckSchema, "POST", input),
+      qualityCheck: (id, checkId, signal) =>
+        ai(
+          `${setupPath(id)}/quality-check/${encodeURIComponent(checkId)}`,
+          qualityCheckSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       evals: (id, signal) =>
         ai(
           `${workspacePath(id)}/provider-evals`,

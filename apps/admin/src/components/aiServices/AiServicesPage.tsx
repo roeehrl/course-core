@@ -11,6 +11,7 @@ import {
   type EvalStatus,
   type Issue,
   type ProviderSetup,
+  type QualityStatus,
   type SectionId,
 } from "../../domain/aiServices";
 import {
@@ -36,6 +37,7 @@ export interface AiData {
   pricing: AiPricing | null;
   budgets: Budgets | null;
   evals: EvalStatus | null;
+  quality: QualityStatus | null;
 }
 async function load(
   port: AiServicesPort,
@@ -46,7 +48,7 @@ async function load(
     p.catch((error: unknown) =>
       signal?.aborted ? Promise.reject(error) : null,
     );
-  const [setup, connections, draft, pricing, budgets, evals] =
+  const [setup, connections, draft, pricing, budgets, evals, quality] =
     await Promise.all([
       port.setup(workspace, signal),
       port.connections(workspace, signal),
@@ -54,8 +56,9 @@ async function load(
       optional(port.pricing(workspace, signal)),
       optional(port.budgets(workspace, signal)),
       optional(port.evals(workspace, signal)),
+      optional(port.qualityStatus(workspace, signal)),
     ]);
-  return { setup, connections, draft, pricing, budgets, evals };
+  return { setup, connections, draft, pricing, budgets, evals, quality };
 }
 /** Turns a draft on; asks before stopping unfinished jobs. Resolves false when cancelled. */
 export type Activate = (draft: {

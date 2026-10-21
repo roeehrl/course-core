@@ -12,11 +12,13 @@ import { digestJson } from './repository.js';
 import type { AgentRole, ProviderRuntime } from './provider-runtime.js';
 import { telemetry } from './telemetry.js';
 import { composeProviders } from './provider-composition.js';
+import { PRICE_TABLE_CHECKED, suggestedPrice } from './price-table.js';
 
 /**
  * Operator-entered model pricing, the workspace rule for unpriced paid work, and the
- * reserved-versus-actual spend ledger. No vendor price list is built in: every price
- * here was entered by a workspace owner or administrator with a source note.
+ * reserved-versus-actual spend ledger. Every price in force was entered (or confirmed) by a
+ * workspace owner or administrator with a source note. The bundled, dated table in
+ * price-table.ts only suggests values for the admin page to prefill; it never prices a call.
  */
 type Queryable = Database | PoolClient;
 interface PriceRow {
@@ -181,6 +183,22 @@ async function draftRuntime(db: Database, workspaceId: string) {
   if (!row) return null;
   try { return composeProviders(row.configuration, () => 'pricing-only'); } catch { return null; }
 }
+/** Model id -> provider kind and listed model name, from the active setup and the open draft. */
+async function modelOrigins(db: Database, workspaceId: string) {
+  const rows = (await db.query<{ configuration: unknown }>(
+    `SELECT v.configuration FROM workspace_provider_settings s JOIN workspace_provider_versions v USING(workspace_id,revision) WHERE s.workspace_id=$1
+     UNION ALL SELECT configuration FROM provider_setup_drafts WHERE workspace_id=$1`, [workspaceId])).rows;
+  const origins = new Map<string, { kind: string; remoteModel: string }>();
+  for (const { configuration } of rows) {
+    const value = configuration as { registry?: { models?: { id?: unknown; providerId?: unknown; remoteModel?: unknown }[] }; adapters?: { id?: unknown; kind?: unknown }[] };
+    for (const model of Array.isArray(value?.registry?.models) ? value.registry.models : []) {
+      const kind = value.adapters?.find((a) => a.id === model.providerId)?.kind;
+      if (typeof model.id === 'string' && typeof model.remoteModel === 'string' && typeof kind === 'string')
+        origins.set(model.id, { kind, remoteModel: model.remoteModel });
+    }
+  }
+  return origins;
+}
 export type RuntimeResolver = (workspaceId: string, client?: PoolClient) => Promise<ProviderRuntime>;
 export function registerProviderCostRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, resolve: RuntimeResolver) {
   const base = '/api/admin/workspaces/:workspaceId/provider-pricing';
@@ -196,6 +214,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     const settings = (await db.query<{ require_priced_models: boolean; revision: number }>('SELECT require_priced_models,revision FROM workspace_cost_settings WHERE workspace_id=$1', [workspaceId])).rows[0];
     const requirePricing = settings ? settings.require_priced_models : true;
     const ids = [...new Set([...configured, ...draftModels, ...history.map(r => r.model_id)])].slice(0, 50);
+    const origins = await modelOrigins(db, workspaceId), now = new Date();
     const models = [];
     for (const modelId of ids) {
       const inForce = (await db.query<PriceRow>(IN_FORCE, [workspaceId, modelId])).rows[0];
@@ -208,12 +227,14 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
           // Research models may report web searches billed per request (Anthropic does); without
           // that price such a call stays unpriced and keeps its full reservation.
           ...(b.role === 'research' ? { serverToolsUnpriced: !inForce || inForce.status !== 'active' || inForce.micro_usd_per_server_tool_request === null } : {}) })),
-        history: rows.map(versionView) });
+        history: rows.map(versionView),
+        // From the bundled price table: a suggestion to confirm, never a price in force.
+        suggested: origins.has(modelId) ? suggestedPrice(origins.get(modelId)!.kind, origins.get(modelId)!.remoteModel, now) : null });
     }
     return { requirePricing, settingsRevision: settings?.revision ?? 0, models, currency: 'USD' as const,
       units: { tokens: 'micro-USD per million tokens', request: 'micro-USD per request', outputSecond: 'micro-USD per output second',
         serverToolRequest: 'micro-USD per server tool request' },
-      builtInPrices: false as const };
+      builtInPrices: false as const, suggestedPricesCheckedOn: PRICE_TABLE_CHECKED };
   }
   app.get(base, { schema: { params }, logLevel: 'silent' }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
@@ -302,7 +323,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     const totals = (await db.query(`SELECT ${SUMS} FROM provider_spend_ledger WHERE ${where}`, args)).rows[0];
     const byRole = (await db.query(`SELECT role,${SUMS} FROM provider_spend_ledger WHERE ${where} GROUP BY role ORDER BY role`, args)).rows;
     const byEnrollment = (await db.query(`SELECT enrollment_id AS "enrollmentId",${SUMS} FROM provider_spend_ledger WHERE ${where}
-      GROUP BY enrollment_id ORDER BY sum(charged_micro_usd) DESC,enrollment_id LIMIT 100`, args)).rows;
+      AND enrollment_id IS NOT NULL GROUP BY enrollment_id ORDER BY sum(charged_micro_usd) DESC,enrollment_id LIMIT 100`, args)).rows;
     const byPeriod = (await db.query(`SELECT to_char(date_trunc('${query.period}',reserved_at AT TIME ZONE 'UTC'),'${query.period === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM'}') AS period,${SUMS}
       FROM provider_spend_ledger WHERE ${where} GROUP BY 1 ORDER BY 1 DESC`, args)).rows;
     return { period: query.period, from: range.from.toISOString(), to: range.to.toISOString(), timeZone: 'UTC', currency: 'USD' as const,

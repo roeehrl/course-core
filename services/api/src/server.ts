@@ -66,6 +66,7 @@ import {ProviderEvaluations} from './agent-evals/gate.js';
 import {registerProviderCostRoutes} from './provider-costs.js';
 import {ProviderConnections,registerProviderConnectionRoutes} from './provider-connections.js';
 import {ProviderDrafts,registerProviderDraftRoutes} from './provider-drafts.js';
+import {ProviderQualityChecks,defaultQualityCheckOptions,registerProviderQualityCheckRoutes,type QualityCheckOptions} from './provider-quality-checks.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { deterministicConversationConfirmer } from './conversation-confirmation.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
@@ -96,7 +97,7 @@ const state = enrollmentState;
 
 /** The page policy. Only the debug inspector page (framed by the learner app) relaxes frame-ancestors, to this origin. */
 const contentSecurityPolicy = (frameAncestors: "'none'" | "'self'") => `default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; frame-ancestors ${frameAncestors}; object-src 'none'; base-uri 'none'; form-action 'self'`;
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
@@ -143,7 +144,11 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   auth.routes(app);
   registerLocaleRoutes(app, db, auth);
   if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
-  if(options.workspaceProviders)registerProviderEvalRoutes(app,auth,new ProviderEvaluations(db,options.workspaceProviders));
+  if(options.workspaceProviders){
+    const evaluations=new ProviderEvaluations(db,options.workspaceProviders);
+    registerProviderEvalRoutes(app,auth,evaluations);
+    registerProviderQualityCheckRoutes(app,auth,new ProviderQualityChecks(db,options.workspaceProviders,evaluations,{...defaultQualityCheckOptions,...options.qualityChecks}));
+  }
   if(options.workspaceProviders){
     const connections=new ProviderConnections(db,options.workspaceProviders);
     registerProviderConnectionRoutes(app,auth,connections);

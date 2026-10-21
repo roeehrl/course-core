@@ -139,6 +139,14 @@ const metadata = googleMetadataAdapter(async (input, init) => {
           supportedGenerationMethods: ["generateContent"],
         },
         {
+          // In Core's bundled price table, so its prices are prefilled.
+          name: "models/gemini-3.8-flash",
+          displayName: "Gemini 3.8 Flash",
+          inputTokenLimit: 1048576,
+          outputTokenLimit: 8192,
+          supportedGenerationMethods: ["generateContent"],
+        },
+        {
           name: "models/gemini-9.0-pro",
           displayName: "Gemini 9 Pro",
           inputTokenLimit: 1048576,
@@ -194,6 +202,57 @@ const anthropicMetadata = anthropicMetadataAdapter(async (input, init) => {
     { headers: { "content-type": "application/json" } },
   );
 });
+// Test-only synthetic Gemini generation for the quality check run from the AI services page.
+// It answers each practice conversation with Core's public "reference" scripted answers (the
+// server's quality-check seam says which conversation is next). No provider is contacted and
+// nothing it says reflects a real model's quality.
+const { googleAdapterFactory } =
+  await import("../../../services/api/src/provider-composition.ts");
+const { PUBLIC_SCRIPTED_MODELS } =
+  await import("../../../services/api/src/agent-evals/public-suite.ts");
+let scriptedDialogue: string | undefined;
+const syntheticGemini: typeof fetch = async (input, init) => {
+  const url = new URL(String(input));
+  if (
+    url.origin !== "https://generativelanguage.googleapis.com" ||
+    init?.method !== "POST" ||
+    !url.pathname.endsWith(":generateContent")
+  )
+    throw Error("Synthetic Gemini permits only generateContent");
+  const output = scriptedDialogue
+    ? PUBLIC_SCRIPTED_MODELS.reference[scriptedDialogue]
+    : undefined;
+  if (!output || output.kind === "error" || output.kind === "refusal")
+    return new Response(
+      JSON.stringify({
+        error: { code: 500, message: "Synthetic failure", status: "INTERNAL" },
+      }),
+      { status: 500, headers: { "content-type": "application/json" } },
+    );
+  const text =
+    output.kind === "text"
+      ? output.text
+      : JSON.stringify({ summary: output.summary, needs: output.needs });
+  const prompt = Math.ceil(String(init.body).length / 4),
+    answer = Math.ceil(text.length / 4);
+  return new Response(
+    JSON.stringify({
+      candidates: [
+        {
+          index: 0,
+          finishReason: "STOP",
+          content: { role: "model", parts: [{ text }] },
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: prompt,
+        candidatesTokenCount: answer,
+        totalTokenCount: prompt + answer,
+      },
+    }),
+    { headers: { "content-type": "application/json" } },
+  );
+};
 const { WorkspaceProviders } =
   await import("../../../services/api/src/provider-setup.ts");
 const { credentialVault } =
@@ -204,6 +263,7 @@ const workspaceProviders = new WorkspaceProviders(
   db,
   credentialVault(randomBytes(32)),
   {
+    google: googleAdapterFactory(syntheticGemini),
     "scripted-video": scriptedVideo.factory(),
     "subscription-fixture": (options) => {
       const native: ProviderAdapter = {
@@ -251,6 +311,12 @@ const app = await createServer(db, {
   loginCodes: true,
   coursePackageDirectories: packageDirectories(JSON.stringify([packageRoot])),
   workspaceProviders,
+  // Test-only: tells the synthetic Gemini model which practice conversation comes next.
+  qualityChecks: {
+    beforeDialogue: (dialogue) => {
+      scriptedDialogue = dialogue.id;
+    },
+  },
   media: { options: mediaOptions },
   origin,
   secureCookies: false,

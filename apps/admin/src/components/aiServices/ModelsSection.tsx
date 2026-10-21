@@ -35,6 +35,18 @@ type Choice = {
 const OPTIONAL_JOBS = JOBS.filter((job) => !NEEDED_JOBS.includes(job));
 const encode = (choice: Choice) =>
   choice ? `${choice.connectionId}\u0000${choice.remoteModel}` : "";
+/**
+ * Previews, experiments and special-purpose models (speech, live audio, embeddings, image-only,
+ * lite variants) are listed only under "Show all models", unless the job needs them: the images
+ * and video job is offered image and video models.
+ */
+const SPECIALTY =
+  /preview|experimental|(^|[-.])exp([-.]|$)|lite|tts|audio|live|embedding|image|imagen|veo|robotics|transcribe|translate/;
+const MEDIA_MODELS = /image|imagen|veo|video/;
+export function specialtyModel(job: Job, remoteModel: string) {
+  const id = remoteModel.toLowerCase();
+  return SPECIALTY.test(id) && !(job === "media" && MEDIA_MODELS.test(id));
+}
 const same = (a: Choice, b: Choice) =>
   encode(a) === encode(b) &&
   JSON.stringify(a?.media ?? null) === JSON.stringify(b?.media ?? null);
@@ -299,7 +311,8 @@ export function ModelsSection(props: Props) {
             .filter(
               (m) =>
                 showAll ||
-                m.fits ||
+                (m.fits && !specialtyModel(job, m.remoteModel)) ||
+                m.remoteModel === role.suggested ||
                 (choice?.connectionId === connection.id &&
                   choice.remoteModel === m.remoteModel),
             ),
@@ -418,6 +431,18 @@ export function ModelsSection(props: Props) {
           )}
         </div>
         <p className="ai-muted">{t(`aiServices.role.${job}.purpose`)}</p>
+        {job === "media" ? (
+          <p className="ai-why">{t("aiServices.models.why.media")}</p>
+        ) : (
+          (suggestion ?? options[0]?.suggested) && (
+            <p className="ai-why">
+              {t("aiServices.models.suggestedLabel")}{" "}
+              <Ltr className="mono">{suggestion ?? options[0]?.suggested}</Ltr>
+              {" — "}
+              {t(`aiServices.models.why.${job}`)}
+            </p>
+          )
+        )}
         <Field
           id={id}
           label={t("aiServices.models.modelFor", { job: jobName(t, job) })}

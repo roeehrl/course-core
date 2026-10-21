@@ -90,8 +90,18 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   // 3. Prices per model before anything turns on; research can price web searches.
   const prices = page.locator("#ai-prices");
   await expect(prices).toContainText(
-    "Course Core doesn't include Anthropic's prices",
+    "For models Course Core knows, the fields are filled in from Anthropic's pricing page",
   );
+  // Sonnet is in the bundled table: its prices are prefilled for the owner to confirm.
+  const sonnet = prices.locator("fieldset.ai-price", {
+    hasText: "claude-sonnet-5-5",
+  });
+  await expect(
+    sonnet.getByLabel("Input, per 1M tokens", { exact: true }),
+  ).toHaveValue("2.00");
+  await expect(
+    sonnet.getByLabel("Output, per 1M tokens", { exact: true }),
+  ).toHaveValue("10.00");
   const haiku = prices.locator("fieldset.ai-price", {
     hasText: "claude-haiku-5-5",
   });
@@ -110,6 +120,7 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
 
   // 4. The owner approves the tutor; the planner and source finder have no check yet.
   const check = page.locator("#ai-check");
+  await check.getByText("Approve without checking", { exact: true }).click();
   await check
     .getByLabel("Why are you skipping the check?")
     .fill("Synthetic browser fixture: this model is never contacted.");

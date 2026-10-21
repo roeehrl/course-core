@@ -77,6 +77,9 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'provider.connection.removed': keep,
   'provider.service_key.changed': keep,
   'provider.setup.activated': keep,
+  // A quality check run from the AI services page: check id, jobs, counts, money and outcome codes.
+  'provider.quality_check.started': keep,
+  'provider.quality_check.finished': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

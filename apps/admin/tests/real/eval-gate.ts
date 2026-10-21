@@ -25,6 +25,7 @@ export async function ownerApproves(
       .getByRole("button", { name: "AI services", exact: true })
       .click();
     const check = owner.locator("#ai-check");
+    await check.getByText("Approve without checking", { exact: true }).click();
     await check.getByLabel("Why are you skipping the check?").fill(reason);
     await check.getByRole("button", { name: "Approve and turn on" }).click();
     await expect(check.getByText("Approved and turned on.")).toBeVisible();

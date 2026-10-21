@@ -361,6 +361,38 @@
   color: var(--red);
   font-weight: 650;
 }
+.ai-why {
+  margin-block: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ai-run-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-run-progress p {
+  margin-block: 0;
+}
+.ai-run-progress progress {
+  inline-size: 100%;
+  block-size: 12px;
+}
+.ai-actions.ai-actions-start {
+  justify-content: flex-start;
+}
+.ai-approve > summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding-block: 10px;
+}
+.ai-price-suggestion {
+  margin-block: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .ai-progress {
   display: flex;
   gap: 8px;

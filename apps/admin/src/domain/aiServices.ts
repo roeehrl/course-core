@@ -173,16 +173,96 @@ export const serviceKeyReceiptSchema = z.object({
   service: z.string(),
   configured: z.boolean(),
 });
+const micro = z.number().int().nonnegative();
+const tableRates = {
+  inputMicroUsdPerMillionTokens: micro,
+  outputMicroUsdPerMillionTokens: micro,
+  cachedInputMicroUsdPerMillionTokens: micro.nullable(),
+};
+/** A price from Core's bundled, dated table for a known model: prefilled, never in force until saved. */
+export const suggestedPriceSchema = z.object({
+  service: z.enum(["google", "anthropic"]),
+  model: z.string().max(200),
+  checkedOn: z.iso.date(),
+  url: z.string().url().max(500),
+  ...tableRates,
+  promptTokensUpTo: z.number().int().positive().nullable(),
+  change: z.object({ from: z.iso.date(), ...tableRates }).nullable(),
+});
+export type SuggestedPrice = z.infer<typeof suggestedPriceSchema>;
 /** Pricing view with the open draft's models (`draft`), which can be priced before activation. */
 export const aiPricingSchema = pricingViewSchema.extend({
   models: z
     .array(
       pricingViewSchema.shape.models.element.extend({
         draft: z.boolean().optional(),
+        suggested: suggestedPriceSchema.nullable().optional(),
       }),
     )
     .max(50),
 });
+
+// ---- Quality check run from the page ----
+export const qualityCheckSchema = z.object({
+  id: z.string().uuid(),
+  draftId: z.string().uuid(),
+  state: z.enum(["running", "passed", "failed", "error"]),
+  reason: z.string().max(100).nullable(),
+  roles: z.array(job).max(5),
+  total: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  estimateMicroUsd: micro,
+  reservedMicroUsd: micro,
+  chargedMicroUsd: micro.nullable(),
+  outcome: z
+    .array(
+      z.object({
+        role: job,
+        passed: z.boolean(),
+        dialogues: z.number().int().nonnegative(),
+        failed: z
+          .array(
+            z.object({
+              dialogueId: z.string().max(120),
+              graders: z.array(z.string().max(100)).max(20),
+            }),
+          )
+          .max(200),
+      }),
+    )
+    .max(5),
+  createdAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  deadlineAt: z.string().nullable(),
+});
+export type QualityCheck = z.infer<typeof qualityCheckSchema>;
+export const qualityStatusSchema = z.object({
+  draftId: z.string().uuid().nullable(),
+  roles: z
+    .array(
+      z.object({
+        role: job,
+        remoteModel: z.string().max(2048).nullable(),
+        conversations: z.number().int().nonnegative(),
+        priced: z.boolean(),
+        estimateMicroUsd: micro.nullable(),
+      }),
+    )
+    .max(5),
+  conversations: z.number().int().nonnegative(),
+  estimateMicroUsd: micro,
+  reserveMicroUsd: micro,
+  blocked: z
+    .object({
+      code: z.string().max(100),
+      roles: z.array(job).max(5).optional(),
+      neededMicroUsd: micro.optional(),
+      availableMicroUsd: micro.optional(),
+    })
+    .nullable(),
+  latest: qualityCheckSchema.nullable(),
+});
+export type QualityStatus = z.infer<typeof qualityStatusSchema>;
 export type AiPricing = z.infer<typeof aiPricingSchema>;
 
 export type MediaChoice = {
@@ -203,7 +283,12 @@ export class AiServicesError extends Error {
   constructor(
     readonly code: string,
     readonly status: number,
-    readonly details?: { roles?: Job[]; count?: number },
+    readonly details?: {
+      roles?: Job[];
+      count?: number;
+      neededMicroUsd?: number;
+      availableMicroUsd?: number;
+    },
   ) {
     super(code);
     this.name = "AiServicesError";
@@ -309,6 +394,19 @@ export interface AiServicesPort {
     },
   ): Promise<z.infer<typeof budgetReceiptSchema>>;
   evals(workspace: string, signal?: AbortSignal): Promise<EvalStatus>;
+  qualityStatus(
+    workspace: string,
+    signal?: AbortSignal,
+  ): Promise<QualityStatus>;
+  startQualityCheck(
+    workspace: string,
+    input: { idempotencyKey: string; draftId: string },
+  ): Promise<QualityCheck>;
+  qualityCheck(
+    workspace: string,
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<QualityCheck>;
   spend(
     workspace: string,
     period: "day" | "month",

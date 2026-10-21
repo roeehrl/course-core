@@ -273,6 +273,9 @@ function fakePort(
     }),
     spend: vi.fn(),
     setServiceKey: vi.fn(),
+    qualityStatus: vi.fn().mockResolvedValue(null),
+    startQualityCheck: vi.fn(),
+    qualityCheck: vi.fn(),
     ...overrides,
   };
   return port as unknown as AiServicesPort &
