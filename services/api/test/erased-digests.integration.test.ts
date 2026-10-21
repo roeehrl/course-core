@@ -299,6 +299,9 @@ describe("digest coverage", () => {
     // Digest of the staff-written consent text the learner agreed to; erasure deletes the row (085).
     "study_consent_changes.consent_digest": "staff-written study consent text; the row is deleted on erasure",
     "study_participants.consent_digest": "staff-written study consent text; the row is deleted on erasure",
+    // Grading provenance (097): digests of course content and evaluator builds, never of the answer.
+    "attempts.item_digest": "course item", "attempts.answer_key_digest": "course answer key or rubric", "attempts.evaluator_digest": "evaluator build",
+    "attempt_regrades.item_digest": "course item", "attempt_regrades.answer_key_digest": "course answer key or rubric", "attempt_regrades.evaluator_digest": "evaluator build",
   };
   it("every digest column over enrollment data is either tombstoned on erasure or kept for a stated reason", async () => {
     const columns = (await db.query(`SELECT c.table_name||'.'||c.column_name AS name FROM information_schema.columns c
