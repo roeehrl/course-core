@@ -91,10 +91,48 @@ exact revision, or an owner's recorded override; otherwise saving is refused wit
 `409 PROVIDER_EVAL_REQUIRED` and nothing changes. Versions saved before migration
 083 stay active and show as not evaluated. See [AGENT_EVALS.md](AGENT_EVALS.md).
 
+## AI services page: connections, drafts and approval by draft
+
+The admin "AI services" page uses these routes (all under
+`/api/admin/workspaces/:workspaceId/provider-setup`, owners and administrators):
+
+- `GET /connections`, `POST /connections` `{kind, key, name?, skipTest?}`,
+  `PUT /connections/:id/key`, `POST /connections/:id/test`, `DELETE /connections/:id`.
+  The server names the adapter id and the key slot (`COURSE_PROVIDER_<random>_API_KEY`);
+  nobody types a slot name. A key is tested with the provider's model listing before it is
+  stored (`422` with the metadata reason code when refused); `skipTest` exists only for
+  hosts that cannot reach the provider. Only the last four characters of a key of at least
+  16 characters are kept as display metadata (`keyEnding`, else `null`); the key itself is
+  never returned, logged, audited or put in a draft. Adding a connection or replacing a key
+  creates a new version without stopping running jobs (they keep the version they started
+  with). Removing a connection a job uses is refused with
+  `409 PROVIDER_CONNECTION_IN_USE {roles}`.
+- `GET /connections/:id/models`: the stored key's model list (cached for ten minutes per key)
+  with each job's method and a suggested model (`src/provider-suggestions.ts`, naming rules
+  only, never prices).
+- `POST /drafts` `{baseRevision, assignments: {job: {connectionId, remoteModel} | null}}` and
+  `POST /drafts/json` `{baseRevision, configuration, jobPolicy}` store the workspace's single
+  open draft (migration 088); `GET /drafts/current`, `DELETE /drafts/current`. A draft
+  reports, per job, whether it waits for a quality check and whether it is priced. Models of
+  the draft can be priced (`POST …/provider-pricing`) before activation.
+- `POST /drafts/:id/activate` `{expectedRevision, idempotencyKey, confirmCancelRunning}` runs
+  the same save path as `POST /provider-setup`: secret checks, token bounds and the eval gate
+  (`409 PROVIDER_EVAL_REQUIRED`). It refuses with `409 PROVIDER_JOBS_RUNNING {count}` while
+  jobs would be stopped and the operator has not confirmed.
+- `POST …/provider-evals/overrides` also accepts `{draftId, role, reason}`: the owner approves
+  the exact revision of that job in the open draft and the server resolves its digest.
+- `PUT /service-keys/youtube` `{key | null}` stores the YouTube search key.
+
+Running the quality check from the page is not available yet; the CLI and
+`POST …/provider-evals/results` remain the way to record a passing result.
+
 ## Paid-work budgets
 
 Budgets default to zero. Both workspace and enrollment ledgers must have room
-before a call. Positive budget changes require explicit paid-work approval and
+before a call. A learner whose own limit was never set uses the workspace's default limit
+for each learner (`POST /budgets` with `scope: "default_enrollment"`; migration 088); with no
+default it is zero. `limits.tokens` may be omitted: money is then the binding limit and the
+token limit is the maximum. Positive budget changes require explicit paid-work approval and
 compare-and-swap revisions. Changes preserve existing usage/reservations and
 cannot lower limits beneath them. These are application accounting allowances,
 not a provider invoice or guaranteed external billing cap. Configuration and
