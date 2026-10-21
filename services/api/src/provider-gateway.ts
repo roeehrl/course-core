@@ -14,10 +14,15 @@ import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import { telemetry } from './telemetry.js';
 import { pricedStatus, pricingDecision } from './provider-costs.js';
+import { dispatchRevision } from './agent-evals/gate.js';
+import type { ConfigurationShape } from './agent-evals/revision.js';
+import { publicSuite } from './agent-evals/public-suite.js';
 
 import type {AdaptationRuntime} from "./adaptation-store.js";
 
-interface Options { adaptation?:AdaptationRuntime; serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders }
+interface Options { adaptation?:AdaptationRuntime; serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders;
+  /** The host's provider configuration file, when loaded: the configuration of the fallback runtime. */
+  hostConfiguration?: unknown }
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
 /** The recorded answer for a repeated request. A dispatch still running is uncertain. A finished
  * dispatch whose outcome was cleared by an erasure made before erasure kept the outcome's
@@ -26,6 +31,9 @@ function recordedOutcome(row: DispatchRow): Outcome {
   if (row.state === 'in_flight' || row.outcome === null) return { status: 'uncertain' };
   return outcomeSchema.parse(row.outcome);
 }
+let suite: ReturnType<typeof publicSuite> | undefined;
+/** Core's public eval suite, for hosts without a workspace provider vault. */
+const defaultSuite = () => (suite ??= publicSuite());
 export function registerProviderGateway(app: FastifyInstance, db: Database, runtime: ProviderRuntime, options: Options) {
   const expected = options.serviceToken ? createHash('sha256').update(options.serviceToken).digest() : null;
   const limit = options.maxConcurrent ?? 2; requireCondition(Number.isSafeInteger(limit) && limit >= 1 && limit <= 8, 'PROVIDER_INVALID_CONCURRENCY');
@@ -107,6 +115,8 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     if (!admitted.invoke) return admitted.outcome;
     let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
     let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
+    // Which strategy answered and the revision it ran as, recorded on the dispatch (requirement B08).
+    let ran: { id: string; version: string; source: 'core' | 'course'; revisionDigest: string | null; standing: string } | null = null;
     // Role, checkpoint, outcome, usage counts and cost estimate only; never the request, context or candidate.
     const observed = telemetry(), span = observed.start('provider.operation', { 'course.supervisor.role': body.role, 'course.supervisor.checkpoint': body.checkpoint.id });
     let counted: Record<string, string | number | null | undefined> = {};
@@ -115,7 +125,9 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       if (active >= limit) { result = { status: 'not_started', retryable: true }; failureCode = 'CONCURRENCY_LIMIT'; }
       else {
         active += 1; acquired = true;
-        const selected=await options.workspaceProviders?.resolveJob(body.job.jobId,body.job.workspaceId)??runtime;
+        const resolved = options.workspaceProviders ? await options.workspaceProviders.resolveJobConfigured(body.job.jobId, body.job.workspaceId)
+          : { runtime, configuration: null, key: 'host' };
+        const selected = resolved.runtime;
         // Paid-work admission: the price in force now prices this call. Without one, a
         // workspace that requires prices refuses before any context is read or sent.
         const decision = await pricingDecision(db, body.job.workspaceId, selected, body.role);
@@ -124,9 +136,21 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         pricing = decision.pricing;
         const context = await teachingContext(db, operation.ref, operation.input.context);
         // Strategies the course release declared, bound by Core to narrow its own (course-strategies.ts).
-        const release = (await db.query<{ digest: string; strategies: unknown }>(`SELECT r.digest,r.server_bundle->'agentStrategies' AS strategies FROM enrollments e
+        // A declaration's tool references name tools the course declares, so both are read.
+        const release = (await db.query<{ digest: string; strategies: unknown; tools: unknown }>(`SELECT r.digest,r.server_bundle->'agentStrategies' AS strategies,
+          r.server_bundle->'tools' AS tools FROM enrollments e
           JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id WHERE e.id=$1 AND e.workspace_id=$2`, [body.job.enrollmentId, body.job.workspaceId])).rows[0];
-        const course = release?.strategies ? courseStrategiesFor(release.digest, { agentStrategies: release.strategies }) : [];
+        const course = release?.strategies ? courseStrategiesFor(release.digest, { agentStrategies: release.strategies, tools: release.tools ?? undefined }) : [];
+        const selection = selected.selection(body.role, course);
+        if (selection) {
+          const configuration = (resolved.configuration ?? (resolved.key === 'host' ? options.hostConfiguration ?? null : null)) as ConfigurationShape | null;
+          const revision = await dispatchRevision(db, { workspace: body.job.workspaceId, suite: options.workspaceProviders?.evalSuite ?? defaultSuite(),
+            configuration, configurationKey: configuration ? resolved.key : null, role: body.role, strategy: selection.strategy, source: selection.source });
+          ran = { id: selection.strategy.contract.id, version: selection.strategy.contract.version, source: selection.source, ...revision };
+          // A course's own strategy answers only once its exact revision has a passing check or an
+          // owner's approval (agent-evals/gate.ts). Core's wider strategy never runs in its place.
+          requireCondition(selection.source === 'core' || revision.standing === 'passed' || revision.standing === 'approved', 'COURSE_STRATEGY_NOT_CHECKED', 409);
+        }
         requireCondition(selected.tokenReservationBound(body.role, context, course) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
         // Context assembly may have waited; fence one last time before sending data to a provider,
         // and record that this dispatch may now be sent, in one transaction under the enrollment
@@ -197,10 +221,13 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     // is not touched here; erasure already finished this operation's reservation.
     await afterCommitTransaction(db, async client => {
       const erased = (await client.query<{ status: string }>('SELECT status FROM enrollments WHERE id=$1 FOR SHARE', [body.job.enrollmentId])).rows[0]?.status === 'erased';
-      const stored = await client.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10
+      const strategy = ran as { id: string; version: string; source: 'core' | 'course'; revisionDigest: string | null; standing: string } | null;
+      const stored = await client.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10,
+          strategy_id=$11,strategy_version=$12,strategy_source=$13,role_revision_digest=$14,eval_standing=$15
         WHERE operation_id=$1 AND owner_id=$7`,
         [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null || erased ? null : JSON.stringify(candidate), failureCode, operation.ownerId,
-          modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null]);
+          modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null,
+          strategy?.id.slice(0, 200) ?? null, strategy?.version.slice(0, 64) ?? null, strategy?.source ?? null, strategy?.revisionDigest ?? null, strategy?.standing ?? null]);
       // Counted once the receipt is committed: a failed or superseded write reports nothing, and a
       // retried request answered from the stored receipt never reaches this point.
       if (stored.rowCount === 1) onCommit(client, () => {
