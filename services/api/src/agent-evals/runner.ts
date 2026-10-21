@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { ProviderError } from "@course-core/providers";
+import { ProviderError, type UsageReceipt } from "@course-core/providers";
 import type { ProviderRuntime } from "../provider-runtime.js";
 import { EVAL_ROLES, GRADER_VERSION, REPORT_SCHEMA, dialoguesFor, sha256, teachingContext, type Dialogue, type EvalRole, type EvalSuite } from "./suite.js";
 import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput } from "./graders.js";
@@ -10,6 +10,9 @@ import { roleRevisions } from "./revision.js";
 export interface AdvisoryJudgement { kind: "llm_judge_advisory"; state: "judged" | "refused" | "failed"; criteria: { id: string; met: boolean }[]; reason?: string }
 export type AdvisoryJudge = (dialogue: Dialogue, output: EvalOutput, signal: AbortSignal) => Promise<AdvisoryJudgement>;
 export interface DialogueRun { dialogueId: string; output: EvalOutput; grade: DialogueGrade; advisory?: AdvisoryJudgement }
+/** What one model call returned, for the host's cost accounting: the provider's usage receipt and
+ * the error when the call failed. Never stored in a report. */
+export interface CallRecord { role: EvalRole; dialogue: Dialogue; usage: UsageReceipt | null; error: unknown }
 export interface RoleRun { role: EvalRole; strategy: string; revisionDigest: string; dialogues: DialogueRun[]; passed: boolean }
 export interface EvalReport {
   schema: typeof REPORT_SCHEMA;
@@ -44,7 +47,12 @@ export function evalOutput(content: unknown): EvalOutput {
  */
 export async function runSuite(options: {
   suite: EvalSuite; configuration: unknown; runtime: ProviderRuntime; mode: "scripted" | "live"; model?: string;
-  roles?: readonly EvalRole[]; beforeDialogue?: (dialogue: Dialogue) => void; judge?: AdvisoryJudge; signal?: AbortSignal;
+  roles?: readonly EvalRole[];
+  /** Called before each dialogue's model call; a rejection stops the run (the host's budget or deadline). */
+  beforeDialogue?: (dialogue: Dialogue) => void | Promise<void>;
+  /** Called after each dialogue's model call with its usage, before grading continues. */
+  afterCall?: (call: CallRecord) => void | Promise<void>;
+  judge?: AdvisoryJudge; signal?: AbortSignal;
 }): Promise<EvalReport> {
   const { suite, runtime } = options, signal = options.signal ?? new AbortController().signal;
   const bound = runtime.strategyContracts().bound as Partial<Record<string, string>>;
@@ -57,13 +65,18 @@ export async function runSuite(options: {
     if (runtime.availability(role).status !== "ready") { skipped.push({ role, reason: "unavailable" }); continue; }
     const runs: DialogueRun[] = [];
     for (const [index, dialogue] of dialogues.entries()) {
-      options.beforeDialogue?.(dialogue);
-      let output: EvalOutput;
+      await options.beforeDialogue?.(dialogue);
+      let output: EvalOutput, usage: UsageReceipt | null = null, failure: unknown = null;
       try {
-        output = evalOutput((await runtime.execute(role, teachingContext(dialogue), `agent-eval-${role}-${index}`, signal)).content);
+        const result = await runtime.execute(role, teachingContext(dialogue), `agent-eval-${role}-${index}`, signal);
+        usage = result.usage;
+        output = evalOutput(result.content);
       } catch (error) {
+        failure = error;
+        usage = error instanceof ProviderError ? error.usage ?? null : null;
         output = { kind: "error", code: error instanceof ProviderError ? error.code : "UNEXPECTED" };
       }
+      await options.afterCall?.({ role, dialogue, usage, error: failure });
       const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output) };
       if (options.judge && dialogue.judge && answerText(output) !== null) run.advisory = await options.judge(dialogue, output, signal);
       runs.push(run);

@@ -211,7 +211,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     await key.fill(goodKey);
     await key.blur();
     await expect(
-      page.getByText(t("connect.testOk", { service, count: 3 })),
+      page.getByText(t("connect.testOk", { service, count: 4 })),
     ).toBeVisible();
     await page.getByRole("button", { name: t("connect.save") }).click();
     await expect(
@@ -270,22 +270,41 @@ for (const locale of ["en", "he"] as Locale[]) {
       .click();
     await expect(spending.getByText(t("spending.saved"))).toBeVisible();
 
-    // Quality check: the owner approves the waiting model with a reason; it turns on.
+    // Quality check: the owner runs it from the page. It shows the estimate first (9 practice
+    // conversations of 3000 input and 600 output tokens at $0.30 / $2.50 per million), runs on the
+    // server against the synthetic model, passes, and the waiting model is turned on.
     const check = page.locator("#ai-check");
     await expect(check).toContainText(t("check.notChecked", { count: 1 }));
     await expect(check.locator("bdi[dir=ltr]").first()).toHaveText(
       "gemini-9.0-flash",
     );
-    await check.getByLabel(t("check.reasonLabel")).fill("Too short");
-    await check.getByRole("button", { name: t("check.approve") }).click();
     await expect(
-      check.getByRole("alert").filter({ hasText: t("check.errReason") }),
+      check.getByText(
+        t("check.run.estimate", { count: 9, amount: x.money(0.0216) }),
+      ),
     ).toBeVisible();
-    await check
-      .getByLabel(t("check.reasonLabel"))
-      .fill("Synthetic browser workspace: no model is ever contacted.");
-    await check.getByRole("button", { name: t("check.approve") }).click();
-    await expect(check.getByText(t("check.approved"))).toBeVisible();
+    // Approving without a check is still there, folded away as the secondary choice.
+    await expect(check.locator("details.ai-approve > summary")).toHaveText(
+      t("check.approveTitle"),
+    );
+    await expect(check.getByLabel(t("check.reasonLabel"))).toBeHidden();
+    await accessible(page);
+    await check.scrollIntoViewIfNeeded();
+    await check.screenshot({
+      path: info.outputPath(`03-check-ready-${locale}.png`),
+    });
+    await check.getByRole("button", { name: t("check.run.button") }).click();
+    await expect(check.getByText(t("check.run.passedTurnOn"))).toBeVisible({
+      timeout: 30000,
+    });
+    expect(seen.posts.filter((p) => p.endsWith("/quality-check"))).toHaveLength(
+      1,
+    );
+    await accessible(page);
+    await check.screenshot({
+      path: info.outputPath(`04-check-passed-${locale}.png`),
+    });
+    await check.getByRole("button", { name: t("models.turnOn") }).click();
 
     await expect(status).toContainText(t("status.on"));
     for (const id of ["connections", "models", "prices", "spending", "check"])
@@ -300,7 +319,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     }
     await accessible(page);
     await page.screenshot({
-      path: info.outputPath(`03-on-${locale}.png`),
+      path: info.outputPath(`05-on-${locale}.png`),
       fullPage: true,
     });
 
@@ -376,3 +395,81 @@ test("an administrator cannot approve without a check; a connection in use canno
   ).toBeVisible();
   await accessible(page);
 });
+
+for (const locale of ["en", "he"] as Locale[]) {
+  test(`a known model's prices are prefilled from the dated table and saved by the owner (${locale})`, async ({
+    page,
+    request,
+  }, info) => {
+    const x = text(locale),
+      { t, signIn } = x;
+    const fixture = await (
+      await request.post("/test/empty-workspace-fixture")
+    ).json();
+    await page.goto(`/admin/?locale=${locale}`);
+    await page.getByLabel(signIn("code")).fill(fixture.ownerCode);
+    await page
+      .getByRole("button", { name: signIn("useCode"), exact: true })
+      .click();
+    await page.getByRole("button", { name: x.f("ai.button") }).click();
+    await page.getByLabel(t("connect.keyLabel"), { exact: true }).fill(goodKey);
+    await page.getByRole("button", { name: t("connect.save") }).click();
+    await expect(
+      page.getByText(t("connect.saved", { ending: "7Q2c" })),
+    ).toBeVisible();
+
+    // Each suggestion says why in one line; special-purpose models stay under "Show all models".
+    const models = page.locator("#ai-models");
+    await expect(
+      models.getByText(t("models.why.companion"), { exact: false }),
+    ).toBeVisible();
+    await models.locator("details.ai-optional > summary").click();
+    await expect(
+      models.getByText(t("models.why.reviewer"), { exact: false }),
+    ).toBeVisible();
+    await expect(models.getByText(t("models.why.media"))).toBeVisible();
+    for (const job of ["companion", "supervisor"])
+      await models
+        .getByLabel(t("models.modelFor", { job: t(`role.${job}.name`) }))
+        .selectOption({ label: "Gemini 3.8 Flash (gemini-3.8-flash)" });
+    await models.screenshot({
+      path: info.outputPath(`06-models-${locale}.png`),
+    });
+    await models.getByRole("button", { name: t("models.save") }).click();
+    await expect(
+      page.getByText(t("models.savedWaiting", { count: 1 })),
+    ).toBeVisible();
+
+    // Prices: filled in from Google's pricing page with its date; the owner confirms with Save.
+    const prices = page.locator("#ai-prices");
+    await expect(
+      prices.getByLabel(t("prices.input"), { exact: true }),
+    ).toHaveValue("0.75");
+    await expect(
+      prices.getByLabel(t("prices.output"), { exact: true }),
+    ).toHaveValue("3.75");
+    await expect(prices.locator(".ai-price-suggestion")).toBeVisible();
+    await expect(prices.locator(".ai-price-suggestion a")).toHaveAttribute(
+      "href",
+      "https://ai.google.dev/gemini-api/docs/pricing",
+    );
+    await expect(
+      prices.getByText(t("prices.changeSaved"), { exact: false }),
+    ).toBeVisible();
+    await accessible(page);
+    await prices.screenshot({
+      path: info.outputPath(`07-prices-prefilled-${locale}.png`),
+    });
+    await prices.getByRole("button", { name: t("prices.save") }).click();
+    await expect(prices.getByText(t("prices.saved"))).toBeVisible();
+    await expect(
+      page
+        .locator(".ai-status-bar")
+        .getByRole("link", { name: t("issue.prices", { count: 1 }) }),
+    ).toHaveCount(0);
+    // Saved as the workspace's own price, editable like any other.
+    await expect(
+      prices.getByLabel(t("prices.input"), { exact: true }),
+    ).toBeEditable();
+  });
+}

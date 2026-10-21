@@ -7,6 +7,7 @@ import {
   usdInput,
   type PriceGroup,
   type SectionState,
+  type SuggestedPrice,
 } from "../../domain/aiServices";
 import type { SectionProps } from "./AiServicesPage";
 import {
@@ -35,6 +36,14 @@ const FIELDS = [
 ] as const;
 type PriceField = (typeof FIELDS)[number];
 type Form = Record<PriceField, string> & { source: string };
+/** A scheduled price change this close is called out as a warning. */
+export const CHANGE_WARNING_DAYS = 60;
+const DAY_MS = 86_400_000;
+const TABLE_FIELDS: Partial<Record<PriceField, keyof SuggestedPrice>> = {
+  input: "inputMicroUsdPerMillionTokens",
+  output: "outputMicroUsdPerMillionTokens",
+  cached: "cachedInputMicroUsdPerMillionTokens",
+};
 const WIRE: Record<PriceField, string> = {
   input: "inputMicroUsdPerMillionTokens",
   output: "outputMicroUsdPerMillionTokens",
@@ -65,29 +74,50 @@ export function PricesSection(props: Props) {
     )?.adapters?.find((a) => a.id === group.connectionId)?.kind ??
     "";
   const today = text.date(new Date());
+  /** The bundled table's price for a group's model, when Core knows it. */
+  const suggestionFor = (group: PriceGroup) =>
+    data.pricing?.models.find(
+      (m) => group.modelIds.includes(m.modelId) && m.suggested,
+    )?.suggested ?? null;
   const initial = useMemo(() => {
     const result: Record<string, Form> = {};
     for (const group of groups) {
       const current = data.pricing?.models.find(
         (m) => group.modelIds.includes(m.modelId) && m.inForce,
       )?.inForce;
+      // An unpriced model Core knows is prefilled from the table; the owner confirms and saves.
+      const table = current ? null : suggestionFor(group);
       const form = {
         source:
           current?.sourceNote ??
-          t("aiServices.prices.sourceDefault", {
-            service: serviceName(t, kindOf(group)),
-            date: today,
-          }),
+          (table
+            ? t("aiServices.prices.sourceTable", {
+                service: serviceName(t, table.service),
+                date: text.date(`${table.checkedOn}T12:00:00Z`),
+                url: table.url,
+              })
+            : t("aiServices.prices.sourceDefault", {
+                service: serviceName(t, kindOf(group)),
+                date: today,
+              })),
       } as Form;
-      for (const field of FIELDS)
+      for (const field of FIELDS) {
+        const fromTable = table && TABLE_FIELDS[field];
         form[field] = usdInput(
-          (current?.[WIRE[field] as keyof typeof current] as
-            number | null | undefined) ?? null,
+          fromTable
+            ? (table[fromTable] as number | null)
+            : ((current?.[WIRE[field] as keyof typeof current] as
+                number | null | undefined) ?? null),
         );
+      }
       result[group.key] = form;
     }
     return result;
   }, [groups, data.pricing]);
+  /** Groups prefilled from the table and not priced yet: saving them is the owner's confirmation. */
+  const prefilled = groups
+    .filter((g) => !g.priced && !!suggestionFor(g))
+    .map((g) => g.key);
   const [forms, setForms] = useState(initial);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -103,6 +133,9 @@ export function PricesSection(props: Props) {
         touched.has(g.key) &&
         JSON.stringify(forms[g.key]) !== JSON.stringify(initial[g.key]),
     )
+    .map((g) => g.key);
+  const savable = groups
+    .filter((g) => dirtyKeys.includes(g.key) || prefilled.includes(g.key))
     .map((g) => g.key);
   useEffect(() => onDirty(dirtyKeys.length > 0), [dirtyKeys.length, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
@@ -136,7 +169,7 @@ export function PricesSection(props: Props) {
   function validate() {
     const problems: FieldError[] = [];
     for (const group of groups) {
-      if (!dirtyKeys.includes(group.key) && group.priced) continue;
+      if (!savable.includes(group.key) && group.priced) continue;
       const form = forms[group.key]!;
       const any = FIELDS.some((f) => form[f].trim());
       if (!any) continue;
@@ -167,9 +200,20 @@ export function PricesSection(props: Props) {
     setSaving(true);
     try {
       for (const group of groups) {
-        if (!dirtyKeys.includes(group.key)) continue;
+        if (!savable.includes(group.key)) continue;
         const form = forms[group.key]!;
         if (!FIELDS.some((f) => form[f].trim())) continue;
+        const table = suggestionFor(group);
+        // The announced change is saved too, from its date, when the owner kept the table's prices.
+        const change =
+          table?.change &&
+          (Object.keys(TABLE_FIELDS) as PriceField[]).every(
+            (f) =>
+              (parseUsd(form[f]) ?? null) ===
+              (table[TABLE_FIELDS[f]!] as number | null),
+          )
+            ? table.change
+            : null;
         for (const modelId of group.modelIds) {
           const model = data.pricing?.models.find((m) => m.modelId === modelId);
           const prices = Object.fromEntries(
@@ -196,11 +240,33 @@ export function PricesSection(props: Props) {
             sourceNote: form.source.trim(),
           };
           const id = keys.key(request);
-          await port.savePrice(workspaceId, {
+          const saved = await port.savePrice(workspaceId, {
             ...request,
             idempotencyKey: id,
             effectiveFrom: effective(id),
           });
+          if (change) {
+            const next = {
+              ...request,
+              expectedVersion: saved.version,
+              inputMicroUsdPerMillionTokens:
+                change.inputMicroUsdPerMillionTokens,
+              outputMicroUsdPerMillionTokens:
+                change.outputMicroUsdPerMillionTokens,
+              cachedInputMicroUsdPerMillionTokens:
+                change.cachedInputMicroUsdPerMillionTokens,
+              sourceNote: t("aiServices.prices.sourceChange", {
+                source: form.source.trim(),
+                date: text.date(`${change.from}T12:00:00Z`),
+              }).slice(0, 500),
+            };
+            const nextId = keys.key(next);
+            await port.savePrice(workspaceId, {
+              ...next,
+              idempotencyKey: nextId,
+              effectiveFrom: new Date(`${change.from}T00:00:00Z`).toISOString(),
+            });
+          }
         }
       }
       keys.settle();
@@ -305,6 +371,10 @@ export function PricesSection(props: Props) {
               {!group.priced && (
                 <p className="ai-muted">{t("aiServices.prices.missingNote")}</p>
               )}
+              <TableNote
+                suggestion={suggestionFor(group)}
+                prefilled={prefilled.includes(group.key)}
+              />
               <div className="ai-grid">
                 {money(group, "input", t("aiServices.prices.input"))}
                 {money(group, "output", t("aiServices.prices.output"))}
@@ -355,7 +425,7 @@ export function PricesSection(props: Props) {
           <button
             type="submit"
             className="button primary"
-            disabled={saving || !dirtyKeys.length}
+            disabled={saving || !savable.length}
           >
             {saving
               ? t("aiServices.prices.saving")
@@ -364,5 +434,71 @@ export function PricesSection(props: Props) {
         </div>
       </form>
     </Section>
+  );
+}
+
+const rate = (micro: number | null) =>
+  micro === null ? "" : `$${usdInput(micro)}`;
+/** Where a prefilled price came from, its long-prompt tier, and an announced change. */
+function TableNote({
+  suggestion,
+  prefilled,
+}: {
+  suggestion: SuggestedPrice | null;
+  prefilled: boolean;
+}) {
+  const text = useAiText();
+  const { t } = text;
+  if (!suggestion) return null;
+  const service = serviceName(t, suggestion.service);
+  const change = suggestion.change;
+  const days = change
+    ? (Date.parse(`${change.from}T00:00:00Z`) - Date.now()) / DAY_MS
+    : Infinity;
+  const changeText = change
+    ? t("aiServices.prices.changeNote", {
+        service,
+        date: text.date(`${change.from}T12:00:00Z`),
+        input: rate(change.inputMicroUsdPerMillionTokens),
+        output: rate(change.outputMicroUsdPerMillionTokens),
+      })
+    : null;
+  return (
+    <>
+      {prefilled && (
+        <p className="ai-price-suggestion">
+          {t("aiServices.prices.fromTable", {
+            service,
+            date: text.date(`${suggestion.checkedOn}T12:00:00Z`),
+          })}{" "}
+          <a href={suggestion.url} target="_blank" rel="noreferrer noopener">
+            {t("aiServices.prices.openPricing", { service })}
+            <span className="sr-only"> {t("aiServices.connect.newTab")}</span>
+          </a>
+        </p>
+      )}
+      {prefilled && suggestion.promptTokensUpTo !== null && (
+        <p className="ai-muted">
+          {t("aiServices.prices.tierNote", {
+            tokens: suggestion.promptTokensUpTo,
+          })}
+        </p>
+      )}
+      {changeText &&
+        (days <= CHANGE_WARNING_DAYS ? (
+          <Message tone="warn">
+            {changeText}{" "}
+            {prefilled
+              ? t("aiServices.prices.changeSaved")
+              : t("aiServices.prices.changeUpdate")}
+          </Message>
+        ) : (
+          prefilled && (
+            <p className="ai-muted">
+              {changeText} {t("aiServices.prices.changeSaved")}
+            </p>
+          )
+        ))}
+    </>
   );
 }

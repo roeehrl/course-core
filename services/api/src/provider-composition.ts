@@ -37,6 +37,13 @@ export function anthropicAdapterFactory(fetch?: typeof globalThis.fetch): Adapte
   };
 }
 
+/** Built-in Gemini API adapter. `fetch` is injectable only by trusted test code (the admin browser
+ * suite's synthetic model); the adapter itself fixes the HTTPS origin, path and headers. */
+export function googleAdapterFactory(fetch?: typeof globalThis.fetch): AdapterFactory {
+  return options => new GoogleProvider({ providerId: options.providerId, registry: options.registry,
+    getApiKey: requiredCredential(options.getCredential), settings: singleAttempt, ...(fetch ? { fetch } : {}) });
+}
+
 /** Only trusted server code registers factories. Course/browser data cannot load a module. */
 /** `strategies` is trusted server composition too: reviewed strategy packs placed before Core's own. */
 export function composeProviders(input: unknown, readCredential: (name: string) => string | undefined, trustedFactories: Record<string, AdapterFactory> = {},
@@ -45,8 +52,7 @@ export function composeProviders(input: unknown, readCredential: (name: string) 
   if (!parsed.success) throw new ProviderError('INVALID_CONFIG');
   const registry = new ModelRegistry(parsed.data.registry as RegistryConfig), providers = new Set<string>();
   const factories: Record<string, AdapterFactory> = {
-    google: options => new GoogleProvider({ providerId: options.providerId, registry: options.registry,
-      getApiKey: requiredCredential(options.getCredential), settings: singleAttempt }),
+    google: googleAdapterFactory(),
     anthropic: anthropicAdapterFactory(),
     ...trustedFactories,
   };

@@ -126,8 +126,38 @@ The admin "AI services" page uses these routes (all under
   the exact revision of that job in the open draft and the server resolves its digest.
 - `PUT /service-keys/youtube` `{key | null}` stores the YouTube search key.
 
-Running the quality check from the page is not available yet; the CLI and
-`POST …/provider-evals/results` remain the way to record a passing result.
+### Quality check from the page
+
+`GET /quality-check` reports what a check of the open draft would run: the jobs waiting for a
+check, the number of practice conversations, the estimate (conversations × 3000 input and
+600 output tokens × the saved price), the amount set aside while it runs (the draft's
+per-request allowance for each conversation), `blocked` with the reason it cannot start, and
+the latest check. `POST /quality-check` `{idempotencyKey, draftId}` (owners and administrators,
+same session, origin and CSRF rules as every admin write) starts it and returns at once; `GET
+/quality-check/:id` reports progress (`completed` of `total`) and the result.
+
+- Refusals, in this order: `404 PROVIDER_DRAFT_NOT_FOUND`, `409 STALE_PROVIDER_REVISION`,
+  `409 PROVIDER_QUALITY_CHECK_NOT_NEEDED`, `409 PROVIDER_QUALITY_CHECK_KEY_MISSING {roles}`,
+  `409 PROVIDER_QUALITY_CHECK_PRICES_MISSING {roles}` (always required, whatever the
+  unpriced-work rule), `409 PROVIDER_QUALITY_CHECK_LIMIT_MISSING` (no workspace spending
+  limit), `409 PROVIDER_QUALITY_CHECK_BUDGET_REACHED {neededMicroUsd, availableMicroUsd}`,
+  `409 PROVIDER_QUALITY_CHECK_RUNNING` (one at a time per workspace) and
+  `429 PROVIDER_QUALITY_CHECK_RATE_LIMITED` (six starts per hour). A repeated key returns the
+  same check; the same key for another draft is `409 IDEMPOTENCY_CONFLICT`.
+- Each conversation reserves the per-request allowance against the workspace budget and has
+  its own `provider_spend_ledger` row (`source='quality_check'`, no enrollment; migration 089).
+  After its call the row settles at the reported usage and saved price, is released when the
+  provider certainly refused the call, and stays charged when the outcome is unknown.
+- The run uses the server's eval runner (`agent-evals/runner.ts`) with the workspace's own key
+  and the draft's models, under a ten-minute deadline. A finished run is recorded through the
+  same path as an uploaded report (`provider_eval_results`, regraded by Core); a pass lets the
+  draft be turned on. A key, quota or network failure stops the run and records nothing (the
+  reason uses the key-test codes). A run past its deadline, or one a stopped server left behind,
+  ends as an error and keeps unsettled calls charged.
+- Audit: `provider.quality_check.started` and `provider.quality_check.finished` (ids, jobs,
+  counts, amounts and outcome codes; never answers, prompts or keys).
+
+The CLI and `POST …/provider-evals/results` remain available for developers.
 
 ## Paid-work budgets
 
@@ -199,8 +229,8 @@ expires or can be revoked. Live Veo generation and download have not been verifi
 
 ## Model pricing and cost reconciliation
 
-Prices are operator data. There is no built-in vendor price list: an owner or
-administrator enters, per configured model, an input and output price per million
+Prices are operator data. Nothing is charged by a built-in vendor price list: an owner or
+administrator enters (or confirms), per configured model, an input and output price per million
 tokens (optionally a cached-input price), a per-request price and, for generated
 media, a price per output second, with an effective time and a source note
 (Providers > Model prices). Money is integer micro-USD throughout; only USD is
@@ -208,6 +238,14 @@ accepted because the paid-work budgets are kept in micro-USD. Versions are
 append-only (`provider_model_prices`, migration 039): the version in force is the
 newest one whose effective time has passed. A new version cannot take effect
 before the one it replaces, and a withdrawal makes the model unpriced again.
+
+**Suggested prices.** `src/price-table.ts` is a dated table of standard text prices for known
+Google and Anthropic models, copied from the providers' official pricing pages (with announced
+changes and long-prompt tiers). The pricing view returns it per model as `suggested`; the admin
+page prefills the price fields from it and says where the numbers came from, and nothing is in
+force until an owner or administrator saves it. Saving the table's prices unchanged also saves
+an announced change as a later price version. Review the table whenever a provider changes its
+prices.
 
 The gateway prices a call from the usage the provider reported, using the version
 in force at admission, and records that version on the dispatch and on the receipt
