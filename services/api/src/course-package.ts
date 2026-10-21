@@ -12,6 +12,7 @@
  * release that ships one, `coreCoursePackageVerifier` can delegate archive and descriptor checks
  * to it while Core keeps the compile/digest comparison against its own pinned compiler.
  */
+import { courseStrategyProblems } from './course-strategies.js';
 import { createHash } from 'node:crypto';
 import { canonicalJson, compileCourse, CourseValidationError, type CompiledCourse } from '@course-core/sdk/compiler';
 import { readTarGz, TarError, MEMBER_NAME, type TarMember } from './ustar.js';
@@ -160,6 +161,9 @@ export function verifyMembers(files: readonly TarMember[], packageSha256: string
     if (error instanceof CourseValidationError) refuse('PACKAGE_COURSE_INVALID', { issues: error.issues.slice(0, 20) });
     throw error;
   }
+  // Agent strategies the course declares may only narrow Core's own (course-strategies.ts).
+  const strategyIssues = courseStrategyProblems(compiled.server);
+  if (strategyIssues.length) refuse('PACKAGE_AGENT_STRATEGY_REFUSED', { problems: strategyIssues.slice(0, 20) });
   if (compiled.server.id !== descriptor.courseId) refuse('PACKAGE_COURSE_ID_MISMATCH');
   if (compiled.server.version !== descriptor.courseVersion) refuse('PACKAGE_COURSE_VERSION_MISMATCH');
   if (compiled.digest !== descriptor.courseDigest) refuse('PACKAGE_COURSE_DIGEST_MISMATCH');

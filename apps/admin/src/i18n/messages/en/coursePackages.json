@@ -61,5 +61,6 @@
   "error.STALE_REVISION": "Someone else changed these settings. Reload and try again.",
   "error.FORBIDDEN": "Your role cannot do this.",
   "error.UNAVAILABLE": "The server could not be reached.",
-  "error.unknown": "The server refused this step ({code})."
+  "error.unknown": "The server refused this step ({code}).",
+  "error.PACKAGE_AGENT_STRATEGY_REFUSED": "An agent strategy in this course asks for more than Core's own strategy allows (more tools, rounds, retries or autonomy). Narrow it in the course and build the package again."
 }

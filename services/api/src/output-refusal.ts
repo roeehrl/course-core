@@ -30,7 +30,9 @@ export const HOST_ENDED_REASONS: readonly string[] = ['tool_loop_round_not_start
  * `verification_rejected` and nothing is delivered. A response Core cannot know the fate of
  * (a timeout or lost connection after sending) still waits as `provider_uncertain`.
  */
-export const OUTPUT_REFUSAL_REASONS = ['objective_out_of_scope', 'output_too_large', ...TOOL_LOOP_REFUSAL_REASONS] as const;
+/** autonomy_exceeded: a course strategy that may only propose (SDK autonomy propose_only) produced a
+ * plan that would change the learner's teaching (course-strategies.ts). */
+export const OUTPUT_REFUSAL_REASONS = ['objective_out_of_scope', 'output_too_large', 'autonomy_exceeded', ...TOOL_LOOP_REFUSAL_REASONS] as const;
 export type OutputRefusalReason = (typeof OUTPUT_REFUSAL_REASONS)[number];
 export const outputRefusalSchema = z.strictObject({
   kind: z.literal('output_refusal'),
