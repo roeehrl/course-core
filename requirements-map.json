@@ -518,11 +518,18 @@
       "core:apps/learner/tests/connected-web/companion.spec.ts"
     ],
     "I05": [
+      "core:apps/learner/tests/connected-web/accessibility.spec.ts::browser zoom without horizontal scrolling",
       "core:apps/learner/tests/connected-web/authority.spec.ts",
       "core:apps/learner/tests/web/connected.spec.ts",
       "core:apps/learner/tests/web/learner.spec.ts"
     ],
     "I06": [
+      "core:apps/admin/tests/installCourse.test.tsx::interrupted upload installs nothing",
+      "core:apps/admin/tests/real/course-packages.real.spec.ts::slow, interrupted upload",
+      "core:apps/admin/tests/web/ime.spec.ts::an Enter that commits IME composition",
+      "core:apps/learner/tests/connected-web/offline.spec.ts::slow network:",
+      "core:apps/learner/tests/imeGuard.test.tsx::IME submit guard",
+      "core:apps/learner/tests/offlineDrafts.test.tsx::READ_TIMEOUT",
       "core:apps/learner/tests/web/code.spec.ts"
     ],
     "I08": [
@@ -587,10 +594,19 @@
       "sdk:tests/visual-contract.test.ts"
     ],
     "L02": [
-      "core:packages/visuals/test/runtime.test.ts"
+      "core:packages/visuals/test/browser/studio.spec.ts::the 0.5 primitives render in the browser",
+      "core:packages/visuals/test/runtime.test.ts",
+      "core:packages/visuals/test/studio.test.tsx::image assets: decoded, signature and digest checked",
+      "core:packages/visuals/test/studio.test.tsx::matrix and environment equations",
+      "core:packages/visuals/test/studio.test.tsx::radial gradients render with their centre and radius",
+      "core:services/api/test/renderer-compatibility.test.ts::0.5 primitives (image, radial gradient, matrix, morph, colour, camera) need 0.5.0"
     ],
     "L03": [
-      "core:packages/visuals/test/runtime.test.ts"
+      "core:packages/visuals/test/browser/studio.spec.ts::the camera zooms (viewBox), the shape morphs and changes colour",
+      "core:packages/visuals/test/runtime.test.ts",
+      "core:packages/visuals/test/studio.test.tsx::colour tracks animate solid fills and strokes",
+      "core:packages/visuals/test/studio.test.tsx::path morph interpolates every coordinate",
+      "core:packages/visuals/test/studio.test.tsx::the camera sets the viewBox"
     ],
     "L04": [
       "core:packages/visuals/test/browser/visuals.spec.ts",
@@ -604,10 +620,16 @@
       "core:packages/visuals/test/runtime.test.ts"
     ],
     "L09": [
-      "core:packages/visuals/test/runtime.test.ts"
+      "core:packages/visuals/test/browser/studio.spec.ts::a lazy player loads near the viewport, is disposed away from it",
+      "core:packages/visuals/test/runtime.test.ts",
+      "core:packages/visuals/test/studio.test.tsx::lazy player and export controls render accessibly"
     ],
     "L10": [
-      "core:services/api/test/interactive-flow.integration.test.ts"
+      "core:apps/learner/tests/visualCallback.test.tsx::reports completion once",
+      "core:packages/visuals/test/browser/studio.spec.ts::completion is reported once",
+      "core:packages/visuals/test/studio.test.tsx::completion is emitted once per runtime",
+      "core:services/api/test/interactive-flow.integration.test.ts",
+      "core:services/api/test/interactive-flow.integration.test.ts::visual completion is one observation"
     ],
     "L12": [
       "core:services/api/test/renderer-compatibility.integration.test.ts",
@@ -988,6 +1010,27 @@
       "core:apps/admin/tests/real/studies.real.spec.ts",
       "core:apps/learner/tests/connected-web/study.spec.ts",
       "core:services/api/test/study.integration.test.ts"
+    ],
+    "L08": [
+      "core:packages/visuals/test/browser/studio.spec.ts::export downloads the headless SVG and a PNG of the current frame; previews show device chrome",
+      "core:packages/visuals/test/checks.test.tsx::device preview frames follow the runtime"
+    ],
+    "L11": [
+      "core:apps/admin/tests/runInspector.test.tsx::sceneImageAssets",
+      "core:services/api/browser/debug-inspector.spec.ts::Renderer build",
+      "core:services/api/test/visual-accessibility.integration.test.ts::visualRenderers"
+    ],
+    "S12": [
+      "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:services/api/test/visual-accessibility.test.ts"
+    ],
+    "D01": [
+      "core:services/api/test/companion-context.integration.test.ts::contextCapsuleSchema",
+      "core:services/api/test/context-capsule-contract.test.ts"
+    ],
+    "I04": [
+      "core:apps/learner/tests/connected-web/accessibility.spec.ts::lesson prose keeps a readable line length"
     ]
   },
   "critical": [
