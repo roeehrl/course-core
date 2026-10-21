@@ -272,6 +272,11 @@
       "core:deploy/local/runtime.test.mjs",
       "core:scripts/workflow-policy.test.mjs::the required Docker job brings up the documented self-host stack"
     ],
+    "B01": [
+      "core:services/api/test/cross-course.integration.test.ts::validates links, versions every save, replays idempotently and keeps an immutable history",
+      "core:services/supervisor/test/temporal.integration.ts::an enrollment coordinator reports ended jobs to the learner coordinator only under an opt-in",
+      "core:services/supervisor/test/temporal.integration.ts::the enrollment coordinator runs prepared jobs as children, once each, and replays"
+    ],
     "B02": [
       "core:services/api/test/teaching-loop.integration.test.ts::delivery schedules a follow-up and a transfer probe",
       "core:services/api/test/teaching-loop.integration.test.ts::review_due (T10) prepares the next review"
@@ -324,6 +329,14 @@
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learner-model.integration.test.ts::a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed"
     ],
+    "C04": [
+      "core:apps/learner/tests/hypotheses.test.tsx::shows each idea in plain language with its source, certainty and evidence, and never as a grade",
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::pin, correct and reject with audit, revision fences, provider-context exclusion and respected rejection",
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::requests a diagnostic: a declared probe is scheduled, otherwise the supervisor is asked; requests are capped"
+    ],
+    "C05": [
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::reports practicing, demonstrated, retained, needs review and disputed from real records"
+    ],
     "C06": [
       "core:services/api/test/evidence-author.test.ts",
       "core:services/api/test/learner-model.integration.test.ts::evidence refs name their evaluator and time"
@@ -343,11 +356,20 @@
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
+    "D01": [
+      "core:services/api/test/companion-context.integration.test.ts::contextCapsuleSchema",
+      "core:services/api/test/context-capsule-contract.test.ts"
+    ],
     "D02": [
       "core:services/api/test/learner-model.integration.test.ts"
     ],
     "D03": [
       "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "D04": [
+      "core:services/api/test/agent-tools.integration.test.ts::authenticates only by bearer token, and the token authenticates nothing else",
+      "core:services/api/test/agent-tools.integration.test.ts::creates only a pending suggestion for the learner to review; grading and progress are untouched",
+      "core:services/api/test/agent-tools.integration.test.ts::reads the minimal projection: context, profile, evidence and history, never keys or private notes"
     ],
     "D05": [
       "core:apps/learner/tests/companion.test.tsx"
@@ -356,11 +378,19 @@
       "core:services/api/test/google-model-setup.test.ts",
       "core:services/api/test/provider-runtime.test.ts"
     ],
+    "D07": [
+      "core:services/api/test/companion-context.integration.test.ts::rejects stale or foreign anchors instead of guessing, and keeps valid ones exact"
+    ],
     "E01": [
       "core:services/api/qualification/practical-flow.ts::generatedExerciseProven",
       "core:services/api/test/generated-content.integration.test.ts::generated code exercises (E01, E05)",
       "core:services/api/test/generated-content.integration.test.ts::generated simulations (E01, E05)",
       "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "E02": [
+      "core:services/api/test/adaptation.integration.test.ts::a deliberately wrong independent numerical reference rolls back every candidate/proof/plan write",
+      "core:services/api/test/supervisor-tools.integration.test.ts::a generated whole lesson passes the verifier and the accessibility check, is inserted after its anchor and records a transfer check",
+      "core:services/api/test/supervisor-tools.integration.test.ts::an inaccessible generated lesson is check feedback and never becomes ready"
     ],
     "E03": [
       "core:apps/learner/tests/pendingChanges.test.tsx",
@@ -392,6 +422,11 @@
     ],
     "E09": [
       "core:services/api/test/episode-insertion.integration.test.ts"
+    ],
+    "F01": [
+      "core:services/api/test/gate-decision.integration.test.ts::grades prediction with relative tolerance and trace per step, deterministically",
+      "core:services/api/test/gate-decision.integration.test.ts::routes code repair to the installed code evaluator",
+      "core:services/api/test/gate-decision.integration.test.ts::routes counterexample, experiment design and teach-back to quoted human review"
     ],
     "F02": [
       "core:services/api/test/learning.test.ts",
@@ -445,6 +480,10 @@
       "core:packages/policy/test/lifecycle.test.mjs",
       "core:services/api/test/policy-levels.integration.test.ts::previews one outage adjustment for every active learner"
     ],
+    "G06": [
+      "core:services/api/test/policy-admin.integration.test.ts::refuses learner and admin enrollment when the estimated core path cannot fit, unless the learner accepts documented gaps",
+      "core:services/api/test/policy-admin.integration.test.ts::refuses to publish a release whose required path is already past its deadline, with alternatives"
+    ],
     "G07": [
       "core:services/api/test/teaching-constraints.test.ts"
     ],
@@ -487,9 +526,18 @@
       "core:services/api/test/completed-course.integration.test.ts",
       "core:services/api/test/policy-levels.integration.test.ts::offers an explicit opt-in that allows review only"
     ],
+    "G16": [
+      "core:packages/policy/test/completion.test.mjs::revocation is previewed, authorized, keeps usage and restores the earlier deadline",
+      "core:services/api/test/policy-admin.integration.test.ts::revokes, refunds and makes exceptional grants as separate audited operations (G16)"
+    ],
     "G17": [
       "core:packages/policy/test/resolver.test.mjs",
       "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "G18": [
+      "core:packages/policy/test/extensions.test.mjs::silence, false or unrelated consent cannot grant; exact affirmative acceptance can wait for administration",
+      "core:packages/policy/test/lifecycle.test.mjs::closure retains achieved work, reports gaps and stops expansion without manufacturing mastery",
+      "core:packages/policy/test/lifecycle.test.mjs::explicit reviewed deadline shortening is visible in impact and changes current commit checks"
     ],
     "H01": [
       "core:services/api/test/placement.integration.test.ts"
@@ -505,6 +553,10 @@
       "core:apps/learner/tests/placementResult.test.tsx",
       "core:services/api/test/placement-admin.integration.test.ts::names the questions behind each objective shown"
     ],
+    "H05": [
+      "core:services/api/test/placement.integration.test.ts::never places out of a later episode past an unproven prerequisite, whatever the average",
+      "core:services/api/test/placement.integration.test.ts::stops at an episode whose prerequisite was taught off the path and never shown"
+    ],
     "H06": [
       "core:services/api/test/placement.integration.test.ts"
     ],
@@ -519,6 +571,9 @@
     ],
     "I03": [
       "core:apps/learner/tests/connected-web/companion.spec.ts"
+    ],
+    "I04": [
+      "core:apps/learner/tests/connected-web/accessibility.spec.ts::lesson prose keeps a readable line length"
     ],
     "I05": [
       "core:apps/learner/tests/connected-web/accessibility.spec.ts::browser zoom without horizontal scrolling",
@@ -630,6 +685,10 @@
       "core:packages/visuals/test/browser/visuals.spec.ts",
       "core:packages/visuals/test/runtime.test.ts"
     ],
+    "L08": [
+      "core:packages/visuals/test/browser/studio.spec.ts::export downloads the headless SVG and a PNG of the current frame; previews show device chrome",
+      "core:packages/visuals/test/checks.test.tsx::device preview frames follow the runtime"
+    ],
     "L09": [
       "core:packages/visuals/test/browser/studio.spec.ts::a lazy player loads near the viewport, is disposed away from it",
       "core:packages/visuals/test/runtime.test.ts",
@@ -641,6 +700,11 @@
       "core:packages/visuals/test/studio.test.tsx::completion is emitted once per runtime",
       "core:services/api/test/interactive-flow.integration.test.ts",
       "core:services/api/test/interactive-flow.integration.test.ts::visual completion is one observation"
+    ],
+    "L11": [
+      "core:apps/admin/tests/runInspector.test.tsx::sceneImageAssets",
+      "core:services/api/browser/debug-inspector.spec.ts::Renderer build",
+      "core:services/api/test/visual-accessibility.integration.test.ts::visualRenderers"
     ],
     "L12": [
       "core:services/api/test/renderer-compatibility.integration.test.ts",
@@ -955,6 +1019,11 @@
       "core:services/api/test/data-lifecycle.integration.test.ts",
       "core:services/api/test/data-lifecycle.integration.test.ts::erases personal content everywhere, keeps an auditable skeleton and blocks further use"
     ],
+    "S12": [
+      "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:services/api/test/visual-accessibility.test.ts"
+    ],
     "T01": [
       "core:services/api/browser/budgets.spec.ts::feedbackMs",
       "core:services/api/test/release-transition-latency.integration.test.ts"
@@ -1021,27 +1090,6 @@
       "core:apps/admin/tests/real/studies.real.spec.ts",
       "core:apps/learner/tests/connected-web/study.spec.ts",
       "core:services/api/test/study.integration.test.ts"
-    ],
-    "L08": [
-      "core:packages/visuals/test/browser/studio.spec.ts::export downloads the headless SVG and a PNG of the current frame; previews show device chrome",
-      "core:packages/visuals/test/checks.test.tsx::device preview frames follow the runtime"
-    ],
-    "L11": [
-      "core:apps/admin/tests/runInspector.test.tsx::sceneImageAssets",
-      "core:services/api/browser/debug-inspector.spec.ts::Renderer build",
-      "core:services/api/test/visual-accessibility.integration.test.ts::visualRenderers"
-    ],
-    "S12": [
-      "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
-      "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
-      "core:services/api/test/visual-accessibility.test.ts"
-    ],
-    "D01": [
-      "core:services/api/test/companion-context.integration.test.ts::contextCapsuleSchema",
-      "core:services/api/test/context-capsule-contract.test.ts"
-    ],
-    "I04": [
-      "core:apps/learner/tests/connected-web/accessibility.spec.ts::lesson prose keeps a readable line length"
     ]
   },
   "critical": [
