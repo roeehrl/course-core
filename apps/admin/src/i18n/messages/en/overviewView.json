@@ -57,5 +57,7 @@
   "jobState.building": "building",
   "jobState.evaluating": "evaluating",
   "jobState.needs_input": "needs input",
-  "jobState.follow_up_due": "follow up due"
+  "jobState.follow_up_due": "follow up due",
+  "health.uncheckedTitle": "AI ran with a setup nobody checked",
+  "health.uncheckedBody": "{count, plural, one {One AI call} other {# AI calls}} in the last 7 days used a setup with no passing quality check and no owner approval (for example after an update changed how a job asks its model). They still ran. Run the quality check or approve the setup on the AI services page."
 }

@@ -126,6 +126,7 @@ const overview: CourseOverview = {
     jobsByState: { budget_wait: 1 },
     failedLast24h: 0,
     oldestOpenJobAgeSeconds: 120,
+    uncheckedCallsLast7Days: 2,
   },
   approvalQueue: {
     writtenAnswers: 1,
@@ -149,6 +150,13 @@ describe("course overview", () => {
     expect(text()).toContain("1 evidence record invalidated in 30 days");
     expect(text()).toContain("oldest open job 2 minutes old");
     expect(screen.getByText("budget wait")).toBeVisible();
+    // AI calls that ran with an unchecked setup are named, not hidden (B08).
+    expect(
+      screen.getByText("AI ran with a setup nobody checked"),
+    ).toBeVisible();
+    expect(text()).toContain(
+      "2 AI calls in the last 7 days used a setup with no passing quality check",
+    );
   });
 
   it("renders in Hebrew with Hebrew plurals and translated states", async () => {
@@ -161,6 +169,7 @@ describe("course overview", () => {
     expect(text()).toContain("Robin Example · נשאר שיעור אחד · מועד אחרון");
     expect(screen.getByText("יומיים")).toBeVisible();
     expect(screen.getByText("ממתינות לתקציב")).toBeVisible();
+    expect(text()).toContain("שתי קריאות AI ב-7 הימים האחרונים");
     expect(screen.getByText("פעילות")).toBeVisible();
     expect(screen.getByText("1.2.0")).toHaveAttribute("dir", "ltr");
   });

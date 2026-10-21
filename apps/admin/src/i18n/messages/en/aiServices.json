@@ -396,5 +396,17 @@
   "readonly.demo": "This is the demo. AI services are set up on a connected server.",
   "readonly.status.configured": "Set up",
   "readonly.status.absent": "Not set up",
-  "readonly.status.pending_review": "Waiting for review"
+  "readonly.status.pending_review": "Waiting for review",
+  "check.hostFile.title": "Setup from the server's provider file",
+  "check.hostFile.body": "This workspace has no AI services setup of its own, so jobs use the provider file the server was started with. Its jobs are checked like yours: run the quality check or approve them here.",
+  "check.hostFile.unchecked": "Not checked yet: {jobs}. They keep working.",
+  "check.course.title": "Course-specific setups",
+  "check.course.body": "A course can ask for a narrower version of a job, for example fewer tools or shorter answers. Each one needs its own check or an owner's approval. Until then that job is turned down for the course's learners; the standard job is never used in its place.",
+  "check.course.item": "{job} for {course} {version}:",
+  "check.course.state.passed": "Checked",
+  "check.course.state.override": "Approved",
+  "check.course.state.not_covered": "Waiting for an owner's approval — turned down for this course's learners until then",
+  "check.course.approveNote": "There is no automatic check for course-specific setups yet. Read what the course asks for in its release notes, then approve. The approval covers this exact setup; a new course version or a model change needs a new one.",
+  "check.course.approve": "{count, plural, one {Approve this setup} other {Approve these # setups}}",
+  "check.course.approved": "Approved. The course's learners get these setups from now on."
 }
