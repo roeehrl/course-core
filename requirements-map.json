@@ -677,6 +677,7 @@
       "core:apps/admin/tests/versionMoves.test.tsx::previews before anything moves, says what happens to each learner, and needs a reason and an acknowledgement",
       "core:scripts/release-compat.test.mjs::compatibility versions follow semantic version order and the API package rule",
       "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/course-package.test.ts::refuses a pre-release of the upper bound of the range",
       "core:services/api/test/course-packages.integration.test.ts::refuses a package from a newer SDK minor than the pinned one",
       "core:services/api/test/course-packages.integration.test.ts::refuses a version older than the newest installed unless explicitly confirmed, and records the choice",
       "core:services/api/test/course-packages.integration.test.ts::reports blocking problems: newer Core required, unsupported SDK, version conflict",
