@@ -33,23 +33,7 @@ import {
   Stat,
 } from "../components/ui";
 import { isolate } from "@course-core/i18n";
-import { useI18n, useT } from "../i18n";
-
-/** Server times in UTC with a localized zone name. (`useFormatters().when` combines
- * dateStyle with timeZoneName, which Intl rejects, so the fields are spelled out.) */
-const UTC_WHEN: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
-function useWhen() {
-  const i18n = useI18n();
-  return (iso: string) => i18n.dateTime(iso, UTC_WHEN);
-}
+import { useFormatters, useI18n, useT } from "../i18n";
 
 const stateTone = {
   draft: "gold",
@@ -178,7 +162,7 @@ function StudyCard({
   onChanged: (message: string) => void;
 }) {
   const t = useT();
-  const when = useWhen();
+  const { when } = useFormatters();
   const [editing, setEditing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [pending, setPending] = useState(false);

@@ -31,23 +31,7 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { isolate } from "@course-core/i18n";
-import { useI18n, useT } from "../i18n";
-
-/** Server times in UTC with a localized zone name. (`useFormatters().when` combines
- * dateStyle with timeZoneName, which Intl rejects, so the fields are spelled out.) */
-const UTC_WHEN: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
-function useWhen() {
-  const i18n = useI18n();
-  return (iso: string) => i18n.dateTime(iso, UTC_WHEN);
-}
+import { useFormatters, useI18n, useT } from "../i18n";
 
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -200,7 +184,7 @@ function ReleaseResearch({
   permissions: CourseWorkspace["permissions"];
 }) {
   const t = useT();
-  const when = useWhen();
+  const { when } = useFormatters();
   const library = useRemote(
     (signal) => port.library(releaseId, signal),
     [port, releaseId],
@@ -545,7 +529,12 @@ function ReleaseResearch({
         {lib.attachments.length === 0 ? (
           <p className="research-empty">{t("researchView.delivered.empty")}</p>
         ) : (
-          <div className="table-wrap">
+          <div
+            className="table-wrap"
+            // Contains the visually hidden caption and header text; without a positioned
+            // ancestor they escape the scroll box and widen the page on phones.
+            style={{ position: "relative" }}
+          >
             <table>
               <caption className="sr-only">
                 {t("researchView.delivered.caption")}
@@ -637,7 +626,7 @@ function SourceItem({
   onRevoke: (attachmentId: string) => void;
 }) {
   const t = useT();
-  const when = useWhen();
+  const { when } = useFormatters();
   const state = sourceState(source);
   const inspection = source.inspections[0];
   const latestReview = source.reviews[0];

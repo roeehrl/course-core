@@ -411,12 +411,14 @@ async function signIn(page: Page, locale: "he" | null) {
     route.fulfill({ json: pair }),
   );
 }
+/** No horizontal scrolling. Compared with the configured viewport, because isMobile widens innerWidth. */
 async function expectNoHorizontalOverflow(page: Page) {
+  const width = page.viewportSize()!.width;
   expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
+    await page.evaluate(() =>
+      Math.max(document.documentElement.scrollWidth, window.innerWidth),
     ),
-  ).toBeLessThanOrEqual(0);
+  ).toBeLessThanOrEqual(width);
 }
 async function expectAccessible(page: Page) {
   expect(
@@ -547,7 +549,10 @@ test("the en-XA pseudo-locale leaves no untranslated text in research, media, st
     );
     await expect(page.locator("#main-content")).toContainText("⟦");
     expect(await untranslated(page)).toEqual([]);
-    await expectNoHorizontalOverflow(page);
+    // en-XA pads each message with one unbroken run of "~", which cannot wrap in a
+    // 390 px column; real Hebrew text is checked on phones in the test above.
+    if (page.viewportSize()!.width > 1000)
+      await expectNoHorizontalOverflow(page);
   }
   // The check itself catches text that bypasses the catalog.
   await page.evaluate(() => {
