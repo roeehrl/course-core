@@ -2345,3 +2345,17 @@ html:has(.connected-host:not(.is-compact)) {
   max-width: 100%;
   font: inherit;
 }
+.connected-detour {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px dashed #9fb5ae;
+}
+.connected-detour p {
+  margin: 0;
+  flex: 1 1 260px;
+}
