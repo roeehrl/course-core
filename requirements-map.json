@@ -528,11 +528,19 @@
       "core:packages/visuals/test/runtime.test.ts"
     ],
     "K13": [
+      "core:apps/admin/tests/courseVersions.test.tsx::publishing an older version than one already published needs a second, explicit confirmation",
+      "core:apps/admin/tests/real/course-packages.real.spec.ts::installing and publishing an older version than the published one needs an explicit choice",
       "core:services/api/test/admin.integration.test.ts",
-      "core:services/api/test/course-packages.integration.test.ts::reports blocking problems: newer Core required, unsupported SDK, version conflict"
+      "core:services/api/test/course-packages.integration.test.ts::refuses a version older than the newest installed unless explicitly confirmed, and records the choice",
+      "core:services/api/test/course-packages.integration.test.ts::reports blocking problems: newer Core required, unsupported SDK, version conflict",
+      "core:services/api/test/course-versions.integration.test.ts::publishes newer versions freely and refuses an older one unless explicitly confirmed",
+      "core:services/api/test/course-versions.integration.test.ts::the reviewed administration publish refuses an older version until confirmed, and audits it"
     ],
     "K14": [
-      "core:services/api/test/data-lifecycle.integration.test.ts"
+      "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/event-export.integration.test.ts::an owner or admin copy follows the staff privacy rule; other staff and other learners are denied",
+      "core:services/api/test/event-export.integration.test.ts::gives the learner every event of their own enrollment in the SDK learningEventExport format",
+      "core:services/api/test/event-export.integration.test.ts::pages by cursor without gaps or overlap, and an empty page keeps the cursor"
     ],
     "L01": [
       "sdk:tests/visual-contract.test.ts"
