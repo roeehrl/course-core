@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { MODULES, ROOT, ensure, requireNode26, testDatabaseUrl } from './modules.mjs';
 import { isMain } from './is-main.mjs';
+import { retryTransientCommand } from './network-retry.mjs';
 
 // Release compatibility matrix and migration/rollback rehearsal.
 //
@@ -152,13 +153,15 @@ export function previousReleaseTag(tags, version, published) {
  * (tags separated by commas or whitespace) wins; otherwise the GitHub CLI lists the repository's
  * releases (GH_TOKEN, and GH_REPO outside a clone). Fails rather than guessing from git tags.
  */
-export async function publishedReleaseTags(root, environment = process.env) {
+export async function publishedReleaseTags(root, environment = process.env, retry = {}) {
   const listed = environment.COURSE_PUBLISHED_RELEASES;
   if (listed !== undefined) return new Set(listed.split(/[\s,]+/).filter(Boolean));
   let stdout;
   try {
-    ({ stdout } = await exec('gh', ['release', 'list', '--limit', '1000', '--exclude-drafts', '--json', 'tagName', '--jq', '.[].tagName'],
-      { cwd: root, env: environment, maxBuffer: 1 << 20 }));
+    // A read-only listing: network-class failures (reset, timeout, DNS, HTTP 5xx) are retried
+    // a bounded number of times (scripts/network-retry.mjs); sign-in and 4xx failures are not.
+    ({ stdout } = await retryTransientCommand(() => exec('gh', ['release', 'list', '--limit', '1000', '--exclude-drafts', '--json', 'tagName', '--jq', '.[].tagName'],
+      { cwd: root, env: environment, maxBuffer: 1 << 20 }), { label: 'gh release list', ...retry }));
   } catch {
     throw new Error('Cannot list the published releases. Set COURSE_PUBLISHED_RELEASES, sign in to the GitHub CLI, or pass --previous <tag>.');
   }

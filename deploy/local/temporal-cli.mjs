@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PilotError, ensure, absolute } from './runtime.mjs';
+import { PilotError, ensure, absolute, delay } from './runtime.mjs';
 
 const exec = promisify(execFile);
 /** Known-good official Temporal CLI builds. `archive` digests are the release's
@@ -51,10 +51,90 @@ export async function verifyTemporalCli(file, override) {
   ensure(known, 'temporal_cli_digest_unknown');
   return { digest, source: 'pinned', version: TEMPORAL_CLI.version, platform: known[0] };
 }
-/** Downloads the pinned official archive for this host, checks the archive and
- * then the extracted binary against the pins, and installs it at `target`. An
- * existing target is verified and kept, never replaced. */
-export async function installTemporalCli(target, { fetchImpl = fetch, platform = process.platform, arch = process.arch } = {}) {
+/** Bounded retries for the archive download. Only network-class failures are retried:
+ * a connection reset (also mid-body), a timeout, a DNS failure, an HTTP 5xx, and an HTTP
+ * 429 that carries Retry-After. A 4xx, a size or a digest mismatch is a definitive answer
+ * and fails at once. The partial archive is removed before every retry. */
+export const TEMPORAL_DOWNLOAD_RETRY = Object.freeze({
+  attempts: 4, delays: Object.freeze([2_000, 10_000, 30_000]), maxRetryAfterMs: 120_000, timeoutMs: 300_000,
+});
+const NETWORK_ERROR_CODES = new Set(['ECONNRESET', 'ECONNABORTED', 'EPIPE', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
+class TransientDownloadError extends Error {
+  constructor(reason, retryAfterMs) { super(reason); this.retryAfterMs = retryAfterMs; }
+}
+/** The network-class reason for a failed fetch or body read (reset, timeout, DNS), or
+ * undefined when the failure is not network-class. */
+export function networkFailureReason(error) {
+  for (let current = error, depth = 0; current && depth < 6; current = current.cause, depth++) {
+    if (current.name === 'TimeoutError') return 'timeout';
+    if (NETWORK_ERROR_CODES.has(current.code)) return current.code;
+  }
+  return undefined;
+}
+/** Retry-After as milliseconds from `now` (delta seconds or an HTTP date), or undefined. */
+export function retryAfterMs(value, now = Date.now()) {
+  const text = String(value ?? '').trim();
+  if (/^\d+$/.test(text)) return Number(text) * 1000;
+  const date = /^[A-Za-z]{3}, /.test(text) ? Date.parse(text) : NaN; // an HTTP date
+  return Number.isNaN(date) ? undefined : Math.max(0, date - now);
+}
+async function downloadOnce(url, file, sha256, { fetchImpl, timeoutMs, maxBytes }) {
+  const response = await fetchImpl(url, { redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    const after = retryAfterMs(response.headers.get('retry-after'));
+    if (response.status >= 500) throw new TransientDownloadError(`HTTP ${response.status}`, after);
+    if (response.status === 429 && after !== undefined) throw new TransientDownloadError('HTTP 429', after);
+    throw new PilotError('temporal_cli_download_failed');
+  }
+  ensure(!(Number(response.headers.get('content-length')) > maxBytes), 'temporal_cli_download_size');
+  const hash = createHash('sha256');
+  let size = 0;
+  const handle = await open(file, 'wx', 0o600);
+  try {
+    for await (const chunk of response.body ?? []) {
+      size += chunk.length;
+      ensure(size <= maxBytes, 'temporal_cli_download_size');
+      hash.update(chunk);
+      await handle.write(chunk);
+    }
+  } finally { await handle.close(); }
+  ensure(size > 0, 'temporal_cli_download_size');
+  ensure(hash.digest('hex') === sha256, 'temporal_cli_archive_digest_mismatch');
+}
+/** Streams `url` into `file` (which must not exist), checking its size and SHA-256, with
+ * the TEMPORAL_DOWNLOAD_RETRY policy. On any failure no partial file is left behind.
+ * Resolves to the number of attempts used. */
+export async function downloadTemporalArchive(url, file, sha256, {
+  fetchImpl = fetch, retry = TEMPORAL_DOWNLOAD_RETRY, wait = delay, maxBytes = MAX_ARCHIVE_BYTES,
+  log = message => console.error(message),
+} = {}) {
+  const { attempts, delays, maxRetryAfterMs, timeoutMs } = { ...TEMPORAL_DOWNLOAD_RETRY, ...retry };
+  for (let attempt = 1; ; attempt++) {
+    let reason, after;
+    try { await downloadOnce(url, file, sha256, { fetchImpl, timeoutMs, maxBytes }); return attempt; }
+    catch (error) {
+      await rm(file, { force: true });
+      if (error instanceof TransientDownloadError) ({ message: reason, retryAfterMs: after } = error);
+      else reason = networkFailureReason(error);
+      // A digest, size or 4xx failure, or any other error, is definitive.
+      if (reason === undefined) throw error;
+    }
+    const base = delays[Math.min(attempt - 1, delays.length - 1)];
+    if (attempt >= attempts || after > maxRetryAfterMs) {
+      log(`temporal_cli_download: ${reason}; giving up after attempt ${attempt} of ${attempts}`);
+      throw new PilotError('temporal_cli_download_failed');
+    }
+    const pause = Math.max(base, after ?? 0);
+    log(`temporal_cli_download: ${reason}; retrying in ${Math.round(pause / 1000)} s (attempt ${attempt + 1} of ${attempts})`);
+    await wait(pause);
+  }
+}
+/** Downloads the pinned official archive for this host (with bounded network retries),
+ * checks the archive and then the extracted binary against the pins, and installs it at
+ * `target`. An existing target is verified and kept, never replaced. */
+export async function installTemporalCli(target, { fetchImpl = fetch, platform = process.platform, arch = process.arch, retry, wait, log } = {}) {
   target = absolute(target);
   const build = temporalBuild(platform, arch);
   try { await lstat(target); await verifyTemporalCli(target); return { target, state: 'already_verified', version: TEMPORAL_CLI.version }; }
@@ -62,13 +142,8 @@ export async function installTemporalCli(target, { fetchImpl = fetch, platform =
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const scratch = await mkdtemp(path.join(tmpdir(), 'temporal-cli-'));
   try {
-    const response = await fetchImpl(build.url, { redirect: 'follow' });
-    ensure(response.ok, 'temporal_cli_download_failed');
-    const bytes = Buffer.from(await response.arrayBuffer());
-    ensure(bytes.length > 0 && bytes.length <= MAX_ARCHIVE_BYTES, 'temporal_cli_download_size');
-    ensure(createHash('sha256').update(bytes).digest('hex') === build.archive, 'temporal_cli_archive_digest_mismatch');
     const archive = path.join(scratch, 'temporal.tar.gz');
-    await writeFile(archive, bytes, { mode: 0o600, flag: 'wx' });
+    await downloadTemporalArchive(build.url, archive, build.archive, { fetchImpl, retry, wait, log });
     await exec('tar', ['-xzf', archive, '-C', scratch, 'temporal']);
     const extracted = path.join(scratch, 'temporal');
     ensure(await sha256File(extracted) === build.binary, 'temporal_cli_binary_digest_mismatch');

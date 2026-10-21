@@ -156,7 +156,7 @@ jobs:
       - name: Install the PostgreSQL 17 client tools and age for the backup restore drill
         run: |
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-client-17 sqlite3 age
+          sudo apt-get install -y -o Acquire::Retries=5 --no-install-recommends postgresql-client-17 sqlite3 age
       - name: Require the real PostgreSQL 17 backup and restore drill
         env:
           # The backup tool refuses passwords in URLs; the disposable CI password goes in ~/.pgpass.

@@ -125,7 +125,7 @@ jobs:
           TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
         run: |
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          sudo apt-get install -y -o Acquire::Retries=5 --no-install-recommends postgresql-client-17
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
           pg_dump --version | grep -q ' 17\.'
           node --test scripts/tests/release-rehearsal.test.mjs 2>&1 | tee "$RUNNER_TEMP/rehearsal.log"

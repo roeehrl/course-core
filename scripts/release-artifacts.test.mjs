@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,writeFile,readFile,rm,symlink,mkdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,symlink,mkdir,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {gunzipSync,gzipSync} from 'node:zlib';
@@ -10,7 +10,7 @@ import {MODULES} from './modules.mjs';
 import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
-  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,ciStepPassed,fetchWithTransientRetry,checksumText,cycloneDxSbom,sbomFilename,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
+  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,ciStepPassed,fetchWithTransientRetry,fetchJsonWithTransientRetry,npmWithRetry,checksumText,cycloneDxSbom,sbomFilename,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),epoch=1791817000;
 const releasedSdk='https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz';
 const entry=(filename,text='public data')=>({path:filename,bytes:Buffer.from(text),mode:0o644});
@@ -195,6 +195,74 @@ test('GitHub reads retry only transient failures and never mask a definitive ans
   s = sequence([502, 503, 500, 502, 200]);
   assert.equal((await fetchWithTransientRetry('https://example.invalid', {}, { fetchImpl: s.fetchImpl, wait })).status, 502);
   assert.equal(s.calls.length, 4);
+});
+
+test('a GitHub JSON body cut short is fetched again; malformed JSON and 4xx are not retried', async () => {
+  const wait = async () => {};
+  const broken = () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{"ok":')); controller.error(Object.assign(new TypeError('terminated'), { cause: { code: 'UND_ERR_SOCKET' } })); } }));
+  let calls = 0;
+  const fetchImpl = async () => (++calls === 1 ? broken() : new Response('{"ok":true}'));
+  assert.deepEqual((await fetchJsonWithTransientRetry('https://example.invalid', {}, { fetchImpl, wait })).body, { ok: true });
+  assert.equal(calls, 2);
+  calls = 0;
+  await assert.rejects(fetchJsonWithTransientRetry('https://example.invalid', {}, { fetchImpl: async () => { calls++; return new Response('{"ok":'); }, wait }), SyntaxError);
+  assert.equal(calls, 1);
+  calls = 0;
+  const { response, body } = await fetchJsonWithTransientRetry('https://example.invalid', {}, { fetchImpl: async () => { calls++; return new Response('{}', { status: 404 }); }, wait });
+  assert.equal(response.status, 404); assert.equal(body, undefined); assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(fetchJsonWithTransientRetry('https://example.invalid', {}, { fetchImpl: async () => { calls++; return broken(); }, wait }), /terminated/);
+  assert.equal(calls, 4, 'bounded');
+});
+
+test('every registry-reading npm command in the release build goes through the shared retry policy',async()=>{
+ const source=await readFile(new URL('./release-artifacts.mjs',import.meta.url),'utf8');
+ assert.match(source,/import \{npmCiWithRetry,npmFetchRetryEnv\} from '\.\/npm-retry\.mjs'/);
+ assert.match(source,/\.\.\.npmFetchRetryEnv\(\)\};/,'release npm environment carries the per-request fetch retries');
+ // Both `npm ci` runs (module builds, installed-visuals consumer) and the consumer's lock resolution.
+ assert.equal(source.match(/await npmWithRetry\(\['ci','--ignore-scripts','--workspaces=false'\]/g)?.length,2);
+ assert.equal(source.match(/await npmWithRetry\(\['install','--package-lock-only','--ignore-scripts','--workspaces=false'\]/g)?.length,1);
+ assert.doesNotMatch(source,/command\('npm',\['(?:ci|install)'/,'no npm install path bypasses the retry');
+});
+
+test('a release npm ci that resets mid-install is retried; an integrity failure stops at once without printing npm output',async()=>{
+ const directory=await mkdtemp(path.join(tmpdir(),'release-npm-retry-'));
+ try{
+  const bin=path.join(directory,'bin'),work=path.join(directory,'work');await mkdir(bin);await mkdir(work);
+  // Fake npm: reads the scripted outcome for this attempt from outcomes.json.
+  await writeFile(path.join(bin,'npm'),`#!${process.execPath}
+const fs=require('node:fs'),outcomes=JSON.parse(fs.readFileSync('outcomes.json','utf8'));
+const attempt=fs.existsSync('attempts')?fs.readFileSync('attempts','utf8').length+1:1;fs.appendFileSync('attempts','x');
+fs.appendFileSync('args',process.argv.slice(2).join(' ')+'\\n');
+if(fs.existsSync('node_modules')){process.stderr.write('partial node_modules survived');process.exit(2);}
+const outcome=outcomes[attempt-1];if(outcome==='ok')process.exit(0);
+fs.mkdirSync('node_modules/partial',{recursive:true});process.stderr.write(outcome);process.exit(1);
+`);
+  await chmod(path.join(bin,'npm'),0o755);
+  const env={PATH:`${bin}${path.delimiter}${process.env.PATH}`},reset='npm error code ECONNRESET\nnpm error syscall read\nnpm error errno -54\n';
+  const run=async(outcomes,args=['ci','--ignore-scripts','--workspaces=false'])=>{
+   await rm(work,{recursive:true,force:true});await mkdir(work);await writeFile(path.join(work,'outcomes.json'),JSON.stringify(outcomes));
+   const waits=[],logs=[];
+   const result=npmWithRetry(args,work,env,'packages/visuals',{wait:async ms=>{waits.push(ms);},log:message=>logs.push(message)});
+   return {result,waits,logs,attempts:async()=>(await readFile(path.join(work,'attempts'),'utf8')).length,args:async()=>readFile(path.join(work,'args'),'utf8')};
+  };
+  let attempt=await run([reset,'ok']);
+  assert.equal(await attempt.result,2);
+  assert.equal(await attempt.attempts(),2);
+  assert.equal(await attempt.args(),'ci --ignore-scripts --workspaces=false\nci --ignore-scripts --workspaces=false\n','flags are kept on every attempt');
+  assert.deepEqual(attempt.waits,[20_000]);
+  assert.match(attempt.logs[0],/^packages\/visuals: npm ci hit a transient network failure \(ECONNRESET\)/);
+  attempt=await run(['npm error code E503\n','ok'],['install','--package-lock-only','--ignore-scripts','--workspaces=false']);
+  assert.equal(await attempt.result,2);
+  assert.match(attempt.logs[0],/npm install hit a transient network failure \(E503\)/);
+  attempt=await run(['npm error code EINTEGRITY\nnpm error sha512-private-detail integrity checksum failed\n','ok']);
+  await assert.rejects(attempt.result,error=>{assert.equal(error.message,'npm ci failed in packages/visuals; no verified candidate was produced');return true;});
+  assert.equal(await attempt.attempts(),1);
+  assert.deepEqual(attempt.waits,[]);
+  attempt=await run([reset,reset,reset,'ok']);
+  await assert.rejects(attempt.result,/npm ci failed in packages\/visuals/);
+  assert.equal(await attempt.attempts(),3,'bounded by the shared policy');
+ }finally{await rm(directory,{recursive:true,force:true});}
 });
 
 test('Public CI refuses tracked paths the release build would refuse',async()=>{

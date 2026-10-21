@@ -20,6 +20,9 @@ Build and verify the repository first. Install the pinned Temporal CLI with
 downloads the official release archive for this host, checks the archive and the
 extracted binary against the SHA-256 digests pinned in `temporal-cli.mjs`
 (currently 1.9.1 for macOS and Linux, arm64 and x64), and refuses on a mismatch.
+A reset, timeout, DNS failure, HTTP 5xx or HTTP 429 with `Retry-After` is retried
+up to four attempts in all, with the partial archive removed first; a 4xx or a
+checksum mismatch fails at once.
 `pilot.mjs start` and `upgrade.mjs` check `.local/bin/temporal` against the same
 pins before starting or stopping anything (`temporal_cli_digest_unknown`). To run
 another build, set `"temporalCliSha256"` in `config.json` to its exact digest
