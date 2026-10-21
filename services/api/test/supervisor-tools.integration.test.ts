@@ -2358,11 +2358,13 @@ it("get_code_results and get_evidence leave out answers whose evidence the learn
   expect(JSON.stringify(evidence)).not.toMatch(/EXCLUDED_FEEDBACK_CANARY|"status":"passed"/);
 });
 
+let lessonReleases = 1;
 /** A release whose generated-teaching generator and verifier also make whole lessons. */
 async function lessonRelease(configure?: (course: typeof fixture.course) => void) {
   const course = structuredClone(fixture.course), config = structuredClone(fixture.config);
   configure?.(course);
-  course.version = "1.1." + Math.floor(Math.random() * 1_000_000);
+  // Each release is newer than the last in this workspace: publication refuses going back unconfirmed.
+  course.version = "10.1." + lessonReleases++;
   for (const g of course.adaptation!.generators) if (g.id === "generated-ordering-generator") g.artifactKinds = ["explanation", "episode"];
   const limits = course.adaptation!.limits;
   limits.maxAdditionalEpisodesPerAssignment = Math.max(1, limits.maxAdditionalEpisodesPerAssignment);
