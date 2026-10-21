@@ -16,8 +16,8 @@ describe('staff codes have admin messages in every locale', () => {
     ['release checks', 'releaseChecks', RELEASE_CHECK_CODES, (c) => [`code.${c}.label`, `code.${c}.detail`]],
     ['study warnings', 'studies', STUDY_WARNING_CODES, (c) => [`warning.${c}`]],
     ['research inspection failures', 'researchView', researchCodes, (c) => [`failure.${c}`]],
-    ['course package problems', 'installCourse', ['SDK_UNSUPPORTED', 'SDK_NEWER_THAN_CORE', 'SDK_OLDER_THAN_CORE', 'CORE_VERSION_TOO_OLD',
-      'RELEASE_VERSION_CONFLICT', 'OLDER_THAN_INSTALLED', 'HOST_REQUIREMENT_MISSING', 'HOST_REQUIREMENT_DIFFERENT', 'ADAPTATION_REGISTRY_NOT_APPROVABLE', 'runtime'],
+    ['course package problems', 'installCourse', ['SDK_UNSUPPORTED', 'SDK_OLDER_THAN_CORE', 'CORE_VERSION_TOO_OLD',
+      'RELEASE_VERSION_CONFLICT', 'OLDER_THAN_INSTALLED', 'HOST_REQUIREMENT_MISSING', 'HOST_REQUIREMENT_DIFFERENT', 'ADAPTATION_REGISTRY_NOT_APPROVABLE', 'COURSE_SUPPLIED_UNAVAILABLE', 'COURSE_SUPPLIED_APPROVAL_REQUIRED', 'runtime'],
     (c) => [`problem.${c}`]],
   ];
   for (const [name, namespace, codes, keys] of cases)
