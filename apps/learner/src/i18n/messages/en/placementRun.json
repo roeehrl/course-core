@@ -30,6 +30,5 @@
   "result.notShown.help_used": "help was used, so it cannot count as independent",
   "result.notShown.more_evidence_needed": "more independent questions of other kinds are needed",
   "result.untestedIntro": "Not asked in this placement ({count, plural, one {# objective} other {# objectives}}). These stay on your path:",
-  "result.untestedNote": "Objectives not listed were not tested and stay on your path; this is not a judgement of ability.",
-  "result.shown": "Shown independently: {list}"
+  "result.untestedNote": "Objectives not listed were not tested and stay on your path; this is not a judgement of ability."
 }
