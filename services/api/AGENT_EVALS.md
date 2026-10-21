@@ -303,6 +303,11 @@ calls this runner as a custom provider can be added later without changing them.
   scripted suite takes under a second.
 - `.github/workflows/agent-evals.yml` is manual (`workflow_dispatch`) only: it runs
   the reference and known-bad scripted models and keeps the report for three days.
+- `.github/workflows/nightly.yml` (job `agent-evals`) runs the same two scripted
+  runs every night on main and keeps the report for seven days, so a prompt-assembly,
+  adapter or grader regression fails within a day. Bounded live provider evals are
+  not scheduled: no workflow holds provider credentials, so an operator runs live
+  mode by hand (above).
 - Admin browser tests (`apps/admin/tests/real/agent-evals.real.spec.ts`) cover a
   refused save, the owner-only override and activation at phone, tablet and desktop
   sizes.

@@ -2,8 +2,9 @@ name: Nightly
 
 # Slow and scheduled checks that are not required for pull requests: dependency
 # vulnerability scans, the real backup/restore drill, repeated crash/restart
-# recovery gates, concurrent load and one long learner session. Every job fails
-# on a finding or a skipped test; nothing here is advisory or allowed to fail.
+# recovery gates, concurrent load, one long learner session, the OS/Node
+# matrix and the scripted agent evals. Every job fails on a finding or a
+# skipped test; nothing here is advisory or allowed to fail.
 on:
   schedule:
     - cron: '17 3 * * *'
@@ -163,3 +164,79 @@ jobs:
         env:
           LONG_SESSION_ROUNDS: '3000'
         run: npm --prefix services/api run test:long-session
+
+  # Pull-request CI runs on ubuntu-24.04 x64 with the newest Node 26 only. Here the
+  # orchestration, lifecycle and module unit tests also run on Linux arm64 and on
+  # macOS (the documented launchd host), each with the oldest Node the engines
+  # range admits (26.0.0) and the newest Node 26. Modules needing PostgreSQL,
+  # Docker or browsers stay in PR CI on Linux.
+  platforms:
+    name: Nightly / ${{ matrix.os }} Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+        node: ['26.0.0', '26']
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Orchestration and lifecycle tests without skips
+        run: |
+          node --version
+          npm run test:infra 2>&1 | tee "$RUNNER_TEMP/platform-infra.log"
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/platform-infra.log"
+          npm run test:lifecycle 2>&1 | tee "$RUNNER_TEMP/platform-lifecycle.log"
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/platform-lifecycle.log"
+      - name: Module typecheck, unit tests and builds without skips
+        run: |
+          for module in policy providers adaptation research example-courses; do
+            echo "::group::$module"
+            node scripts/orchestrate.mjs install "$module"
+            node scripts/orchestrate.mjs check "$module" 2>&1 | tee -a "$RUNNER_TEMP/platform-modules.log"
+            echo "::endgroup::"
+          done
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/platform-modules.log"
+
+  # The scripted agent eval suite through the real provider adapter and prompt
+  # assembly, every night on main: a prompt, assembly or grader regression fails
+  # the reference model, and a grader that stops catching failures lets the
+  # known-bad model pass. Offline scripted models only; live provider evals need
+  # operator credentials and stay a manual operator run (services/api/AGENT_EVALS.md).
+  agent-evals:
+    name: Nightly / scripted agent evals
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node scripts/orchestrate.mjs install api
+      - name: Reference scripted model passes the public suite
+        working-directory: services/api
+        run: npm run eval:agents -- --report agent-eval-report.json
+      - name: Known-bad scripted model fails the public suite
+        working-directory: services/api
+        run: npm run eval:agents -- --model known-bad --expect-fail
+      - name: Retain the scripted report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: nightly-agent-eval-report
+          path: services/api/agent-eval-report.json
+          retention-days: 7
+          if-no-files-found: error
