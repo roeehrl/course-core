@@ -560,6 +560,17 @@ export interface AdminClient {
       reason: string;
     },
   ): Promise<import("./policyLedger").PolicySettingsView>;
+  /** Graded-attempt use per check under the enrollment's assessment policy. */
+  getAssessmentAttempts?(
+    enrollmentId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./assessmentAttempts").AssessmentAttempts>;
+  /** Owners and administrators: one more graded attempt at a check, with a reason. */
+  grantAssessmentAttempt?(
+    enrollmentId: string,
+    input: { checkId: string; reason: string },
+    context: EnrollmentMutationContext,
+  ): Promise<import("./assessmentAttempts").AssessmentAttempts>;
   /** Administrator step for learner-accepted terms that also need admin approval. */
   approveExtension?(
     enrollmentId: string,
