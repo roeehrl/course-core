@@ -204,7 +204,7 @@ CREATE TABLE decision_records(
   decided_by_kind text NOT NULL CHECK(decided_by_kind IN('host_policy','staff','learner','sdk_reference')),
   decided_by text NOT NULL CHECK(length(decided_by) BETWEEN 1 AND 200),
   decided_at timestamptz NOT NULL,
-  trace_id text,
+  trace_id text CHECK(trace_id IS NULL OR (trace_id ~ '^[0-9a-f]{32}$' AND trace_id <> repeat('0',32))),
   UNIQUE(kind,source_ref,outcome)
 );
 CREATE INDEX decision_records_enrollment ON decision_records(enrollment_id,decided_at);
