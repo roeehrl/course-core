@@ -91,6 +91,7 @@ import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 import { registerVisualObservationRoutes } from './visual-observations.js';
 import { registerLearnerSessionRoutes } from './learner-sessions.js';
+import { registerPlatformCapabilityRoutes } from './platform-capabilities.js';
 import { registerActivityRoutes } from './activity-routes.js';
 import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
@@ -364,6 +365,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerActivityRoutes(app, db, auth, options.installedExtensions ?? []);
   registerVisualObservationRoutes(app, db, auth);
   registerLearnerSessionRoutes(app, db, auth);
+  registerPlatformCapabilityRoutes(app, db, auth);
   await registerPythonRunnerRoutes(app, options.pythonRunner);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);

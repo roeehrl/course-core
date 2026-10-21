@@ -185,3 +185,28 @@ test("the secondary Your course menu holds profile, record and account settings 
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("the app reports what it can do once per window class, and the server keeps it (M02)", async ({ page }) => {
+  const reports: { body: Record<string, unknown>; status: number }[] = [];
+  page.on("response", async (response) => {
+    if (response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/platform-capabilities"))
+      reports.push({ body: response.request().postDataJSON(), status: response.status() });
+  });
+  await openLesson(page, page.request);
+  const width = page.viewportSize()!.width;
+  await expect.poll(() => reports.length).toBeGreaterThan(0);
+  expect(reports[0]).toMatchObject({
+    status: 200,
+    body: {
+      target: width < 600 ? "web_mobile" : "web_desktop",
+      layoutClass: await host(page).getAttribute("data-window-class"),
+      rendererIds: ["course-core-svg-v1"],
+      nativeModules: [],
+    },
+  });
+  // Moving through the lesson in the same window sends nothing new.
+  const sent = reports.length;
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).first().click();
+  await page.waitForTimeout(300);
+  expect(reports.length).toBe(sent);
+});

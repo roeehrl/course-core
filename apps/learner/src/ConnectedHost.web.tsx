@@ -73,6 +73,7 @@ import type { PresenceKind, PresenceState } from "./connected/presence.web";
 import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
+import { platformCapabilities, pointerMedia } from "./client/platformCapabilities";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import { courseContentAttributes } from "./domain/contentLanguage";
@@ -348,6 +349,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         leaving ? { keepalive: true } : {})
       .catch(() => undefined);
   }, [api, enrollmentIdForVisuals]);
+  // What this app can do (platform capabilities, M02): reported once per distinct report per
+  // page, best effort. A description of the device for staff and debugging, never a permission.
+  const reportedPlatforms = useRef(new Set<string>());
+  const platformReport = enrollmentIdForVisuals ? platformCapabilities(width, size, pointerMedia()) : undefined;
+  const platformKey = platformReport && `${enrollmentIdForVisuals}:${platformReport.target}:${platformReport.layoutClass}:${platformReport.inputModes.join(",")}`;
+  useEffect(() => {
+    if (!platformReport || !platformKey || reportedPlatforms.current.has(platformKey)) return;
+    reportedPlatforms.current.add(platformKey);
+    api
+      .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals!)}/platform-capabilities`, "POST", platformReport)
+      .catch(() => undefined);
+    // platformKey covers every field of the report that can change.
+  }, [api, platformKey]);
   const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
   const answerKey = `${scope}:${codeQuestion ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
     draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
