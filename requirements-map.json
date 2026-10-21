@@ -1138,6 +1138,11 @@
     "K03": [
       "sdk:tests/course-module.test.ts::packs a course directory whose course is a TypeScript module",
       "sdk:tests/course-module.test.ts::serves a live preview that rebuilds on save, renders visuals and shows problems inline"
+    ],
+    "J04": [
+      "core:services/api/test/agent-evals.test.ts::runs an external held-out suite directory",
+      "core:services/api/test/agent-evals.test.ts::the known-bad model fails",
+      "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes"
     ]
   },
   "critical": [
