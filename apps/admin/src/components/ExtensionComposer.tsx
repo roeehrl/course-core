@@ -11,6 +11,7 @@ import { Button, Card, ErrorState, Field, Notice } from "./ui";
 import { ExtensionTerms } from "./ExtensionTerms";
 import { AdminError } from "../domain/errors";
 import { randomId } from "../domain/webCrypto";
+import { useT } from "../i18n";
 
 export function ExtensionComposer({
   policy,
@@ -27,6 +28,7 @@ export function ExtensionComposer({
   onUpdated: (result: ExtensionProposalResult) => void;
   onRefresh: () => void;
 }) {
+  const t = useT();
   const [days, setDays] = useState(2);
   const [preview, setPreview] = useState<ExtensionPreview>();
   const [error, setError] = useState<unknown>();
@@ -151,14 +153,10 @@ export function ExtensionComposer({
   );
   return (
     <Card
-      title="Preview a calendar extension"
-      eyebrow="No debit, grant or consent on preview"
+      title={t("extensionComposer.title")}
+      eyebrow={t("extensionComposer.eyebrow")}
     >
-      <Notice tone="blue">
-        The request adds calendar days to this scope's deadline or anchored
-        window. Current work caps stay unchanged. The server rechecks ancestor
-        caps, allowance and revisions.
-      </Notice>
+      <Notice tone="blue">{t("extensionComposer.notice")}</Notice>
       <form
         className="stack"
         onSubmit={(e) => {
@@ -167,9 +165,9 @@ export function ExtensionComposer({
         }}
       >
         <Field
-          label="Additional calendar days"
+          label={t("extensionComposer.days")}
           htmlFor="extension-days"
-          hint="The API accepts 1–366 days; this scope’s per-grant allowance and ancestor caps may be stricter."
+          hint={t("extensionComposer.days.hint")}
         >
           <input
             id="extension-days"
@@ -191,33 +189,29 @@ export function ExtensionComposer({
           kind="primary"
           disabled={!enabled || previewing || pending}
         >
-          {previewing ? "Resolving exact terms…" : "Preview calendar extension"}
+          {previewing
+            ? t("extensionComposer.resolving")
+            : t("extensionComposer.preview")}
         </Button>
-        {!enabled && (
-          <small>
-            This scope is not currently extendable: it needs an active
-            enrollment, an enabled allowance and a local deadline or window.
-          </small>
-        )}
+        {!enabled && <small>{t("extensionComposer.notExtendable")}</small>}
       </form>
       {Boolean(error) && <ErrorState error={error} onRetry={onRefresh} />}
       {preview && (
         <div className="preview-result">
-          <h3>Resolved extension terms</h3>
-          <small className="mono">
-            Enrollment revision {preview.revision} · Policy{" "}
-            {preview.policyRevision} · Ledger {preview.ledgerRevision}
+          <h3>{t("extensionComposer.resolved")}</h3>
+          <small>
+            {t("extensionComposer.revisions", {
+              revision: preview.revision,
+              policy: preview.policyRevision,
+              ledger: preview.ledgerRevision,
+            })}
           </small>
           <ExtensionTerms
             terms={preview}
             scopes={policy.scopes}
             pools={policy.pools}
           />
-          <Notice tone="gold">
-            No allowance has been consumed. These balances are hypothetical
-            after a future grant. Proposing requests the learner's consent; it
-            cannot supply that consent.
-          </Notice>
+          <Notice tone="gold">{t("extensionComposer.hypothetical")}</Notice>
           <form
             className="stack"
             onSubmit={(e) => {
@@ -226,9 +220,9 @@ export function ExtensionComposer({
             }}
           >
             <fieldset disabled={!canPropose || pending} className="stack">
-              <legend>Proposal rationale and activities</legend>
+              <legend>{t("extensionComposer.legend.proposal")}</legend>
               <fieldset className="stack">
-                <legend>Scoped rationale events</legend>
+                <legend>{t("extensionComposer.legend.rationale")}</legend>
                 {policy.rationaleEvents.map((event) => (
                   <label className="check-label" key={event.id}>
                     <input
@@ -236,12 +230,12 @@ export function ExtensionComposer({
                       checked={rationale.includes(event.id)}
                       onChange={() => setRationale(toggle(rationale, event.id))}
                     />
-                    {event.label}
+                    <span dir="auto">{event.label}</span>
                   </label>
                 ))}
               </fieldset>
               <fieldset className="stack">
-                <legend>Proposed activities in this scope</legend>
+                <legend>{t("extensionComposer.legend.activities")}</legend>
                 {scopedActivities.map((activity) => (
                   <label className="check-label" key={activity.id}>
                     <input
@@ -251,13 +245,17 @@ export function ExtensionComposer({
                         setActivities(toggle(activities, activity.id))
                       }
                     />
-                    {activity.label}
+                    <span dir="auto">{activity.label}</span>
                   </label>
                 ))}
               </fieldset>
-              <Field label="Plan impact" htmlFor="plan-impact">
+              <Field
+                label={t("extensionComposer.impact")}
+                htmlFor="plan-impact"
+              >
                 <textarea
                   id="plan-impact"
+                  dir="auto"
                   required
                   maxLength={2000}
                   value={impact}
@@ -265,15 +263,16 @@ export function ExtensionComposer({
                     setImpact(e.target.value);
                     setReviewed(false);
                   }}
-                  placeholder="Explain how the additional days affect the learner’s existing plan."
+                  placeholder={t("extensionComposer.impact.placeholder")}
                 />
               </Field>
               <Field
-                label="Alternatives (one per line)"
+                label={t("extensionComposer.alternatives")}
                 htmlFor="proposal-alternatives"
               >
                 <textarea
                   id="proposal-alternatives"
+                  dir="auto"
                   required
                   maxLength={4000}
                   value={alternatives}
@@ -281,7 +280,7 @@ export function ExtensionComposer({
                     setAlternatives(e.target.value);
                     setReviewed(false);
                   }}
-                  placeholder="For example, continue with the current deadline."
+                  placeholder={t("extensionComposer.alternatives.placeholder")}
                 />
               </Field>
               <label className="check-label">
@@ -290,8 +289,7 @@ export function ExtensionComposer({
                   checked={reviewed}
                   onChange={(e) => setReviewed(e.target.checked)}
                 />
-                I reviewed these exact terms and want to propose them to the
-                learner. This is not learner consent.
+                {t("extensionComposer.reviewed")}
               </label>
               <Button
                 kind="primary"
@@ -305,14 +303,13 @@ export function ExtensionComposer({
                   pending
                 }
               >
-                {pending ? "Proposing…" : "Propose offer to learner"}
+                {pending
+                  ? t("extensionComposer.proposing")
+                  : t("extensionComposer.propose")}
               </Button>
             </fieldset>
             {!canPropose && (
-              <small>
-                Your role can inspect policy and preview terms but cannot
-                propose offers.
-              </small>
+              <small>{t("extensionComposer.cannotPropose")}</small>
             )}
           </form>
         </div>

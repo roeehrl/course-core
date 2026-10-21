@@ -17,22 +17,17 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const stateTone: Record<SupervisionState, "green" | "gold" | "red"> = {
   active: "green",
   paused: "gold",
   stopped: "red",
 };
-const stateText: Record<SupervisionState, string> = {
-  active: "AI supervision is running for this learner.",
-  paused:
-    "Paused: no new AI calls or changes. Work already started finishes its current call, then waits.",
-  stopped:
-    "Stopped: every unfinished AI job was cancelled and nothing more is published until you resume.",
-};
+/** A server code shown in words: underscores and dots become spaces. */
+const humanize = (code: string) => code.toLowerCase().replaceAll(/[._]/g, " ");
 
 /** Staff pause, stop and resume of one learner's AI supervision (companion, planning, research,
  * reviewer drafts and course-made media). Server authorization and the stored control decide;
@@ -44,29 +39,30 @@ export function SupervisionView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   const id = useId();
   const [enrollmentId, setEnrollmentId] = useState("");
   if (!client.supervision)
     return (
-      <Card title="AI supervision">
-        <EmptyState title="Supervision controls are not available here">
-          Use a connected administration session.
+      <Card title={t("supervisionView.title")}>
+        <EmptyState title={t("supervisionView.unavailable.title")}>
+          {t("supervisionView.unavailable.body")}
         </EmptyState>
       </Card>
     );
   const learners = data.enrollments.filter((e) => e.status !== "erased");
   return (
     <div className="page-stack">
-      <Card title="Choose a learner">
-        <Field label="Learner" htmlFor={`${id}-learner`}>
+      <Card title={t("supervisionView.chooseLearner")}>
+        <Field label={t("supervisionView.learner")} htmlFor={`${id}-learner`}>
           <select
             id={`${id}-learner`}
             value={enrollmentId}
             onChange={(e) => setEnrollmentId(e.target.value)}
           >
-            <option value="">Choose a learner</option>
+            <option value="">{t("supervisionView.chooseLearner")}</option>
             {learners.map((e) => (
-              <option key={e.id} value={e.id}>
+              <option key={e.id} value={e.id} dir="auto">
                 {e.profile.displayName}
               </option>
             ))}
@@ -91,6 +87,14 @@ function SupervisionPanel({
   port: SupervisionPort;
   enrollmentId: string;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  /** A server code through its catalog label; unknown codes are shown in words. */
+  const label = (key: string, code: string) =>
+    i18n.has(key as MessageKey) ? t(key as MessageKey) : humanize(code);
+  const reasonLabel = (code: string) =>
+    label(`supervisionView.reason.${code}`, code);
   const id = useId();
   const view = useRemote(
     (signal) => port.overview(enrollmentId, signal),
@@ -109,9 +113,9 @@ function SupervisionPanel({
   } | null>(null);
   const [requeueReason, setRequeueReason] = useState("");
   if (view.loading && !view.data)
-    return <Loading label="Loading AI supervision…" />;
+    return <Loading label={t("supervisionView.loading")} />;
   if (view.error || !view.data)
-    return <Notice tone="red">{supervisionErrorMessage(view.error)}</Notice>;
+    return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   const o = view.data,
     state = o.control.state;
   async function send(action: SupervisionAction) {
@@ -132,12 +136,14 @@ function SupervisionPanel({
       setConfirmStop(false);
       setMessage(
         !result.changed
-          ? "Nothing changed: that was already in force."
+          ? t("supervisionView.result.unchanged")
           : result.state === "stopped"
-            ? `Supervision stopped. ${result.cancelledJobs} unfinished job(s) are being cancelled.`
+            ? t("supervisionView.result.stopped", {
+                count: result.cancelledJobs,
+              })
             : result.state === "paused"
-              ? "Supervision paused."
-              : "Supervision resumed.",
+              ? t("supervisionView.result.paused")
+              : t("supervisionView.result.resumed"),
       );
       view.reload();
     } catch (caught) {
@@ -163,9 +169,7 @@ function SupervisionPanel({
       keys.current.delete(fingerprint);
       setRequeueing(null);
       setRequeueReason("");
-      setMessage(
-        "Request re-queued with fresh attempts. It is delivered again shortly; it cannot be re-queued a second time.",
-      );
+      setMessage(t("supervisionView.requeue.done"));
       view.reload();
     } catch (caught) {
       setError(caught);
@@ -174,46 +178,62 @@ function SupervisionPanel({
     }
   }
   const showRequeue = o.canRequeue && !!port.requeue;
+  const eventLabel = (eventType: string) =>
+    label(
+      `supervisionView.eventType.${eventType.replaceAll(".", "_")}`,
+      eventType,
+    );
   return (
     <Card
-      title="AI supervision"
-      actions={<Badge tone={stateTone[state]}>{state}</Badge>}
+      title={t("supervisionView.title")}
+      actions={
+        <Badge tone={stateTone[state]}>
+          {t(`supervisionView.state.${state}` as MessageKey)}
+        </Badge>
+      }
     >
       <div className="stack">
-        <p>{stateText[state]}</p>
+        <p>{t(`supervisionView.stateText.${state}` as MessageKey)}</p>
         {o.control.changedAt && (
           <p className="muted">
-            Changed {when(o.control.changedAt)}
             {o.control.reasonCode
-              ? ` · ${o.control.reasonCode.replaceAll("_", " ")}`
-              : ""}{" "}
-            · revision {o.control.revision}
+              ? t("supervisionView.changedWithReason", {
+                  when: when(o.control.changedAt),
+                  reason: reasonLabel(o.control.reasonCode),
+                  revision: o.control.revision,
+                })
+              : t("supervisionView.changed", {
+                  when: when(o.control.changedAt),
+                  revision: o.control.revision,
+                })}
           </p>
         )}
         <div aria-live="polite">
           {message && <Notice tone="green">{message}</Notice>}
           {error !== undefined && (
-            <Notice tone="red">{supervisionErrorMessage(error)}</Notice>
+            <Notice tone="red">{supervisionErrorMessage(error, t)}</Notice>
           )}
         </div>
         {o.pendingSignals > 0 && (
           <Notice tone="blue">
-            {o.pendingSignals} wake-up signal(s) still on their way to running
-            jobs. The stored state already applies.
+            {t("supervisionView.pendingSignals", { count: o.pendingSignals })}
           </Notice>
         )}
         {o.canControl ? (
           <>
-            <Field label="Reason (optional)" htmlFor={`${id}-reason`}>
+            <Field
+              label={t("supervisionView.reasonField")}
+              htmlFor={`${id}-reason`}
+            >
               <select
                 id={`${id}-reason`}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               >
-                <option value="">No reason given</option>
+                <option value="">{t("supervisionView.noReason")}</option>
                 {supervisionReasons.map((r) => (
                   <option key={r} value={r}>
-                    {r.replaceAll("_", " ")}
+                    {reasonLabel(r)}
                   </option>
                 ))}
               </select>
@@ -221,7 +241,8 @@ function SupervisionPanel({
             <div className="tag-row">
               {state === "active" && (
                 <Button disabled={pending} onClick={() => void send("pause")}>
-                  <Pause size={16} aria-hidden="true" /> Pause supervision
+                  <Pause size={16} aria-hidden="true" />{" "}
+                  {t("supervisionView.pause")}
                 </Button>
               )}
               {state !== "active" && (
@@ -230,7 +251,8 @@ function SupervisionPanel({
                   disabled={pending}
                   onClick={() => void send("resume")}
                 >
-                  <Play size={16} aria-hidden="true" /> Resume supervision
+                  <Play size={16} aria-hidden="true" className="flip-rtl" />{" "}
+                  {t("supervisionView.resume")}
                 </Button>
               )}
               {state !== "stopped" && !confirmStop && (
@@ -239,142 +261,183 @@ function SupervisionPanel({
                   disabled={pending}
                   onClick={() => setConfirmStop(true)}
                 >
-                  <Square size={16} aria-hidden="true" /> Stop supervision
+                  <Square size={16} aria-hidden="true" />{" "}
+                  {t("supervisionView.stop")}
                 </Button>
               )}
             </div>
             {confirmStop && (
-              <Notice tone="gold" title="Stop cancels unfinished work">
-                Every unfinished AI job for this learner is cancelled and will
-                not resume; new events start fresh only after you resume.
+              <Notice
+                tone="gold"
+                title={t("supervisionView.confirmStop.title")}
+              >
+                {t("supervisionView.confirmStop.body")}
                 <div className="tag-row">
                   <Button
                     kind="danger"
                     disabled={pending}
                     onClick={() => void send("stop")}
                   >
-                    Confirm stop
+                    {t("supervisionView.confirmStop.confirm")}
                   </Button>
                   <Button kind="quiet" onClick={() => setConfirmStop(false)}>
-                    Keep running
+                    {t("supervisionView.confirmStop.keep")}
                   </Button>
                 </div>
               </Notice>
             )}
           </>
         ) : (
-          <p className="muted">
-            Your role can see supervision but not change it.
-          </p>
+          <p className="muted">{t("supervisionView.readOnly")}</p>
         )}
-        <h3 className="section-title">Unfinished jobs</h3>
+        <h3 className="section-title">{t("supervisionView.jobs.title")}</h3>
         {o.jobs.length === 0 ? (
-          <p className="muted">No unfinished AI jobs for this learner.</p>
+          <p className="muted">{t("supervisionView.jobs.empty")}</p>
         ) : (
           <div
             className="table-wrap"
             tabIndex={0}
             role="region"
-            aria-label="Unfinished AI jobs"
+            aria-label={t("supervisionView.jobs.table")}
           >
             <table className="people-table">
-              <caption className="sr-only">Unfinished AI jobs</caption>
+              <caption className="sr-only">
+                {t("supervisionView.jobs.table")}
+              </caption>
               <thead>
                 <tr>
-                  <th scope="col">Role</th>
-                  <th scope="col">State</th>
-                  <th scope="col">Started</th>
+                  <th scope="col">{t("supervisionView.jobs.role")}</th>
+                  <th scope="col">{t("supervisionView.jobs.state")}</th>
+                  <th scope="col">{t("supervisionView.jobs.started")}</th>
                 </tr>
               </thead>
               <tbody>
                 {o.jobs.map((j) => (
                   <tr key={j.id}>
-                    <th scope="row">{j.role}</th>
-                    <td data-label="State">
-                      <Badge>{j.state.replaceAll("_", " ")}</Badge>{" "}
-                      {j.held && <Badge tone="gold">held</Badge>}{" "}
+                    <th scope="row">
+                      {label(`supervisionView.jobRole.${j.role}`, j.role)}
+                    </th>
+                    <td data-label={t("supervisionView.jobs.state")}>
+                      <Badge>
+                        {label(`supervisionView.jobState.${j.state}`, j.state)}
+                      </Badge>{" "}
+                      {j.held && (
+                        <Badge tone="gold">
+                          {t("supervisionView.jobs.held")}
+                        </Badge>
+                      )}{" "}
                       {j.cancellationRequested && (
-                        <Badge tone="red">cancelling</Badge>
+                        <Badge tone="red">
+                          {t("supervisionView.jobs.cancelling")}
+                        </Badge>
                       )}
                     </td>
-                    <td data-label="Started">{when(j.createdAt)}</td>
+                    <td data-label={t("supervisionView.jobs.started")}>
+                      {when(j.createdAt)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        <h3 className="section-title">Requests that did not run</h3>
+        <h3 className="section-title">
+          {t("supervisionView.undelivered.title")}
+        </h3>
         {o.undeliveredEvents.length === 0 ? (
-          <p className="muted">
-            Every request for this learner reached AI supervision.
-          </p>
+          <p className="muted">{t("supervisionView.undelivered.empty")}</p>
         ) : (
           <>
             <p className="muted">
-              Refused: the request's state changed for good (for example consent
-              was withdrawn) and it will not be retried. Quarantined: delivery
-              kept failing after its retries.
               {showRequeue
-                ? " Once the outage is over you may re-queue a quarantined request once, with a reason."
-                : ""}
+                ? t("supervisionView.undelivered.explainRequeue")
+                : t("supervisionView.undelivered.explain")}
             </p>
             <div
               className="table-wrap"
               tabIndex={0}
               role="region"
-              aria-label="Requests that did not run"
+              aria-label={t("supervisionView.undelivered.title")}
             >
               <table className="people-table">
-                <caption className="sr-only">Requests that did not run</caption>
+                <caption className="sr-only">
+                  {t("supervisionView.undelivered.title")}
+                </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Request</th>
-                    <th scope="col">Outcome</th>
-                    <th scope="col">Reason</th>
-                    <th scope="col">When</th>
-                    {showRequeue && <th scope="col">Action</th>}
+                    <th scope="col">
+                      {t("supervisionView.undelivered.request")}
+                    </th>
+                    <th scope="col">
+                      {t("supervisionView.undelivered.outcome")}
+                    </th>
+                    <th scope="col">
+                      {t("supervisionView.undelivered.reason")}
+                    </th>
+                    <th scope="col">{t("supervisionView.undelivered.when")}</th>
+                    {showRequeue && (
+                      <th scope="col">
+                        {t("supervisionView.undelivered.action")}
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {o.undeliveredEvents.map((u) => (
                     <tr key={u.eventId}>
-                      <th scope="row">
-                        {u.eventType.replaceAll(/[._]/g, " ")}
-                      </th>
-                      <td data-label="Outcome">
+                      <th scope="row">{eventLabel(u.eventType)}</th>
+                      <td data-label={t("supervisionView.undelivered.outcome")}>
                         <Badge tone={u.outcome === "refused" ? "gold" : "red"}>
-                          {u.outcome}
+                          {t(
+                            `supervisionView.outcome.${u.outcome}` as MessageKey,
+                          )}
                         </Badge>{" "}
-                        {u.requeued && <Badge>re-queued once</Badge>}
+                        {u.requeued && (
+                          <Badge>
+                            {t("supervisionView.undelivered.requeuedOnce")}
+                          </Badge>
+                        )}
                       </td>
-                      <td data-label="Reason">
-                        {u.reason.toLowerCase().replaceAll("_", " ")}
+                      <td data-label={t("supervisionView.undelivered.reason")}>
+                        {label(
+                          `supervisionView.deliveryReason.${u.reason}`,
+                          u.reason,
+                        )}
                       </td>
-                      <td data-label="When">{when(u.at)}</td>
+                      <td data-label={t("supervisionView.undelivered.when")}>
+                        {when(u.at)}
+                      </td>
                       {showRequeue && (
-                        <td data-label="Action">
+                        <td
+                          data-label={t("supervisionView.undelivered.action")}
+                        >
                           {u.requeueable ? (
                             <Button
                               kind="quiet"
                               disabled={pending}
-                              aria-label={`Re-queue ${u.eventType.replaceAll(/[._]/g, " ")} from ${when(u.at)}`}
+                              aria-label={t(
+                                "supervisionView.requeue.buttonLabel",
+                                {
+                                  request: eventLabel(u.eventType),
+                                  when: when(u.at),
+                                },
+                              )}
                               onClick={() => {
                                 setRequeueing({
                                   eventId: u.eventId,
-                                  label: u.eventType.replaceAll(/[._]/g, " "),
+                                  label: eventLabel(u.eventType),
                                 });
                                 setRequeueReason("");
                               }}
                             >
                               <RotateCcw size={16} aria-hidden="true" />{" "}
-                              Re-queue
+                              {t("supervisionView.requeue.button")}
                             </Button>
                           ) : (
                             <span className="muted">
                               {u.requeued
-                                ? "Already re-queued"
-                                : "Not re-queueable"}
+                                ? t("supervisionView.requeue.already")
+                                : t("supervisionView.requeue.notRequeueable")}
                             </span>
                           )}
                         </td>
@@ -385,15 +448,16 @@ function SupervisionPanel({
               </table>
             </div>
             {showRequeue && requeueing && (
-              <Notice tone="gold" title={`Re-queue ${requeueing.label}`}>
-                <p>
-                  The request is delivered again with fresh attempts, which may
-                  start paid AI work. This is recorded with your name and
-                  reason, and a request can be re-queued only once.
-                </p>
+              <Notice
+                tone="gold"
+                title={t("supervisionView.requeue.title", {
+                  request: requeueing.label,
+                })}
+              >
+                <p>{t("supervisionView.requeue.body")}</p>
                 <Field
-                  label="Reason for re-queueing"
-                  hint="At least 10 characters."
+                  label={t("supervisionView.requeue.reasonLabel")}
+                  hint={t("supervisionView.requeue.reasonHint")}
                   htmlFor={`${id}-requeue-reason`}
                 >
                   <textarea
@@ -403,6 +467,7 @@ function SupervisionPanel({
                     maxLength={500}
                     required
                     value={requeueReason}
+                    dir="auto"
                     onChange={(e) => setRequeueReason(e.target.value)}
                   />
                 </Field>
@@ -412,10 +477,10 @@ function SupervisionPanel({
                     disabled={pending || requeueReason.trim().length < 10}
                     onClick={() => void requeue(requeueing.eventId)}
                   >
-                    Re-queue once
+                    {t("supervisionView.requeue.confirm")}
                   </Button>
                   <Button kind="quiet" onClick={() => setRequeueing(null)}>
-                    Cancel
+                    {t("supervisionView.requeue.cancel")}
                   </Button>
                 </div>
               </Notice>

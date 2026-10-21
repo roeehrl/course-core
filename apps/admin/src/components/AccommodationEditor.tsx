@@ -6,8 +6,9 @@ import type {
   AccommodationResult,
   LearningPolicy,
 } from "../domain/policy";
-import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
+import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
+import { useFormatters, useI18n } from "../i18n";
 
 /** An individual accommodation or approved pause for one learner. It is
  * authorized and audited separately; extension pools and other learners are
@@ -26,6 +27,9 @@ export function AccommodationEditor({
   onClose: () => void;
   onUpdated: (result: AccommodationResult) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
   const scope = policy.scopes.find((s) => s.scopeId === scopeId)!;
   const deadlineKind: "window" | "absolute" | null = scope.window
     ? "window"
@@ -85,17 +89,13 @@ export function AccommodationEditor({
     preview?.adjustment.windowDeadline ?? preview?.adjustment.absoluteDeadline;
   return (
     <Dialog
-      title={`Accommodation for ${scope.label}`}
+      title={t("accommodationEditor.title", { scope: scope.label })}
       onClose={onClose}
       pending={pending}
     >
-      <Notice tone="gold">
-        Applies to this learner only and does not draw on extension pools.
-        Record a reference such as an approval ticket, not health or personal
-        details.
-      </Notice>
+      <Notice tone="gold">{t("accommodationEditor.notice")}</Notice>
       <fieldset className="segmented">
-        <legend>Type</legend>
+        <legend>{t("accommodationEditor.type")}</legend>
         {(["accommodation", "approved_pause"] as const).map((value) => (
           <label key={value}>
             <input
@@ -108,13 +108,16 @@ export function AccommodationEditor({
               }}
             />
             {value === "accommodation"
-              ? "Accommodation"
-              : "Approved pause (moves the window only)"}
+              ? t("accommodationEditor.kind.accommodation")
+              : t("accommodationEditor.kind.approvedPause")}
           </label>
         ))}
       </fieldset>
       {deadlineKind && (
-        <Field label="Extra calendar days" htmlFor="accommodation-days">
+        <Field
+          label={t("accommodationEditor.days")}
+          htmlFor="accommodation-days"
+        >
           <input
             id="accommodation-days"
             type="number"
@@ -131,7 +134,7 @@ export function AccommodationEditor({
       {kind === "accommodation" && (
         <>
           <Field
-            label="Extra planned minutes (optional)"
+            label={t("accommodationEditor.minutes")}
             htmlFor="accommodation-minutes"
           >
             <input
@@ -146,7 +149,7 @@ export function AccommodationEditor({
             />
           </Field>
           <Field
-            label="Extra episodes (optional)"
+            label={t("accommodationEditor.episodes")}
             htmlFor="accommodation-episodes"
           >
             <input
@@ -176,30 +179,60 @@ export function AccommodationEditor({
         }
         disabled={pending}
       >
-        {pending && !preview ? "Computing…" : "Preview the effect"}
+        {pending && !preview
+          ? t("accommodationEditor.computing")
+          : t("accommodationEditor.preview")}
       </Button>
       {preview && (
         <div className="stack">
-          <h3>Effect for this learner</h3>
-          <small className="mono">
-            {preview.previewDigest} · expires {when(preview.expiresAt)}
+          <h3>{t("accommodationEditor.effect")}</h3>
+          <small>
+            {i18n.rich(
+              "accommodationEditor.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           <ul>
-            {newDeadline && <li>New deadline: {when(newDeadline)}</li>}
+            {newDeadline && (
+              <li>
+                {t("accommodationEditor.newDeadline", {
+                  date: when(newDeadline),
+                })}
+              </li>
+            )}
             {preview.adjustment.additionalMinutes > 0 && (
-              <li>+{preview.adjustment.additionalMinutes} planned minutes</li>
+              <li>
+                {t("accommodationEditor.addedMinutes", {
+                  count: preview.adjustment.additionalMinutes,
+                })}
+              </li>
             )}
             {preview.adjustment.additionalEpisodes > 0 && (
-              <li>+{preview.adjustment.additionalEpisodes} episodes</li>
+              <li>
+                {t("accommodationEditor.addedEpisodes", {
+                  count: preview.adjustment.additionalEpisodes,
+                })}
+              </li>
             )}
           </ul>
           <Field
-            label="Reason reference"
+            label={t("accommodationEditor.reason")}
             htmlFor="accommodation-reason"
-            hint="For example an approval ticket number."
+            hint={t("accommodationEditor.reason.hint")}
           >
             <input
               id="accommodation-reason"
+              dir="auto"
               maxLength={300}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -233,7 +266,7 @@ export function AccommodationEditor({
               })
             }
           >
-            Apply for this learner
+            {t("accommodationEditor.apply")}
           </Button>
         </div>
       )}

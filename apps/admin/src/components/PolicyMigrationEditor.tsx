@@ -5,9 +5,10 @@ import type {
   PolicyMigrationPreview,
   PolicyMigrationResult,
 } from "../domain/policy";
-import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
+import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { ScopeQuotas } from "./PolicyDetails";
 import { randomId } from "../domain/webCrypto";
+import { useFormatters, useI18n } from "../i18n";
 
 export function PolicyMigrationEditor({
   client,
@@ -20,6 +21,9 @@ export function PolicyMigrationEditor({
   onClose: () => void;
   onUpdated: (result: PolicyMigrationResult) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
   const [source, setSource] = useState(
     JSON.stringify(
       policy.scopes.map(({ label: _label, ...scope }) => scope),
@@ -53,7 +57,7 @@ export function PolicyMigrationEditor({
     try {
       const scopes: unknown = JSON.parse(source);
       if (!Array.isArray(scopes)) {
-        setSyntax("Expected an array of complete scope definitions.");
+        setSyntax(t("policyMigrationEditor.syntax.array"));
         return;
       }
       const result = await client.previewPolicyChange!(
@@ -62,7 +66,8 @@ export function PolicyMigrationEditor({
       );
       setPreview(result);
     } catch (cause) {
-      if (cause instanceof SyntaxError) setSyntax("Enter valid scope JSON.");
+      if (cause instanceof SyntaxError)
+        setSyntax(t("policyMigrationEditor.syntax.json"));
       else setError(cause);
     } finally {
       busy.current = false;
@@ -101,23 +106,19 @@ export function PolicyMigrationEditor({
   }
   return (
     <Dialog
-      title="Preview a policy migration"
+      title={t("policyMigrationEditor.title")}
       onClose={onClose}
       pending={pending}
     >
-      <Notice tone="gold">
-        This changes learning policy, not tool budgets. Existing
-        anchors/windows, scope identities, pools, grants and ledger history must
-        be preserved. The server computes concrete impacts before authorizing a
-        migration.
-      </Notice>
+      <Notice tone="gold">{t("policyMigrationEditor.notice")}</Notice>
       <Field
-        label="Proposed scope definitions (JSON)"
+        label={t("policyMigrationEditor.source")}
         htmlFor="migration-source"
       >
         <textarea
           className="manifest-editor"
           id="migration-source"
+          dir="ltr"
           value={source}
           onChange={(e) => change(e.target.value)}
           disabled={pending}
@@ -126,51 +127,72 @@ export function PolicyMigrationEditor({
       {syntax && <Notice tone="red">{syntax}</Notice>}
       {Boolean(error) && <ErrorState error={error} />}
       <Button onClick={() => void previewChange()} disabled={pending}>
-        {pending ? "Validating…" : "Compute policy impact preview"}
+        {pending
+          ? t("policyMigrationEditor.validating")
+          : t("policyMigrationEditor.compute")}
       </Button>
       {preview && (
         <div className="stack">
-          <h3>Concrete migration impact</h3>
-          <small className="mono">
-            {preview.previewDigest} · expires {when(preview.expiresAt)}
+          <h3>{t("policyMigrationEditor.impact")}</h3>
+          <small>
+            {i18n.rich(
+              "policyMigrationEditor.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           <Notice tone="gold">
-            {preview.affectedReservationIds.length} reserved work items are
-            affected. {preview.supersededOfferIds.length} outstanding offers
-            will be superseded and need fresh learner consent. Pool definitions
-            and existing grants are unchanged.
+            {t("policyMigrationEditor.affected", {
+              reserved: preview.affectedReservationIds.length,
+              offers: preview.supersededOfferIds.length,
+            })}
           </Notice>
           {preview.impacts.map((impact) => (
             <details key={impact.scopeId}>
               <summary>
-                {policy.scopes.find((s) => s.scopeId === impact.scopeId)
-                  ?.label ?? impact.scopeId}
+                <bdi>
+                  {policy.scopes.find((s) => s.scopeId === impact.scopeId)
+                    ?.label ?? impact.scopeId}
+                </bdi>
               </summary>
               <p>
-                Effective deadline:{" "}
-                {impact.before.effectiveDeadline
-                  ? when(impact.before.effectiveDeadline)
-                  : "None"}{" "}
-                →{" "}
-                {impact.after.effectiveDeadline
-                  ? when(impact.after.effectiveDeadline)
-                  : "None"}
+                {t("policyMigrationEditor.effective", {
+                  before: impact.before.effectiveDeadline
+                    ? when(impact.before.effectiveDeadline)
+                    : t("policyMigrationEditor.none"),
+                  after: impact.after.effectiveDeadline
+                    ? when(impact.after.effectiveDeadline)
+                    : t("policyMigrationEditor.none"),
+                })}
               </p>
-              <h3>Current work envelope</h3>
+              <h3>{t("policyMigrationEditor.currentEnvelope")}</h3>
               <ScopeQuotas
                 quotas={impact.before.quotas}
                 scopes={policy.scopes}
               />
-              <h3>Proposed work envelope</h3>
+              <h3>{t("policyMigrationEditor.proposedEnvelope")}</h3>
               <ScopeQuotas
                 quotas={impact.after.quotas}
                 scopes={policy.scopes}
               />
             </details>
           ))}
-          <Field label="Reason for migration" htmlFor="migration-reason">
+          <Field
+            label={t("policyMigrationEditor.reason")}
+            htmlFor="migration-reason"
+          >
             <textarea
               id="migration-reason"
+              dir="auto"
               maxLength={1000}
               value={reason}
               onChange={(e) => {
@@ -187,15 +209,14 @@ export function PolicyMigrationEditor({
               onChange={(e) => setReviewed(e.target.checked)}
               disabled={pending}
             />
-            I reviewed this exact migration, its affected work and superseded
-            offers.
+            {t("policyMigrationEditor.reviewed")}
           </label>
           <Button
             kind="primary"
             disabled={!reviewed || !reason.trim() || pending}
             onClick={() => void apply()}
           >
-            Apply reviewed migration
+            {t("policyMigrationEditor.apply")}
           </Button>
         </div>
       )}

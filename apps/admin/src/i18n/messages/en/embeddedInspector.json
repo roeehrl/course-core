@@ -1,1 +1,15 @@
-{}
+{
+  "title": "Debug inspector",
+  "openFromLesson": "Open the debug inspector from a lesson in the learner app.",
+  "checkingAccess": "Checking inspector access…",
+  "unavailable": "The debug inspector is unavailable. Nothing was opened.",
+  "notAvailable.title": "Not available",
+  "notAvailable.body": "The debug inspector needs owner or admin access to this enrollment. Nothing was opened or recorded.",
+  "opening": "Opening the inspector (this view is recorded)…",
+  "noLessons": "This course has no lessons to inspect.",
+  "noParts": "This lesson has no parts to inspect.",
+  "opened": "Opened {when} as {role}. This open is recorded and the learner can see it.",
+  "part": "Part of this lesson",
+  "partOption": "Part {part} · {label}",
+  "inspectedPart": "Inspected part"
+}

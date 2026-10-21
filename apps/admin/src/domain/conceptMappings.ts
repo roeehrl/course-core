@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 /** Staff-authored links between objectives of two course releases (server: concept-mappings.ts). */
 export const mappingRelations = [
@@ -119,28 +120,26 @@ export class ConceptMappingError extends Error {
     this.name = "ConceptMappingError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Only an owner or admin of both courses can change this mapping. You can read it.",
-  RELEASE_NOT_FOUND: "One of these course versions is not available to you.",
-  CONCEPT_MAPPING_STALE:
-    "Someone saved this mapping since you opened it. Reload it and make your change again.",
-  CONCEPT_MAPPING_SAME_RELEASE: "Choose two different course versions.",
-  CONCEPT_MAPPING_SAME_COURSE:
-    "Both choices are versions of the same course. A mapping links two different courses.",
-  CONCEPT_MAPPING_DUPLICATE_LINK:
-    "Each pair of objectives can be linked only once.",
-  CONCEPT_MAPPING_LINK_SCOPE:
-    "Each link must join an objective of one course to an objective of the other.",
-  OBJECTIVE_OUT_OF_SCOPE:
-    "A linked objective is not part of its course version.",
-  CONCEPT_MAPPING_RETIRED: "This mapping is already retired.",
-  RELEASE_NOT_PUBLISHED: "Only published course versions can be mapped.",
-  IDEMPOTENCY_CONFLICT:
-    "A different change was already sent with this request. Reload and try again.",
-  INVALID_REQUEST:
-    "Some links are incomplete. Choose an objective on both sides of every link.",
+const MAPPING_CODES = new Set([
+  "FORBIDDEN",
+  "RELEASE_NOT_FOUND",
+  "CONCEPT_MAPPING_STALE",
+  "CONCEPT_MAPPING_SAME_RELEASE",
+  "CONCEPT_MAPPING_SAME_COURSE",
+  "CONCEPT_MAPPING_DUPLICATE_LINK",
+  "CONCEPT_MAPPING_LINK_SCOPE",
+  "OBJECTIVE_OUT_OF_SCOPE",
+  "CONCEPT_MAPPING_RETIRED",
+  "RELEASE_NOT_PUBLISHED",
+  "IDEMPOTENCY_CONFLICT",
+  "INVALID_REQUEST",
+]);
+export const conceptMappingErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) => {
+  const code = error instanceof ConceptMappingError ? error.code : "";
+  return MAPPING_CODES.has(code)
+    ? t(`conceptMappings.error.${code}` as MessageKey)
+    : t("conceptMappings.error.unavailable");
 };
-export const conceptMappingErrorMessage = (error: unknown) =>
-  messages[error instanceof ConceptMappingError ? error.code : ""] ??
-  "Concept mappings are unavailable right now. Nothing changed.";

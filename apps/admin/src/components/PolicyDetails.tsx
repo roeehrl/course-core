@@ -1,10 +1,14 @@
 import type { LearningPolicy, Quota, ScopePolicy } from "../domain/policy";
-import { Badge, Card, EmptyState, Notice, when } from "./ui";
-export const metricLabel = {
-  additionalMinutes: "Additional planned minutes",
-  additionalEpisodes: "Additional episodes",
-  remediationCyclesPerConcept: "Remediation cycles / concept",
-};
+import { Badge, Card, EmptyState, Notice } from "./ui";
+import {
+  useFormatters,
+  useI18n,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
+
+export const metricLabel = (t: Translate, metric: Quota["metric"]) =>
+  t(`policyDetails.metric.${metric}` as MessageKey);
 export function ScopeDetails({
   scope,
   constraint,
@@ -14,122 +18,158 @@ export function ScopeDetails({
   constraint: LearningPolicy["constraints"][number];
   policy: LearningPolicy;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  const scopeLabel = (scopeId: string) =>
+    policy.scopes.find((item) => item.scopeId === scopeId)?.label ?? scopeId;
   return (
-    <Card title={scope.label} eyebrow="Calendar policy">
+    <Card title={scope.label} eyebrow={t("policyDetails.calendarPolicy")}>
       <div className="split-line">
         <Badge tone={scope.mode === "bounded" ? "blue" : "gold"}>
-          {scope.mode.replace("_", "-")} mode
+          {t(`policyDetails.mode.${scope.mode}` as MessageKey)}
         </Badge>
-        <small className="mono">{scope.policyId}</small>
+        <small className="mono" dir="ltr">
+          {scope.policyId}
+        </small>
       </div>
       <Notice tone="blue">
         {scope.mode === "open_ended"
-          ? "This scope has no local bounded clock. Applicable ancestor deadlines and work caps still bind."
-          : "Both local and ancestor constraints apply. The earliest applicable deadline is the effective deadline."}
+          ? t("policyDetails.openEnded")
+          : t("policyDetails.bounded")}
       </Notice>
       <dl className="facts vertical policy-facts">
         <div>
-          <dt>Soft target date</dt>
+          <dt>{t("policyDetails.softTarget")}</dt>
           <dd>
-            {scope.targetDate ? when(scope.targetDate) : "Not set"}
-            <small>A planning target; it does not close access.</small>
+            {scope.targetDate
+              ? when(scope.targetDate)
+              : t("policyDetails.notSet")}
+            <small>{t("policyDetails.softTarget.note")}</small>
           </dd>
         </div>
         <div>
-          <dt>Hard deadline</dt>
+          <dt>{t("policyDetails.hardDeadline")}</dt>
           <dd>
             {scope.hardDeadline
-              ? `${when(scope.hardDeadline.at)} · ${scope.hardDeadline.timeZone}`
-              : "No local hard deadline"}
+              ? t("policyDetails.hardDeadline.value", {
+                  date: when(scope.hardDeadline.at),
+                  zone: scope.hardDeadline.timeZone,
+                })
+              : t("policyDetails.hardDeadline.none")}
           </dd>
         </div>
         <div>
-          <dt>Calendar window</dt>
+          <dt>{t("policyDetails.window")}</dt>
           <dd>
             {scope.window ? (
               <>
-                {scope.window.calendarDays} calendar days from{" "}
-                {scope.window.anchor.replaceAll("_", " ")}
-                <small>Anchor: {when(scope.window.anchorInstant)}</small>
+                {t("policyDetails.window.value", {
+                  days: scope.window.calendarDays,
+                  anchor: t(
+                    `policyDetails.anchor.${scope.window.anchor}` as MessageKey,
+                  ),
+                })}
                 <small>
-                  Resolved end: {when(scope.window.resolvedDeadline)}
+                  {t("policyDetails.window.anchor", {
+                    date: when(scope.window.anchorInstant),
+                  })}
                 </small>
                 <small>
-                  Time zone: {scope.window.timeZone} · Pause:{" "}
-                  {scope.window.pauseRule.replaceAll("_", " ")}
+                  {t("policyDetails.window.end", {
+                    date: when(scope.window.resolvedDeadline),
+                  })}
                 </small>
-                <small className="mono">
-                  Anchor ID: {scope.window.anchorId}
+                <small>
+                  {t("policyDetails.window.zone", {
+                    zone: scope.window.timeZone,
+                    pause: t(
+                      `policyDetails.pause.${scope.window.pauseRule}` as MessageKey,
+                    ),
+                  })}
+                </small>
+                <small>
+                  {i18n.rich(
+                    "policyDetails.window.anchorId",
+                    {
+                      id: scope.window.anchorId,
+                    },
+                    {
+                      id: (children, key) => (
+                        <span key={key} className="mono" dir="ltr">
+                          {children}
+                        </span>
+                      ),
+                    },
+                  )}
                 </small>
               </>
             ) : (
-              "No activated local window"
+              t("policyDetails.window.none")
             )}
           </dd>
         </div>
         <div>
-          <dt>Ultimate ceiling</dt>
+          <dt>{t("policyDetails.ultimate")}</dt>
           <dd>
             {scope.ultimateDeadline
               ? when(scope.ultimateDeadline)
-              : "No local ultimate ceiling"}
+              : t("policyDetails.ultimate.none")}
           </dd>
         </div>
         <div>
-          <dt>Effective deadline</dt>
+          <dt>{t("policyDetails.effective")}</dt>
           <dd>
             <strong>
               {constraint.effectiveDeadline
                 ? when(constraint.effectiveDeadline)
-                : "No calendar deadline"}
+                : t("policyDetails.effective.none")}
             </strong>
           </dd>
         </div>
         <div>
-          <dt>After cap access</dt>
+          <dt>{t("policyDetails.afterCap")}</dt>
           <dd>
-            {constraint.existingMaterialAccess.replaceAll("_", " ")} for
-            existing material
+            {t(
+              `policyDetails.afterCap.${constraint.existingMaterialAccess}` as MessageKey,
+            )}
           </dd>
         </div>
         {scope.submissionGraceUntil && (
           <div>
-            <dt>Submission grace</dt>
+            <dt>{t("policyDetails.grace")}</dt>
             <dd>
               {when(scope.submissionGraceUntil)}
-              <small>
-                Submission grace does not extend planning or admission limits.
-              </small>
+              <small>{t("policyDetails.grace.note")}</small>
             </dd>
           </div>
         )}
       </dl>
-      <h3>Currently binding deadlines</h3>
+      <h3>{t("policyDetails.binding")}</h3>
       {constraint.bindingDeadlines.map((deadline, i) => (
         <div className="cap-row" key={i}>
-          <Badge tone="gold">{deadline.kind}</Badge>
+          <Badge tone="gold">
+            {t(`policyDetails.kind.${deadline.kind}` as MessageKey)}
+          </Badge>
           <strong>
-            {policy.scopes.find((item) => item.scopeId === deadline.scopeId)
-              ?.label ?? deadline.scopeId}
+            <bdi>{scopeLabel(deadline.scopeId)}</bdi>
           </strong>
           <small>{when(deadline.at)}</small>
         </div>
       ))}
       {!constraint.bindingDeadlines.length && (
-        <small>
-          No binding calendar deadline. Work quotas may still constrain
-          expansion.
-        </small>
+        <small>{t("policyDetails.binding.none")}</small>
       )}
-      <h3>Ancestor and ultimate caps</h3>
+      <h3>{t("policyDetails.ancestorCaps")}</h3>
       {constraint.deadlines
         .filter((d) => d.scopeId !== scope.scopeId || d.kind === "ultimate")
         .map((deadline, i) => (
           <div className="cap-row" key={i}>
             <span>
-              {policy.scopes.find((s) => s.scopeId === deadline.scopeId)
-                ?.label ?? deadline.scopeId}{" "}
-              · {deadline.kind}
+              {t("policyDetails.ancestorCaps.row", {
+                scope: scopeLabel(deadline.scopeId),
+                kind: t(`policyDetails.kind.${deadline.kind}` as MessageKey),
+              })}
             </span>
             <small>{when(deadline.at)}</small>
           </div>
@@ -144,10 +184,12 @@ export function ScopeQuotas({
   quotas: Quota[];
   scopes: ScopePolicy[];
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   if (!quotas.length)
     return (
-      <EmptyState title="No finite work quota in this path">
-        Any applicable calendar deadline still governs the scope.
+      <EmptyState title={t("policyDetails.quotas.empty.title")}>
+        {t("policyDetails.quotas.empty.body")}
       </EmptyState>
     );
   return (
@@ -155,34 +197,40 @@ export function ScopeQuotas({
       className="table-wrap"
       tabIndex={0}
       role="region"
-      aria-label="Work caps by scope"
+      aria-label={t("policyDetails.quotas.region")}
     >
       <table>
-        <caption>Inherited work caps and current usage</caption>
+        <caption>{t("policyDetails.quotas.caption")}</caption>
         <thead>
           <tr>
-            <th scope="col">Scope / metric</th>
-            <th scope="col">Limit</th>
-            <th scope="col">Consumed</th>
-            <th scope="col">Reserved</th>
-            <th scope="col">Remaining</th>
+            <th scope="col">{t("policyDetails.quotas.scopeMetric")}</th>
+            <th scope="col">{t("policyDetails.quotas.limit")}</th>
+            <th scope="col">{t("policyDetails.quotas.consumed")}</th>
+            <th scope="col">{t("policyDetails.quotas.reserved")}</th>
+            <th scope="col">{t("policyDetails.quotas.remaining")}</th>
           </tr>
         </thead>
         <tbody>
           {quotas.map((q, i) => (
             <tr key={i}>
               <th scope="row">
-                {scopes.find((s) => s.scopeId === q.scopeId)?.label ??
-                  q.scopeId}
+                <bdi>
+                  {scopes.find((s) => s.scopeId === q.scopeId)?.label ??
+                    q.scopeId}
+                </bdi>
                 <small>
-                  {metricLabel[q.metric]}
-                  {q.conceptId ? ` · ${q.conceptId}` : ""}
+                  {q.conceptId
+                    ? t("policyDetails.metricWithConcept", {
+                        metric: metricLabel(t, q.metric),
+                        concept: q.conceptId,
+                      })
+                    : metricLabel(t, q.metric)}
                 </small>
               </th>
-              <td>{q.limit}</td>
-              <td>{q.consumed}</td>
-              <td>{q.reserved}</td>
-              <td>{q.remaining}</td>
+              <td>{i18n.number(q.limit)}</td>
+              <td>{i18n.number(q.consumed)}</td>
+              <td>{i18n.number(q.reserved)}</td>
+              <td>{i18n.number(q.remaining)}</td>
             </tr>
           ))}
         </tbody>

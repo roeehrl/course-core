@@ -1,1 +1,15 @@
-{}
+{
+  "error.FORBIDDEN": "לתפקיד שלך אין הרשאה לשנות את פיקוח ה-AI. בעלים, מנהלים ומדריכים יכולים.",
+  "error.SUPERVISION_CONTROL_STALE": "מישהו שינה את הפיקוח על הלומד/ת מאז שפתחת את המסך. יש לרענן ולנסות שוב.",
+  "error.SUPERVISION_CONTROL_INVALID": "פיקוח שנעצר צריך להתחדש לפני שאפשר להשהות אותו.",
+  "error.IDEMPOTENCY_CONFLICT": "שינוי אחר כבר נשלח עם הבקשה הזו. יש לרענן ולנסות שוב.",
+  "error.ENROLLMENT_ERASED": "הנתונים של הלומד/ת נמחקו.",
+  "error.SUPERVISOR_EVENT_ALREADY_REQUEUED": "הבקשה הזו כבר הוחזרה לתור פעם אחת. היא לא תוחזר לתור שוב.",
+  "error.SUPERVISOR_EVENT_NOT_QUARANTINED": "הבקשה הזו כבר לא בהסגר. אפשר לרענן כדי לראות איפה היא נמצאת.",
+  "error.SUPERVISOR_EVENT_NOT_REQUEUEABLE": "הבקשה הזו נדחתה סופית ואי אפשר להחזיר אותה לתור.",
+  "error.SUPERVISOR_EVENT_NOT_FOUND": "הבקשה הזו לא שייכת ללומד/ת הזה/ו. יש לרענן ולנסות שוב.",
+  "error.SUPERVISION_CONSENT_WITHDRAWN": "הלומד/ת ביטל/ה את ההסכמה לפיקוח AI מאז הבקשה הזו. היא לא הוחזרה לתור.",
+  "error.RUBRIC_ASSIST_CONSENT_WITHDRAWN": "הלומד/ת ביטל/ה את ההסכמה לטיוטות בדיקה מאז הבקשה הזו. היא לא הוחזרה לתור.",
+  "error.INVALID_REQUEST": "יש לכתוב סיבה באורך 10 תווים לפחות.",
+  "error.unavailable": "פיקוח ה-AI לא זמין כרגע. שום דבר לא השתנה."
+}

@@ -1,1 +1,7 @@
-{}
+{
+  "required": "required",
+  "optional": "optional",
+  "met": "The answer shows this",
+  "quote.label": "Exact quotation from the answer",
+  "quote.notFound": "Not found exactly in the answer."
+}

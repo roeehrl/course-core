@@ -16,6 +16,7 @@ import {
   type InspectedBlock,
 } from "./LearnerInspector";
 import { Field, Loading, Notice } from "./ui";
+import { useI18n, useT, type MessageKey } from "../i18n";
 
 /**
  * What the learner app puts on its own window while it frames this page (same origin only): the
@@ -84,11 +85,12 @@ async function loadAccess(
 export function EmbeddedInspector(
   props: Parameters<typeof InspectorContent>[0],
 ) {
+  const t = useT();
   // One landmark and heading for the framed page, whatever state it is in.
   return (
     <main className="inspector-embed" aria-labelledby="inspector-embed-title">
       <h1 id="inspector-embed-title" className="sr-only">
-        Debug inspector
+        {t("embeddedInspector.title")}
       </h1>
       <InspectorContent {...props} />
     </main>
@@ -105,6 +107,7 @@ function InspectorContent({
   /** Tests pass the learner window's bridge directly; in the app it is read from the parent frame. */
   bridge?: CourseInspectorBridge;
 }) {
+  const t = useT();
   const params = useMemo(() => new URLSearchParams(search), [search]);
   const enrollmentId = params.get("enrollment") ?? "";
   const client = useMemo(
@@ -130,23 +133,15 @@ function InspectorContent({
     return () => window.removeEventListener("keydown", onKey);
   }, [bridge]);
   if (!/^[0-9a-f-]{36}$/i.test(enrollmentId))
-    return (
-      <Notice tone="red">
-        Open the debug inspector from a lesson in the learner app.
-      </Notice>
-    );
-  if (access.loading) return <Loading label="Checking inspector access…" />;
+    return <Notice tone="red">{t("embeddedInspector.openFromLesson")}</Notice>;
+  if (access.loading)
+    return <Loading label={t("embeddedInspector.checkingAccess")} />;
   if (access.error || !access.data)
-    return (
-      <Notice tone="red">
-        The debug inspector is unavailable. Nothing was opened.
-      </Notice>
-    );
+    return <Notice tone="red">{t("embeddedInspector.unavailable")}</Notice>;
   if (!access.data.available)
     return (
-      <Notice tone="gold" title="Not available">
-        The debug inspector needs owner or admin access to this enrollment.
-        Nothing was opened or recorded.
+      <Notice tone="gold" title={t("embeddedInspector.notAvailable.title")}>
+        {t("embeddedInspector.notAvailable.body")}
       </Notice>
     );
   const permissions = access.data.permissions.flatMap((p) => {
@@ -180,6 +175,7 @@ function InspectorView({
   blockId: string | null;
   bridge: CourseInspectorBridge | undefined;
 }) {
+  const t = useT();
   const port = client.learnerView;
   // One read per open: the server records it (the same receipt as the staff learner view).
   const view = useRemote(
@@ -189,8 +185,7 @@ function InspectorView({
         : Promise.reject(new Error("UNAVAILABLE")),
     [port, enrollmentId],
   );
-  if (view.loading)
-    return <Loading label="Opening the inspector (this view is recorded)…" />;
+  if (view.loading) return <Loading label={t("embeddedInspector.opening")} />;
   if (view.error || !view.data)
     return <Notice tone="red">{learnerViewErrorMessage(view.error)}</Notice>;
   return (
@@ -223,6 +218,8 @@ function Pane({
   blockId: string | null;
   bridge: CourseInspectorBridge | undefined;
 }) {
+  const t = useT();
+  const i18n = useI18n();
   const id = useId();
   const episodes = view.snapshot.course.chapters.flatMap(
     (chapter) => chapter.episodes,
@@ -236,6 +233,10 @@ function Pane({
       episode?.blocks.find((b) => b.id === blockId)?.id ??
       episode?.blocks[0]?.id,
   );
+  const roleName = (role: string) => {
+    const key = `adminApp.role.${role}` as MessageKey;
+    return i18n.has(key) ? i18n.t(key) : role;
+  };
   const state = useMemo(
     () => ({
       access: { client, enrollmentId, permissions },
@@ -246,14 +247,14 @@ function Pane({
     [client, enrollmentId, permissions],
   );
   if (!episode)
-    return <Notice tone="gold">This course has no lessons to inspect.</Notice>;
+    return <Notice tone="gold">{t("embeddedInspector.noLessons")}</Notice>;
   const index = Math.max(
     0,
     episode.blocks.findIndex((b) => b.id === selected),
   );
   const block = episode.blocks[index];
   if (!block)
-    return <Notice tone="gold">This lesson has no parts to inspect.</Notice>;
+    return <Notice tone="gold">{t("embeddedInspector.noParts")}</Notice>;
   // The learner app's own live runtime for this visual, so the panel shows what the learner sees now.
   const live =
     block.type === "visual" ? bridge?.visual(episode.id, block.id) : undefined;
@@ -268,20 +269,26 @@ function Pane({
     episode,
     block,
     part: index + 1,
-    label: blockLabel(block),
+    label: blockLabel(block, t),
     read: Boolean(lesson?.completedBlockIds.includes(block.id)),
   };
   return (
     <InspectorContext.Provider value={state}>
       <div className="stack">
-        <h2 className="sr-only">{episode.title}</h2>
+        <h2 className="sr-only" dir="auto">
+          {episode.title}
+        </h2>
         <p className="muted">
-          Opened {new Date(view.view.viewedAt).toLocaleString()} as{" "}
-          {view.view.viewer.role}. This open is recorded and the learner can see
-          it.
+          {t("embeddedInspector.opened", {
+            when: i18n.dateTime(view.view.viewedAt, {
+              dateStyle: "short",
+              timeStyle: "medium",
+            }),
+            role: roleName(view.view.viewer.role),
+          })}
         </p>
         {episode.blocks.length > 1 && (
-          <Field label="Part of this lesson" htmlFor={`${id}-part`}>
+          <Field label={t("embeddedInspector.part")} htmlFor={`${id}-part`}>
             <select
               id={`${id}-part`}
               value={block.id}
@@ -289,7 +296,10 @@ function Pane({
             >
               {episode.blocks.map((b, i) => (
                 <option key={b.id} value={b.id}>
-                  Part {i + 1} · {blockLabel(b)}
+                  {t("embeddedInspector.partOption", {
+                    part: i + 1,
+                    label: blockLabel(b, t),
+                  })}
                 </option>
               ))}
             </select>
@@ -298,7 +308,7 @@ function Pane({
         <InspectorPane
           key={`${episode.id}:${block.id}:${live ? "live" : "static"}`}
           target={target}
-          label="Inspected part"
+          label={t("embeddedInspector.inspectedPart")}
         />
       </div>
     </InspectorContext.Provider>

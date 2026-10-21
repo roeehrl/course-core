@@ -1,1 +1,15 @@
-{}
+{
+  "error.FORBIDDEN": "לתפקיד שלך אין הרשאה לפתוח את המקטע הזה או לשנות את ההגדרה הזו.",
+  "error.STALE_REVISION": "ההגדרות השתנו מאז שנפתחו. יש לטעון מחדש ולנסות שוב.",
+  "error.ADMIN_SETTING_INVALID": "אחד הערכים חורג ממה שהקורס מאפשר. שום דבר לא נשמר.",
+  "error.ADMIN_SETTING_UNKNOWN": "הקורס כבר לא מגדיר את אחת ההגדרות האלה. יש לטעון מחדש.",
+  "error.ADMIN_SETTING_SCOPE_MISMATCH": "אחת ההגדרות שייכת לרמה אחרת. יש לטעון מחדש.",
+  "error.ADMIN_SECTION_SCOPE_INVALID": "הפרק או הלומד/ת האלה לא שייכים לקורס הזה.",
+  "error.ADMIN_SECTION_NOT_FOUND": "הגרסה הפעילה כבר לא מגדירה את המקטע הזה.",
+  "error.unavailable": "הגדרות הקורס לא זמינות. שום דבר לא השתנה.",
+  "problem.chooseOption": "יש לבחור באחת האפשרויות.",
+  "problem.tooLong": "עד {max} תווים.",
+  "problem.number": "יש להזין מספר.",
+  "problem.integer": "יש להזין מספר שלם.",
+  "problem.range": "בין {min} ל-{max}."
+}

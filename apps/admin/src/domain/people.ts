@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 export const roles = [
   "owner",
@@ -13,21 +14,13 @@ export const roles = [
   "course_scoped",
 ] as const;
 export type Role = (typeof roles)[number];
-export const roleDescriptions: Record<Role, string> = {
-  owner: "Everything, including other owners and admins",
-  admin: "Course, policy, providers and non-privileged people",
-  author: "Edits course drafts; no learner records",
-  instructor: "Assigned learners' permitted evidence and extensions",
-  reviewer: "Approves releases, content and evidence reviews",
-  learner: "Studies enrolled courses only",
-  observer: "Read-only course overview",
-  support_observer:
-    "Read-only support: course, enrollment and policy state and the audit log; nothing learner-private",
-  service:
-    "Integration account: read-only course and enrollment state (owners assign it)",
-  course_scoped:
-    "No workspace-wide access; only the courses granted below, until each grant expires",
-};
+/** The role's name in the active locale (English keeps the role code). */
+export const roleLabel = (role: Role, t: Translate = englishTranslator().t) =>
+  t(`people.role.${role}` as MessageKey);
+export const roleDescription = (
+  role: Role,
+  t: Translate = englishTranslator().t,
+) => t(`people.roleDescription.${role}` as MessageKey);
 export const grantableRoles = [
   "author",
   "instructor",
@@ -155,44 +148,21 @@ export interface PeopleAdminPort {
     idempotencyKey: string,
   ): Promise<CourseGrant>;
 }
-const messages: Record<string, string> = {
-  FORBIDDEN: "Only workspace owners and admins manage people.",
-  ROLE_NOT_ASSIGNABLE:
-    "Your role cannot make this change. Only owners manage owners and admins.",
-  SELF_CHANGE_FORBIDDEN:
-    "You cannot change or remove your own membership. Ask another owner.",
-  STALE_ROLE:
-    "This person's role changed since you loaded the list. Refresh and try again.",
-  ROLE_UNCHANGED: "That is already their role.",
-  SIGN_IN_NOT_ISSUABLE:
-    "A sign-in code can only be issued for people invited into this workspace who have no other workspace access.",
-  PASSWORD_NOT_SETTABLE:
-    "A temporary password can only be set for people invited into this workspace who have no other workspace access.",
-  LOGIN_NAME_REQUIRED: "Choose a username for this person.",
-  LOGIN_NAME_TAKEN: "That username belongs to someone else. Choose another.",
-  LOGIN_CODES_DISABLED: "One-time sign-in codes are turned off on this server.",
-  MEMBER_NOT_FOUND: "This person is no longer a member. Refresh the list.",
-  IDEMPOTENCY_CONFLICT:
-    "A previous request with this retry key had different content. Refresh and try again.",
-  COURSE_SCOPED_MEMBER_REQUIRED:
-    "Course access is only for people whose workspace role is course_scoped. Change their role first.",
-  COURSE_GRANT_EXISTS:
-    "This person already has access to this course. Revoke it before granting a different role.",
-  COURSE_GRANT_REVOKED: "That access was already revoked. Refresh the list.",
-  GRANT_EXPIRY_INVALID: "Choose an expiry between now and one year ahead.",
-  INVALID_INPUT:
-    "Check the name, username, role and reason, then try again. Usernames use 3–128 letters, digits and . _ @ + : -",
-};
+/** Characters a username may contain besides letters and digits; not translated. */
+export const LOGIN_NAME_SYMBOLS = ". _ @ + : -";
 export class PeopleActionError extends Error {
   constructor(readonly code: string) {
     super(code);
     this.name = "PeopleActionError";
   }
 }
-export function peopleErrorMessage(error: unknown) {
+export function peopleErrorMessage(
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) {
   const code = error instanceof PeopleActionError ? error.code : "";
-  return (
-    messages[code] ??
-    "The people service is unavailable. No membership was changed."
-  );
+  const key = `people.error.${code}` as MessageKey;
+  return code && englishTranslator().has(key)
+    ? t(key, { symbols: LOGIN_NAME_SYMBOLS })
+    : t("people.error.unavailable");
 }

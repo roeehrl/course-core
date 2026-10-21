@@ -1,1 +1,26 @@
-{}
+{
+  "set.pre": "Pre-test",
+  "set.post": "Post-test",
+  "set.transfer": "Transfer",
+  "set.delayed": "Delayed check",
+  "behaviour.fixed": "Fixed path",
+  "behaviour.chat_only": "Chat-only companion",
+  "behaviour.supervisor": "Full supervisor",
+  "error.FORBIDDEN": "Your role cannot do this. Owners and admins manage studies and download exports.",
+  "error.STALE_REVISION": "This study changed since you opened it. Refresh and try again.",
+  "error.STUDY_ALREADY_OPEN": "This release already has a study in draft or recruiting. Close it before starting another.",
+  "error.STUDY_DEFINITION_LOCKED": "Recruiting has started, so the arms, instruments and consent text can no longer change.",
+  "error.STUDY_NOT_DRAFT": "Only a draft study can be opened.",
+  "error.STUDY_CLOSED": "This study is already closed.",
+  "error.STUDY_NOT_STARTED": "There is nothing to export until the study opens.",
+  "error.INVALID_REQUEST": "Check the fields: a title of 3+ characters, a purpose of 20+ characters, 2 to 6 arms with distinct ids and a minimum cell size of 3 to 100.",
+  "error.unavailable": "Studies are unavailable right now. Nothing changed.",
+  "problem.STUDY_ITEM_UNKNOWN": "An item is not in this release.",
+  "problem.STUDY_ITEM_IN_TWO_SETS": "An item is in two sets; each set needs its own items.",
+  "problem.STUDY_ITEM_REPEATED": "An item is listed twice in one set.",
+  "problem.STUDY_TRANSFER_ROLE": "A transfer item has a different SDK role (only items marked transfer, or unmarked, qualify).",
+  "problem.STUDY_DELAYED_NOT_RETENTION": "Delayed items must be the course's held-out retention items, so the retention schedule delivers them.",
+  "problem.STUDY_ARM_DUPLICATE": "Two arms share an id.",
+  "problem.STUDY_PRE_REQUIRED": "Opening needs at least one pre-test item.",
+  "problem.STUDY_POST_REQUIRED": "Opening needs at least one post-test item."
+}

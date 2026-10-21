@@ -1,21 +1,21 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 const count = z.number().int().nonnegative();
 export const armBehaviours = ["fixed", "chat_only", "supervisor"] as const;
 export type ArmBehaviour = (typeof armBehaviours)[number];
 export const instrumentSets = ["pre", "post", "transfer", "delayed"] as const;
 export type InstrumentSet = (typeof instrumentSets)[number];
-export const setLabels: Record<InstrumentSet, string> = {
-  pre: "Pre-test",
-  post: "Post-test",
-  transfer: "Transfer",
-  delayed: "Delayed check",
-};
-export const behaviourLabels: Record<ArmBehaviour, string> = {
-  fixed: "Fixed path",
-  chat_only: "Chat-only companion",
-  supervisor: "Full supervisor",
-};
+/** The label of an instrument set in the UI locale. */
+export const setLabel = (
+  set: InstrumentSet,
+  t: Translate = englishTranslator().t,
+) => t(`studies.set.${set}` as MessageKey);
+/** The label of an arm behaviour in the UI locale. */
+export const behaviourLabel = (
+  behaviour: ArmBehaviour,
+  t: Translate = englishTranslator().t,
+) => t(`studies.behaviour.${behaviour}` as MessageKey);
 
 const itemList = z.array(z.string().min(1).max(200)).max(50);
 export const instrumentsSchema = z.object({
@@ -142,45 +142,46 @@ export class StudyError extends Error {
     this.name = "StudyError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Your role cannot do this. Owners and admins manage studies and download exports.",
-  STALE_REVISION:
-    "This study changed since you opened it. Refresh and try again.",
-  STUDY_ALREADY_OPEN:
-    "This release already has a study in draft or recruiting. Close it before starting another.",
-  STUDY_DEFINITION_LOCKED:
-    "Recruiting has started, so the arms, instruments and consent text can no longer change.",
-  STUDY_NOT_DRAFT: "Only a draft study can be opened.",
-  STUDY_CLOSED: "This study is already closed.",
-  STUDY_NOT_STARTED: "There is nothing to export until the study opens.",
-  INVALID_REQUEST:
-    "Check the fields: a title of 3+ characters, a purpose of 20+ characters, 2 to 6 arms with distinct ids and a minimum cell size of 3 to 100.",
-};
-const problems: Record<string, string> = {
-  STUDY_ITEM_UNKNOWN: "An item is not in this release.",
-  STUDY_ITEM_IN_TWO_SETS:
-    "An item is in two sets; each set needs its own items.",
-  STUDY_ITEM_REPEATED: "An item is listed twice in one set.",
-  STUDY_TRANSFER_ROLE:
-    "A transfer item has a different SDK role (only items marked transfer, or unmarked, qualify).",
-  STUDY_DELAYED_NOT_RETENTION:
-    "Delayed items must be the course's held-out retention items, so the retention schedule delivers them.",
-  STUDY_ARM_DUPLICATE: "Two arms share an id.",
-  STUDY_PRE_REQUIRED: "Opening needs at least one pre-test item.",
-  STUDY_POST_REQUIRED: "Opening needs at least one post-test item.",
-};
-export const studyErrorMessage = (error: unknown) => {
+const STUDY_CODES = new Set([
+  "FORBIDDEN",
+  "STALE_REVISION",
+  "STUDY_ALREADY_OPEN",
+  "STUDY_DEFINITION_LOCKED",
+  "STUDY_NOT_DRAFT",
+  "STUDY_CLOSED",
+  "STUDY_NOT_STARTED",
+  "INVALID_REQUEST",
+]);
+const PROBLEM_CODES = new Set([
+  "STUDY_ITEM_UNKNOWN",
+  "STUDY_ITEM_IN_TWO_SETS",
+  "STUDY_ITEM_REPEATED",
+  "STUDY_TRANSFER_ROLE",
+  "STUDY_DELAYED_NOT_RETENTION",
+  "STUDY_ARM_DUPLICATE",
+  "STUDY_PRE_REQUIRED",
+  "STUDY_POST_REQUIRED",
+]);
+export const studyErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) => {
   if (error instanceof StudyError && error.problems.length)
-    return error.problems.map((p) => problems[p] ?? p).join(" ");
-  return (
-    messages[error instanceof StudyError ? error.code : ""] ??
-    "Studies are unavailable right now. Nothing changed."
-  );
+    return error.problems
+      .map((p) =>
+        PROBLEM_CODES.has(p) ? t(`studies.problem.${p}` as MessageKey) : p,
+      )
+      .join(" ");
+  const code = error instanceof StudyError ? error.code : "";
+  return STUDY_CODES.has(code)
+    ? t(`studies.error.${code}` as MessageKey)
+    : t("studies.error.unavailable");
 };
-/** The three arms the evaluation plan compares (design: fixed vs chat-only vs supervisor). */
-export const defaultArms = (): StudyArm[] => [
-  { id: "fixed", label: "Fixed path", behaviour: "fixed" },
-  { id: "chat_only", label: "Chat-only companion", behaviour: "chat_only" },
-  { id: "supervisor", label: "Full supervisor", behaviour: "supervisor" },
-];
+/** The three arms the evaluation plan compares (design: fixed vs chat-only vs supervisor).
+ * Their default names are in the UI locale of the person who creates the study. */
+export const defaultArms = (t: Translate = englishTranslator().t): StudyArm[] =>
+  armBehaviours.map((behaviour) => ({
+    id: behaviour,
+    label: behaviourLabel(behaviour, t),
+    behaviour,
+  }));

@@ -3,6 +3,7 @@ import "../components/inspector.css";
 import type { SupervisorRun } from "../domain/contracts";
 import {
   PAYLOAD_REASONS,
+  payloadReasonLabel,
   runInspectorErrorMessage,
   type PayloadReason,
   type PayloadReveal,
@@ -19,18 +20,31 @@ import {
   Field,
   Notice,
   Status,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
-const show = (value: number | null | undefined) =>
-  value === null || value === undefined ? "—" : value.toLocaleString("en");
-const pair = (
-  value: { microUsd: number | null; tokens: number | null } | null | undefined,
-) =>
-  value
-    ? `${show(value.microUsd)} micro-USD · ${show(value.tokens)} tokens`
-    : "—";
+type Amount = { microUsd: number | null; tokens: number | null };
+/** Amounts in the active locale; "—" where the server reports none. */
+function useAmounts() {
+  const i18n = useI18n();
+  const show = (value: number | null | undefined) =>
+    value === null || value === undefined ? "—" : i18n.number(value);
+  const pair = (value: Amount | null | undefined) =>
+    value
+      ? i18n.t("runInspectorPanels.amount", {
+          microUsd: show(value.microUsd),
+          tokens: show(value.tokens),
+        })
+      : "—";
+  return { pair };
+}
+/** Identifiers inside a translated sentence stay left to right. */
+const mono = (children: ReactNode[], key: string) => (
+  <span className="mono" dir="ltr" key={key}>
+    {children}
+  </span>
+);
 
 /** The run as a tree: input event → run → checkpoints → attempts → tool calls and artifacts → verification → application. */
 export function WorkflowPanel({
@@ -38,10 +52,12 @@ export function WorkflowPanel({
 }: {
   workflow: RunWorkflow | undefined;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   if (!workflow)
     return (
-      <EmptyState title="No workflow graph">
-        This server does not report the workflow graph.
+      <EmptyState title={t("runInspectorPanels.workflow.empty.title")}>
+        {t("runInspectorPanels.workflow.empty.body")}
       </EmptyState>
     );
   const children = (parentId: string | null) =>
@@ -56,9 +72,11 @@ export function WorkflowPanel({
             <div className="split-line">
               <span>
                 <small className="eyebrow">
-                  {node.kind.replaceAll("_", " ")}
+                  {t(
+                    `runInspectorPanels.workflow.kind.${node.kind}` as MessageKey,
+                  )}
                 </small>
-                <strong>{node.label}</strong>
+                <strong dir="auto">{node.label}</strong>
               </span>
               <Status value={node.status} />
             </div>
@@ -71,23 +89,39 @@ export function WorkflowPanel({
   return (
     <div className="stack">
       <p>
-        Workflow <span className="mono">{workflow.workflowId}</span>
-        {workflow.generation !== null && ` · generation ${workflow.generation}`}
+        {workflow.generation !== null
+          ? i18n.rich(
+              "runInspectorPanels.workflow.idGeneration",
+              { id: workflow.workflowId, generation: workflow.generation },
+              { mono },
+            )
+          : i18n.rich(
+              "runInspectorPanels.workflow.id",
+              { id: workflow.workflowId },
+              { mono },
+            )}
       </p>
-      <nav aria-label="Workflow graph">{render(null, 0)}</nav>
+      <nav aria-label={t("runInspectorPanels.workflow.nav")}>
+        {render(null, 0)}
+      </nav>
       {workflow.truncated && (
-        <Notice tone="gold">Only the first 200 tool calls are drawn.</Notice>
+        <Notice tone="gold">
+          {t("runInspectorPanels.workflow.truncated")}
+        </Notice>
       )}
     </div>
   );
 }
 
 export function PoliciesPanel({ run }: { run: SupervisorRun }) {
+  const t = useT();
+  const { when } = useFormatters();
+  const { pair } = useAmounts();
   const p = run.policies;
   if (!p)
     return (
-      <EmptyState title="No policy view">
-        This server does not report policies and budgets.
+      <EmptyState title={t("runInspectorPanels.policies.empty.title")}>
+        {t("runInspectorPanels.policies.empty.body")}
       </EmptyState>
     );
   const drift =
@@ -98,78 +132,94 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
     <div className="stack">
       <dl className="facts vertical">
         <div>
-          <dt>Fence at the run</dt>
+          <dt>{t("runInspectorPanels.policies.fence")}</dt>
           <dd>
             {p.fence
-              ? `enrollment r${p.fence.enrollmentRevision} · profile r${p.fence.profileRevision} · policy r${p.fence.policyRevision} · ledger r${p.fence.ledgerRevision}`
-              : "Unavailable"}
+              ? t("runInspectorPanels.policies.fenceValue", {
+                  enrollment: p.fence.enrollmentRevision,
+                  profile: p.fence.profileRevision,
+                  policy: p.fence.policyRevision,
+                  ledger: p.fence.ledgerRevision,
+                })
+              : t("runInspectorPanels.unavailable")}
           </dd>
         </div>
         <div>
-          <dt>Enrollment now</dt>
+          <dt>{t("runInspectorPanels.policies.enrollmentNow")}</dt>
           <dd>
             {p.fence?.enrollmentRevisionNow !== null &&
             p.fence?.enrollmentRevisionNow !== undefined
-              ? `r${p.fence.enrollmentRevisionNow}`
+              ? t("runInspectorPanels.revision", {
+                  revision: p.fence.enrollmentRevisionNow,
+                })
               : "—"}
             {drift && (
               <>
                 {" "}
-                <Badge tone="gold">changed since the run</Badge>
+                <Badge tone="gold">
+                  {t("runInspectorPanels.policies.changedSinceRun")}
+                </Badge>
               </>
             )}
           </dd>
         </div>
         <div>
-          <dt>Course digest</dt>
-          <dd className="mono">{p.fence?.courseDigest ?? "—"}</dd>
+          <dt>{t("runInspectorPanels.policies.courseDigest")}</dt>
+          <dd className="mono" dir="ltr">
+            {p.fence?.courseDigest ?? "—"}
+          </dd>
         </div>
         <div>
-          <dt>Deadline</dt>
+          <dt>{t("runInspectorPanels.policies.deadline")}</dt>
           <dd>{p.deadline ? when(p.deadline) : "—"}</dd>
         </div>
         <div>
-          <dt>Run budget</dt>
+          <dt>{t("runInspectorPanels.policies.runBudget")}</dt>
           <dd>{pair(p.jobBudget)}</dd>
         </div>
         <div>
-          <dt>Charged</dt>
+          <dt>{t("runInspectorPanels.policies.charged")}</dt>
           <dd>{pair(p.charged)}</dd>
         </div>
         <div>
-          <dt>Provider configuration</dt>
-          <dd>{p.providerConfiguration}</dd>
+          <dt>{t("runInspectorPanels.policies.providerConfiguration")}</dt>
+          <dd dir="ltr">{p.providerConfiguration}</dd>
         </div>
         <div>
-          <dt>AI supervision</dt>
+          <dt>{t("runInspectorPanels.policies.supervision")}</dt>
           <dd>
-            {p.supervision.state} · revision {p.supervision.revision}
+            {t("runInspectorPanels.policies.supervisionValue", {
+              state: p.supervision.state,
+              revision: p.supervision.revision,
+            })}
           </dd>
         </div>
         {p.reason && (
           <div>
-            <dt>Runtime reason</dt>
-            <dd className="mono">{p.reason}</dd>
+            <dt>{t("runInspectorPanels.policies.runtimeReason")}</dt>
+            <dd className="mono" dir="ltr">
+              {p.reason}
+            </dd>
           </div>
         )}
       </dl>
       <table className="data-table">
-        <caption>Reservations and usage per attempt</caption>
+        <caption>{t("runInspectorPanels.operations.caption")}</caption>
         <thead>
           <tr>
-            <th scope="col">Operation</th>
-            <th scope="col">Status</th>
-            <th scope="col">Reserved</th>
-            <th scope="col">Used</th>
+            <th scope="col">{t("runInspectorPanels.operations.operation")}</th>
+            <th scope="col">{t("runInspectorPanels.operations.status")}</th>
+            <th scope="col">{t("runInspectorPanels.operations.reserved")}</th>
+            <th scope="col">{t("runInspectorPanels.operations.used")}</th>
           </tr>
         </thead>
         <tbody>
           {p.operations.map((o) => (
             <tr key={o.id + o.attempt}>
-              <td className="mono">
+              <td className="mono" dir="ltr">
                 {o.id.split("/").at(-1)} #{o.attempt}
               </td>
-              <td>{o.status}</td>
+              <td dir="ltr">{o.status}</td>
               <td>{pair(o.reservation)}</td>
               <td>
                 {o.usage
@@ -181,32 +231,32 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         </tbody>
       </table>
       <table className="data-table">
-        <caption>Budgets now</caption>
+        <caption>{t("runInspectorPanels.budgets.caption")}</caption>
         <thead>
           <tr>
-            <th scope="col">Budget</th>
-            <th scope="col">Limit</th>
-            <th scope="col">Used</th>
+            <th scope="col">{t("runInspectorPanels.budgets.budget")}</th>
+            <th scope="col">{t("runInspectorPanels.budgets.limit")}</th>
+            <th scope="col">{t("runInspectorPanels.budgets.used")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <th scope="row">This learner</th>
+            <th scope="row">{t("runInspectorPanels.budgets.learner")}</th>
             <td>{pair(p.enrollmentBudget?.limit)}</td>
             <td>{pair(p.enrollmentBudget?.used)}</td>
           </tr>
           <tr>
-            <th scope="row">This learner per day</th>
+            <th scope="row">{t("runInspectorPanels.budgets.learnerDaily")}</th>
             <td>{pair(p.enrollmentBudget?.daily)}</td>
             <td>—</td>
           </tr>
           <tr>
-            <th scope="row">Per artifact</th>
+            <th scope="row">{t("runInspectorPanels.budgets.perArtifact")}</th>
             <td>{pair(p.enrollmentBudget?.perArtifact)}</td>
             <td>—</td>
           </tr>
           <tr>
-            <th scope="row">Workspace</th>
+            <th scope="row">{t("runInspectorPanels.budgets.workspace")}</th>
             <td>{pair(p.workspaceBudget?.limit)}</td>
             <td>{pair(p.workspaceBudget?.used)}</td>
           </tr>
@@ -217,78 +267,137 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
 }
 
 export function SyncPanel({ run }: { run: SupervisorRun }) {
+  const t = useT();
+  const { when } = useFormatters();
   const s = run.sync;
   if (!s)
     return (
-      <EmptyState title="No sync view">
-        This server does not report client and sync state.
+      <EmptyState title={t("runInspectorPanels.sync.empty.title")}>
+        {t("runInspectorPanels.sync.empty.body")}
       </EmptyState>
     );
   const e = s.inputEvent;
+  const client = e?.platform
+    ? e.appVersion
+      ? `${e.platform} ${e.appVersion}`
+      : e.platform
+    : undefined;
+  const delivery = s.delivery && [
+    s.delivery.deliveredAt
+      ? t("runInspectorPanels.sync.delivered", {
+          at: when(s.delivery.deliveredAt),
+        })
+      : t("runInspectorPanels.sync.notDelivered"),
+    t("runInspectorPanels.sync.attempts", { count: s.delivery.attempts }),
+    ...(s.delivery.quarantined
+      ? [t("runInspectorPanels.sync.quarantined")]
+      : []),
+    ...(s.delivery.lastErrorCode ? [s.delivery.lastErrorCode] : []),
+  ];
+  const runState = [
+    s.run.state,
+    ...(s.run.generation !== null
+      ? [
+          t("runInspectorPanels.sync.generation", {
+            generation: s.run.generation,
+          }),
+        ]
+      : []),
+    ...(s.run.snapshotVersion !== null
+      ? [
+          t("runInspectorPanels.sync.snapshot", {
+            version: s.run.snapshotVersion,
+          }),
+        ]
+      : []),
+    ...(s.run.cancellationRequested
+      ? [t("runInspectorPanels.sync.cancellationRequested")]
+      : []),
+  ];
   return (
     <dl className="facts vertical">
       <div>
-        <dt>Input event</dt>
+        <dt>{t("runInspectorPanels.sync.inputEvent")}</dt>
         <dd>
           {e
-            ? `#${e.sequence} by ${e.actorKind}${e.recordedAt ? ` · recorded ${when(e.recordedAt)}` : ""}`
-            : "None"}
+            ? e.recordedAt
+              ? t("runInspectorPanels.sync.inputEventRecorded", {
+                  sequence: e.sequence,
+                  actor: e.actorKind,
+                  recorded: when(e.recordedAt),
+                })
+              : t("runInspectorPanels.sync.inputEventValue", {
+                  sequence: e.sequence,
+                  actor: e.actorKind,
+                })
+            : t("runInspectorPanels.none")}
         </dd>
       </div>
       <div>
-        <dt>Client</dt>
+        <dt>{t("runInspectorPanels.sync.client")}</dt>
         <dd>
-          {e?.platform
-            ? `${e.platform}${e.appVersion ? ` ${e.appVersion}` : ""}${e.clientSequence ? ` · client sequence ${e.clientSequence}` : ""}`
-            : "Not reported"}
+          {client ? (
+            e?.clientSequence ? (
+              t("runInspectorPanels.sync.clientSequence", {
+                client,
+                sequence: e.clientSequence,
+              })
+            ) : (
+              <bdi dir="ltr">{client}</bdi>
+            )
+          ) : (
+            t("runInspectorPanels.notReported")
+          )}
         </dd>
       </div>
       <div>
-        <dt>Client clock</dt>
+        <dt>{t("runInspectorPanels.sync.clientClock")}</dt>
         <dd>
           {e?.clockSkewMs !== null && e?.clockSkewMs !== undefined
-            ? `${e.clockSkewMs} ms between the client's time and the server's record`
-            : "Not reported"}
+            ? t("runInspectorPanels.sync.clockSkew", {
+                ms: String(e.clockSkewMs),
+              })
+            : t("runInspectorPanels.notReported")}
         </dd>
       </div>
       <div>
-        <dt>Course on the client</dt>
-        <dd className="mono">{e?.courseDigest ?? "—"}</dd>
+        <dt>{t("runInspectorPanels.sync.courseOnClient")}</dt>
+        <dd className="mono" dir="ltr">
+          {e?.courseDigest ?? "—"}
+        </dd>
       </div>
       <div>
-        <dt>Events since</dt>
+        <dt>{t("runInspectorPanels.sync.eventsSince")}</dt>
         <dd>
-          {s.eventsSince} later event(s) · latest #{s.latestSequence ?? "—"}
+          {t("runInspectorPanels.sync.eventsSinceValue", {
+            count: s.eventsSince,
+            latest: s.latestSequence ?? "—",
+          })}
         </dd>
       </div>
       <div>
-        <dt>Enrollment revision</dt>
+        <dt>{t("runInspectorPanels.sync.enrollmentRevision")}</dt>
         <dd>
-          r{s.enrollmentRevisionAtRun} at the run · r
-          {s.enrollmentRevisionNow ?? "—"} now
+          {t("runInspectorPanels.sync.enrollmentRevisionValue", {
+            atRun: s.enrollmentRevisionAtRun,
+            now: s.enrollmentRevisionNow ?? "—",
+          })}
         </dd>
       </div>
       <div>
-        <dt>Event delivery to supervision</dt>
+        <dt>{t("runInspectorPanels.sync.delivery")}</dt>
         <dd>
-          {s.delivery
-            ? `${s.delivery.deliveredAt ? `delivered ${when(s.delivery.deliveredAt)}` : "not delivered"} · ${s.delivery.attempts} attempt(s)${s.delivery.quarantined ? " · quarantined" : ""}${s.delivery.lastErrorCode ? ` · ${s.delivery.lastErrorCode}` : ""}`
-            : "No delivery record"}
+          {delivery
+            ? delivery.join(" · ")
+            : t("runInspectorPanels.sync.noDelivery")}
         </dd>
       </div>
       <div>
-        <dt>Run state</dt>
-        <dd>
-          {s.run.state}
-          {s.run.generation !== null ? ` · generation ${s.run.generation}` : ""}
-          {s.run.snapshotVersion !== null
-            ? ` · snapshot v${s.run.snapshotVersion}`
-            : ""}
-          {s.run.cancellationRequested ? " · cancellation requested" : ""}
-        </dd>
+        <dt>{t("runInspectorPanels.sync.runState")}</dt>
+        <dd>{runState.join(" · ")}</dd>
       </div>
       <div>
-        <dt>Last change</dt>
+        <dt>{t("runInspectorPanels.sync.lastChange")}</dt>
         <dd>{s.run.updatedAt ? when(s.run.updatedAt) : "—"}</dd>
       </div>
     </dl>
@@ -304,23 +413,20 @@ export function ReplayPanel({
   courseId: string;
   runId: string;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const [result, setResult] = useState<RunReplay>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   if (!port)
     return (
-      <EmptyState title="Replay is not available here">
-        Use a connected administration session.
+      <EmptyState title={t("runInspectorPanels.replay.unavailable")}>
+        {t("runInspectorPanels.connectedOnly")}
       </EmptyState>
     );
   return (
     <div className="stack">
-      <p>
-        Replays this run's tool loop in a sandbox: frozen inputs, the model's
-        recorded decisions instead of a provider, every tool stubbed to its
-        recorded result, a new run id, and a read-only database transaction.
-        Nothing the learner sees changes; only a replay receipt is recorded.
-      </p>
+      <p>{t("runInspectorPanels.replay.intro")}</p>
       <Button
         kind="primary"
         disabled={pending}
@@ -333,50 +439,67 @@ export function ReplayPanel({
             .finally(() => setPending(false));
         }}
       >
-        {pending ? "Replaying…" : "Replay in sandbox"}
+        {pending
+          ? t("runInspectorPanels.replay.pending")
+          : t("runInspectorPanels.replay.submit")}
       </Button>
       <div aria-live="polite">
         {error !== undefined && (
-          <Notice tone="red">{runInspectorErrorMessage(error)}</Notice>
+          <Notice tone="red">{runInspectorErrorMessage(error, t)}</Notice>
         )}
         {result && (
           <div className="stack">
             <Notice
               tone={result.outcome === "matches" ? "green" : "gold"}
-              title={
-                result.outcome === "matches"
-                  ? "Replay matches the recorded plan"
-                  : result.outcome === "diverged"
-                    ? "Replay diverged"
-                    : "This run cannot be replayed"
-              }
-            >
-              Replay run <span className="mono">{result.replayRunId}</span> ·
-              tools {result.sideEffects} · progress writes{" "}
-              {result.progressWrites} · {result.providerCalls} provider calls
-              {result.reason && (
-                <>
-                  {" "}
-                  · <span className="mono">{result.reason}</span>
-                </>
+              title={t(
+                `runInspectorPanels.replay.outcome.${result.outcome}` as MessageKey,
               )}
+            >
+              {result.reason
+                ? i18n.rich(
+                    "runInspectorPanels.replay.summaryReason",
+                    {
+                      id: result.replayRunId,
+                      providerCalls: result.providerCalls,
+                      reason: result.reason,
+                    },
+                    { mono },
+                  )
+                : i18n.rich(
+                    "runInspectorPanels.replay.summary",
+                    {
+                      id: result.replayRunId,
+                      providerCalls: result.providerCalls,
+                    },
+                    { mono },
+                  )}
             </Notice>
             {!!result.steps.length && (
               <table className="data-table">
-                <caption>Replayed steps against recorded receipts</caption>
+                <caption>
+                  {t("runInspectorPanels.replay.steps.caption")}
+                </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Step</th>
-                    <th scope="col">Tool</th>
-                    <th scope="col">Recorded receipt</th>
+                    <th scope="col">
+                      {t("runInspectorPanels.replay.steps.step")}
+                    </th>
+                    <th scope="col">
+                      {t("runInspectorPanels.replay.steps.tool")}
+                    </th>
+                    <th scope="col">
+                      {t("runInspectorPanels.replay.steps.receipt")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.steps.map((s) => (
                     <tr key={s.step}>
-                      <td>{s.step}</td>
-                      <td>{s.tool}</td>
-                      <td className="mono">{s.recordedReceiptId}</td>
+                      <td>{i18n.number(s.step)}</td>
+                      <td dir="ltr">{s.tool}</td>
+                      <td className="mono" dir="ltr">
+                        {s.recordedReceiptId}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -384,12 +507,16 @@ export function ReplayPanel({
             )}
             <dl className="facts vertical">
               <div>
-                <dt>Recorded plan</dt>
-                <dd className="mono">{result.recordedPlanDigest ?? "—"}</dd>
+                <dt>{t("runInspectorPanels.replay.recordedPlan")}</dt>
+                <dd className="mono" dir="ltr">
+                  {result.recordedPlanDigest ?? "—"}
+                </dd>
               </div>
               <div>
-                <dt>Replayed plan</dt>
-                <dd className="mono">{result.replayedPlanDigest ?? "—"}</dd>
+                <dt>{t("runInspectorPanels.replay.replayedPlan")}</dt>
+                <dd className="mono" dir="ltr">
+                  {result.replayedPlanDigest ?? "—"}
+                </dd>
               </div>
             </dl>
           </div>
@@ -410,6 +537,8 @@ export function PayloadPanel({
   runId: string;
   allowed: boolean;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const id = useId();
   const [reason, setReason] = useState<PayloadReason | "">("");
   const [revealed, setRevealed] = useState<PayloadReveal>();
@@ -417,28 +546,46 @@ export function PayloadPanel({
   const [error, setError] = useState<unknown>();
   if (!port)
     return (
-      <EmptyState title="Payloads are not available here">
-        Use a connected administration session.
+      <EmptyState title={t("runInspectorPanels.payload.unavailable")}>
+        {t("runInspectorPanels.connectedOnly")}
       </EmptyState>
     );
   if (!allowed)
     return (
-      <Notice tone="gold">
-        Run payloads are withheld. Revealing one needs the run.payload
-        permission, which owners and admins hold.
-      </Notice>
+      <Notice tone="gold">{t("runInspectorPanels.payload.withheld")}</Notice>
     );
+  const notRevealed = (ref: string) =>
+    t("runInspectorPanels.payload.notRevealed", {
+      category:
+        revealed?.withheld
+          .find((w) => w.ref === ref)
+          ?.category.replaceAll("-", " ") ??
+        t("runInspectorPanels.payload.private"),
+    });
   if (revealed)
     return (
       <div className="stack">
-        <Notice tone="blue" title="Payload revealed">
-          Receipt <span className="mono">{revealed.receipt.id}</span> is on the
-          learner's record and in the audit log. {revealed.rule.reason}
+        <Notice tone="blue" title={t("runInspectorPanels.payload.revealed")}>
+          {i18n.rich(
+            "runInspectorPanels.payload.receipt",
+            { id: revealed.receipt.id },
+            { mono },
+          )}{" "}
+          <span dir="auto">{revealed.rule.reason}</span>
         </Notice>
         {revealed.payload.inputs.map((input) => (
           <article className="record" key={input.id}>
-            <h3>Frozen input · {input.checkpointId}</h3>
-            <pre aria-label={`Frozen input ${input.checkpointId}`}>
+            <h3>
+              {t("runInspectorPanels.payload.frozenInput", {
+                checkpoint: input.checkpointId,
+              })}
+            </h3>
+            <pre
+              dir="ltr"
+              aria-label={t("runInspectorPanels.payload.frozenInputLabel", {
+                checkpoint: input.checkpointId,
+              })}
+            >
               {JSON.stringify(input.context, null, 2)}
             </pre>
           </article>
@@ -447,20 +594,26 @@ export function PayloadPanel({
           <article className="record" key={call.id}>
             <div className="split-line">
               <h3>
-                Step {call.step}: {call.tool}
+                {t("runInspectorPanels.payload.step", {
+                  step: call.step,
+                  tool: call.tool,
+                })}
               </h3>
-              {call.withheld && <Badge tone="gold">withheld</Badge>}
+              {call.withheld && (
+                <Badge tone="gold">
+                  {t("runInspectorPanels.payload.withheldBadge")}
+                </Badge>
+              )}
             </div>
             {call.withheld ? (
-              <p>
-                Not revealed:{" "}
-                {revealed.withheld
-                  .find((w) => w.ref === `tool:${call.id}`)
-                  ?.category.replaceAll("-", " ") ?? "private"}
-                .
-              </p>
+              <p>{notRevealed(`tool:${call.id}`)}</p>
             ) : (
-              <pre aria-label={`Step ${call.step} arguments and result`}>
+              <pre
+                dir="ltr"
+                aria-label={t("runInspectorPanels.payload.stepLabel", {
+                  step: call.step,
+                })}
+              >
                 {JSON.stringify(
                   { arguments: call.arguments, result: call.result },
                   null,
@@ -473,31 +626,38 @@ export function PayloadPanel({
         {revealed.payload.artifacts.map((artifact) => (
           <article className="record" key={artifact.id}>
             <div className="split-line">
-              <h3>{artifact.kind ?? "Artifact"}</h3>
-              {artifact.withheld && <Badge tone="gold">withheld</Badge>}
+              <h3 dir={artifact.kind ? "ltr" : undefined}>
+                {artifact.kind ?? t("runInspectorPanels.payload.artifact")}
+              </h3>
+              {artifact.withheld && (
+                <Badge tone="gold">
+                  {t("runInspectorPanels.payload.withheldBadge")}
+                </Badge>
+              )}
             </div>
             {artifact.sha256 && (
-              <small className="mono">sha256 {artifact.sha256}</small>
+              <small className="mono" dir="ltr">
+                {t("runInspectorPanels.payload.sha256", {
+                  digest: artifact.sha256,
+                })}
+              </small>
             )}
             {artifact.withheld ? (
-              <p>
-                Not revealed:{" "}
-                {revealed.withheld
-                  .find((w) => w.ref === `artifact:${artifact.id}`)
-                  ?.category.replaceAll("-", " ") ?? "private"}
-                .
-              </p>
+              <p>{notRevealed(`artifact:${artifact.id}`)}</p>
             ) : (
-              <pre aria-label={`${artifact.kind ?? "Artifact"} content`}>
+              <pre
+                dir="ltr"
+                aria-label={t("runInspectorPanels.payload.artifactContent", {
+                  kind:
+                    artifact.kind ?? t("runInspectorPanels.payload.artifact"),
+                })}
+              >
                 {JSON.stringify(artifact.content, null, 2)}
               </pre>
             )}
           </article>
         ))}
-        <small>
-          Displayed as inert text. Nothing is executed. Text fingerprints are
-          valid only within this reveal.
-        </small>
+        <small>{t("runInspectorPanels.payload.inert")}</small>
       </div>
     );
   return (
@@ -514,33 +674,33 @@ export function PayloadPanel({
           .finally(() => setPending(false));
       }}
     >
-      <p>
-        The run's inputs, tool arguments and results and its stored output are
-        withheld by default. Revealing shows their structure, identifiers and
-        states, and records a receipt that the learner and the audit log show.
-        Model-written text is shown only as its length; the companion
-        conversation, the learner model and teaching-hypothesis tool calls stay
-        withheld.
-      </p>
-      <Field label="Reason for revealing" htmlFor={`${id}-reason`}>
+      <p>{t("runInspectorPanels.payload.intro")}</p>
+      <Field
+        label={t("runInspectorPanels.payload.reason")}
+        htmlFor={`${id}-reason`}
+      >
         <select
           id={`${id}-reason`}
           value={reason}
           onChange={(e) => setReason(e.target.value as PayloadReason | "")}
         >
-          <option value="">Choose a reason</option>
+          <option value="">
+            {t("runInspectorPanels.payload.chooseReason")}
+          </option>
           {PAYLOAD_REASONS.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.label}
+              {payloadReasonLabel(r.id, t)}
             </option>
           ))}
         </select>
       </Field>
       {error !== undefined && (
-        <Notice tone="red">{runInspectorErrorMessage(error)}</Notice>
+        <Notice tone="red">{runInspectorErrorMessage(error, t)}</Notice>
       )}
       <Button kind="danger" type="submit" disabled={pending || !reason}>
-        {pending ? "Revealing…" : "Reveal payload with audit receipt"}
+        {pending
+          ? t("runInspectorPanels.payload.pending")
+          : t("runInspectorPanels.payload.submit")}
       </Button>
     </form>
   );
@@ -573,6 +733,8 @@ export function RetryPanel({
   allowed: boolean;
   onRetried?: (result: RetryResult) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const id = useId();
   const key = useRef("retry-" + randomId());
   const [reason, setReason] = useState("");
@@ -582,53 +744,48 @@ export function RetryPanel({
   const retried = result ?? links?.retriedBy;
   return (
     <div className="stack">
-      <p>
-        Runs this {role} run again as a new run. The new run goes through the
-        normal path: supervision control, the learner's consent, policy and
-        budgets, then verification before anything reaches the learner. This run
-        and its receipts stay as they are.
-      </p>
+      <p>{t("runInspectorPanels.retry.intro", { role })}</p>
       {links?.retryOf && (
         <Notice tone="blue">
-          This run is a retry of run{" "}
-          <span className="mono">{links.retryOf}</span>.
+          {i18n.rich(
+            "runInspectorPanels.retry.retryOf",
+            { id: links.retryOf },
+            { mono },
+          )}
         </Notice>
       )}
       <div aria-live="polite">
         {retried && (
-          <Notice tone="green" title="Retried">
-            {result ? (
-              <>
-                Queued as learning event{" "}
-                <span className="mono">{result.retryEventId}</span>
-                {result.replayed ? " (already recorded)" : ""}.
-              </>
-            ) : links?.retriedBy?.runId ? (
-              <>
-                New run <span className="mono">{links.retriedBy.runId}</span>.
-              </>
-            ) : (
-              <>Waiting for the dispatcher to start the new run.</>
-            )}
+          <Notice tone="green" title={t("runInspectorPanels.retry.done")}>
+            {result
+              ? i18n.rich(
+                  result.replayed
+                    ? "runInspectorPanels.retry.queuedReplayed"
+                    : "runInspectorPanels.retry.queued",
+                  { id: result.retryEventId },
+                  { mono },
+                )
+              : links?.retriedBy?.runId
+                ? i18n.rich(
+                    "runInspectorPanels.retry.newRun",
+                    { id: links.retriedBy.runId },
+                    { mono },
+                  )
+                : t("runInspectorPanels.retry.waiting")}
           </Notice>
         )}
         {error !== undefined && (
-          <Notice tone="red">{runInspectorErrorMessage(error)}</Notice>
+          <Notice tone="red">{runInspectorErrorMessage(error, t)}</Notice>
         )}
       </div>
       {!port?.retry ? (
-        <EmptyState title="Retry is not available here">
-          Use a connected administration session.
+        <EmptyState title={t("runInspectorPanels.retry.unavailable")}>
+          {t("runInspectorPanels.connectedOnly")}
         </EmptyState>
       ) : !allowed ? (
-        <p className="muted">
-          Retrying needs the run.retry permission (owners and admins).
-        </p>
+        <p className="muted">{t("runInspectorPanels.retry.forbidden")}</p>
       ) : retried ? null : !RETRYABLE_STATES.has(status) ? (
-        <p className="muted">
-          Only a run that failed, or ended with an uncertain provider call, can
-          be retried.
-        </p>
+        <p className="muted">{t("runInspectorPanels.retry.notRetryable")}</p>
       ) : (
         <form
           className="stack"
@@ -648,12 +805,13 @@ export function RetryPanel({
           }}
         >
           <Field
-            label="Reason for the retry"
+            label={t("runInspectorPanels.retry.reason")}
             htmlFor={`${id}-reason`}
-            hint="Required, at least 10 characters. Kept in the staff audit record."
+            hint={t("runInspectorPanels.retry.reasonHint")}
           >
             <textarea
               id={`${id}-reason`}
+              dir="auto"
               rows={2}
               maxLength={500}
               value={reason}
@@ -666,7 +824,9 @@ export function RetryPanel({
             type="submit"
             disabled={pending || reason.trim().length < 10}
           >
-            {pending ? "Retrying…" : "Retry as a new run"}
+            {pending
+              ? t("runInspectorPanels.retry.pending")
+              : t("runInspectorPanels.retry.submit")}
           </Button>
         </form>
       )}

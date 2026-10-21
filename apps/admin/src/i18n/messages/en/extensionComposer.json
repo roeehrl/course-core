@@ -1,1 +1,24 @@
-{}
+{
+  "title": "Preview a calendar extension",
+  "eyebrow": "No debit, grant or consent on preview",
+  "notice": "The request adds calendar days to this scope's deadline or anchored window. Current work caps stay unchanged. The server rechecks ancestor caps, allowance and revisions.",
+  "days": "Additional calendar days",
+  "days.hint": "The API accepts 1–366 days; this scope’s per-grant allowance and ancestor caps may be stricter.",
+  "resolving": "Resolving exact terms…",
+  "preview": "Preview calendar extension",
+  "notExtendable": "This scope is not currently extendable: it needs an active enrollment, an enabled allowance and a local deadline or window.",
+  "resolved": "Resolved extension terms",
+  "revisions": "Enrollment revision {revision} · Policy {policy} · Ledger {ledger}",
+  "hypothetical": "No allowance has been consumed. These balances are hypothetical after a future grant. Proposing requests the learner's consent; it cannot supply that consent.",
+  "legend.proposal": "Proposal rationale and activities",
+  "legend.rationale": "Scoped rationale events",
+  "legend.activities": "Proposed activities in this scope",
+  "impact": "Plan impact",
+  "impact.placeholder": "Explain how the additional days affect the learner’s existing plan.",
+  "alternatives": "Alternatives (one per line)",
+  "alternatives.placeholder": "For example, continue with the current deadline.",
+  "reviewed": "I reviewed these exact terms and want to propose them to the learner. This is not learner consent.",
+  "proposing": "Proposing…",
+  "propose": "Propose offer to learner",
+  "cannotPropose": "Your role can inspect policy and preview terms but cannot propose offers."
+}

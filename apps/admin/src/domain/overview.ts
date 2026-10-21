@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type Translate } from "../i18n";
 
 const count = z.number().int().nonnegative();
 export const overviewSchema = z.object({
@@ -121,7 +122,10 @@ export class OverviewError extends Error {
     this.name = "OverviewError";
   }
 }
-export const overviewErrorMessage = (error: unknown) =>
+export const overviewErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) =>
   error instanceof OverviewError && error.code === "FORBIDDEN"
-    ? "Your role cannot read this. The audit log needs owner, admin or support observer access."
-    : "This information is unavailable right now. Nothing was changed.";
+    ? t("overview.error.FORBIDDEN")
+    : t("overview.error.unavailable");

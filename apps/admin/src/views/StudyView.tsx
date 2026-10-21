@@ -8,10 +8,10 @@ import {
 } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
-  behaviourLabels,
+  behaviourLabel,
   defaultArms,
   instrumentSets,
-  setLabels,
+  setLabel,
   studyErrorMessage,
   type InstrumentSet,
   type Instruments,
@@ -31,8 +31,9 @@ import {
   Loading,
   Notice,
   Stat,
-  when,
 } from "../components/ui";
+import { isolate } from "@course-core/i18n";
+import { useFormatters, useI18n, useT } from "../i18n";
 
 const stateTone = {
   draft: "gold",
@@ -49,11 +50,12 @@ export function StudyView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   if (!client.studies)
     return (
-      <Card title="Studies">
-        <EmptyState title="Studies are not available here">
-          Use a connected administration session.
+      <Card title={t("studyView.title")}>
+        <EmptyState title={t("studyView.unavailable.title")}>
+          {t("studyView.unavailable.body")}
         </EmptyState>
       </Card>
     );
@@ -67,15 +69,17 @@ function StudyAdmin({
   port: StudiesPort;
   catalogId: string;
 }) {
+  const t = useT();
   const list = useRemote(
     (signal) => port.list(catalogId, signal),
     [port, catalogId],
   );
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
-  if (list.loading && !list.data) return <Loading label="Loading studies…" />;
+  if (list.loading && !list.data)
+    return <Loading label={t("studyView.loading")} />;
   if (list.error || !list.data)
-    return <Notice tone="red">{studyErrorMessage(list.error)}</Notice>;
+    return <Notice tone="red">{studyErrorMessage(list.error, t)}</Notice>;
   const s = list.data;
   const openRelease = new Set(
     s.studies.filter((x) => x.state !== "closed").map((x) => x.releaseId),
@@ -91,21 +95,15 @@ function StudyAdmin({
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
-      <Card title="About studies">
-        <p className="muted">
-          A study compares versions of one release: the fixed lesson path, the
-          lessons with the chat companion, and full AI supervision. Learners
-          join only by agreeing in their own app; each is assigned a version by
-          a seeded, balanced draw that never changes. Exports are pseudonymous
-          and every download is recorded.
-        </p>
+      <Card title={t("studyView.about.title")}>
+        <p className="muted">{t("studyView.about.body")}</p>
       </Card>
       {s.studies.length === 0 && !creating && (
-        <Card title="Studies">
-          <EmptyState title="No studies yet">
+        <Card title={t("studyView.title")}>
+          <EmptyState title={t("studyView.empty.title")}>
             {s.canManage
-              ? "Set one up for a published release."
-              : "Owners and admins set up studies."}
+              ? t("studyView.empty.manage")
+              : t("studyView.empty.readOnly")}
           </EmptyState>
         </Card>
       )}
@@ -129,7 +127,12 @@ function StudyAdmin({
                 releaseId: releaseId!,
               });
               done(
-                `Study “${result.study.title}” saved as a draft.${result.warnings?.length ? " Review its warnings before opening it." : ""}`,
+                t(
+                  result.warnings?.length
+                    ? "studyView.createdWithWarnings"
+                    : "studyView.created",
+                  { title: result.study.title },
+                ),
               );
             }}
           />
@@ -137,7 +140,8 @@ function StudyAdmin({
           free.length > 0 && (
             <div className="tag-row">
               <Button kind="primary" onClick={() => setCreating(true)}>
-                <FlaskConical size={16} aria-hidden="true" /> New study
+                <FlaskConical size={16} aria-hidden="true" />{" "}
+                {t("studyView.new")}
               </Button>
             </div>
           )
@@ -157,6 +161,8 @@ function StudyCard({
   port: StudiesPort;
   onChanged: (message: string) => void;
 }) {
+  const t = useT();
+  const { when } = useFormatters();
   const [editing, setEditing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [pending, setPending] = useState(false);
@@ -192,63 +198,75 @@ function StudyCard({
             expectedRevision: study.revision,
           });
           setEditing(false);
-          onChanged("Study draft saved.");
+          onChanged(t("studyView.draftSaved"));
         }}
       />
     );
   return (
     <Card
-      title={study.title}
-      eyebrow={release ? `Release ${release.version}` : "Release"}
-      actions={<Badge tone={stateTone[study.state]}>{study.state}</Badge>}
+      title={isolate(study.title)}
+      eyebrow={
+        release
+          ? t("studyView.release", { version: release.version })
+          : t("studyView.releaseUnknown")
+      }
+      actions={
+        <Badge tone={stateTone[study.state]}>
+          {t(`studyView.state.${study.state}`)}
+        </Badge>
+      }
     >
       <div className="stack">
-        <p>{study.purpose}</p>
+        <p dir="auto">{study.purpose}</p>
         <div className="stats-grid">
           <Stat
-            label="Enrolled on this release"
+            label={t("studyView.stat.eligible")}
             value={study.consent.eligible}
-            detail="Learners who may be asked"
+            detail={t("studyView.stat.eligibleDetail")}
           />
           <Stat
-            label="Consented"
+            label={t("studyView.stat.consented")}
             value={study.consent.consented}
-            detail="Included in exports"
+            detail={t("studyView.stat.consentedDetail")}
           />
           <Stat
-            label="Withdrawn"
+            label={t("studyView.stat.withdrawn")}
             value={study.consent.withdrawn}
-            detail="Left out of exports"
+            detail={t("studyView.stat.withdrawnDetail")}
           />
           <Stat
-            label="Not decided"
+            label={t("studyView.stat.undecided")}
             value={study.consent.undecided}
-            detail="Have not joined"
+            detail={t("studyView.stat.undecidedDetail")}
           />
         </div>
-        <h3 className="section-title">Arm balance</h3>
+        <h3 className="section-title">{t("studyView.arms.title")}</h3>
         <div
           className="table-wrap"
           tabIndex={0}
           role="region"
-          aria-label={`Arm balance of ${study.title}`}
+          aria-label={t("studyView.arms.region", { title: study.title })}
         >
           <table className="people-table">
-            <caption className="sr-only">Arm balance</caption>
+            <caption className="sr-only">{t("studyView.arms.title")}</caption>
             <thead>
               <tr>
-                <th scope="col">Arm</th>
-                <th scope="col">What it switches</th>
-                <th scope="col">Consented</th>
-                <th scope="col">Withdrawn</th>
+                <th scope="col">{t("studyView.arms.arm")}</th>
+                <th scope="col">{t("studyView.arms.switches")}</th>
+                <th scope="col">{t("studyView.stat.consented")}</th>
+                <th scope="col">{t("studyView.stat.withdrawn")}</th>
               </tr>
             </thead>
             <tbody>
               {study.arms.map((arm) => (
                 <tr key={arm.id}>
-                  <th scope="row">{arm.label}</th>
-                  <td data-label="What it switches">{arm.explanation}</td>
-                  <td data-label="Consented">
+                  <th scope="row" dir="auto">
+                    {arm.label}
+                  </th>
+                  <td data-label={t("studyView.arms.switches")} dir="auto">
+                    {arm.explanation}
+                  </td>
+                  <td data-label={t("studyView.stat.consented")}>
                     <span className="arm-count">
                       {arm.consented}
                       <span className="arm-bar" aria-hidden="true">
@@ -260,53 +278,69 @@ function StudyCard({
                       </span>
                     </span>
                   </td>
-                  <td data-label="Withdrawn">{arm.withdrawn}</td>
+                  <td data-label={t("studyView.stat.withdrawn")}>
+                    {arm.withdrawn}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p className="muted">
-          Arms smaller than {study.minCellSize} are left out of exports.
-          Placement is {release?.placementEnabled ? "on" : "off"} for this
-          course, the same in every arm.
+          {t(
+            release?.placementEnabled
+              ? "studyView.cellSize.placementOn"
+              : "studyView.cellSize.placementOff",
+            { min: study.minCellSize },
+          )}
         </p>
-        <h3 className="section-title">Instruments</h3>
+        <h3 className="section-title">{t("studyView.instruments.title")}</h3>
         <ul className="plain-list">
           {instrumentSets.map((set) => (
             <li key={set}>
-              <strong>{setLabels[set]}:</strong>{" "}
-              {study.instruments[set].length
-                ? study.instruments[set].join(", ")
-                : "none"}
+              <strong>
+                {t("studyView.instruments.set", { set: setLabel(set, t) })}
+              </strong>{" "}
+              {study.instruments[set].length ? (
+                <span dir="ltr">{study.instruments[set].join(", ")}</span>
+              ) : (
+                t("studyView.instruments.none")
+              )}
             </li>
           ))}
         </ul>
         {study.warnings.length > 0 && (
-          <Notice tone="gold" title="Check before relying on the results">
+          <Notice tone="gold" title={t("studyView.warnings.title")}>
             <ul className="plain-list">
               {study.warnings.map((w) => (
-                <li key={w}>{w}</li>
+                <li key={w} dir="auto">
+                  {w}
+                </li>
               ))}
             </ul>
           </Notice>
         )}
         <p className="muted">
-          Allocation seed digest <code>{study.seedDigest.slice(0, 16)}…</code>
-          {study.openedAt ? ` · opened ${when(study.openedAt)}` : ""}
-          {study.closedAt ? ` · closed ${when(study.closedAt)}` : ""}
+          {t("studyView.seed")}{" "}
+          <code dir="ltr">{study.seedDigest.slice(0, 16)}…</code>
+          {study.openedAt
+            ? ` · ${t("studyView.openedAt", { when: when(study.openedAt) })}`
+            : ""}
+          {study.closedAt
+            ? ` · ${t("studyView.closedAt", { when: when(study.closedAt) })}`
+            : ""}
         </p>
         <div aria-live="polite">
           {note && <Notice tone="green">{note}</Notice>}
           {error !== undefined && (
-            <Notice tone="red">{studyErrorMessage(error)}</Notice>
+            <Notice tone="red">{studyErrorMessage(error, t)}</Notice>
           )}
         </div>
         <div className="tag-row">
           {studies.canManage && study.state === "draft" && (
             <>
               <Button disabled={pending} onClick={() => setEditing(true)}>
-                Edit draft
+                {t("studyView.edit")}
               </Button>
               <Button
                 kind="primary"
@@ -315,13 +349,13 @@ function StudyCard({
                   void act(async () => {
                     await port.transition(study.id, "open", study.revision);
                     onChanged(
-                      `“${study.title}” is recruiting. Learners on this release now see the consent prompt.`,
+                      t("studyView.recruiting", { title: study.title }),
                     );
                     return "";
                   })
                 }
               >
-                <Play size={16} aria-hidden="true" /> Open recruiting
+                <Play size={16} aria-hidden="true" /> {t("studyView.open")}
               </Button>
             </>
           )}
@@ -333,7 +367,7 @@ function StudyCard({
                 disabled={pending}
                 onClick={() => setConfirmClose(true)}
               >
-                <Square size={16} aria-hidden="true" /> Close study
+                <Square size={16} aria-hidden="true" /> {t("studyView.close")}
               </Button>
             )}
           {studies.canManage && study.state !== "draft" && (
@@ -344,12 +378,19 @@ function StudyCard({
                 void act(async () => {
                   const check = await port.allocationCheck(study.id);
                   return check.mismatches === 0
-                    ? `All ${check.checked} assignment(s) match the seeded draw (${check.allocated} made in total).`
-                    : `${check.mismatches} of ${check.checked} assignment(s) do not match the seeded draw.`;
+                    ? t("studyView.allocation.ok", {
+                        checked: check.checked,
+                        allocated: check.allocated,
+                      })
+                    : t("studyView.allocation.mismatch", {
+                        mismatches: check.mismatches,
+                        checked: check.checked,
+                      });
                 })
               }
             >
-              <ShieldCheck size={16} aria-hidden="true" /> Check allocation
+              <ShieldCheck size={16} aria-hidden="true" />{" "}
+              {t("studyView.allocation.check")}
             </Button>
           )}
           {studies.canExport &&
@@ -362,20 +403,21 @@ function StudyCard({
                   void act(async () => {
                     const file = await port.download(study.id, format);
                     save(file.body, file.filename, file.contentType);
-                    return `Downloaded ${file.filename} (digest ${file.digest.slice(0, 12)}…). The download is recorded in the audit log.`;
+                    return t("studyView.downloaded", {
+                      filename: file.filename,
+                      digest: `${file.digest.slice(0, 12)}…`,
+                    });
                   })
                 }
               >
-                <Download size={16} aria-hidden="true" /> Export{" "}
-                {format.toUpperCase()}
+                <Download size={16} aria-hidden="true" />{" "}
+                {t("studyView.export", { format: format.toUpperCase() })}
               </Button>
             ))}
         </div>
         {confirmClose && (
-          <Notice tone="gold" title="Close this study?">
-            Recruiting ends and every learner returns to the course as everyone
-            else has it. Collected data stays exportable. A closed study cannot
-            reopen.
+          <Notice tone="gold" title={t("studyView.confirmClose.title")}>
+            {t("studyView.confirmClose.body")}
             <div className="tag-row">
               <Button
                 kind="danger"
@@ -384,15 +426,17 @@ function StudyCard({
                   void act(async () => {
                     await port.transition(study.id, "close", study.revision);
                     setConfirmClose(false);
-                    onChanged(`“${study.title}” is closed.`);
+                    onChanged(
+                      t("studyView.closedMessage", { title: study.title }),
+                    );
                     return "";
                   })
                 }
               >
-                Confirm close
+                {t("studyView.confirmClose.confirm")}
               </Button>
               <Button kind="quiet" onClick={() => setConfirmClose(false)}>
-                Keep recruiting
+                {t("studyView.confirmClose.keep")}
               </Button>
             </div>
           </Notice>
@@ -430,6 +474,7 @@ function StudyForm({
   onSubmit: (input: StudyDefinitionInput, releaseId?: string) => Promise<void>;
   onCancel: () => void;
 }) {
+  const t = useT();
   const id = useId();
   const [releaseId, setReleaseId] = useState(
     initial?.releaseId ?? releases[0]?.id ?? "",
@@ -437,7 +482,7 @@ function StudyForm({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [purpose, setPurpose] = useState(initial?.purpose ?? "");
   const [minCellSize, setMinCellSize] = useState(initial?.minCellSize ?? 5);
-  const arms0 = defaultArms().map((arm) => {
+  const arms0 = defaultArms(t).map((arm) => {
     const existing = initial?.arms.find((a) => a.behaviour === arm.behaviour);
     return {
       arm: existing
@@ -469,7 +514,7 @@ function StudyForm({
     });
   const chosen: StudyArm[] = arms.filter((a) => a.on).map((a) => a.arm);
   return (
-    <Card title={initial ? "Edit study draft" : "New study"}>
+    <Card title={initial ? t("studyView.form.editTitle") : t("studyView.new")}>
       <form
         className="stack"
         onSubmit={async (e) => {
@@ -490,9 +535,9 @@ function StudyForm({
       >
         {!initial && (
           <Field
-            label="Release"
+            label={t("studyView.form.release")}
             htmlFor={`${id}-release`}
-            hint="Learners pinned to this release can join."
+            hint={t("studyView.form.releaseHint")}
           >
             <select
               id={`${id}-release`}
@@ -504,15 +549,19 @@ function StudyForm({
             >
               {releases.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.version} ({r.status})
+                  {t("studyView.form.releaseOption", {
+                    version: r.version,
+                    status: r.status,
+                  })}
                 </option>
               ))}
             </select>
           </Field>
         )}
-        <Field label="Title" htmlFor={`${id}-title`}>
+        <Field label={t("studyView.form.title")} htmlFor={`${id}-title`}>
           <input
             id={`${id}-title`}
+            dir="auto"
             value={title}
             minLength={3}
             maxLength={120}
@@ -521,12 +570,13 @@ function StudyForm({
           />
         </Field>
         <Field
-          label="Purpose shown to learners"
+          label={t("studyView.form.purpose")}
           htmlFor={`${id}-purpose`}
-          hint="Plain language, 20 to 2000 characters. Learners read this before deciding."
+          hint={t("studyView.form.purposeHint")}
         >
           <textarea
             id={`${id}-purpose`}
+            dir="auto"
             rows={4}
             value={purpose}
             minLength={20}
@@ -537,7 +587,7 @@ function StudyForm({
           />
         </Field>
         <fieldset className="study-fieldset">
-          <legend>Arms (at least two)</legend>
+          <legend>{t("studyView.form.arms")}</legend>
           {arms.map((entry, i) => (
             <div key={entry.arm.behaviour} className="study-arm-row">
               <label className="check-label">
@@ -552,14 +602,19 @@ function StudyForm({
                     )
                   }
                 />
-                Include {behaviourLabels[entry.arm.behaviour]}
+                {t("studyView.form.include", {
+                  arm: behaviourLabel(entry.arm.behaviour, t),
+                })}
               </label>
               <Field
-                label={`Name of the ${behaviourLabels[entry.arm.behaviour]} arm`}
+                label={t("studyView.form.armName", {
+                  arm: behaviourLabel(entry.arm.behaviour, t),
+                })}
                 htmlFor={`${id}-arm-${i}`}
               >
                 <input
                   id={`${id}-arm-${i}`}
+                  dir="auto"
                   value={entry.arm.label}
                   maxLength={60}
                   disabled={!entry.on}
@@ -578,18 +633,16 @@ function StudyForm({
           ))}
         </fieldset>
         <fieldset className="study-fieldset">
-          <legend>Instrument sets</legend>
-          <p className="muted">
-            Choose the existing assessment items that form each set. Delayed
-            checks are the course's held-out retention items; the retention
-            schedule offers them after an objective is demonstrated.
-          </p>
+          <legend>{t("studyView.form.sets")}</legend>
+          <p className="muted">{t("studyView.form.setsHelp")}</p>
           {release?.items.length ? (
             <div className="study-items">
               {release.items.map((item) => (
                 <Field
                   key={item.id}
-                  label={`${item.id} · ${item.type}${item.role ? ` · ${item.role}` : ""}`}
+                  label={[item.id, item.type, item.role]
+                    .filter(Boolean)
+                    .join(" · ")}
                   htmlFor={`${id}-item-${item.id}`}
                   hint={item.objectiveIds.join(", ")}
                 >
@@ -601,17 +654,18 @@ function StudyForm({
                       assign(item.id, e.target.value as InstrumentSet | "")
                     }
                   >
-                    <option value="">Not used</option>
+                    <option value="">{t("studyView.form.notUsed")}</option>
                     {instrumentSets.map((set) => (
                       <option
                         key={set}
                         value={set}
                         disabled={set === "delayed" && !item.retention}
                       >
-                        {setLabels[set]}
                         {set === "delayed" && !item.retention
-                          ? " (not a retention item)"
-                          : ""}
+                          ? t("studyView.form.notRetention", {
+                              set: setLabel(set, t),
+                            })
+                          : setLabel(set, t)}
                       </option>
                     ))}
                   </select>
@@ -619,13 +673,13 @@ function StudyForm({
               ))}
             </div>
           ) : (
-            <p className="muted">This release has no assessment items.</p>
+            <p className="muted">{t("studyView.form.noItems")}</p>
           )}
         </fieldset>
         <Field
-          label="Minimum cell size"
+          label={t("studyView.form.cellSize")}
           htmlFor={`${id}-cell`}
-          hint="Arms with fewer consenting learners than this are left out of exports (3 to 100)."
+          hint={t("studyView.form.cellSizeHint")}
         >
           <input
             id={`${id}-cell`}
@@ -639,7 +693,7 @@ function StudyForm({
         </Field>
         <div aria-live="polite">
           {error !== undefined && (
-            <Notice tone="red">{studyErrorMessage(error)}</Notice>
+            <Notice tone="red">{studyErrorMessage(error, t)}</Notice>
           )}
         </div>
         <div className="tag-row">
@@ -648,10 +702,10 @@ function StudyForm({
             type="submit"
             disabled={pending || chosen.length < 2 || !releaseId}
           >
-            Save draft
+            {t("studyView.form.save")}
           </Button>
           <Button kind="quiet" type="button" onClick={onCancel}>
-            Cancel
+            {t("studyView.cancel")}
           </Button>
         </div>
       </form>

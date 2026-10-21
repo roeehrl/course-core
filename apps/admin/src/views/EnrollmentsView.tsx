@@ -13,6 +13,7 @@ import { LearnerViewCard } from "../components/LearnerViewCard";
 import { TeachingHypothesesCard } from "../components/TeachingHypothesesCard";
 import { RegradeDialogBody } from "../components/RegradeDialog";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -20,8 +21,17 @@ import {
   Field,
   Notice,
   PermissionHint,
-  Status,
 } from "../components/ui";
+import { useI18n, useT, type MessageKey } from "../i18n";
+
+/** Status badge tones, as the shared status badge colours them. */
+const statusTone: Record<string, "green" | "gold" | "red"> = {
+  accepted: "green",
+  completed: "green",
+  pending_review: "gold",
+  rejected: "red",
+  stale: "red",
+};
 
 export function EnrollmentsView({
   data,
@@ -32,6 +42,11 @@ export function EnrollmentsView({
   client: AdminClient;
   actions: WorkspaceActions;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  /** A server code shown through the catalog; an unknown code is shown as is. */
+  const label = (key: string, fallback: string) =>
+    i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(data.enrollments[0]?.id);
   const [dialog, setDialog] = useState<"enroll" | "profile">();
@@ -55,8 +70,8 @@ export function EnrollmentsView({
       <ActionFeedback actions={actions} />
       <div className="section-heading">
         <div>
-          <h2>Every learner, in context.</h2>
-          <p>Profile, pinned release, progress and the evidence behind it.</p>
+          <h2>{t("enrollmentsView.heading")}</h2>
+          <p>{t("enrollmentsView.intro")}</p>
         </div>
         <Button
           kind="primary"
@@ -67,7 +82,7 @@ export function EnrollmentsView({
           disabled={!canWrite || actions.pending}
         >
           <Plus size={16} aria-hidden="true" />
-          New enrollment
+          {t("enrollmentsView.newEnrollment")}
         </Button>
       </div>
       <PermissionHint
@@ -75,16 +90,17 @@ export function EnrollmentsView({
         required="enrollment.write"
       />
       <div className="master-detail">
-        <Card title="Enrollments">
-          <Field label="Find a learner" htmlFor="learner-search">
+        <Card title={t("enrollmentsView.title")}>
+          <Field label={t("enrollmentsView.find")} htmlFor="learner-search">
             <div className="search-field">
               <Search size={17} aria-hidden="true" />
               <input
                 id="learner-search"
                 type="search"
+                dir="auto"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Name or reference"
+                placeholder={t("enrollmentsView.find.placeholder")}
               />
             </div>
           </Field>
@@ -104,18 +120,26 @@ export function EnrollmentsView({
                   <UserRound size={20} aria-hidden="true" />
                 </span>
                 <span>
-                  <strong>{item.profile.displayName}</strong>
+                  <strong>
+                    <bdi>{item.profile.displayName}</bdi>
+                  </strong>
                   <small>
-                    {item.completed} of {item.required} objectives ·{" "}
-                    {item.status}
+                    {t("enrollmentsView.item.progress", {
+                      completed: item.completed,
+                      required: item.required,
+                      status: label(
+                        `enrollmentsView.status.${item.status}`,
+                        item.status,
+                      ),
+                    })}
                   </small>
                 </span>
               </button>
             ))}
           </div>
           {!visible.length && (
-            <EmptyState title="No matching learners">
-              Try another name or learner reference.
+            <EmptyState title={t("enrollmentsView.noMatch.title")}>
+              {t("enrollmentsView.noMatch.body")}
             </EmptyState>
           )}
         </Card>
@@ -123,7 +147,7 @@ export function EnrollmentsView({
           <div className="stack">
             <Card
               title={selected.profile.displayName}
-              eyebrow="Enrollment profile"
+              eyebrow={t("enrollmentsView.profile.eyebrow")}
               actions={
                 <Button
                   disabled={!canWrite || actions.pending}
@@ -132,52 +156,96 @@ export function EnrollmentsView({
                     setDialog("profile");
                   }}
                 >
-                  Edit profile
+                  {t("enrollmentsView.profile.edit")}
                 </Button>
               }
             >
               <div className="split-line">
-                <Status value={selected.status} />
-                <span className="mono">{selected.learnerRef}</span>
+                <Badge tone={statusTone[selected.status] ?? "neutral"}>
+                  {label(
+                    `enrollmentsView.status.${selected.status}`,
+                    selected.status,
+                  )}
+                </Badge>
+                <span className="mono" dir="ltr">
+                  {selected.learnerRef}
+                </span>
               </div>
-              <p>{selected.profile.goal || "No learning goal provided."}</p>
+              {selected.profile.goal ? (
+                <p dir="auto">{selected.profile.goal}</p>
+              ) : (
+                <p>{t("enrollmentsView.noGoal")}</p>
+              )}
               <dl className="facts">
                 <div>
-                  <dt>Pinned release</dt>
-                  <dd>{selected.releaseVersion}</dd>
+                  <dt>{t("enrollmentsView.pinnedRelease")}</dt>
+                  <dd dir="ltr">{selected.releaseVersion}</dd>
                 </div>
                 <div>
-                  <dt>Preferred pace</dt>
-                  <dd>{selected.profile.pace}</dd>
+                  <dt>{t("enrollmentsView.pace")}</dt>
+                  <dd>
+                    {label(
+                      `enrollmentsView.paceValue.${selected.profile.pace}`,
+                      selected.profile.pace,
+                    )}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Placement</dt>
+                  <dt>{t("enrollmentsView.placement")}</dt>
                   <dd>
                     {!selected.placement
-                      ? "Not taken"
+                      ? t("enrollmentsView.placement.notTaken")
                       : selected.placement.state === "accepted"
-                        ? `Accepted · placed out of ${selected.placement.exemptEpisodeIds.filter((id) => selected.lessons?.find((l) => l.id === id)?.status === "placed").length} episode(s)`
-                        : `${selected.placement.state.replace("_", " ")}${selected.placement.stopReason ? ` · ${selected.placement.stopReason.replaceAll("_", " ")}` : ""}`}
+                        ? t("enrollmentsView.placement.accepted", {
+                            count: selected.placement.exemptEpisodeIds.filter(
+                              (id) =>
+                                selected.lessons?.find((l) => l.id === id)
+                                  ?.status === "placed",
+                            ).length,
+                          })
+                        : selected.placement.stopReason
+                          ? t("enrollmentsView.placement.stateWithReason", {
+                              state: label(
+                                `enrollmentsView.placement.state.${selected.placement.state}`,
+                                selected.placement.state,
+                              ),
+                              reason: label(
+                                `enrollmentsView.placement.stopReason.${selected.placement.stopReason}`,
+                                selected.placement.stopReason.replaceAll(
+                                  "_",
+                                  " ",
+                                ),
+                              ),
+                            })
+                          : label(
+                              `enrollmentsView.placement.state.${selected.placement.state}`,
+                              selected.placement.state,
+                            )}
                   </dd>
                 </div>
               </dl>
               <div className="progress-label">
-                <span>Required objectives</span>
+                <span>{t("enrollmentsView.requiredObjectives")}</span>
                 <strong>
-                  {selected.completed} / {selected.required}
+                  {t("enrollmentsView.progress", {
+                    completed: selected.completed,
+                    required: selected.required,
+                  })}
                 </strong>
               </div>
               <progress
-                aria-label={`${selected.profile.displayName} objective progress`}
+                aria-label={t("enrollmentsView.progress.label", {
+                  name: selected.profile.displayName,
+                })}
                 value={selected.completed}
                 max={selected.required}
               />
-              <small>
-                Progress reflects accepted evidence. Editing a profile does not
-                award credit.
-              </small>
+              <small>{t("enrollmentsView.progress.note")}</small>
             </Card>
-            <Card title="Evidence & decisions" eyebrow="Versioned records">
+            <Card
+              title={t("enrollmentsView.evidence.title")}
+              eyebrow={t("enrollmentsView.evidence.eyebrow")}
+            >
               <PermissionHint
                 permissions={data.permissions}
                 required="evidence.review"
@@ -186,27 +254,37 @@ export function EnrollmentsView({
                 selected.evidence.map((evidence) => (
                   <article key={evidence.id} className="evidence-item">
                     <div className="split-line">
-                      <h3>{evidence.objective}</h3>
-                      <Status value={evidence.status} />
+                      <h3 dir="auto">{evidence.objective}</h3>
+                      <Badge tone={statusTone[evidence.status] ?? "neutral"}>
+                        {label(
+                          `enrollmentsView.evidenceStatus.${evidence.status}`,
+                          evidence.status.replaceAll("_", " "),
+                        )}
+                      </Badge>
                     </div>
-                    <p>{evidence.summary}</p>
-                    <small className="mono">
+                    <p dir="auto">{evidence.summary}</p>
+                    <small className="mono" dir="ltr">
                       {evidence.version} / {evidence.rubricVersion}
                     </small>
                     {evidence.receiptId && (
-                      <small>Receipt: {evidence.receiptId}</small>
+                      <small>
+                        {t("enrollmentsView.evidence.receipt", {
+                          id: evidence.receiptId,
+                        })}
+                      </small>
                     )}
                     {evidence.status === "stale" && (
                       <Notice tone="gold">
-                        This evidence cannot be approved under the current
-                        rubric. A new submission is required.
+                        {t("enrollmentsView.evidence.stale")}
                       </Notice>
                     )}
                     {(evidence.reviewable ||
                       evidence.status === "pending_review" ||
                       evidence.status === "accepted") && (
                       <Button
-                        aria-label={`Review evidence: ${evidence.objective}`}
+                        aria-label={t("enrollmentsView.evidence.reviewLabel", {
+                          objective: evidence.objective,
+                        })}
                         onClick={() => {
                           actions.clear();
                           setEvidenceId(evidence.id);
@@ -216,7 +294,7 @@ export function EnrollmentsView({
                           actions.pending
                         }
                       >
-                        Review evidence
+                        {t("enrollmentsView.evidence.review")}
                       </Button>
                     )}
                     {canRegrade &&
@@ -224,7 +302,10 @@ export function EnrollmentsView({
                       evidence.attemptId && (
                         <Button
                           kind="quiet"
-                          aria-label={`Regrade the attempt behind: ${evidence.objective}`}
+                          aria-label={t(
+                            "enrollmentsView.evidence.regradeLabel",
+                            { objective: evidence.objective },
+                          )}
                           onClick={() =>
                             setRegrading({
                               attemptId: evidence.attemptId!,
@@ -233,15 +314,14 @@ export function EnrollmentsView({
                           }
                           disabled={actions.pending}
                         >
-                          Regrade attempt
+                          {t("enrollmentsView.evidence.regrade")}
                         </Button>
                       )}
                   </article>
                 ))
               ) : (
-                <EmptyState title="No evidence yet">
-                  New submissions will appear here with their versions and
-                  receipt references.
+                <EmptyState title={t("enrollmentsView.noEvidence.title")}>
+                  {t("enrollmentsView.noEvidence.body")}
                 </EmptyState>
               )}
             </Card>
@@ -268,15 +348,17 @@ export function EnrollmentsView({
             )}
           </div>
         ) : (
-          <EmptyState title="Select an enrollment">
-            Choose a learner to inspect their profile and evidence.
+          <EmptyState title={t("enrollmentsView.select.title")}>
+            {t("enrollmentsView.select.body")}
           </EmptyState>
         )}
       </div>
       {dialog && (
         <Dialog
           title={
-            dialog === "enroll" ? "Create enrollment" : "Edit learner profile"
+            dialog === "enroll"
+              ? t("enrollmentsView.create")
+              : t("enrollmentsView.editProfile")
           }
           onClose={() => setDialog(undefined)}
           pending={actions.pending}
@@ -318,8 +400,10 @@ export function EnrollmentsView({
       )}
       {regrading && selected && client.regrade && (
         <Dialog
-          title={`Regrade: ${regrading.objective}`}
-          eyebrow="Scoped correction"
+          title={t("enrollmentsView.regrade.title", {
+            objective: regrading.objective,
+          })}
+          eyebrow={t("enrollmentsView.regrade.eyebrow")}
           onClose={() => setRegrading(undefined)}
         >
           <RegradeDialogBody
@@ -332,7 +416,7 @@ export function EnrollmentsView({
       )}
       {evidenceId && selected && (
         <Dialog
-          title="Review evidence"
+          title={t("enrollmentsView.evidence.review")}
           onClose={() => setEvidenceId(undefined)}
           pending={actions.pending}
         >
@@ -376,6 +460,7 @@ function ProfileForm({
   pending: boolean;
   onSave: (profile: Profile, learnerRef: string, releaseId: string) => void;
 }) {
+  const t = useT();
   const [profile, setProfile] = useState<Profile>(
     enrollment?.profile ?? { displayName: "", goal: "", pace: "steady" },
   );
@@ -390,7 +475,10 @@ function ProfileForm({
       }}
     >
       {!enrollment && (
-        <Field label="Pinned release" htmlFor="enrollment-release">
+        <Field
+          label={t("enrollmentsView.pinnedRelease")}
+          htmlFor="enrollment-release"
+        >
           <select
             id="enrollment-release"
             required
@@ -399,10 +487,10 @@ function ProfileForm({
             disabled={pending}
           >
             {!releases.length && (
-              <option value="">No published releases</option>
+              <option value="">{t("enrollmentsView.form.noReleases")}</option>
             )}
             {releases.map((release) => (
-              <option key={release.id} value={release.id}>
+              <option key={release.id} value={release.id} dir="ltr">
                 {release.version}
               </option>
             ))}
@@ -411,12 +499,13 @@ function ProfileForm({
       )}
       {!enrollment && (
         <Field
-          label="Learner reference"
+          label={t("enrollmentsView.form.learnerRef")}
           htmlFor="learner-ref"
-          hint="An existing account reference, not a password or access token."
+          hint={t("enrollmentsView.form.learnerRef.hint")}
         >
           <input
             id="learner-ref"
+            dir="ltr"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
             required
@@ -425,9 +514,13 @@ function ProfileForm({
           />
         </Field>
       )}
-      <Field label="Display name" htmlFor="profile-name">
+      <Field
+        label={t("enrollmentsView.form.displayName")}
+        htmlFor="profile-name"
+      >
         <input
           id="profile-name"
+          dir="auto"
           required
           maxLength={100}
           value={profile.displayName}
@@ -437,16 +530,17 @@ function ProfileForm({
           disabled={pending}
         />
       </Field>
-      <Field label="Learning goal" htmlFor="profile-goal">
+      <Field label={t("enrollmentsView.form.goal")} htmlFor="profile-goal">
         <textarea
           id="profile-goal"
+          dir="auto"
           maxLength={2000}
           value={profile.goal}
           onChange={(e) => setProfile({ ...profile, goal: e.target.value })}
           disabled={pending}
         />
       </Field>
-      <Field label="Preferred pace" htmlFor="profile-pace">
+      <Field label={t("enrollmentsView.pace")} htmlFor="profile-pace">
         <select
           id="profile-pace"
           value={profile.pace}
@@ -455,17 +549,23 @@ function ProfileForm({
           }
           disabled={pending}
         >
-          <option value="gentle">Gentle</option>
-          <option value="steady">Steady</option>
-          <option value="focused">Focused</option>
+          <option value="gentle">
+            {t("enrollmentsView.form.pace.gentle")}
+          </option>
+          <option value="steady">
+            {t("enrollmentsView.form.pace.steady")}
+          </option>
+          <option value="focused">
+            {t("enrollmentsView.form.pace.focused")}
+          </option>
         </select>
       </Field>
       <Button kind="primary" type="submit" disabled={pending}>
         {pending
-          ? "Saving…"
+          ? t("enrollmentsView.form.saving")
           : enrollment
-            ? "Save profile"
-            : "Create enrollment"}
+            ? t("enrollmentsView.form.save")
+            : t("enrollmentsView.create")}
       </Button>
     </form>
   );
@@ -479,6 +579,7 @@ function EvidenceReview({
   rejectOnly?: boolean;
   onSubmit: (input: { decision: "accept" | "reject"; note: string }) => void;
 }) {
+  const t = useT();
   const [decision, setDecision] = useState<"accept" | "reject">(
     rejectOnly ? "reject" : "accept",
   );
@@ -491,12 +592,11 @@ function EvidenceReview({
         onSubmit({ decision, note });
       }}
     >
-      <Notice tone="gold">
-        Review cannot turn an incorrect or assisted result into mastery.
-        Acceptance only acknowledges valid existing evidence; rejection
-        invalidates it with an audit record.
-      </Notice>
-      <Field label="Decision" htmlFor="review-decision">
+      <Notice tone="gold">{t("enrollmentsView.review.notice")}</Notice>
+      <Field
+        label={t("enrollmentsView.review.decision")}
+        htmlFor="review-decision"
+      >
         <select
           id="review-decision"
           value={decision}
@@ -504,14 +604,15 @@ function EvidenceReview({
           disabled={pending}
         >
           <option value="accept" disabled={rejectOnly}>
-            Acknowledge valid evidence (no grade change)
+            {t("enrollmentsView.review.accept")}
           </option>
-          <option value="reject">Reject evidence</option>
+          <option value="reject">{t("enrollmentsView.review.reject")}</option>
         </select>
       </Field>
-      <Field label="Review note" htmlFor="review-note">
+      <Field label={t("enrollmentsView.review.note")} htmlFor="review-note">
         <textarea
           id="review-note"
+          dir="auto"
           required
           maxLength={600}
           value={note}
@@ -520,7 +621,9 @@ function EvidenceReview({
         />
       </Field>
       <Button kind="primary" type="submit" disabled={pending}>
-        {pending ? "Recording…" : "Record review"}
+        {pending
+          ? t("enrollmentsView.review.recording")
+          : t("enrollmentsView.review.record")}
       </Button>
     </form>
   );

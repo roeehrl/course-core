@@ -2,8 +2,10 @@ import { useId, useRef, useState } from "react";
 import { KeyRound, LockKeyhole, UserMinus, UserPlus } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
+  LOGIN_NAME_SYMBOLS,
   peopleErrorMessage,
-  roleDescriptions,
+  roleDescription,
+  roleLabel,
   roles,
   type Person,
   type Role,
@@ -20,9 +22,9 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { useFormatters, useI18n, useT } from "../i18n";
 
 type Port = NonNullable<AdminClient["people"]>;
 const assignable = (actorRole: Role) =>
@@ -37,20 +39,20 @@ export function PeopleView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   if (!client.people)
     return (
-      <Card title="People">
-        <EmptyState title="People administration is not available here">
-          This workspace client does not manage memberships. Use a connected
-          administration session.
+      <Card title={t("peopleView.title")}>
+        <EmptyState title={t("peopleView.unavailable.title")}>
+          {t("peopleView.unavailable.body")}
         </EmptyState>
       </Card>
     );
   if (!data.course.workspaceId)
     return (
-      <Card title="People">
-        <EmptyState title="Workspace unavailable">
-          This course record does not identify its workspace.
+      <Card title={t("peopleView.title")}>
+        <EmptyState title={t("peopleView.noWorkspace.title")}>
+          {t("peopleView.noWorkspace.body")}
         </EmptyState>
       </Card>
     );
@@ -72,6 +74,9 @@ function PeopleAdministration({
   workspaceId: string;
   course: { id: string; title: string };
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
   const list = useRemote(
     (signal) => port.list(workspaceId, signal),
     [port, workspaceId],
@@ -114,45 +119,58 @@ function PeopleAdministration({
       setPending(false);
     }
   }
-  if (list.loading) return <Loading label="Loading people…" />;
+  if (list.loading) return <Loading label={t("peopleView.loading")} />;
   if (list.error || !list.data)
-    return <Notice tone="red">{peopleErrorMessage(list.error)}</Notice>;
+    return <Notice tone="red">{peopleErrorMessage(list.error, t)}</Notice>;
   const { actorRole, people } = list.data;
   const loginCodes = list.data.loginCodes === true;
   return (
     <div className="page-stack">
-      <Notice tone="blue" title="Access follows workspace membership">
-        Roles apply to every course in this workspace. Removing someone ends
-        their access but keeps their learning records. Temporary passwords are
-        shown once and must be replaced at the person's next sign-in.
-        {loginCodes &&
-          " Sign-in codes are shown once, expire after 10 minutes and work only once."}
+      <Notice tone="blue" title={t("peopleView.access.title")}>
+        {loginCodes
+          ? t("peopleView.access.bodyWithCodes")
+          : t("peopleView.access.body")}
       </Notice>
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
         {error !== undefined && (
-          <Notice tone="red">{peopleErrorMessage(error)}</Notice>
+          <Notice tone="red">{peopleErrorMessage(error, t)}</Notice>
         )}
       </div>
       {issued?.receipt.signIn && (
-        <Card title={`Sign-in code for ${issued.name}`} eyebrow="Shown once">
+        <Card
+          title={t("peopleView.issued.code.title", { name: issued.name })}
+          eyebrow={t("peopleView.issued.eyebrow")}
+        >
           <p>
-            Share this privately. It expires in{" "}
-            {issued.receipt.signIn.expiresInMinutes} minutes and works once.
-            Learners open the link; staff can paste the code at{" "}
-            <span className="mono">{issued.receipt.signIn.adminPath}</span>.
+            {i18n.rich(
+              "peopleView.issued.code.body",
+              {
+                minutes: issued.receipt.signIn.expiresInMinutes,
+                path: issued.receipt.signIn.adminPath,
+              },
+              {
+                path: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </p>
-          <Field label="Learner sign-in link" htmlFor="issued-link">
+          <Field label={t("peopleView.issued.link")} htmlFor="issued-link">
             <input
               id="issued-link"
+              dir="ltr"
               readOnly
               value={issued.receipt.signIn.learnerUrl}
               onFocus={(e) => e.currentTarget.select()}
             />
           </Field>
-          <Field label="One-time code" htmlFor="issued-code">
+          <Field label={t("peopleView.issued.code")} htmlFor="issued-code">
             <input
               id="issued-code"
+              dir="ltr"
               readOnly
               className="mono"
               value={issued.receipt.signIn.code}
@@ -160,33 +178,45 @@ function PeopleAdministration({
             />
           </Field>
           <Button onClick={() => setIssued(undefined)}>
-            I have shared it — hide the code
+            {t("peopleView.issued.hideCode")}
           </Button>
         </Card>
       )}
       {issued?.receipt.password && (
         <Card
-          title={`Temporary password for ${issued.name}`}
-          eyebrow="Shown once"
+          title={t("peopleView.password.title", { name: issued.name })}
+          eyebrow={t("peopleView.issued.eyebrow")}
         >
           <p>
-            Share this privately. They sign in at the learner site or{" "}
-            <span className="mono">{issued.receipt.password.adminPath}</span>{" "}
-            and must choose their own password straight away. Any session they
-            had was signed out.
+            {i18n.rich(
+              "peopleView.issued.password.body",
+              { path: issued.receipt.password.adminPath },
+              {
+                path: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </p>
-          <Field label="Username" htmlFor="issued-login">
+          <Field label={t("peopleView.username")} htmlFor="issued-login">
             <input
               id="issued-login"
+              dir="ltr"
               readOnly
               className="mono"
               value={issued.receipt.password.loginName}
               onFocus={(e) => e.currentTarget.select()}
             />
           </Field>
-          <Field label="Temporary password" htmlFor="issued-password">
+          <Field
+            label={t("peopleView.temporaryPassword")}
+            htmlFor="issued-password"
+          >
             <input
               id="issued-password"
+              dir="ltr"
               readOnly
               autoComplete="off"
               className="mono"
@@ -195,40 +225,41 @@ function PeopleAdministration({
             />
           </Field>
           <Button onClick={() => setIssued(undefined)}>
-            I have shared it — hide the password
+            {t("peopleView.issued.hidePassword")}
           </Button>
         </Card>
       )}
       {issued && !issued.receipt.signIn && !issued.receipt.password && (
-        <Notice tone="gold">
-          This was already done by an earlier request. Its secret is not shown
-          again; set a new temporary password instead.
-        </Notice>
+        <Notice tone="gold">{t("peopleView.issued.replayed")}</Notice>
       )}
       <Card
-        title="Workspace members"
-        eyebrow={`${people.length} ${people.length === 1 ? "person" : "people"}`}
+        title={t("peopleView.members.title")}
+        eyebrow={t("peopleView.members.count", { count: people.length })}
         actions={
           <Button
             kind="primary"
             disabled={pending}
             onClick={() => setInviting(true)}
           >
-            <UserPlus size={16} aria-hidden="true" /> Invite person
+            <UserPlus size={16} aria-hidden="true" /> {t("peopleView.invite")}
           </Button>
         }
       >
         <div className="table-wrap">
           <table className="people-table">
-            <caption className="sr-only">Workspace members and roles</caption>
+            <caption className="sr-only">
+              {t("peopleView.members.caption")}
+            </caption>
             <thead>
               <tr>
-                <th scope="col">Person</th>
-                <th scope="col">Role</th>
-                <th scope="col">Enrollments</th>
-                <th scope="col">Last sign-in</th>
+                <th scope="col">{t("peopleView.column.person")}</th>
+                <th scope="col">{t("peopleView.column.role")}</th>
+                <th scope="col">{t("peopleView.column.enrollments")}</th>
+                <th scope="col">{t("peopleView.column.lastSignIn")}</th>
                 <th scope="col">
-                  <span className="sr-only">Actions</span>
+                  <span className="sr-only">
+                    {t("peopleView.column.actions")}
+                  </span>
                 </th>
               </tr>
             </thead>
@@ -238,29 +269,41 @@ function PeopleAdministration({
                 return (
                   <tr key={person.userId}>
                     <th scope="row">
-                      {person.displayName}
-                      {person.self && <Badge tone="blue">you</Badge>}
+                      <bdi>{person.displayName}</bdi>
+                      {person.self && (
+                        <Badge tone="blue">{t("peopleView.badge.you")}</Badge>
+                      )}
                       {person.mustChangePassword && (
-                        <Badge tone="gold">temporary password</Badge>
+                        <Badge tone="gold">
+                          {t("peopleView.badge.temporaryPassword")}
+                        </Badge>
                       )}
                       {person.loginName && (
-                        <small className="people-meta mono">
+                        <small className="people-meta mono" dir="ltr">
                           {person.loginName}
                         </small>
                       )}
                       <small className="people-meta">
-                        Joined {when(person.joinedAt)}
-                        {person.addedBy ? ` · added by ${person.addedBy}` : ""}
+                        {person.addedBy
+                          ? t("peopleView.joinedAddedBy", {
+                              date: when(person.joinedAt),
+                              name: person.addedBy,
+                            })
+                          : t("peopleView.joined", {
+                              date: when(person.joinedAt),
+                            })}
                       </small>
                     </th>
-                    <td data-label="Role">
+                    <td data-label={t("peopleView.column.role")}>
                       {person.canChangeRole ? (
                         <div className="people-role">
                           <label
                             className="sr-only"
                             htmlFor={`role-${person.userId}`}
                           >
-                            Role for {person.displayName}
+                            {t("peopleView.roleFor", {
+                              name: person.displayName,
+                            })}
                           </label>
                           <select
                             id={`role-${person.userId}`}
@@ -281,7 +324,7 @@ function PeopleAdministration({
                               )
                               .map((r) => (
                                 <option key={r} value={r}>
-                                  {r}
+                                  {roleLabel(r, t)}
                                 </option>
                               ))}
                           </select>
@@ -301,7 +344,10 @@ function PeopleAdministration({
                                       },
                                       key,
                                     ),
-                                  `${person.displayName} is now ${draft}.`,
+                                  t("peopleView.roleChanged", {
+                                    name: person.displayName,
+                                    role: roleLabel(draft, t),
+                                  }),
                                 ).then(() =>
                                   setRoleDraft(
                                     ({ [person.userId]: _, ...rest }) => rest,
@@ -309,19 +355,21 @@ function PeopleAdministration({
                                 )
                               }
                             >
-                              Save role
+                              {t("peopleView.saveRole")}
                             </Button>
                           )}
                         </div>
                       ) : (
-                        <Badge>{person.role}</Badge>
+                        <Badge>{roleLabel(person.role, t)}</Badge>
                       )}
                     </td>
-                    <td data-label="Enrollments">{person.enrollments}</td>
-                    <td data-label="Last sign-in">
+                    <td data-label={t("peopleView.column.enrollments")}>
+                      {i18n.number(person.enrollments)}
+                    </td>
+                    <td data-label={t("peopleView.column.lastSignIn")}>
                       {person.lastSignInAt
                         ? when(person.lastSignInAt)
-                        : "Never"}
+                        : t("peopleView.never")}
                     </td>
                     <td className="people-actions">
                       <div className="tag-row">
@@ -338,7 +386,7 @@ function PeopleAdministration({
                                     person.userId,
                                     key,
                                   ),
-                                "New sign-in code issued.",
+                                t("peopleView.codeIssued"),
                               ).then(
                                 (receipt) =>
                                   receipt &&
@@ -349,8 +397,8 @@ function PeopleAdministration({
                               )
                             }
                           >
-                            <KeyRound size={16} aria-hidden="true" /> New
-                            sign-in code
+                            <KeyRound size={16} aria-hidden="true" />{" "}
+                            {t("peopleView.newCode")}
                           </Button>
                         )}
                         {person.canSetPassword && (
@@ -359,8 +407,8 @@ function PeopleAdministration({
                             disabled={pending}
                             onClick={() => setSettingPassword(person)}
                           >
-                            <LockKeyhole size={16} aria-hidden="true" /> Set
-                            temporary password
+                            <LockKeyhole size={16} aria-hidden="true" />{" "}
+                            {t("peopleView.setPassword")}
                           </Button>
                         )}
                         {person.canRevoke && (
@@ -369,7 +417,8 @@ function PeopleAdministration({
                             disabled={pending}
                             onClick={() => setRemoving(person)}
                           >
-                            <UserMinus size={16} aria-hidden="true" /> Remove
+                            <UserMinus size={16} aria-hidden="true" />{" "}
+                            {t("peopleView.remove")}
                           </Button>
                         )}
                       </div>
@@ -399,7 +448,10 @@ function PeopleAdministration({
             const receipt = await run(
               `invite:${input.displayName}:${input.role}:${input.loginName ?? ""}`,
               (key) => port.invite(workspaceId, input, key),
-              `${input.displayName} was invited as ${input.role}.`,
+              t("peopleView.invited", {
+                name: input.displayName,
+                role: roleLabel(input.role, t),
+              }),
             );
             if (receipt) {
               setIssued({ name: input.displayName, receipt });
@@ -424,7 +476,7 @@ function PeopleAdministration({
                   { loginName },
                   key,
                 ),
-              `${person.displayName} has a new temporary password.`,
+              t("peopleView.passwordSet", { name: person.displayName }),
             );
             if (receipt) {
               setIssued({ name: person.displayName, receipt });
@@ -448,7 +500,7 @@ function PeopleAdministration({
                   { expectedRole: removing.role, reason },
                   key,
                 ),
-              `${removing.displayName} no longer has access. Their learning records were kept.`,
+              t("peopleView.removed", { name: removing.displayName }),
             );
             if (done) setRemoving(undefined);
           }}
@@ -475,12 +527,18 @@ function InviteDialog({
     loginName?: string;
   }) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const id = useId();
   const [name, setName] = useState("");
   const [login, setLogin] = useState("");
   const [role, setRole] = useState<Role>("learner");
   return (
-    <Dialog title="Invite a person" onClose={onClose} pending={pending}>
+    <Dialog
+      title={t("peopleView.inviteDialog.title")}
+      onClose={onClose}
+      pending={pending}
+    >
       <form
         className="stack"
         onSubmit={(e) => {
@@ -493,12 +551,13 @@ function InviteDialog({
         }}
       >
         <Field
-          label="Display name"
+          label={t("peopleView.displayName")}
           htmlFor={id + "-name"}
-          hint="Shown to staff and in the learner's header."
+          hint={t("peopleView.displayName.hint")}
         >
           <input
             id={id + "-name"}
+            dir="auto"
             required
             maxLength={200}
             value={name}
@@ -506,16 +565,21 @@ function InviteDialog({
           />
         </Field>
         <Field
-          label={loginCodes ? "Username (optional)" : "Username"}
+          label={
+            loginCodes
+              ? t("peopleView.usernameOptional")
+              : t("peopleView.username")
+          }
           htmlFor={id + "-login"}
           hint={
             loginCodes
-              ? "With a username they get a temporary password; without one, a one-time sign-in code."
-              : "They sign in with this and a temporary password, then choose their own. 3–128 letters, digits and . _ @ + : -"
+              ? t("peopleView.username.hintCodes")
+              : t("peopleView.username.hint", { symbols: LOGIN_NAME_SYMBOLS })
           }
         >
           <input
             id={id + "-login"}
+            dir="ltr"
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
@@ -526,7 +590,7 @@ function InviteDialog({
           />
         </Field>
         <fieldset className="stack">
-          <legend>Role</legend>
+          <legend>{t("peopleView.column.role")}</legend>
           {assignable(actorRole).map((r) => (
             <label className="check-label" key={r}>
               <input
@@ -536,7 +600,18 @@ function InviteDialog({
                 onChange={() => setRole(r)}
               />
               <span>
-                <strong>{r}</strong> — {roleDescriptions[r]}
+                {i18n.rich(
+                  "peopleView.roleOption",
+                  {
+                    role: roleLabel(r, t),
+                    description: roleDescription(r, t),
+                  },
+                  {
+                    role: (children, key) => (
+                      <strong key={key}>{children}</strong>
+                    ),
+                  },
+                )}
               </span>
             </label>
           ))}
@@ -548,11 +623,11 @@ function InviteDialog({
             disabled={pending || !name.trim() || (!loginCodes && !login.trim())}
           >
             {login.trim()
-              ? "Invite and create temporary password"
-              : "Invite and create sign-in code"}
+              ? t("peopleView.inviteWithPassword")
+              : t("peopleView.inviteWithCode")}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
-            Cancel
+            {t("peopleView.cancel")}
           </Button>
         </div>
       </form>
@@ -571,11 +646,12 @@ function RemoveDialog({
   onClose: () => void;
   onSubmit: (reason: string) => void;
 }) {
+  const t = useT();
   const id = useId();
   const [reason, setReason] = useState("");
   return (
     <Dialog
-      title={`Remove ${person.displayName}`}
+      title={t("peopleView.removeDialog.title", { name: person.displayName })}
       onClose={onClose}
       pending={pending}
     >
@@ -586,18 +662,15 @@ function RemoveDialog({
           onSubmit(reason.trim());
         }}
       >
-        <p>
-          They lose access to this workspace immediately. Enrollments, evidence
-          and history are kept for audit and can be exported or deleted
-          separately.
-        </p>
+        <p>{t("peopleView.removeDialog.body")}</p>
         <Field
-          label="Reason"
+          label={t("peopleView.reason")}
           htmlFor={id + "-reason"}
-          hint="10–1000 characters. Kept in the audit history."
+          hint={t("peopleView.reason.hint")}
         >
           <textarea
             id={id + "-reason"}
+            dir="auto"
             rows={3}
             minLength={10}
             maxLength={1000}
@@ -608,10 +681,10 @@ function RemoveDialog({
         </Field>
         <div className="tag-row">
           <Button kind="danger" type="submit" disabled={pending}>
-            Remove access
+            {t("peopleView.removeAccess")}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
-            Cancel
+            {t("peopleView.cancel")}
           </Button>
         </div>
       </form>
@@ -630,11 +703,12 @@ function PasswordDialog({
   onClose: () => void;
   onSubmit: (loginName: string) => void;
 }) {
+  const t = useT();
   const id = useId();
   const [login, setLogin] = useState(person.loginName ?? "");
   return (
     <Dialog
-      title={`Temporary password for ${person.displayName}`}
+      title={t("peopleView.password.title", { name: person.displayName })}
       onClose={onClose}
       pending={pending}
     >
@@ -645,19 +719,17 @@ function PasswordDialog({
           onSubmit(login.trim());
         }}
       >
-        <p>
-          The server creates a random temporary password and shows it to you
-          once. Their current password stops working, every session they have is
-          signed out, and they must choose a new password when they next sign
-          in.
-        </p>
+        <p>{t("peopleView.passwordDialog.body")}</p>
         <Field
-          label="Username"
+          label={t("peopleView.username")}
           htmlFor={id + "-login"}
-          hint="3–128 letters, digits and . _ @ + : -"
+          hint={t("peopleView.username.hintShort", {
+            symbols: LOGIN_NAME_SYMBOLS,
+          })}
         >
           <input
             id={id + "-login"}
+            dir="ltr"
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
@@ -673,10 +745,10 @@ function PasswordDialog({
             type="submit"
             disabled={pending || !login.trim()}
           >
-            Create temporary password
+            {t("peopleView.createPassword")}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
-            Cancel
+            {t("peopleView.cancel")}
           </Button>
         </div>
       </form>

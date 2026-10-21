@@ -15,7 +15,6 @@ import {
   Loading,
   Notice,
   Stat,
-  when,
 } from "../components/ui";
 import { ScopeDetails, ScopeQuotas } from "../components/PolicyDetails";
 import { ExtensionComposer } from "../components/ExtensionComposer";
@@ -28,6 +27,7 @@ import {
 import { PolicySettingsCard } from "../components/PolicySettingsCard";
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 export function PolicyView({
   data,
@@ -38,6 +38,7 @@ export function PolicyView({
   client: AdminClient;
   actions: WorkspaceActions;
 }) {
+  const t = useT();
   const [enrollmentId, setEnrollmentId] = useState(
     data.enrollments[0]?.id ?? "",
   );
@@ -49,11 +50,8 @@ export function PolicyView({
     <div className="page-stack">
       <div className="section-heading">
         <div>
-          <h2>Two clocks. Clear limits.</h2>
-          <p>
-            Calendar deadlines and windows govern when. Planned-work caps govern
-            how much. Both inherit ancestor constraints.
-          </p>
+          <h2>{t("policyView.heading")}</h2>
+          <p>{t("policyView.intro")}</p>
         </div>
         <span className="large-icon">
           <CalendarClock size={28} aria-hidden="true" />
@@ -67,13 +65,12 @@ export function PolicyView({
         />
       )}
       {!data.enrollments.length ? (
-        <EmptyState title="No enrolled learners">
-          An enrollment is required to inspect its anchored policy and allowance
-          ledger.
+        <EmptyState title={t("policyView.noEnrollments.title")}>
+          {t("policyView.noEnrollments.body")}
         </EmptyState>
       ) : (
         <>
-          <Field label="Policy enrollment" htmlFor="policy-enrollment">
+          <Field label={t("policyView.enrollment")} htmlFor="policy-enrollment">
             <select
               id="policy-enrollment"
               value={enrollmentId}
@@ -81,13 +78,16 @@ export function PolicyView({
             >
               {data.enrollments.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.profile.displayName} · {item.releaseVersion}
+                  {t("policyView.enrollment.option", {
+                    name: item.profile.displayName,
+                    version: item.releaseVersion,
+                  })}
                 </option>
               ))}
             </select>
           </Field>
           {remote.loading ? (
-            <Loading label="Loading calendar policy and ledger…" />
+            <Loading label={t("policyView.loading")} />
           ) : remote.error ? (
             <ErrorState error={remote.error} onRetry={remote.reload} />
           ) : (
@@ -126,7 +126,12 @@ function PolicyWorkspace({
   onRefresh: () => void;
   onChanged: () => Promise<void>;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
   const [policy, setPolicy] = useState(initial);
+  const scopeLabel = (scopeId: string) =>
+    policy.scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
   const [scopeId, setScopeId] = useState(
     initial.scopes.find(
       (scope) => scope.kind === "chapter" && scope.mode === "bounded",
@@ -141,7 +146,12 @@ function PolicyWorkspace({
   const approvals = useSingleFlight();
   const ledgerUpdated = (result: LedgerResult) => {
     setPolicy(result.policy);
-    setMessage(`${result.message} Receipt: ${result.receipt.id}.`);
+    setMessage(
+      t("policyView.receiptMessage", {
+        message: result.message,
+        id: result.receipt.id,
+      }),
+    );
     void onChanged();
   };
   const canLedger =
@@ -155,18 +165,30 @@ function PolicyWorkspace({
     <>
       <div className="split-line">
         <div className="tag-row">
-          <Badge>Enrollment revision {policy.revision}</Badge>
-          <Badge>Policy revision {policy.policyRevision}</Badge>
-          <Badge>Ledger revision {policy.ledgerRevision}</Badge>
+          <Badge>
+            {t("policyView.badge.enrollmentRevision", {
+              revision: policy.revision,
+            })}
+          </Badge>
+          <Badge>
+            {t("policyView.badge.policyRevision", {
+              revision: policy.policyRevision,
+            })}
+          </Badge>
+          <Badge>
+            {t("policyView.badge.ledgerRevision", {
+              revision: policy.ledgerRevision,
+            })}
+          </Badge>
           <Badge tone={policy.status === "active" ? "blue" : "gold"}>
-            {policy.status}
+            {t(`policyView.status.${policy.status}` as MessageKey)}
           </Badge>
         </div>
         <div className="tag-row">
-          <Button onClick={onRefresh}>Refresh policy</Button>
+          <Button onClick={onRefresh}>{t("policyView.refresh")}</Button>
           {canMigrate && client.previewPolicyChange && client.migratePolicy && (
             <Button onClick={() => setMigrating(true)}>
-              Edit policy scopes
+              {t("policyView.editScopes")}
             </Button>
           )}
           {canMigrate &&
@@ -175,7 +197,7 @@ function PolicyWorkspace({
             scopeId &&
             policy.status === "active" && (
               <Button onClick={() => setAccommodating(true)}>
-                Accommodation for this scope
+                {t("policyView.accommodation")}
               </Button>
             )}
           {canLedger &&
@@ -192,14 +214,14 @@ function PolicyWorkspace({
                   })
                 }
               >
-                Exceptional grant for this scope
+                {t("policyView.exceptional")}
               </Button>
             )}
           {canMigrate &&
             client.previewCohortMigration &&
             client.applyCohortMigration && (
               <Button onClick={() => setCohort(true)}>
-                Change a deadline for all learners
+                {t("policyView.cohort")}
               </Button>
             )}
         </div>
@@ -223,7 +245,7 @@ function PolicyWorkspace({
           onApplied={(result) => {
             setMessage(
               result.message ??
-                `Policy change applied to ${result.applied} enrollments.`,
+                t("policyView.cohortApplied", { count: result.applied }),
             );
             void onChanged();
             // Reload this learner's policy in place so the confirmation stays visible.
@@ -234,31 +256,40 @@ function PolicyWorkspace({
         />
       )}
       {policy.coverage && (
-        <Card title="Core coverage" eyebrow="A stable denominator">
+        <Card
+          title={t("policyView.coverage.title")}
+          eyebrow={t("policyView.coverage.eyebrow")}
+        >
           <div className="stats-grid">
             <Stat
-              label="Core objectives covered"
-              value={`${policy.coverage.coveredCoreObjectives} of ${policy.coverage.denominator}`}
-              detail="Fixed at enrollment; personal extras never change it"
+              label={t("policyView.coverage.covered")}
+              value={t("policyView.coverage.covered.value", {
+                covered: policy.coverage.coveredCoreObjectives,
+                total: policy.coverage.denominator,
+              })}
+              detail={t("policyView.coverage.covered.detail")}
             />
             <Stat
-              label="Personal extras"
+              label={t("policyView.coverage.extras")}
               value={policy.coverage.personalExtras.committed.count}
-              detail={`${policy.coverage.personalExtras.committed.additionalMinutes} minutes assigned on a separate counter`}
+              detail={t("policyView.coverage.extras.detail", {
+                minutes:
+                  policy.coverage.personalExtras.committed.additionalMinutes,
+              })}
             />
             <Stat
-              label="Reserved core headroom"
+              label={t("policyView.coverage.headroom")}
               value={policy.coverage.headroom.reduce(
                 (n, h) => n + h.remaining.additionalMinutes,
                 0,
               )}
-              detail="Minutes held for core remediation and the final assessment"
+              detail={t("policyView.coverage.headroom.detail")}
             />
             {policy.afterClosure && (
               <Stat
-                label="Questions after closure"
+                label={t("policyView.coverage.afterClosure")}
                 value={policy.afterClosure.questionBudget}
-                detail="Read-only explanatory questions once the enrollment closes"
+                detail={t("policyView.coverage.afterClosure.detail")}
               />
             )}
           </div>
@@ -290,7 +321,10 @@ function PolicyWorkspace({
         />
       )}
       <div className="master-detail policy-hierarchy">
-        <Card title="Policy scopes" eyebrow="Course → chapter → episode">
+        <Card
+          title={t("policyView.scopes.title")}
+          eyebrow={t("policyView.scopes.eyebrow")}
+        >
           <div className="selector-list">
             {policy.scopes.map((item) => {
               const resolved = policy.constraints.find(
@@ -307,14 +341,18 @@ function PolicyWorkspace({
                   }}
                 >
                   <span>
-                    <strong>{item.label}</strong>
+                    <strong>
+                      <bdi>{item.label}</bdi>
+                    </strong>
                     <Badge tone={item.mode === "bounded" ? "blue" : "gold"}>
-                      {item.mode.replace("_", "-")}
+                      {t(`policyView.mode.${item.mode}` as MessageKey)}
                     </Badge>
                     <small>
                       {resolved?.effectiveDeadline
-                        ? `Effective: ${when(resolved.effectiveDeadline)}`
-                        : "No effective calendar deadline"}
+                        ? t("policyView.effective", {
+                            date: when(resolved.effectiveDeadline),
+                          })
+                        : t("policyView.noEffective")}
                     </small>
                   </span>
                 </button>
@@ -325,32 +363,24 @@ function PolicyWorkspace({
         {scope && constraint ? (
           <ScopeDetails scope={scope} constraint={constraint} policy={policy} />
         ) : (
-          <EmptyState title="No resolved scope">
-            The adapter must supply a constraint snapshot for each scope.
+          <EmptyState title={t("policyView.noScope.title")}>
+            {t("policyView.noScope.body")}
           </EmptyState>
         )}
       </div>
       {scope && constraint && (
         <>
           <Card
-            title="Planned-work envelope"
-            eyebrow="A separate constraint from calendar time"
+            title={t("policyView.envelope.title")}
+            eyebrow={t("policyView.envelope.eyebrow")}
           >
-            <p>
-              These caps bound additional learning work—not elapsed wall time or
-              provider runtime. Undefined local caps still inherit ancestor
-              limits.
-            </p>
+            <p>{t("policyView.envelope.body")}</p>
             <ScopeQuotas quotas={constraint.quotas} scopes={policy.scopes} />
-            <Notice tone="blue">
-              An extension of calendar days does not add minutes, episodes or
-              remediation cycles. Work-cap increases require their own exact
-              disclosed terms and approval.
-            </Notice>
+            <Notice tone="blue">{t("policyView.envelope.notice")}</Notice>
           </Card>
           <Card
-            title="Extension allowance"
-            eyebrow="Scoped pools and current balances"
+            title={t("policyView.allowance.title")}
+            eyebrow={t("policyView.allowance.eyebrow")}
           >
             {policy.pools
               .filter((pool) => scope.extensions?.poolIds.includes(pool.poolId))
@@ -361,52 +391,64 @@ function PolicyWorkspace({
                 return (
                   <div className="stack" key={pool.poolId}>
                     <div className="split-line">
-                      <h3>{pool.unit.replaceAll("_", " ")} allowance</h3>
-                      <small className="mono">{pool.poolId}</small>
+                      <h3>
+                        {t("policyView.pool.heading", { unit: pool.unit })}
+                      </h3>
+                      <small className="mono" dir="ltr">
+                        {pool.poolId}
+                      </small>
                     </div>
                     <div className="stats-grid">
                       <Stat
-                        label="Total allowance"
+                        label={t("policyView.pool.total")}
                         value={pool.total}
-                        detail={pool.unit.replaceAll("_", " ")}
+                        detail={t("policyView.pool.unit", { unit: pool.unit })}
                       />
                       <Stat
-                        label="Maximum grants"
+                        label={t("policyView.pool.maxGrants")}
                         value={pool.maxGrants}
-                        detail={`${balance?.grantsRemaining ?? "Unknown"} grants remaining`}
+                        detail={
+                          balance
+                            ? t("policyView.pool.grantsRemaining", {
+                                count: balance.grantsRemaining,
+                              })
+                            : t("policyView.pool.grantsRemaining.unknown")
+                        }
                       />
                       <Stat
                         label={
                           ["calendar_day", "scope_calendar_day"].includes(
                             pool.unit,
                           )
-                            ? "Maximum days per grant"
-                            : "Maximum units per grant"
+                            ? t("policyView.pool.maxDays")
+                            : t("policyView.pool.maxUnits")
                         }
                         value={pool.maxPerGrant}
-                        detail="Applies to each proposed grant"
+                        detail={t("policyView.pool.maxPerGrant.detail")}
                       />
                       <Stat
-                        label="Current balance"
-                        value={balance?.remaining ?? "Unknown"}
-                        detail="Debited only by a granted extension"
+                        label={t("policyView.pool.balance")}
+                        value={
+                          balance?.remaining ?? t("policyView.pool.unknown")
+                        }
+                        detail={t("policyView.pool.balance.detail")}
                       />
                     </div>
                   </div>
                 );
               })}
             {!scope.extensions?.poolIds.length && (
-              <EmptyState title="No extension allowance">
-                This scope does not expose an enabled allowance pool.
+              <EmptyState title={t("policyView.noAllowance.title")}>
+                {t("policyView.noAllowance.body")}
               </EmptyState>
             )}
             {scope.extensions && (
               <small>
-                Offer cooldown: {scope.extensions.offerCooldownHours} hours ·
-                Maximum outstanding offers:{" "}
-                {scope.extensions.maxOutstandingOffersPerScope} · Lifetime offer
-                limit: {scope.extensions.maxOffersPerScope}. Learner acceptance
-                is always required.
+                {t("policyView.limits", {
+                  hours: scope.extensions.offerCooldownHours,
+                  outstanding: scope.extensions.maxOutstandingOffersPerScope,
+                  lifetime: scope.extensions.maxOffersPerScope,
+                })}
               </small>
             )}
           </Card>
@@ -419,26 +461,25 @@ function PolicyWorkspace({
             onUpdated={(result) => {
               setPolicy(result.policy);
               void onChanged();
-              setMessage(`${result.message} Receipt: ${result.receipt.id}.`);
+              setMessage(
+                t("policyView.receiptMessage", {
+                  message: result.message,
+                  id: result.receipt.id,
+                }),
+              );
             }}
             onRefresh={onRefresh}
           />
         </>
       )}
       <Card
-        title="Offers & learner consent"
-        eyebrow="Exact terms, explicit acceptance"
+        title={t("policyView.offers.title")}
+        eyebrow={t("policyView.offers.eyebrow")}
       >
-        <Notice tone="gold">
-          An administrator may propose an offer. Only the learner can accept its
-          exact current termsDigest. When a policy also requires administrator
-          approval, an administrator approves the learner-accepted terms here;
-          there is no way to accept on the learner’s behalf.
-        </Notice>
+        <Notice tone="gold">{t("policyView.offers.notice")}</Notice>
         {!policy.offers.length && (
-          <EmptyState title="No offers recorded">
-            Preview and propose an offer to request learner consent. Previewing
-            and proposing do not consume allowance.
+          <EmptyState title={t("policyView.noOffers.title")}>
+            {t("policyView.noOffers.body")}
           </EmptyState>
         )}
         {policy.offers.map((offer) => {
@@ -455,30 +496,43 @@ function PolicyWorkspace({
           return (
             <article key={offer.terms.offerId} className="record">
               <div className="split-line">
-                <h3>
-                  {policy.scopes.find((s) => s.scopeId === offer.terms.scopeId)
-                    ?.label ?? offer.terms.scopeId}
-                </h3>
+                <h3 dir="auto">{scopeLabel(offer.terms.scopeId)}</h3>
                 <Badge tone={exactConsent ? "green" : "gold"}>
-                  {offer.state.replaceAll("_", " ")}
+                  {t(`policyView.offerState.${offer.state}` as MessageKey)}
                 </Badge>
               </div>
               <strong>
                 {exactConsent
-                  ? "Exact learner consent recorded"
+                  ? t("policyView.consent.exact")
                   : offer.state === "proposed"
-                    ? "Awaiting exact learner consent"
-                    : "No matching learner consent recorded"}
+                    ? t("policyView.consent.awaiting")
+                    : t("policyView.consent.none")}
               </strong>
-              <small className="mono">termsDigest: {offer.termsDigest}</small>
               <small>
-                Offer: {offer.terms.offerId} · Expires{" "}
-                {when(offer.terms.expiresAt)}
+                {i18n.rich(
+                  "policyView.offer.digest",
+                  { digest: offer.termsDigest },
+                  {
+                    id: (children, key) => (
+                      <span key={key} className="mono" dir="ltr">
+                        {children}
+                      </span>
+                    ),
+                  },
+                )}
+              </small>
+              <small>
+                {t("policyView.offer.meta", {
+                  id: offer.terms.offerId,
+                  date: when(offer.terms.expiresAt),
+                })}
               </small>
               {offer.acceptance && (
                 <small>
-                  Consent receipt: {offer.acceptance.receiptId} · Learner:{" "}
-                  {offer.acceptance.learnerId}
+                  {t("policyView.offer.consent", {
+                    receipt: offer.acceptance.receiptId,
+                    learner: offer.acceptance.learnerId,
+                  })}
                 </small>
               )}
               {offer.state === "accepted_pending_admin" &&
@@ -487,8 +541,7 @@ function PolicyWorkspace({
                 client.rejectExtension && (
                   <div className="stack">
                     <Notice tone="gold">
-                      The learner accepted these exact terms. They also need an
-                      administrator’s approval.
+                      {t("policyView.approval.notice")}
                     </Notice>
                     {Boolean(approvals.error) && (
                       <ErrorState error={approvals.error} />
@@ -516,15 +569,16 @@ function PolicyWorkspace({
                           )
                         }
                       >
-                        Approve learner-accepted terms
+                        {t("policyView.approve")}
                       </Button>
                     </div>
                     <Field
-                      label="Reason to reject"
+                      label={t("policyView.rejectReason")}
                       htmlFor={`reject-${offer.terms.offerId}`}
                     >
                       <input
                         id={`reject-${offer.terms.offerId}`}
+                        dir="auto"
                         maxLength={1000}
                         value={rejectReason}
                         onChange={(e) => setRejectReason(e.target.value)}
@@ -554,12 +608,12 @@ function PolicyWorkspace({
                         )
                       }
                     >
-                      Reject offer
+                      {t("policyView.reject")}
                     </Button>
                   </div>
                 )}
               <details>
-                <summary>Inspect exact offer terms</summary>
+                <summary>{t("policyView.inspect")}</summary>
                 <div className="stack">
                   <ExtensionTerms
                     terms={offer.terms}
@@ -567,23 +621,41 @@ function PolicyWorkspace({
                     pools={policy.pools}
                   />
                   <p>
-                    <strong>Plan impact:</strong> {offer.terms.planImpact}
+                    {i18n.rich(
+                      "policyView.terms.planImpact",
+                      { impact: offer.terms.planImpact },
+                      {
+                        label: (children, key) => (
+                          <strong key={key}>{children}</strong>
+                        ),
+                      },
+                    )}
                   </p>
                   <p>
-                    <strong>Alternatives:</strong>{" "}
-                    {offer.terms.alternatives.join("; ")}
+                    {i18n.rich(
+                      "policyView.terms.alternatives",
+                      { list: offer.terms.alternatives.join("; ") },
+                      {
+                        label: (children, key) => (
+                          <strong key={key}>{children}</strong>
+                        ),
+                      },
+                    )}
                   </p>
                   <small>
-                    Rationale: {offer.terms.rationaleEvidenceRefs.join(", ")} ·
-                    Activities: {offer.terms.proposedActivities.join(", ")}
+                    {t("policyView.terms.rationale", {
+                      rationale: offer.terms.rationaleEvidenceRefs.join(", "),
+                      activities: offer.terms.proposedActivities.join(", "),
+                    })}
                   </small>
                   <small>
-                    Added work: {offer.terms.addedWork.additionalMinutes}{" "}
-                    minutes, {offer.terms.addedWork.additionalEpisodes}{" "}
-                    episodes. Required approvals:{" "}
-                    {offer.terms.requiredApprovals.join(", ") ||
-                      "None beyond learner acceptance"}
-                    .
+                    {t("policyView.terms.addedWork", {
+                      minutes: offer.terms.addedWork.additionalMinutes,
+                      episodes: offer.terms.addedWork.additionalEpisodes,
+                      approvals:
+                        offer.terms.requiredApprovals.join(", ") ||
+                        t("policyView.terms.noApprovals"),
+                    })}
                   </small>
                 </div>
               </details>
@@ -592,24 +664,41 @@ function PolicyWorkspace({
         })}
         {policy.grants.length > 0 && (
           <div className="stack">
-            <h3>Recorded grants</h3>
+            <h3>{t("policyView.grants.title")}</h3>
             {policy.grants.map((grant) => (
               <div className="record" key={grant.grantId}>
-                <strong>{grant.grantId}</strong>
+                <strong dir="ltr">{grant.grantId}</strong>
                 <small>
-                  Exact consent receipt:{" "}
-                  {grant.learnerAcceptanceReceipt.receiptId}
-                </small>
-                <small className="mono">
-                  Accepted digest: {grant.acceptedTermsDigest}
+                  {t("policyView.grant.receipt", {
+                    id: grant.learnerAcceptanceReceipt.receiptId,
+                  })}
                 </small>
                 <small>
-                  Atomic ledger transaction: {grant.atomicLedgerTransactionId} ·{" "}
-                  {when(grant.grantedAt)}
+                  {i18n.rich(
+                    "policyView.grant.digest",
+                    {
+                      digest: grant.acceptedTermsDigest,
+                    },
+                    {
+                      id: (children, key) => (
+                        <span key={key} className="mono" dir="ltr">
+                          {children}
+                        </span>
+                      ),
+                    },
+                  )}
+                </small>
+                <small>
+                  {t("policyView.grant.transaction", {
+                    id: grant.atomicLedgerTransactionId,
+                    date: when(grant.grantedAt),
+                  })}
                 </small>
                 {grant.revocation && (
                   <Badge tone="red">
-                    Revoked {when(grant.revocation.revokedAt)}; usage kept
+                    {t("policyView.grant.revoked", {
+                      date: when(grant.revocation.revokedAt),
+                    })}
                   </Badge>
                 )}
                 {canLedger && (
@@ -623,7 +712,7 @@ function PolicyWorkspace({
                           })
                         }
                       >
-                        Revoke grant
+                        {t("policyView.revokeGrant")}
                       </Button>
                     )}
                     {grant.poolDebits[0] && (
@@ -637,7 +726,7 @@ function PolicyWorkspace({
                           })
                         }
                       >
-                        Refund allowance
+                        {t("policyView.refund")}
                       </Button>
                     )}
                   </div>
@@ -648,14 +737,20 @@ function PolicyWorkspace({
         )}
         {(policy.refunds?.length ?? 0) > 0 && (
           <div className="stack">
-            <h3>Refunds</h3>
+            <h3>{t("policyView.refunds.title")}</h3>
             {policy.refunds!.map((refund) => (
               <div className="record" key={refund.refundId}>
                 <strong>
-                  {refund.amount} units returned to {refund.poolId}
+                  {t("policyView.refund.row", {
+                    amount: refund.amount,
+                    pool: refund.poolId,
+                  })}
                 </strong>
                 <small>
-                  For grant {refund.grantId} · {when(refund.refundedAt)}
+                  {t("policyView.refund.meta", {
+                    grant: refund.grantId,
+                    date: when(refund.refundedAt),
+                  })}
                 </small>
               </div>
             ))}
@@ -663,19 +758,20 @@ function PolicyWorkspace({
         )}
         {(policy.exceptionalGrants?.length ?? 0) > 0 && (
           <div className="stack">
-            <h3>Exceptional grants</h3>
+            <h3>{t("policyView.exceptional.title")}</h3>
             {policy.exceptionalGrants!.map((entry) => (
               <div className="record" key={entry.exceptionId}>
                 <strong>
-                  {policy.scopes.find(
-                    (s) => s.scopeId === entry.adjustment.scopeId,
-                  )?.label ?? entry.adjustment.scopeId}{" "}
-                  · no pool debited
+                  {t("policyView.exceptional.row", {
+                    scope: scopeLabel(entry.adjustment.scopeId),
+                  })}
                 </strong>
                 <small>{when(entry.grantedAt)}</small>
                 {entry.revocation ? (
                   <Badge tone="red">
-                    Revoked {when(entry.revocation.revokedAt)}
+                    {t("policyView.exceptional.revoked", {
+                      date: when(entry.revocation.revokedAt),
+                    })}
                   </Badge>
                 ) : (
                   canLedger &&
@@ -688,7 +784,7 @@ function PolicyWorkspace({
                         })
                       }
                     >
-                      Revoke exceptional grant
+                      {t("policyView.revokeExceptional")}
                     </Button>
                   )
                 )}

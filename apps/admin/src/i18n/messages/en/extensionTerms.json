@@ -1,1 +1,19 @@
-{}
+{
+  "region": "Exact before and after terms",
+  "caption": "Exact before / after terms if later granted",
+  "column.term": "Term",
+  "column.current": "Current",
+  "column.proposed": "Proposed",
+  "effective": "Effective deadline",
+  "none": "None",
+  "quota": "{limit} cap · {consumed} consumed · {reserved} reserved · {remaining} remaining",
+  "notSupplied": "Not supplied",
+  "balance": "Allowance balance",
+  "balance.value": "{remaining} {unit, select, calendar_day {calendar day} scope_calendar_day {scope calendar day} planned_minute {planned minute} episode {episode} other {units}} / {grants} grants",
+  "cost": "Exact pool cost if granted",
+  "cost.row": "{amount} {unit, select, calendar_day {calendar day} scope_calendar_day {scope calendar day} planned_minute {planned minute} episode {episode} other {units}} from <pool>{pool}</pool>",
+  "ancestor": "Ancestor caps remain binding",
+  "ancestor.row": "{scope} · {kind} · {date}",
+  "approvals": "Required authority approvals: {approvals}.",
+  "approvals.none": "Required authority approvals: None beyond exact learner acceptance."
+}
