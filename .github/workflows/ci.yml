@@ -47,7 +47,8 @@ jobs:
           npm exec --yes --package="typescript@$version" -- node --test scripts/i18n-check-tests.mjs
           npm exec --yes --package="typescript@$version" -- node scripts/i18n-check.mjs
       - run: node scripts/release-artifacts.mjs check-inputs
-      # Fails on unknown requirement IDs or dangling core/SDK test references; reports uncovered IDs.
+      # Fails on unknown requirement IDs, dangling core/SDK test references or a critical requirement
+      # without a behavior-level test reference; reports other uncovered IDs.
       - run: node scripts/requirements-map.mjs
 
   packages:
