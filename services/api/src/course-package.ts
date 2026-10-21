@@ -6,7 +6,10 @@
  * Core verifies with its own pinned SDK compiler: the course manifest must compile, its id and
  * version must match the descriptor, and the descriptor's courseDigest must equal the digest
  * Core's compiler computes. A learner projection, when present, must equal the compiler's.
- * Nothing in a package is executed, and host-requirement files are only compared by digest.
+ * Nothing in a package is executed in the API, and host-requirement files are only compared by
+ * digest. A member a course extension declaration pins as its exact bytes (a data-only code fixture
+ * registry or a sandboxed_web activity script) is reported as course-supplied; Core uses it only in
+ * its sandboxes and only after an owner/admin approves it (course-supplied-extensions.ts).
  *
  * `CoursePackageVerifier` is the seam for the SDK's canonical verifier: once Core pins an SDK
  * release that ships one, `coreCoursePackageVerifier` can delegate archive and descriptor checks
@@ -16,6 +19,7 @@ import { courseStrategyProblems } from './course-strategies.js';
 import { createHash } from 'node:crypto';
 import { canonicalJson, compileCourse, CourseValidationError, type CompiledCourse } from '@course-core/sdk/compiler';
 import { readTarGz, TarError, MEMBER_NAME, type TarMember } from './ustar.js';
+import { courseSuppliedCandidates, type CourseSuppliedCandidate } from './course-supplied-extensions.js';
 
 export const COURSE_PACKAGE_LIMITS = Object.freeze({
   maxMembers: 200,
@@ -124,6 +128,8 @@ export interface VerifiedCoursePackage {
   adaptationRegistryPresent: boolean;
   adaptationRegistry: unknown;
   hostRequirements: { name: string; sha256: string; bytes: number }[];
+  /** Members a course extension declaration names as its exact bytes (course-supplied-extensions.ts). */
+  courseSupplied: CourseSuppliedCandidate[];
   members: { name: string; bytes: number; sha256: string; role: PackageRole }[];
 }
 export interface CoursePackageVerifier { verify(bytes: Buffer): Promise<VerifiedCoursePackage> }
@@ -181,6 +187,7 @@ export function verifyMembers(files: readonly TarMember[], packageSha256: string
   return {
     sha256: packageSha256, compressedBytes, descriptor, compiled, adaptationRegistryPresent: registryMember !== undefined, adaptationRegistry,
     hostRequirements: byRole('host-requirement').map(({ name, sha256: digest, bytes }) => ({ name, sha256: digest, bytes })),
+    courseSupplied: courseSuppliedCandidates(compiled.server, descriptor.members, name => present.get(name)?.bytes),
     members: descriptor.members.map(({ name, bytes, sha256: digest, role }) => ({ name, bytes, sha256: digest, role })),
   };
 }

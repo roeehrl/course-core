@@ -313,13 +313,17 @@ describe('automatic updates', () => {
     } finally { other.release(); }
   });
   it('explains each publish refusal', () => {
-    const ok = { problems: [], runtime: { runnable: true }, hostRequirements: [{ status: 'identical' }], core: { satisfied: true }, sdk: { status: 'supported' } } as never;
+    const ok = { problems: [], runtime: { runnable: true }, hostRequirements: [{ status: 'identical' }], core: { satisfied: true }, sdk: { status: 'supported' },
+      courseSupplied: { files: [], approvalRequired: [] } } as never;
     expect(publishRefusal(ok)).toBeNull();
     const variant = (patch: Record<string, unknown>) => publishRefusal({ ...(ok as object), ...patch } as never);
     expect(variant({ problems: [{ severity: 'blocking', code: 'X' }] })).toBe('AUTO_PUBLISH_REFUSED_BLOCKING_PROBLEM');
     expect(variant({ runtime: { runnable: false } })).toBe('AUTO_PUBLISH_REFUSED_RUNTIME_CHECK');
     expect(variant({ hostRequirements: [{ status: 'missing' }] })).toBe('AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT');
     expect(variant({ hostRequirements: [{ status: 'different' }] })).toBe('AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT');
+    // Files a course brings: already approved bytes may publish; new ones wait for a person.
+    expect(variant({ hostRequirements: [{ status: 'course_supplied' }] })).toBeNull();
+    expect(variant({ courseSupplied: { files: [], approvalRequired: ['sha256-' + 'a'.repeat(64)] } })).toBe('AUTO_PUBLISH_REFUSED_COURSE_CODE');
     expect(variant({ core: { satisfied: false } })).toBe('AUTO_PUBLISH_REFUSED_CORE_VERSION');
     expect(variant({ sdk: { status: 'newer' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');
     expect(variant({ sdk: { status: 'older' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');

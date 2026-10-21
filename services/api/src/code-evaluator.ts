@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Assessment,CourseManifest } from '@course-core/sdk';
-import { DockerSandbox, validateSubmission, type Case } from '@course-core/sandbox';
+import { type DockerSandbox, validateSubmission, type Case } from '@course-core/sandbox';
 import { z } from 'zod';
 import { canonicalJson } from '@course-core/sdk/compiler';
 import { ApiError, requireCondition } from './errors.js';
 import type { RuntimeExtension } from './publication.js';
+
+/** The part of the grading sandbox the evaluator uses. */
+export type CodeSandbox = Pick<DockerSandbox, 'readiness' | 'grade'>;
 
 const fixtureSchema = z.strictObject({ schemaVersion: z.literal(1), id: z.string().regex(/^[a-z][a-z0-9-]{0,100}$/), version: z.string().regex(/^\d+\.\d+\.\d+$/),
   fixtures: z.array(z.strictObject({ id: z.string().min(1).max(200), language: z.literal('python'), cases: z.array(z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/), input: z.unknown(), expected: z.unknown(),
@@ -28,7 +31,7 @@ export function codeFixtureBatchPlan(cases:Case[],limit=65536){
 }
 
 /** Trusted host-installed data-only fixture registry. It cannot execute course/plugin code. */
-export async function codeEvaluator(bytes: Buffer, sandbox: DockerSandbox): Promise<RuntimeExtension> {
+export async function codeEvaluator(bytes: Buffer, sandbox: CodeSandbox): Promise<RuntimeExtension> {
   requireCondition(bytes.length <= 1024 * 1024, 'CODE_FIXTURE_ENVELOPE_EXCEEDED');
   let value: unknown;
   try { value = JSON.parse(bytes.toString('utf8')); } catch { throw new ApiError(400, 'INVALID_CODE_FIXTURE'); }
