@@ -183,11 +183,13 @@ async function execute(action, selection, withDependencies) {
           const module = modules.get(name);
           const cli = path.join(module.directory, 'node_modules/@playwright/test/cli.js');
           await requireFile(cli, `${MODULES[name].directory}: installed Playwright CLI`);
-          const browser = 'chromium'; // Matching Playwright pin; local direct checks can still use installed Chrome.
+          // Matching Playwright pin; local direct checks can still use installed Chrome.
+          // The learner's web suite also checks wide-screen wheel scrolling on WebKit.
+          const browsers = name === 'learner' ? ['chromium', 'webkit'] : ['chromium'];
           const browserEnv = name === 'visuals'
             ? { ...env, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(module.directory, 'node_modules/.cache/ms-playwright') }
             : env;
-          await run(process.execPath, [cli, 'install', ...(withDependencies ? ['--with-deps'] : []), browser], module.directory, browserEnv);
+          await run(process.execPath, [cli, 'install', ...(withDependencies ? ['--with-deps'] : []), ...browsers], module.directory, browserEnv);
         }
       } else {
         console.log(`Preparation order: ${order.join(' -> ')}`);
