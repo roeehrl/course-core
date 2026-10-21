@@ -42,7 +42,7 @@ describe('publication refuses inaccessible visuals (S12)', () => {
   });
   it('refuses a visual renderer definition whose extension declares keyboard: false, even with no visual block', () => {
     const source = course({ keyboard: false }, 'A bar chart.', false);
-    source.renderers = [{ id: 'svg', version: '1.0.0', surface: 'visual', extensionId: 'scenes', targets: ['web'], features: [] }];
+    source.renderers = [{ id: 'svg', version: '1.0.0', surface: 'visual', extensionId: 'scenes', targets: ['web_desktop'], features: [] }];
     expect(refusal(() => assertCourseRunnable(source, [adapter]))).toMatchObject({ code: 'PUBLISH_VISUAL_INACCESSIBLE',
       details: { rendererDefinitionId: 'svg', rendererId: 'scenes', reasons: ['keyboard'] } });
     source.extensions[0]!.accessibility.keyboard = true;
