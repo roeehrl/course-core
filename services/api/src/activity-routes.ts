@@ -14,6 +14,7 @@ import { digestJson, loadEnrollment, policyEpisodeId, type EnrollmentContext } f
 import { episodes, requireAvailable } from './learning.js';
 import { assertPolicyAction } from './policy-adapter.js';
 import type { RuntimeExtension } from './publication.js';
+import { recordPresence } from './activity-presence.js';
 import { activityEvaluator, activityOf, assertInstalledActivityRuntimes, blockConfiguration, boundedJson, courseTargets, frameContentSecurityPolicy,
   frameDocument, isContractBlock, isJsonObject, jsonBytes, matchesSchema, resolveActivity, type ActivityBlock, type ActivityEvaluation, type ResolvedActivity } from './activity-runtime.js';
 
@@ -78,6 +79,8 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 async function satisfy(client: PoolClient, context: EnrollmentContext, row: InstanceRow, actorId: string, cause: { observationId: string; evaluated: boolean }) {
   const updated = await client.query("UPDATE activity_instances SET satisfied_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1 AND satisfied_at IS NULL", [row.id]);
   if (!updated.rowCount) return false;
+  // A finished activity no longer holds a personal change back (E03).
+  await recordPresence(client, context.enrollment, { episodeId: row.episode_id, blockId: row.block_id, kind: 'activity', state: 'closed' });
   const enrollmentId = context.enrollment.id, old = context.progress.find(p => p.episode_id === row.episode_id);
   const completed = [...new Set([...(old?.completed_block_ids ?? []), row.block_id])];
   await client.query(`INSERT INTO episode_progress (enrollment_id,episode_id,state,completed_block_ids) VALUES ($1,$2,'started',$3)
@@ -199,6 +202,8 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
         await takeBudget(client, row.id, 'patch', STATE_SAVES_PER_MINUTE);
         const saved = await client.query<{ state_revision: number }>('UPDATE activity_instances SET state=$2,state_revision=state_revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING state_revision',
           [row.id, JSON.stringify(state)]);
+        // Saving the activity's state means the learner is working in it (E03 safe boundary).
+        if (row.satisfied_at === null) await recordPresence(client, context.enrollment, { episodeId: row.episode_id, blockId: row.block_id, kind: 'activity', state: 'open' }, 'skip');
         return { stateRevision: saved.rows[0]!.state_revision };
       }
       // observation.emit
