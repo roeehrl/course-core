@@ -144,6 +144,11 @@ import {
   requeueResultSchema,
   supervisionOverviewSchema,
   supervisionResultSchema,
+  supervisionSettingsSchema,
+  settingsPreviewSchema,
+  authorityQueueSchema,
+  authorityRequestSchema,
+  learnerBudgetSchema,
 } from "../domain/supervision";
 import {
   ConceptMappingError,
@@ -1680,6 +1685,71 @@ export function createFetchAdminClient(
           undefined,
           (c) => new SupervisionError(c),
         ),
+      settings: {
+        load: (ws, signal) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/settings`,
+            supervisionSettingsSchema,
+            "GET",
+            undefined,
+            signal,
+            (c) => new SupervisionError(c),
+          ),
+        preview: (ws, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/settings/preview`,
+            settingsPreviewSchema,
+            "POST",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+        save: (ws, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/settings`,
+            supervisionSettingsSchema,
+            "PUT",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+        requests: (ws, signal) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/requests`,
+            authorityQueueSchema,
+            "GET",
+            undefined,
+            signal,
+            (c) => new SupervisionError(c),
+          ),
+        decide: (ws, requestId, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/requests/${encodeURIComponent(requestId)}/decision`,
+            authorityRequestSchema,
+            "POST",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+        budget: (ws, id, signal) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/enrollments/${encodeURIComponent(id)}/budget`,
+            learnerBudgetSchema,
+            "GET",
+            undefined,
+            signal,
+            (c) => new SupervisionError(c),
+          ),
+        saveBudget: (ws, id, input) =>
+          direct(
+            `/workspaces/${encodeURIComponent(ws)}/supervision/enrollments/${encodeURIComponent(id)}/budget`,
+            learnerBudgetSchema,
+            "PUT",
+            input,
+            undefined,
+            (c) => new SupervisionError(c),
+          ),
+      },
     },
     teachingHypotheses: {
       load: (id, signal) =>

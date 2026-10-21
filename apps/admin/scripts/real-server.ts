@@ -5,7 +5,10 @@ import {
   transaction,
 } from "../../../services/api/src/database.ts";
 import { appendEvent } from "../../../services/api/src/events.ts";
-import { createPostgresSupervisorBridge } from "../../../services/api/src/supervisor-bridge.ts";
+import {
+  createPostgresSupervisorBridge,
+  parkSupervisorJob,
+} from "../../../services/api/src/supervisor-bridge.ts";
 import { migrate } from "../../../services/api/src/migrations.ts";
 import { createServer } from "../../../services/api/src/server.ts";
 import { authService, issueLoginCode } from "../../../services/api/src/auth.ts";
@@ -1449,6 +1452,42 @@ app.post("/test/supervision-fixture", async () => {
     !(await bridge.nackOutbox(outage, "dispatch_unavailable", 0, true))
   )
     throw new Error("Supervision fixture quarantine failed");
+  // A supervisor job waiting (needs_input) for an owner to decide a higher AI spending limit (B06).
+  const review = await transaction(db, (client) =>
+    appendEvent(client, {
+      workspaceId,
+      enrollmentId,
+      actorId: learnerId,
+      actorKind: "learner",
+      type: "learning.review_requested",
+      payload: { episodeId: "min" },
+      idempotencyKey: randomUUID(),
+      supervise: true,
+    }),
+  );
+  const reviewLease = await bridge.claimOutboxEvent(
+    review.id,
+    randomUUID(),
+    30_000,
+  );
+  const [waiting] = reviewLease ? await bridge.prepareOutbox(reviewLease) : [];
+  if (!waiting || !reviewLease || !(await bridge.ackOutbox(reviewLease)))
+    throw new Error("Supervision fixture job failed");
+  await parkSupervisorJob(db, waiting, "needs_input");
+  await db.query(
+    `INSERT INTO supervisor_authority_requests(id,enrollment_id,workspace_id,job_id,kind,approver,proposal)
+     VALUES($1,$2,$3,$4,'paid_ceiling','staff',$5)`,
+    [
+      randomUUID(),
+      enrollmentId,
+      workspaceId,
+      waiting.jobId,
+      JSON.stringify({
+        limitMicroUsd: 2_500_000,
+        reason: "Two more practice sessions this week.",
+      }),
+    ],
+  );
   return {
     instructorCode: await issueLoginCode(db, instructorId),
     reviewerCode: await issueLoginCode(db, reviewerId),

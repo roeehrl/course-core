@@ -59,6 +59,7 @@ export const permissionSchema = z.enum([
   "audit.read",
   "supervision.control",
   "supervision.requeue",
+  "supervision.settings",
   "run.retry",
   "evidence.regrade",
   "study.read",

@@ -74,6 +74,123 @@ export const supervisionReasons = [
   "course_change",
 ] as const;
 
+/** Workspace AI supervision settings (owner/admin): autonomy ceiling and permitted tool families. */
+export const autonomyLevels = [
+  "recommend_only",
+  "propose_only",
+  "apply_verified_personal",
+] as const;
+export type AutonomyLevel = (typeof autonomyLevels)[number];
+const code = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+export const supervisionSettingsSchema = z.object({
+  autonomyLevel: z.enum(autonomyLevels),
+  permittedToolFamilies: z.array(code).max(32),
+  revision: z.number().int().nonnegative(),
+  levels: z.array(z.enum(autonomyLevels)).max(8).optional(),
+  families: z
+    .array(
+      z.object({
+        id: code,
+        tools: z
+          .array(z.object({ id: code, sideEffects: z.string().max(40) }))
+          .max(64),
+      }),
+    )
+    .max(32)
+    .optional(),
+});
+export type SupervisionSettings = z.infer<typeof supervisionSettingsSchema>;
+export const settingsPreviewSchema = z.object({
+  autonomyLevel: z.enum(autonomyLevels),
+  effects: z.array(code).max(10),
+  toolsAdded: z.array(code).max(64),
+  toolsRemoved: z.array(code).max(64),
+  warnings: z.array(code).max(10),
+  optedInLearners: z.number().int().nonnegative(),
+  openTeachingActions: z.number().int().nonnegative(),
+});
+export type SettingsPreview = z.infer<typeof settingsPreviewSchema>;
+const amount = z.object({
+  microUsd: z.number().int().nonnegative(),
+  tokens: z.number().int().nonnegative(),
+});
+export const learnerBudgetSchema = z.object({
+  enrollmentId: z.string().uuid(),
+  overall: amount.nullable(),
+  daily: amount.nullable(),
+  artifact: amount.nullable(),
+  usedToday: amount,
+  usedInCurrentLessonToday: amount.nullable(),
+  currentEpisodeId: z.string().max(200).nullable(),
+  dayBoundary: z.literal("utc"),
+});
+export type LearnerBudget = z.infer<typeof learnerBudgetSchema>;
+/** A change the supervisor asked a person with authority to decide. */
+export const authorityRequestSchema = z.object({
+  requestId: z.string().uuid(),
+  jobId: z.string().uuid(),
+  kind: z.enum([
+    "goal_change",
+    "required_objectives",
+    "grading_standard",
+    "paid_ceiling",
+  ]),
+  approver: z.enum(["learner", "staff"]),
+  proposal: z.object({
+    goal: z.string().max(300).optional(),
+    objectiveIds: z.array(z.string().max(128)).max(10).optional(),
+    limitMicroUsd: z.number().int().nonnegative().optional(),
+  }),
+  reason: z.string().max(500).nullable(),
+  state: z.enum(["pending", "approved", "rejected", "expired", "undone"]),
+  decidedAt: z.string().nullable(),
+  createdAt: z.string(),
+  enrollmentId: z.string().uuid().optional(),
+  learnerName: z.string().max(100).optional(),
+});
+export type AuthorityRequest = z.infer<typeof authorityRequestSchema>;
+export const authorityQueueSchema = z.object({
+  requests: z.array(authorityRequestSchema).max(100),
+});
+
+export interface SupervisionSettingsPort {
+  load(workspaceId: string, signal?: AbortSignal): Promise<SupervisionSettings>;
+  preview(
+    workspaceId: string,
+    input: { autonomyLevel: AutonomyLevel; permittedToolFamilies: string[] },
+  ): Promise<SettingsPreview>;
+  save(
+    workspaceId: string,
+    input: {
+      expectedRevision: number;
+      autonomyLevel: AutonomyLevel;
+      permittedToolFamilies: string[];
+    },
+  ): Promise<SupervisionSettings>;
+  requests(
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<{ requests: AuthorityRequest[] }>;
+  decide(
+    workspaceId: string,
+    requestId: string,
+    input: { idempotencyKey: string; decision: "approve" | "reject" },
+  ): Promise<AuthorityRequest>;
+  budget(
+    workspaceId: string,
+    enrollmentId: string,
+    signal?: AbortSignal,
+  ): Promise<LearnerBudget>;
+  saveBudget(
+    workspaceId: string,
+    enrollmentId: string,
+    input: {
+      daily: { microUsd: number; tokens: number } | null;
+      artifact: { microUsd: number; tokens: number } | null;
+    },
+  ): Promise<LearnerBudget>;
+}
+
 export interface SupervisionPort {
   overview(
     enrollmentId: string,
@@ -94,6 +211,8 @@ export interface SupervisionPort {
     eventId: string,
     input: { idempotencyKey: string; reason: string },
   ): Promise<RequeueResult>;
+  /** Owner/admin settings, spending limits and authority decisions (absent in the demo). */
+  settings?: SupervisionSettingsPort;
 }
 export class SupervisionError extends Error {
   constructor(readonly code: string) {
@@ -114,6 +233,11 @@ const ERROR_CODES = new Set([
   "SUPERVISION_CONSENT_WITHDRAWN",
   "RUBRIC_ASSIST_CONSENT_WITHDRAWN",
   "INVALID_REQUEST",
+  "SUPERVISION_SETTINGS_CHANGED",
+  "SUPERVISION_LESSON_LIMIT_ABOVE_DAILY",
+  "AUTHORITY_REQUEST_CLOSED",
+  "AUTHORITY_DECIDED_BY_LEARNER",
+  "AUTHORITY_REQUEST_NOT_FOUND",
 ]);
 export function supervisionErrorMessage(
   error: unknown,
