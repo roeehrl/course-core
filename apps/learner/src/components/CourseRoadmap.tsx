@@ -146,6 +146,7 @@ export function CourseRoadmap({
           <Button
             label={t("courseRoadmap.continue")}
             kind="primary"
+            usability="next"
             onPress={() => onOpenLesson(resume)}
           />
         )}

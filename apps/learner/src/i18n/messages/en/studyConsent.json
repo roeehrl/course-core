@@ -19,5 +19,7 @@
   "leave.explain": "From now on your data is left out of the study and your course returns to the standard version. Your learning progress is kept.",
   "leave.failed": "Your choice could not be saved. You are still in the study.",
   "leave.stay": "Stay in the study",
-  "withdrawn": "You left this study. Your data is not included and your course is the standard version."
+  "withdrawn": "You left this study. Your data is not included and your course is the standard version.",
+  "join.usability": "How long it takes you to find the next step in the app, how many other buttons you try first, and whether you get back to the same place after opening help. Only times and counts: never what you type or which lesson you are in.",
+  "taking.usability": "For this study the app times how you find your way: times and counts only."
 }

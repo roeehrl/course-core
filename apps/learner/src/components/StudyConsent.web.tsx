@@ -8,7 +8,7 @@ interface StudyView {
   revision: number;
   study: null | {
     id: string; title: string; purpose: string; state: "recruiting" | "closed"; consentDigest: string;
-    versions: string[]; collected: string[]; neverCollected: string[];
+    versions: string[]; collected: string[]; neverCollected: string[]; usabilityMeasures?: boolean;
   };
   participation: null | {
     consent: "consented" | "withdrawn"; participantCode: string; consentedAt: string; withdrawnAt: string | null;
@@ -89,6 +89,7 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
         {study.collected.map((v) => (
           <li key={v} dir="auto">{v}</li>
         ))}
+        {study.usabilityMeasures && <li>{t("studyConsent.join.usability")}</li>}
       </ul>
       <h3>{t("studyConsent.join.neverCollected")}</h3>
       <ul>
@@ -135,6 +136,7 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
             )}
           </p>
           {participation.version && <p>{t("studyConsent.taking.version", { explanation: participation.version.explanation })}</p>}
+          {participation.version && study.usabilityMeasures && <p>{t("studyConsent.taking.usability")}</p>}
           {!confirmLeave ? (
             <button type="button" className="connected-secondary" disabled={busy} onClick={() => setConfirmLeave(true)}>
               {t("studyConsent.leave.button")}
