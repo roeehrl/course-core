@@ -65,7 +65,6 @@ export const studySchema = z.object({
   arms: z
     .array(
       armSchema.extend({
-        explanation: z.string().max(400),
         consented: count,
         withdrawn: count,
       }),

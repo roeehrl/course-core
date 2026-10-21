@@ -41,7 +41,11 @@ const ROLES: Record<ArmBehaviour, readonly string[]> = {
 };
 export const armOffersRole = (behaviour: ArmBehaviour, role: string) => ROLES[behaviour].includes(role);
 /** Plain-language description of what each version means for the learner. */
-export const ARM_EXPLANATIONS: Record<ArmBehaviour, string> = {
+/**
+ * The consent text's description of each arm, as hashed into the consent digest. It is never sent:
+ * apps word each behaviour code in the reader's language. Changing it changes every digest.
+ */
+const ARM_EXPLANATIONS: Record<ArmBehaviour, string> = {
   fixed: 'The fixed lesson path: the AI companion and personal AI supervision are off for you.',
   chat_only: 'The lessons with the AI companion you can ask questions; personal AI supervision (adjusted plans, suggested resources, generated media) is off for you.',
   supervisor: 'The full course: the AI companion and personal AI supervision, as usual.',
@@ -60,6 +64,9 @@ export const ARM_EXPLANATIONS: Record<ArmBehaviour, string> = {
  * durations are kept; recording stops the moment the learner leaves the study.
  */
 export const USABILITY_CONSENT = 'usability-timing/1';
+/** What a study collects and never collects, as codes the learner app words (studyConsent.collected.*, studyConsent.neverCollected.*). */
+export const STUDY_COLLECTED = ['study_code', 'course_version', 'check_scores', 'lessons_completed'] as const;
+export const STUDY_NEVER_COLLECTED = ['profile', 'written_content', 'companion_conversations'] as const;
 export const USABILITY_KINDS = ['next_action', 'detour_return'] as const;
 export const USABILITY_PLACES = ['course_page', 'lesson', 'check', 'gate', 'after_detour'] as const;
 export const DEVICE_CLASSES = ['phone', 'tablet', 'desktop'] as const;
@@ -258,10 +265,10 @@ export async function learnerStudyView(client: Sql, enrollment: { id: string; co
   return {
     study: {
       id: study.id, title: study.title, purpose: study.purpose, state: study.state, consentDigest: consentDigest(study),
-      versions: [...new Set(study.arms.map((a) => a.behaviour))].map((behaviour) => ARM_EXPLANATIONS[behaviour]),
-      collected: ['your study code (not your name or email)', 'which version of the course you used',
-        'your scores on the study\'s check questions, and when you answered them', 'how many lessons you completed'],
-      neverCollected: ['your name, email or profile', 'anything you write in answers or messages', 'your conversations with the AI companion'],
+      // Codes, worded in the learner's language by the app: arm behaviours, then what is and is never collected.
+      versions: [...new Set(study.arms.map((a) => a.behaviour))],
+      collected: [...STUDY_COLLECTED],
+      neverCollected: [...STUDY_NEVER_COLLECTED],
       // The app words what this adds to the collected list in the learner's language.
       usabilityMeasures: study.usability_measures,
     },
@@ -270,7 +277,7 @@ export async function learnerStudyView(client: Sql, enrollment: { id: string; co
       participantCode: pseudonym(study.pseudonym_salt, enrollment.id),
       consentedAt: participant.consented_at.toISOString(), withdrawnAt: participant.withdrawn_at?.toISOString() ?? null,
       // What changes for the learner now: nothing after withdrawal or once the study has closed.
-      version: consented && study.state === 'recruiting' && arm ? { label: arm.label, behaviour: arm.behaviour, explanation: ARM_EXPLANATIONS[arm.behaviour] } : null,
+      version: consented && study.state === 'recruiting' && arm ? { label: arm.label, behaviour: arm.behaviour } : null,
     } : null,
   };
 }
@@ -350,7 +357,7 @@ export async function studySummary(client: Sql, study: StudyRow) {
   const consented = arms.reduce((n, a) => n + a.consented, 0), withdrawn = arms.reduce((n, a) => n + a.withdrawn, 0);
   return {
     id: study.id, releaseId: study.course_release_id, title: study.title, purpose: study.purpose, state: study.state, revision: study.revision,
-    arms: study.arms.map((a) => ({ ...a, explanation: ARM_EXPLANATIONS[a.behaviour], consented: byArm.get(a.id)?.consented ?? 0, withdrawn: byArm.get(a.id)?.withdrawn ?? 0 })),
+    arms: study.arms.map((a) => ({ ...a, consented: byArm.get(a.id)?.consented ?? 0, withdrawn: byArm.get(a.id)?.withdrawn ?? 0 })),
     instruments: study.instruments, minCellSize: study.min_cell_size, seedDigest: study.seed_digest, usabilityMeasures: study.usability_measures,
     // Aggregate only: how many timed trials have arrived, so staff can see recording works.
     usabilityTrials: study.usability_measures

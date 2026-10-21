@@ -267,8 +267,8 @@ function StudyCard({
                   <th scope="row" dir="auto">
                     {arm.label}
                   </th>
-                  <td data-label={t("studyView.arms.switches")} dir="auto">
-                    {arm.explanation}
+                  <td data-label={t("studyView.arms.switches")}>
+                    {t(`studies.explain.${arm.behaviour}`)}
                   </td>
                   <td data-label={t("studyView.stat.consented")}>
                     <span className="arm-count">
