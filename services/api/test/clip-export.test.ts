@@ -39,8 +39,10 @@ const request = (extra: Partial<Parameters<typeof exportSceneClip>[1]> = {}) =>
 const calls = () => { try { return readFileSync(log, "utf8").trim().split("\n"); } finally { rmSync(log, { force: true }); } };
 const code = (expected: string) => (error: unknown) => error instanceof ClipError && error.code === expected;
 afterAll(() => rmSync(bin, { recursive: true, force: true }));
+// Each export starts a stand-in process per frame; a loaded CI runner can take seconds for that.
+const slowSpawns = { timeout: 30_000 };
 
-describe("exact clips from verified scenes", () => {
+describe("exact clips from verified scenes", slowSpawns, () => {
   it("renders one frame per exact time, encodes them once and returns a checked container", async () => {
     rmSync(log, { force: true });
     const clip = await exportSceneClip(visual, request(), fake);
@@ -98,7 +100,7 @@ describe("exact clips from verified scenes", () => {
   });
 });
 
-describe("composition of reviewed clips", () => {
+describe("composition of reviewed clips", slowSpawns, () => {
   const mp4 = { bytes: Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 1, 2, 3, 4]), mimeType: "video/mp4" };
   const webm = { bytes: Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, 9]), mimeType: "video/webm" };
   it("joins clips of either container into one in a single encoder run", async () => {

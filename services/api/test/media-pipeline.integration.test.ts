@@ -37,7 +37,8 @@ const clipToolchain = {
 const digest = require('node:crypto').createHash('sha256'); for (const input of inputs) digest.update(input);
 fs.writeFileSync(target, Buffer.concat([Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70]), digest.digest()]));`),
 };
-const options = { pollIntervalMs: 1000, maxPolls: 6, providerCallTimeoutMs: 2000, maxActivePerWorkspace: 20, jobDurationMs: 3 * 3_600_000, clipToolchain };
+// The call timeout also bounds a local clip render (one stand-in process per frame), so it allows a loaded CI runner.
+const options = { pollIntervalMs: 1000, maxPolls: 6, providerCallTimeoutMs: 30_000, maxActivePerWorkspace: 20, jobDurationMs: 3 * 3_600_000, clipToolchain };
 interface Session { id: string; cookie: string; csrf: string }
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, bare: Awaited<ReturnType<typeof createServer>>, providers: WorkspaceProviders,
   worker: MediaJobService, owner: Session, reviewer: Session, learner: Session, releaseId: string, enrollment: string;
