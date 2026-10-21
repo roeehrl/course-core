@@ -299,6 +299,12 @@ export const learnerViewSchema = z.object({
         transcript: z.string().max(20000).nullable(),
         visualDescription: z.string().max(5000).nullable(),
         captions: z.boolean(),
+        /** The caption track's language as the reviewer recorded it (BCP 47); null when unknown. */
+        captionsLanguage: z
+          .string()
+          .regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/)
+          .nullable()
+          .optional(),
         mimeType: z.enum(["video/mp4", "video/webm"]),
         byteLength: z.number().int().nonnegative(),
         reviewedAt: z.string(),

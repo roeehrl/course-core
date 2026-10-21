@@ -113,7 +113,7 @@ describe("view as learner: course-made media", () => {
       const [item] = body.generatedMedia, base = `/api/admin/enrollments/${enrollment}/learner-view/${body.view.id}/media/${shown.attachmentId}`;
       expect(item).toEqual({
         id: shown.attachmentId, episodeId: "min", title: own[0].title, objective: own[0].objective, transcript: own[0].transcript,
-        visualDescription: own[0].visualDescription, captions: true, mimeType: own[0].mimeType, byteLength: own[0].byteLength,
+        visualDescription: own[0].visualDescription, captions: true, captionsLanguage: null, mimeType: own[0].mimeType, byteLength: own[0].byteLength,
         reviewedAt: own[0].reviewedAt, expiresAt: own[0].expiresAt, state: "available", assetUrl: `${base}/asset`, captionsUrl: `${base}/captions.vtt`,
       });
       expect(r.body).not.toContain("Superseded minimum clip");

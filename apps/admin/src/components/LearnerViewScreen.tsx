@@ -569,8 +569,10 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
               <track
                 kind="captions"
                 src={clip.captionsUrl}
-                srcLang="en"
-                label={t("learnerViewScreen.media.captionsTrack")}
+                srcLang={clip.captionsLanguage ?? undefined}
+                label={t("learnerViewScreen.media.captionsTrack", {
+                  language: clip.captionsLanguage ?? "unknown",
+                })}
                 default
               />
             )}
@@ -594,7 +596,9 @@ function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
           <dt>{t("learnerViewScreen.media.captions")}</dt>
           <dd>
             {clip.captions
-              ? t("learnerViewScreen.media.captionsTrack")
+              ? t("learnerViewScreen.media.captionsTrack", {
+                  language: clip.captionsLanguage ?? "unknown",
+                })
               : t("learnerViewScreen.media.none")}
           </dd>
         </div>

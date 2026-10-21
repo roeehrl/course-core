@@ -76,7 +76,7 @@
   "media.shown": "מוצג ללומד/ת",
   "media.meta": "סרטון שהקורס יצר · נבדק {reviewed} · מוצג עד {until}",
   "media.objective": "מה הוא מראה:",
-  "media.captionsTrack": "כתוביות באנגלית",
+  "media.captionsTrack": "{language, select, en {כתוביות באנגלית} he {כתוביות בעברית} other {כתוביות}}",
   "media.unplayable": "<strong>אי אפשר להפעיל כאן את הסרטון.</strong> הדפדפן הזה לא יכול להפעיל את הקליפ ({type}). הלומד/ת מקבל/ת את אותו תמליל ואותו תיאור שמוצגים למטה.",
   "media.captions": "כתוביות",
   "media.none": "אין",

@@ -167,6 +167,7 @@ describe("read-only learner view", () => {
         transcript: "The running minimum keeps the smaller value.",
         visualDescription: "A highlight moves along five boxes.",
         captions: true,
+        captionsLanguage: "en",
         mimeType: "video/mp4",
         byteLength: 64,
         reviewedAt: "2026-10-14T09:00:00.000Z",
