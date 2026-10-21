@@ -1396,6 +1396,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 })
               }
               onComplete={completeEpisode}
+              onReturn={(id) => openEpisode(id)}
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
               activities={activityClient}

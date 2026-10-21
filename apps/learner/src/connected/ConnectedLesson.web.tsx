@@ -79,6 +79,28 @@ export interface ConnectedLessonProps {
   activities?: ActivityClient;
   /** An activity step was completed on the server; reload the lesson state. */
   onActivityChanged?: () => void;
+  /** Opens the learner's current step on the path, after an optional detour or a revisit. */
+  onReturn?: (episodeId: string) => void;
+}
+/**
+ * Where the learner goes back to when this lesson is a detour from their path: an optional lesson
+ * (authored or added for them) or a finished one they are revisiting, while their current step is
+ * elsewhere. Names the current lesson and the part they stopped at. Null when this is the path.
+ */
+export function returnPoint(server: ServerSnapshot, episode: Episode, placement: boolean) {
+  const currentId = server.nextEpisodeId;
+  if (placement || !currentId || currentId === episode.id) return null;
+  const lesson = server.lessons.find((row) => row.id === episode.id);
+  const optional = episode.requirement === "optional" || server.adaptationRequirements?.some((r) => r.episodeId === episode.id && r.insertedEpisode && r.classification === "optional");
+  const revisit = lesson?.status === "completed" || lesson?.status === "placed";
+  if (!optional && !revisit) return null;
+  const target = server.course.chapters.flatMap((chapter) => chapter.episodes).find((row) => row.id === currentId);
+  if (!target) return null;
+  const read = server.lessons.find((row) => row.id === currentId)?.completedBlockIds ?? [];
+  const parts = target.blocks.filter((block) => ["text", "visual", "media"].includes(block.type));
+  const unread = parts.findIndex((block) => !read.includes(block.id));
+  return { kind: optional ? ("optional" as const) : ("revisit" as const), episodeId: target.id, title: target.title,
+    where: unread >= 0 ? ("part" as const) : ("check" as const), part: unread + 1, total: parts.length };
 }
 export function ConnectedLesson(props: ConnectedLessonProps) {
   const t = useT();
@@ -131,6 +153,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
   const steps = lessonSteps(server, episode, t);
+  const detour = returnPoint(server, episode, placement);
   const place = nowAndNext(steps);
   const blockTitle = current
     ? t("connectedLesson.partOf", { number: index + 1, total: reading.length })
@@ -232,6 +255,21 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           </dl>
         )}
       </header>
+      {detour && (
+        <div className="connected-detour" role="note" data-testid="detour-return">
+          <p>
+            {t(detour.kind === "optional" ? "connectedLesson.detour.optional" : "connectedLesson.detour.revisit", {
+              title: detour.title,
+              where: detour.where,
+              part: detour.part,
+              total: detour.total,
+            })}
+          </p>
+          {props.onReturn && (
+            <Button label={t("connectedLesson.detour.return", { title: detour.title })} kind="quiet" onPress={() => props.onReturn!(detour.episodeId)} />
+          )}
+        </div>
+      )}
       {props.policyPanel}
       {props.pendingChanges}
       {closed ? (

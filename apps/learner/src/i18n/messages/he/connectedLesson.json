@@ -53,5 +53,8 @@
   "complete.hint": "כדי להמשיך צריך לסיים את הקריאה ואת הבדיקות העצמאיות.",
   "readInstead": "קריאת השיעור במקום זאת",
   "steps.summaryWithParts": "{partsRead, number} מתוך {parts, number} חלקים נקראו · {done, number} מתוך {steps, number} שלבים הושלמו",
-  "steps.summary": "{done, number} מתוך {steps, number} שלבים הושלמו"
+  "steps.summary": "{done, number} מתוך {steps, number} שלבים הושלמו",
+  "detour.optional": "מעקף רשות: השיעור הזה לא חובה. בסיום חוזרים אל “{title}”, {where, select, part {חלק {part} מתוך {total}} other {לבדיקה שלו}}.",
+  "detour.revisit": "זו חזרה לשיעור שכבר סיימת. בסיום חוזרים אל “{title}”, {where, select, part {חלק {part} מתוך {total}} other {לבדיקה שלו}}.",
+  "detour.return": "חזרה אל “{title}”"
 }
