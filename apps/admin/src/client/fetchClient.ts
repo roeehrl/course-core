@@ -95,10 +95,13 @@ import {
 } from "../domain/research";
 import {
   MediaActionError,
+  mediaCheckSchema,
   mediaEstimateSchema,
   mediaJobSchema,
   mediaLibrarySchema,
   mediaReceiptSchema,
+  storyboardListSchema,
+  storyboardSchema,
 } from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
 import {
@@ -410,7 +413,7 @@ export function createFetchAdminClient(
     method: string,
     payload: unknown,
     signal: AbortSignal | undefined,
-    fail: (code: string) => Error,
+    fail: (code: string, details?: unknown) => Error,
   ): Promise<T> {
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
@@ -443,7 +446,12 @@ export function createFetchAdminClient(
         body && typeof body === "object" && "error" in body
           ? String(body.error)
           : "";
-      throw fail(/^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE");
+      throw fail(
+        /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+        body && typeof body === "object" && "details" in body
+          ? body.details
+          : undefined,
+      );
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) throw fail("INVALID_RESPONSE");
@@ -551,7 +559,7 @@ export function createFetchAdminClient(
       method,
       payload,
       signal,
-      (c) => new MediaActionError(c),
+      (c, details) => new MediaActionError(c, details),
     );
   const costs = <T>(
     path: string,
@@ -1355,6 +1363,70 @@ export function createFetchAdminClient(
         ),
       assetUrl: (jobId) =>
         `${base}/media-jobs/${encodeURIComponent(jobId)}/asset`,
+      requestImage: (enrollmentId, input, idempotencyKey) =>
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-images`,
+          mediaJobSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      requestClip: (enrollmentId, input, idempotencyKey) =>
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-clips`,
+          mediaJobSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      compose: (storyboardId, idempotencyKey) =>
+        media(
+          `/media-storyboards/${encodeURIComponent(storyboardId)}/compose`,
+          mediaJobSchema,
+          "POST",
+          { idempotencyKey },
+        ),
+      storyboards: async (releaseId, signal) =>
+        (
+          await media(
+            `/releases/${encodeURIComponent(releaseId)}/media-storyboards`,
+            storyboardListSchema,
+            "GET",
+            undefined,
+            signal,
+          )
+        ).storyboards,
+      createStoryboard: (enrollmentId, input, idempotencyKey) =>
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-storyboards`,
+          storyboardSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      editStoryboard: (storyboardId, expectedRevision, shots, idempotencyKey) =>
+        media(
+          `/media-storyboards/${encodeURIComponent(storyboardId)}/edit`,
+          storyboardSchema,
+          "POST",
+          { expectedRevision, shots, idempotencyKey },
+        ),
+      reviewStoryboard: (
+        storyboardId,
+        expectedRevision,
+        decision,
+        idempotencyKey,
+      ) =>
+        media(
+          `/media-storyboards/${encodeURIComponent(storyboardId)}/review`,
+          storyboardSchema,
+          "POST",
+          { expectedRevision, decision, idempotencyKey },
+        ),
+      check: (jobId, input, idempotencyKey) =>
+        media(
+          `/media-jobs/${encodeURIComponent(jobId)}/check`,
+          mediaCheckSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
     },
     reviews: {
       pending: (catalogId, signal) =>
