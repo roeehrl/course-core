@@ -404,6 +404,50 @@ export function createDemoPlatform({
           .join(""),
       };
     },
+    async hostInventory(workspaceId) {
+      await guard(workspaceId);
+      // A demo host: the shape the SDK's `course compat --host` reads, with made-up builds.
+      const text =
+        JSON.stringify(
+          {
+            hostInventoryFormat: 1,
+            coreVersion: "0.0.0-demo",
+            sdk: {
+              version: "0.5.0",
+              supported: { min: "0.5.0", maxExclusive: "0.6.0" },
+            },
+            renderers: [
+              {
+                rendererId: "course-core-svg-v1",
+                version: "0.5.1",
+                features: ["clip", "gradient", "image", "mask", "path_draw"],
+                targets: ["web_desktop", "web_mobile"],
+              },
+            ],
+            platformAdapters: [],
+            extensions: [
+              {
+                id: "course-core-svg-v1",
+                version: "0.5.1",
+                integrity: `sha256-${"0".repeat(64)}`,
+              },
+            ],
+            capabilities: ["observation.emit", "visual.render"],
+            servedPriorBuilds: [],
+          },
+          null,
+          2,
+        ) + "\n";
+      const bytes = new TextEncoder().encode(text);
+      const hash = sha256Bytes(bytes);
+      return {
+        body: new Blob([bytes], { type: "application/json" }),
+        fileName: "demo-host-inventory.json",
+        digest: [...new Uint8Array(hash)]
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join(""),
+      };
+    },
     async policyHistory(courseId, signal) {
       await guard(null, signal);
       if (!(courseId in CATALOG_IDS)) throw new AdminError("not_found");
