@@ -355,10 +355,10 @@ describe("an image model and a video model bound together (O10, O12)", { timeout
     } finally { await configure("video"); }
   });
   it("refuses an image model beside an image model, or one the registry does not have", async () => {
-    const both = pipelineConfiguration("both");
+    const both = pipelineConfiguration("both"), picture = { modelId: "picture", maxInputCharacters: 4000, maxOutputTokens: 10 };
     for (const media of [{ ...both.roles.media, mediaKind: "image", video: undefined, maxOutputTokens: 10 },
-      { ...both.roles.media, imageModel: { ...both.roles.media.imageModel!, modelId: "missing" } },
-      { ...both.roles.media, imageModel: { ...both.roles.media.imageModel!, modelId: "clip" } }]) {
+      { ...both.roles.media, imageModel: { ...picture, modelId: "missing" } },
+      { ...both.roles.media, imageModel: { ...picture, modelId: "clip" } }]) {
       const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
         configuration: { ...both, roles: { ...both.roles, media } }, jobPolicy: { ...mediaJobPolicy(250_000), allowance: { microUsd: 250_000, tokens: 1_000_000 } }, credentials: {} });
       expect(r.statusCode, r.body).toBe(400);
