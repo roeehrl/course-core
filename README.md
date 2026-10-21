@@ -316,6 +316,24 @@ files the host configured (`CODE_FIXTURE_FILES`, `TEACHING_VERIFIER_FILES`) and 
 digests only. The verifier is `services/api/src/course-package.ts`; it is structured so it can
 delegate to the SDK's canonical verifier once Core pins an SDK release that has one.
 
+**Files a course brings.** A course can carry two kinds of extension in its package instead of
+asking the operator to install them: a data-only code fixture registry (hidden input/expected
+cases, `execution: 'server'`) and a `sandboxed_web` activity script. The course's extension
+declaration pins the bytes by its `integrity`; the package member with that SHA-256 (role
+`host-requirement` or `other`) supplies them. The preview lists them under "Files the course
+brings" as *already approved*, *needs your approval* or *can't be used here* (with what to do),
+and **Install draft** needs an explicit approval of exactly those files
+(`approveCourseSupplied: {integrities}`; otherwise `COURSE_SUPPLIED_APPROVAL_REQUIRED`). Nothing
+from them runs in the API: Core's own code evaluator grades learner code against the cases in the
+networkless sandbox, and the script is served only inside the opaque-origin activity frame (see
+"Activity runtime"). Approved bytes are kept with the release (`course_supplied_extensions`,
+immutable), loaded at startup and installed host-wide by content: another course uses them only
+by declaring the same id, version and bytes. An id already installed with different bytes is
+never replaced (`EXTENSION_ID_CONFLICT`). Hidden code cases need the grading sandbox
+(`COURSE_SUPPLIED_CODE_FIXTURES=on`, or host fixture files configured); without it they are
+reported as `NO_SANDBOX`. Automatic updates never approve new course files
+(`AUTO_PUBLISH_REFUSED_COURSE_CODE`).
+
 GitHub links work for public repositories only (a private or missing one is reported as
 `GITHUB_REPOSITORY_NOT_PUBLIC_OR_MISSING`). Core resolves the release through
 `api.github.com` without credentials, picks the asset named `*.course.tgz` (several: the operator
@@ -389,7 +407,7 @@ draft in review and stage its registry; owner/admin) or `publish` (also approve 
 saved only by someone holding `release.review` and `release.publish`, with an explicit
 acknowledgement), every 1–720 hours (default 24). Automatic publication is refused, and the
 version left as a draft in review, when the preview has a blocking problem, a host requirement
-that is not identical, a failing runtime check, an unmet minimum Core version or an SDK outside
+that is not identical, course files that still need approval, a failing runtime check, an unmet minimum Core version or an SDK outside
 the supported range. It never touches existing enrollments. A packaged registry is approved
 automatically only at `publish`, and only when its digest equals the live release's approved
 registry or the acknowledgement explicitly also covers a changed registry. The saving person's
