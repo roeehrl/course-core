@@ -822,7 +822,9 @@
     ],
     "O09": [
       "core:apps/admin/tests/real/media-pipeline.real.spec.ts",
+      "core:services/api/test/media-pipeline.integration.test.ts::inspects the clip's frames against the request",
       "core:services/api/test/media-pipeline.integration.test.ts::storyboards and composition (O09)",
+      "core:services/api/test/media-pixels.test.ts::reports a clip that is too short, the wrong shape, the wrong resolution, mostly blank or still",
       "core:services/api/test/media-verifier.test.ts"
     ],
     "O10": [
@@ -831,14 +833,19 @@
       "core:services/api/test/media-pipeline.integration.test.ts::exact clips from verified scenes (O10)",
       "core:services/api/test/media-pipeline.integration.test.ts::generated images (O10, O12 image half)",
       "core:services/api/test/media-pipeline.integration.test.ts::generated video checked against its script and a reference (O09, F12)",
+      "core:services/api/test/media-pipeline.integration.test.ts::pictures use the image model and clips the video model",
+      "core:services/api/test/media-pixels.test.ts::reports fewer visible cuts than storyboard shots",
       "core:services/api/test/media-verifier.test.ts"
     ],
     "O11": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "O12": [
+      "core:apps/admin/tests/aiServices.test.tsx::binds an image model beside a video model and sends both in one draft",
       "core:packages/providers/test/media.test.mjs::an image interaction runs end to end against a local stub HTTP server",
-      "core:packages/providers/test/video.test.mjs"
+      "core:packages/providers/test/video.test.mjs",
+      "core:services/api/test/google-model-setup.test.ts::binds an image model beside a video model",
+      "core:services/api/test/google-model-setup.test.ts::sets image models up on the Interactions API (image_interaction)"
     ],
     "P01": [
       "core:apps/learner/tests/components.test.tsx"

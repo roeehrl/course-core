@@ -1,3 +1,4 @@
+import type { MediaInspectionTools } from "./media-pixels.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { PoolClient } from "pg";
@@ -100,6 +101,8 @@ export interface MediaJobOptions {
   providerCallTimeoutMs?: number;
   /** External tools for exact clips and compositions; absent refuses them with a clear code. */
   clipToolchain?: ClipToolchain | null;
+  /** ffmpeg and ffprobe for the frame and pixel check of generated media (media-pixels.ts); absent, it does not run. */
+  mediaInspection?: MediaInspectionTools | null;
 }
 const MAX_ASSET_BYTES = 32 * 1024 * 1024;
 /** Slack between the longest provider work one leased step can do and the lease itself:
