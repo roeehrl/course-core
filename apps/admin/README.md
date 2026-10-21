@@ -2,6 +2,8 @@
 
 `/admin/` now opens the real same-origin application using `/api/admin`, the existing cookie session and the readable CSRF cookie. Staff sign in with a username and password (a temporary password must be replaced first) and can change their password from the connection bar; the one-time code form appears only when the server reports `loginCodes: true` at `/auth/options`. `/admin/demo` explicitly selects the separate public in-memory demo. A connection/authentication failure never falls back to fictional data. Production assets are built with Vite base `/admin/`.
 
+The demo keeps everything in memory and never calls a provider. Besides courses, enrollments, policy and runs, it stands in for answer keys (`src/client/demoAssessments.ts`), organization limits, course policy settings, allowances and batch adjustments (`demoPolicyLevels.ts`), generated media (`demoMedia.ts`), AI supervision (`demoSupervision.ts`), and platform and integrations (`demoPlatform.ts`), with fictional data. Overview, answer reviews, placement, people, concept mappings, research sources, studies and the audit log still say they need a connected session. `tests/web/demo-views.spec.ts` opens every demo view in English and Hebrew.
+
 The allowed implementation scope is this app plus exactly:
 
 - `services/api/src/admin-routes.ts`
