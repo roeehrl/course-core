@@ -9,6 +9,7 @@ import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerRetentionRoutes} from './retention.js';
 import { serverClock, type Clock } from './clock.js';
 import {registerPersonalChangeRoutes} from './personal-changes.js';
+import { registerPresenceRoutes } from './activity-presence.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
@@ -387,6 +388,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRetentionRoutes(app,db,auth,clock,options.installedExtensions ?? []);
   registerAssessmentAdminRoutes(app,db,auth);
   registerPersonalChangeRoutes(app,db,auth,adaptation);
+  registerPresenceRoutes(app, db, auth);
   registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory), installedExtensions: options.installedExtensions ?? [] });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.
