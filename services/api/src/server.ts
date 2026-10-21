@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
@@ -33,6 +34,7 @@ import { registerGateReviewRoutes } from './gate-reviews.js';
 import { registerEvidenceDisputeRoutes } from './evidence-disputes.js';
 import { registerScopedCorrectionRoutes } from './scoped-corrections.js';
 import { activateWindows, assertPolicyAction, assertPublishable, enrollmentPolicy } from './policy-adapter.js';
+import { assertPublishVersion } from './course-versions.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
@@ -203,6 +205,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   app.post('/api/releases/:releaseId/publish', { schema: { params: { type: 'object', properties: { releaseId: uuid }, required: ['releaseId'] } } }, async request => {
     const actor = await auth.authenticate(request), { releaseId } = request.params as { releaseId: string };
+    // Optional body: { confirmOlderVersion: true } publishes a version lower than one already published.
+    const body = z.strictObject({ confirmOlderVersion: z.literal(true).optional() }).safeParse(request.body ?? {});
+    requireCondition(body.success, 'INVALID_REQUEST');
     return transaction(db, async client => {
       let release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1', [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
@@ -214,11 +219,12 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       if (release.status === 'draft') {
         await prepareCourseRunnable(release.server_bundle, options.installedExtensions);
         assertCourseRunnable(release.server_bundle, options.installedExtensions);
+        const backFrom = await assertPublishVersion(client, release as Release & { course_key: string; version: string }, body.data.confirmOlderVersion === true);
         await assertPublishable(client, releaseId, release.server_bundle);
         await client.query("UPDATE course_releases SET status='published' WHERE id=$1", [releaseId]);
         await selectCatalogueReleaseWithin(client,catalogId,releaseId);
         await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1',[catalogId]);
-        await appendEvent(client, { workspaceId: release.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'course.published', payload: { releaseId }, idempotencyKey: `release:${releaseId}:publish` });
+        await appendEvent(client, { workspaceId: release.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'course.published', payload: { releaseId, ...(backFrom ? { olderVersionConfirmed: true, newestPublished: backFrom } : {}) }, idempotencyKey: `release:${releaseId}:publish` });
       }
       return { id: releaseId, status: 'published' };
     });
