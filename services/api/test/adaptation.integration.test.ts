@@ -282,6 +282,8 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     expect(snapshot.json().planRevision).toBe(1);
     expect(snapshot.json().activeChallenges).toContainEqual(expect.objectContaining({challengeId:receipt.challengeId}));
     expect(snapshot.body).not.toMatch(/correctOptionId|hiddenFixtures|\"expected\"|minimum-recipe/);
+    const exported=await core.inject({url:`/api/enrollments/${f.enrollmentId}/export`,headers:headers(f.learner)});expect(exported.statusCode,exported.body).toBe(200);
+    expect(exported.rawPayload.toString('utf8')).not.toMatch(/"grading"|"expected"|"recipe"|minimum-recipe|numeric-creator/);
     const answered=await core.inject({method:'POST',url:`/api/enrollments/${f.enrollmentId}/answers`,headers:headers(f.learner),payload:{
       expectedRevision:await rev(f.enrollmentId),idempotencyKey:randomUUID(),challengeId:receipt.challengeId,answer:1}});
     expect(answered.statusCode,answered.body).toBe(200); expect(answered.json().result.passed).toBe(true);
@@ -330,6 +332,10 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     expect(response.json().question.type).toBe('choice');expect(response.body).not.toContain('correctOptionId');expect(response.body).not.toContain('UNISSUED_BANK_FIXTURE');
     const projected=await resolved(f);expect(projected.server_bundle.assessments.find(a=>a.id===response.json().question.id)?.familyId).toBe('compare');
     expect(JSON.stringify(projected.learner_bundle)).not.toContain('correctOptionId');
+    // The learner's data export lists the applied variant as its question only: no key or hidden fixture.
+    const exported=await core.inject({url:`/api/enrollments/${f.enrollmentId}/export`,headers:headers(f.learner)});expect(exported.statusCode,exported.body).toBe(200);
+    expect(exported.rawPayload.toString('utf8')).not.toMatch(/UNISSUED_BANK_FIXTURE|correctOptionId|hiddenFixtures|"grading"|bank-creator/);
+    expect(exported.json().supervision.personalTeaching).toEqual([expect.objectContaining({kind:'assessment_variant',question:expect.objectContaining({id:response.json().question.id,type:'choice'})})]);
   });
 
   it('requires explicit assistance consent, downgrades outstanding challenges atomically, and records fresh exposure',async()=> {

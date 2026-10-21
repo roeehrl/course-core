@@ -278,7 +278,9 @@
       "core:services/api/test/learner-model.integration.test.ts"
     ],
     "C08": [
-      "core:services/api/test/data-lifecycle.integration.test.ts"
+      "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/export-answer-keys.integration.test.ts::answer keys never leave the server in a data export",
+      "core:services/api/test/learner-export.test.ts"
     ],
     "C09": [
       "core:apps/learner/tests/memory.test.tsx",
