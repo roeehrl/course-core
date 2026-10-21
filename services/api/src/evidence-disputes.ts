@@ -8,15 +8,29 @@ import { appendEvent } from './events.js';
 import { acknowledgeable, catalogFor, reviewEvidenceWithin } from './admin-routes.js';
 import { OPEN_DISPUTE } from './learner-model.js';
 import { digestJson, type Release } from './repository.js';
+import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment } from './gates.js';
+
+/** The kind of answer a disputed result came from, in words staff recognise. */
+function answerKind(type: string | undefined) {
+  if (!type) return 'other' as const;
+  if (type === 'choice') return 'choice' as const;
+  if (type === 'numeric' || type === 'prediction') return 'number' as const;
+  if (type === 'trace') return 'trace' as const;
+  if (type === 'code' || type === 'code_repair') return 'code' as const;
+  if (type === 'rubric' || type === 'counterexample' || type === 'experiment_design' || type === 'teach_back') return 'written' as const;
+  return 'other' as const;
+}
 
 /**
  * Staff queue of learners' open evidence disputes (learner-model.ts, migration 044) for one
  * course. A row shows the dispute's state, objective, evidence reference and age. It never
  * carries the learner's reason: that is 'evidence-dispute-reason' in learner-privacy.ts.
  *
- * A dispute is resolved the way #83 closes it: staff review the disputed evidence. "Uphold"
- * acknowledges a valid result (only for an independent, unassisted, passing deterministic answer)
- * and "invalidate" removes the evidence and recomputes progress. Neither grants credit. Both go
+ * A dispute of any result (a choice, a number, code, a written answer, a delayed check) is resolved
+ * the way #83 closes it: staff review the disputed evidence. "Uphold" keeps the result: any result
+ * that did not pass, or a pass Core can re-check (an independent, unassisted, passing deterministic
+ * answer). "Invalidate" removes the evidence and recomputes progress, and for a delayed check the
+ * review schedule. An automatically graded answer can also be graded again (scoped-corrections.ts). Neither grants credit. Both go
  * through the same review as the enrollment's evidence list (reviewEvidenceWithin), require
  * `evidence.review` on the course through permit(), and are audited.
  */
@@ -63,20 +77,24 @@ export function registerEvidenceDisputeRoutes(app: FastifyInstance, db: Database
       return {
         disputes: rows.slice(0, QUEUE_LIMIT).map(row => {
           const release = releases.get(row.course_release_id)!, own = row.user_id === actor.id;
+          const item = findAssessment(release.server_bundle, row.assessment_id), passed = row.result.passed === true;
           return {
             disputeId: row.dispute_id,
             state: 'open' as const,
             enrollmentId: row.enrollment_id,
             learner: row.display_name,
             objectiveId: row.objective_id,
-            evidence: { evidenceId: row.evidence_id, attemptId: row.attempt_id, assessmentId: row.assessment_id, passed: row.result.passed === true,
-              independent: row.independent, mode: row.mode, releaseVersion: row.release_version },
+            evidence: { evidenceId: row.evidence_id, attemptId: row.attempt_id, assessmentId: row.assessment_id, passed,
+              independent: row.independent, mode: row.mode, releaseVersion: row.release_version, kind: answerKind(item?.type) },
             raisedAt: row.created_at.toISOString(),
             ageDays: Math.max(0, Math.floor((now - row.created_at.getTime()) / DAY_MS)),
             /** Nobody resolves a dispute of their own evidence. */
             canResolve: !own,
-            /** Upholding needs a result Core can acknowledge without grading it; invalidating is always possible. */
-            canUphold: !own && acknowledgeable(row, release),
+            /** Keeping a result that did not pass is always possible (it grants nothing); upholding a
+             * pass needs a result Core can acknowledge without grading it. Invalidating is always possible. */
+            canUphold: !own && (!passed || acknowledgeable(row, release)),
+            /** Graded automatically on the gate path, so staff can also grade the stored answer again (regrade). */
+            canRegrade: !own && (row.mode === 'independent' || row.mode === 'practice') && Boolean(item && (codeView(release.server_bundle, item) || DETERMINISTIC_ITEM_TYPES.has(item.type))),
           };
         }),
         truncated: rows.length > QUEUE_LIMIT,

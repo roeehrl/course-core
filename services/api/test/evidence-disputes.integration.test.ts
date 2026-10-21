@@ -6,6 +6,7 @@ import { createDatabase, type Database } from '../src/database.js';
 import { createServer } from '../src/server.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
+import { retentionCourse } from './retention-fixture.js';
 
 const origin = 'http://localhost:4310';
 const schema = `course_evidence_disputes_${randomUUID().replaceAll('-', '')}`;
@@ -37,8 +38,8 @@ async function enroll(release = releaseId, learner?: Session) {
   expect(response.statusCode, response.body).toBe(200);
   return { learner, id: response.json().id as string };
 }
-async function answer(learner: Session, id: string, assessmentId: string, value: unknown) {
-  const issued = await command(learner, id, 'challenges', { episodeId: 'min', assessmentId, mode: 'independent' });
+async function answer(learner: Session, id: string, assessmentId: string, value: unknown, mode = 'independent') {
+  const issued = await command(learner, id, 'challenges', { episodeId: 'min', assessmentId, mode });
   await command(learner, id, 'answers', { challengeId: issued.challengeId, answer: value });
   return (await db.query<{ id: string }>('SELECT e.id FROM evidence e JOIN attempts a ON a.id=e.attempt_id WHERE e.enrollment_id=$1 AND a.assessment_id=$2 ORDER BY e.created_at DESC LIMIT 1', [id, assessmentId])).rows[0]!.id;
 }
@@ -85,13 +86,15 @@ afterAll(async () => {
 
 describe('staff evidence-dispute queue', () => {
   it('lists open disputes for the course without the learner reason, and resolves by reviewing the evidence', async () => {
-    const a = await enroll(), b = await enroll(), elsewhere = await enroll(otherReleaseId);
+    const a = await enroll(), b = await enroll(), c = await enroll(), elsewhere = await enroll(otherReleaseId);
     const reason = `DISPUTE_REASON_CANARY_${randomUUID()}`;
     const valid = await answer(a.learner, a.id, 'min-a', 'two');
     const wrong = await answer(b.learner, b.id, 'min-a', 'five');
+    const practised = await answer(c.learner, c.id, 'min-a', 'two', 'practice');
     const foreignCourse = await answer(elsewhere.learner, elsewhere.id, 'min-a', 'two');
     await dispute(a.learner, a.id, valid, reason);
     await dispute(b.learner, b.id, wrong, reason);
+    await dispute(c.learner, c.id, practised, reason);
     await dispute(elsewhere.learner, elsewhere.id, foreignCourse, reason);
 
     const listed = await queue(reviewer);
@@ -100,12 +103,14 @@ describe('staff evidence-dispute queue', () => {
     expect(listed.body).not.toContain('"reason"');
     const rows = listed.json().disputes as Record<string, any>[];
     // Only this course's disputes, oldest first.
-    expect(rows.map(row => row.evidence.evidenceId)).toEqual([valid, wrong]);
-    expect(rows[0]).toMatchObject({ state: 'open', enrollmentId: a.id, objectiveId: 'minimum', ageDays: 0, canResolve: true, canUphold: true,
-      evidence: { evidenceId: valid, assessmentId: 'min-a', passed: true, independent: true, mode: 'independent' } });
+    expect(rows.map(row => row.evidence.evidenceId)).toEqual([valid, wrong, practised]);
+    expect(rows[0]).toMatchObject({ state: 'open', enrollmentId: a.id, objectiveId: 'minimum', ageDays: 0, canResolve: true, canUphold: true, canRegrade: true,
+      evidence: { evidenceId: valid, assessmentId: 'min-a', passed: true, independent: true, mode: 'independent', kind: 'choice' } });
     expect(Date.parse(rows[0]!.raisedAt)).toBeGreaterThan(Date.now() - 60_000);
-    // A failed answer cannot be upheld as valid; only invalidating closes it.
-    expect(rows[1]).toMatchObject({ canResolve: true, canUphold: false, evidence: { passed: false } });
+    // A result that did not pass can always be kept (it grants nothing); a pass Core cannot re-check
+    // (here an assisted practice answer) can only be invalidated.
+    expect(rows[1]).toMatchObject({ canResolve: true, canUphold: true, canRegrade: true, evidence: { passed: false, kind: 'choice' } });
+    expect(rows[2]).toMatchObject({ canResolve: true, canUphold: false, evidence: { passed: true, independent: false, mode: 'practice' } });
     expect(listed.json().truncated).toBe(false);
     expect((await queue(reviewer, otherCatalogId)).json().disputes.map((row: any) => row.evidence.evidenceId)).toEqual([foreignCourse]);
 
@@ -132,13 +137,19 @@ describe('staff evidence-dispute queue', () => {
     expect([closed.statusCode, closed.json().error]).toEqual([409, 'EVIDENCE_DISPUTE_CLOSED']);
     expect((await db.query('SELECT count(*)::int AS n FROM admin_evidence_reviews WHERE evidence_id=$1', [valid])).rows[0].n).toBe(1);
 
-    // Uphold is refused for evidence Core cannot acknowledge; invalidating resolves it.
+    // Keeping a failed result closes the dispute and changes nothing.
     const disputeB = rows[1]!.disputeId as string;
-    expect((await resolve(owner, disputeB, { decision: 'accept', note: 'Looks fine.' })).json().error).toBe('REVIEW_CANNOT_GRANT_MASTERY');
-    const invalidated = await resolve(owner, disputeB, { decision: 'reject', note: 'The answer was recorded against the wrong item.' });
+    const kept = await resolve(owner, disputeB, { decision: 'accept', note: 'Five is not the smaller value.' });
+    expect(kept.statusCode, kept.body).toBe(200);
+    expect(kept.json()).toMatchObject({ state: 'resolved', decision: 'accept', invalidated: false });
+    expect((await db.query('SELECT result,invalidated_at FROM evidence WHERE id=$1', [wrong])).rows[0]).toEqual({ result: { passed: false }, invalidated_at: null });
+    // Uphold is refused for a pass Core cannot acknowledge; invalidating resolves it.
+    const disputeC = rows[2]!.disputeId as string;
+    expect((await resolve(owner, disputeC, { decision: 'accept', note: 'Looks fine.' })).json().error).toBe('REVIEW_CANNOT_GRANT_MASTERY');
+    const invalidated = await resolve(owner, disputeC, { decision: 'reject', note: 'The answer was recorded against the wrong item.' });
     expect(invalidated.statusCode, invalidated.body).toBe(200);
     expect(invalidated.json()).toMatchObject({ state: 'resolved', decision: 'reject', invalidated: true });
-    expect((await db.query('SELECT invalidation_reason FROM evidence WHERE id=$1', [wrong])).rows[0].invalidation_reason).toBe('The answer was recorded against the wrong item.');
+    expect((await db.query('SELECT invalidation_reason FROM evidence WHERE id=$1', [practised])).rows[0].invalidation_reason).toBe('The answer was recorded against the wrong item.');
     expect((await queue(reviewer)).json().disputes).toEqual([]);
     // The learner can dispute again after a review; it reappears in the queue.
     await dispute(a.learner, a.id, valid, 'Still unsure.');
@@ -193,7 +204,7 @@ describe('staff evidence-dispute queue', () => {
     await dispute(dual, own.id, ownEvidence, 'My own dispute.');
     await db.query("UPDATE memberships SET role='reviewer' WHERE workspace_id=$1 AND user_id=$2", [workspaceId, dual.actor.id]);
     const ownRow = (await queue(dual)).json().disputes.find((row: any) => row.evidence.evidenceId === ownEvidence);
-    expect(ownRow).toMatchObject({ canResolve: false, canUphold: false });
+    expect(ownRow).toMatchObject({ canResolve: false, canUphold: false, canRegrade: false });
     expect((await resolve(dual, ownRow.disputeId, { decision: 'accept', note: 'Mine is fine.' })).json().error).toBe('SELF_REVIEW_FORBIDDEN');
     // The course-scoped reviewer resolves on the granted course.
     const second = await answer(learner, id, 'min-a', 'five');
@@ -206,5 +217,33 @@ describe('staff evidence-dispute queue', () => {
     expect(erased.statusCode, erased.body).toBe(200);
     expect((await queue(owner)).json().disputes.map((row: any) => row.disputeId)).not.toContain(disputeId);
     expect((await resolve(owner, disputeId, { decision: 'reject', note: 'After erasure.' })).statusCode).toBe(410);
+  });
+
+  it('reviews a disputed delayed check like any other result: invalidating it gives the review schedule back', async () => {
+    const course = retentionCourse();
+    course.id = `${course.id}-retention`;
+    const imported = await app.inject({ method: 'POST', url: `/api/workspaces/${workspaceId}/releases`, headers: headers(owner), payload: course });
+    expect(imported.statusCode, imported.body).toBe(200);
+    const release = imported.json().id as string;
+    expect((await app.inject({ method: 'POST', url: `/api/releases/${release}/publish`, headers: headers(owner) })).statusCode).toBe(200);
+    const catalog = (await db.query<{ id: string }>('SELECT id FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2', [workspaceId, course.id])).rows[0]!.id;
+    const { learner, id } = await enroll(release);
+    await answer(learner, id, 'min-a', 'two');
+    await answer(learner, id, 'min-b', 4);
+    // Demonstrated two days ago, so the first delayed check is due now.
+    await db.query("UPDATE evidence SET created_at=created_at - interval '2 days' WHERE enrollment_id=$1", [id]);
+    const schedule = async () => (await app.inject({ url: `/api/enrollments/${id}/retention`, headers: headers(learner) })).json().items[0];
+    expect(await schedule()).toMatchObject({ state: 'demonstrated', due: true });
+    const issued = await command(learner, id, 'retention/check', { objectiveId: 'minimum' });
+    await command(learner, id, 'answers', { challengeId: issued.challengeId, answer: 99 });
+    expect(await schedule()).toMatchObject({ state: 'needs_review', lastOutcome: 'missed', due: false });
+    const missed = (await db.query<{ id: string }>("SELECT e.id FROM evidence e JOIN attempts a ON a.id=e.attempt_id WHERE e.enrollment_id=$1 AND a.mode='retention'", [id])).rows[0]!.id;
+    await dispute(learner, id, missed, 'The question showed the wrong numbers.');
+    const row = (await queue(reviewer, catalog)).json().disputes.find((d: any) => d.evidence.evidenceId === missed);
+    expect(row).toMatchObject({ canUphold: true, canRegrade: false, evidence: { passed: false, mode: 'retention', kind: 'number' } });
+    const resolved = await resolve(reviewer, row.disputeId, { decision: 'reject', note: 'The item showed the wrong numbers; withdrawn.' }, catalog);
+    expect(resolved.statusCode, resolved.body).toBe(200);
+    // The miss no longer counts: the objective is back to its first check, due again, with nothing to review.
+    expect(await schedule()).toMatchObject({ state: 'demonstrated', lastOutcome: null, step: 0, due: true });
   });
 });

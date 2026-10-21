@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { compileCourse } from "@course-core/sdk/compiler";
+import { replayRetention } from "./retention.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { CourseManifest } from "@course-core/sdk";
 import {
@@ -804,8 +805,11 @@ export async function reviewEvidenceWithin(
   requireCondition(evidence && !evidence.invalidated_at, "EVIDENCE_NOT_FOUND", 404);
   if (input.decision === "accept") {
     const assessment = context.release.server_bundle.assessments.find((a) => a.id === evidence.assessment_id);
+    // Keeping a result that did not pass grants nothing, whatever kind of answer it was (code,
+    // choice, a delayed check). Upholding a pass must be re-checkable by Core without grading again.
     requireCondition(
-      acknowledgeable(evidence, context.release) && assessment && gradeDeterministic(assessment, evidence.response).passed,
+      evidence.result.passed === false ||
+        (acknowledgeable(evidence, context.release) && assessment && gradeDeterministic(assessment, evidence.response).passed),
       "REVIEW_CANNOT_GRANT_MASTERY",
       409,
     );
@@ -823,6 +827,8 @@ export async function reviewEvidenceWithin(
   await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [context.enrollment.id]);
   // Invalidated evidence supersedes any decision that relied on it.
   if (input.decision === "reject") await refreshDecisionsForEnrollment(client, context.enrollment.id, evidence.assessment_id);
+  // A withdrawn delayed-check result no longer moves the review schedule.
+  if (input.decision === "reject" && evidence.mode === "retention") await replayRetention(client, context.enrollment.id, [evidence.objective_id]);
   const event = await appendEvent(client, {
     workspaceId: catalog.workspace_id,
     enrollmentId: context.enrollment.id,
@@ -1376,6 +1382,9 @@ export function registerAdminRoutes(
           // Invalidated evidence supersedes any gate decision that relied on it.
           await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [row.enrollment_id]);
           await refreshDecisionsForEnrollment(client, row.enrollment_id, input.assessmentId);
+          // A defective delayed check no longer moves the learner's review schedule.
+          const item = release.server_bundle.assessments.find((x) => x.id === input.assessmentId);
+          if (item && release.server_bundle.retention?.assessmentIds.includes(item.id)) await replayRetention(client, row.enrollment_id, item.objectiveIds);
           await appendEvent(client, { workspaceId: catalog.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff", type: "evidence.invalidated",
             payload: { assessmentId: input.assessmentId, reason: "item_defective", evidence: row.n, releaseId: release.id }, idempotencyKey: `defect:${release.id}:${input.assessmentId}:${row.enrollment_id}`, supervise: true });
           // A completed or closed course is not reopened; the amendment is audited and shown to the learner.
