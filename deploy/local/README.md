@@ -382,9 +382,10 @@ What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
   Temporal header (`_tracer-data`, the same header and format as
   `@temporalio/interceptors-opentelemetry`). The enrollment coordinator passes the
   header to the job it starts, and the job passes it to its activities, so a run
-  shows as one trace from dispatch to model call. Jobs still queued when a
-  coordinator continues as new lose the header and start their own trace. Temporal
-  itself is not traced.
+  shows as one trace from dispatch to model call. When a coordinator continues as
+  new, it passes its own header and those of jobs still queued to the next run (in
+  a second header, `_course-pending-traces`), so those jobs keep the trace that
+  prepared them. Temporal itself is not traced.
 - Metrics: `http.server.request.duration`, `gen_ai.client.operation.duration`,
   `gen_ai.client.token.usage`, `course.provider.operations`,
   `course.provider.cost.estimate` (the application's reserved-ceiling allowance in
