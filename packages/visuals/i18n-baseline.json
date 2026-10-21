@@ -1,53 +1,28 @@
 {
   "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; every file above zero needs a reason under \"reasons\"; see docs/i18n.md.",
   "files": {
-    "src/checks.ts": 9,
+    "src/checks.ts": 0,
 
-    "src/equation.ts": 4,
+    "src/equation.ts": 0,
 
-    "src/expression.ts": 22,
+    "src/expression.ts": 0,
 
-    "src/geometry.ts": 9,
+    "src/geometry.ts": 0,
 
-    "src/inspector.tsx": 2,
+    "src/inspector.tsx": 0,
 
-    "src/markup.ts": 6,
+    "src/markup.ts": 0,
 
-    "src/panes.ts": 1,
+    "src/panes.ts": 0,
 
-    "src/react.tsx": 2,
+    "src/react.tsx": 0,
 
-    "src/runtime.ts": 10,
+    "src/runtime.ts": 0,
 
-    "src/schema.ts": 69,
+    "src/schema.ts": 0,
 
-    "src/sdk.ts": 3,
+    "src/sdk.ts": 0,
 
-    "src/svg.ts": 3
-  },
-  "reasons": {
-    "src/checks.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/equation.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/expression.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/geometry.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/inspector.tsx": "Two property-row labels (visible, bounds) in the developer scene inspector, which no app embeds. They move to VisualMessages with the next visuals version, because the change alters the released visuals bytes.",
-
-    "src/markup.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/panes.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/react.tsx": "Two Error() messages caught by the player, which shows the translated invalidScene message instead. Converting them changes the released visuals bytes, so it ships with the next visuals version.",
-
-    "src/runtime.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/schema.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/sdk.ts": "Scene-authoring diagnostics: each is a VisualError with a stable code, raised while a scene is validated or evaluated (SDK and publish checks, the developer inspector). No app shows this text to people; players show the translated invalidScene message. Moving the English into the error catalog changes the released visuals bytes, so it ships with the next visuals version, not in a Core-only change.",
-
-    "src/svg.ts": "A CSS font-family list (never shown as text), the English drag-hint default that hosts replace through VisualMessages.dragHint, and one scene-authoring diagnostic. Changing them alters the released visuals bytes, so it ships with the next visuals version."
+    "src/svg.ts": 0
   }
 }
