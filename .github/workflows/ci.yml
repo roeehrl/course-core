@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [policy, providers, adaptation, research, example-courses, supervisor]
+        module: [policy, providers, adaptation, research, i18n, example-courses, supervisor]
     env:
       TARGET: ${{ matrix.module }}
     steps:
