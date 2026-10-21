@@ -91,6 +91,8 @@ import { registerVisualObservationRoutes } from './visual-observations.js';
 import { registerActivityRoutes } from './activity-routes.js';
 import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
+import { CourseSuppliedRegistry } from './course-supplied-extensions.js';
+import type { CodeSandbox } from './code-evaluator.js';
 import { registerCourseUpdateRoutes } from './course-update-routes.js';
 import { registerLocaleRoutes } from './locale.js';
 import { runAutomaticUpdates } from './course-updates.js';
@@ -130,9 +132,17 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   pythonRunner?: PythonRunnerOptions;
   /** The grading sandbox this host runs, for the platform-readiness page; omitted when none. */
   sandbox?: PlatformOptions['sandbox'];
+  /** The grading sandbox for course-supplied code fixture registries (course-supplied-extensions.ts);
+   * omitted: courses can bring activity scripts but not hidden code cases. */
+  codeSandbox?: CodeSandbox;
   /** The migrations this build ships, compared with the database on the platform-readiness page. */
   migrationsDirectory?: string }) {
   const clock = serverClock(options.clock);
+  // One live list of installed extensions shared by every route, so approved course-supplied
+  // extensions (loaded here, and added when an install approves them) take effect at once.
+  options.installedExtensions ??= [];
+  const courseSupplied = new CourseSuppliedRegistry(options.installedExtensions, options.codeSandbox);
+  await courseSupplied.load(db, problem => process.stderr.write(`${JSON.stringify({ event: 'course_supplied_extension.unavailable', ...problem })}\n`));
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   const routes: RegisteredRoute[] = [];
@@ -390,7 +400,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminRoutes(app, db, auth, adminRuntime);
   registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
     supervisorConfigured: Boolean(options.supervisor), migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
-  const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] };
+  const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions, courseSupplied };
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
   registerCourseUpdateRoutes(app, db, auth, updater);
