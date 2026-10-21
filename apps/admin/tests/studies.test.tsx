@@ -31,7 +31,6 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
       id: "fixed",
       label: "Fixed path",
       behaviour: "fixed",
-      explanation: "The fixed lesson path.",
       consented: 4,
       withdrawn: 1,
     },
@@ -39,7 +38,6 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
       id: "chat_only",
       label: "Chat-only companion",
       behaviour: "chat_only",
-      explanation: "Lessons with the companion.",
       consented: 4,
       withdrawn: 0,
     },
@@ -47,7 +45,6 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
       id: "supervisor",
       label: "Full supervisor",
       behaviour: "supervisor",
-      explanation: "The full course.",
       consented: 3,
       withdrawn: 0,
     },
@@ -161,6 +158,10 @@ describe("study administration view", () => {
     expect(within(balance).getAllByRole("row")).toHaveLength(4);
     expect(
       within(balance).getByRole("rowheader", { name: "Chat-only companion" }),
+    ).toBeVisible();
+    // What each arm switches is worded from its behaviour code, not sent by the server.
+    expect(
+      within(balance).getByText(/^The fixed lesson path: the AI companion/),
     ).toBeVisible();
     expect(
       screen.getByText("Included in exports").closest(".stat"),

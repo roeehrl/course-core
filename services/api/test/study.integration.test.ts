@@ -207,8 +207,10 @@ describe("consent and arms", () => {
     expect((await send(learner, "study/consent", { studyId: draft.id, consentDigest: "a".repeat(64) })).json().error).toBe("STUDY_NOT_RECRUITING");
     await ok(call(owner, "POST", `/api/admin/studies/${draft.id}/open`, { expectedRevision: draft.revision }));
     const view = await studyView(learner);
-    expect(view).toMatchObject({ study: { id: draft.id, state: "recruiting", versions: expect.arrayContaining([expect.stringMatching(/fixed lesson path/)]) }, participation: null });
-    expect(view.study.neverCollected.join(" ")).toMatch(/conversations with the AI companion/);
+    expect(view).toMatchObject({ study: { id: draft.id, state: "recruiting", versions: expect.arrayContaining(["fixed"]) }, participation: null });
+    // Codes the learner app words in the learner's language; never English prose from the server.
+    expect(view.study.collected).toEqual(["study_code", "course_version", "check_scores", "lessons_completed"]);
+    expect(view.study.neverCollected).toEqual(["profile", "written_content", "companion_conversations"]);
     // Enrolling did not enrol the learner in the study: nothing is assigned until they agree.
     expect((await db.query("SELECT count(*)::int AS n FROM study_participants WHERE enrollment_id=$1", [learner.enrollment])).rows[0].n).toBe(0);
     expect((await send(learner, "study/consent", { studyId: draft.id, consentDigest: "b".repeat(64) })).json().error).toBe("STUDY_CONSENT_TEXT_CHANGED");
@@ -219,7 +221,8 @@ describe("consent and arms", () => {
     expect((await call(owner, "GET", `/api/enrollments/${learner.enrollment}/study`)).statusCode).toBe(404);
     const joined = await join(learner);
     expect(joined.participation).toMatchObject({ consent: "consented", participantCode: expect.stringMatching(/^P[0-9A-F]{10}$/),
-      version: { behaviour: expect.stringMatching(/^(fixed|chat_only|supervisor)$/), explanation: expect.any(String) } });
+      version: { behaviour: expect.stringMatching(/^(fixed|chat_only|supervisor)$/) } });
+    expect(joined.participation.version).not.toHaveProperty("explanation");
     expect((await db.query("SELECT event_type,actor_kind FROM learning_events WHERE enrollment_id=$1 AND event_type LIKE 'study.%'", [learner.enrollment])).rows)
       .toEqual([{ event_type: "study.consented", actor_kind: "learner" }]);
   });
