@@ -117,6 +117,7 @@
 .connected-lesson-heading > p {
   color: #526a70;
   margin: 0;
+  max-width: 70ch;
   font-size: 15px;
 }
 .connected-kicker {
@@ -177,6 +178,14 @@
 }
 .connected-reading-card p {
   margin: 0;
+}
+/* I04: lesson prose keeps a readable measure (about 70 characters) on wide
+ * screens; the card and any visual keep the full column. 1em = the body text
+ * size, so 70ch is measured in body-text characters. */
+.connected-prose {
+  font-size: 16px;
+  max-width: 70ch;
+  min-width: 0;
 }
 .connected-part-top {
   display: flex;

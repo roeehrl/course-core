@@ -147,7 +147,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     return (
       <>
         {block.type === "text" ? (
-          <div {...courseContentAttributes(server.course)}>
+          <div className="connected-prose" {...courseContentAttributes(server.course)}>
             <MarkdownContent markdown={block.markdown} />
           </div>
         ) : block.type === "visual" ? (
