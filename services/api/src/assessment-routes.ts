@@ -30,6 +30,7 @@ import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 import { recordAnswerSignal } from './teaching-hypotheses.js';
 import { unsatisfiedActivityBlocks } from './activity-routes.js';
 import { annotateAttempt } from './telemetry.js';
+import { assertGradedAttemptAllowed, checkAttempts, checkFor, enrollmentAssessmentPolicy } from './assessment-policy.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -101,6 +102,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       // Placement probes later material without starting its study clocks.
       if (input.mode !== 'placement') await activateWindows(client, course, enrollmentId, policyEpisodeId(context.release, input.episodeId), now);
       await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', now);
+      // The course's graded-attempt limit and retry wait; practice and placement are never limited.
+      if (input.mode === 'independent')
+        assertGradedAttemptAllowed(await checkAttempts(client, enrollmentId, checkFor(course, input.episodeId, assessmentId), await enrollmentAssessmentPolicy(client, context.enrollment)));
       const exposures = exposed.filter(id => id === assessmentId).length;
       const independentEligible = input.mode !== 'practice' && exposures === 0;
       const challengeId = randomUUID();
@@ -150,6 +154,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       if (challenge.mode === 'retention') await assertReviewAllowed(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
       else await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
       const assessment = findAssessment(course, challenge.assessment_id)!;
+      // Several graded challenges opened before the limit was reached still submit only up to it.
+      if (challenge.mode === 'independent')
+        assertGradedAttemptAllowed(await checkAttempts(client, enrollmentId, checkFor(course, challenge.episode_id, assessment.id), await enrollmentAssessmentPolicy(client, context.enrollment)));
       // Confidence is optional, only on items that declare it, and never part of grading.
       if (input.confidence !== undefined) requireCondition(assessment.confidence && input.confidence <= assessment.confidence.scale.maximum, 'INVALID_CONFIDENCE');
       const confidence = input.confidence ?? null;
