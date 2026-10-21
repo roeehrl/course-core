@@ -436,10 +436,18 @@ describe("real immutable release lifecycle", () => {
         })
       ).statusCode,
     ).toBe(200);
+    // Learners are pinned to the live release: publishing forward needs the confirmed analysis.
+    const unconfirmed = await mutation(admin, "POST", `/releases/${id}/transitions`, {
+      action: "publish",
+    });
+    expect(unconfirmed.statusCode).toBe(428);
+    const impact = await req(admin, "GET", `${coursePath()}/releases/${id}/publish-impact`);
+    expect(impact.json().impactDigest).toBe(unconfirmed.json().details.impactDigest);
     expect(
       (
         await mutation(admin, "POST", `/releases/${id}/transitions`, {
           action: "publish",
+          impactDigest: impact.json().impactDigest,
         })
       ).statusCode,
     ).toBe(200);
