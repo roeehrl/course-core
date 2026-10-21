@@ -47,6 +47,17 @@ test('a stopped pilot backs up and restores into a fresh database with identical
     assert.equal(await readFile(path.join(created.directory, 'config.json'), 'utf8'), await readFile(path.join(state, 'config.json'), 'utf8'));
     const verified = await verifyBackup({ root, state, backup: created.directory });
     assert.equal(verified.status, 'restore_verified'); assert.equal(verified.rows, 251); assert.equal(verified.temporal, 'integrity_ok'); assert.equal(verified.disposableDatabase, 'dropped');
+    // Recorded counts in a different key order (as a Parallel Append on the live
+    // database returns them) still verify: only per-table values are compared.
+    const manifestFile = path.join(created.directory, 'manifest.json');
+    await writePrivate(manifestFile, JSON.stringify({ ...manifest, tableCounts: { schema_migrations: 1, learner_rows: 250 } }), true);
+    assert.equal((await verifyBackup({ root, state, backup: created.directory })).status, 'restore_verified');
+    // A genuinely different count names the table and both counts.
+    await writePrivate(manifestFile, JSON.stringify({ ...manifest, tableCounts: { learner_rows: 251, schema_migrations: 1, dropped_table: 3 } }), true);
+    const differ = await verifyBackup({ root, state, backup: created.directory }).then(() => assert.fail('counts differ'), e => e);
+    assert.equal(differ.code, 'restored_row_counts_differ');
+    assert.deepEqual(differ.details, { tables: [{ table: 'dropped_table', recorded: 3, restored: null }, { table: 'learner_rows', recorded: 251, restored: 250 }] });
+    await writePrivate(manifestFile, JSON.stringify(manifest, null, 2) + '\n', true);
     // A live owner record (running pilot) blocks a backup outright.
     await writePrivate(path.join(state, 'owner.json'), JSON.stringify({ schemaVersion: 2 }));
     await assert.rejects(createBackup({ root, state, output }));

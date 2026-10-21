@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile, chmod, mkdir, readdir, readFile } from 'node:fs
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { privateDirectory, writePrivate, hash } from './runtime.mjs';
-import { verifyManifest, parseBackupArguments, pruneBackups, createBackup, verifyBackup, decryptBackup } from './backup.mjs';
+import { verifyManifest, parseBackupArguments, pruneBackups, createBackup, verifyBackup, decryptBackup, tableCountDifferences } from './backup.mjs';
 import { backupAgeRecipientsConfiguration, loadConfiguration } from './pilot.mjs';
 
 // Synthetic, syntactically valid age recipients (bech32 alphabet). They are not real keys.
@@ -137,4 +137,12 @@ test('backup arguments accept an identity only where something is decrypted', ()
   assert.throws(() => parseBackupArguments(['create', '--output', '/tmp/o', '--age-identity', '/tmp/k']), /invalid_arguments/);
   assert.throws(() => parseBackupArguments(['verify', '--backup', '/tmp/b', '--backup', '/tmp/c']), /invalid_arguments/);
   assert.throws(() => parseBackupArguments(['verify', '--backup', '/tmp/b', '--age-identity', 'relative']), /invalid_path/);
+});
+
+test('row-count comparison ignores key order and names every differing, missing or extra table', () => {
+  assert.deepEqual(tableCountDifferences({ b: 2, a: 1 }, { a: 1, b: 2 }), []);
+  assert.deepEqual(tableCountDifferences({}, {}), []);
+  assert.deepEqual(tableCountDifferences({ a: 1, b: 2, gone: 0 }, { b: 3, a: 1, added: 4 }), [
+    { table: 'added', recorded: null, restored: 4 }, { table: 'b', recorded: 2, restored: 3 }, { table: 'gone', recorded: 0, restored: null }]);
+  assert.deepEqual(tableCountDifferences({ a: 1 }, { a: 2 }, ['before', 'after']), [{ table: 'a', before: 1, after: 2 }]);
 });
