@@ -389,6 +389,7 @@
       "core:packages/policy/test/lifecycle.test.mjs"
     ],
     "G15": [
+      "core:apps/learner/tests/policyLevels.test.tsx",
       "core:packages/policy/test/hierarchy.test.mjs::G15: the continuation track permits reading and review only",
       "core:packages/policy/test/lifecycle.test.mjs",
       "core:services/api/test/completed-course.integration.test.ts",
@@ -585,6 +586,8 @@
     ],
     "Q05": [
       "core:apps/admin/tests/accommodation.test.tsx",
+      "core:apps/admin/tests/policyLevels.test.tsx",
+      "core:apps/admin/tests/real/policy-levels.real.spec.ts",
       "core:services/api/test/admin.integration.test.ts",
       "core:services/api/test/policy-levels.integration.test.ts::queues the approval across learners"
     ],
