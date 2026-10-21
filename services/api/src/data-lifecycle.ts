@@ -280,6 +280,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
   // The learner's study days for review checks are their own setting.
   await run("retentionAvailability", "DELETE FROM retention_availability WHERE enrollment_id=$1");
+  // Which lesson parts the learner had open (migration 106): short-lived, deleted.
+  await run("activityPresence", "DELETE FROM activity_presence WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("supervisorCancelReasons", "UPDATE supervisor_run_cancellations SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
