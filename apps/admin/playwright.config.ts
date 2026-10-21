@@ -1,4 +1,9 @@
 import { defineConfig } from "@playwright/test";
+import { adminWebPort } from "../../services/api/browser/ports";
+// Fixed 4174 in CI; a free loopback port locally unless COURSE_ADMIN_WEB_PORT is set
+// (COURSE_BROWSER_PORTS=fixed|free overrides the mode), so checkouts can run it at once.
+const port = adminWebPort();
+const origin = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: "./tests/web",
   outputDir: "./test-results/mock",
@@ -6,14 +11,14 @@ export default defineConfig({
   workers: 2,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:4174",
+    baseURL: origin,
     channel: process.env.CI === "true" ? undefined : "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run preview",
-    url: "http://127.0.0.1:4174",
+    command: `npx vite preview --host 127.0.0.1 --port ${port} --strictPort`,
+    url: origin,
     reuseExistingServer: false,
   },
   projects: [
