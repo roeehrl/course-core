@@ -9,17 +9,17 @@
 
     "src/geometry.ts": 9,
 
-    "src/inspector.tsx": 29,
+    "src/inspector.tsx": 2,
 
     "src/markup.ts": 6,
 
     "src/panes.ts": 1,
 
-    "src/react.tsx": 23,
+    "src/react.tsx": 2,
 
     "src/runtime.ts": 10,
 
-    "src/schema.ts": 70,
+    "src/schema.ts": 69,
 
     "src/sdk.ts": 3,
 

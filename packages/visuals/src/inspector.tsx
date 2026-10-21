@@ -1,9 +1,13 @@
 import { useId, useMemo, useState, useSyncExternalStore } from "react";
 import { frameAtWidth, runSceneChecks } from "./checks.js";
 import type { CheckFailure } from "./checks.js";
+import { ExportControls } from "./export.js";
 import { sceneFeatures } from "./features.js";
 import { flattenNodes } from "./geometry.js";
-import { SceneView, layoutLabel } from "./react.js";
+import { formatNumber, visualMessages } from "./messages.js";
+import { SceneView } from "./react.js";
+import type { VisualI18nProps } from "./react.js";
+import type { VisualMessages } from "./messages.js";
 import type { VisualRuntime } from "./runtime.js";
 import type { Value } from "./types.js";
 
@@ -20,6 +24,7 @@ const PROPERTIES = [
   "x2",
   "y2",
   "progress",
+  "morph",
 ] as const;
 const round = (n: number) => Number(n.toFixed(3));
 
@@ -29,7 +34,14 @@ const round = (n: number) => Number(n.toFixed(3));
  * a selected node, and the scene's publish-time checks. It drives the same runtime as the
  * player beside it. A tool for authors; it grants nothing and records nothing.
  */
-export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
+export function VisualInspector({
+  runtime,
+  messages,
+  locale,
+}: { runtime: VisualRuntime } & VisualI18nProps) {
+  const m = visualMessages(messages);
+  const seconds = (ms: number) =>
+    m.seconds(formatNumber(locale, ms / 1000, { min: 2, max: 2 }));
   const { frame } = useSyncExternalStore(
     runtime.subscribe,
     runtime.getSnapshot,
@@ -55,6 +67,10 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
                 s.keyframes.map((k) => k.atMs + i * s.delayMs),
               ),
             ),
+            ...[
+              ...(scene.timeline.colorTracks ?? []),
+              ...(scene.timeline.cameraTracks ?? []),
+            ].flatMap((t) => t.keyframes.map((k) => k.atMs)),
           ].filter((t) => t <= scene.timeline.durationMs),
         ),
       ]
@@ -67,7 +83,7 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
       action();
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Change refused");
+      setError(cause instanceof Error ? cause.message : m.changeRefused);
     }
   };
   const set = (key: string, value: Value) =>
@@ -78,18 +94,18 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
   };
   return (
     <section className="ccv-inspector" aria-labelledby={`${uid}-title`}>
-      <h2 id={`${uid}-title`}>Inspector · {scene.title}</h2>
+      <h2 id={`${uid}-title`}>{m.inspectorTitle(scene.title)}</h2>
       <dl className="ccv-inspector-summary">
-        <dt>Scene</dt>
+        <dt>{m.scene}</dt>
         <dd>{scene.id}</dd>
-        <dt>Layout</dt>
+        <dt>{m.layoutHeading}</dt>
         <dd>
-          {layoutLabel(frame.layout)} · {frame.width} × {frame.height}
+          {m.layout[frame.layout]} · {frame.width} × {frame.height}
         </dd>
-        <dt>Time</dt>
-        <dd>{(frame.timeMs / 1000).toFixed(2)} s</dd>
-        <dt>Features</dt>
-        <dd>{sceneFeatures(scene).join(", ") || "none"}</dd>
+        <dt>{m.time}</dt>
+        <dd>{seconds(frame.timeMs)}</dd>
+        <dt>{m.features}</dt>
+        <dd>{sceneFeatures(scene).join(", ") || m.none}</dd>
       </dl>
       {error && (
         <p className="ccv-inspector-error" role="alert">
@@ -98,7 +114,7 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
       )}
       {Object.keys(scene.state).length > 0 && (
         <fieldset className="ccv-inspector-group">
-          <legend>Parameters</legend>
+          <legend>{m.parameters}</legend>
           {Object.entries(scene.state).map(([key, field]) => {
             const id = `${uid}-state-${key}`,
               value = frame.state[key]!;
@@ -145,8 +161,8 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
         </fieldset>
       )}
       <fieldset className="ccv-inspector-group">
-        <legend>Timeline</legend>
-        <label htmlFor={`${uid}-time`}>Inspector time</label>
+        <legend>{m.timeline}</legend>
+        <label htmlFor={`${uid}-time`}>{m.inspectorTime}</label>
         <input
           id={`${uid}-time`}
           type="range"
@@ -163,7 +179,7 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
           }
         />
         {keyframes.length > 0 && (
-          <ul className="ccv-inspector-keyframes" aria-label="Keyframes">
+          <ul className="ccv-inspector-keyframes" aria-label={m.keyframes}>
             {keyframes.map((t) => (
               <li key={t}>
                 <button
@@ -176,7 +192,7 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
                     })
                   }
                 >
-                  {(t / 1000).toFixed(2)} s
+                  {seconds(t)}
                 </button>
               </li>
             ))}
@@ -184,8 +200,8 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
         )}
       </fieldset>
       <section className="ccv-inspector-group" aria-labelledby={`${uid}-node`}>
-        <h3 id={`${uid}-node`}>Node</h3>
-        <label htmlFor={`${uid}-node-select`}>Selected node</label>
+        <h3 id={`${uid}-node`}>{m.node}</h3>
+        <label htmlFor={`${uid}-node-select`}>{m.selectedNode}</label>
         <select
           id={`${uid}-node-select`}
           value={selected}
@@ -199,16 +215,16 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
         </select>
         {node && (
           <table className="ccv-inspector-table">
-            <caption>Computed properties of {node.id}</caption>
+            <caption>{m.computedProperties(node.id)}</caption>
             <tbody>
               <tr>
                 <th scope="row">visible</th>
                 <td>{String(node.visible)}</td>
               </tr>
-              {PROPERTIES.map((p) => (
+              {PROPERTIES.filter((p) => node[p] !== undefined).map((p) => (
                 <tr key={p}>
                   <th scope="row">{p}</th>
-                  <td>{round(node[p])}</td>
+                  <td>{round(node[p]!)}</td>
                 </tr>
               ))}
               <tr>
@@ -226,61 +242,76 @@ export function VisualInspector({ runtime }: { runtime: VisualRuntime }) {
         className="ccv-inspector-group"
         aria-labelledby={`${uid}-checks`}
       >
-        <h3 id={`${uid}-checks`}>Publish checks</h3>
-        <p>
-          {counts.invariants} invariants, {counts.goldens} goldens.
-        </p>
+        <h3 id={`${uid}-checks`}>{m.publishChecks}</h3>
+        <p>{m.checkCounts(counts.invariants, counts.goldens)}</p>
         <button
           type="button"
           onClick={() => act(() => setChecks(runSceneChecks(scene)))}
         >
-          Run checks
+          {m.runChecks}
         </button>
         <div role="status">
           {checks &&
             (checks.length === 0 ? (
-              <p className="ccv-inspector-pass">
-                All checks pass at every layout.
-              </p>
+              <p className="ccv-inspector-pass">{m.allChecksPass}</p>
             ) : (
               <ul className="ccv-inspector-failures">
                 {checks.slice(0, 20).map((f, i) => (
                   <li key={i}>
-                    {f.check} <code>{f.id}</code> · {layoutLabel(f.layout)} ·{" "}
-                    {f.atMs} ms: {f.message}
+                    {m.checkKind[f.check]} <code>{f.id}</code> ·{" "}
+                    {m.layout[f.layout]} · {m.milliseconds(String(f.atMs))}:{" "}
+                    {f.message}
                   </li>
                 ))}
               </ul>
             ))}
         </div>
       </section>
+      <section
+        className="ccv-inspector-group"
+        aria-labelledby={`${uid}-export`}
+      >
+        <h3 id={`${uid}-export`}>{m.exportHeading}</h3>
+        <ExportControls runtime={runtime} messages={messages} />
+      </section>
     </section>
   );
 }
 
 export interface PreviewDevice {
-  name: string;
+  /** A built-in device (its name comes from the messages) or a host-defined one. */
+  id: "phone" | "tabletPortrait" | "tabletLandscape" | "desktop" | string;
+  /** Overrides the translated name; required for host-defined devices. */
+  name?: string;
   width: number;
+  /** The frame drawn around the screen (0.5). */
+  chrome: "phone" | "tablet" | "desktop";
 }
 /** One device per layout mode of the four-layout set. */
 export const PREVIEW_DEVICES: readonly PreviewDevice[] = Object.freeze([
-  { name: "Phone", width: 390 },
-  { name: "Tablet portrait", width: 768 },
-  { name: "Tablet landscape", width: 1024 },
-  { name: "Desktop", width: 1440 },
+  { id: "phone", width: 390, chrome: "phone" },
+  { id: "tabletPortrait", width: 768, chrome: "tablet" },
+  { id: "tabletLandscape", width: 1024, chrome: "tablet" },
+  { id: "desktop", width: 1440, chrome: "desktop" },
 ]);
 /**
  * The runtime's current frame rendered at several widths side by side, following the
- * runtime's time and state. Widths are player widths (the renderer chooses its layout from
- * its own width), so this previews layouts, not device chrome.
+ * runtime's time and state, each inside a device frame (0.5): a phone with its status
+ * bar, a tablet bezel or a browser window. Widths are player widths (the renderer chooses
+ * its layout from its own width); the chrome is drawn by CSS and hidden from assistive
+ * technology. Pass `chrome={false}` for the bare frames.
  */
 export function DevicePreview({
   runtime,
   devices = PREVIEW_DEVICES,
+  chrome = true,
+  messages,
 }: {
   runtime: VisualRuntime;
   devices?: readonly PreviewDevice[];
-}) {
+  chrome?: boolean;
+} & Pick<VisualI18nProps, "messages">) {
+  const m = visualMessages(messages);
   const { frame } = useSyncExternalStore(
     runtime.subscribe,
     runtime.getSnapshot,
@@ -294,22 +325,49 @@ export function DevicePreview({
       })),
     [runtime, devices, frame],
   );
+  const nameOf = (device: PreviewDevice) =>
+    device.name ??
+    (Object.hasOwn(m.devices, device.id)
+      ? m.devices[device.id as keyof VisualMessages["devices"]]
+      : device.id);
   return (
-    <section className="ccv-preview" aria-label="Device preview">
-      <h2>Device preview</h2>
+    <section className="ccv-preview" aria-label={m.devicePreview}>
+      <h2>{m.devicePreview}</h2>
       <div className="ccv-preview-grid">
         {frames.map(({ device, frame }) => (
           <figure
-            key={`${device.name}-${device.width}`}
+            key={`${device.id}-${device.width}`}
             className="ccv-preview-device"
+            data-device={device.id}
           >
             <figcaption>
-              {device.name} · {device.width} px · {layoutLabel(frame.layout)}
+              {m.previewCaption(
+                nameOf(device),
+                String(device.width),
+                m.layout[frame.layout],
+              )}
             </figcaption>
-            <SceneView
-              frame={frame}
-              title={`${runtime.scene.title} (${device.name})`}
-            />
+            <div
+              className={
+                chrome
+                  ? `ccv-device ccv-device-${device.chrome}`
+                  : "ccv-device-bare"
+              }
+            >
+              {chrome && (
+                <div className="ccv-device-bar" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              )}
+              <div className="ccv-device-screen">
+                <SceneView
+                  frame={frame}
+                  title={m.previewTitle(runtime.scene.title, nameOf(device))}
+                />
+              </div>
+            </div>
           </figure>
         ))}
       </div>

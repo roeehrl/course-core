@@ -20,11 +20,45 @@ export const EQUATION_LIMITS = Object.freeze({
   depth: 8,
   atoms: 256,
   text: 128,
+  /** Rows and columns of one matrix or environment (0.5). */
+  rows: 16,
+  columns: 16,
 });
 
 type Style = "italic" | "normal" | "bold";
 type Cls = "ord" | "op" | "bin" | "rel" | "open" | "close" | "punct";
 type Accent = "hat" | "bar" | "vec" | "tilde" | "dot";
+/** Environments (0.5): matrices with their delimiters, cases, and aligned equations. */
+export type Environment =
+  | "matrix"
+  | "pmatrix"
+  | "bmatrix"
+  | "Bmatrix"
+  | "vmatrix"
+  | "Vmatrix"
+  | "cases"
+  | "aligned";
+const ENVIRONMENTS = new Set<Environment>([
+  "matrix",
+  "pmatrix",
+  "bmatrix",
+  "Bmatrix",
+  "vmatrix",
+  "Vmatrix",
+  "cases",
+  "aligned",
+]);
+/** Left and right delimiters of each environment. */
+const FENCES: Record<Environment, [string, string]> = {
+  matrix: ["", ""],
+  pmatrix: ["(", ")"],
+  bmatrix: ["[", "]"],
+  Bmatrix: ["{", "}"],
+  vmatrix: ["|", "|"],
+  Vmatrix: ["‖", "‖"],
+  cases: ["{", ""],
+  aligned: ["", ""],
+};
 export type MathNode =
   | {
       t: "atom";
@@ -40,7 +74,8 @@ export type MathNode =
   | { t: "sqrt"; body: MathNode }
   | { t: "text"; text: string }
   | { t: "space"; em: number }
-  | { t: "accent"; body: MathNode; accent: Accent };
+  | { t: "accent"; body: MathNode; accent: Accent }
+  | { t: "table"; env: Environment; rows: MathNode[][] };
 
 const GREEK: Record<string, string> = {
   alpha: "α",
@@ -238,7 +273,8 @@ class Parser {
     if (this.i < this.s.length) this.fail("EQUATION_SYNTAX", "unbalanced }");
     return row;
   }
-  private row(depth: number, closed: boolean): MathNode {
+  /** `closed`: inside braces; "cell": an environment cell, ended by &, \\\\ or \\end. */
+  private row(depth: number, closed: boolean | "cell"): MathNode {
     if (depth > EQUATION_LIMITS.depth)
       this.fail("EQUATION_LIMIT", "nesting exceeds limit");
     const items: MathNode[] = [];
@@ -246,13 +282,26 @@ class Parser {
       this.skip();
       const c = this.s[this.i];
       if (c === undefined) {
+        if (closed === "cell") this.fail("EQUATION_SYNTAX", "missing \\end");
         if (closed) this.fail("EQUATION_SYNTAX", "missing }");
         break;
       }
       if (c === "}") {
-        if (!closed) this.fail("EQUATION_SYNTAX", "unbalanced }");
+        if (closed !== true) this.fail("EQUATION_SYNTAX", "unbalanced }");
         break;
       }
+      if (
+        closed === "cell" &&
+        (c === "&" ||
+          this.s.startsWith("\\\\", this.i) ||
+          /^\\end(?![A-Za-z])/.test(this.s.slice(this.i, this.i + 5)))
+      )
+        break;
+      if (c === "&")
+        this.fail(
+          "EQUATION_CHAR",
+          "& separates columns only inside a matrix or environment",
+        );
       if (c === "^" || c === "_") {
         this.i++;
         const argument = this.argument(depth + 1);
@@ -383,6 +432,12 @@ class Parser {
       this.style = previous;
       return body;
     }
+    if (name === "begin") return this.environment(depth);
+    if (name === "\\" || name === "end")
+      this.fail(
+        "EQUATION_SYNTAX",
+        `\\${name} belongs inside \\begin{…} … \\end{…}`,
+      );
     if (name === "left" || name === "right") {
       this.skip();
       const next =
@@ -401,6 +456,44 @@ class Parser {
     }
     return this.fail("EQUATION_MACRO", `unsupported macro \\${name}`);
   }
+  /** \\begin{env} cells separated by & and rows by \\\\, up to \\end{env}. */
+  private environment(depth: number): MathNode {
+    const env = this.braced() as Environment;
+    if (!ENVIRONMENTS.has(env))
+      this.fail("EQUATION_MACRO", `unsupported environment ${env}`);
+    if (depth + 1 > EQUATION_LIMITS.depth)
+      this.fail("EQUATION_LIMIT", "nesting exceeds limit");
+    const rows: MathNode[][] = [[]];
+    for (;;) {
+      rows.at(-1)!.push(this.row(depth + 1, "cell"));
+      if (rows.at(-1)!.length > EQUATION_LIMITS.columns)
+        this.fail("EQUATION_LIMIT", "too many columns");
+      if (this.s[this.i] === "&") {
+        this.i++;
+        continue;
+      }
+      if (this.s.startsWith("\\\\", this.i)) {
+        this.i += 2;
+        rows.push([]);
+        // One more than the limit: a trailing \\\\ leaves an empty last row, dropped below.
+        if (rows.length > EQUATION_LIMITS.rows + 1)
+          this.fail("EQUATION_LIMIT", "too many rows");
+        continue;
+      }
+      // \\end{env}
+      this.i += 4;
+      if (this.braced() !== env)
+        this.fail("EQUATION_SYNTAX", `\\begin{${env}} ends with another \\end`);
+      break;
+    }
+    const empty = (cell: MathNode) => cell.t === "row" && !cell.items.length;
+    if (rows.length > 1 && rows.at(-1)!.every(empty)) rows.pop();
+    if (rows.length > EQUATION_LIMITS.rows)
+      this.fail("EQUATION_LIMIT", "too many rows");
+    if (env === "cases" && rows.some((r) => r.length > 2))
+      this.fail("EQUATION_SYNTAX", "cases rows have at most two columns");
+    return { t: "table", env, rows };
+  }
 }
 
 /** Parses the supported TeX subset. Throws VisualError for anything else. */
@@ -414,7 +507,7 @@ export function parseTex(tex: string): MathNode {
       "EQUATION_CHAR",
       "Equation: use ASCII TeX; write symbols as macros",
     );
-  if (/[$&#%~"`@]/.test(tex))
+  if (/[$#%~"`@]/.test(tex))
     throw new VisualError("EQUATION_CHAR", "Equation: unsupported character");
   return new Parser(tex).parse();
 }
@@ -727,7 +820,171 @@ function layout(node: MathNode, s: number): Box {
       box.d = body.d;
       return box;
     }
+    case "table":
+      return table(node, s);
   }
+}
+/** Column alignment of an environment: centred matrices, left cases, right/left pairs. */
+function columnAlign(
+  env: Environment,
+  columns: number,
+): ("left" | "center" | "right")[] {
+  return Array.from({ length: columns }, (_, j) =>
+    env === "cases"
+      ? "left"
+      : env === "aligned"
+        ? j % 2
+          ? "left"
+          : "right"
+        : "center",
+  );
+}
+/** A delimiter drawn as a stroke from top to bottom, `width` wide, in local x. */
+function fence(
+  ch: string,
+  right: boolean,
+  width: number,
+  top: number,
+  bottom: number,
+  s: number,
+): (string | number)[] {
+  const x = (v: number) => (right ? width - v : v);
+  const mid = (top + bottom) / 2,
+    q = Math.min(0.12 * s, (bottom - top) / 4);
+  switch (ch) {
+    case "(":
+    case ")":
+      return ["M", x(0.3 * s), top, "Q", x(-0.04 * s), mid, x(0.3 * s), bottom];
+    case "[":
+    case "]":
+      return [
+        "M",
+        x(0.3 * s),
+        top,
+        "L",
+        x(0.1 * s),
+        top,
+        "L",
+        x(0.1 * s),
+        bottom,
+        "L",
+        x(0.3 * s),
+        bottom,
+      ];
+    case "|":
+      return ["M", x(0.17 * s), top, "L", x(0.17 * s), bottom];
+    case "‖":
+      return [
+        "M",
+        x(0.1 * s),
+        top,
+        "L",
+        x(0.1 * s),
+        bottom,
+        "M",
+        x(0.24 * s),
+        top,
+        "L",
+        x(0.24 * s),
+        bottom,
+      ];
+    default:
+      // { and }
+      return [
+        "M",
+        x(0.32 * s),
+        top,
+        "Q",
+        x(0.17 * s),
+        top,
+        x(0.17 * s),
+        top + q,
+        "L",
+        x(0.17 * s),
+        mid - q,
+        "Q",
+        x(0.17 * s),
+        mid,
+        x(0.04 * s),
+        mid,
+        "Q",
+        x(0.17 * s),
+        mid,
+        x(0.17 * s),
+        mid + q,
+        "L",
+        x(0.17 * s),
+        bottom - q,
+        "Q",
+        x(0.17 * s),
+        bottom,
+        x(0.32 * s),
+        bottom,
+      ];
+  }
+}
+function table(node: Extract<MathNode, { t: "table" }>, s: number): Box {
+  const cells = node.rows.map((row) => row.map((cell) => layout(cell, s)));
+  const columns = Math.max(...node.rows.map((row) => row.length));
+  const widths = Array.from({ length: columns }, (_, j) =>
+    Math.max(0, ...cells.map((row) => row[j]?.w ?? 0)),
+  );
+  const align = columnAlign(node.env, columns);
+  // Gaps between columns: a quad in matrices and cases; aligned pairs sit together.
+  const gap = (j: number) =>
+    node.env === "aligned" ? (j % 2 ? 0.278 * s : 1.5 * s) : 1 * s;
+  const starts: number[] = [];
+  let x = 0;
+  widths.forEach((w, j) => {
+    if (j) x += gap(j);
+    starts.push(x);
+    x += w;
+  });
+  const [left, right] = FENCES[node.env];
+  const fenceWidth = 0.36 * s,
+    padLeft = left ? fenceWidth + 0.1 * s : 0,
+    padRight = right ? fenceWidth + 0.1 * s : 0;
+  const rows = cells.map((row) => ({
+    a: Math.max(0.72 * s, ...row.map((c) => c.a)),
+    d: Math.max(0.22 * s, ...row.map((c) => c.d)),
+  }));
+  const rowGap = 0.3 * s;
+  const height =
+    rows.reduce((sum, r) => sum + r.a + r.d, 0) + rowGap * (rows.length - 1);
+  const axis = 0.25 * s,
+    top = -(axis + height / 2);
+  const box = empty();
+  let y = top;
+  cells.forEach((row, i) => {
+    const baseline = y + rows[i]!.a;
+    row.forEach((cell, j) => {
+      const free = widths[j]! - cell.w;
+      const dx =
+        align[j] === "center" ? free / 2 : align[j] === "right" ? free : 0;
+      shift(box, cell, padLeft + starts[j]! + dx, baseline);
+    });
+    y = baseline + rows[i]!.d + rowGap;
+  });
+  box.w = padLeft + x + padRight;
+  const fenceTop = top - 0.1 * s,
+    fenceBottom = top + height + 0.1 * s;
+  if (left)
+    box.strokes.push({
+      width: 0.06 * s,
+      path: fence(left, false, fenceWidth, fenceTop, fenceBottom, s),
+    });
+  if (right) {
+    const stroke = {
+      width: 0.06 * s,
+      path: fence(right, true, fenceWidth, fenceTop, fenceBottom, s),
+    };
+    const placed = empty();
+    placed.strokes.push(stroke);
+    shift(box, placed, box.w - fenceWidth, 0);
+  }
+  box.a = -fenceTop;
+  box.d = fenceBottom;
+  return box;
 }
 
 const parsed = new Map<string, { node: MathNode; box: Box }>();
@@ -840,6 +1097,27 @@ export function equationMathML(tex: string, label: string): MarkupElement {
         return el("mover", [build(n.body), el("mo", [accents[n.accent]])], {
           accent: "true",
         });
+      case "table": {
+        const [left, right] = FENCES[n.env];
+        const columns = Math.max(...n.rows.map((row) => row.length));
+        const table = el(
+          "mtable",
+          n.rows.map((row) =>
+            el(
+              "mtr",
+              row.map((cell) => el("mtd", [build(cell)])),
+            ),
+          ),
+          n.env === "cases" || n.env === "aligned"
+            ? { columnalign: columnAlign(n.env, columns).join(" ") }
+            : {},
+        );
+        return el("mrow", [
+          ...(left ? [el("mo", [left])] : []),
+          table,
+          ...(right ? [el("mo", [right])] : []),
+        ]);
+      }
     }
   }
   return sanitizeMarkup(

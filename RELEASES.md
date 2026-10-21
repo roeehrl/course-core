@@ -102,6 +102,14 @@ basis is the 0.1.1 parity test and the unchanged 0.2.0 snapshots.
 Visuals 0.4.0 adds scene checks enforced at publish (invariants and golden frame
 digests) and authoring tools. It serves 0.1.x, 0.2.0 and 0.3.0 declarations, each limited to
 its own build's features: a 0.3.0 declaration cannot carry invariants or goldens.
+
+Visuals 0.5.0 adds image assets (embedded PNG, JPEG or WebP, verified against their
+sha256), radial gradients, matrix and environment equations, path morph, colour tracks and a
+camera, plus, in the React wrapper, export controls, device chrome in the preview, lazy
+loading and disposal, completion as an observation and translatable messages. It serves
+0.1.x to 0.4.0 declarations, each limited to its own build's features: a 0.4.0 declaration
+gets 0.4.0's features and cannot use any 0.5 primitive. 0.4 scenes keep their frames and
+golden digests.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DevicePreview,
+  LazyVisualPlayer,
   VisualInspector,
   VisualPlayer,
   VisualRuntimePlayer,
@@ -12,10 +13,11 @@ import {
   demoReferenceChecks,
   primitivesDemo,
   motionStudyDemo,
+  lensDemo,
 } from "../src/demos.js";
 import "../src/styles.css";
 import "./gallery.css";
-const scenes = [...demoScenes, primitivesDemo, motionStudyDemo];
+const scenes = [...demoScenes, primitivesDemo, motionStudyDemo, lensDemo];
 function Gallery() {
   const [selected, setSelected] = useState(0);
   return (
@@ -52,6 +54,7 @@ function Gallery() {
           "03 · States & transitions",
           "04 · Clip, mask & equations",
           "05 · Springs, stagger & panes",
+          "06 · Zoom, morph & colour",
         ].map((name, i) => (
           <button
             role="tab"
@@ -136,6 +139,42 @@ function Tools({ scene }: { scene: typeof motionStudyDemo }) {
     </main>
   );
 }
+/** Completion is reported once, whatever the viewer replays or scrubs afterwards. */
+function Completion() {
+  const [count, setCount] = useState(0);
+  return (
+    <main className="gallery">
+      <h1>Completion</h1>
+      <p id="completions">Completions: {count}</p>
+      <VisualPlayer
+        scene={lensDemo}
+        onComplete={() => setCount((n) => n + 1)}
+      />
+    </main>
+  );
+}
+/** A lazily loaded player far down the page, disposed shortly after it leaves the view. */
+function Lazy() {
+  const [state, setState] = useState("none");
+  const [count, setCount] = useState(0);
+  return (
+    <main className="gallery">
+      <h1>Lazy loading</h1>
+      <p id="runtime-state">Runtime: {state}</p>
+      <p id="completions">Completions: {count}</p>
+      <div style={{ height: "250vh" }} aria-hidden="true" />
+      <LazyVisualPlayer
+        scene={lensDemo}
+        rootMargin="0px"
+        disposeAfterMs={300}
+        placeholder={<p>{lensDemo.accessibility.text}</p>}
+        onRuntime={(runtime) => setState(runtime ? "live" : "disposed")}
+        onComplete={() => setCount((n) => n + 1)}
+      />
+      <div style={{ height: "250vh" }} aria-hidden="true" />
+    </main>
+  );
+}
 createRoot(document.getElementById("root")!).render(
   location.hash === "#pair" ? (
     <Pair />
@@ -145,6 +184,12 @@ createRoot(document.getElementById("root")!).render(
     <Tools scene={motionStudyDemo} />
   ) : location.hash === "#inspector-state" ? (
     <Tools scene={primitivesDemo} />
+  ) : location.hash === "#inspector-lens" ? (
+    <Tools scene={lensDemo} />
+  ) : location.hash === "#completion" ? (
+    <Completion />
+  ) : location.hash === "#lazy" ? (
+    <Lazy />
   ) : (
     <Gallery />
   ),
