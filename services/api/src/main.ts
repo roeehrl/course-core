@@ -98,6 +98,8 @@ const remoteFetch: RemoteFetchMode = remoteFetchMode(process.env.COURSE_PACKAGE_
 const coursePackageDirectories = packageDirectories(process.env.COURSE_PACKAGE_DIRECTORIES);
 // How often due automatic course updates run (each course has its own interval; default 5 minutes).
 const courseUpdateTickMs = Number(process.env.COURSE_UPDATE_TICK_MS ?? 300_000);
+const courseVersionMoveTickMs = Number(process.env.COURSE_VERSION_MOVE_TICK_MS ?? 60_000);
+if (!Number.isInteger(courseVersionMoveTickMs) || courseVersionMoveTickMs < 10_000) throw new Error('COURSE_VERSION_MOVE_TICK_MS must be an integer of at least 10000.');
 if (!Number.isInteger(courseUpdateTickMs) || courseUpdateTickMs < 60_000) throw new Error('COURSE_UPDATE_TICK_MS must be an integer of at least 60000.');
 let sandbox: DockerSandbox | undefined;
 if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
@@ -133,7 +135,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   media: { options: { clipToolchain } },
   installedExtensions,
   artifactStore,
-  coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
+  coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs, courseVersionMoveTickMs,
   pythonRunner: pythonRunnerFromEnvironment(process.env),
   ...(sandbox ? { sandbox } : {}),
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),

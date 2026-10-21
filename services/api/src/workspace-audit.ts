@@ -32,6 +32,11 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'course_update.source_changed': keep,
   'course_update.settings_changed': keep,
   'course_update.checked': keep,
+  // Moves of learners to a newer course version: ids, versions, codes, counts and the staff reason.
+  'course_version.move_confirmed': keep,
+  'course_version.moved': keep,
+  'course_version.move_undone': keep,
+  'course_version.move_cancelled': keep,
   'adaptation.registry_approved': keep,
   'extension.proposed': keep,
   'policy.migration_authorized': keep,
