@@ -94,7 +94,7 @@ test("Hebrew: enrollment preview, roadmap, placement, profile and a code lesson 
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
 
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "פתיחת הקורס", exact: true }).click();
   await expect(page.getByText("לפני שמתחילים")).toBeVisible();
   await expect(page.getByText("90 ימים קלנדריים מתחילת הקורס.")).toBeVisible();
   await expectNoHorizontalOverflow(page);
@@ -107,13 +107,13 @@ test("Hebrew: enrollment preview, roadmap, placement, profile and a code lesson 
   // Placement could not load: the panel says so in Hebrew.
   await expect(page.getByText("השיבוץ לא זמין כרגע. אפשר להתחיל ללמוד כרגיל או לנסות שוב.")).toBeVisible();
   // Right to left: the resume text starts at the right edge, never left of the button's end.
-  const resume = await roadmap.getByRole("button", { name: "להמשך הלמידה ←" }).boundingBox();
+  const resume = await roadmap.getByRole("button", { name: "המשך למידה ←" }).boundingBox();
   const next = await roadmap.getByText("הצעד הקטן הבא שלך").boundingBox();
   expect(next!.x + next!.width).toBeGreaterThanOrEqual(resume!.x + resume!.width - 2);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  await roadmap.getByRole("button", { name: "להמשך הלמידה ←" }).click();
+  await roadmap.getByRole("button", { name: "המשך למידה ←" }).click();
   const editor = page.getByRole("textbox", { name: "הקוד שלך", exact: true });
   await expect(editor).toBeVisible();
   await expect(editor).toHaveAttribute("dir", "ltr");
@@ -132,7 +132,7 @@ test("Hebrew: enrollment preview, roadmap, placement, profile and a code lesson 
 
 test("en-XA pseudo-locale: roadmap, placement and code editor text all comes from the catalog", async ({ page }) => {
   const snapshot = await host(page, "en-XA");
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: /^⟦Öþéñ çöûŕšé/ }).click();
   await page.getByRole("button", { name: /^⟦Šţåŕţ/ }).click();
   const roadmap = page.getByTestId("course-roadmap");
   await expect(roadmap).toBeVisible();

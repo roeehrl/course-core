@@ -16,7 +16,7 @@
   "finished.eyebrow": "מסלול ששווה לסיים",
   "finished.title": "הגעת לסוף.",
   "finished.body": "אפשר לחזור לכל שיעור ולהמשיך לחקור.",
-  "continue": "להמשך הלמידה ←",
+  "continue": "המשך למידה ←",
   "path": "מסלול הלמידה שלך",
   "progress": "{completed, number} הושלמו / {total, number}",
   "progressPlaced": "{completed, number} הושלמו · {placed, number} בפטור שיבוץ / {total, number}",
