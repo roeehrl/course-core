@@ -60,7 +60,9 @@ describe("fetch admin adapter", () => {
       .previewExtension(enrollmentId, calendarRequest)
       .catch((error: unknown) => error);
     expect(refused).toMatchObject({ code: "visual_inaccessible" });
-    expect(errorMessage(refused)).toMatch(/keyboard support and a text alternative/);
+    expect(errorMessage(refused)).toMatch(
+      /keyboard support and a text alternative/,
+    );
   });
   it("encodes identifiers, includes cookie credentials, revisions and idempotency headers", async () => {
     const fetcher = vi
