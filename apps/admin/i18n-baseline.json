@@ -45,9 +45,9 @@
 
     "src/components/ProviderEvalPanel.tsx": 34,
 
-    "src/components/ProviderModelGuide.tsx": 45,
+    "src/components/ProviderModelGuide.tsx": 44,
 
-    "src/components/ProviderSetupPanel.tsx": 65,
+    "src/components/ProviderSetupPanel.tsx": 66,
 
     "src/components/RecoveryRegistry.tsx": 21,
 
@@ -102,6 +102,8 @@
     "src/domain/supervision.ts": 13,
 
     "src/domain/webCrypto.ts": 1,
+
+    "src/text/providerSetup.ts": 42,
 
     "src/views/AdminSectionView.tsx": 34,
 
