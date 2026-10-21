@@ -176,7 +176,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
       <>
         {block.type === "text" ? (
           <>
-            <div {...courseContentAttributes(server.course)}>
+            <div className="connected-prose" {...courseContentAttributes(server.course)}>
               <MarkdownContent markdown={block.markdown} />
             </div>
             {/* A generated component runs beside its text alternative, in the sandboxed runner. */}
