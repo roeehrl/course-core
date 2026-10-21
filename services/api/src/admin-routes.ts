@@ -968,8 +968,16 @@ export function registerAdminRoutes(
     const actor = await auth.authenticate(request);
     // Workspace staff see every course; course-scoped members only courses of active grants.
     const rows = await sessionCourses(db, actor.id);
+    // Workspaces this person runs: AI services are set up per workspace, before any course exists.
+    const workspaces = (
+      await db.query<{ id: string; title: string; role: string }>(
+        "SELECT w.id,w.title,m.role FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.user_id=$1 AND m.role IN ('owner','admin') ORDER BY w.title,w.id LIMIT 50",
+        [actor.id],
+      )
+    ).rows;
     return {
       actor: { id: actor.id, name: actor.displayName, role: "member" },
+      workspaces,
       courses: rows.map((r) => ({
         id: r.id,
         title: r.title,

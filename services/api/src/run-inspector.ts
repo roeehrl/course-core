@@ -101,8 +101,13 @@ export async function runPolicies(client: Sql, job: RunRow) {
   const spend = (await client.query<{ micro_usd: string; tokens: string }>("SELECT micro_usd::text,tokens::text FROM supervisor_job_spend WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3",
     [job.id, job.enrollment_id, job.workspace_id])).rows[0];
   const enrollment = (await client.query<Record<string, string | null>>(
-    `SELECT limit_micro_usd::text,limit_tokens::text,used_micro_usd::text,used_tokens::text,daily_limit_micro_usd::text,daily_limit_tokens::text,
-       artifact_limit_micro_usd::text,artifact_limit_tokens::text FROM supervisor_enrollment_budgets WHERE enrollment_id=$1 AND workspace_id=$2`, [job.enrollment_id, job.workspace_id])).rows[0];
+    // A learner without an own limit has the workspace default limit for each learner.
+    `SELECT (CASE WHEN b.limit_source='own' THEN b.limit_micro_usd ELSE COALESCE(w.default_enrollment_limit_micro_usd,0) END)::text AS limit_micro_usd,
+       (CASE WHEN b.limit_source='own' THEN b.limit_tokens ELSE COALESCE(w.default_enrollment_limit_tokens,0) END)::text AS limit_tokens,
+       b.used_micro_usd::text,b.used_tokens::text,b.daily_limit_micro_usd::text,b.daily_limit_tokens::text,
+       b.artifact_limit_micro_usd::text,b.artifact_limit_tokens::text
+     FROM supervisor_enrollment_budgets b LEFT JOIN supervisor_workspace_budgets w ON w.workspace_id=b.workspace_id
+     WHERE b.enrollment_id=$1 AND b.workspace_id=$2`, [job.enrollment_id, job.workspace_id])).rows[0];
   const workspace = (await client.query<Record<string, string>>(
     "SELECT limit_micro_usd::text,limit_tokens::text,used_micro_usd::text,used_tokens::text FROM supervisor_workspace_budgets WHERE workspace_id=$1", [job.workspace_id])).rows[0];
   const control = (await client.query<{ state: string; revision: number }>("SELECT state,revision FROM supervisor_controls WHERE enrollment_id=$1 AND workspace_id=$2",

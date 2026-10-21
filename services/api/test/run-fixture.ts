@@ -56,7 +56,7 @@ export async function recordSyntheticRun(db: Pick<Database, "query">, options: {
   await db.query(`INSERT INTO provider_dispatches(operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,candidate,finished_at)
     VALUES($1,$2,$3,$4,$5,$6,'completed',$7,clock_timestamp())`, [operation, jobId, enrollment, workspace, ownerId, "b".repeat(64), JSON.stringify({ text: "PROVIDER_CANDIDATE_CANARY" })]);
   await db.query("INSERT INTO supervisor_job_spend(job_id,enrollment_id,workspace_id,micro_usd,tokens) VALUES($1,$2,$3,300,120)", [jobId, enrollment, workspace]);
-  await db.query(`INSERT INTO supervisor_enrollment_budgets(enrollment_id,workspace_id,limit_micro_usd,limit_tokens,used_micro_usd,used_tokens,daily_limit_micro_usd)
-    VALUES($1,$2,5000,4000,300,120,2000) ON CONFLICT (enrollment_id) DO NOTHING`, [enrollment, workspace]);
+  await db.query(`INSERT INTO supervisor_enrollment_budgets(enrollment_id,workspace_id,limit_micro_usd,limit_tokens,used_micro_usd,used_tokens,daily_limit_micro_usd,limit_source)
+    VALUES($1,$2,5000,4000,300,120,2000,'own') ON CONFLICT (enrollment_id) DO NOTHING`, [enrollment, workspace]);
   return { jobId, eventId, calls };
 }

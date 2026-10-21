@@ -11,6 +11,7 @@ import { requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
 import type { AgentRole, ProviderRuntime } from './provider-runtime.js';
 import { telemetry } from './telemetry.js';
+import { composeProviders } from './provider-composition.js';
 
 /**
  * Operator-entered model pricing, the workspace rule for unpriced paid work, and the
@@ -174,6 +175,12 @@ const SUMS = `count(*)::int AS calls,COALESCE(sum(reserved_micro_usd),0)::text A
   COALESCE(sum(charged_micro_usd) FILTER (WHERE state='unpriced'),0)::text AS unpriced,
   (count(*) FILTER (WHERE state='uncertain'))::int AS uncertain`;
 
+/** The open setup draft composed for pricing questions only (no credential is read). */
+async function draftRuntime(db: Database, workspaceId: string) {
+  const row = (await db.query<{ configuration: unknown }>('SELECT configuration FROM provider_setup_drafts WHERE workspace_id=$1', [workspaceId])).rows[0];
+  if (!row) return null;
+  try { return composeProviders(row.configuration, () => 'pricing-only'); } catch { return null; }
+}
 export type RuntimeResolver = (workspaceId: string, client?: PoolClient) => Promise<ProviderRuntime>;
 export function registerProviderCostRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, resolve: RuntimeResolver) {
   const base = '/api/admin/workspaces/:workspaceId/provider-pricing';
@@ -181,17 +188,21 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
   async function view(workspaceId: string) {
     const runtime = await resolve(workspaceId), roles = runtime.roleModels();
     const configured = runtime.describe().map(m => m.id);
+    // Models of the open setup draft can be priced before the draft is activated.
+    const draft = await draftRuntime(db, workspaceId), draftRoles = draft?.roleModels() ?? {};
+    const draftModels = (draft?.describe().map(m => m.id) ?? []).filter(id => Object.values(draftRoles).some(b => b?.modelId === id));
     const history = (await db.query<PriceRow>(`SELECT * FROM (SELECT p.*,row_number() OVER (PARTITION BY model_id ORDER BY version DESC) AS n
       FROM provider_model_prices p WHERE workspace_id=$1) h WHERE n<=20 ORDER BY model_id,version DESC`, [workspaceId])).rows;
     const settings = (await db.query<{ require_priced_models: boolean; revision: number }>('SELECT require_priced_models,revision FROM workspace_cost_settings WHERE workspace_id=$1', [workspaceId])).rows[0];
     const requirePricing = settings ? settings.require_priced_models : true;
-    const ids = [...new Set([...configured, ...history.map(r => r.model_id)])].slice(0, 50);
+    const ids = [...new Set([...configured, ...draftModels, ...history.map(r => r.model_id)])].slice(0, 50);
     const models = [];
     for (const modelId of ids) {
       const inForce = (await db.query<PriceRow>(IN_FORCE, [workspaceId, modelId])).rows[0];
-      const bound = Object.entries(roles).filter(([, b]) => b?.modelId === modelId).map(([role, b]) => ({ role, pricingKind: b!.pricingKind }));
+      const active = Object.entries(roles).filter(([, b]) => b?.modelId === modelId).map(([role, b]) => ({ role, pricingKind: b!.pricingKind }));
+      const bound = active.length ? active : Object.entries(draftRoles).filter(([, b]) => b?.modelId === modelId).map(([role, b]) => ({ role, pricingKind: b!.pricingKind }));
       const rows = history.filter(r => r.model_id === modelId);
-      models.push({ modelId, configured: configured.includes(modelId), roles: bound.map(b => b.role),
+      models.push({ modelId, configured: configured.includes(modelId), draft: draftModels.includes(modelId), roles: bound.map(b => b.role),
         inForce: inForce ? versionView(inForce) : null, latestVersion: rows[0]?.version ?? 0,
         coverage: bound.map(b => ({ role: b.role, priced: !!inForce && inForce.status === 'active' && pricingCovers(pricingOf(inForce), b.pricingKind),
           // Research models may report web searches billed per request (Anthropic does); without
@@ -228,7 +239,8 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     else requireCondition(Object.values(prices).every(v => v === null), 'PROVIDER_PRICING_INVALID', 400);
     const effectiveFrom = new Date(input.effectiveFrom);
     await workspaceRole(db, actor, workspaceId, ['owner', 'admin']);
-    const configured = (await resolve(workspaceId)).describe().some(m => m.id === input.modelId);
+    const configured = (await resolve(workspaceId)).describe().some(m => m.id === input.modelId)
+      || !!(await draftRuntime(db, workspaceId))?.describe().some(m => m.id === input.modelId);
     const digest = digestJson({ kind: 'provider_pricing', workspaceId, ...input });
     return transaction(db, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`provider-pricing:${workspaceId}`]);

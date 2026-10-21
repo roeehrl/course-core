@@ -71,6 +71,12 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   // A typed provider key was tested before saving: the installed kind, the outcome code and
   // the model count. The key itself is never recorded.
   'provider.key_tested': keep,
+  // AI services changes: connection ids, kinds, outcomes and decisions. Never a key or key ending.
+  'provider.connection.added': keep,
+  'provider.connection.key_replaced': keep,
+  'provider.connection.removed': keep,
+  'provider.service_key.changed': keep,
+  'provider.setup.activated': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

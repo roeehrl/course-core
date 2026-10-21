@@ -117,6 +117,10 @@ export function refusalCode(status: number, body: unknown): MetadataFailureCode 
 }
 export interface MetadataAdapter {
   label: string;
+  /** The provider's public pricing page (a documentation link; Core ships no prices). */
+  pricingUrl?: string;
+  /** Where an operator creates an API key for this provider. */
+  keyHelpUrl?: string;
   buildDraft?: (input: ModelDraftInput) => unknown;
   roleMethods?: RoleMethods;
   inspect(input: {
@@ -313,6 +317,8 @@ export function googleMetadataAdapter(
 ): MetadataAdapter {
   return {
     label: "Google",
+    pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+    keyHelpUrl: "https://aistudio.google.com/apikey",
     buildDraft: googleModelDraft,
     roleMethods: {
       companion: "generateContent",
@@ -438,6 +444,8 @@ export function anthropicMetadataAdapter(
 ): MetadataAdapter {
   return {
     label: "Anthropic",
+    pricingUrl: "https://docs.claude.com/en/docs/about-claude/pricing",
+    keyHelpUrl: "https://console.anthropic.com/settings/keys",
     buildDraft: anthropicModelDraft,
     roleMethods: {
       companion: anthropicMethods.messages,
