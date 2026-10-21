@@ -17,6 +17,7 @@
     "test:object-store": "tsx qualification/object-store-flow.ts",
     "test:clip-export": "tsx qualification/clip-export-flow.ts",
     "test:load": "tsx qualification/load-flow.ts",
+    "study:rehearse": "NODE_ENV=test tsx qualification/study-rehearsal.ts",
     "test:long-session": "node --expose-gc --import tsx qualification/long-session-flow.ts",
     "migrate": "tsx src/migrate-cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
