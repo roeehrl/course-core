@@ -347,6 +347,9 @@ describe("changes land only at a safe boundary (E03)", () => {
     const [pending] = await listed();
     expect(pending).toMatchObject({ kind: "attach_visual", episodeId: "min", reason: "attempt_in_progress", addableNow: false, waitingFor: "attempt_in_progress" });
     expect(JSON.stringify(pending)).not.toContain("scene");
+    const timeline = async () => (await app.inject({ url: `/api/enrollments/${learner.id}/supervision/tools`, headers: headers(learner.learner) }))
+      .json().calls.find((c: any) => c.tool === "create_teaching").outcome.delivery;
+    expect(await timeline()).toBe("waiting_for_safe_point");
     const early = await learner.command("personal-changes/pending/apply", { pendingId: pending.pendingId });
     expect(early.statusCode).toBe(409);
     expect(early.json().error).toBe("ADAPTATION_NOT_AT_SAFE_BOUNDARY");
@@ -358,6 +361,7 @@ describe("changes land only at a safe boundary (E03)", () => {
     const added = await learner.command("personal-changes/pending/apply", { pendingId: pending.pendingId });
     expect(added.statusCode, added.body).toBe(200);
     expect(added.json()).toMatchObject({ status: "applied", planRevision: 1 });
+    expect(await timeline()).toBe("applied");
     const after = await learner.snapshot();
     const episode = after.course.chapters[0].episodes.find((e: any) => e.id === "min");
     expect(episode.blocks.slice(0, before.blocks.length)).toEqual(before.blocks);

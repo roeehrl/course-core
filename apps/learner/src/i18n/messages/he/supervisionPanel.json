@@ -66,5 +66,8 @@
   "tool.choose_visual": "בחר תמונה מהקורס להראות לך",
   "tool.request_authority": "ביקש החלטה שאינו רשאי לקבל בעצמו",
   "tool.compare_alternatives": "השווה בין שתי טיוטות",
-  "tool.choose_alternative": "שמר את הטיוטה הטובה יותר"
+  "tool.choose_alternative": "שמר את הטיוטה הטובה יותר",
+  "status.waitingForSafePoint": "מוכן, וממתין לסיום השאלה הנוכחית. אפשר להוסיף אותו מהשיעור.",
+  "status.learnerDeclined": "דחית את זה. זה לא נוסף.",
+  "status.lapsed": "כבר לא זמין, ולכן לא נוסף."
 }

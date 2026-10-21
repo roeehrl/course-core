@@ -66,5 +66,8 @@
   "tool.choose_visual": "Chose a course picture to show you",
   "tool.request_authority": "Asked for a decision it may not make itself",
   "tool.compare_alternatives": "Compared two drafts",
-  "tool.choose_alternative": "Kept the better draft"
+  "tool.choose_alternative": "Kept the better draft",
+  "status.waitingForSafePoint": "Ready, and waiting until you finish your current question. You can add it from the lesson.",
+  "status.learnerDeclined": "You turned this down. It was not added.",
+  "status.lapsed": "No longer available, so it was not added."
 }
