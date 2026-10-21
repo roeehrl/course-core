@@ -1,7 +1,17 @@
 import { ChevronRight } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { SectionProps } from "./AiServicesPage";
-import { Field, Ltr, Message, described, errorText, jobName, newKey, sectionAnchor, useAiText } from "./shared";
+import {
+  Field,
+  Ltr,
+  Message,
+  described,
+  errorText,
+  jobName,
+  newKey,
+  sectionAnchor,
+  useAiText,
+} from "./shared";
 
 type Props = SectionProps & { unsaved: boolean };
 type Note = { tone: "ok" | "info" | "error"; text: string } | undefined;
@@ -14,12 +24,19 @@ interface Adapter {
 }
 
 /** Line and column of a JSON.parse error, when the engine reports a position. */
-function jsonError(t: ReturnType<typeof useAiText>["t"], source: string, error: unknown) {
+function jsonError(
+  t: ReturnType<typeof useAiText>["t"],
+  source: string,
+  error: unknown,
+) {
   const message = error instanceof Error ? error.message : String(error);
   const match = /position (\d+)/.exec(message);
   if (!match) return message;
   const before = source.slice(0, Number(match[1])).split("\n");
-  return t("advanced.jsonPosition", { line: before.length, column: before.at(-1)!.length + 1 });
+  return t("advanced.jsonPosition", {
+    line: before.length,
+    column: before.at(-1)!.length + 1,
+  });
 }
 
 /**
@@ -32,13 +49,16 @@ export function AdvancedSection(props: Props) {
   const { t } = text;
   const { data, port, workspaceId, reload, activate, onDirty } = props;
   const base = useId().replaceAll(":", "");
-  const configuration = data.setup.configuration as { adapters?: Adapter[] } & Record<string, unknown>;
+  const configuration = data.setup.configuration as {
+    adapters?: Adapter[];
+  } & Record<string, unknown>;
   const pretty = JSON.stringify(configuration, null, 2);
   const [editing, setEditing] = useState(false);
   const [json, setJson] = useState(pretty);
   const [notes, setNotes] = useState<Record<string, Note>>({});
   const [busy, setBusy] = useState(false);
-  const note = (key: string, value: Note) => setNotes((current) => ({ ...current, [key]: value }));
+  const note = (key: string, value: Note) =>
+    setNotes((current) => ({ ...current, [key]: value }));
   useEffect(() => {
     if (!editing) setJson(pretty);
   }, [pretty, editing]);
@@ -54,17 +74,30 @@ export function AdvancedSection(props: Props) {
   const limitsKey = JSON.stringify(initialLimits);
   useEffect(() => setLimits(JSON.parse(limitsKey)), [limitsKey]);
   const [youtube, setYoutube] = useState("");
-  const dirty = (editing && json !== pretty) || JSON.stringify(limits) !== limitsKey || !!youtube;
+  const dirty =
+    (editing && json !== pretty) ||
+    JSON.stringify(limits) !== limitsKey ||
+    !!youtube;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
 
   /** Saves a whole configuration and job policy as a draft, then turns it on when no check is needed. */
-  async function apply(key: string, next: unknown, jobPolicy: unknown, done: string) {
+  async function apply(
+    key: string,
+    next: unknown,
+    jobPolicy: unknown,
+    done: string,
+  ) {
     setBusy(true);
     setNotes({});
     try {
-      const draft = await port.draftFromJson(workspaceId, { baseRevision: data.setup.revision, configuration: next, jobPolicy });
-      if (draft.waitingForCheck.length) note(key, { tone: "info", text: t("advanced.jsonWaiting") });
+      const draft = await port.draftFromJson(workspaceId, {
+        baseRevision: data.setup.revision,
+        configuration: next,
+        jobPolicy,
+      });
+      if (draft.waitingForCheck.length)
+        note(key, { tone: "info", text: t("advanced.jsonWaiting") });
       else if (await activate(draft)) note(key, { tone: "ok", text: done });
       setEditing(false);
       await reload();
@@ -79,7 +112,10 @@ export function AdvancedSection(props: Props) {
     try {
       parsed = JSON.parse(json);
     } catch (error) {
-      note("json", { tone: "error", text: t("advanced.jsonInvalid", { message: jsonError(t, json, error) }) });
+      note("json", {
+        tone: "error",
+        text: t("advanced.jsonInvalid", { message: jsonError(t, json, error) }),
+      });
       return;
     }
     void apply("json", parsed, policy, t("advanced.jsonSaved"));
@@ -93,11 +129,21 @@ export function AdvancedSection(props: Props) {
       attempts: Number(limits.attempts),
     };
     const ok =
-      Number.isInteger(numbers.cost) && numbers.cost >= 1 && numbers.cost <= 1e9 &&
-      Number.isInteger(numbers.tokens) && numbers.tokens >= 1 && numbers.tokens <= 1e9 &&
-      Number.isInteger(numbers.deadline) && numbers.deadline >= 1 && numbers.deadline <= 1440 &&
-      Number.isInteger(numbers.timeout) && numbers.timeout >= 1 && numbers.timeout <= 120 &&
-      Number.isInteger(numbers.attempts) && numbers.attempts >= 1 && numbers.attempts <= 5;
+      Number.isInteger(numbers.cost) &&
+      numbers.cost >= 1 &&
+      numbers.cost <= 1e9 &&
+      Number.isInteger(numbers.tokens) &&
+      numbers.tokens >= 1 &&
+      numbers.tokens <= 1e9 &&
+      Number.isInteger(numbers.deadline) &&
+      numbers.deadline >= 1 &&
+      numbers.deadline <= 1440 &&
+      Number.isInteger(numbers.timeout) &&
+      numbers.timeout >= 1 &&
+      numbers.timeout <= 120 &&
+      Number.isInteger(numbers.attempts) &&
+      numbers.attempts >= 1 &&
+      numbers.attempts <= 5;
     if (!ok) {
       note("limits", { tone: "error", text: t("advanced.limitsInvalid") });
       return;
@@ -114,14 +160,27 @@ export function AdvancedSection(props: Props) {
       t("advanced.limitsSaved"),
     );
   }
-  const subscriptions = (configuration.adapters ?? []).filter((a) => a.subscriptionRef);
+  const subscriptions = (configuration.adapters ?? []).filter(
+    (a) => a.subscriptionRef,
+  );
   const keyed = data.connections.connections
-    .map((c) => ({ c, slot: (configuration.adapters ?? []).find((a) => a.id === c.id)?.credentialEnv }))
+    .map((c) => ({
+      c,
+      slot: (configuration.adapters ?? []).find((a) => a.id === c.id)
+        ?.credentialEnv,
+    }))
     .filter((x): x is { c: typeof x.c; slot: string } => !!x.slot);
-  async function saveFallback(adapterId: string, enabled: boolean, slot: string) {
+  async function saveFallback(
+    adapterId: string,
+    enabled: boolean,
+    slot: string,
+  ) {
     const next = structuredClone(configuration);
     const adapter = next.adapters!.find((a) => a.id === adapterId)!;
-    adapter.automaticFallback = { enabled, ...(slot ? { credentialEnv: slot } : {}) };
+    adapter.automaticFallback = {
+      enabled,
+      ...(slot ? { credentialEnv: slot } : {}),
+    };
     await apply(`fallback-${adapterId}`, next, policy, t("advanced.jsonSaved"));
   }
   async function serviceKey(value: string | null) {
@@ -134,7 +193,12 @@ export function AdvancedSection(props: Props) {
         key: value,
       });
       setYoutube("");
-      note("youtube", { tone: "ok", text: value ? t("advanced.serviceKeyStored") : t("advanced.serviceKeyRemoved") });
+      note("youtube", {
+        tone: "ok",
+        text: value
+          ? t("advanced.serviceKeyStored")
+          : t("advanced.serviceKeyRemoved"),
+      });
       await reload();
     } catch (error) {
       note("youtube", { tone: "error", text: errorText(text, error) });
@@ -144,7 +208,10 @@ export function AdvancedSection(props: Props) {
   }
   const requirePricing = data.pricing?.requirePricing ?? true;
   const [rule, setRule] = useState({ require: requirePricing, ack: false });
-  useEffect(() => setRule({ require: requirePricing, ack: false }), [requirePricing]);
+  useEffect(
+    () => setRule({ require: requirePricing, ack: false }),
+    [requirePricing],
+  );
   async function saveRule() {
     if (!data.pricing) return;
     setBusy(true);
@@ -168,26 +235,44 @@ export function AdvancedSection(props: Props) {
     const value = notes[key];
     return value ? <Message tone={value.tone}>{value.text}</Message> : null;
   };
-  const youtubeConfigured = data.connections.serviceKeys.find((k) => k.id === "youtube")?.configured;
+  const youtubeConfigured = data.connections.serviceKeys.find(
+    (k) => k.id === "youtube",
+  )?.configured;
   const history = [
-    ...(data.evals?.results ?? []).map((r) => ({ at: r.createdAt, kind: "result" as const, row: r })),
-    ...(data.evals?.overrides ?? []).map((o) => ({ at: o.createdAt, kind: "override" as const, row: o })),
+    ...(data.evals?.results ?? []).map((r) => ({
+      at: r.createdAt,
+      kind: "result" as const,
+      row: r,
+    })),
+    ...(data.evals?.overrides ?? []).map((o) => ({
+      at: o.createdAt,
+      kind: "override" as const,
+      row: o,
+    })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
     <details id={sectionAnchor("advanced")} className="ai-section ai-advanced">
       <summary>
         <span className="ai-summary-title">
-          <ChevronRight size={20} aria-hidden="true" className="ai-chevron flip-rtl" />
+          <ChevronRight
+            size={20}
+            aria-hidden="true"
+            className="ai-chevron flip-rtl"
+          />
           <h2>{t("section.advanced")}</h2>
         </span>
-        {props.unsaved && <span className="ai-pill unsaved">{t("pill.unsaved")}</span>}
+        {props.unsaved && (
+          <span className="ai-pill unsaved">{t("pill.unsaved")}</span>
+        )}
       </summary>
       <p>{t("advanced.intro")}</p>
 
       <section className="ai-sub" aria-labelledby={`${base}-config`}>
         <h3 id={`${base}-config`}>{t("advanced.configTitle")}</h3>
         <p className="ai-muted">{t("advanced.configNote")}</p>
-        <p className="ai-muted">{t("advanced.roleIds", { revision: data.setup.revision })}</p>
+        <p className="ai-muted">
+          {t("advanced.roleIds", { revision: data.setup.revision })}
+        </p>
         {editing ? (
           <Field id={`${base}-json`} label={t("advanced.jsonLabel")}>
             <textarea
@@ -202,7 +287,12 @@ export function AdvancedSection(props: Props) {
             />
           </Field>
         ) : (
-          <pre dir="ltr" className="ai-json" tabIndex={0} aria-label={t("advanced.configTitle")}>
+          <pre
+            dir="ltr"
+            className="ai-json"
+            tabIndex={0}
+            aria-label={t("advanced.configTitle")}
+          >
             {pretty}
           </pre>
         )}
@@ -212,17 +302,31 @@ export function AdvancedSection(props: Props) {
             type="button"
             className="button secondary"
             onClick={() => {
-              void navigator.clipboard?.writeText(pretty).then(() => note("json", { tone: "ok", text: t("advanced.copied") }));
+              void navigator.clipboard
+                ?.writeText(pretty)
+                .then(() =>
+                  note("json", { tone: "ok", text: t("advanced.copied") }),
+                );
             }}
           >
             {t("advanced.copy")}
           </button>
           <label className="ai-check">
-            <input type="checkbox" checked={editing} disabled={busy} onChange={(event) => setEditing(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={editing}
+              disabled={busy}
+              onChange={(event) => setEditing(event.target.checked)}
+            />
             {t("advanced.editJson")}
           </label>
           {editing && (
-            <button type="button" className="button primary" disabled={busy} onClick={saveJson}>
+            <button
+              type="button"
+              className="button primary"
+              disabled={busy}
+              onClick={saveJson}
+            >
               {t("advanced.saveJson")}
             </button>
           )}
@@ -248,14 +352,21 @@ export function AdvancedSection(props: Props) {
                 inputMode={mode}
                 value={limits[key]}
                 disabled={busy}
-                onChange={(event) => setLimits({ ...limits, [key]: event.target.value })}
+                onChange={(event) =>
+                  setLimits({ ...limits, [key]: event.target.value })
+                }
               />
             </Field>
           ))}
         </div>
         {show("limits")}
         <div className="ai-actions">
-          <button type="button" className="button secondary" disabled={busy || JSON.stringify(limits) === limitsKey} onClick={saveLimits}>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy || JSON.stringify(limits) === limitsKey}
+            onClick={saveLimits}
+          >
             {t("advanced.saveLimits")}
           </button>
         </div>
@@ -270,7 +381,9 @@ export function AdvancedSection(props: Props) {
               adapter={adapter}
               keyed={keyed}
               busy={busy}
-              onSave={(enabled, slot) => void saveFallback(adapter.id, enabled, slot)}
+              onSave={(enabled, slot) =>
+                void saveFallback(adapter.id, enabled, slot)
+              }
               note={show(`fallback-${adapter.id}`)}
             />
           ))
@@ -301,11 +414,21 @@ export function AdvancedSection(props: Props) {
         </Field>
         {show("youtube")}
         <div className="ai-actions">
-          <button type="button" className="button secondary" disabled={busy || !youtube.trim()} onClick={() => void serviceKey(youtube.trim())}>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy || !youtube.trim()}
+            onClick={() => void serviceKey(youtube.trim())}
+          >
             {t("advanced.saveServiceKey")}
           </button>
           {youtubeConfigured && (
-            <button type="button" className="button danger" disabled={busy} onClick={() => void serviceKey(null)}>
+            <button
+              type="button"
+              className="button danger"
+              disabled={busy}
+              onClick={() => void serviceKey(null)}
+            >
               {t("advanced.removeServiceKey")}
             </button>
           )}
@@ -315,12 +438,26 @@ export function AdvancedSection(props: Props) {
       <section className="ai-sub" aria-labelledby={`${base}-rule`}>
         <h3 id={`${base}-rule`}>{t("advanced.pricingRuleTitle")}</h3>
         <label className="ai-check">
-          <input type="checkbox" checked={rule.require} disabled={busy} onChange={(event) => setRule({ require: event.target.checked, ack: false })} />
+          <input
+            type="checkbox"
+            checked={rule.require}
+            disabled={busy}
+            onChange={(event) =>
+              setRule({ require: event.target.checked, ack: false })
+            }
+          />
           {t("advanced.requirePricing")}
         </label>
         {!rule.require && (
           <label className="ai-check">
-            <input type="checkbox" checked={rule.ack} disabled={busy} onChange={(event) => setRule({ ...rule, ack: event.target.checked })} />
+            <input
+              type="checkbox"
+              checked={rule.ack}
+              disabled={busy}
+              onChange={(event) =>
+                setRule({ ...rule, ack: event.target.checked })
+              }
+            />
             {t("advanced.requirePricingAck")}
           </label>
         )}
@@ -329,7 +466,11 @@ export function AdvancedSection(props: Props) {
           <button
             type="button"
             className="button secondary"
-            disabled={busy || rule.require === requirePricing || (!rule.require && !rule.ack)}
+            disabled={
+              busy ||
+              rule.require === requirePricing ||
+              (!rule.require && !rule.ack)
+            }
             onClick={() => void saveRule()}
           >
             {t("advanced.saveRule")}
@@ -347,10 +488,17 @@ export function AdvancedSection(props: Props) {
                 {item.kind === "result"
                   ? t("advanced.historyResult", {
                       job: jobName(t, item.row.role),
-                      outcome: t(item.row.outcome === "passed" ? "advanced.outcome.passed" : "advanced.outcome.failed"),
+                      outcome: t(
+                        item.row.outcome === "passed"
+                          ? "advanced.outcome.passed"
+                          : "advanced.outcome.failed",
+                      ),
                       date: text.date(item.at),
                     })
-                  : t("advanced.historyOverride", { job: jobName(t, item.row.role), date: text.date(item.at) })}
+                  : t("advanced.historyOverride", {
+                      job: jobName(t, item.row.role),
+                      date: text.date(item.at),
+                    })}
                 {item.kind === "override" && "reason" in item.row && (
                   <>
                     <br />
@@ -361,7 +509,10 @@ export function AdvancedSection(props: Props) {
                 )}
                 <br />
                 <span className="ai-muted">
-                  {t("advanced.fingerprint")}: <Ltr className="mono">{item.row.revisionDigest.slice(0, 16)}</Ltr>
+                  {t("advanced.fingerprint")}:{" "}
+                  <Ltr className="mono">
+                    {item.row.revisionDigest.slice(0, 16)}
+                  </Ltr>
                 </span>
               </li>
             ))}
@@ -382,34 +533,58 @@ function Fallback({
   note,
 }: {
   adapter: Adapter;
-  keyed: { c: { id: string; name: string; label: string; kind: string }; slot: string }[];
+  keyed: {
+    c: { id: string; name: string; label: string; kind: string };
+    slot: string;
+  }[];
   busy: boolean;
   onSave: (enabled: boolean, slot: string) => void;
   note: React.ReactNode;
 }) {
   const { t } = useAiText();
   const base = useId().replaceAll(":", "");
-  const [enabled, setEnabled] = useState(adapter.automaticFallback?.enabled === true);
-  const [slot, setSlot] = useState(adapter.automaticFallback?.credentialEnv ?? "");
+  const [enabled, setEnabled] = useState(
+    adapter.automaticFallback?.enabled === true,
+  );
+  const [slot, setSlot] = useState(
+    adapter.automaticFallback?.credentialEnv ?? "",
+  );
   return (
     <div className="ai-form">
       <label className="ai-check">
-        <input type="checkbox" checked={enabled} disabled={busy} onChange={(event) => setEnabled(event.target.checked)} />
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={busy}
+          onChange={(event) => setEnabled(event.target.checked)}
+        />
         {t("advanced.fallbackLabel", { name: adapter.id })}
       </label>
       <Field id={`${base}-slot`} label={t("advanced.fallbackKey")}>
-        <select id={`${base}-slot`} value={slot} disabled={busy} onChange={(event) => setSlot(event.target.value)}>
+        <select
+          id={`${base}-slot`}
+          value={slot}
+          disabled={busy}
+          onChange={(event) => setSlot(event.target.value)}
+        >
           <option value="">{t("advanced.fallbackChoose")}</option>
           {keyed.map(({ c, slot: value }) => (
             <option key={value} value={value}>
-              {(c.kind === "google" || c.kind === "anthropic" ? t(`kind.${c.kind}`) : c.label) + (c.name ? ` · ${c.name}` : "")}
+              {(c.kind === "google" || c.kind === "anthropic"
+                ? t(`kind.${c.kind}`)
+                : c.label) + (c.name ? ` · ${c.name}` : "")}
             </option>
           ))}
         </select>
       </Field>
       {note}
       <div className="ai-actions">
-        <button type="button" className="button secondary" disabled={busy || (enabled && !slot)} onClick={() => onSave(enabled, slot)}>
+        <button
+          type="button"
+          className="button secondary"
+          disabled={busy || (enabled && !slot)}
+          onClick={() => onSave(enabled, slot)}
+        >
           {t("advanced.saveFallback")}
         </button>
       </div>

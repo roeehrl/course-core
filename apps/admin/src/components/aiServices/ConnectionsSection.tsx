@@ -1,6 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Eye, EyeOff, ExternalLink, LoaderCircle } from "lucide-react";
-import { AiServicesError, type Connection, type SectionState } from "../../domain/aiServices";
+import {
+  AiServicesError,
+  type Connection,
+  type SectionState,
+} from "../../domain/aiServices";
 import { trimKey } from "../../domain/providerSetup";
 import type { SectionProps } from "./AiServicesPage";
 import {
@@ -24,7 +28,11 @@ import {
 } from "./shared";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
-type Outcome = { kind: "idle" } | { kind: "testing" } | { kind: "ok"; count: number; key: string } | { kind: "failed"; code: string; key: string };
+type Outcome =
+  | { kind: "idle" }
+  | { kind: "testing" }
+  | { kind: "ok"; count: number; key: string }
+  | { kind: "failed"; code: string; key: string };
 
 export function ConnectionsSection(props: Props) {
   const { t } = useAiText();
@@ -34,12 +42,22 @@ export function ConnectionsSection(props: Props) {
   const [notice, setNotice] = useState("");
   const showForm = adding || !list.length;
   return (
-    <Section id="connections" title={t("section.connections")} state={props.state} unsaved={props.unsaved}>
+    <Section
+      id="connections"
+      title={t("section.connections")}
+      state={props.state}
+      unsaved={props.unsaved}
+    >
       {notice && <Message tone="ok">{notice}</Message>}
       {list.length > 0 && (
         <ul className="ai-connections">
           {list.map((connection) => (
-            <ConnectionRow key={connection.id} connection={connection} {...props} onDone={setNotice} />
+            <ConnectionRow
+              key={connection.id}
+              connection={connection}
+              {...props}
+              onDone={setNotice}
+            />
           ))}
         </ul>
       )}
@@ -113,7 +131,11 @@ function KeyInput({
           onChange={(event) => onChange(event.target.value)}
           onPaste={(event) => {
             const pasted = event.clipboardData.getData("text");
-            if (onCommit && pasted) setTimeout(() => onCommit((event.target as HTMLInputElement).value), 0);
+            if (onCommit && pasted)
+              setTimeout(
+                () => onCommit((event.target as HTMLInputElement).value),
+                0,
+              );
           }}
           onBlur={(event) => onCommit?.(event.target.value)}
           {...described(id, !!hint, error)}
@@ -126,7 +148,11 @@ function KeyInput({
           disabled={!value || disabled}
           onClick={() => setVisible((v) => !v)}
         >
-          {visible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+          {visible ? (
+            <EyeOff size={18} aria-hidden="true" />
+          ) : (
+            <Eye size={18} aria-hidden="true" />
+          )}
         </button>
       </div>
     </Field>
@@ -142,7 +168,11 @@ function AddConnection({
   cancellable,
   onCancel,
   onSaved,
-}: Props & { cancellable: boolean; onCancel: () => void; onSaved: (message: string) => void }) {
+}: Props & {
+  cancellable: boolean;
+  onCancel: () => void;
+  onSaved: (message: string) => void;
+}) {
   const text = useAiText();
   const { t } = text;
   const base = useId().replaceAll(":", "");
@@ -154,18 +184,28 @@ function AddConnection({
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [failure, setFailure] = useState("");
   const [saving, setSaving] = useState(false);
-  const service = serviceName(t, kind, kinds.find((k) => k.kind === kind)?.label);
+  const service = serviceName(
+    t,
+    kind,
+    kinds.find((k) => k.kind === kind)?.label,
+  );
   const help = kinds.find((k) => k.kind === kind)?.keyHelpUrl;
   const keyId = `${base}-key`;
   useEffect(() => onDirty(!!key || !!name), [key, name, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
   const latest = useRef(0);
   const keys = useRequestKeys();
-  const inFlight = useRef<{ key: string; promise: Promise<Outcome> }>(undefined);
+  const inFlight = useRef<{ key: string; promise: Promise<Outcome> }>(
+    undefined,
+  );
   async function test(value: string): Promise<Outcome | null> {
     const clean = trimKey(value);
     if (!clean) return null;
-    if ((outcome.kind === "ok" || outcome.kind === "failed") && outcome.key === clean) return outcome;
+    if (
+      (outcome.kind === "ok" || outcome.kind === "failed") &&
+      outcome.key === clean
+    )
+      return outcome;
     // Save pressed while the same key is still being checked waits for that check.
     if (inFlight.current?.key === clean) return inFlight.current.promise;
     const promise = check(clean);
@@ -189,7 +229,11 @@ function AddConnection({
       if (run === latest.current) setOutcome(next);
       return next;
     } catch (error) {
-      const next: Outcome = { kind: "failed", code: error instanceof AiServicesError ? error.code : "UNAVAILABLE", key: clean };
+      const next: Outcome = {
+        kind: "failed",
+        code: error instanceof AiServicesError ? error.code : "UNAVAILABLE",
+        key: clean,
+      };
       if (run === latest.current) setOutcome(next);
       return next;
     }
@@ -198,7 +242,9 @@ function AddConnection({
     setFailure("");
     const clean = trimKey(key);
     if (!clean) {
-      setErrors([{ field: keyId, message: t("connect.errEmpty", { service }) }]);
+      setErrors([
+        { field: keyId, message: t("connect.errEmpty", { service }) },
+      ]);
       return;
     }
     setErrors([]);
@@ -215,20 +261,28 @@ function AddConnection({
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(skipTest ? { skipTest: true } : {}),
       };
-      const receipt = await port.addConnection(workspaceId, { ...request, idempotencyKey: keys.key(request) });
+      const receipt = await port.addConnection(workspaceId, {
+        ...request,
+        idempotencyKey: keys.key(request),
+      });
       keys.settle();
       setKey("");
       setName("");
       setOutcome({ kind: "idle" });
       onSaved(
         receipt.connection.keyEnding
-          ? t("connect.saved", { ending: text.ltr(receipt.connection.keyEnding) })
+          ? t("connect.saved", {
+              ending: text.ltr(receipt.connection.keyEnding),
+            })
           : t("connect.savedNoEnding"),
       );
       await reload();
     } catch (error) {
       keys.settle(error);
-      if (error instanceof AiServicesError && error.code.startsWith("PROVIDER_METADATA")) {
+      if (
+        error instanceof AiServicesError &&
+        error.code.startsWith("PROVIDER_METADATA")
+      ) {
         setOutcome({ kind: "failed", code: error.code, key: clean });
       } else setFailure(errorText(text, error, service));
     } finally {
@@ -236,8 +290,13 @@ function AddConnection({
     }
   }
   const failedText =
-    outcome.kind === "failed" ? (keyProblemText(text, outcome.code, service) ?? t("connect.errUnexpected")) : "";
-  const keyError = errors.find((e) => e.field === keyId)?.message ?? (outcome.kind === "failed" ? failedText : undefined);
+    outcome.kind === "failed"
+      ? (keyProblemText(text, outcome.code, service) ??
+        t("connect.errUnexpected"))
+      : "";
+  const keyError =
+    errors.find((e) => e.field === keyId)?.message ??
+    (outcome.kind === "failed" ? failedText : undefined);
   return (
     <form
       className="ai-form"
@@ -266,7 +325,9 @@ function AddConnection({
                   setOutcome({ kind: "idle" });
                 }}
               />
-              {k.kind === "google" || k.kind === "anthropic" ? t(`kind.${k.kind}`) : k.label}
+              {k.kind === "google" || k.kind === "anthropic"
+                ? t(`kind.${k.kind}`)
+                : k.label}
             </label>
           ))}
         </fieldset>
@@ -280,7 +341,11 @@ function AddConnection({
         hint={
           help ? (
             <a href={help} target="_blank" rel="noreferrer noopener">
-              {t(kind === "anthropic" ? "connect.keyHelp.anthropic" : "connect.keyHelp.google")}
+              {t(
+                kind === "anthropic"
+                  ? "connect.keyHelp.anthropic"
+                  : "connect.keyHelp.google",
+              )}
               <ExternalLink size={13} aria-hidden="true" />
               <span className="sr-only"> {t("connect.newTab")}</span>
             </a>
@@ -295,16 +360,22 @@ function AddConnection({
       <div aria-live="polite" className="ai-live">
         {outcome.kind === "testing" && (
           <p className="ai-progress">
-            <LoaderCircle size={16} className="spinner" aria-hidden="true" /> {t("connect.testing", { service })}
+            <LoaderCircle size={16} className="spinner" aria-hidden="true" />{" "}
+            {t("connect.testing", { service })}
           </p>
         )}
-        {outcome.kind === "ok" && <Message tone="ok">{t("connect.testOk", { service, count: outcome.count })}</Message>}
+        {outcome.kind === "ok" && (
+          <Message tone="ok">
+            {t("connect.testOk", { service, count: outcome.count })}
+          </Message>
+        )}
       </div>
       {outcome.kind === "failed" && (
         <details className="ai-technical">
           <summary>{t("connect.technical")}</summary>
           <p>
-            {t("connect.technicalCode")}: <Ltr className="mono">{outcome.code}</Ltr>
+            {t("connect.technicalCode")}:{" "}
+            <Ltr className="mono">{outcome.code}</Ltr>
           </p>
         </details>
       )}
@@ -312,12 +383,21 @@ function AddConnection({
         <details className="ai-untested">
           <summary>{t("connect.unreachableQuestion", { service })}</summary>
           <p>{t("connect.saveUntestedWarn")}</p>
-          <button type="button" className="button secondary" disabled={saving} onClick={() => void save(true)}>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={saving}
+            onClick={() => void save(true)}
+          >
             {t("connect.saveUntested")}
           </button>
         </details>
       )}
-      <Field id={`${base}-name`} label={t("connect.nameLabel")} hint={t("connect.nameHint")}>
+      <Field
+        id={`${base}-name`}
+        label={t("connect.nameLabel")}
+        hint={t("connect.nameHint")}
+      >
         <input
           id={`${base}-name`}
           dir="auto"
@@ -331,14 +411,22 @@ function AddConnection({
       {failure && <Message tone="error">{failure}</Message>}
       <div className="ai-actions">
         {cancellable && (
-          <button type="button" className="button secondary" onClick={onCancel} disabled={saving}>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={onCancel}
+            disabled={saving}
+          >
             {t("connect.cancel")}
           </button>
         )}
         <button
           type="submit"
           className="button primary"
-          disabled={saving || (outcome.kind === "failed" && outcome.key === trimKey(key))}
+          disabled={
+            saving ||
+            (outcome.kind === "failed" && outcome.key === trimKey(key))
+          }
         >
           {saving ? t("connect.saving") : t("connect.save")}
         </button>
@@ -360,25 +448,33 @@ function ConnectionRow({
   const base = useId().replaceAll(":", "");
   const service = serviceName(t, connection.kind, connection.label);
   const kindName =
-    connection.kind === "google" || connection.kind === "anthropic" ? t(`kind.${connection.kind}`) : connection.label;
-  const title = connection.name ? t("row.connectionName", { service: kindName, name: connection.name }) : kindName;
+    connection.kind === "google" || connection.kind === "anthropic"
+      ? t(`kind.${connection.kind}`)
+      : connection.label;
+  const title = connection.name
+    ? t("row.connectionName", { service: kindName, name: connection.name })
+    : kindName;
   const [mode, setMode] = useState<"view" | "replace" | "remove">("view");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string }>();
+  const [message, setMessage] = useState<{
+    tone: "ok" | "error";
+    text: string;
+  }>();
   const [key, setKey] = useState("");
   const [keyError, setKeyError] = useState<string>();
   const keys = useRequestKeys();
-  const status =
-    !connection.keyStored
-      ? { tone: "bad", text: t("row.keyMissing") }
-      : connection.keyStatus === "working"
-        ? { tone: "ok", text: t("row.working") }
-        : connection.keyStatus === "rejected"
-          ? { tone: "bad", text: t("row.rejected") }
-          : connection.keyStatus === "unreachable"
-            ? { tone: "warn", text: t("row.unreachable", { service }) }
-            : { tone: "warn", text: t("row.notTested") };
-  const reason = connection.keyReason ? keyProblemText(text, connection.keyReason, service) : undefined;
+  const status = !connection.keyStored
+    ? { tone: "bad", text: t("row.keyMissing") }
+    : connection.keyStatus === "working"
+      ? { tone: "ok", text: t("row.working") }
+      : connection.keyStatus === "rejected"
+        ? { tone: "bad", text: t("row.rejected") }
+        : connection.keyStatus === "unreachable"
+          ? { tone: "warn", text: t("row.unreachable", { service }) }
+          : { tone: "warn", text: t("row.notTested") };
+  const reason = connection.keyReason
+    ? keyProblemText(text, connection.keyReason, service)
+    : undefined;
   async function testAgain() {
     setBusy(true);
     setMessage(undefined);
@@ -387,7 +483,12 @@ function ConnectionRow({
       setMessage(
         result.outcome === "ok"
           ? { tone: "ok", text: t("row.testResult.ok") }
-          : { tone: "error", text: keyProblemText(text, result.outcome, service) ?? t("connect.errUnexpected") },
+          : {
+              tone: "error",
+              text:
+                keyProblemText(text, result.outcome, service) ??
+                t("connect.errUnexpected"),
+            },
       );
       await reload();
     } catch (error) {
@@ -405,20 +506,31 @@ function ConnectionRow({
     setKeyError(undefined);
     setBusy(true);
     try {
-      const request = { expectedRevision: data.connections.revision, key: clean };
-      const receipt = await port.replaceKey(workspaceId, connection.id, { ...request, idempotencyKey: keys.key(request) });
+      const request = {
+        expectedRevision: data.connections.revision,
+        key: clean,
+      };
+      const receipt = await port.replaceKey(workspaceId, connection.id, {
+        ...request,
+        idempotencyKey: keys.key(request),
+      });
       keys.settle();
       setKey("");
       setMode("view");
       onDone(
         receipt.connection.keyEnding
-          ? t("row.replaced", { ending: text.ltr(receipt.connection.keyEnding) })
+          ? t("row.replaced", {
+              ending: text.ltr(receipt.connection.keyEnding),
+            })
           : t("row.replacedNoEnding"),
       );
       await reload();
     } catch (error) {
       keys.settle(error);
-      if (error instanceof AiServicesError && error.code.startsWith("PROVIDER_")) {
+      if (
+        error instanceof AiServicesError &&
+        error.code.startsWith("PROVIDER_")
+      ) {
         const copy = keyProblemText(text, error.code, service);
         if (copy) {
           setKeyError(copy);
@@ -467,15 +579,27 @@ function ConnectionRow({
           </span>
           <span>
             {connection.testedAt
-              ? t("row.tested", { when: relativeTime(text.locale, connection.testedAt) })
+              ? t("row.tested", {
+                  when: relativeTime(text.locale, connection.testedAt),
+                })
               : t("row.notTested")}
           </span>
           <span className={`ai-pill ${status.tone}`}>{status.text}</span>
         </p>
-        <p className="ai-muted">{connection.usedByRoles.length ? t("row.usedBy", { jobs }) : t("row.notUsed")}</p>
-        {reason && connection.keyStatus !== "working" && <Message tone="warn">{reason}</Message>}
+        <p className="ai-muted">
+          {connection.usedByRoles.length
+            ? t("row.usedBy", { jobs })
+            : t("row.notUsed")}
+        </p>
+        {reason && connection.keyStatus !== "working" && (
+          <Message tone="warn">{reason}</Message>
+        )}
       </div>
-      {message && <Message tone={message.tone === "ok" ? "ok" : "error"}>{message.text}</Message>}
+      {message && (
+        <Message tone={message.tone === "ok" ? "ok" : "error"}>
+          {message.text}
+        </Message>
+      )}
       {mode === "replace" ? (
         <form
           className="ai-form ai-inline"
@@ -498,7 +622,12 @@ function ConnectionRow({
             }}
           />
           <div className="ai-actions">
-            <button type="button" className="button secondary" disabled={busy} onClick={() => setMode("view")}>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy}
+              onClick={() => setMode("view")}
+            >
               {t("connect.cancel")}
             </button>
             <button type="submit" className="button primary" disabled={busy}>
@@ -508,7 +637,12 @@ function ConnectionRow({
         </form>
       ) : (
         <div className="ai-actions">
-          <button type="button" className="button secondary" disabled={busy} onClick={() => void testAgain()}>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy}
+            onClick={() => void testAgain()}
+          >
             {busy ? t("row.testing") : t("row.testAgain")}
           </button>
           <button
@@ -528,7 +662,8 @@ function ConnectionRow({
             disabled={busy}
             onClick={() => {
               setMessage(undefined);
-              if (connection.usedByRoles.length) setMessage({ tone: "error", text: t("row.inUse", { jobs }) });
+              if (connection.usedByRoles.length)
+                setMessage({ tone: "error", text: t("row.inUse", { jobs }) });
               else setMode("remove");
             }}
           >

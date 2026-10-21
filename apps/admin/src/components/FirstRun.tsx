@@ -26,12 +26,21 @@ export function FirstRun({
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), [view]);
   const back = (
-    <button type="button" className="button quiet" onClick={() => setView("welcome")}>
-      <ArrowLeft size={18} aria-hidden="true" className="flip-rtl" /> {t("back")}
+    <button
+      type="button"
+      className="button quiet"
+      onClick={() => setView("welcome")}
+    >
+      <ArrowLeft size={18} aria-hidden="true" className="flip-rtl" />{" "}
+      {t("back")}
     </button>
   );
   return (
-    <main className="startup ai-first-run" lang={locale} dir={locale === "he" ? "rtl" : "ltr"}>
+    <main
+      className="startup ai-first-run"
+      lang={locale}
+      dir={locale === "he" ? "rtl" : "ltr"}
+    >
       {view === "welcome" && (
         <>
           <h1 tabIndex={-1} ref={heading}>
@@ -43,11 +52,18 @@ export function FirstRun({
           </p>
           <div className="ai-grid">
             {client.coursePackages && (
-              <section className="ai-section" aria-labelledby="first-run-course">
+              <section
+                className="ai-section"
+                aria-labelledby="first-run-course"
+              >
                 <BookOpen size={24} aria-hidden="true" />
                 <h2 id="first-run-course">1. {t("course.title")}</h2>
                 <p>{t("course.body")}</p>
-                <button type="button" className="button secondary" onClick={() => setView("course")}>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setView("course")}
+                >
                   {t("course.button")}
                 </button>
               </section>
@@ -55,9 +71,16 @@ export function FirstRun({
             {client.aiServices && (
               <section className="ai-section" aria-labelledby="first-run-ai">
                 <Sparkles size={24} aria-hidden="true" />
-                <h2 id="first-run-ai">{client.coursePackages ? "2. " : ""}{t("ai.title")}</h2>
+                <h2 id="first-run-ai">
+                  {client.coursePackages ? "2. " : ""}
+                  {t("ai.title")}
+                </h2>
                 <p>{t("ai.body")}</p>
-                <button type="button" className="button primary" onClick={() => setView("ai")}>
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={() => setView("ai")}
+                >
                   {t("ai.button")}
                 </button>
               </section>
@@ -71,7 +94,12 @@ export function FirstRun({
           <h1 tabIndex={-1} ref={heading}>
             {t("ai.title")}
           </h1>
-          <AiServicesPage workspaceId={workspace.id} port={client.aiServices} role={workspace.role} locale={locale} />
+          <AiServicesPage
+            workspaceId={workspace.id}
+            port={client.aiServices}
+            role={workspace.role}
+            locale={locale}
+          />
         </>
       )}
       {view === "course" && client.coursePackages && (

@@ -307,9 +307,13 @@ test("subscription fallback opt-in and opt-out persist through the real server w
 }, info) => {
   await page.getByRole("button", { name: "AI services", exact: true }).click();
   // A connection whose key the subscription can fall back to.
-  await page.getByLabel("API key", { exact: true }).fill("SYNTHETIC_FALLBACK_KEY_CANARY");
+  await page
+    .getByLabel("API key", { exact: true })
+    .fill("SYNTHETIC_FALLBACK_KEY_CANARY");
   await page.getByRole("button", { name: "Save connection" }).click();
-  await expect(page.getByText("Connection saved. Key ending NARY.")).toBeVisible();
+  await expect(
+    page.getByText("Connection saved. Key ending NARY."),
+  ).toBeVisible();
   // A subscription connection is a developer setting: added through the JSON editor.
   const advanced = page.locator("#ai-advanced");
   await advanced.locator("summary").click();
@@ -322,15 +326,21 @@ test("subscription fallback opt-in and opt-out persist through the real server w
   await advanced.getByRole("checkbox", { name: "Edit as JSON" }).check();
   await advanced.getByLabel("Configuration JSON").fill(JSON.stringify(current));
   await advanced.getByRole("button", { name: "Save JSON" }).click();
-  await expect(advanced.getByText("Configuration saved and turned on.")).toBeVisible();
+  await expect(
+    advanced.getByText("Configuration saved and turned on."),
+  ).toBeVisible();
   const choice = advanced.getByRole("checkbox", {
     name: "If the subscription subscription-one runs out, use an API key instead",
   });
   await expect(choice).not.toBeChecked();
   await choice.check();
-  await advanced.getByLabel("API key to use").selectOption({ label: "Google Gemini" });
+  await advanced
+    .getByLabel("API key to use")
+    .selectOption({ label: "Google Gemini" });
   await advanced.getByRole("button", { name: "Save fallback" }).click();
-  await expect(advanced.getByText("Configuration saved and turned on.")).toBeVisible();
+  await expect(
+    advanced.getByText("Configuration saved and turned on."),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "AI services", exact: true }).click();
   await page.locator("#ai-advanced summary").click();
@@ -355,8 +365,15 @@ test("subscription fallback opt-in and opt-out persist through the real server w
     fullPage: true,
   });
   await choice.uncheck();
-  await page.locator("#ai-advanced").getByRole("button", { name: "Save fallback" }).click();
-  await expect(page.locator("#ai-advanced").getByText("Configuration saved and turned on.")).toBeVisible();
+  await page
+    .locator("#ai-advanced")
+    .getByRole("button", { name: "Save fallback" })
+    .click();
+  await expect(
+    page
+      .locator("#ai-advanced")
+      .getByText("Configuration saved and turned on."),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "AI services", exact: true }).click();
   await page.locator("#ai-advanced summary").click();

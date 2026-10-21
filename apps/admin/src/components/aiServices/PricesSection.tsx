@@ -25,7 +25,14 @@ import {
 } from "./shared";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
-const FIELDS = ["input", "output", "cached", "perRequest", "perSearch", "perVideoSecond"] as const;
+const FIELDS = [
+  "input",
+  "output",
+  "cached",
+  "perRequest",
+  "perSearch",
+  "perVideoSecond",
+] as const;
 type PriceField = (typeof FIELDS)[number];
 type Form = Record<PriceField, string> & { source: string };
 const WIRE: Record<PriceField, string> = {
@@ -42,19 +49,41 @@ export function PricesSection(props: Props) {
   const { t } = text;
   const { data, port, workspaceId, reload, onDirty } = props;
   const base = useId().replaceAll(":", "");
-  const active = useMemo(() => activeRoles(data.setup.configuration), [data.setup.configuration]);
-  const groups = useMemo(() => priceGroups(active, data.draft, data.pricing), [active, data.draft, data.pricing]);
+  const active = useMemo(
+    () => activeRoles(data.setup.configuration),
+    [data.setup.configuration],
+  );
+  const groups = useMemo(
+    () => priceGroups(active, data.draft, data.pricing),
+    [active, data.draft, data.pricing],
+  );
   const kindOf = (group: PriceGroup) =>
-    data.connections.connections.find((c) => c.id === group.connectionId)?.kind ??
-    (data.setup.configuration as { adapters?: { id: string; kind: string }[] })?.adapters?.find((a) => a.id === group.connectionId)?.kind ??
+    data.connections.connections.find((c) => c.id === group.connectionId)
+      ?.kind ??
+    (
+      data.setup.configuration as { adapters?: { id: string; kind: string }[] }
+    )?.adapters?.find((a) => a.id === group.connectionId)?.kind ??
     "";
   const today = text.date(new Date());
   const initial = useMemo(() => {
     const result: Record<string, Form> = {};
     for (const group of groups) {
-      const current = data.pricing?.models.find((m) => group.modelIds.includes(m.modelId) && m.inForce)?.inForce;
-      const form = { source: current?.sourceNote ?? t("prices.sourceDefault", { service: serviceName(t, kindOf(group)), date: today }) } as Form;
-      for (const field of FIELDS) form[field] = usdInput((current?.[WIRE[field] as keyof typeof current] as number | null | undefined) ?? null);
+      const current = data.pricing?.models.find(
+        (m) => group.modelIds.includes(m.modelId) && m.inForce,
+      )?.inForce;
+      const form = {
+        source:
+          current?.sourceNote ??
+          t("prices.sourceDefault", {
+            service: serviceName(t, kindOf(group)),
+            date: today,
+          }),
+      } as Form;
+      for (const field of FIELDS)
+        form[field] = usdInput(
+          (current?.[WIRE[field] as keyof typeof current] as
+            number | null | undefined) ?? null,
+        );
       result[group.key] = form;
     }
     return result;
@@ -68,11 +97,20 @@ export function PricesSection(props: Props) {
       return next;
     });
   }, [initial]);
-  const dirtyKeys = groups.filter((g) => touched.has(g.key) && JSON.stringify(forms[g.key]) !== JSON.stringify(initial[g.key])).map((g) => g.key);
+  const dirtyKeys = groups
+    .filter(
+      (g) =>
+        touched.has(g.key) &&
+        JSON.stringify(forms[g.key]) !== JSON.stringify(initial[g.key]),
+    )
+    .map((g) => g.key);
   useEffect(() => onDirty(dirtyKeys.length > 0), [dirtyKeys.length, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
   const [errors, setErrors] = useState<FieldError[]>([]);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string }>();
+  const [message, setMessage] = useState<{
+    tone: "ok" | "error";
+    text: string;
+  }>();
   const [saving, setSaving] = useState(false);
   const keys = useRequestKeys();
   const times = useRef(new Map<string, string>());
@@ -84,11 +122,17 @@ export function PricesSection(props: Props) {
   const kinds = [...new Set(groups.map(kindOf).filter(Boolean))];
   if (!groups.length)
     return (
-      <Section id="prices" title={t("section.prices")} state={props.state} unsaved={props.unsaved}>
+      <Section
+        id="prices"
+        title={t("section.prices")}
+        state={props.state}
+        unsaved={props.unsaved}
+      >
         <p>{t("prices.nothing")}</p>
       </Section>
     );
-  const fieldId = (group: PriceGroup, field: string) => `${base}-${groups.indexOf(group)}-${field}`;
+  const fieldId = (group: PriceGroup, field: string) =>
+    `${base}-${groups.indexOf(group)}-${field}`;
   function validate() {
     const problems: FieldError[] = [];
     for (const group of groups) {
@@ -98,10 +142,20 @@ export function PricesSection(props: Props) {
       if (!any) continue;
       for (const field of FIELDS)
         if (form[field].trim() && parseUsd(form[field]) === null)
-          problems.push({ field: fieldId(group, field), message: t("prices.errAmount") });
+          problems.push({
+            field: fieldId(group, field),
+            message: t("prices.errAmount"),
+          });
       if (!!form.input.trim() !== !!form.output.trim())
-        problems.push({ field: fieldId(group, form.input.trim() ? "output" : "input"), message: t("prices.errBoth") });
-      if (form.source.trim().length < 3) problems.push({ field: fieldId(group, "source"), message: t("prices.errSource") });
+        problems.push({
+          field: fieldId(group, form.input.trim() ? "output" : "input"),
+          message: t("prices.errBoth"),
+        });
+      if (form.source.trim().length < 3)
+        problems.push({
+          field: fieldId(group, "source"),
+          message: t("prices.errSource"),
+        });
     }
     return problems;
   }
@@ -118,22 +172,35 @@ export function PricesSection(props: Props) {
         if (!FIELDS.some((f) => form[f].trim())) continue;
         for (const modelId of group.modelIds) {
           const model = data.pricing?.models.find((m) => m.modelId === modelId);
-          const prices = Object.fromEntries(FIELDS.map((f) => [WIRE[f], form[f].trim() ? parseUsd(form[f]) : null]));
+          const prices = Object.fromEntries(
+            FIELDS.map((f) => [
+              WIRE[f],
+              form[f].trim() ? parseUsd(form[f]) : null,
+            ]),
+          );
           const request = {
             modelId,
             expectedVersion: model?.latestVersion ?? 0,
             status: "active" as const,
             currency: "USD" as const,
-            inputMicroUsdPerMillionTokens: prices.inputMicroUsdPerMillionTokens ?? null,
-            outputMicroUsdPerMillionTokens: prices.outputMicroUsdPerMillionTokens ?? null,
-            cachedInputMicroUsdPerMillionTokens: prices.cachedInputMicroUsdPerMillionTokens ?? null,
+            inputMicroUsdPerMillionTokens:
+              prices.inputMicroUsdPerMillionTokens ?? null,
+            outputMicroUsdPerMillionTokens:
+              prices.outputMicroUsdPerMillionTokens ?? null,
+            cachedInputMicroUsdPerMillionTokens:
+              prices.cachedInputMicroUsdPerMillionTokens ?? null,
             microUsdPerRequest: prices.microUsdPerRequest ?? null,
             microUsdPerOutputSecond: prices.microUsdPerOutputSecond ?? null,
-            microUsdPerServerToolRequest: prices.microUsdPerServerToolRequest ?? null,
+            microUsdPerServerToolRequest:
+              prices.microUsdPerServerToolRequest ?? null,
             sourceNote: form.source.trim(),
           };
           const id = keys.key(request);
-          await port.savePrice(workspaceId, { ...request, idempotencyKey: id, effectiveFrom: effective(id) });
+          await port.savePrice(workspaceId, {
+            ...request,
+            idempotencyKey: id,
+            effectiveFrom: effective(id),
+          });
         }
       }
       keys.settle();
@@ -149,7 +216,10 @@ export function PricesSection(props: Props) {
   }
   const update = (group: PriceGroup, field: keyof Form, value: string) => {
     setTouched((current) => new Set(current).add(group.key));
-    setForms((current) => ({ ...current, [group.key]: { ...current[group.key]!, [field]: value } }));
+    setForms((current) => ({
+      ...current,
+      [group.key]: { ...current[group.key]!, [field]: value },
+    }));
   };
   const money = (group: PriceGroup, field: PriceField, label: string) => {
     const id = fieldId(group, field),
@@ -172,10 +242,17 @@ export function PricesSection(props: Props) {
     );
   };
   return (
-    <Section id="prices" title={t("section.prices")} state={props.state} unsaved={props.unsaved}>
+    <Section
+      id="prices"
+      title={t("section.prices")}
+      state={props.state}
+      unsaved={props.unsaved}
+    >
       {kinds.map((kind) => {
         const service = serviceName(t, kind);
-        const url = data.setup.metadataKinds.find((k) => k.kind === kind)?.pricingUrl;
+        const url = data.setup.metadataKinds.find(
+          (k) => k.kind === kind,
+        )?.pricingUrl;
         return (
           <p key={kind}>
             {t("prices.intro", { service })}{" "}
@@ -199,16 +276,32 @@ export function PricesSection(props: Props) {
       >
         <ErrorSummary errors={errors} />
         {groups.map((group) => {
-          const current = data.pricing?.models.find((m) => group.modelIds.includes(m.modelId) && m.inForce)?.inForce;
+          const current = data.pricing?.models.find(
+            (m) => group.modelIds.includes(m.modelId) && m.inForce,
+          )?.inForce;
           const listName = group.remoteModel;
           return (
             <fieldset className="ai-price" key={group.key}>
               <legend>
                 <Ltr className="mono">{listName}</Ltr>
-                <span className="ai-muted"> · {t("prices.usedBy", { roles: text.list(group.roles.map((r) => jobName(t, r))) })}</span>
+                <span className="ai-muted">
+                  {" "}
+                  ·{" "}
+                  {t("prices.usedBy", {
+                    roles: text.list(group.roles.map((r) => jobName(t, r))),
+                  })}
+                </span>
               </legend>
-              {current && <p className="ai-muted">{t("prices.current", { date: text.date(current.effectiveFrom) })}</p>}
-              {!group.priced && <p className="ai-muted">{t("prices.missingNote")}</p>}
+              {current && (
+                <p className="ai-muted">
+                  {t("prices.current", {
+                    date: text.date(current.effectiveFrom),
+                  })}
+                </p>
+              )}
+              {!group.priced && (
+                <p className="ai-muted">{t("prices.missingNote")}</p>
+              )}
               <div className="ai-grid">
                 {money(group, "input", t("prices.input"))}
                 {money(group, "output", t("prices.output"))}
@@ -218,18 +311,29 @@ export function PricesSection(props: Props) {
                 <div className="ai-grid">
                   {money(group, "cached", t("prices.cached"))}
                   {money(group, "perRequest", t("prices.perRequest"))}
-                  {group.roles.includes("research") && money(group, "perSearch", t("prices.perSearch"))}
-                  {group.roles.includes("media") && money(group, "perVideoSecond", t("prices.perVideoSecond"))}
+                  {group.roles.includes("research") &&
+                    money(group, "perSearch", t("prices.perSearch"))}
+                  {group.roles.includes("media") &&
+                    money(group, "perVideoSecond", t("prices.perVideoSecond"))}
                 </div>
               </details>
-              <Field id={fieldId(group, "source")} label={t("prices.source")} error={errors.find((e) => e.field === fieldId(group, "source"))?.message}>
+              <Field
+                id={fieldId(group, "source")}
+                label={t("prices.source")}
+                error={
+                  errors.find((e) => e.field === fieldId(group, "source"))
+                    ?.message
+                }
+              >
                 <input
                   id={fieldId(group, "source")}
                   dir="auto"
                   maxLength={500}
                   value={forms[group.key]?.source ?? ""}
                   disabled={saving}
-                  onChange={(event) => update(group, "source", event.target.value)}
+                  onChange={(event) =>
+                    update(group, "source", event.target.value)
+                  }
                 />
               </Field>
             </fieldset>
@@ -237,7 +341,11 @@ export function PricesSection(props: Props) {
         })}
         {message && <Message tone={message.tone}>{message.text}</Message>}
         <div className="ai-actions">
-          <button type="submit" className="button primary" disabled={saving || !dirtyKeys.length}>
+          <button
+            type="submit"
+            className="button primary"
+            disabled={saving || !dirtyKeys.length}
+          >
             {saving ? t("prices.saving") : t("prices.save")}
           </button>
         </div>
