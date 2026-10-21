@@ -1,28 +1,28 @@
 {
   "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; see docs/i18n.md.",
   "files": {
-    "src/checks.ts": 9,
+    "src/checks.ts": 0,
 
-    "src/equation.ts": 4,
+    "src/equation.ts": 0,
 
-    "src/expression.ts": 22,
+    "src/expression.ts": 0,
 
-    "src/geometry.ts": 9,
+    "src/geometry.ts": 0,
 
-    "src/inspector.tsx": 2,
+    "src/inspector.tsx": 0,
 
-    "src/markup.ts": 6,
+    "src/markup.ts": 0,
 
-    "src/panes.ts": 1,
+    "src/panes.ts": 0,
 
-    "src/react.tsx": 2,
+    "src/react.tsx": 0,
 
-    "src/runtime.ts": 10,
+    "src/runtime.ts": 0,
 
-    "src/schema.ts": 69,
+    "src/schema.ts": 0,
 
-    "src/sdk.ts": 3,
+    "src/sdk.ts": 0,
 
-    "src/svg.ts": 3
+    "src/svg.ts": 0
   }
 }
