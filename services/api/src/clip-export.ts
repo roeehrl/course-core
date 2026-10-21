@@ -55,7 +55,7 @@ const MIME = { mp4: 'video/mp4', webm: 'video/webm' } as const;
 
 interface RunOptions { input?: AsyncIterable<Uint8Array> | Uint8Array; maxOutput: number; timeoutMs: number; signal?: AbortSignal | undefined }
 /** Runs one program without a shell. Output beyond `maxOutput` kills it; so do the time limit and the signal. */
-function run(command: string, args: string[], options: RunOptions): Promise<Uint8Array> {
+export function run(command: string, args: string[], options: RunOptions): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     let settled = false, size = 0, failure: ClipError | null = null;
     const chunks: Buffer[] = [];
@@ -105,7 +105,7 @@ function encoded(bytes: Uint8Array, format: 'mp4' | 'webm'): EncodedClip {
   return { bytes, mimeType: MIME[format], byteLength: bytes.byteLength };
 }
 /** A private temporary directory, always removed. File errors become encoder failures. */
-async function inDirectory<T>(body: (directory: string) => Promise<T>): Promise<T> {
+export async function inDirectory<T>(body: (directory: string) => Promise<T>): Promise<T> {
   const directory = await mkdtemp(path.join(tmpdir(), 'course-clip-'));
   try { return await body(directory); }
   catch (error) { throw error instanceof ClipError ? error : new ClipError('CLIP_ENCODER_FAILED'); }
@@ -150,7 +150,7 @@ export async function exportSceneClip(visual: Visual, request: SceneClipRequest,
     async function* frames() {
       for (const timeMs of times) {
         options.signal?.throwIfAborted();
-        yield await run(toolchain.rasterizerPath, ['-w', String(width), '-h', String(height), '-f', 'png'],
+        yield await run(toolchain.rasterizerPath, ['-w', String(width), '-h', String(height), '-b', 'white', '-f', 'png'],
           { input: Buffer.from(markup(timeMs)), maxOutput: CLIP_LIMITS.maxFrameBytes, timeoutMs: 30_000, signal: options.signal });
       }
     }

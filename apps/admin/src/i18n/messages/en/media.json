@@ -65,5 +65,14 @@
   "finding.quantityUnsupported": "Says {subject} is {found}, which the sources never state. Check it.",
   "finding.claimContradicted": "The AI reviewer found that \"{claim}\" contradicts: \"{quote}\".",
   "finding.claimUnsupported": "The AI reviewer found no source for: \"{claim}\".",
-  "finding.quoteNotFound": "The AI reviewer claimed a contradiction for \"{claim}\" but quoted nothing from the sources, so it was ignored."
+  "finding.quoteNotFound": "The AI reviewer claimed a contradiction for \"{claim}\" but quoted nothing from the sources, so it was ignored.",
+  "finding.durationMismatch": "Lasts {found} s, but {expected} s were asked for.",
+  "finding.aspectMismatch": "The picture is {found}, but the aspect ratio {expected} was asked for.",
+  "finding.resolutionMismatch": "The picture is {found}, but {expected} was asked for.",
+  "finding.blankFrames": "{found} of {expected} sampled frames are blank (one flat colour).",
+  "finding.noMotion": "Nothing visibly moves in the sampled frames. Check that it is not a still picture.",
+  "finding.fewerCuts": "Shows {found} distinct shots, but the storyboard has {expected}. Check that every shot is there.",
+  "finding.unreadable": "The file could not be read for the frame check.",
+  "finding.inspectionBusy": "Another frame check was running. Run the check again.",
+  "finding.inspectionUnavailable": "The frame check needs ffmpeg and ffprobe on the server. Ask the operator to set them up."
 }

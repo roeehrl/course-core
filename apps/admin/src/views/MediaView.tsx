@@ -1484,6 +1484,19 @@ function CheckPanel({
           ) : (
             <Notice tone="green">{t("mediaView.checkPanel.consistent")}</Notice>
           )}
+          {state.result.pixels && (
+            <>
+              {verdict(state.result.pixels)}
+              {state.result.pixels.verdict === "contradicted" && (
+                <Notice tone="red">
+                  {t("mediaView.checkPanel.pixelsContradicted")}
+                </Notice>
+              )}
+              <p className="media-hint">
+                {t("mediaView.checkPanel.pixelsNote")}
+              </p>
+            </>
+          )}
         </div>
       )}
       {state.error !== undefined && (
