@@ -169,6 +169,8 @@ export class ProviderEvaluations {
    * regrades every answer with its own graders and suite. Failed results are recorded too.
    */
   async record(actor: Actor, workspace: string, raw: unknown) {
+    // Authorize before parsing and regrading a report of up to 1 MB; the transaction below checks again.
+    await transaction(this.db, (client) => this.member(client, actor, workspace, ["owner", "admin"]));
     const parsed = recordSchema.safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_EVAL_REPORT_INVALID", 400);
     const { report, idempotencyKey } = parsed.data, suite = this.suite;
