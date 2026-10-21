@@ -47,6 +47,9 @@ export interface VisualMessages {
   node: string;
   selectedNode: string;
   computedProperties: (node: string) => string;
+  /** Row names in the computed-properties table (other rows show the property's own name). */
+  visibleProperty: string;
+  boundsProperty: string;
   publishChecks: string;
   checkCounts: (invariants: number, goldens: number) => string;
   runChecks: string;
@@ -64,4 +67,16 @@ export interface VisualMessages {
   downloadPng: string;
   exportDone: (file: string) => string;
   exportFailed: string;
+  /**
+   * The text of an error or check failure the inspector shows. Errors from the catalog carry
+   * `key` and `params` (see `englishErrorMessages`), so a host can translate them; the
+   * default shows the English `message`.
+   */
+  describeError: (error: DescribableError) => string;
+}
+/** An error or check failure as the inspector shows it: English `message`, catalog `key` and `params`. */
+export interface DescribableError {
+  message: string;
+  key?: string;
+  params?: Readonly<Record<string, string | number>>;
 }
