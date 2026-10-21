@@ -1,5 +1,5 @@
 import {
-  allowanceSchema, jobCommandSchema, jobSpecSchema, snapshotSchema, verificationSchema, operationId,
+  allowanceSchema, fenceSchema, jobCommandSchema, jobSpecSchema, snapshotSchema, verificationSchema, operationId, MAX_PARK_MS, PARKED_STATES,
   type Command, type Fence, type JobSpec, type Snapshot, type Transition, type Verification,
 } from './contracts.js';
 
@@ -37,6 +37,7 @@ export function accounting(snapshot: Snapshot) {
   }, { microUsd: 0, tokens: 0 });
 }
 const terminal = (s: Snapshot) => ['applied', 'cancelled', 'failed'].includes(s.state);
+const parked = (s: Snapshot) => (PARKED_STATES as readonly string[]).includes(s.state);
 const PHASE_STATE = { analyze: 'analyzing', build: 'building', evaluate: 'evaluating' } as const;
 function stop(s: Snapshot, state: Snapshot['state'], reason: Snapshot['reason']): Transition {
   s.state = state; s.reason = reason;
@@ -99,7 +100,10 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
     const usage = cmd.outcome.usage;
     if (usage.microUsd > op.reservation.microUsd || usage.tokens > op.reservation.tokens)
       return stop(s, 'failed', 'usage_exceeded');
-    s.state = 'running'; s.reason = null;
+    // A concurrent builder's call may still be out: the job shows what that call is doing.
+    const open = s.operations.find(o => o.status === 'in_flight');
+    const phase = open && spec.checkpoints.find(c => c.id === open.checkpointId)?.phase;
+    s.state = phase ? PHASE_STATE[phase] : 'running'; s.reason = null;
     return { snapshot: s, effect: 'continue' };
   }
   const blocked = guard(s, host);
@@ -110,22 +114,31 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
     }
     return stop(s, cmd.reason === 'cancel_requested' || cmd.reason === 'supervision_stopped' ? 'cancelled' : 'failed', cmd.reason);
   }
+  // A parked job waits for the host to resume it in a new generation; a late step of the old
+  // generation changes nothing.
+  if (parked(s) && cmd.type !== 'park') return { snapshot: s, effect: 'stop' };
   // A pause starts no provider call and publishes nothing. Settling, verifying and halting go on,
   // so money already committed is still accounted and the deadline still ends a held job.
   if (host.supervision === 'paused' && (cmd.type === 'claim' || cmd.type === 'apply')) return { snapshot: s, effect: 'hold' };
   if (cmd.type === 'park') {
     // Only between calls: a call that is out must settle (or be reconciled) first.
     if (s.operations.some(o => o.status === 'in_flight' || o.status === 'uncertain')) throw new ContractError('park_with_open_call');
+    if (cmd.deadlineAtMs !== undefined) {
+      if (cmd.deadlineAtMs < spec.deadlineAtMs || cmd.deadlineAtMs > host.nowMs + MAX_PARK_MS) throw new ContractError('invalid_park_deadline');
+      spec.deadlineAtMs = cmd.deadlineAtMs;
+    }
     if (cmd.reason === 'follow_up_due' && (cmd.dueAtMs === undefined || cmd.dueAtMs >= spec.deadlineAtMs)) throw new ContractError('invalid_follow_up');
     s.state = cmd.reason; s.reason = cmd.reason === 'needs_input' ? 'input_required' : 'follow_up_scheduled';
     if (cmd.dueAtMs !== undefined) s.dueAtMs = cmd.dueAtMs; else delete s.dueAtMs;
     return { snapshot: s, effect: 'stop' };
   }
+
   if (cmd.type === 'claim') {
     const index = spec.checkpoints.findIndex(c => c.id === cmd.checkpointId);
     const cp = spec.checkpoints[index];
     if (!cp) throw new ContractError('unknown_checkpoint');
-    const previous = spec.checkpoints.slice(0, index);
+    // Earlier checkpoints must have succeeded, except the claimed one's concurrent group.
+    const previous = spec.checkpoints.slice(0, index).filter(c => cp.group === undefined || c.group !== cp.group);
     if (previous.some(c => !s.operations.some(o => o.checkpointId === c.id && o.status === 'succeeded')))
       throw new ContractError('checkpoint_order');
     const op = s.operations.find(o => o.checkpointId === cp.id);
@@ -170,6 +183,19 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
   return { snapshot: snapshotSchema.parse(s), effect: 'stop' };
 }
 
+/** A parked job with nothing pending from its old context is re-based on the host's current
+ * revisions when it resumes: a follow-up that never called a provider, or a job whose only output
+ * waited for a person's decision that the person has now applied under their own authority. The
+ * host decides which; the reducer only refuses anything else. The deadline may be extended. */
+export function refence(input: Snapshot, fence: Fence, deadlineAtMs: number, nowMs: number): Snapshot {
+  const s = snapshotSchema.parse(input);
+  if (!parked(s) || s.operations.some(o => o.status === 'in_flight' || o.status === 'uncertain')) throw new ContractError('not_refenceable');
+  if (!Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= nowMs || deadlineAtMs > nowMs + MAX_PARK_MS) throw new ContractError('invalid_park_deadline');
+  s.specification.fence = fenceSchema.parse(fence);
+  s.specification.deadlineAtMs = Math.max(deadlineAtMs, s.specification.deadlineAtMs);
+  s.version += 1;
+  return snapshotSchema.parse(s);
+}
 /** Whether a non-terminal job may restart in a new generation: no call may be out or unknown. */
 export function resumable(input: Snapshot): boolean {
   const s = snapshotSchema.parse(input);

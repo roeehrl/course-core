@@ -13,6 +13,7 @@ import { enrollmentWorkflowId, learnerCoordinatorWorkflowId, workflowId, type Co
   type LearnerCoordinatorInput, type LearnerCoordinatorSummary, type RunRef, type Summary } from '../src/contracts.js';
 import { accounting, nextGeneration } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
+import type { ProviderRequest } from '../src/contracts.js';
 import { specification, TestHost, TestProvider } from './fixtures.js';
 import { startTelemetry } from '../src/telemetry.js';
 import { activityTraceInterceptor, workflowTraceInterceptor } from '../src/temporal/tracing.js';
@@ -754,4 +755,56 @@ test('real server: a traced start links the workflow, its child jobs and their a
     assert.equal(activities.length, 12);
     await replay(id); await replay(workflowId(first.ref)); await replay(workflowId(direct.ref));
   } finally { await receiver.close(); }
+});
+
+/** Planner, two alternative builders in one group, then the evaluator that commits (design §4). */
+function teamSpec() {
+  const base = specification(), cp = { ...base.checkpoints[0]!, timeoutMs: 10_000 };
+  return { ...base, budget: { microUsd: 1_000, tokens: 1_000 },
+    checkpoints: [
+      { ...cp, id: 'plan', logicalRole: 'planner' as const, phase: 'analyze' as const },
+      { ...cp, id: 'build-a', inputRef: randomUUID(), logicalRole: 'builder' as const, phase: 'build' as const, group: 'build' },
+      { ...cp, id: 'build-b', inputRef: randomUUID(), logicalRole: 'builder' as const, phase: 'build' as const, group: 'build' },
+      { ...cp, id: 'evaluate', inputRef: randomUUID(), logicalRole: 'evaluator' as const, phase: 'evaluate' as const },
+    ] };
+}
+test('real server: alternative builders run concurrently and only the evaluator commits; the history replays', { timeout: 45_000 }, async () => {
+  const h = new TestHost(teamSpec()); const p = new TestProvider();
+  let open = 0, overlap = 0;
+  p.invoke = async request => {
+    p.calls.push(request); open++; overlap = Math.max(overlap, open);
+    // Hold each builder until its sibling has started too.
+    if (request.checkpoint.group) for (let i = 0; i < 50 && open < 2; i++) await new Promise(resolve => setTimeout(resolve, 20));
+    open--; return p.result;
+  };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'applied', JSON.stringify({ result, commands: h.commands.map(c => c.type + ':' + ('checkpointId' in c ? c.checkpointId : '')), ops: h.snapshot.operations }));
+  });
+  assert.deepEqual(p.calls.map(c => c.checkpoint.id).sort(), ['build-a', 'build-b', 'evaluate', 'plan']);
+  assert.equal(p.calls[0]!.checkpoint.id, 'plan'); assert.equal(p.calls.at(-1)!.checkpoint.id, 'evaluate');
+  assert.equal(overlap, 2); assert.equal(h.applications, 1);
+  await replay(id);
+});
+test('real server: a builder that fails ends the job, its sibling is cancelled, and nothing is applied', { timeout: 45_000 }, async () => {
+  const h = new TestHost(teamSpec()); const p = new TestProvider();
+  p.invoke = async (request: ProviderRequest, signal?: AbortSignal) => {
+    p.calls.push(request);
+    if (request.checkpoint.id === 'build-a') return { status: 'not_started', retryable: false };
+    if (request.checkpoint.id === 'build-b') await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 10_000); signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
+    });
+    return p.result;
+  };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'failed'); assert.equal(result.reason, 'provider_rejected');
+  });
+  assert.equal(h.applications, 0);
+  assert.equal(p.calls.some(c => c.checkpoint.id === 'evaluate'), false);
+  await replay(id);
 });
