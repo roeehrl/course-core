@@ -122,6 +122,45 @@ export const fixtureRunsSchema = z.object({
 });
 export type FixtureRuns = z.infer<typeof fixtureRunsSchema>;
 
+/** Review windows staff can choose for source freshness, in days. */
+export const reviewWindows = [90, 180, 365, 730] as const;
+export type ReviewWindow = (typeof reviewWindows)[number];
+export const sourceStatuses = [
+  "undated",
+  "overdue",
+  "due_soon",
+  "current",
+] as const;
+export const sourceFreshnessSchema = z.object({
+  release: z.object({ id: z.string(), version: text(100), status: text(20) }),
+  windowDays: z.number().int(),
+  checkedAt: z.string(),
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    current: z.number().int().nonnegative(),
+    dueSoon: z.number().int().nonnegative(),
+    overdue: z.number().int().nonnegative(),
+    undated: z.number().int().nonnegative(),
+  }),
+  sources: z
+    .array(
+      z.object({
+        id: text(200),
+        title: text(500),
+        url: text(2000),
+        host: text(300),
+        reviewedAt: z.string().nullable(),
+        ageDays: z.number().int().nonnegative().nullable(),
+        status: z.enum(sourceStatuses),
+        citedBy: z.object({
+          blocks: z.number().int().nonnegative(),
+          episodeIds: z.array(text(200)).max(50),
+        }),
+      }),
+    )
+    .max(2000),
+});
+export type SourceFreshness = z.infer<typeof sourceFreshnessSchema>;
 export interface AssessmentAdminPort {
   list(
     catalogId: string,
@@ -171,6 +210,13 @@ export interface AssessmentAdminPort {
   removeFixture(catalogId: string, fixtureId: string): Promise<unknown>;
   run(catalogId: string, releaseId: string): Promise<FixtureRun>;
   runs(catalogId: string, signal?: AbortSignal): Promise<FixtureRuns>;
+  /** When each source the release cites was last reviewed (Q09 source freshness). */
+  sources(
+    catalogId: string,
+    releaseId: string,
+    windowDays: ReviewWindow,
+    signal?: AbortSignal,
+  ): Promise<SourceFreshness>;
 }
 export class AssessmentAdminError extends Error {
   constructor(readonly code: string) {
