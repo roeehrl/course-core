@@ -197,9 +197,9 @@ export class ScriptedAssist {
     };
   }
 }
-/** Video or image media plus a scripted assistant bound to the reviewer role (it also drafts
- * storyboards when no supervisor is bound). */
-export function pipelineConfiguration(media: "video" | "image") {
+/** Video or image media, or a video model with an image model beside it ("both"), plus a scripted
+ * assistant bound to the reviewer role (it also drafts storyboards when no supervisor is bound). */
+export function pipelineConfiguration(media: "video" | "image" | "both") {
   const base = mediaConfiguration();
   const assistLimits = { maxInputCharacters: 100_000, maxOutputTokens: 4000 };
   return {
@@ -208,7 +208,9 @@ export function pipelineConfiguration(media: "video" | "image") {
       { id: "assist", providerId: "scripted-assist", remoteModel: "scripted/assist", providerConfig: {}, enabled: true, capabilities: ["structured_assessment"], tools: [], limits: assistLimits }] },
     adapters: [...base.adapters, { id: "scripted-image", kind: "scripted-image", credentialEnv: MEDIA_CREDENTIAL }, { id: "scripted-assist", kind: "scripted-assist", credentialEnv: MEDIA_CREDENTIAL }],
     roles: {
-      media: media === "video" ? base.roles.media : { modelId: "picture", maxInputCharacters: 4000, maxOutputTokens: 10, mediaKind: "image", image: { aspectRatio: "16:9" } },
+      media: media === "video" ? base.roles.media
+        : media === "both" ? { ...base.roles.media, imageModel: { modelId: "picture", maxInputCharacters: 4000, maxOutputTokens: 10, image: { aspectRatio: "1:1" } } }
+        : { modelId: "picture", maxInputCharacters: 4000, maxOutputTokens: 10, mediaKind: "image", image: { aspectRatio: "16:9" } },
       reviewer: { modelId: "assist", maxInputCharacters: 20_000, maxOutputTokens: 2000 },
     },
   };
