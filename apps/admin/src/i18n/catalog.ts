@@ -7,6 +7,8 @@ import en_adminApp from "./messages/en/adminApp.json";
 import en_adminSectionView from "./messages/en/adminSectionView.json";
 import en_adminSections from "./messages/en/adminSections.json";
 import en_aiServices from "./messages/en/aiServices.json";
+import en_assessmentAdmin from "./messages/en/assessmentAdmin.json";
+import en_assessmentsView from "./messages/en/assessmentsView.json";
 import en_auditView from "./messages/en/auditView.json";
 import en_cohortMigrationDialog from "./messages/en/cohortMigrationDialog.json";
 import en_conceptMappings from "./messages/en/conceptMappings.json";
@@ -85,6 +87,8 @@ import he_adminApp from "./messages/he/adminApp.json";
 import he_adminSectionView from "./messages/he/adminSectionView.json";
 import he_adminSections from "./messages/he/adminSections.json";
 import he_aiServices from "./messages/he/aiServices.json";
+import he_assessmentAdmin from "./messages/he/assessmentAdmin.json";
+import he_assessmentsView from "./messages/he/assessmentsView.json";
 import he_auditView from "./messages/he/auditView.json";
 import he_cohortMigrationDialog from "./messages/he/cohortMigrationDialog.json";
 import he_conceptMappings from "./messages/he/conceptMappings.json";
@@ -165,6 +169,8 @@ export const en = {
   adminSectionView: en_adminSectionView,
   adminSections: en_adminSections,
   aiServices: en_aiServices,
+  assessmentAdmin: en_assessmentAdmin,
+  assessmentsView: en_assessmentsView,
   auditView: en_auditView,
   cohortMigrationDialog: en_cohortMigrationDialog,
   conceptMappings: en_conceptMappings,
@@ -245,6 +251,8 @@ export const he: PartialCatalog<typeof en> = {
   adminSectionView: he_adminSectionView,
   adminSections: he_adminSections,
   aiServices: he_aiServices,
+  assessmentAdmin: he_assessmentAdmin,
+  assessmentsView: he_assessmentsView,
   auditView: he_auditView,
   cohortMigrationDialog: he_cohortMigrationDialog,
   conceptMappings: he_conceptMappings,
