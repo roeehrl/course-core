@@ -43,6 +43,12 @@ const TOOLS = new Set([
   "check_teaching",
   "list_research_topics",
   "request_research",
+  "propose_practice_check",
+  "list_visuals",
+  "choose_visual",
+  "request_authority",
+  "compare_alternatives",
+  "choose_alternative",
 ]);
 function toolLabel(tool: string, t: Translate) {
   return TOOLS.has(tool)

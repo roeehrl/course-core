@@ -54,6 +54,7 @@ import en_reviewedMedia from "./messages/en/reviewedMedia.json";
 import en_sourceLinks from "./messages/en/sourceLinks.json";
 import en_studyConsent from "./messages/en/studyConsent.json";
 import en_supervisionPanel from "./messages/en/supervisionPanel.json";
+import en_supervisorRequests from "./messages/en/supervisorRequests.json";
 import en_teachingHypothesesPanel from "./messages/en/teachingHypothesesPanel.json";
 import en_unverified from "./messages/en/unverified.json";
 import en_useCompanionConversation from "./messages/en/useCompanionConversation.json";
@@ -116,6 +117,7 @@ import he_reviewedMedia from "./messages/he/reviewedMedia.json";
 import he_sourceLinks from "./messages/he/sourceLinks.json";
 import he_studyConsent from "./messages/he/studyConsent.json";
 import he_supervisionPanel from "./messages/he/supervisionPanel.json";
+import he_supervisorRequests from "./messages/he/supervisorRequests.json";
 import he_teachingHypothesesPanel from "./messages/he/teachingHypothesesPanel.json";
 import he_unverified from "./messages/he/unverified.json";
 import he_useCompanionConversation from "./messages/he/useCompanionConversation.json";
@@ -180,6 +182,7 @@ export const en = {
   sourceLinks: en_sourceLinks,
   studyConsent: en_studyConsent,
   supervisionPanel: en_supervisionPanel,
+  supervisorRequests: en_supervisorRequests,
   teachingHypothesesPanel: en_teachingHypothesesPanel,
   unverified: en_unverified,
   useCompanionConversation: en_useCompanionConversation,
@@ -244,6 +247,7 @@ export const he: PartialCatalog<typeof en> = {
   sourceLinks: he_sourceLinks,
   studyConsent: he_studyConsent,
   supervisionPanel: he_supervisionPanel,
+  supervisorRequests: he_supervisorRequests,
   teachingHypothesesPanel: he_teachingHypothesesPanel,
   unverified: he_unverified,
   useCompanionConversation: he_useCompanionConversation,

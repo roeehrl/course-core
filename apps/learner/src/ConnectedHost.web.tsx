@@ -54,6 +54,7 @@ import { ReviewAssistConsent } from './components/ReviewAssistConsent';
 import { StudyConsent } from './components/StudyConsent';
 import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
+import { SupervisorRequests } from './components/SupervisorRequests';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
 import { Badge, Button, Notice, styles } from "./components/ui";
@@ -1225,6 +1226,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />}
               <PersonalChanges api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
+              <SupervisorRequests api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <ReviewAssistConsent api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <StudyConsent api={api} server={server} mode="settings" onChanged={() => void refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}

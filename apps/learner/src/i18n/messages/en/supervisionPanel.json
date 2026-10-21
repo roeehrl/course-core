@@ -60,5 +60,11 @@
   "context.sources": "Context: {count, plural, one {# course source reference.} other {# course source references.}}",
   "context.events": "Context: {count, plural, one {# learning event · proposal does not grant mastery} other {# learning events · proposal does not grant mastery}}",
   "timeline.empty": "No supervisor tools have been used for this enrollment yet.",
-  "refresh": "Refresh supervisor information"
+  "refresh": "Refresh supervisor information",
+  "tool.propose_practice_check": "Offered a new practice problem",
+  "tool.list_visuals": "Looked at the course's pictures and animations",
+  "tool.choose_visual": "Chose a course picture to show you",
+  "tool.request_authority": "Asked for a decision it may not make itself",
+  "tool.compare_alternatives": "Compared two drafts",
+  "tool.choose_alternative": "Kept the better draft"
 }

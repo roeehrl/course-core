@@ -66,7 +66,7 @@ async function enroll(consent = true) {
   await configureSupervisorBudget(db, { workspaceId: workspace, enrollmentId: id }, { microUsd: 10_000_000, tokens: 50_000_000 });
   return { learner, id };
 }
-async function rpc(body: unknown) {
+async function rpc(body: Record<string, unknown>) {
   const r = await app.inject({ method: 'POST', url: '/v1/supervisor/bridge', headers: { authorization: 'Bearer ' + token }, payload: body });
   expect(r.statusCode, r.body).toBe(200);
   return r.json();
