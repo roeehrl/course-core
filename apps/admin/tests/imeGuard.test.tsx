@@ -17,9 +17,17 @@ function Form({ onSubmit }: { onSubmit: () => void }) {
     </form>
   );
 }
-const key = (target: Element, init: KeyboardEventInit & { keyCode?: number }) => {
-  const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
-  if (init.keyCode !== undefined) Object.defineProperty(event, "keyCode", { value: init.keyCode });
+const key = (
+  target: Element,
+  init: KeyboardEventInit & { keyCode?: number },
+) => {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  if (init.keyCode !== undefined)
+    Object.defineProperty(event, "keyCode", { value: init.keyCode });
   target.dispatchEvent(event);
 };
 const submit = (form: HTMLFormElement) =>
@@ -32,8 +40,12 @@ describe("IME submit guard", () => {
   it("recognises composing Enter keys only", () => {
     expect(isImeEnter({ key: "Enter", isComposing: true })).toBe(true);
     expect(isImeEnter({ key: "Process", keyCode: 229 })).toBe(true);
-    expect(isImeEnter({ key: "Enter", nativeEvent: { isComposing: true } })).toBe(true);
-    expect(isImeEnter({ key: "Enter", isComposing: false, keyCode: 13 })).toBe(false);
+    expect(
+      isImeEnter({ key: "Enter", nativeEvent: { isComposing: true } }),
+    ).toBe(true);
+    expect(isImeEnter({ key: "Enter", isComposing: false, keyCode: 13 })).toBe(
+      false,
+    );
     expect(isImeEnter({ key: "a", isComposing: true })).toBe(false);
   });
 
@@ -44,10 +56,14 @@ describe("IME submit guard", () => {
     const form = container.querySelector("form")!,
       input = getByLabelText("Answer");
 
-    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    input.dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
     key(input, { key: "Enter", isComposing: true });
     expect(submit(form)).toBe(false);
-    input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "日本" }));
+    input.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "日本" }),
+    );
     // Safari: the committing Enter arrives after compositionend with keyCode 229.
     key(input, { key: "Enter", keyCode: 229 });
     expect(submit(form)).toBe(false);
@@ -64,7 +80,9 @@ describe("IME submit guard", () => {
     installImeSubmitGuard(document)();
     const onSubmit = vi.fn();
     const { container, getByLabelText } = render(<Form onSubmit={onSubmit} />);
-    getByLabelText("Answer").dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    getByLabelText("Answer").dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
     submit(container.querySelector("form")!);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
