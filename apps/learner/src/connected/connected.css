@@ -55,7 +55,7 @@
 .connected-brand span {
   color: #087b69;
   font-weight: 450;
-  margin-left: 6px;
+  margin-inline-start: 6px;
 }
 .connected-account {
   display: flex;
@@ -65,7 +65,7 @@
 .connected-account > span {
   color: #526a70;
   font-size: 12px;
-  margin-right: 8px;
+  margin-inline-end: 8px;
 }
 .connected-header button,
 .connected-navigation button,
@@ -335,7 +335,7 @@
 .connected-companion-trigger {
   position: fixed;
   bottom: calc(18px + env(safe-area-inset-bottom));
-  right: 20px;
+  inset-inline-end: 20px;
   z-index: 30;
   background: #183237;
   color: #fff;
@@ -398,7 +398,7 @@
   color: #526a70;
 }
 .connected-sources ul {
-  padding-left: 18px;
+  padding-inline-start: 18px;
   margin: 7px 0 0;
   display: grid;
   gap: 6px;
@@ -591,7 +591,7 @@
     margin-top: 3px;
   }
   .connected-companion-trigger {
-    right: 16px;
+    inset-inline-end: 16px;
     bottom: calc(14px + env(safe-area-inset-bottom));
   }
   .connected-signin {
@@ -820,7 +820,7 @@
   position: fixed;
   width: 1px;
   height: 1px;
-  left: -10px;
+  inset-inline-start: -10px;
   top: -10px;
   border: 0;
   opacity: 0;
@@ -894,7 +894,7 @@
 }
 .connected-policy-list {
   margin: 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   display: grid;
   gap: 6px;
 }
@@ -1070,7 +1070,7 @@
 .connected-resource blockquote {
   margin: 0;
   padding: 8px 14px;
-  border-left: 3px solid #087b69;
+  border-inline-start: 3px solid #087b69;
   background: #f1f7f5;
   font-size: 14px;
 }
@@ -1115,7 +1115,7 @@
 }
 .connected-staff-views ul {
   margin: 0;
-  padding-left: 20px;
+  padding-inline-start: 20px;
 }
 .connected-data-erase {
   display: grid;
@@ -1162,7 +1162,7 @@
 .connected-rubric ul,
 .connected-reviews ul {
   margin: 6px 0 0;
-  padding-left: 20px;
+  padding-inline-start: 20px;
   display: grid;
   gap: 6px;
 }
@@ -1350,7 +1350,7 @@
 .connected-gate {
   background: #fff;
   border: 1px solid #cdddce;
-  border-left: 6px solid #087b69;
+  border-inline-start: 6px solid #087b69;
   border-radius: 16px;
   padding: 18px 20px;
   display: flex;
@@ -1358,9 +1358,9 @@
   gap: 12px;
   min-width: 0;
 }
-.connected-gate[data-status="needs_help"] { border-left-color: #a7631b; }
-.connected-gate[data-status="under_review"] { border-left-color: #7050a4; }
-.connected-gate[data-status="closed_with_gaps"] { border-left-color: #8a4b3a; }
+.connected-gate[data-status="needs_help"] { border-inline-start-color: #a7631b; }
+.connected-gate[data-status="under_review"] { border-inline-start-color: #7050a4; }
+.connected-gate[data-status="closed_with_gaps"] { border-inline-start-color: #8a4b3a; }
 .connected-gate-head .connected-eyebrow { margin-bottom: 4px !important; }
 .connected-gate-status {
   display: flex;
@@ -1425,7 +1425,7 @@
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   overflow-wrap: anywhere;
 }
@@ -1476,7 +1476,7 @@
 .connected-input-hint { margin: 0 !important; font-size: 13px !important; color: #526a70 !important; line-height: 1.5; }
 .connected-trace {
   margin: 0;
-  padding-left: 22px;
+  padding-inline-start: 22px;
   display: grid;
   gap: 12px;
 }
@@ -1491,7 +1491,7 @@
 }
 .connected-confidence legend { font-size: 14px; font-weight: 600; color: #183237; padding: 0 6px; }
 @media (max-width: 599px) {
-  .connected-gate { padding: 16px; border-left-width: 5px; }
+  .connected-gate { padding: 16px; border-inline-start-width: 5px; }
   .connected-gate-criteria li { grid-template-columns: 1fr; }
   .connected-gate-actions, .connected-answer-actions { flex-direction: column; align-items: stretch; }
   .connected-gate-action { width: 100%; }
@@ -1531,8 +1531,8 @@
 /* Window classes (see src/domain/windowClass.ts): compact < 600, medium 600–839,
  * expanded >= 840. Medium windows keep a narrower, collapsible companion pane. */
 .connected-host.window-medium .connected-layout {
-  padding-left: 20px;
-  padding-right: 20px;
+  padding-inline-start: 20px;
+  padding-inline-end: 20px;
   gap: 20px;
 }
 .connected-host.window-medium .connected-layout.with-companion {
@@ -1560,7 +1560,7 @@
 }
 .connected-menu-panel {
   position: absolute;
-  right: 0;
+  inset-inline-end: 0;
   top: calc(100% + 8px);
   z-index: 1000;
   width: min(300px, calc(100vw - 32px));
@@ -1595,7 +1595,7 @@
 }
 .connected-header .connected-menu-panel button {
   width: 100%;
-  text-align: left;
+  text-align: start;
   color: #183237;
   font-size: 14px;
   font-weight: 550;
@@ -1918,15 +1918,15 @@ html:has(.connected-host:not(.is-compact)) {
   margin: 0 0 14px;
   padding: 10px 12px;
   border: 1px solid #dce6e2;
-  border-left: 4px solid #087b69;
+  border-inline-start: 4px solid #087b69;
   border-radius: 10px;
   background: #f8f8f2;
   font-size: 13px;
   line-height: 1.5;
 }
 .connected-closed-help.is-exhausted {
-  border-left-color: #80601e;
-  border-left-style: dashed;
+  border-inline-start-color: #80601e;
+  border-inline-start-style: dashed;
   background: #fcf3df;
 }
 
@@ -1967,7 +1967,7 @@ html:has(.connected-host:not(.is-compact)) {
 .connected-unverified-body {
   margin-top: 8px;
   padding: 10px 12px;
-  border-left: 3px solid #80601e;
+  border-inline-start: 3px solid #80601e;
   background: #fffaf0;
   border-radius: 8px;
   max-width: 560px;
@@ -2292,7 +2292,7 @@ html:has(.connected-host:not(.is-compact)) {
 }
 .connected-study ul {
   margin: 0;
-  padding-left: 22px;
+  padding-inline-start: 22px;
   line-height: 1.6;
 }
 .connected-study h3 {
@@ -2304,4 +2304,23 @@ html:has(.connected-host:not(.is-compact)) {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 8px;
+}
+
+/* Internationalization: see docs/i18n.md. Directional glyphs and icons mirror in
+   right-to-left locales. */
+[dir="rtl"] .connected-flip-rtl {
+  display: inline-block;
+  transform: scaleX(-1);
+}
+.connected-locale-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-block-end: 12px;
+}
+.connected-locale-switcher select {
+  min-height: 36px;
+  max-width: 100%;
+  font: inherit;
 }

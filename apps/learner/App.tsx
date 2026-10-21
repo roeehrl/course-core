@@ -6,6 +6,7 @@ import { LearnerApp } from "./src/LearnerApp";
 import { createDemoClient } from "./src/client/demoClient";
 import { createResilientStorage, deviceStorage } from "./src/client/storage";
 import { demoAnswers, demoCourse } from "./src/data/demoCourse";
+import { LocaleProvider } from "./src/i18n/LocaleProvider";
 
 export default function App() {
   if (
@@ -15,10 +16,16 @@ export default function App() {
   )
     return (
       <SafeAreaProvider>
-        <ConnectedHost />
+        <LocaleProvider>
+          <ConnectedHost />
+        </LocaleProvider>
       </SafeAreaProvider>
     );
-  return <DemoApp />;
+  return (
+    <LocaleProvider>
+      <DemoApp />
+    </LocaleProvider>
+  );
 }
 function DemoApp() {
   const [unavailable, setUnavailable] = useState(false);
