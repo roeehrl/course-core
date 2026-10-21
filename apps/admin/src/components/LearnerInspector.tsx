@@ -13,7 +13,14 @@ import type { AdminClient, Permission } from "../domain/contracts";
 import type { LearnerBlock, LearnerEpisode } from "../domain/learnerView";
 import { runInspectorErrorMessage } from "../domain/runInspector";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, EmptyState, Loading, Notice, Status, when } from "./ui";
+import { Badge, Button, EmptyState, Loading, Notice, Status } from "./ui";
+import {
+  englishTranslator,
+  useFormatters,
+  useI18n,
+  useT,
+  type Translate,
+} from "../i18n";
 import { RunDetails } from "../views/RunsView";
 import { sha256Hex } from "../domain/webCrypto";
 
@@ -31,12 +38,19 @@ export interface InspectedBlock {
   read: boolean;
 }
 /** The name a block of the learner's lesson goes by in the read-only view and the inspector. */
-export function blockLabel(block: LearnerBlock) {
-  if (block.type === "text") return "Reading";
-  if (block.type === "visual") return "Illustration";
+export function blockLabel(
+  block: LearnerBlock,
+  t: Translate = englishTranslator().t,
+) {
+  if (block.type === "text") return t("learnerInspector.block.text");
+  if (block.type === "visual") return t("learnerInspector.block.visual");
   if (block.type === "media")
-    return `Media${block.required ? "" : " · optional"}`;
-  return block.type === "assessment" ? "Check" : "Activity";
+    return block.required
+      ? t("learnerInspector.block.media")
+      : t("learnerInspector.block.mediaOptional");
+  return block.type === "assessment"
+    ? t("learnerInspector.block.assessment")
+    : t("learnerInspector.block.activity");
 }
 interface InspectorState {
   access: InspectorAccess;
@@ -89,6 +103,8 @@ export function VisualStatePanel({
   runtime: VisualRuntime;
   experience: unknown;
 }) {
+  const t = useT();
+  const i18n = useI18n();
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const [definitionDigest, setDefinitionDigest] = useState<string>();
   useEffect(() => {
@@ -113,77 +129,114 @@ export function VisualStatePanel({
     control: scene.controls?.includes(key) ?? false,
   }));
   return (
-    <section className="stack" aria-label="Visual state">
-      <h4>Scene</h4>
+    <section className="stack" aria-label={t("learnerInspector.visual.label")}>
+      <h4>{t("learnerInspector.visual.scene")}</h4>
       <dl className="facts vertical">
         <div>
-          <dt>Scene</dt>
+          <dt>{t("learnerInspector.visual.scene")}</dt>
           <dd>
-            <span className="mono">{scene.id}</span> · {scene.title}
+            <span className="mono" dir="ltr">
+              {scene.id}
+            </span>{" "}
+            · <bdi>{scene.title}</bdi>
           </dd>
         </div>
         <div>
-          <dt>Layout</dt>
+          <dt>{t("learnerInspector.visual.layout")}</dt>
           <dd>
-            {frame.layout} · {frame.width}×{frame.height} · {scene.nodes.length}{" "}
-            nodes{frame.reducedMotion ? " · reduced motion" : ""}
+            {frame.reducedMotion
+              ? t("learnerInspector.visual.layoutValueReduced", {
+                  layout: frame.layout,
+                  width: frame.width,
+                  height: frame.height,
+                  nodes: scene.nodes.length,
+                })
+              : t("learnerInspector.visual.layoutValue", {
+                  layout: frame.layout,
+                  width: frame.width,
+                  height: frame.height,
+                  nodes: scene.nodes.length,
+                })}
           </dd>
         </div>
       </dl>
-      <h4>Timeline</h4>
+      <h4>{t("learnerInspector.visual.timeline")}</h4>
       <dl className="facts vertical">
         <div>
-          <dt>Position</dt>
+          <dt>{t("learnerInspector.visual.position")}</dt>
           <dd>
-            {Math.round(frame.timeMs)} of {frame.durationMs} ms ·{" "}
-            {snapshot.playing ? "playing" : "paused"}
+            {snapshot.playing
+              ? t("learnerInspector.visual.positionPlaying", {
+                  time: Math.round(frame.timeMs),
+                  duration: frame.durationMs,
+                })
+              : t("learnerInspector.visual.positionPaused", {
+                  time: Math.round(frame.timeMs),
+                  duration: frame.durationMs,
+                })}
           </dd>
         </div>
         <div>
-          <dt>Current cue</dt>
-          <dd>{frame.cue || "—"}</dd>
+          <dt>{t("learnerInspector.visual.cue")}</dt>
+          <dd dir="auto">{frame.cue || "—"}</dd>
         </div>
         <div>
-          <dt>Tracks · cues</dt>
+          <dt>{t("learnerInspector.visual.tracksCues")}</dt>
           <dd>
-            {scene.timeline.tracks.length} tracks · {scene.timeline.cues.length}{" "}
-            cues
+            {t("learnerInspector.visual.tracksCuesValue", {
+              tracks: scene.timeline.tracks.length,
+              cues: scene.timeline.cues.length,
+            })}
           </dd>
         </div>
       </dl>
       <table className="data-table">
-        <caption>Bindings: state the scene reads</caption>
+        <caption>{t("learnerInspector.bindings.caption")}</caption>
         <thead>
           <tr>
-            <th scope="col">State</th>
-            <th scope="col">Now</th>
-            <th scope="col">Initial</th>
-            <th scope="col">Bound uses</th>
+            <th scope="col">{t("learnerInspector.bindings.state")}</th>
+            <th scope="col">{t("learnerInspector.bindings.now")}</th>
+            <th scope="col">{t("learnerInspector.bindings.initial")}</th>
+            <th scope="col">{t("learnerInspector.bindings.uses")}</th>
           </tr>
         </thead>
         <tbody>
           {bindings.map((b) => (
             <tr key={b.key}>
               <th scope="row" className="mono">
-                {b.key}
-                {b.control && " (control)"}
+                <span dir="ltr">{b.key}</span>
+                {b.control && ` ${t("learnerInspector.bindings.control")}`}
               </th>
-              <td className="mono">{JSON.stringify(b.value)}</td>
-              <td className="mono">{JSON.stringify(b.field.initial)}</td>
-              <td>{b.uses}</td>
+              <td className="mono" dir="ltr">
+                {JSON.stringify(b.value)}
+              </td>
+              <td className="mono" dir="ltr">
+                {JSON.stringify(b.field.initial)}
+              </td>
+              <td>{i18n.number(b.uses)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <h4>Hashes</h4>
+      <h4>{t("learnerInspector.hashes.title")}</h4>
       <dl className="facts vertical">
         <div>
-          <dt>Scene fingerprint</dt>
-          <dd className="mono">{runtime.exportReplay().sceneFingerprint}</dd>
+          <dt>{t("learnerInspector.hashes.scene")}</dt>
+          <dd className="mono" dir="ltr">
+            {runtime.exportReplay().sceneFingerprint}
+          </dd>
         </div>
         <div>
-          <dt>Visual definition SHA-256</dt>
-          <dd className="mono">{definitionDigest ?? "computing…"}</dd>
+          <dt>{t("learnerInspector.hashes.definition")}</dt>
+          {definitionDigest === undefined ? (
+            <dd>{t("learnerInspector.hashes.computing")}</dd>
+          ) : definitionDigest === "unavailable" ? (
+            <dd>{t("learnerInspector.hashes.unavailable")}</dd>
+          ) : (
+            <dd className="mono" dir="ltr">
+              {definitionDigest}
+            </dd>
+          )}
         </div>
       </dl>
     </section>
@@ -195,12 +248,13 @@ export function VisualStatePanel({
 export function InspectorPane({
   target,
   onClose,
-  label = "Debug inspector",
+  label,
 }: {
   target: InspectedBlock;
   onClose?: () => void;
   label?: string;
 }) {
+  const t = useT();
   const inspector = useInspector()!;
   const heading = useRef<HTMLHeadingElement>(null);
   const [runId, setRunId] = useState<string>();
@@ -215,21 +269,24 @@ export function InspectorPane({
       ? inspector.runtimes.get(target.block.id)
       : undefined;
   return (
-    <aside className="learner-view-inspector" aria-label={label}>
+    <aside
+      className="learner-view-inspector"
+      aria-label={label ?? t("learnerInspector.label")}
+    >
       <div className="split-line">
         <div>
-          <p className="eyebrow">
-            Debug inspector · read only for learner data; reveals and replays
-            are logged
-          </p>
+          <p className="eyebrow">{t("learnerInspector.eyebrow")}</p>
           <h3 ref={heading} tabIndex={-1}>
-            Part {target.part}: {target.label}
+            {t("learnerInspector.partHeading", {
+              part: target.part,
+              label: target.label,
+            })}
           </h3>
         </div>
         {onClose && (
           <Button
             kind="quiet"
-            aria-label="Close the debug inspector"
+            aria-label={t("learnerInspector.close")}
             onClick={onClose}
           >
             <X size={18} aria-hidden="true" />
@@ -238,18 +295,22 @@ export function InspectorPane({
       </div>
       <dl className="facts vertical">
         <div>
-          <dt>Lesson</dt>
+          <dt>{t("learnerInspector.lesson")}</dt>
           <dd>
-            {target.episode.title}{" "}
-            <span className="mono">({target.episode.id})</span>
+            <bdi>{target.episode.title}</bdi>{" "}
+            <span className="mono" dir="ltr">
+              ({target.episode.id})
+            </span>
           </dd>
         </div>
         <div>
-          <dt>Block</dt>
+          <dt>{t("learnerInspector.block")}</dt>
           <dd>
-            <span className="mono">{target.block.id}</span> ·{" "}
-            {target.block.type}
-            {target.read ? " · read" : ""}
+            <span className="mono" dir="ltr">
+              {target.block.id}
+            </span>{" "}
+            · <span dir="ltr">{target.block.type}</span>
+            {target.read && ` · ${t("learnerInspector.read")}`}
           </dd>
         </div>
       </dl>
@@ -260,10 +321,7 @@ export function InspectorPane({
             experience={inspector.experiences.get(target.block.id)}
           />
         ) : (
-          <Notice tone="gold">
-            This illustration has no live runtime here (the learner sees its
-            text equivalent).
-          </Notice>
+          <Notice tone="gold">{t("learnerInspector.noRuntime")}</Notice>
         ))}
       {canInspectRuns ? (
         <EpisodeRuns
@@ -274,7 +332,9 @@ export function InspectorPane({
         />
       ) : (
         <p className="muted">
-          Supervisor runs need the run.inspect permission.
+          {t("learnerInspector.runsNeedPermission", {
+            permission: "run.inspect",
+          })}
         </p>
       )}
     </aside>
@@ -292,20 +352,25 @@ function EpisodeRuns({
   runId: string | undefined;
   onOpen: (id: string | undefined) => void;
 }) {
+  const t = useT();
+  const { when } = useFormatters();
   const port = access.client.runInspector!;
   const runs = useRemote(
     (signal) => port.enrollmentRuns(access.enrollmentId, episodeId, signal),
     [port, access.enrollmentId, episodeId],
   );
-  if (runs.loading) return <Loading label="Loading this lesson's runs…" />;
+  if (runs.loading)
+    return <Loading label={t("learnerInspector.runs.loading")} />;
   if (runs.error || !runs.data)
-    return <Notice tone="red">{runInspectorErrorMessage(runs.error)}</Notice>;
+    return (
+      <Notice tone="red">{runInspectorErrorMessage(runs.error, t)}</Notice>
+    );
   const courseId = runs.data.courseId;
   if (runId && courseId)
     return (
       <div className="stack">
         <Button kind="quiet" onClick={() => onOpen(undefined)}>
-          Back to this lesson's runs
+          {t("learnerInspector.runs.back")}
         </Button>
         <RunDetails
           courseId={courseId}
@@ -316,8 +381,8 @@ function EpisodeRuns({
       </div>
     );
   return (
-    <section className="stack" aria-label="Supervisor runs for this lesson">
-      <h4>Supervisor runs for this lesson</h4>
+    <section className="stack" aria-label={t("learnerInspector.runs.title")}>
+      <h4>{t("learnerInspector.runs.title")}</h4>
       {runs.data.runs.length ? (
         <ul className="selector-list">
           {runs.data.runs.map((run) => (
@@ -329,10 +394,14 @@ function EpisodeRuns({
                 disabled={!courseId}
               >
                 <span>
-                  <strong>{run.label}</strong>
+                  <strong dir="auto">{run.label}</strong>
                   <small>
-                    {when(run.startedAt)}
-                    {run.blockId ? ` · block ${run.blockId}` : ""}
+                    {run.blockId
+                      ? t("learnerInspector.runs.startedInBlock", {
+                          when: when(run.startedAt),
+                          block: run.blockId,
+                        })
+                      : when(run.startedAt)}
                   </small>
                   <Status value={run.status} />
                 </span>
@@ -341,14 +410,11 @@ function EpisodeRuns({
           ))}
         </ul>
       ) : (
-        <EmptyState title="No runs for this lesson">
-          No supervisor run started from this lesson.
+        <EmptyState title={t("learnerInspector.runs.empty.title")}>
+          {t("learnerInspector.runs.empty.body")}
         </EmptyState>
       )}
-      <Badge>
-        Opening a run shows metadata; its payload stays withheld unless revealed
-        with a receipt.
-      </Badge>
+      <Badge>{t("learnerInspector.runs.payloadWithheld")}</Badge>
     </section>
   );
 }

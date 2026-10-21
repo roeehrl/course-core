@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 /** Debug inspector views beyond the run's metadata: the workflow graph, policies and budgets,
  * client and sync state, the audited payload reveal and the sandboxed replay. */
@@ -117,12 +118,17 @@ export type RunPolicies = z.infer<typeof policiesSchema>;
 export type RunSync = z.infer<typeof syncSchema>;
 
 export const PAYLOAD_REASONS = [
-  { id: "incident_investigation", label: "Investigating an incident" },
-  { id: "quality_review", label: "Reviewing teaching quality" },
-  { id: "learner_request", label: "The learner asked" },
-  { id: "bug_report", label: "Reproducing a bug report" },
+  { id: "incident_investigation" },
+  { id: "quality_review" },
+  { id: "learner_request" },
+  { id: "bug_report" },
 ] as const;
 export type PayloadReason = (typeof PAYLOAD_REASONS)[number]["id"];
+/** The label of a reveal reason in the active locale. */
+export const payloadReasonLabel = (
+  id: PayloadReason,
+  t: Translate = englishTranslator().t,
+) => t(`runInspector.reason.${id}` as MessageKey);
 const json: z.ZodType<unknown> = z.unknown();
 export const payloadRevealSchema = z.object({
   receipt: z.object({
@@ -263,30 +269,27 @@ export class RunInspectorError extends Error {
     this.name = "RunInspectorError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Your role cannot do this. Revealing payloads needs the run.payload permission (owners and admins).",
-  RUN_NOT_FOUND: "This run is not part of this course.",
-  INVALID_REQUEST: "Choose a reason before revealing the payload.",
-  INVALID_INPUT: "Give a reason of at least 10 characters.",
-  RUN_ALREADY_RETRIED:
-    "This run was already retried once. Open the run the retry started instead.",
-  RUN_NOT_ENDED:
-    "This run is still live (or waiting on an uncertain call). Cancel it or wait for it to end before retrying.",
-  RUN_NOT_RETRYABLE:
-    "Only a run that failed, or ended with an uncertain provider call, can be retried.",
-  RUN_RETRY_UNSUPPORTED:
-    "Companion, research and written-answer runs answer one request; ask again through that request instead.",
-  SUPERVISION_STOPPED:
-    "AI supervision is stopped for this learner. Resume it before retrying.",
-  SUPERVISION_CONSENT_WITHDRAWN:
-    "The learner withdrew consent for AI supervision since this run. It was not retried.",
-  ENROLLMENT_CLOSED:
-    "This enrollment is closed. Its record is not changed after closure.",
-  ENROLLMENT_ERASED: "This learner's data was erased.",
-  IDEMPOTENCY_CONFLICT:
-    "A different request was already sent with this key. Reload and try again.",
+const ERROR_CODES = new Set([
+  "FORBIDDEN",
+  "RUN_NOT_FOUND",
+  "INVALID_REQUEST",
+  "INVALID_INPUT",
+  "RUN_ALREADY_RETRIED",
+  "RUN_NOT_ENDED",
+  "RUN_NOT_RETRYABLE",
+  "RUN_RETRY_UNSUPPORTED",
+  "SUPERVISION_STOPPED",
+  "SUPERVISION_CONSENT_WITHDRAWN",
+  "ENROLLMENT_CLOSED",
+  "ENROLLMENT_ERASED",
+  "IDEMPOTENCY_CONFLICT",
+]);
+export const runInspectorErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) => {
+  const code = error instanceof RunInspectorError ? error.code : "";
+  return ERROR_CODES.has(code)
+    ? t(`runInspector.error.${code}` as MessageKey)
+    : t("runInspector.error.unknown");
 };
-export const runInspectorErrorMessage = (error: unknown) =>
-  messages[error instanceof RunInspectorError ? error.code : ""] ??
-  "The inspector could not complete this. Nothing was revealed or changed.";

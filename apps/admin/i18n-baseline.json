@@ -9,7 +9,7 @@
 
     "src/components/AccommodationEditor.tsx": 18,
 
-    "src/components/ActionFeedback.tsx": 2,
+    "src/components/ActionFeedback.tsx": 0,
 
     "src/components/CohortMigrationDialog.tsx": 19,
 
@@ -17,7 +17,7 @@
 
     "src/components/DraftEditor.tsx": 17,
 
-    "src/components/EmbeddedInspector.tsx": 16,
+    "src/components/EmbeddedInspector.tsx": 0,
 
     "src/components/ExtensionComposer.tsx": 24,
 
@@ -27,7 +27,7 @@
 
     "src/components/LearnerDataCard.tsx": 12,
 
-    "src/components/LearnerInspector.tsx": 43,
+    "src/components/LearnerInspector.tsx": 0,
 
     "src/components/LearnerViewCard.tsx": 7,
 
@@ -51,19 +51,19 @@
 
     "src/components/RecoveryRegistry.tsx": 21,
 
-    "src/components/RegradeDialog.tsx": 40,
+    "src/components/RegradeDialog.tsx": 0,
 
-    "src/components/RubricFindings.tsx": 5,
+    "src/components/RubricFindings.tsx": 0,
 
-    "src/components/TeachingHypothesesCard.tsx": 28,
+    "src/components/TeachingHypothesesCard.tsx": 0,
 
     "src/components/ui.tsx": 2,
 
-    "src/domain/adminSections.ts": 13,
+    "src/domain/adminSections.ts": 0,
 
     "src/domain/conceptMappings.ts": 13,
 
-    "src/domain/corrections.ts": 20,
+    "src/domain/corrections.ts": 0,
 
     "src/domain/coursePackages.ts": 63,
 
@@ -79,7 +79,7 @@
 
     "src/domain/media.ts": 20,
 
-    "src/domain/overview.ts": 2,
+    "src/domain/overview.ts": 0,
 
     "src/domain/people.ts": 28,
 
@@ -95,19 +95,19 @@
 
     "src/domain/reviews.ts": 15,
 
-    "src/domain/runInspector.ts": 18,
+    "src/domain/runInspector.ts": 0,
 
     "src/domain/studies.ts": 24,
 
-    "src/domain/supervision.ts": 13,
+    "src/domain/supervision.ts": 0,
 
     "src/domain/webCrypto.ts": 1,
 
     "src/text/providerSetup.ts": 42,
 
-    "src/views/AdminSectionView.tsx": 34,
+    "src/views/AdminSectionView.tsx": 0,
 
-    "src/views/AuditView.tsx": 26,
+    "src/views/AuditView.tsx": 0,
 
     "src/views/ConceptMappingsView.tsx": 48,
 
@@ -123,7 +123,7 @@
 
     "src/views/MediaView.tsx": 120,
 
-    "src/views/OverviewView.tsx": 40,
+    "src/views/OverviewView.tsx": 0,
 
     "src/views/PeopleView.tsx": 71,
 
@@ -139,12 +139,12 @@
 
     "src/views/ReviewsView.tsx": 75,
 
-    "src/views/RunInspectorPanels.tsx": 124,
+    "src/views/RunInspectorPanels.tsx": 0,
 
-    "src/views/RunsView.tsx": 58,
+    "src/views/RunsView.tsx": 0,
 
     "src/views/StudyView.tsx": 75,
 
-    "src/views/SupervisionView.tsx": 60
+    "src/views/SupervisionView.tsx": 0
   }
 }

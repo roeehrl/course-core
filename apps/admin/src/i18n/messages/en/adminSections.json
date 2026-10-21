@@ -1,1 +1,15 @@
-{}
+{
+  "error.FORBIDDEN": "Your role cannot open this section or change this setting.",
+  "error.STALE_REVISION": "Someone changed these settings since you opened them. Reload and try again.",
+  "error.ADMIN_SETTING_INVALID": "A value is outside what the course allows. Nothing was saved.",
+  "error.ADMIN_SETTING_UNKNOWN": "The course no longer declares one of these settings. Reload.",
+  "error.ADMIN_SETTING_SCOPE_MISMATCH": "A setting belongs to a different level. Reload.",
+  "error.ADMIN_SECTION_SCOPE_INVALID": "That chapter or learner is not part of this course.",
+  "error.ADMIN_SECTION_NOT_FOUND": "The live release no longer declares this section.",
+  "error.unavailable": "Course settings are unavailable. Nothing changed.",
+  "problem.chooseOption": "Choose one of the options.",
+  "problem.tooLong": "At most {max} characters.",
+  "problem.number": "Enter a number.",
+  "problem.integer": "Enter a whole number.",
+  "problem.range": "Between {min} and {max}."
+}

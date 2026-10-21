@@ -14,8 +14,8 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
+import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Workspace audit log. Staff and system actions show what changed; learner and agent
  * events show only that they happened (learner privacy). */
@@ -26,21 +26,17 @@ export function AuditView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   if (!client.audit || !data.course.workspaceId)
     return (
-      <Card title="Audit log">
-        <EmptyState title="The audit log is not available here">
-          Use a connected administration session.
+      <Card title={t("auditView.title")}>
+        <EmptyState title={t("auditView.unavailable.title")}>
+          {t("auditView.unavailable.body")}
         </EmptyState>
       </Card>
     );
   if (!data.permissions.includes("audit.read"))
-    return (
-      <Notice tone="gold">
-        Your role cannot read the audit log. Owners, admins and support
-        observers can.
-      </Notice>
-    );
+    return <Notice tone="gold">{t("auditView.forbidden")}</Notice>;
   return <AuditLog port={client.audit} workspaceId={data.course.workspaceId} />;
 }
 
@@ -52,6 +48,7 @@ function AuditLog({
   workspaceId: string;
 }) {
   const id = useId();
+  const t = useT();
   const [actorKind, setActorKind] = useState<AuditQuery["actorKind"] | "">("");
   const [pages, setPages] = useState<string[]>([]);
   const before = pages.at(-1);
@@ -70,13 +67,12 @@ function AuditLog({
   );
   return (
     <div className="page-stack">
-      <Notice tone="blue" title="Learner privacy">
-        Staff and system actions show their details. Learner and AI events show
-        only that they happened; their content stays with the learner.
+      <Notice tone="blue" title={t("auditView.privacy.title")}>
+        {t("auditView.privacy.body")}
       </Notice>
-      <Card title="Workspace activity">
+      <Card title={t("auditView.activity")}>
         <div className="tag-row audit-controls">
-          <Field label="Who acted" htmlFor={`${id}-kind`}>
+          <Field label={t("auditView.filter.label")} htmlFor={`${id}-kind`}>
             <select
               id={`${id}-kind`}
               value={actorKind}
@@ -85,34 +81,36 @@ function AuditLog({
                 setPages([]);
               }}
             >
-              <option value="">Everyone</option>
-              <option value="staff">Staff</option>
-              <option value="system">System</option>
-              <option value="learner">Learners</option>
-              <option value="agent">AI agents</option>
+              <option value="">{t("auditView.filter.everyone")}</option>
+              <option value="staff">{t("auditView.filter.staff")}</option>
+              <option value="system">{t("auditView.filter.system")}</option>
+              <option value="learner">{t("auditView.filter.learner")}</option>
+              <option value="agent">{t("auditView.filter.agent")}</option>
             </select>
           </Field>
         </div>
         {page.loading ? (
-          <Loading label="Loading the audit log…" />
+          <Loading label={t("auditView.loading")} />
         ) : page.error || !page.data ? (
-          <Notice tone="red">{overviewErrorMessage(page.error)}</Notice>
+          <Notice tone="red">{overviewErrorMessage(page.error, t)}</Notice>
         ) : page.data.events.length === 0 ? (
-          <EmptyState title="No activity">
-            Nothing matches this filter.
+          <EmptyState title={t("auditView.empty.title")}>
+            {t("auditView.empty.body")}
           </EmptyState>
         ) : (
           <AuditTable page={page.data} />
         )}
         <div className="tag-row">
           {pages.length > 0 && (
-            <Button onClick={() => setPages(pages.slice(0, -1))}>Newer</Button>
+            <Button onClick={() => setPages(pages.slice(0, -1))}>
+              {t("auditView.newer")}
+            </Button>
           )}
           {page.data?.nextBefore && (
             <Button
               onClick={() => setPages([...pages, page.data!.nextBefore!])}
             >
-              Older
+              {t("auditView.older")}
             </Button>
           )}
         </div>
@@ -122,43 +120,50 @@ function AuditLog({
 }
 
 function AuditTable({ page }: { page: AuditPage }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   return (
     <div
       className="table-wrap"
       tabIndex={0}
       role="region"
-      aria-label="Audit events"
+      aria-label={t("auditView.table.label")}
     >
       <table className="people-table audit-table">
-        <caption className="sr-only">Audit events, newest first</caption>
+        <caption className="sr-only">{t("auditView.table.caption")}</caption>
         <thead>
           <tr>
-            <th scope="col">Event</th>
-            <th scope="col">Who</th>
-            <th scope="col">When</th>
-            <th scope="col">Details</th>
+            <th scope="col">{t("auditView.table.event")}</th>
+            <th scope="col">{t("auditView.table.who")}</th>
+            <th scope="col">{t("auditView.table.when")}</th>
+            <th scope="col">{t("auditView.table.details")}</th>
           </tr>
         </thead>
         <tbody>
           {page.events.map((e) => (
             <tr key={e.id}>
-              <th scope="row" className="mono">
+              <th scope="row" className="mono" dir="ltr">
                 {e.type}
               </th>
-              <td data-label="Who">
+              <td data-label={t("auditView.table.who")}>
                 <Badge tone={e.actorKind === "staff" ? "blue" : "neutral"}>
-                  {e.actorKind}
+                  {i18n.has(`auditView.actorKind.${e.actorKind}`)
+                    ? t(`auditView.actorKind.${e.actorKind}`)
+                    : e.actorKind}
                 </Badge>{" "}
-                {e.actor ?? ""}
+                {e.actor && <bdi>{e.actor}</bdi>}
               </td>
-              <td data-label="When">{when(e.at)}</td>
-              <td data-label="Details">
+              <td data-label={t("auditView.table.when")}>{when(e.at)}</td>
+              <td data-label={t("auditView.table.details")}>
                 {e.payloadWithheld ? (
                   <span className="muted">
-                    Details withheld{e.enrollmentId ? " · learner record" : ""}
+                    {e.enrollmentId
+                      ? t("auditView.withheldLearner")
+                      : t("auditView.withheld")}
                   </span>
                 ) : (
-                  <code className="audit-payload">
+                  <code className="audit-payload" dir="ltr">
                     {JSON.stringify(e.payload)}
                   </code>
                 )}

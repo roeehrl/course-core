@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 /** Course-declared admin sections (SDK defineAdminSection), rendered by Core from their
  * settings schema. The server decides who sees a section and who may change each setting. */
@@ -109,45 +110,49 @@ export class AdminSectionError extends Error {
     this.name = "AdminSectionError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN: "Your role cannot open this section or change this setting.",
-  STALE_REVISION:
-    "Someone changed these settings since you opened them. Reload and try again.",
-  ADMIN_SETTING_INVALID:
-    "A value is outside what the course allows. Nothing was saved.",
-  ADMIN_SETTING_UNKNOWN:
-    "The course no longer declares one of these settings. Reload.",
-  ADMIN_SETTING_SCOPE_MISMATCH:
-    "A setting belongs to a different level. Reload.",
-  ADMIN_SECTION_SCOPE_INVALID:
-    "That chapter or learner is not part of this course.",
-  ADMIN_SECTION_NOT_FOUND: "The live release no longer declares this section.",
-};
-export const adminSectionErrorMessage = (error: unknown) =>
-  messages[error instanceof AdminSectionError ? error.code : ""] ??
-  "Course settings are unavailable. Nothing changed.";
+const ERROR_CODES = new Set([
+  "FORBIDDEN",
+  "STALE_REVISION",
+  "ADMIN_SETTING_INVALID",
+  "ADMIN_SETTING_UNKNOWN",
+  "ADMIN_SETTING_SCOPE_MISMATCH",
+  "ADMIN_SECTION_SCOPE_INVALID",
+  "ADMIN_SECTION_NOT_FOUND",
+]);
+export const adminSectionErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) =>
+  error instanceof AdminSectionError && ERROR_CODES.has(error.code)
+    ? t(`adminSections.error.${error.code}` as MessageKey)
+    : t("adminSections.error.unavailable");
 
 /** Client-side mirror of the server check, to explain a value before it is sent. */
 export function settingProblem(
   setting: SectionSetting,
   raw: string | boolean,
+  t: Translate = englishTranslator().t,
 ): string | null {
   if (setting.type === "boolean") return null;
   if (setting.type === "enum")
     return setting.options.includes(String(raw))
       ? null
-      : "Choose one of the options.";
+      : t("adminSections.problem.chooseOption");
   if (setting.type === "string")
     return String(raw).length > setting.maxLength
-      ? `At most ${setting.maxLength} characters.`
+      ? t("adminSections.problem.tooLong", { max: setting.maxLength })
       : null;
   const text = String(raw).trim(),
     n = Number(text);
-  if (text === "" || !Number.isFinite(n)) return "Enter a number.";
+  if (text === "" || !Number.isFinite(n))
+    return t("adminSections.problem.number");
   if (setting.type === "integer" && !Number.isInteger(n))
-    return "Enter a whole number.";
+    return t("adminSections.problem.integer");
   return n < setting.minimum || n > setting.maximum
-    ? `Between ${setting.minimum} and ${setting.maximum}.`
+    ? t("adminSections.problem.range", {
+        min: setting.minimum,
+        max: setting.maximum,
+      })
     : null;
 }
 export function settingValue(

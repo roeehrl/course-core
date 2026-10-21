@@ -1,1 +1,22 @@
-{}
+{
+  "error.FORBIDDEN": "לתפקיד שלך אין הרשאה לבדיקה מחדש. נדרשת ההרשאה evidence.regrade (בעלים, מנהלים ומדריכים).",
+  "error.SELF_REVIEW_FORBIDDEN": "אי אפשר לבדוק מחדש תשובה שלך.",
+  "error.SECOND_REVIEWER_REQUIRED": "ההחלטה שתוחלף היא שלך. הבדיקה מחדש צריכה להיעשות על ידי מישהו אחר.",
+  "error.APPEAL_OPEN": "הלומד/ת ביקש/ה חוות דעת נוספת. קודם צריך להכריע בערעור בתור הערעורים.",
+  "error.NOT_YET_REVIEWED": "התשובה הכתובה הזו עוד לא נבדקה. אפשר לבדוק אותה בתור הבדיקות.",
+  "error.NOTHING_TO_REGRADE": "אין בניסיון הזה תוצאה עם ציון שאפשר לבדוק מחדש.",
+  "error.EVIDENCE_INVALIDATED": "צוות הקורס כבר ביטל את הראיות של הניסיון הזה. בדיקה מחדש לא משחזרת אותן.",
+  "error.REGRADE_UNSUPPORTED": "תשובות לבדיקות שיבוץ ושימור לא נבדקות מחדש כאן.",
+  "error.RUBRIC_CHANGED": "המחוון השתנה מאז שהתשובה הזו ניתנה.",
+  "error.RUBRIC_FINDINGS_REQUIRED": "יש לתת ממצא אחד לכל קריטריון.",
+  "error.RUBRIC_CRITERIA_INCOMPLETE": "יש לתת ממצא אחד לכל קריטריון.",
+  "error.RUBRIC_QUOTE_REQUIRED": "כל קריטריון שמסומן כמתקיים צריך ציטוט מדויק מהתשובה.",
+  "error.RUBRIC_DECISION_INCONSISTENT": "ההחלטה לא תואמת את הקריטריונים הנדרשים.",
+  "error.EVALUATOR_NOT_CONFIGURED": "השרת הזה לא יכול להריץ כרגע את מערכת הבדיקה של הפריט.",
+  "error.COURSE_VERSION_UNAVAILABLE": "גרסת הקורס שבה ניתנה התשובה כבר לא שמורה.",
+  "error.ENROLLMENT_CLOSED": "ההרשמה הזו סגורה. התיעוד שלה לא משתנה אחרי הסגירה.",
+  "error.ENROLLMENT_ERASED": "הנתונים של הלומד/ת נמחקו.",
+  "error.INVALID_INPUT": "יש לכתוב סיבה באורך 10 תווים לפחות.",
+  "error.IDEMPOTENCY_CONFLICT": "בקשה אחרת כבר נשלחה עם המפתח הזה. יש לטעון מחדש ולנסות שוב.",
+  "error.unavailable": "לא ניתן היה להשלים את הבדיקה מחדש. שום דבר לא השתנה."
+}

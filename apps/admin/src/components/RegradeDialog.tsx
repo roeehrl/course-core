@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import {
   regradeErrorMessage,
   type RegradePort,
@@ -7,7 +7,8 @@ import {
 } from "../domain/corrections";
 import { randomId } from "../domain/webCrypto";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, Field, Loading, Notice, when } from "./ui";
+import { useFormatters, useI18n, useT } from "../i18n";
+import { Badge, Button, Field, Loading, Notice } from "./ui";
 import {
   emptyFindings,
   findingsPayload,
@@ -15,13 +16,6 @@ import {
   RubricFindings,
   type Finding,
 } from "./RubricFindings";
-
-const DECISION_KIND: Record<string, string> = {
-  attempt: "the original automated result",
-  review: "the review",
-  appeal: "the second opinion on appeal",
-  regrade: "an earlier regrade",
-};
 
 /**
  * Scoped regrade of one attempt (U07). An automated attempt is graded again by the course's own
@@ -40,14 +34,14 @@ export function RegradeDialogBody({
   attemptId: string;
   onDone: (result: RegradeResult) => void;
 }) {
+  const t = useT();
   const view = useRemote(
     (signal) => port.view(enrollmentId, attemptId, signal),
     [port, enrollmentId, attemptId],
   );
-  if (view.loading)
-    return <Loading label="Loading this attempt's decisions…" />;
+  if (view.loading) return <Loading label={t("regradeDialog.loading")} />;
   if (view.error || !view.data)
-    return <Notice tone="red">{regradeErrorMessage(view.error)}</Notice>;
+    return <Notice tone="red">{regradeErrorMessage(view.error, t)}</Notice>;
   return (
     <RegradeForm
       view={view.data}
@@ -69,6 +63,14 @@ function RegradeForm({
   enrollmentId: string;
   onDone: (result: RegradeResult) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  const mono = (children: ReactNode, key: string | number) => (
+    <span key={key} className="mono" dir="ltr">
+      {children}
+    </span>
+  );
   const id = useId();
   const key = useRef("regrade-" + randomId());
   const [reason, setReason] = useState("");
@@ -85,43 +87,58 @@ function RegradeForm({
     <div className="stack">
       <dl className="facts vertical">
         <div>
-          <dt>Attempt</dt>
+          <dt>{t("regradeDialog.attempt")}</dt>
           <dd>
-            <span className="mono">{view.attemptId}</span> · {view.assessmentId}{" "}
-            · {view.kind === "rubric" ? "written answer" : "automated"}
+            {i18n.rich(
+              "regradeDialog.attemptValue",
+              {
+                attemptId: view.attemptId,
+                assessmentId: view.assessmentId,
+                kind: view.kind,
+              },
+              { code: mono },
+            )}
           </dd>
         </div>
         <div>
-          <dt>Decision in force</dt>
+          <dt>{t("regradeDialog.current")}</dt>
           <dd>
             {current
-              ? `${current.passed ? "passed" : "not passed"} — ${DECISION_KIND[current.kind]}`
-              : "none yet"}
+              ? t("regradeDialog.currentValue", {
+                  passed: current.passed ? "yes" : "no",
+                  kind: current.kind,
+                })
+              : t("regradeDialog.currentNone")}
           </dd>
         </div>
       </dl>
       {!!view.history.length && (
         <table className="data-table">
-          <caption>
-            Earlier regrades (each linked to the decision it replaced)
-          </caption>
+          <caption>{t("regradeDialog.history.caption")}</caption>
           <thead>
             <tr>
-              <th scope="col">When</th>
-              <th scope="col">By</th>
-              <th scope="col">Outcome</th>
-              <th scope="col">Replaced</th>
+              <th scope="col">{t("regradeDialog.history.when")}</th>
+              <th scope="col">{t("regradeDialog.history.by")}</th>
+              <th scope="col">{t("regradeDialog.history.outcome")}</th>
+              <th scope="col">{t("regradeDialog.history.replaced")}</th>
             </tr>
           </thead>
           <tbody>
             {view.history.map((h) => (
               <tr key={h.regradeId}>
                 <td>{when(h.at)}</td>
-                <td>{h.actor}</td>
+                <td dir="auto">{h.actor}</td>
                 <td>
-                  {h.outcome} · {h.passed ? "passed" : "not passed"}
+                  {t("regradeDialog.history.outcomeValue", {
+                    outcome: h.outcome,
+                    passed: h.passed ? "yes" : "no",
+                  })}
                 </td>
-                <td>{DECISION_KIND[h.supersedes.kind]}</td>
+                <td>
+                  {t("regradeDialog.decisionKind", {
+                    kind: h.supersedes.kind,
+                  })}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -129,24 +146,30 @@ function RegradeForm({
       )}
       <Notice tone="gold">
         {view.kind === "rubric"
-          ? "Your findings become a new decision linked to the one in force. Each criterion you mark as shown needs an exact quotation from the learner's words."
-          : "The course's own evaluator grades the stored answer again. The result becomes a new decision linked to the one in force."}{" "}
-        Earlier decisions and the answer are never edited. If the outcome
-        changes, the old evidence is withdrawn with a reason and the learner's
-        checkpoints are recomputed.
+          ? t("regradeDialog.explain.rubric")
+          : t("regradeDialog.explain.automated")}
       </Notice>
       {result ? (
         <Notice
           tone={result.outcome === "changed" ? "green" : "blue"}
           title={
-            result.outcome === "changed" ? "Decision changed" : "Decision kept"
+            result.outcome === "changed"
+              ? t("regradeDialog.result.changed")
+              : t("regradeDialog.result.kept")
           }
         >
-          {result.passed ? "Passed" : "Not passed"} (was{" "}
-          {result.previousPassed ? "passed" : "not passed"}). Regrade{" "}
-          <span className="mono">{result.regradeId}</span> replaces{" "}
-          {DECISION_KIND[result.supersedes.kind]}. Evidence withdrawn:{" "}
-          {result.evidence.invalidated}; added: {result.evidence.created}.
+          {i18n.rich(
+            "regradeDialog.result.body",
+            {
+              passed: result.passed ? "yes" : "no",
+              previous: result.previousPassed ? "yes" : "no",
+              regradeId: result.regradeId,
+              kind: result.supersedes.kind,
+              withdrawn: result.evidence.invalidated,
+              added: result.evidence.created,
+            },
+            { code: mono },
+          )}
         </Notice>
       ) : (
         <form
@@ -175,14 +198,15 @@ function RegradeForm({
         >
           {rubric && (
             <>
-              <p>{rubric.prompt}</p>
+              <p dir="auto">{rubric.prompt}</p>
               {rubric.answers.map((text, i) => (
                 <div
                   key={i}
                   className="review-response"
                   tabIndex={0}
                   role="region"
-                  aria-label={`Learner answer ${i + 1}`}
+                  aria-label={t("regradeDialog.answerLabel", { n: i + 1 })}
+                  dir="auto"
                 >
                   {text}
                 </div>
@@ -196,22 +220,29 @@ function RegradeForm({
                 onChange={setFindings}
               />
               <p>
-                Your decision:{" "}
-                <strong>{met ? "Criteria met" : "Not yet"}</strong>{" "}
+                {i18n.rich(
+                  "regradeDialog.decision",
+                  { met: met ? "yes" : "no" },
+                  {
+                    strong: (children, key) => (
+                      <strong key={key}>{children}</strong>
+                    ),
+                  },
+                )}{" "}
                 {current && (
                   <Badge tone={met === current.passed ? "blue" : "gold"}>
                     {met === current.passed
-                      ? "keeps the decision"
-                      : "changes the decision"}
+                      ? t("regradeDialog.keeps")
+                      : t("regradeDialog.changes")}
                   </Badge>
                 )}
               </p>
             </>
           )}
           <Field
-            label="Reason for the regrade"
+            label={t("regradeDialog.reason.label")}
             htmlFor={`${id}-reason`}
-            hint="Required, at least 10 characters. Kept in the staff audit record; the learner sees the outcome."
+            hint={t("regradeDialog.reason.hint")}
           >
             <textarea
               id={`${id}-reason`}
@@ -219,12 +250,13 @@ function RegradeForm({
               maxLength={2000}
               value={reason}
               disabled={pending}
+              dir="auto"
               onChange={(e) => setReason(e.target.value)}
             />
           </Field>
           <div aria-live="polite">
             {error !== undefined && (
-              <Notice tone="red">{regradeErrorMessage(error)}</Notice>
+              <Notice tone="red">{regradeErrorMessage(error, t)}</Notice>
             )}
           </div>
           <Button
@@ -233,10 +265,10 @@ function RegradeForm({
             disabled={pending || reason.trim().length < 10}
           >
             {pending
-              ? "Regrading…"
+              ? t("regradeDialog.submit.pending")
               : view.kind === "rubric"
-                ? "Record the new decision"
-                : "Grade again"}
+                ? t("regradeDialog.submit.rubric")
+                : t("regradeDialog.submit.automated")}
           </Button>
         </form>
       )}
