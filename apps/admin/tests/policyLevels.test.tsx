@@ -254,6 +254,7 @@ const settings: PolicySettings = {
     finalAssessmentMinutes: null,
     studyMinutesPerDay: null,
   },
+  assessment: { maxGradedAttemptsPerCheck: null, retryCooldownMinutes: 0 },
 };
 const settingsView = (
   over: Partial<PolicySettingsView> = {},

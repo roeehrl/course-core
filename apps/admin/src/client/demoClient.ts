@@ -1,4 +1,5 @@
 import { createDemoPolicyClient } from "./demoPolicyClient";
+import { createDemoAssessmentAttempts } from "./demoAssessmentAttempts";
 import { createDemoAssessments } from "./demoAssessments";
 import { createDemoMedia } from "./demoMedia";
 import { createDemoPlatform } from "./demoPlatform";
@@ -165,6 +166,16 @@ export function createDemoAdminClient({
         (item) => item.id === enrollmentId,
       ),
     translate,
+  );
+  const policyClient = createDemoPolicyClient(
+    (enrollmentId) =>
+      enrollmentCourse(enrollmentId).enrollments.find(
+        (item) => item.id === enrollmentId,
+      )!,
+    (enrollmentId) =>
+      permit(enrollmentCourse(enrollmentId), "extension.propose"),
+    translate,
+    policyStore,
   );
   return {
     mode: "demo",
@@ -417,16 +428,13 @@ export function createDemoAdminClient({
           };
         },
       ),
-    ...createDemoPolicyClient(
-      (enrollmentId) =>
-        enrollmentCourse(enrollmentId).enrollments.find(
-          (item) => item.id === enrollmentId,
-        )!,
-      (enrollmentId) =>
-        permit(enrollmentCourse(enrollmentId), "extension.propose"),
-      translate,
-      policyStore,
-    ),
+    ...policyClient,
+    ...createDemoAssessmentAttempts({
+      revisionOf: async (enrollmentId) =>
+        (await policyClient.getPolicy(enrollmentId)).revision,
+      permitGrant: (enrollmentId) =>
+        permit(enrollmentCourse(enrollmentId), "policy.write"),
+    }),
     requestProviderConfig: (id, providerId, input, context) =>
       mutate(
         id,
