@@ -36,13 +36,21 @@ const gateObjective = z.object({
   required: z.number().int().nonnegative(),
   passed: z.boolean(),
 });
+/** A decision's sentences as codes: its reason, each criterion's and each next step's. */
+export const gateMessagesSchema = z.lazy(() =>
+  z.object({
+    reason: gateMessage,
+    criteria: z.record(z.string(), gateMessage),
+    actions: z.array(gateMessage.nullable()).max(20),
+  }),
+);
 /** A decision sentence as a code with parameters (see the gate decision on the server). */
 export interface GateMessage {
   code: string;
   params?: Record<string, string | number | string[]>;
   detail?: GateMessage;
 }
-const gateMessage: z.ZodType<GateMessage> = z.lazy(() =>
+export const gateMessage: z.ZodType<GateMessage> = z.lazy(() =>
   z.object({
     code: z.string().max(120),
     params: z
@@ -106,14 +114,7 @@ const lesson = z.object({
         .optional(),
       exception: z.object({ requestId: z.string() }).nullable().optional(),
       // The same decision text as codes, translated for the viewer.
-      messages: z
-        .object({
-          reason: gateMessage,
-          criteria: z.record(z.string(), gateMessage),
-          actions: z.array(gateMessage.nullable()).max(20),
-        })
-        .nullable()
-        .optional(),
+      messages: gateMessagesSchema.nullable().optional(),
     })
     .nullable(),
 });
