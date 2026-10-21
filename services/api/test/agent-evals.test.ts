@@ -12,30 +12,34 @@ import { reportSchema, reviewerJudge, runSuite } from "../src/agent-evals/runner
 import { gradeDialogue, GRADERS, type EvalOutput } from "../src/agent-evals/graders.js";
 import { roleRevisions } from "../src/agent-evals/revision.js";
 import { runCli, LIVE_OPT_IN } from "../src/agent-evals/cli-main.js";
-import { buildSuite, loadSuiteDirectory, EVAL_PERSONAS, type Dialogue } from "../src/agent-evals/suite.js";
+import { buildSuite, dialogueStrategy, loadSuiteDirectory, EVAL_PERSONAS, type Dialogue } from "../src/agent-evals/suite.js";
 
 const PUBLIC_DIRECTORY = fileURLToPath(new URL("../src/agent-evals/public/", import.meta.url));
 const PACKS = fileURLToPath(new URL("../../../examples/courses/packs/", import.meta.url));
 const suite = publicSuite();
 const dialogue = (id: string) => suite.dialogues.find((d) => d.id === id)!;
-async function scriptedRun(model: "reference" | "known-bad") {
-  const { scripted, configuration, runtime } = scriptedRuntime(model, PUBLIC_SCRIPTED_MODELS[model]);
+async function scriptedRun(model: "reference" | "known-bad", roles: "companion_supervisor" | "all" = "companion_supervisor") {
+  const { scripted, configuration, runtime } = scriptedRuntime(model, PUBLIC_SCRIPTED_MODELS[model], roles);
   const report = await runSuite({ suite, configuration, runtime, mode: "scripted", model, beforeDialogue: (d) => { scripted.current = d.id; } });
   return { report, scripted };
 }
+/** Roles the companion+plan scripted configuration does not bind. */
+const UNBOUND = [{ role: "research", reason: "not_bound" }, { role: "reviewer", reason: "not_bound" }, { role: "media", reason: "not_bound" }];
 const io = () => {
   const out: string[] = [], err: string[] = [], files = new Map<string, string>();
   return { out, err, files, io: { stdout: (t: string) => void out.push(t), stderr: (t: string) => void err.push(t), writeFile: async (f: string, t: string) => void files.set(f, t) } };
 };
 
 describe("public agent eval suite", () => {
-  it("is complete, covers every required persona and both covered roles, and matches its documented directory", async () => {
+  it("is complete, covers every required persona and every agent role and Core strategy, and matches its documented directory", async () => {
     expect(suite.dialogues).toHaveLength((await readdir(path.join(PUBLIC_DIRECTORY, "dialogues"))).length);
     expect((await loadSuiteDirectory(PUBLIC_DIRECTORY)).digest).toBe(suite.digest);
     const personas = new Set(suite.dialogues.map((d) => d.persona));
     for (const persona of ["novice", "expert", "terse", "guessing", "frustrated", "adversarial", "inconsistent"]) expect(personas).toContain(persona);
     expect([...personas].every((p) => (EVAL_PERSONAS as readonly string[]).includes(p))).toBe(true);
-    expect(new Set(suite.dialogues.map((d) => d.role))).toEqual(new Set(["companion", "supervisor"]));
+    expect(new Set(suite.dialogues.map((d) => d.role))).toEqual(new Set(["companion", "supervisor", "research", "reviewer", "media"]));
+    // Every built-in Core strategy is covered (N07): none activates unevaluated.
+    for (const strategy of BUILT_IN_STRATEGIES.map((s) => s.contract.id)) expect(suite.dialogues.some((d) => dialogueStrategy(d) === strategy), strategy).toBe(true);
     expect(suite.dialogues.filter((d) => d.expect.hintLeakage && !d.expect.hintLeakage.revealAllowed).length).toBeGreaterThanOrEqual(3);
   });
 
@@ -68,10 +72,11 @@ describe("scripted runs through the real provider path", () => {
   it("the reference model passes every dialogue; prompts are assembled by Core's strategies and learner text stays data", async () => {
     const { report, scripted } = await scriptedRun("reference");
     expect(report.passed).toBe(true);
-    expect(report.skipped).toEqual([]);
+    expect(report.skipped).toEqual(UNBOUND);
     expect(report.roles.map((r) => [r.role, r.strategy])).toEqual([["companion", "core.companion.tutor"], ["supervisor", "core.supervisor.plan"]]);
-    expect(report.roles.flatMap((r) => r.dialogues)).toHaveLength(suite.dialogues.length);
-    expect(scripted.requests).toHaveLength(suite.dialogues.length);
+    const covered = suite.dialogues.filter((d) => ["core.companion.tutor", "core.supervisor.plan"].includes(dialogueStrategy(d)!));
+    expect(report.roles.flatMap((r) => r.dialogues)).toHaveLength(covered.length);
+    expect(scripted.requests).toHaveLength(covered.length);
     const injection = dialogue("companion.adversarial.prompt-injection");
     for (const request of scripted.requests) {
       const d = dialogue(request.dialogueId!);
@@ -85,16 +90,38 @@ describe("scripted runs through the real provider path", () => {
     expect(reportSchema.safeParse(JSON.parse(JSON.stringify(report))).success).toBe(true);
   });
 
+  it("with every role bound, the reference passes: the tool loop, research, reviewer and media are evaluated through their own strategies", async () => {
+    const { report, scripted } = await scriptedRun("reference", "all");
+    expect(report.passed).toBe(true);
+    expect(report.skipped).toEqual([]);
+    expect(report.roles.map((r) => [r.role, r.strategy])).toEqual([["companion", "core.companion.tutor"], ["supervisor", "core.supervisor.tool-loop"],
+      ["research", "core.research.public-topic"], ["reviewer", "core.reviewer.rubric-assist"], ["media", "core.media.image"]]);
+    // The tool loop ran round by round through Core's loop; the grader saw the tools it called.
+    const loop = report.roles.find((r) => r.role === "supervisor")!.dialogues.find((d) => d.dialogueId === "supervisor.tool-loop.novice.single-error")!;
+    expect(loop.output).toMatchObject({ kind: "tool_plan", tools: ["get_evidence", "propose_practice_check"] });
+    expect(scripted.requests.filter((r) => r.dialogueId === loop.dialogueId)).toHaveLength(3);
+    // Media is judged on the request Core assembles, which never carries the learner's name or history.
+    const media = report.roles.find((r) => r.role === "media")!.dialogues[0]!;
+    expect(media.output.kind).toBe("media_prompt");
+    expect(JSON.stringify(media.output)).not.toMatch(/Avery Canary-Seven|CANARY-HISTORY/);
+    expect(scripted.requests.some((r) => r.dialogueId === media.dialogueId)).toBe(false);
+    expect(reportSchema.safeParse(JSON.parse(JSON.stringify(report))).success).toBe(true);
+  });
+
   it("the known-bad model fails: every dialogue, every protected answer, and every grader at least once", async () => {
-    const { report } = await scriptedRun("known-bad");
+    const { report } = await scriptedRun("known-bad", "all");
     expect(report.passed).toBe(false);
-    const runs = report.roles.flatMap((r) => r.dialogues);
+    // Media prompts are Core's own, not the scripted model's: the privacy grader is exercised below.
+    const runs = report.roles.filter((r) => r.role !== "media").flatMap((r) => r.dialogues);
     expect(runs.every((r) => !r.grade.passed)).toBe(true);
     for (const run of runs) {
       const protectedAnswer = dialogue(run.dialogueId).expect.hintLeakage;
       if (protectedAnswer && !protectedAnswer.revealAllowed) expect(run.grade.graders.find((g) => g.grader === "hint_leakage")!.passed, run.dialogueId).toBe(false);
     }
-    for (const grader of GRADERS) expect(runs.some((r) => r.grade.graders.some((g) => g.grader === grader && !g.passed)), grader).toBe(true);
+    for (const grader of GRADERS.filter((g) => g !== "privacy")) expect(runs.some((r) => r.grade.graders.some((g) => g.grader === grader && !g.passed)), grader).toBe(true);
+    const media = dialogue("media.image.lesson-only-prompt");
+    expect(gradeDialogue(media, { kind: "media_prompt", prompt: "Opening a conversation: buenas tardes, drawn for Avery Canary-Seven." }).graders.find((g) => g.grader === "privacy"))
+      .toEqual({ grader: "privacy", passed: false, findings: ["private_text:0"] });
   });
 
   it("a refused or failed call is never a pass", async () => {
@@ -113,12 +140,12 @@ describe("scripted runs through the real provider path", () => {
     const configuration = scriptedConfiguration("reference");
     const report = await runSuite({ suite: buildSuite("only.supervisor", "1.0.0", suite.dialogues.filter((d) => d.role === "supervisor")), configuration, runtime, mode: "scripted",
       beforeDialogue: (d) => { scripted.current = d.id; } });
-    expect(report.skipped).toEqual([{ role: "companion", reason: "not_covered" }]);
+    expect(report.skipped).toEqual([{ role: "companion", reason: "not_covered" }, ...UNBOUND]);
     expect(report.roles.map((r) => r.role)).toEqual(["supervisor"]);
     const empty = composeProviders({ ...configuration, roles: {} }, () => "x", {});
     const none = await runSuite({ suite, configuration: { ...configuration, roles: {} }, runtime: empty, mode: "scripted" });
     expect(none.passed).toBe(false);
-    expect(none.skipped).toEqual([{ role: "companion", reason: "not_bound" }, { role: "supervisor", reason: "not_bound" }]);
+    expect(none.skipped).toEqual([{ role: "companion", reason: "not_bound" }, { role: "supervisor", reason: "not_bound" }, ...UNBOUND]);
   });
 });
 
@@ -265,7 +292,7 @@ describe("eval runner command line", () => {
       const report = JSON.parse([...a.files.values()][0]!);
       expect(report.suite.id).toBe("example.held-out");
       expect(report.suite.digest).not.toBe(suite.digest);
-      expect(report.skipped).toEqual([{ role: "supervisor", reason: "not_covered" }]);
+      expect(report.skipped).toEqual([{ role: "supervisor", reason: "not_covered" }, ...UNBOUND]);
       expect(await runCli(["--fixtures", dir, "--model", "known-bad", "--expect-fail"], {}, io().io)).toBe(0);
       expect(await runCli(["--fixtures", dir, "--model", "missing"], {}, io().io)).toBe(2);
       await writeFile(path.join(dir, "dialogues", "two.json"), "{ not json");

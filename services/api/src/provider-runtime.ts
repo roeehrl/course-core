@@ -80,6 +80,25 @@ export class ProviderRuntime {
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
   }
+  /** The request a role's bound strategy would send for `context`, captured before anything is
+   * sent (agent evals grade media prompts this way: staff review every media candidate, so the
+   * revision is judged on what Core asks for, never on a paid generation). Null when the strategy
+   * refused before building a request. */
+  async assembledRequest(role: AgentRole, context: TeachingContext, course: readonly RuntimeStrategy[] = []): Promise<Record<string, unknown> | null> {
+    const selected = this.strategy(role, course);
+    if (!selected) throw new ProviderError('INVALID_CONFIG');
+    class Captured extends Error {}
+    let captured: Record<string, unknown> | null = null;
+    const capture = (operation: string) => async (request: Record<string, unknown>) => {
+      const { accounting: _accounting, ...rest } = request;
+      captured = { operation, ...rest };
+      throw new Captured();
+    };
+    const router = { tutor: capture('tutor'), assess: capture('assess'), research: capture('research'), startImage: capture('startImage'), startVideo: capture('startVideo') } as unknown as ProviderRouter;
+    try { await selected.strategy.run({ role, binding: selected.binding, context, accountingKey: 'assembled-request', signal: new AbortController().signal, router }); }
+    catch (error) { if (!(error instanceof Captured)) return null; }
+    return captured;
+  }
   /** The bound video role, its fixed settings and operator pricing; never a prompt. */
   mediaVideo() {
     const binding = this.bindings.media;

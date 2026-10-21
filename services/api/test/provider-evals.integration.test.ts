@@ -223,13 +223,56 @@ describe("provider eval routes", () => {
     expect(Number((await db.query("SELECT count(*) FROM provider_eval_results WHERE workspace_id=$1", [workspace])).rows[0].count)).toBe(2);
   });
 
-  it("roles the suite does not cover activate as before and are reported as not covered", async () => {
+  it("every role is gated: the tool loop, research, reviewer and media need evidence too, and a scripted pass for each activates them", async () => {
     const workspace = await newWorkspace(), owner = await login("owner", workspace);
-    const toolLoop = { ...reference, roles: { supervisor: { ...reference.roles.supervisor, maxToolRounds: 4 } } };
-    const saved = await save(owner, workspace, toolLoop);
+    const all = scriptedConfiguration("reference", "all");
+    const refused = await save(owner, workspace, all);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().details.roles.map((r: { role: string; reason: string }) => [r.role, r.reason]))
+      .toEqual([["supervisor", "not_evaluated"], ["companion", "not_evaluated"], ["research", "not_evaluated"], ["media", "not_evaluated"], ["reviewer", "not_evaluated"]]);
+    const { scripted, configuration, runtime } = scriptedRuntime("reference", PUBLIC_SCRIPTED_MODELS.reference, "all");
+    const run = await runSuite({ suite: publicSuite(), configuration, runtime, mode: "scripted", model: "reference", beforeDialogue: (d) => { scripted.current = d.id; } });
+    const recorded = await record(owner, workspace, run);
+    expect(recorded.statusCode, recorded.body).toBe(200);
+    expect(recorded.json().results.map((r: { role: string; outcome: string }) => [r.role, r.outcome]))
+      .toEqual([["companion", "passed"], ["supervisor", "passed"], ["research", "passed"], ["reviewer", "passed"], ["media", "passed"]]);
+    const saved = await save(owner, workspace, all);
     expect(saved.statusCode, saved.body).toBe(200);
-    expect(saved.json().evaluation).toEqual({ supervisor: "not_covered" });
-    expect((await status(owner, workspace)).roles).toEqual([expect.objectContaining({ role: "supervisor", strategy: "core.supervisor.tool-loop", covered: false, status: "not_covered" })]);
+    expect(saved.json().evaluation).toEqual({ supervisor: "passed", companion: "passed", research: "passed", media: "passed", reviewer: "passed" });
+    expect((await status(owner, workspace)).roles.map((r: { role: string; strategy: string; covered: boolean; status: string }) => [r.role, r.strategy, r.covered, r.status]))
+      .toEqual([["supervisor", "core.supervisor.tool-loop", true, "passed"], ["companion", "core.companion.tutor", true, "passed"],
+        ["research", "core.research.public-topic", true, "passed"], ["media", "core.media.image", true, "passed"], ["reviewer", "core.reviewer.rubric-assist", true, "passed"]]);
+    // A known-bad tool loop, research or reviewer answer is recorded as failed and cannot activate a changed revision.
+    const bad = scriptedRuntime("reference", PUBLIC_SCRIPTED_MODELS["known-bad"], "all");
+    const failedRun = await runSuite({ suite: publicSuite(), configuration: bad.configuration, runtime: bad.runtime, mode: "scripted", model: "reference",
+      beforeDialogue: (d) => { bad.scripted.current = d.id; } });
+    const failed = await record(owner, workspace, failedRun);
+    expect(failed.json().results.filter((r: { outcome: string }) => r.outcome === "failed").map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research", "reviewer"]);
+  });
+
+  it("a role bound to a strategy the suite does not cover activates only with an owner's override of that exact revision", async () => {
+    const workspace = await newWorkspace(), owner = await login("owner", workspace);
+    // A suite without media dialogues: the media role is not covered.
+    const base = publicSuite(), noMedia = buildSuite(base.id, "2.0.1", base.dialogues.filter((d) => d.role !== "media"));
+    const partial = new WorkspaceProviders(db, providers.vault, {}, undefined, undefined, noMedia);
+    const server = await createServer(db, { loginCodes: true, origin, secureCookies: false, workspaceProviders: partial });
+    try {
+      const all = scriptedConfiguration("reference", "all");
+      const media = { ...all, roles: { media: all.roles.media } };
+      const before = (await server.inject({ url: setup(workspace), headers: headers(owner) })).json();
+      const refused = await server.inject({ method: "POST", url: setup(workspace), headers: headers(owner),
+        payload: { expectedRevision: before.revision, idempotencyKey: randomUUID(), configuration: media, jobPolicy, credentials: {} } });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().details.roles).toEqual([expect.objectContaining({ role: "media", reason: "not_covered" })]);
+      const approved = await server.inject({ method: "POST", url: evals(workspace) + "/overrides", headers: headers(owner),
+        payload: { idempotencyKey: randomUUID(), role: "media", revisionDigest: refused.json().details.roles[0].revisionDigest, reason: "Owner reviewed the media prompts by hand for this revision." } });
+      expect(approved.statusCode, approved.body).toBe(200);
+      const saved = await server.inject({ method: "POST", url: setup(workspace), headers: headers(owner),
+        payload: { expectedRevision: before.revision, idempotencyKey: randomUUID(), configuration: media, jobPolicy, credentials: {} } });
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect(saved.json().evaluation).toEqual({ media: "override" });
+      expect((await server.inject({ url: evals(workspace), headers: headers(owner) })).json().roles).toEqual([expect.objectContaining({ role: "media", covered: false, status: "override" })]);
+    } finally { await server.close(); }
   });
 
   it("grandfathers provider versions saved before the gate: still active, shown as not evaluated, gated on change", async () => {

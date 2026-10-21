@@ -3,10 +3,9 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { composeProviders, providerConfigurationSchema } from "../provider-composition.js";
 import { safeConfiguration } from "../provider-setup.js";
-import type { EvalOutput } from "./graders.js";
 import { PUBLIC_SCRIPTED_MODELS, publicSuite, scriptedOutputsSchema } from "./public-suite.js";
 import { reviewerJudge, runSuite, type EvalReport } from "./runner.js";
-import { scriptedRuntime } from "./scripted-model.js";
+import { scriptedRuntime, type ScriptedAnswer } from "./scripted-model.js";
 import { EVAL_ROLES, loadSuiteDirectory, SuiteError, type EvalRole, type EvalSuite } from "./suite.js";
 
 /** The opt-in environment variable for live provider runs. Nothing in Core's CI sets it. */
@@ -17,12 +16,14 @@ Scripted (default, offline):
   --model reference|known-bad    scripted model for the public suite (default reference)
   --fixtures DIR                 run an external suite instead (DIR/suite.json, DIR/dialogues/*.json)
   --scripted FILE                scripted answers for --fixtures (default DIR/scripted/<model>.json)
+  --all-roles                    bind every role (tool loop, research, reviewer, media image) to the
+                                 scripted model instead of companion and supervisor plan only
 Live (opt-in, never in Core CI):
   --live --configuration FILE    provider configuration JSON; requires ${LIVE_OPT_IN}=1 and every
                                  credential it names set in the environment
   --judge                        also run the advisory LLM judge through the bound reviewer role
 Common:
-  --role companion|supervisor    limit to one role (repeatable)
+  --role ROLE                    limit to one role: companion, supervisor, research, reviewer, media (repeatable)
   --report FILE                  write the JSON report (for POST .../provider-evals/results)
   --expect-fail                  exit 0 only when the suite fails (to check the known-bad model)`;
 
@@ -54,7 +55,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv, io: CliIo):
     const { values } = parseArgs({ args: argv, strict: true, options: {
       model: { type: "string", default: "reference" }, fixtures: { type: "string" }, scripted: { type: "string" },
       live: { type: "boolean", default: false }, configuration: { type: "string" }, judge: { type: "boolean", default: false },
-      role: { type: "string", multiple: true }, report: { type: "string" }, "expect-fail": { type: "boolean", default: false }, help: { type: "boolean", default: false },
+      "all-roles": { type: "boolean", default: false }, role: { type: "string", multiple: true }, report: { type: "string" }, "expect-fail": { type: "boolean", default: false }, help: { type: "boolean", default: false },
     } });
     if (values.help) { io.stdout(USAGE + "\n"); return 0; }
     const roles = values.role?.map((role) => { if (!(EVAL_ROLES as string[]).includes(role)) throw new UsageError(`Unknown role ${role}`); return role as EvalRole; });
@@ -76,7 +77,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv, io: CliIo):
     } else {
       if (values.configuration || values.judge) throw new UsageError("--configuration and --judge are live-mode options.");
       if (!/^[a-z0-9][a-z0-9-]{0,60}$/.test(values.model)) throw new UsageError("Invalid --model name.");
-      let outputs: Record<string, EvalOutput>;
+      let outputs: Record<string, ScriptedAnswer>;
       if (values.fixtures || values.scripted) {
         const file = values.scripted ? path.resolve(values.scripted) : path.join(path.resolve(values.fixtures!), "scripted", `${values.model}.json`);
         const parsed = scriptedOutputsSchema.safeParse(await readJson(file));
@@ -86,7 +87,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv, io: CliIo):
         if (!Object.hasOwn(PUBLIC_SCRIPTED_MODELS, values.model)) throw new UsageError(`Unknown scripted model ${values.model}.`);
         outputs = PUBLIC_SCRIPTED_MODELS[values.model as keyof typeof PUBLIC_SCRIPTED_MODELS];
       }
-      const { scripted, configuration, runtime } = scriptedRuntime(values.model, outputs);
+      const { scripted, configuration, runtime } = scriptedRuntime(values.model, outputs, values["all-roles"] ? "all" : "companion_supervisor");
       report = await runSuite({ suite, configuration, runtime, mode: "scripted", model: values.model, ...(roles ? { roles } : {}),
         beforeDialogue: (dialogue) => { scripted.current = dialogue.id; } });
     }

@@ -288,8 +288,13 @@ export const rubricAssistStrategy = defineRuntimeStrategy({
       usage: result.usage };
   },
 });
-const mediaPrompt = (context: TeachingContext, binding: RoleBinding) =>
-  `${MEDIA_INSTRUCTION}\n${JSON.stringify(minimizeContext(context, Math.max(1000, binding.maxInputCharacters - MEDIA_INSTRUCTION.length - 1500)))}`;
+/** A media request carries the lesson and the request, never the learner: no profile, history,
+ * attempts or conversation reaches a media provider (agent-evals privacy grader, N07). */
+const mediaPrompt = (context: TeachingContext, binding: RoleBinding) => {
+  const lesson: TeachingContext = { course: context.course, episode: context.episode, question: context.question,
+    learner: { profile: {}, recentHistory: [] }, constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: context.constraints.independentAssessmentActive } };
+  return `${MEDIA_INSTRUCTION}\n${JSON.stringify(minimizeContext(lesson, Math.max(1000, binding.maxInputCharacters - MEDIA_INSTRUCTION.length - 1500)))}`;
+};
 export const videoStrategy = defineRuntimeStrategy({
   role: 'media',
   contract: contract({ id: 'core.media.video', roles: ['builder'], description: 'Starts one bounded video candidate for staff review.',
