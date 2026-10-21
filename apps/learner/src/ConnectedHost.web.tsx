@@ -29,6 +29,7 @@ import {
 } from "./client/companionClient";
 import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
 import { CourseRoadmap, coverageText } from "./components/CourseRoadmap";
+import { FirstLoadProvider, useFirstLoad } from "./connected/firstLoad";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "./i18n";
@@ -161,6 +162,9 @@ function browserStore(): BrowserStore | undefined {
     }
   return;
 }
+/** Panels above the roadmap that must finish their first read before the course page shows. */
+const COURSE_PAGE_PANELS = ["study", "policy", "placement", "retention"] as const;
+
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const t = useT();
   const i18n = useI18n();
@@ -289,6 +293,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     server?.enrollmentId,
     server?.revision ?? 0,
   );
+  // The course page appears once its panels have read their state (connected/firstLoad.ts).
+  const { settled: coursePageSettled, report: reportFirstLoad } = useFirstLoad(server?.enrollmentId, COURSE_PAGE_PANELS);
+  useEffect(() => {
+    if (server && !policy.loading) reportFirstLoad("policy");
+  }, [server, policy.loading, reportFirstLoad]);
   const model = useMemo(
     () => (server ? presentation(server, { placementOpen, t }) : undefined),
     [server, placementOpen, t],
@@ -1282,7 +1291,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               ))}
             </section>
           ) : !episode && model ? (
-            <>
+            <FirstLoadProvider value={reportFirstLoad}>
+              {!coursePageSettled && <ActivityIndicator accessibilityLabel={t("connectedHost.loading")} />}
+              <div className="connected-course-page" hidden={!coursePageSettled} aria-busy={!coursePageSettled}>
               <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
               {policyPanel}
               <ClosureSummary server={server} />
@@ -1340,7 +1351,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   panel?.focus({ preventScroll: true });
                 }}
               />
-            </>
+              </div>
+            </FirstLoadProvider>
           ) : null}
           {server && episode && view === "learn" && inspectorAccess?.enrollmentId === server.enrollmentId && (
             <DebugInspector access={inspectorAccess.access} enrollmentId={server.enrollmentId} episodeId={episode.id}
