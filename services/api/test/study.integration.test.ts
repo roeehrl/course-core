@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
-import type { CourseManifest } from "@course-core/sdk";
 import { createDatabase, transaction, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -9,7 +8,7 @@ import { appendEvent } from "../src/events.js";
 import { offsetClock } from "../src/clock.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { allocateArm, pseudonym } from "../src/study.js";
-import { retentionCourse } from "./retention-fixture.js";
+import { studyCourse } from "./study-fixture.js";
 
 // Real HTTP and PostgreSQL 17: educational evaluation studies, consent, arms and the research export.
 const origin = "http://localhost:4396",
@@ -20,19 +19,6 @@ let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { userId: string; cookie: string; csrf: string; name: string }
 let workspace: string, owner: Session, admin: Session, instructor: Session, reviewer: Session, observer: Session, course: string, release: string;
 
-/** The ordering fixture with matched pre/post items, a declared transfer item and held-out delayed checks. */
-function studyCourse(): CourseManifest {
-  const c = retentionCourse();
-  c.assessments.push(
-    { id: "pre-min", type: "numeric", objectiveIds: ["minimum"], familyId: "pre", prompt: "Minimum of 3 and 8?", grading: { expected: 3, absoluteTolerance: 0, explanation: "3 is below 8." } },
-    { id: "post-min", type: "numeric", objectiveIds: ["minimum"], familyId: "post", prompt: "Minimum of 6 and 2?", grading: { expected: 2, absoluteTolerance: 0, explanation: "2 is below 6." } },
-    { id: "xfer-min", type: "numeric", objectiveIds: ["minimum"], familyId: "transfer", role: "transfer", prompt: "Lowest temperature of -4 and 1?", grading: { expected: -4, absoluteTolerance: 0, explanation: "-4 is below 1." } },
-    { id: "recog-min", type: "choice", objectiveIds: ["minimum"], familyId: "recog", role: "recognition", prompt: "Pick the smaller.", options: [{ id: "a", text: "1" }, { id: "b", text: "9" }], grading: { correctOptionId: "a", explanation: "1 is below 9." } },
-  );
-  const min = c.chapters[0]!.episodes[0]!;
-  for (const id of ["pre-min", "post-min", "xfer-min"]) min.blocks.push({ id: "block-" + id, type: "assessment", assessmentId: id });
-  return c;
-}
 const ARMS = [
   { id: "fixed", label: "Fixed path", behaviour: "fixed" },
   { id: "chat", label: "Chat-only companion", behaviour: "chat_only" },
