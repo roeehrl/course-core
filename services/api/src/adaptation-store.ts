@@ -35,7 +35,7 @@ import { declarationMatchesInstalled } from './extension-identity.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
 import {generatedBlocks,generatedOperation,generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
-import { generatedContentChecks, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
+import { componentChecks, componentDigest, generatedContentChecks, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
 import { RENDERER_ID } from '@course-core/visuals/headless';
 import { recordTransferChecks } from './adaptation-transfer.js';
 import { freeze, readRelease, verifiedBundle, verifiedRelease } from './release-cache.js';
@@ -52,6 +52,8 @@ const profileSchema = z.strictObject({ id, episodeId: id, operation: operationKi
   generationBrief:z.string().min(1).max(3000).refine(v=>v.trim().length>0).optional(),
   /** `advanced`: an optional generated lesson offered only once the anchor's checkpoint is passed. */
   branch: z.enum(['remedial','advanced']).optional(),
+  /** Generated interactive components, tested by this installed code evaluator (generated-content.ts). */
+  component: z.strictObject({ evaluatorId: id }).optional(),
   bank: z.array(z.strictObject({ id, assessment: z.custom<Assessment>(), sourceRefs: z.array(id).min(1), hiddenFixtures: z.custom<Json>().optional() })).max(256).optional(),
   teachingBank:z.array(z.discriminatedUnion('kind',[
     z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)}),
@@ -393,6 +395,12 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
     require(author.limits.allowedClassifications.includes(profile.classification) && profile.plannedMinutes <= author.limits.maxPlannedMinutesPerAssignment
       && profile.additionalEpisodes <= author.limits.maxAdditionalEpisodesPerAssignment, 'AUTHOR_LIMIT', 409);
     require(profile.generationBrief===undefined||adapter.kind==='generated-teaching','GENERATION_BRIEF_CAPABILITY_MISMATCH',409);
+    // A component is appended as its text alternative and tested by an installed evaluator of generated tests.
+    if(profile.component){
+      const evaluator=runtime.installed?.find(e=>e.id===profile.component!.evaluatorId);
+      require(adapter.kind==='generated-teaching'&&profile.operation==='append_teaching'&&generator.artifactKinds.includes('practice')&&declaration.artifactKinds.includes('practice'),'GENERATED_TEACHING_PROFILE_INVALID',409);
+      require(evaluator?.evaluateGeneratedCode&&evaluator.codeReady&&declarationMatchesInstalled(course.extensions.find(e=>e.id===evaluator.id),evaluator),'GENERATED_CODE_EVALUATOR_UNAVAILABLE',409);
+    }
     // An advanced branch is extra: always optional, always a whole inserted lesson.
     require(profile.branch!=='advanced'||(profile.operation==='insert_episode'&&profile.classification==='optional'),'ADVANCED_BRANCH_INVALID',409);
     if(adapter.kind==='teaching-bank'){
@@ -1125,6 +1133,7 @@ async function generatedTeachingBinding(
   // simulation attached, a question added as a variant of the profile's canonical item.
   require(profile?.operation === generatedOperation(selection.artifact.kind) &&
     (selection.artifact.kind !== "assessment_variant" || selection.artifact.canonicalAssessmentId === profile.canonicalAssessmentId) &&
+    Boolean(selection.component) === Boolean(profile.component) &&
     profile.episodeId === selection.episodeId &&
     installed(runtime, profile).kind ===
       "generated-teaching", "GENERATED_TEACHING_UNAVAILABLE", 409);
@@ -1186,7 +1195,10 @@ type Bound = Awaited<ReturnType<typeof generatedTeachingBinding>>;
  * reference checks of generated-content.ts against the learner's delivered course. */
 async function hostChecks(bound: Bound, runtime: AdaptationRuntime, signal?: AbortSignal) {
   const accessibility = accessibilityProblems(generatedBlocks(bound.selection.artifact));
-  const content = await generatedContentChecks(bound.selection.artifact, { course: bound.loaded.release.server_bundle, installed: runtime.installed ?? [], signal });
+  const context = { course: bound.loaded.release.server_bundle, installed: runtime.installed ?? [], signal };
+  const content = bound.selection.component && bound.profile.component
+    ? await componentChecks(bound.selection.component, bound.selection.artifact, bound.profile.component.evaluatorId, context)
+    : await generatedContentChecks(bound.selection.artifact, context);
   return { accessibility, content, failedCheckIds: [...(accessibility.length ? [ACCESSIBILITY_CHECK_ID] : []), ...content.failedCheckIds] };
 }
 
@@ -1305,6 +1317,11 @@ async function deliverGenerated(client: PoolClient, ref: RunRef, bound: Bound, r
       selection.permissionRevision,
     ],
   );
+  // The tested component is published once, content-addressed, beside its text block (migration 093).
+  if (selection.component)
+    await client.query(`INSERT INTO generated_components(enrollment_id,workspace_id,proposal_id,episode_id,block_id,digest,artifact_digest,body)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [ref.enrollmentId, ref.workspaceId, prepared.proposalId, profile.episodeId, operationId,
+      componentDigest(selection.component), selection.artifact.digest, JSON.stringify(selection.component)]);
   // Delivery is not the end: whether the learner can now use it on an independent check is
   // recorded per objective and resolved from later attempts (never from model output).
   await recordTransferChecks(client, ref.enrollmentId, ref.workspaceId, prepared.proposalId, selection.artifact.objectiveIds);
@@ -1392,4 +1409,19 @@ export async function pendingChanges(client: PoolClient, loaded: EnrollmentConte
       addableNow: boundary.safe, ...(boundary.safe ? {} : { waitingFor: boundary.reason }) });
   }
   return result;
+}
+
+/** Published components of this enrollment's live personal changes, for the lesson to run in the
+ * sandboxed runner frame. Reverted changes keep their record but are not offered. */
+export async function liveComponents(client: PoolClient, loaded: EnrollmentContext) {
+  const rows = (await client.query<{ episode_id: string; block_id: string; digest: string; body: Record<string, unknown> }>(
+    `SELECT c.episode_id,c.block_id,c.digest,c.body FROM generated_components c JOIN adaptation_proposals p ON p.id=c.proposal_id AND p.enrollment_id=c.enrollment_id
+      WHERE c.enrollment_id=$1 AND p.status='applied' AND NOT EXISTS(SELECT 1 FROM adaptation_reverts r WHERE r.enrollment_id=c.enrollment_id AND r.proposal_id=c.proposal_id)
+      ORDER BY c.created_at LIMIT 64`, [loaded.enrollment.id])).rows;
+  const shown = new Set(loaded.release.server_bundle.chapters.flatMap(c => c.episodes.flatMap(e => e.blocks.map(b => `${e.id}/${b.id}`))));
+  return rows.filter(r => shown.has(`${r.episode_id}/${r.block_id}`) && r.body.source).map(r => {
+    const { tests: _tests, ...component } = r.body;
+    // The tests stay server-side; the learner runs the model, never needs its checks.
+    return { episodeId: r.episode_id, blockId: r.block_id, digest: r.digest, ...component };
+  });
 }

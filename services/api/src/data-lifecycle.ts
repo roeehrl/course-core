@@ -185,6 +185,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       // Each artifact through the learner allowlist: a generated item's question, never its key or hidden fixtures.
       personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1 ORDER BY artifact_id", id)).rows
         .map((r) => learnerTeachingArtifact(r.artifact_id, r.body)),
+      generatedComponents: (await client.query("SELECT episode_id,block_id,digest,created_at FROM generated_components WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       pendingPersonalChanges: (await client.query("SELECT id,episode_id,artifact_kind,reason,status,outcome_code,created_at,resolved_at FROM adaptation_pending_changes WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,refusal_code,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       suggestedResources: (await client.query("SELECT objective_id,episode_id,attachment_id,created_at,ended_at,end_reason FROM research_resource_choices WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
@@ -293,6 +294,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
   // Generated changes still waiting for a safe boundary (migration 092): the candidate goes, the status stays.
   await run("pendingPersonalChanges", "UPDATE adaptation_pending_changes SET selection='{}'::jsonb WHERE enrollment_id=$1");
+  // Published generated components (migration 093): their model and tests go; identifiers stay.
+  await run("generatedComponents", "UPDATE generated_components SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProofs", "UPDATE adaptation_proofs SET trusted_record='{}'::jsonb,verification_evidence='[]'::jsonb WHERE enrollment_id=$1");
   await run("adaptationAuthorizations", "UPDATE adaptation_authorizations SET trusted_record='{}'::jsonb WHERE enrollment_id=$1");

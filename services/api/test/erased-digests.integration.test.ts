@@ -296,6 +296,9 @@ describe("digest coverage", () => {
     "assessment_challenges.adaptation_artifact_digest": "generated personal teaching provenance chain",
     "research_candidates.digest": "generated artifact", "rubric_suggestions.digest": "generated artifact",
     "supervisor_artifacts.digest": "generated artifact",
+    // A published generated component and the text block it belongs to (migration 093).
+    "generated_components.digest": "generated artifact",
+    "generated_components.artifact_digest": "generated personal teaching provenance chain",
     // Digest of the staff-written consent text the learner agreed to; erasure deletes the row (085).
     "study_consent_changes.consent_digest": "staff-written study consent text; the row is deleted on erasure",
     "study_participants.consent_digest": "staff-written study consent text; the row is deleted on erasure",

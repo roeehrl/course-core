@@ -6,7 +6,7 @@ import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
-import { applyPendingChangeWithin, declinePendingChangeWithin, pendingChanges, revertPersonalChange, type AdaptationRuntime } from "./adaptation-store.js";
+import { applyPendingChangeWithin, declinePendingChangeWithin, liveComponents, pendingChanges, revertPersonalChange, type AdaptationRuntime } from "./adaptation-store.js";
 import { transferChecks } from "./adaptation-transfer.js";
 
 /** Optional personal blocks the learner hid. Required changes are never hideable. */
@@ -139,6 +139,12 @@ export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database,
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: input.hidden ? "personal_change.hidden" : "personal_change.restored", payload: { episodeId: input.episodeId, blockId: input.blockId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { episodeId: input.episodeId, blockId: input.blockId, hidden: input.hidden };
     });
+  });
+  // Generated interactive components of live personal changes (E05): model and controls only, for
+  // the lesson to run in Core's sandboxed runner frame. Their tests stay server-side.
+  app.get("/api/enrollments/:enrollmentId/components", { schema: { params } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    return transaction(db, async (client) => ({ components: await liveComponents(client, await loadEnrollment(client, actor, enrollmentId)) }));
   });
   // Generated changes waiting for a safe boundary (E03): listed without their content; the learner
   // adds one once their attempt ends (every check runs again) or turns it down.

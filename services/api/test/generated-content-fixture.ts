@@ -47,22 +47,38 @@ import type { RuntimeExtension } from "../src/publication.js";
 import { fixture } from "./fixture.js";
 
 export const CODE_EVALUATOR_ID = "synthetic-code";
-/** A stand-in for the installed Docker-backed code evaluator: a program "passes" when it uses
- * min(values). Real Python runs in the networkless sandbox (qualification/practical-flow.ts). */
+/** A generated component: y = slope * x + intercept, the same model as lineScene. */
+export const LINE_COMPONENT_SOURCE = 'def solve(inputs):\n    return {"y": inputs["slope"] * inputs["x"] + inputs["intercept"]}\n';
+/** The programs the synthetic evaluator can "run", by exact source. Anything else fails every case. */
+const PROGRAMS: Record<string, (input: any) => unknown> = {
+  "def solve(values):\n    return min(values)\n": (v: number[]) => Math.min(...v),
+  "def solve(values):\n    return min(values) + 0\n": (v: number[]) => Math.min(...v),
+  "def solve(values):\n    return max(values)\n": (v: number[]) => Math.max(...v),
+  "def solve(values):\n    return sorted(values)[-1]\n": (v: number[]) => Math.max(...v),
+  "def solve(values):\n    return values[0]\n": (v: number[]) => v[0],
+  "def solve(values):\n    return values[-1]\n": (v: number[]) => v.at(-1),
+  [LINE_COMPONENT_SOURCE]: (i: Record<string, number>) => ({ y: i.slope! * i.x! + i.intercept! }),
+};
+/** A stand-in for the installed Docker-backed code evaluator: each case is "run" by the program
+ * registered for the exact source and compared with its expected output. Real Python runs in the
+ * networkless sandbox (qualification/practical-flow.ts covers generated tests there). */
 export function syntheticCodeEvaluator(runs: string[] = []): RuntimeExtension {
-  const grade = (source: unknown, total: number) => {
+  const grade = (source: unknown, cases: { input: unknown; expected: unknown }[]) => {
     runs.push(String(source));
-    const passed = typeof source === "string" && source.includes("min(values)");
-    return { passed, explanation: passed ? `All ${total} hidden reference cases matched.` : `0 of ${total} reference cases matched.`, evaluator: "synthetic-code@1.0.0",
-      execution: { status: "graded", sourceDigest: digestJson(String(source)), durationMs: 1, passedCases: passed ? total : 0, totalCases: total,
+    const program = typeof source === "string" ? PROGRAMS[source] : undefined;
+    const passedCases = program ? cases.filter((c) => JSON.stringify(program(c.input)) === JSON.stringify(c.expected)).length : 0;
+    const passed = passedCases === cases.length;
+    return { passed, explanation: passed ? `All ${cases.length} hidden reference cases matched.` : `${passedCases} of ${cases.length} reference cases matched.`,
+      evaluator: "synthetic-code@1.0.0", execution: { status: "graded", sourceDigest: digestJson(String(source)), durationMs: 1, passedCases, totalCases: cases.length,
         runtime: { protocol: "python-json-v1" as const, image: "synthetic" } } };
   };
+  const fixtureCases = [{ input: [3, 1, 2], expected: 1 }, { input: [-4, 0], expected: -4 }, { input: [7], expected: 7 }];
   return { id: CODE_EVALUATOR_ID, version: "1.0.0", integrity: "sha256-" + "c".repeat(64), capabilities: ["assessment.evaluate"], platforms: ["web"], codeReady: true,
     validateCodeAssessment(assessment) { if (assessment.type !== "code" || assessment.grading.fixtureRef !== "min-fixture") throw new Error("unknown fixture"); },
-    async evaluateCode(_assessment, source) { return grade(source, 3); },
+    async evaluateCode(_assessment, source) { return grade(source, fixtureCases); },
     async evaluateGeneratedCode(assessment, cases, source) {
       if (assessment.type !== "code" || assessment.grading.fixtureRef !== generatedFixtureRef(cases)) throw new Error("fixture mismatch");
-      return grade(source, cases.length);
+      return grade(source, cases);
     } };
 }
 /**
@@ -93,7 +109,7 @@ export function generatedContentFixture(renderer: Pick<RuntimeExtension, "versio
       return { verifier: port };
     },
   };
-  const kinds = ["visual", "assessment_variant"] as const;
+  const kinds = ["visual", "assessment_variant", "practice"] as const;
   course.extensions.push(
     { id: "generated-content-extension", version: "1.0.0", integrity: "sha256-" + adapter.implementationDigest, execution: "server", entrypoint: "extensions/generated-content-v1.js",
       platforms: ["web"], capabilities: ["teaching.generate", "teaching.verify"], accessibility: { keyboard: true, reducedMotion: true, textAlternative: "Generated practice." } },
@@ -103,7 +119,7 @@ export function generatedContentFixture(renderer: Pick<RuntimeExtension, "versio
       capabilities: ["assessment.evaluate"], accessibility: { keyboard: true, reducedMotion: true, textAlternative: "Code checks." } },
   );
   course.adaptation = { schemaVersion: 1, sourceRefs: [source], profileFieldIds: [],
-    targets: [{ episodeId: "min", objectiveIds: ["minimum"], allowedOperations: ["attach_visual", "add_assessment_variant"], replaceableBlockIds: [] }],
+    targets: [{ episodeId: "min", objectiveIds: ["minimum"], allowedOperations: ["attach_visual", "add_assessment_variant", "append_teaching"], replaceableBlockIds: [] }],
     families: [
       { familyId: "select", canonicalAssessmentId: "min-b", generatorIds: ["content-generator"], verifierIds: ["content-verifier"], numericalRecipeIds: [], maxVariantsPerPlan: 4 },
       { familyId: "code", canonicalAssessmentId: "min-code", generatorIds: ["content-generator"], verifierIds: ["content-verifier"], numericalRecipeIds: [], maxVariantsPerPlan: 4 },
@@ -120,6 +136,7 @@ export function generatedContentFixture(renderer: Pick<RuntimeExtension, "versio
       { ...profile, id: "simulation-profile", operation: "attach_visual" },
       { ...profile, id: "check-profile", operation: "add_assessment_variant", canonicalAssessmentId: "min-b", classification: "required" },
       { ...profile, id: "code-profile", operation: "add_assessment_variant", canonicalAssessmentId: "min-code" },
+      { ...profile, id: "component-profile", operation: "append_teaching", component: { evaluatorId: CODE_EVALUATOR_ID } },
     ] };
   return { course, config, source, stats, adapter, runtime: createAdaptationRuntime([adapter]), authoredVisualId: authored.id };
 }
