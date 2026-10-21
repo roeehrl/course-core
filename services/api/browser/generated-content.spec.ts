@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { openProfile } from "./learner-menu.js";
 
-/** Supervisor-generated simulations in the learner's lesson (E01, E03, E06), on desktop, tablet
+/** Supervisor-generated simulations in the learner's lesson (E01, E03, E05, E06), on desktop, tablet
  * and phone. The supervisor's output is scripted (browser/start.ts); the pipeline is real. */
 
 async function openCurrentLesson(page: Page) {
@@ -108,11 +108,22 @@ test("a generated component runs in the sandboxed runner beside its text alterna
     await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   }
   const part = page.getByRole("article", { name: "Reading part 3" });
-  // The text alternative the host wrote, then the component itself.
-  await expect(part.getByText("Slope: -5 – 5 (2)", { exact: false })).toBeVisible();
+  // The text alternative the host wrote from the grader-verified tests, then the component itself.
+  await expect(part.getByText("Slope: from -5 to 5 in steps of 1, starting at 2", { exact: false })).toBeVisible();
+  await expect(part.getByText("At the start (Slope = 2, Input x = 3, Intercept = 1): Output y = 7.", { exact: false })).toBeVisible();
+  await expect(part.getByText("When Slope goes from 2 to 3 (other controls unchanged): Output y goes from 7 to 10.", { exact: false })).toBeVisible();
   const panel = part.getByRole("region", { name: "Line explorer" });
-  await expect(panel.getByText("Run the model to see this.")).toBeVisible();
+  // Before a run, the verified starting value is shown, and said to be just that.
+  await expect(panel.getByText("7", { exact: true })).toBeVisible();
+  await expect(panel.getByText(/values at the starting position, checked before this was added/)).toBeVisible();
+  // Using the component tells the server the learner is working in it (E03), so a change to this
+  // lesson waits; leaving the page tells it they left.
+  const opened = page.waitForRequest((r) => r.url().endsWith("/presence") && r.postDataJSON()?.state === "open");
   await panel.getByLabel("Slope").fill("5");
+  const open = await opened;
+  expect(open.postDataJSON()).toMatchObject({ episodeId: expect.any(String), kind: "component", state: "open" });
+  expect((await open.response())?.status()).toBe(200);
+  await expect(panel.getByText("Run the model to see this.")).toBeVisible();
   await panel.getByRole("button", { name: "Run the model" }).click();
   // 5 × 3 + 1, computed by Python in the sandboxed runner frame, never in this page.
   await expect(panel.getByText("16", { exact: true })).toBeVisible({ timeout: 90_000 });
@@ -123,4 +134,7 @@ test("a generated component runs in the sandboxed runner beside its text alterna
   await accessible(page);
   await page.screenshot({ path: info.outputPath("generated-component.png"), fullPage: true });
   expect(errors).toEqual([]);
+  const left = page.waitForRequest((r) => r.url().endsWith("/presence") && r.postDataJSON()?.state === "closed");
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+  expect((await left).postDataJSON()).toMatchObject({ kind: "component", state: "closed" });
 });

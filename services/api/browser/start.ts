@@ -146,7 +146,7 @@ const lineComponent = { title: "Line explorer", description: "Change the slope, 
     { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
   outputs: [{ name: "y", label: "Output y" }],
   tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
-    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }] };
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }, { id: "steeper", input: { slope: 3, x: 3, intercept: 1 }, expected: { y: 10 } }] };
 const contentScript = (round: number, component: boolean) =>
   round === 0
     ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }

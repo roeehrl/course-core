@@ -34,8 +34,8 @@ import { evaluatorExtensionId } from './gates.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
-import {generatedBlocks,generatedOperation,generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
-import { componentChecks, componentDigest, generatedContentChecks, hostCheckIds, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
+import {generatedBlocks,generatedOperation,generatedTeachingSelectionSchema,type GeneratedTeachingSelection,type GeneratedComponent} from './generated-teaching.js';
+import { componentChecks, componentDigest, componentStart, generatedContentChecks, hostCheckIds, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
 import { RENDERER_ID } from '@course-core/visuals/headless';
 import { recordTransferChecks } from './adaptation-transfer.js';
 import { freeze, readRelease, verifiedBundle, verifiedRelease } from './release-cache.js';
@@ -1427,8 +1427,10 @@ export async function liveComponents(client: PoolClient, loaded: EnrollmentConte
       ORDER BY c.created_at LIMIT 64`, [loaded.enrollment.id])).rows;
   const shown = new Set(loaded.release.server_bundle.chapters.flatMap(c => c.episodes.flatMap(e => e.blocks.map(b => `${e.id}/${b.id}`))));
   return rows.filter(r => shown.has(`${r.episode_id}/${r.block_id}`) && r.body.source).map(r => {
-    const { tests: _tests, ...component } = r.body;
-    // The tests stay server-side; the learner runs the model, never needs its checks.
-    return { episodeId: r.episode_id, blockId: r.block_id, digest: r.digest, ...component };
+    const { tests, ...component } = r.body;
+    // The tests stay server-side; the learner runs the model, never needs its checks. Only the
+    // starting position's verified outputs are shown (they are also in the text alternative).
+    const start = Array.isArray(tests) ? componentStart(r.body as GeneratedComponent) : undefined;
+    return { episodeId: r.episode_id, blockId: r.block_id, digest: r.digest, ...component, ...(start ? { start: { outputs: start.expected } } : {}) };
   });
 }
