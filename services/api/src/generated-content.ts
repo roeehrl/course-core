@@ -28,6 +28,11 @@ import type { RuntimeExtension } from './publication.js';
  *   read-only Docker sandbox) against the generated reference, which must pass, and against the
  *   starter and every wrong solution, which must fail. Generated code never runs in the API
  *   process or in the learner's page.
+ * - A component (a small Python model with labelled controls) is tested the same way, published
+ *   immutable beside a text alternative the host writes, and run by the learner's browser only in
+ *   the sandboxed Python runner frame.
+ *
+ * safeBoundary below is the rule for when such a change may land in a lesson (E03).
  */
 
 export const MODEL_CHECK_ID = 'host-model-agreement';
