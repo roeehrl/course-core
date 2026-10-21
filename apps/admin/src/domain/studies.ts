@@ -31,6 +31,30 @@ export const armSchema = z.object({
   behaviour: z.enum(armBehaviours),
 });
 export type StudyArm = z.infer<typeof armSchema>;
+/** A study warning: a code with values (services/api/src/study.ts), or older servers' English. */
+export const studyWarningSchema = z.union([
+  z.string().max(400),
+  z.object({
+    code: z.string().regex(/^[A-Z][A-Z0-9_]{0,59}$/),
+    params: z.record(z.string(), z.string().max(200)).optional(),
+  }),
+]);
+export type StudyWarning = z.infer<typeof studyWarningSchema>;
+/** A study warning in the UI locale; an unknown code reads as a generic warning with its code. */
+export function studyWarningText(
+  warning: StudyWarning,
+  t: Translate = englishTranslator().t,
+  has: (key: MessageKey) => boolean = englishTranslator().has,
+) {
+  if (typeof warning === "string") return warning;
+  const key = `studies.warning.${warning.code}` as MessageKey;
+  if (!has(key)) return t("studies.warning.unknown", { code: warning.code });
+  const set = warning.params?.set;
+  return t(key, {
+    ...warning.params,
+    ...(set ? { set: setLabel(set as InstrumentSet, t) } : {}),
+  });
+}
 export const studySchema = z.object({
   id: z.string().uuid(),
   releaseId: z.string().uuid(),
@@ -64,7 +88,7 @@ export const studySchema = z.object({
   createdAt: z.string(),
   openedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
-  warnings: z.array(z.string().max(400)).max(200).default([]),
+  warnings: z.array(studyWarningSchema).max(200).default([]),
 });
 export type Study = z.infer<typeof studySchema>;
 export const studiesSchema = z.object({
@@ -96,7 +120,7 @@ export const studiesSchema = z.object({
 export type Studies = z.infer<typeof studiesSchema>;
 export const studyResultSchema = z.object({
   study: studySchema.omit({ warnings: true }),
-  warnings: z.array(z.string().max(400)).max(200).optional(),
+  warnings: z.array(studyWarningSchema).max(200).optional(),
 });
 export const allocationCheckSchema = z.object({
   checked: count,

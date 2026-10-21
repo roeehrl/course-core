@@ -100,7 +100,9 @@ describe("re-queueing a quarantined supervisor request", () => {
     expect(within(table).getByText("Already re-queued")).toBeVisible();
     expect(within(table).getByText("re-queued once")).toBeVisible();
     await userEvent.click(
-      within(table).getByRole("button", { name: /^Re-queue learning updated/ }),
+      within(table).getByRole("button", {
+        name: /^Re-queue Request \(learning\.updated\)/,
+      }),
     );
     const confirm = screen.getByRole("button", { name: "Re-queue once" });
     expect(confirm).toBeDisabled();
@@ -153,7 +155,9 @@ describe("re-queueing a quarantined supervisor request", () => {
     };
     const table = await open(port);
     await userEvent.click(
-      within(table).getByRole("button", { name: /^Re-queue learning updated/ }),
+      within(table).getByRole("button", {
+        name: /^Re-queue Request \(learning\.updated\)/,
+      }),
     );
     await userEvent.type(
       screen.getByLabelText("Reason for re-queueing"),
