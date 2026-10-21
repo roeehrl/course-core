@@ -31,23 +31,7 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { isolate } from "@course-core/i18n";
-import { useI18n, useT, type MessageKey } from "../i18n";
-
-/** Server times in UTC with a localized zone name. (`useFormatters().when` combines
- * dateStyle with timeZoneName, which Intl rejects, so the fields are spelled out.) */
-const UTC_WHEN: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "UTC",
-  timeZoneName: "short",
-};
-function useWhen() {
-  const i18n = useI18n();
-  return (iso: string) => i18n.dateTime(iso, UTC_WHEN);
-}
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
 const CANCELLABLE = [
@@ -191,7 +175,7 @@ function ReleaseMedia({
 }) {
   const t = useT();
   const i18n = useI18n();
-  const when = useWhen();
+  const { when } = useFormatters();
   const library = useRemote(
     (signal) => port.library(releaseId, signal),
     [port, releaseId],
@@ -620,7 +604,7 @@ function JobDialog({
 }) {
   const t = useT();
   const i18n = useI18n();
-  const when = useWhen();
+  const { when } = useFormatters();
   const detail = useRemote(
     (signal) => port.detail(jobId, signal),
     [port, jobId],
@@ -837,7 +821,7 @@ function JobDialog({
 }
 function Events({ job }: { job: MediaJob }) {
   const t = useT();
-  const when = useWhen();
+  const { when } = useFormatters();
   if (!job.events?.length) return null;
   return (
     <details className="media-script">
