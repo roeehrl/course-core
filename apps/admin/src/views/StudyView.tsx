@@ -11,6 +11,7 @@ import {
   behaviourLabel,
   defaultArms,
   instrumentSets,
+  readDefinitionFile,
   setLabel,
   studyErrorMessage,
   type InstrumentSet,
@@ -20,6 +21,7 @@ import {
   type Study,
   type StudyArm,
   type StudyDefinitionInput,
+  type DefinitionFileProblem,
 } from "../domain/studies";
 import { useRemote } from "../hooks/useAdmin";
 import {
@@ -294,6 +296,11 @@ function StudyCard({
             { min: study.minCellSize },
           )}
         </p>
+        <p className="muted">
+          {study.usabilityMeasures
+            ? t("studyView.usability.on", { count: study.usabilityTrials ?? 0 })
+            : t("studyView.usability.off")}
+        </p>
         <h3 className="section-title">{t("studyView.instruments.title")}</h3>
         <ul className="plain-list">
           {instrumentSets.map((set) => (
@@ -482,6 +489,11 @@ function StudyForm({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [purpose, setPurpose] = useState(initial?.purpose ?? "");
   const [minCellSize, setMinCellSize] = useState(initial?.minCellSize ?? 5);
+  const [usabilityMeasures, setUsabilityMeasures] = useState(
+    initial?.usabilityMeasures ?? false,
+  );
+  const [fileNote, setFileNote] = useState("");
+  const [fileProblem, setFileProblem] = useState("");
   const arms0 = defaultArms(t).map((arm) => {
     const existing = initial?.arms.find((a) => a.behaviour === arm.behaviour);
     return {
@@ -513,6 +525,56 @@ function StudyForm({
       return next;
     });
   const chosen: StudyArm[] = arms.filter((a) => a.on).map((a) => a.arm);
+  const problemText = (problem: DefinitionFileProblem) =>
+    problem.code === "notJson"
+      ? t("studyView.file.notJson")
+      : problem.code === "notDefinition"
+        ? t("studyView.file.notDefinition", { field: problem.field })
+        : problem.code === "armBehaviourTwice"
+          ? t("studyView.file.armBehaviourTwice", {
+              arm: behaviourLabel(problem.behaviour, t),
+            })
+          : t("studyView.file.unknownItems", {
+              items: problem.items.join(", "),
+            });
+  /** Fills the form from a definition file (for example a course's study.json). Nothing is
+   * saved: staff review the filled form, and the server checks it again on save. */
+  async function loadFile(file: File | undefined) {
+    setFileNote("");
+    setFileProblem("");
+    if (!file) return;
+    if (file.size > 200_000) {
+      setFileProblem(t("studyView.file.tooLarge"));
+      return;
+    }
+    const read = readDefinitionFile(await file.text(), release?.items ?? []);
+    if ("problem" in read) {
+      setFileProblem(problemText(read.problem));
+      return;
+    }
+    const d = read.definition;
+    setTitle(d.title);
+    setPurpose(d.purpose);
+    setMinCellSize(d.minCellSize);
+    setUsabilityMeasures(d.usabilityMeasures);
+    setInstruments(d.instruments);
+    setArms((all) =>
+      all.map((entry) => {
+        const from = d.arms.find((a) => a.behaviour === entry.arm.behaviour);
+        return from ? { arm: { ...from }, on: true } : { ...entry, on: false };
+      }),
+    );
+    setFileNote(
+      t("studyView.file.loaded", {
+        name: file.name,
+        arms: d.arms.length,
+        items: instrumentSets.reduce(
+          (n, set) => n + d.instruments[set].length,
+          0,
+        ),
+      }),
+    );
+  }
   return (
     <Card title={initial ? t("studyView.form.editTitle") : t("studyView.new")}>
       <form
@@ -523,7 +585,14 @@ function StudyForm({
           setError(undefined);
           try {
             await onSubmit(
-              { title, purpose, arms: chosen, instruments, minCellSize },
+              {
+                title,
+                purpose,
+                arms: chosen,
+                instruments,
+                minCellSize,
+                usabilityMeasures,
+              },
               releaseId,
             );
           } catch (caught) {
@@ -558,6 +627,24 @@ function StudyForm({
             </select>
           </Field>
         )}
+        <Field
+          label={t("studyView.file.label")}
+          htmlFor={`${id}-file`}
+          hint={t("studyView.file.hint")}
+        >
+          <input
+            id={`${id}-file`}
+            type="file"
+            accept=".json,application/json"
+            aria-describedby={`${id}-file-hint`}
+            disabled={!release}
+            onChange={(e) => void loadFile(e.target.files?.[0])}
+          />
+        </Field>
+        <div aria-live="polite">
+          {fileNote && <Notice tone="green">{fileNote}</Notice>}
+          {fileProblem && <Notice tone="red">{fileProblem}</Notice>}
+        </div>
         <Field label={t("studyView.form.title")} htmlFor={`${id}-title`}>
           <input
             id={`${id}-title`}
@@ -691,6 +778,20 @@ function StudyForm({
             onChange={(e) => setMinCellSize(Number(e.target.value))}
           />
         </Field>
+        <div className="stack">
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={usabilityMeasures}
+              aria-describedby={`${id}-usability-hint`}
+              onChange={(e) => setUsabilityMeasures(e.target.checked)}
+            />
+            {t("studyView.form.usability")}
+          </label>
+          <small id={`${id}-usability-hint`} className="muted">
+            {t("studyView.form.usabilityHint")}
+          </small>
+        </div>
         <div aria-live="polite">
           {error !== undefined && (
             <Notice tone="red">{studyErrorMessage(error, t)}</Notice>
