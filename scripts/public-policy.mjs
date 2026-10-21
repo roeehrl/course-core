@@ -79,7 +79,7 @@ export const FETCH_RETRY_LIMITS = Object.freeze({
   'fetch-retry-mintimeout': [1000, 60000],
   'fetch-retry-maxtimeout': [10000, 120000],
 });
-const npmrcValue = (text, key) => text.split(/\r?\n/).map(line => new RegExp(`^\\s*${key}\\s*=\\s*(.*?)\\s*$`).exec(line)?.[1]).filter(value => value !== undefined).at(-1);
+export const npmrcValue = (text, key) => text.split(/\r?\n/).map(line => new RegExp(`^\\s*${key}\\s*=\\s*(.*?)\\s*$`).exec(line)?.[1]).filter(value => value !== undefined).at(-1);
 
 /** Every module's own npm configuration disables dependency install scripts, so a
  * direct `npm ci`/`npm install` in a module directory cannot run lifecycle hooks
