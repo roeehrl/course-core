@@ -339,7 +339,7 @@ export function createCourseApi(
     url: string,
     method = "GET",
     payload?: unknown,
-    transport: { signal?: AbortSignal } = {},
+    transport: { signal?: AbortSignal; keepalive?: boolean } = {},
   ): Promise<T> {
     const leaving = method === "GET" ? departure.signal() : undefined;
     if (leaving?.aborted) throw abortError();
@@ -352,7 +352,7 @@ export function createCourseApi(
     const timed = deadline && combined ? eitherSignal(combined.signal, deadline.signal) : undefined;
     const signal = timed?.signal ?? combined?.signal ?? transport.signal;
     try {
-      return await send<T>(url, method, payload, signal);
+      return await send<T>(url, method, payload, signal, transport.keepalive);
     } catch (error) {
       if (deadline?.signal.aborted && !leaving?.aborted && !transport.signal?.aborted)
         throw new CourseApiError("READ_TIMEOUT", 0);
@@ -363,7 +363,8 @@ export function createCourseApi(
       combined?.release();
     }
   }
-  async function send<T>(url: string, method: string, payload: unknown, signal: AbortSignal | undefined): Promise<T> {
+  /** `keepalive` lets a small report (for example "left this part") finish while the page unloads. */
+  async function send<T>(url: string, method: string, payload: unknown, signal: AbortSignal | undefined, keepalive?: boolean): Promise<T> {
     let response: Response;
     // Event envelope facts for the learning events this request may record (advisory; see event-envelope.ts).
     const envelope: Record<string, string> =
@@ -381,6 +382,7 @@ export function createCourseApi(
         signal,
         credentials: "same-origin",
         cache: "no-store",
+        ...(keepalive ? { keepalive: true } : {}),
         redirect: "error",
         headers: {
           Accept: "application/json",

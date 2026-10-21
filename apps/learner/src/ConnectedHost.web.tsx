@@ -68,7 +68,8 @@ import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn, useSlow } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
-import { PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
+import { keepLessonPlace, PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
+import type { PresenceKind, PresenceState } from "./connected/presence.web";
 import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
@@ -320,6 +321,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     if (!enrollmentIdForVisuals) return;
     api
       .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/visual-completions`, "POST", completion)
+      .catch(() => undefined);
+  }, [api, enrollmentIdForVisuals]);
+  // When the learner starts or stops using an interactive part of the lesson (E03): a personal
+  // change to that lesson waits while they are in it. Best effort, like visual completions; a
+  // report sent while the page unloads uses keepalive.
+  const onPresence = useCallback((presenceEpisodeId: string, blockId: string, kind: PresenceKind, state: PresenceState, leaving?: boolean) => {
+    if (!enrollmentIdForVisuals) return;
+    api
+      .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/presence`, "POST", { episodeId: presenceEpisodeId, blockId, kind, state },
+        leaving ? { keepalive: true } : {})
       .catch(() => undefined);
   }, [api, enrollmentIdForVisuals]);
   const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
@@ -1368,7 +1379,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   pending={pending}
                   onAdd={(pendingId) =>
                     run(async () => {
+                      // The addition lands at the end of the lesson; the learner stays where they were.
+                      const restore = keepLessonPlace(scroller);
                       const result = await command<{ status: string }>("personal-changes/pending/apply", { pendingId });
+                      restore();
                       setNotice(result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed"));
                     })
                   }
@@ -1414,6 +1428,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
               activities={activityClient}
+              onPresence={onPresence}
               onActivityChanged={() => run(() => refresh(server.enrollmentId))}
             />
             </div>
