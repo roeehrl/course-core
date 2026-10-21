@@ -35,7 +35,7 @@ import { declarationMatchesInstalled } from './extension-identity.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
 import {generatedBlocks,generatedOperation,generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
-import { componentChecks, componentDigest, generatedContentChecks, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
+import { componentChecks, componentDigest, generatedContentChecks, hostCheckIds, safeBoundary, type BoundaryReason, type ContentProblem } from './generated-content.js';
 import { RENDERER_ID } from '@course-core/visuals/headless';
 import { recordTransferChecks } from './adaptation-transfer.js';
 import { freeze, readRelease, verifiedBundle, verifiedRelease } from './release-cache.js';
@@ -1246,7 +1246,7 @@ export async function applyGeneratedSupervisorTeaching(
     translated(error);
   }
 }
-async function deliverGenerated(client: PoolClient, ref: RunRef, bound: Bound, runtime: AdaptationRuntime) {
+async function deliverGenerated(client: PoolClient, ref: RunRef, bound: Bound, runtime: AdaptationRuntime, waited = false) {
   const { selection, enrolled, actor, loaded, base, reg, profile } = bound;
   const host = await hostChecks(bound, runtime);
   require(host.accessibility.length === 0, "ACCESSIBILITY_CHECK_FAILED", 409);
@@ -1317,6 +1317,13 @@ async function deliverGenerated(client: PoolClient, ref: RunRef, bound: Bound, r
       selection.permissionRevision,
     ],
   );
+  // What was checked before this change was applied, kept with it (migration 092).
+  const verifier = reg.configuration.verifiers.find((v) => v.id === profile.verifierId)!;
+  await client.query("INSERT INTO adaptation_validation_reports(enrollment_id,workspace_id,proposal_id,report) VALUES($1,$2,$3,$4)", [ref.enrollmentId, ref.workspaceId,
+    prepared.proposalId, JSON.stringify({ schemaVersion: 1, artifactKind: selection.artifact.kind, artifactDigest: selection.artifact.digest, planRevision: applied.planRevision,
+      courseChecks: { verifierId: verifier.id, verifierVersion: verifier.version, checks: bound.declaration.requiredCheckIds.map((id) => ({ id, result: "passed" })) },
+      hostChecks: hostCheckIds(selection.artifact, Boolean(selection.component)).map((id) => ({ id, result: "passed" })),
+      boundary: waited ? "added_by_learner_after_attempt" : "safe_at_delivery" })]);
   // The tested component is published once, content-addressed, beside its text block (migration 093).
   if (selection.component)
     await client.query(`INSERT INTO generated_components(enrollment_id,workspace_id,proposal_id,episode_id,block_id,digest,artifact_digest,body)
@@ -1373,7 +1380,7 @@ export async function applyPendingChangeWithin(client: PoolClient, loaded: Enrol
   const ref = { jobId: row.job_id, enrollmentId: row.enrollment_id, workspaceId: row.workspace_id } as RunRef;
   await client.query('SAVEPOINT pending_change');
   try {
-    const effect = await deliverGenerated(client, ref, await generatedTeachingBinding(client, ref, row.selection, runtime), runtime);
+    const effect = await deliverGenerated(client, ref, await generatedTeachingBinding(client, ref, row.selection, runtime), runtime, true);
     await client.query('RELEASE SAVEPOINT pending_change');
     await client.query("UPDATE adaptation_pending_changes SET status='applied',proposal_id=$2,resolved_at=clock_timestamp() WHERE id=$1", [row.id, effect.proposalId]);
     return { pendingId: row.id, status: 'applied' as const, planRevision: effect.planRevision, episodeId: effect.episodeId };

@@ -26,3 +26,19 @@ CREATE TABLE adaptation_pending_changes (
   FOREIGN KEY (enrollment_id, workspace_id) REFERENCES enrollments(id, workspace_id)
 );
 CREATE INDEX adaptation_pending_changes_waiting ON adaptation_pending_changes(enrollment_id, created_at) WHERE status = 'waiting';
+
+-- The validation report of each delivered generated change (E03): what was checked, by which
+-- verifier versions, with which results, and whether it waited for a safe boundary. One row per
+-- applied proposal, written in the same transaction as the application; never changed.
+CREATE TABLE adaptation_validation_reports (
+  enrollment_id uuid NOT NULL,
+  workspace_id uuid NOT NULL,
+  proposal_id uuid NOT NULL,
+  report jsonb NOT NULL CHECK (jsonb_typeof(report) = 'object'),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (enrollment_id, proposal_id),
+  FOREIGN KEY (proposal_id, enrollment_id) REFERENCES adaptation_proposals(id, enrollment_id),
+  FOREIGN KEY (enrollment_id, workspace_id) REFERENCES enrollments(id, workspace_id)
+);
+CREATE TRIGGER adaptation_validation_reports_immutable BEFORE UPDATE OR DELETE ON adaptation_validation_reports
+  FOR EACH ROW EXECUTE FUNCTION adaptation_immutable();

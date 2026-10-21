@@ -35,10 +35,11 @@ export function changeProvenance(adapterIds: string[]): { provenance: "author_re
 export async function personalChanges(client: PoolClient, context: EnrollmentContext) {
   const rows = (
     await client.query(
-      `SELECT p.id,p.body,p.assignments,x.plan_revision,x.applied_at,r.reverted_at,r.plan_revision AS reverted_revision,
+      `SELECT p.id,p.body,p.assignments,x.plan_revision,x.applied_at,r.reverted_at,r.plan_revision AS reverted_revision,v.report AS validation,
          COALESCE((SELECT array_agg(DISTINCT f.adapter_id) FROM adaptation_proofs f WHERE f.proposal_id=p.id AND f.enrollment_id=p.enrollment_id),'{}') AS adapters
        FROM adaptation_applications x JOIN adaptation_proposals p ON p.id=x.proposal_id AND p.enrollment_id=x.enrollment_id
        LEFT JOIN adaptation_reverts r ON r.enrollment_id=x.enrollment_id AND r.proposal_id=x.proposal_id
+       LEFT JOIN adaptation_validation_reports v ON v.enrollment_id=x.enrollment_id AND v.proposal_id=x.proposal_id
        WHERE x.enrollment_id=$1 ORDER BY x.plan_revision`,
       [context.enrollment.id],
     )
@@ -93,6 +94,9 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         }),
         // Later independent checks on what this change taught (outcome only; never evidence).
         transferChecks: checks.filter((c) => c.proposalId === row.id).map((c) => ({ objectiveId: c.objectiveId, status: c.status, ...(c.amendedFrom ? { amendedFrom: c.amendedFrom } : {}) })),
+        // What was checked before a generated change was added (check IDs and results only).
+        ...(row.validation ? { validation: { hostChecks: (row.validation.hostChecks ?? []).map((c: { id: string }) => c.id),
+          courseChecks: (row.validation.courseChecks?.checks ?? []).length, boundary: row.validation.boundary } } : {}),
         reverted,
         revertedAt: reverted ? new Date(row.reverted_at).toISOString() : null,
         revertable: !reverted && !hasVariant && op.type !== "suggest_profile_correction" && !blockedBy(row),

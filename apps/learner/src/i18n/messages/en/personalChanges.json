@@ -34,5 +34,14 @@
   "undo.failed": "That change could not be undone. Nothing changed.",
   "undo.label": "Undo: {label}",
   "undo.button": "Undo",
-  "kind.attach_visual": "Added an interactive simulation"
+  "kind.attach_visual": "Added an interactive simulation",
+  "checked": "Checked automatically before it was added: {checks}.",
+  "check.host_accessibility": "readable with assistive technology",
+  "check.host_model_agreement": "the simulation's picture, formula and table agree",
+  "check.host_answer_key": "the answer comes from the course's own model",
+  "check.host_code_reference": "a correct solution passes the hidden tests and wrong ones fail",
+  "check.host_component_tests": "the model passes its own tests",
+  "check.course": "the course's own checks",
+  "check.other": "another automatic check",
+  "addedAfterAttempt": "It waited until you had finished the question you were working on, and you added it."
 }

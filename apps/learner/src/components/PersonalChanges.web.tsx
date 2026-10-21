@@ -24,6 +24,8 @@ interface Change {
   revertedAt?: string | null;
   revertable?: boolean;
   transferChecks?: { objectiveId: string; status: "pending" | "passed" | "failed" | "expired" }[];
+  /** What was checked automatically before a generated change was added. */
+  validation?: { hostChecks: string[]; courseChecks: number; boundary: string };
 }
 /** Every change made to this learner's personal course, with the reason. Optional
  * additions can be hidden and restored; required ones stay and can be disputed. */
@@ -34,6 +36,10 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
   const kindLabel = (kind: string) => {
     const key = `personalChanges.kind.${kind}` as MessageKey;
     return i18n.has(key) ? t(key) : kind;
+  };
+  const checkLabel = (id: string) => {
+    const key = `personalChanges.check.${id.replaceAll("-", "_")}` as MessageKey;
+    return i18n.has(key) ? t(key) : t("personalChanges.check.other");
   };
   const classificationLabel = (value: string) => {
     const key = `personalChanges.classification.${value}` as MessageKey;
@@ -92,6 +98,17 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                   <p>
                     <strong>{t("personalChanges.unverified.label")}</strong>{" "}
                     <span className="connected-muted">{t("personalChanges.unverified.body")}</span>
+                  </p>
+                )}
+                {item.validation && (
+                  <p className="connected-muted">
+                    {t("personalChanges.checked", {
+                      checks: [
+                        ...item.validation.hostChecks.map(checkLabel),
+                        ...(item.validation.courseChecks > 0 ? [t("personalChanges.check.course")] : []),
+                      ].join(t("personalChanges.sourceSeparator")),
+                    })}
+                    {item.validation.boundary === "added_by_learner_after_attempt" && ` ${t("personalChanges.addedAfterAttempt")}`}
                   </p>
                 )}
                 {item.why && <p dir="auto">{item.why}</p>}
