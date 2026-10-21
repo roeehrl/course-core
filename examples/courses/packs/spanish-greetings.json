@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "id": "spanish-greetings",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "A first conversation in Spanish",
-  "summary": "Choose useful greetings, exchange names and close a short conversation. English explanations and text-based checks; no pronunciation score or fluency claim.",
+  "summary": "Choose useful greetings, exchange names and close a short conversation, then write your side of a short role-play that a teacher reviews against a rubric. English explanations; no pronunciation score or fluency claim.",
   "locale": "en",
   "platforms": [
     "web"
@@ -30,6 +30,15 @@
       "description": "Choose a courtesy or farewell that matches the intended action.",
       "prerequisites": [
         "sg-names-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "sg-roleplay-objective",
+      "description": "Write your side of a short exchange in a stated setting: greet, give a name, thank and say goodbye.",
+      "prerequisites": [
+        "sg-courtesy-objective"
       ],
       "critical": true,
       "placeable": false
@@ -151,6 +160,40 @@
             }
           ],
           "gateId": "sg-courtesy-gate"
+        },
+        {
+          "id": "sg-roleplay",
+          "title": "Role-play: a short exchange",
+          "objectiveIds": [
+            "sg-roleplay-objective"
+          ],
+          "gateId": "sg-roleplay-gate",
+          "blocks": [
+            {
+              "id": "sg-roleplay-text-1",
+              "type": "text",
+              "markdown": "# Role-play: your side of a short exchange\n\nSo far each check has asked you to pick one phrase. Real conversations string several turns together, so this episode asks you to **write your own lines** for a short role-play. The other person's opening line is given in Spanish, together with the setting and the time of day. You write three to six short lines in Spanish that a person in your position could say.\n\nA good short exchange usually does four jobs in order. It **greets** in a way that fits the time and setting: *Buenos días* in the morning, *Buenas tardes* in the afternoon or early evening, *Hola* between classmates. It **gives a name** when one is asked for or offered: *Me llamo Ana* or *Soy Ana*. It **thanks** at the point where something was given or done: *Gracias* or *Muchas gracias*. And it **closes**: *Adiós*, *Hasta luego*, or *Hasta mañana* when you will meet again tomorrow. Asking something back, such as *¿Y usted?*, keeps the conversation friendly but is optional here.\n\nShort, correct lines are better than long ones. You do not need accents typed perfectly for the review, but you should use the phrases from earlier episodes rather than word-for-word translations from English.",
+              "sourceRefs": [
+                "sg-cervantes-functions",
+                "sg-cervantes-routines"
+              ]
+            },
+            {
+              "id": "sg-roleplay-text-2",
+              "type": "text",
+              "markdown": "## How your role-play is reviewed\n\nYour lines are read and decided by a **teacher or course reviewer**; nothing marks them automatically. The reviewer checks each rubric criterion (greeting, name, thanks, farewell and the optional question back) and must **quote your own words** for every criterion they mark as met. A criterion without a quote from your text cannot count. If a required criterion is missing, the role-play is marked not yet met and the review says which part to add.\n\nWhile the review is pending, the episode stays open. You can work on the second family of questions, which asks you to choose the line that best continues a short dialogue. Passing this episode needs independent success in both families: one reviewed role-play and one dialogue question answered without help. If your first role-play is not yet met, rewriting the same scenario is useful practice but does not count as independent evidence; a fresh scenario from the bank does.\n\nYour written lines are learner records. They are kept with your enrollment, shown only to you and to the staff of this course, and are included when you export or erase your data."
+            },
+            {
+              "id": "sg-roleplay-check-1",
+              "type": "assessment",
+              "assessmentId": "sg-roleplay-dialogue-1"
+            },
+            {
+              "id": "sg-roleplay-check-2",
+              "type": "assessment",
+              "assessmentId": "sg-roleplay-reply-1"
+            }
+          ]
         }
       ]
     }
@@ -899,6 +942,286 @@
         "sg-courtesy-objective"
       ],
       "familyId": "sg-courtesy-situation"
+    },
+    {
+      "id": "sg-roleplay-dialogue-1",
+      "type": "rubric",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-dialogue",
+      "prompt": "It is 10 in the morning at a market stall. The stallholder says: «¡Buenos días! ¿Cómo se llama usted? Es para la lista de pedidos.» Write your side of the exchange in Spanish (three to six short lines): greet, give your name, thank the stallholder for the order and say goodbye.",
+      "grading": {
+        "evaluatorId": "course-core-reviewed-rubric",
+        "rubric": [
+          {
+            "id": "greets",
+            "description": "Opens with a greeting that fits the stated time or setting (for example Buenos días, Buenas tardes or Hola).",
+            "required": true
+          },
+          {
+            "id": "name",
+            "description": "Gives a name with Me llamo … or Soy …, or answers the other person's question about the name.",
+            "required": true
+          },
+          {
+            "id": "thanks",
+            "description": "Thanks the other person at a sensible point (Gracias or Muchas gracias).",
+            "required": true
+          },
+          {
+            "id": "farewell",
+            "description": "Closes with a farewell that fits the setting (Adiós, Hasta luego or Hasta mañana).",
+            "required": true
+          },
+          {
+            "id": "question",
+            "description": "Asks the other person something back, such as ¿Y usted? or ¿Cómo se llama?",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "sg-roleplay-reply-1",
+      "type": "choice",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-reply",
+      "prompt": "«¡Buenas tardes! Me llamo Sofía.» Which reply continues the exchange?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Buenas tardes. Me llamo Pablo."
+        },
+        {
+          "id": "b",
+          "text": "De nada."
+        },
+        {
+          "id": "c",
+          "text": "Hasta mañana."
+        },
+        {
+          "id": "d",
+          "text": "Por favor."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Returning the greeting and giving your own name answers an introduction; de nada answers thanks, and hasta mañana would end the conversation."
+      }
+    },
+    {
+      "id": "sg-roleplay-dialogue-2",
+      "type": "rubric",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-dialogue",
+      "prompt": "It is the evening and you meet a new neighbour on the stairs. She says: «¡Buenas tardes! Soy Marta, la vecina del segundo.» Write your side in Spanish (three to six short lines): greet her, give your name, thank her for introducing herself and say you will see her tomorrow.",
+      "grading": {
+        "evaluatorId": "course-core-reviewed-rubric",
+        "rubric": [
+          {
+            "id": "greets",
+            "description": "Opens with a greeting that fits the stated time or setting (for example Buenos días, Buenas tardes or Hola).",
+            "required": true
+          },
+          {
+            "id": "name",
+            "description": "Gives a name with Me llamo … or Soy …, or answers the other person's question about the name.",
+            "required": true
+          },
+          {
+            "id": "thanks",
+            "description": "Thanks the other person at a sensible point (Gracias or Muchas gracias).",
+            "required": true
+          },
+          {
+            "id": "farewell",
+            "description": "Closes with a farewell that fits the setting (Adiós, Hasta luego or Hasta mañana).",
+            "required": true
+          },
+          {
+            "id": "question",
+            "description": "Asks the other person something back, such as ¿Y usted? or ¿Cómo se llama?",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "sg-roleplay-reply-2",
+      "type": "choice",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-reply",
+      "prompt": "You have just received your coffee. Which line fits next?",
+      "options": [
+        {
+          "id": "a",
+          "text": "¿Cómo se llama?"
+        },
+        {
+          "id": "b",
+          "text": "Muchas gracias."
+        },
+        {
+          "id": "c",
+          "text": "Buenos días."
+        },
+        {
+          "id": "d",
+          "text": "Me llamo Ana."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "After receiving something, thanks is the expected turn."
+      }
+    },
+    {
+      "id": "sg-roleplay-dialogue-3",
+      "type": "rubric",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-dialogue",
+      "prompt": "It is the afternoon at a library desk. The librarian hands you a card and asks: «¿Su nombre, por favor?» Write your side in Spanish (three to six short lines): greet, give your name, thank the librarian for the card and say goodbye.",
+      "grading": {
+        "evaluatorId": "course-core-reviewed-rubric",
+        "rubric": [
+          {
+            "id": "greets",
+            "description": "Opens with a greeting that fits the stated time or setting (for example Buenos días, Buenas tardes or Hola).",
+            "required": true
+          },
+          {
+            "id": "name",
+            "description": "Gives a name with Me llamo … or Soy …, or answers the other person's question about the name.",
+            "required": true
+          },
+          {
+            "id": "thanks",
+            "description": "Thanks the other person at a sensible point (Gracias or Muchas gracias).",
+            "required": true
+          },
+          {
+            "id": "farewell",
+            "description": "Closes with a farewell that fits the setting (Adiós, Hasta luego or Hasta mañana).",
+            "required": true
+          },
+          {
+            "id": "question",
+            "description": "Asks the other person something back, such as ¿Y usted? or ¿Cómo se llama?",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "sg-roleplay-reply-3",
+      "type": "choice",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-reply",
+      "prompt": "The shopkeeper says «Gracias, hasta luego.» Which reply closes the exchange politely?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Me llamo Luis."
+        },
+        {
+          "id": "b",
+          "text": "Por favor."
+        },
+        {
+          "id": "c",
+          "text": "Gracias, adiós."
+        },
+        {
+          "id": "d",
+          "text": "¿Y usted?"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Returning thanks and a farewell closes the exchange; the other options open new turns."
+      }
+    },
+    {
+      "id": "sg-roleplay-dialogue-4",
+      "type": "rubric",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-dialogue",
+      "prompt": "It is the first morning of a language class. Your classmate says: «¡Hola! Me llamo Daniel. ¿Y tú?» Write your side in Spanish (three to six short lines): greet him, give your name, thank him for lending you a pen and say see you later.",
+      "grading": {
+        "evaluatorId": "course-core-reviewed-rubric",
+        "rubric": [
+          {
+            "id": "greets",
+            "description": "Opens with a greeting that fits the stated time or setting (for example Buenos días, Buenas tardes or Hola).",
+            "required": true
+          },
+          {
+            "id": "name",
+            "description": "Gives a name with Me llamo … or Soy …, or answers the other person's question about the name.",
+            "required": true
+          },
+          {
+            "id": "thanks",
+            "description": "Thanks the other person at a sensible point (Gracias or Muchas gracias).",
+            "required": true
+          },
+          {
+            "id": "farewell",
+            "description": "Closes with a farewell that fits the setting (Adiós, Hasta luego or Hasta mañana).",
+            "required": true
+          },
+          {
+            "id": "question",
+            "description": "Asks the other person something back, such as ¿Y usted? or ¿Cómo se llama?",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "sg-roleplay-reply-4",
+      "type": "choice",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "familyId": "sg-roleplay-reply",
+      "prompt": "«¿Cómo se llama usted?» Which reply answers the question?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Soy Clara."
+        },
+        {
+          "id": "b",
+          "text": "De nada."
+        },
+        {
+          "id": "c",
+          "text": "Buenas noches."
+        },
+        {
+          "id": "d",
+          "text": "Hasta mañana."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Soy … gives a name; the other lines answer different questions or end the conversation."
+      }
     }
   ],
   "gates": [
@@ -955,6 +1278,24 @@
       ],
       "minimumIndependentFamilies": 2,
       "requireAllObjectives": true
+    },
+    {
+      "id": "sg-roleplay-gate",
+      "objectiveIds": [
+        "sg-roleplay-objective"
+      ],
+      "assessmentIds": [
+        "sg-roleplay-dialogue-1",
+        "sg-roleplay-reply-1",
+        "sg-roleplay-dialogue-2",
+        "sg-roleplay-reply-2",
+        "sg-roleplay-dialogue-3",
+        "sg-roleplay-reply-3",
+        "sg-roleplay-dialogue-4",
+        "sg-roleplay-reply-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
     }
   ],
   "sources": [
@@ -973,7 +1314,26 @@
   ],
   "visuals": [],
   "media": [],
-  "extensions": [],
+  "extensions": [
+    {
+      "id": "course-core-reviewed-rubric",
+      "version": "1.0.0",
+      "integrity": "sha256-d162a0182dad8fa60245e1eeee433a6efe7f52c9fa17d514de4822f0bf2adea3",
+      "execution": "server",
+      "entrypoint": "evaluators/reviewed-rubric-v1.json",
+      "platforms": [
+        "web"
+      ],
+      "capabilities": [
+        "assessment.evaluate"
+      ],
+      "accessibility": {
+        "keyboard": true,
+        "reducedMotion": true,
+        "textAlternative": "You type your lines; a teacher reads them and quotes your words for each criterion."
+      }
+    }
+  ],
   "policy": {
     "mode": "bounded",
     "window": {
