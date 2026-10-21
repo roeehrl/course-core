@@ -120,6 +120,12 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   { name: "course placement", url: () => `/api/admin/courses/${catalog}/placement`, allowed: READ_COURSE },
   { name: "enrollment placement", url: () => `/api/admin/enrollments/${enrollment}/placement`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "service", "scoped_active", "scoped_reviewer"] },
   { name: "enrollment supervision", url: () => `/api/admin/enrollments/${enrollment}/supervision`, allowed: REVIEWERS },
+  // AI supervision settings, spending limits and authority decisions: owner and admin only (Q08, B06, B09).
+  { name: "supervision settings", url: () => `/api/admin/workspaces/${workspace}/supervision/settings`, allowed: ["owner", "admin"] },
+  { name: "supervision authority requests", url: () => `/api/admin/workspaces/${workspace}/supervision/requests`, allowed: ["owner", "admin"] },
+  { name: "learner AI spending limits", url: () => `/api/admin/workspaces/${workspace}/supervision/enrollments/${enrollment}/budget`, allowed: ["owner", "admin"] },
+  // The learner's own decisions and teaching actions: theirs alone.
+  { name: "learner supervision requests", url: () => `/api/enrollments/${enrollment}/supervision/requests`, allowed: ["learner"] },
   // Learner-owned reads that staff read roles may also open, under the learner-privacy rule.
   { name: "learner model", url: () => `/api/enrollments/${enrollment}/learner-model`, allowed: ["learner", ...STAFF_READERS] },
   { name: "learner hypotheses", url: () => `/api/enrollments/${enrollment}/learner-model/hypotheses`, allowed: ["learner", ...STAFF_READERS] },

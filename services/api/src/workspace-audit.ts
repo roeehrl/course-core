@@ -18,6 +18,12 @@ const without = (...keys: string[]) => (payload: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(payload).filter(([key]) => !keys.includes(key)));
 export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record<string, unknown>) => Record<string, unknown>>> = {
   'course.imported': keep,
+  // AI supervision settings: autonomy level and permitted tool families, before and after.
+  'supervision.settings_changed': keep,
+  // A learner's daily and per-lesson AI spending limits (amounts only).
+  'supervision.budget_changed': keep,
+  // A staff decision on a change the supervisor may not make itself (codes and identifiers).
+  'supervisor.authority_decided': keep,
   'course.published': keep,
   // Package digest, course key/version, source kind (and public GitHub repository/tag), problem codes.
   'course_package.inspected': keep,

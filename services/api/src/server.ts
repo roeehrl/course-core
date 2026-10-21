@@ -48,6 +48,7 @@ import { registerStudyRoutes } from './study-routes.js';
 import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import { applySuggestionsWithin } from './teaching-actions.js';
 import { registerSupervisorAuthorityRoutes } from './supervisor-authority.js';
+import { registerSupervisionSettingsRoutes } from './supervision-settings-routes.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
@@ -330,6 +331,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAgentToolRoutes(app, db, auth);
   registerTeachingHypothesisRoutes(app, db, auth);
   registerSupervisorAuthorityRoutes(app, db, auth);
+  registerSupervisionSettingsRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerStudyRoutes(app, db, auth);
