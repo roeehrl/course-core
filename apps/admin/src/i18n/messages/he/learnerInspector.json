@@ -43,5 +43,22 @@
   "runs.startedInBlock": "{when} · קטע {block}",
   "runs.empty.title": "אין הרצות בשיעור הזה",
   "runs.empty.body": "אף הרצה של המפקח לא התחילה מהשיעור הזה.",
-  "runs.payloadWithheld": "פתיחת הרצה מציגה מטא-נתונים; התוכן שלה נשאר חסום אלא אם נחשף עם אישור רישום."
+  "runs.payloadWithheld": "פתיחת הרצה מציגה מטא-נתונים; התוכן שלה נשאר חסום אלא אם נחשף עם אישור רישום.",
+  "renderer.title": "גרסת המציג",
+  "renderer.id": "מציג",
+  "renderer.declared": "הגרסה שהקורס מצהיר עליה",
+  "renderer.installed": "הגרסה המותקנת שמגישה אותה",
+  "renderer.build": "{version} · {integrity}",
+  "renderer.served.installed": "הקורס רץ בדיוק על הגרסה שהוא מצהיר עליה.",
+  "renderer.served.accepted_prior": "הגרסה המותקנת מגישה את הגרסה הקודמת שנבדקה, רק עם היכולות של אותה גרסה.",
+  "renderer.served.unavailable": "אף גרסה מותקנת לא מגישה את ההצהרה הזו; הלומדים רואים את החלופה הטקסטואלית.",
+  "renderer.unknown": "לא דווח עבור האיור הזה.",
+  "renderer.none": "אין",
+  "assets.caption": "קובצי תמונה",
+  "assets.id": "קובץ",
+  "assets.type": "סוג",
+  "assets.size": "גודל",
+  "assets.hash": "SHA-256",
+  "assets.bytes": "{bytes, plural, one {בית אחד} two {# בתים} other {# בתים}}",
+  "assets.empty": "בסצנה הזו אין קובצי תמונה."
 }

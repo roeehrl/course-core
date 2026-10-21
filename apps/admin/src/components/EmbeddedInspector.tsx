@@ -242,9 +242,10 @@ function Pane({
       access: { client, enrollmentId, permissions },
       runtimes: new Map<string, VisualRuntime>(),
       experiences: new Map<string, unknown>(),
+      renderers: view.visualRenderers,
       open: () => undefined,
     }),
-    [client, enrollmentId, permissions],
+    [client, enrollmentId, permissions, view.visualRenderers],
   );
   if (!episode)
     return <Notice tone="gold">{t("embeddedInspector.noLessons")}</Notice>;

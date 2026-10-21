@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,7 +11,11 @@ import "./inspector.css";
 import { X } from "lucide-react";
 import type { VisualRuntime } from "@course-core/visuals/headless";
 import type { AdminClient, Permission } from "../domain/contracts";
-import type { LearnerBlock, LearnerEpisode } from "../domain/learnerView";
+import type {
+  LearnerBlock,
+  LearnerEpisode,
+  VisualRendererBuild,
+} from "../domain/learnerView";
 import { runInspectorErrorMessage } from "../domain/runInspector";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, EmptyState, Loading, Notice, Status } from "./ui";
@@ -58,6 +63,8 @@ interface InspectorState {
   /** Live visual runtimes of the view, by block id, for the visual-state panel. */
   runtimes: Map<string, VisualRuntime>;
   experiences: Map<string, unknown>;
+  /** Renderer build identity per course visual, from the learner view. */
+  renderers?: readonly VisualRendererBuild[];
 }
 export const InspectorContext = createContext<InspectorState | null>(null);
 export const useInspector = () => useContext(InspectorContext);
@@ -95,13 +102,60 @@ function canonical(value: unknown): string {
 // Also works on a non-secure (plain http) origin, where Web Crypto digests are absent.
 const sha256 = (value: unknown) => sha256Hex(canonical(value));
 
+export interface ImageAsset {
+  id: string;
+  mediaType: string;
+  sha256: string;
+  bytes: number | null;
+}
+const HASH = /^sha256-[0-9a-f]{64}$/;
+/** Image assets a scene embeds (visuals 0.5 `defs.images`), read defensively and bounded.
+ * Size is the decoded length of the embedded base64 data, when it is present and valid. */
+export function sceneImageAssets(experience: unknown): ImageAsset[] {
+  const scene = (experience as { scene?: unknown } | null)?.scene;
+  const images = (scene as { defs?: { images?: unknown } } | null)?.defs
+    ?.images;
+  if (!Array.isArray(images)) return [];
+  return images.slice(0, 64).flatMap((row: unknown) => {
+    const image = row as Record<string, unknown> | null;
+    if (
+      !image ||
+      typeof image.id !== "string" ||
+      typeof image.sha256 !== "string"
+    )
+      return [];
+    const data = typeof image.data === "string" ? image.data : "";
+    const base64 = /^data:[a-z/+.-]+;base64,([A-Za-z0-9+/]*={0,2})$/.exec(
+      data,
+    )?.[1];
+    const padding = base64?.endsWith("==") ? 2 : base64?.endsWith("=") ? 1 : 0;
+    return [
+      {
+        id: image.id.slice(0, 64),
+        mediaType:
+          typeof image.mediaType === "string"
+            ? image.mediaType.slice(0, 64)
+            : "",
+        sha256: HASH.test(image.sha256) ? image.sha256 : "",
+        bytes:
+          base64 === undefined
+            ? null
+            : Math.max(0, (base64.length / 4) * 3 - padding),
+      },
+    ];
+  });
+}
+
 /** Scene, timeline, bindings and hashes of one visual block, live from its runtime. */
 export function VisualStatePanel({
   runtime,
   experience,
+  renderer,
 }: {
   runtime: VisualRuntime;
   experience: unknown;
+  /** The renderer build declared for this visual and the installed build serving it. */
+  renderer?: VisualRendererBuild;
 }) {
   const t = useT();
   const i18n = useI18n();
@@ -117,6 +171,7 @@ export function VisualStatePanel({
       live = false;
     };
   }, [experience]);
+  const images = useMemo(() => sceneImageAssets(experience), [experience]);
   const scene = runtime.scene,
     frame = snapshot.frame,
     sceneText =
@@ -239,6 +294,76 @@ export function VisualStatePanel({
           )}
         </div>
       </dl>
+      <h4>{t("learnerInspector.renderer.title")}</h4>
+      {renderer ? (
+        <dl className="facts vertical" data-testid="renderer-build">
+          <div>
+            <dt>{t("learnerInspector.renderer.id")}</dt>
+            <dd className="mono" dir="ltr">
+              {renderer.rendererId}
+            </dd>
+          </div>
+          {(["declared", "installed"] as const).map((which) => {
+            const build = renderer[which];
+            return (
+              <div key={which}>
+                <dt>{t(`learnerInspector.renderer.${which}`)}</dt>
+                <dd className="mono" dir="ltr">
+                  {build
+                    ? t("learnerInspector.renderer.build", {
+                        version: build.version,
+                        integrity: build.integrity,
+                      })
+                    : t("learnerInspector.renderer.none")}
+                </dd>
+              </div>
+            );
+          })}
+          <div>
+            <dt className="sr-only">{t("learnerInspector.renderer.title")}</dt>
+            <dd>{t(`learnerInspector.renderer.served.${renderer.served}`)}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="muted">{t("learnerInspector.renderer.unknown")}</p>
+      )}
+      {images.length ? (
+        <table className="data-table">
+          <caption>{t("learnerInspector.assets.caption")}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("learnerInspector.assets.id")}</th>
+              <th scope="col">{t("learnerInspector.assets.type")}</th>
+              <th scope="col">{t("learnerInspector.assets.size")}</th>
+              <th scope="col">{t("learnerInspector.assets.hash")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {images.map((image) => (
+              <tr key={image.id}>
+                <th scope="row" className="mono" dir="ltr">
+                  {image.id}
+                </th>
+                <td className="mono" dir="ltr">
+                  {image.mediaType || "—"}
+                </td>
+                <td>
+                  {image.bytes === null
+                    ? "—"
+                    : t("learnerInspector.assets.bytes", {
+                        bytes: image.bytes,
+                      })}
+                </td>
+                <td className="mono" dir="ltr">
+                  {image.sha256 || t("learnerInspector.hashes.unavailable")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">{t("learnerInspector.assets.empty")}</p>
+      )}
     </section>
   );
 }
@@ -319,6 +444,15 @@ export function InspectorPane({
           <VisualStatePanel
             runtime={runtime}
             experience={inspector.experiences.get(target.block.id)}
+            renderer={
+              target.block.type === "visual"
+                ? inspector.renderers?.find(
+                    (row) =>
+                      target.block.type === "visual" &&
+                      row.visualId === target.block.visualId,
+                  )
+                : undefined
+            }
           />
         ) : (
           <Notice tone="gold">{t("learnerInspector.noRuntime")}</Notice>

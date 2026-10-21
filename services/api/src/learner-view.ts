@@ -13,6 +13,25 @@ import { personalChanges } from './personal-changes.js';
 import { learnerReviews } from './rubric-review.js';
 import { enrollmentProfileFor, STAFF_READ_ROLES, WITHHELD_FROM_STAFF } from './learner-privacy.js';
 import { activeAttachment, attachedMedia, sendAsset } from './media-jobs.js';
+import type { CourseManifest } from '@course-core/sdk';
+import { declarationMatchesInstalled } from './extension-identity.js';
+import type { RuntimeExtension } from './publication.js';
+
+/**
+ * Renderer build identity for each visual of the course (L11, debug visual-state panel): the
+ * build the course declares and the installed build that serves it. `served` is `installed`
+ * when the declaration names the installed build, `accepted_prior` when it names a reviewed
+ * prior build the installed one serves, and `unavailable` otherwise. Course metadata only.
+ */
+export function visualRendererBuilds(course: CourseManifest, installed: readonly RuntimeExtension[]) {
+  return course.visuals.slice(0, 200).map(visual => {
+    const declared = course.extensions.find(row => row.id === visual.rendererId), adapter = installed.find(row => row.id === visual.rendererId);
+    const served = !declared || !adapter || !declarationMatchesInstalled(declared, adapter) ? 'unavailable' as const
+      : declared.version === adapter.version && declared.integrity === adapter.integrity ? 'installed' as const : 'accepted_prior' as const;
+    return { visualId: visual.id, rendererId: visual.rendererId, declared: declared ? { version: declared.version, integrity: declared.integrity } : null,
+      installed: adapter ? { version: adapter.version, integrity: adapter.integrity } : null, served };
+  });
+}
 
 /** Roles that may open a learner's view. Instructors, reviewers and other staff
  * keep their scoped evidence/review access but never the whole learner view. */
@@ -60,7 +79,7 @@ export async function staffExportsOf(client: Database | PoolClient, enrollmentId
 /** Where the learner app frames the debug inspector (served by the API with the admin export). */
 export const DEBUG_INSPECTOR_PATH = '/admin/inspector';
 
-export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, options: { inspector?: boolean } = {}) {
+export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, options: { inspector?: boolean; installedExtensions?: readonly RuntimeExtension[] } = {}) {
   /** Whether the signed-in account may open the debug inspector from this enrollment's activity
    * in the learner app (U01). Only a role that may open the learner view (owner or admin, for
    * example a workspace owner who is also enrolled) gets it; a learner gets `available: false`.
@@ -112,6 +131,7 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
         snapshot: await learnerSnapshot(client, context),
         personalChanges: await personalChanges(client, context),
         reviews: (await learnerReviews(client, context, 'staff')).reviews,
+        visualRenderers: visualRendererBuilds(context.release.server_bundle, options.installedExtensions ?? []),
         generatedMedia: (await attachedMedia(client, context.enrollment.id, context.enrollment.workspace_id)).map(item => ({
           ...item, state: 'available' as const, assetUrl: `${base}/${item.id}/asset`, captionsUrl: item.captions ? `${base}/${item.id}/captions.vtt` : null,
         })),

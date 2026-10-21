@@ -43,5 +43,22 @@
   "runs.startedInBlock": "{when} · block {block}",
   "runs.empty.title": "No runs for this lesson",
   "runs.empty.body": "No supervisor run started from this lesson.",
-  "runs.payloadWithheld": "Opening a run shows metadata; its payload stays withheld unless revealed with a receipt."
+  "runs.payloadWithheld": "Opening a run shows metadata; its payload stays withheld unless revealed with a receipt.",
+  "renderer.title": "Renderer build",
+  "renderer.id": "Renderer",
+  "renderer.declared": "Build the course declares",
+  "renderer.installed": "Installed build serving it",
+  "renderer.build": "{version} · {integrity}",
+  "renderer.served.installed": "The course runs on exactly the build it declares.",
+  "renderer.served.accepted_prior": "The installed build serves this reviewed earlier build, limited to that build's features.",
+  "renderer.served.unavailable": "No installed build serves this declaration; learners see the text equivalent.",
+  "renderer.unknown": "Not reported for this visual.",
+  "renderer.none": "none",
+  "assets.caption": "Image assets",
+  "assets.id": "Asset",
+  "assets.type": "Type",
+  "assets.size": "Size",
+  "assets.hash": "SHA-256",
+  "assets.bytes": "{bytes, plural, one {# byte} other {# bytes}}",
+  "assets.empty": "This scene has no image assets."
 }

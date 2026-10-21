@@ -106,6 +106,7 @@ export function sample(): LearnerView {
     personalChanges: [],
     reviews: [],
     generatedMedia: [],
+    visualRenderers: [],
     withheld: [
       { id: "companion", label: "Companion conversation", reason: "Private." },
     ],

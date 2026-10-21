@@ -64,3 +64,23 @@ it('publishes the same course once the renderer is accessible', async () => {
   const { publish } = await importAndPublish(course({ keyboard: true, textAlternative: 'A meter with a value.' }));
   expect(publish.statusCode, publish.body).toBe(200);
 });
+
+// L11: the debug inspector's learner view carries each visual's renderer build identity.
+it('the learner view reports the declared and installed renderer build of each visual, to owners only', async () => {
+  const source = course({ keyboard: true, textAlternative: 'A meter with a value.' });
+  const { releaseId, publish } = await importAndPublish(source);
+  expect(publish.statusCode, publish.body).toBe(200);
+  const learnerId = randomUUID();
+  await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)', [learnerId, `a11y:${learnerId}`, 'Test learner']);
+  await db.query('INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)', [workspaceId, learnerId, 'learner']);
+  const login = await app.inject({ method: 'POST', url: '/auth/redeem', headers: { origin }, payload: { token: await issueLoginCode(db, learnerId) } });
+  const learner = { origin, cookie: login.cookies.map(c => `${c.name}=${c.value}`).join('; '), 'x-csrf-token': login.json().csrfToken };
+  const enrolled = await app.inject({ method: 'POST', url: '/api/enrollments', headers: learner, payload: { releaseId } });
+  expect(enrolled.statusCode, enrolled.body).toBe(200);
+  const url = `/api/admin/enrollments/${enrolled.json().id}/learner-view`;
+  const view = await app.inject({ url, headers });
+  expect(view.statusCode, view.body).toBe(200);
+  const build = { version: renderer.version, integrity: renderer.integrity };
+  expect(view.json().visualRenderers).toEqual([{ visualId: source.visuals[0]!.id, rendererId: renderer.id, declared: build, installed: build, served: 'installed' }]);
+  expect((await app.inject({ url, headers: learner })).statusCode).toBe(403);
+});
