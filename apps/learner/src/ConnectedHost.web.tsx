@@ -69,6 +69,7 @@ import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport"
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
 import { PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
+import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
@@ -334,6 +335,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   }, [unansweredQuestions, reloadPolicy]);
   const unverified = useUnverifiedContent(api, server?.enrollmentId, server?.revision ?? 0);
   const pendingAdditions = usePendingChanges(api, server?.enrollmentId, server?.revision ?? 0);
+  const components = useGeneratedComponents(api, server?.enrollmentId, server?.revision ?? 0);
   /** Opens "Your personal changes" at the change that added generated content. */
   function reviewChange(proposalId: string) {
     setView("profile");
@@ -1334,6 +1336,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               answer={answer}
               checkingAnswer={checkingAnswer}
               policyPanel={policyPanel}
+              components={components}
               pendingChanges={
                 <PendingChangesNotice
                   items={pendingAdditions}

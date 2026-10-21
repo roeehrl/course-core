@@ -92,3 +92,33 @@ test("a simulation made while the learner answers waits for them, then is added 
   await expect(page.getByRole("article", { name: "Reading part 3" }).locator("summary", { hasText: "Unverified" })).toBeVisible();
   await accessible(page);
 });
+
+test("a generated component runs in the sandboxed runner beside its text alternative", async ({ page, request }, info) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const session = await request.post("/test/model-session", { data: { content: true, component: true } });
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await openCurrentLesson(page);
+  for (const part of [1, 2]) {
+    await expect(page.getByRole("article", { name: `Reading part ${part}` })).toBeVisible();
+    await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  }
+  const part = page.getByRole("article", { name: "Reading part 3" });
+  // The text alternative the host wrote, then the component itself.
+  await expect(part.getByText("Slope: -5 – 5 (2)", { exact: false })).toBeVisible();
+  const panel = part.getByRole("region", { name: "Line explorer" });
+  await expect(panel.getByText("Run the model to see this.")).toBeVisible();
+  await panel.getByLabel("Slope").fill("5");
+  await panel.getByRole("button", { name: "Run the model" }).click();
+  // 5 × 3 + 1, computed by Python in the sandboxed runner frame, never in this page.
+  await expect(panel.getByText("16", { exact: true })).toBeVisible({ timeout: 90_000 });
+  await expect(panel.getByText("Results updated.")).toBeVisible();
+  const frames = page.locator("iframe[sandbox]");
+  expect(await frames.count()).toBeGreaterThan(0);
+  for (const sandbox of await frames.evaluateAll((all) => all.map((frame) => frame.getAttribute("sandbox")))) expect(sandbox).toBe("allow-scripts");
+  await accessible(page);
+  await page.screenshot({ path: info.outputPath("generated-component.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});

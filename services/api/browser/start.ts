@@ -42,7 +42,7 @@ import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
 import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
-import { generatedContentFixture, lineScene, syntheticCodeEvaluator } from "../test/generated-content-fixture.js";
+import { generatedContentFixture, lineScene, LINE_COMPONENT_SOURCE, syntheticCodeEvaluator } from "../test/generated-content-fixture.js";
 import { recoveryFixture } from "../test/recovery-fixture.js";
 import {
   approveAdaptationRegistry,
@@ -139,13 +139,22 @@ const optionalReleaseId = randomUUID(),
 const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
 // The generated-content course (set below, once the renderer is installed): the supervisor writes a simulation.
 let contentCourseDigest = "";
-const contentScript = (round: number) =>
+/** Operations whose supervisor writes an interactive component instead of a simulation. */
+const componentOperations = new Set<string>();
+const lineComponent = { title: "Line explorer", description: "Change the slope, x and intercept, then run the model to see y.", source: LINE_COMPONENT_SOURCE,
+  inputs: [{ name: "slope", label: "Slope", min: -5, max: 5, step: 1, initial: 2 }, { name: "x", label: "Input x", min: 0, max: 10, step: 1, initial: 3 },
+    { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
+  outputs: [{ name: "y", label: "Output y" }],
+  tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }] };
+const contentScript = (round: number, component: boolean) =>
   round === 0
     ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }
     : round === 1
-      ? { decision: "tool", tool: "create_teaching", summary: "", argumentsJson: JSON.stringify({ profileId: "simulation-profile", kind: "simulation",
-          scene: lineScene("browser-line"), objectiveIds: ["minimum"], sourceRefs: ["ordering-author-reference"] }) }
-      : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "A simulation of a straight line for the minimum lesson." };
+      ? { decision: "tool", tool: "create_teaching", summary: "", argumentsJson: JSON.stringify(component
+          ? { profileId: "component-profile", kind: "component", component: lineComponent, objectiveIds: ["minimum"], sourceRefs: ["ordering-author-reference"] }
+          : { profileId: "simulation-profile", kind: "simulation", scene: lineScene("browser-line"), objectiveIds: ["minimum"], sourceRefs: ["ordering-author-reference"] }) }
+      : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "Generated practice of a straight line for the minimum lesson." };
 const repairOperations = new Set<string>();
 const modelAdapter: ProviderAdapter = {
   providerId: "browser-supervisor",
@@ -199,7 +208,7 @@ const modelAdapter: ProviderAdapter = {
                     summary: "Use the repaired independently checked example.",
                   }
           : prompt.context.course.digest === contentCourseDigest
-            ? contentScript(round)
+            ? contentScript(round, componentOperations.has(req.accounting.accountingKey.split(":round-")[0]!))
           : prompt.context.course.digest === generatedCourse.digest || prompt.context.course.digest === optionalCourse.digest
             ? round === 0
               ? {
@@ -361,7 +370,8 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
     ? { adminDirectory: fileURLToPath(new URL("../../../apps/admin/dist", import.meta.url)) }
     : {}),
   // The repair stub only serves the versioned-gate fixture's code-repair item (test host only).
-  installedExtensions: [renderer, grader, reviewedRubricEvaluator(), repairEvaluatorStub(),
+  // The synthetic code evaluator tests generated components and exercises here (test host only).
+  installedExtensions: [renderer, grader, reviewedRubricEvaluator(), repairEvaluatorStub(), syntheticCodeEvaluator(),
     // Activity runtime: Core's interpreter, a synthetic sandboxed probe and evaluator (test host only).
     declarativeActivityRuntime(), sandboxedActivityRuntime(), syntheticActivityEvaluator(), hintProbeRuntime()],
   adaptation: createAdaptationRuntime([
@@ -1139,6 +1149,7 @@ app.post("/test/model-session", async (request) => {
   // A generated simulation; with midAttempt the learner has a practice question open meanwhile.
   const generatedContent = (request.body as { content?: boolean } | undefined)?.content === true;
   const midAttempt = (request.body as { midAttempt?: boolean } | undefined)?.midAttempt === true;
+  const writesComponent = (request.body as { component?: boolean } | undefined)?.component === true;
   const userId = randomUUID();
   await db.query(
     "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
@@ -1235,6 +1246,7 @@ app.post("/test/model-session", async (request) => {
     repairOperations.add(
       createHash("sha256").update(operation.id).digest("hex"),
     );
+  if (writesComponent) componentOperations.add(createHash("sha256").update(operation.id).digest("hex"));
   const output = await app.inject({
     method: "POST",
     url: "/v1/operations",
