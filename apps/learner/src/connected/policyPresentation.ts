@@ -31,6 +31,9 @@ export function scopeLabel(
   t: Translate = englishTranslator().t,
 ): string {
   if (scopeId === "course") return t("policyPresentation.scope.course");
+  // The organization and enrollment levels have no title of their own: name them by level.
+  if (scopeId === "organization") return t("policyPresentation.scope.organization");
+  if (scopeId === "enrollment") return t("policyPresentation.scope.enrollment");
   const chapter = course.chapters.find(
     (row) => `chapter:${row.id}` === scopeId,
   );

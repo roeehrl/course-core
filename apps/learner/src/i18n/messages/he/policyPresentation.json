@@ -8,5 +8,7 @@
   "scope.other": "היקף הלמידה",
   "quota.additionalMinutes": "דקות למידה נוספות",
   "quota.additionalEpisodes": "שיעורים נוספים",
-  "quota.remediationCyclesPerConcept": "סבבי חזרה לכל מיומנות"
+  "quota.remediationCyclesPerConcept": "סבבי חזרה לכל מיומנות",
+  "scope.organization": "המגבלות של הארגון שלך",
+  "scope.enrollment": "התנאים האישיים שלך"
 }

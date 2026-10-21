@@ -17,6 +17,7 @@ import en_connectedCompanion from "./messages/en/connectedCompanion.json";
 import en_connectedHost from "./messages/en/connectedHost.json";
 import en_connectedLesson from "./messages/en/connectedLesson.json";
 import en_connectivity from "./messages/en/connectivity.json";
+import en_continuationTrack from "./messages/en/continuationTrack.json";
 import en_courseRoadmap from "./messages/en/courseRoadmap.json";
 import en_crossCoursePanel from "./messages/en/crossCoursePanel.json";
 import en_debugInspector from "./messages/en/debugInspector.json";
@@ -83,6 +84,7 @@ import he_connectedCompanion from "./messages/he/connectedCompanion.json";
 import he_connectedHost from "./messages/he/connectedHost.json";
 import he_connectedLesson from "./messages/he/connectedLesson.json";
 import he_connectivity from "./messages/he/connectivity.json";
+import he_continuationTrack from "./messages/he/continuationTrack.json";
 import he_courseRoadmap from "./messages/he/courseRoadmap.json";
 import he_crossCoursePanel from "./messages/he/crossCoursePanel.json";
 import he_debugInspector from "./messages/he/debugInspector.json";
@@ -151,6 +153,7 @@ export const en = {
   connectedHost: en_connectedHost,
   connectedLesson: en_connectedLesson,
   connectivity: en_connectivity,
+  continuationTrack: en_continuationTrack,
   courseRoadmap: en_courseRoadmap,
   crossCoursePanel: en_crossCoursePanel,
   debugInspector: en_debugInspector,
@@ -219,6 +222,7 @@ export const he: PartialCatalog<typeof en> = {
   connectedHost: he_connectedHost,
   connectedLesson: he_connectedLesson,
   connectivity: he_connectivity,
+  continuationTrack: he_continuationTrack,
   courseRoadmap: he_courseRoadmap,
   crossCoursePanel: he_crossCoursePanel,
   debugInspector: he_debugInspector,

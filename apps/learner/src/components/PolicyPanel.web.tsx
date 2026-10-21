@@ -3,15 +3,61 @@ import type {
   EnrollmentPolicy,
   ExtensionOffer,
   PolicyBalance,
+  PolicyConstraint,
 } from "../client/policyClient";
 import type { ServerSnapshot } from "../client/apiClient";
 import {
   policyDate,
   policyTimeZone,
   quotaLabel,
+  quotaName,
   scopeLabel,
 } from "../connected/policyPresentation";
 import { useT, type MessageKey } from "../i18n";
+
+type OfferUnit = "days" | "minutes" | "lessons" | "units";
+/** The named unit one pool debit of an offer pays for. Day pools say so in their name; any
+ * other debit is matched to the one change of the same size, else stays an unnamed unit. */
+export function debitUnit(offer: ExtensionOffer, debit: { poolId: string; amount: number }): OfferUnit {
+  const change = offer.terms.change;
+  if (debit.poolId.endsWith(":calendar")) return "days";
+  const amounts: [OfferUnit, number | undefined][] = [
+    ["days", change?.deadline?.calendarDays],
+    ["minutes", change?.work?.additionalMinutes],
+    ["lessons", change?.work?.additionalEpisodes],
+  ];
+  const matches = amounts.filter(([, amount]) => amount === debit.amount);
+  return matches.length === 1 ? matches[0]![0] : "units";
+}
+/** Which level sets this scope's date and its tightest work limits, in plain words. */
+function BindingExplanation({ constraint }: { constraint: PolicyConstraint }) {
+  const t = useT();
+  const binding = constraint.binding;
+  if (!binding) return null;
+  return (
+    <div className="connected-policy-binding">
+      {binding.deadline && (
+        <p>{t("policyPanel.binding.deadline", { level: binding.deadline.level })}</p>
+      )}
+      {binding.quotas.filter((q) => q.metric !== "remediationCyclesPerConcept" || q.remaining === 0).length > 0 && (
+        <ul className="connected-policy-list">
+          {binding.quotas
+            .filter((q) => q.metric !== "remediationCyclesPerConcept" || q.remaining === 0)
+            .map((q, index) => (
+              <li key={index}>
+                {t("policyPanel.binding.quota", {
+                  metric: quotaName(q.metric, t),
+                  remaining: q.remaining,
+                  limit: q.limit,
+                  level: q.level,
+                })}
+              </li>
+            ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 export interface PolicyPanelProps {
   server: ServerSnapshot;
   episodeId?: string;
@@ -134,6 +180,40 @@ function OfferCard({
           <BalanceList values={terms.balanceAfter} server={server} />
         </section>
       </div>
+      {(terms.change?.deadline || terms.change?.work) && (
+        <section aria-label={t("policyPanel.offer.changeLabel")}>
+          <h4>{t("policyPanel.offer.changeHeading")}</h4>
+          <ul className="connected-policy-list">
+            {terms.change.deadline && (
+              <li>{t("policyPanel.offer.change.days", { days: terms.change.deadline.calendarDays })}</li>
+            )}
+            {terms.change.work?.additionalMinutes ? (
+              <li>{t("policyPanel.offer.change.minutes", { minutes: terms.change.work.additionalMinutes })}</li>
+            ) : null}
+            {terms.change.work?.additionalEpisodes ? (
+              <li>{t("policyPanel.offer.change.lessons", { lessons: terms.change.work.additionalEpisodes })}</li>
+            ) : null}
+          </ul>
+          {terms.poolDebits && terms.poolDebits.length > 0 && (
+            <ul className="connected-policy-list">
+              {terms.poolDebits.map((debit) => {
+                const before = terms.balanceBefore.find((b) => b.poolId === debit.poolId),
+                  after = terms.balanceAfter.find((b) => b.poolId === debit.poolId);
+                return (
+                  <li key={debit.poolId}>
+                    {t("policyPanel.offer.cost", {
+                      unit: debitUnit(offer, debit),
+                      amount: debit.amount,
+                      before: before?.remaining ?? 0,
+                      after: after?.remaining ?? 0,
+                    })}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
       <p>
         {terms.addedWork.remediation.length
           ? t("policyPanel.offer.addedWorkWithReview", {
@@ -335,6 +415,7 @@ export function PolicyPanel(props: PolicyPanelProps) {
             })}
           </p>
         )}
+        {data && courseDue && <BindingExplanation constraint={chapterDue ?? courseDue} />}
         {data && (
           <>
             <h3>{t("policyPanel.balanceHeading")}</h3>
@@ -351,7 +432,7 @@ export function PolicyPanel(props: PolicyPanelProps) {
                     (q, index) => (
                       <li key={index}>
                         {t("policyPanel.scopedQuota", {
-                          scope: scopeLabel(q.scopeId, server.course),
+                          scope: scopeLabel(q.scopeId, server.course, t),
                           metric: quotaLabel[q.metric],
                           remaining: q.remaining,
                           limit: q.limit,
