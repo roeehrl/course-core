@@ -47,6 +47,11 @@ export function specialtyModel(job: Job, remoteModel: string) {
   const id = remoteModel.toLowerCase();
   return SPECIALTY.test(id) && !(job === "media" && MEDIA_MODELS.test(id));
 }
+/** The image model beside a video model, from a draft role or an active role. */
+const imageRemoteOf = (source: {
+  imageRemoteModel?: string | null | undefined;
+  image?: { remoteModel: string | null } | null;
+}) => source.imageRemoteModel ?? source.image?.remoteModel ?? null;
 const same = (a: Choice, b: Choice) =>
   encode(a) === encode(b) &&
   JSON.stringify(a?.media ?? null) === JSON.stringify(b?.media ?? null);
@@ -110,7 +115,16 @@ export function ModelsSection(props: Props) {
               connectionId: source.connectionId,
               remoteModel: source.remoteModel,
               ...(job === "media"
-                ? { media: { kind: source.mediaKind ?? "image" } }
+                ? {
+                    media: {
+                      kind: source.mediaKind ?? "image",
+                      ...(imageRemoteOf(source)
+                        ? {
+                            imageModel: { remoteModel: imageRemoteOf(source)! },
+                          }
+                        : {}),
+                    },
+                  }
                 : {}),
             }
           : null;
@@ -479,6 +493,27 @@ export function ModelsSection(props: Props) {
           <MediaFields
             base={base}
             value={choice.media ?? { kind: "image" }}
+            imageModels={(() => {
+              const list = lists[choice.connectionId];
+              const role =
+                list && "roles" in list
+                  ? list.roles.find((r) => r.role === "media")
+                  : undefined;
+              return list && "models" in list
+                ? list.models
+                    .filter(
+                      (m) =>
+                        m.remoteModel !== choice.remoteModel &&
+                        (showAll ||
+                          (!!role?.method &&
+                            m.methods.includes(role.method) &&
+                            /image/i.test(m.remoteModel)) ||
+                          m.remoteModel ===
+                            choice.media?.imageModel?.remoteModel),
+                    )
+                    .map((m) => m.remoteModel)
+                : [];
+            })()}
             disabled={saving}
             onChange={(media) => {
               setTouched(true);
@@ -576,11 +611,14 @@ export function ModelsSection(props: Props) {
 function MediaFields({
   base,
   value,
+  imageModels,
   disabled,
   onChange,
 }: {
   base: string;
   value: MediaChoice;
+  /** Image models of the same connection, offered beside a video model. */
+  imageModels: string[];
   disabled: boolean;
   onChange: (value: MediaChoice) => void;
 }) {
@@ -687,6 +725,36 @@ function MediaFields({
             />
           </Field>
           <p className="ai-muted">{t("aiServices.models.videoNote")}</p>
+          <Field
+            id={`${base}-media-image`}
+            label={t("aiServices.models.imageModel")}
+            hint={t("aiServices.models.imageModelHint")}
+          >
+            <select
+              id={`${base}-media-image`}
+              value={value.imageModel?.remoteModel ?? ""}
+              disabled={disabled}
+              {...described(`${base}-media-image`, true, undefined)}
+              onChange={(event) => {
+                const { imageModel: _previous, ...rest } = value;
+                onChange(
+                  event.target.value
+                    ? {
+                        ...rest,
+                        imageModel: { remoteModel: event.target.value },
+                      }
+                    : rest,
+                );
+              }}
+            >
+              <option value="">{t("aiServices.models.imageModelNone")}</option>
+              {imageModels.map((remoteModel) => (
+                <option key={remoteModel} value={remoteModel}>
+                  {remoteModel}
+                </option>
+              ))}
+            </select>
+          </Field>
         </div>
       )}
     </div>

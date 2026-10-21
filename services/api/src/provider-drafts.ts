@@ -100,6 +100,7 @@ export function roleModels(configuration: Configuration) {
           remoteModel: model?.remoteModel ?? null,
           mediaKind: binding?.mediaKind ?? null,
           // The image model bound beside a video model, when there is one.
+          imageModelId: binding?.imageModel?.modelId ?? null,
           imageRemoteModel: binding?.imageModel
             ? (models.find((m) => m.id === binding.imageModel!.modelId)?.remoteModel ?? null)
             : null,
@@ -155,15 +156,19 @@ export class ProviderDrafts {
       const model = models[role];
       if (!model) continue;
       const binding = bound[role],
-        price = await pricingInForce(client, workspace, model.modelId);
+        price = await pricingInForce(client, workspace, model.modelId),
+        imagePrice = model.imageModelId ? await pricingInForce(client, workspace, model.imageModelId) : null;
       roles.push({
         role,
         ...model,
         check: checks[role]?.check ?? "not_needed",
         priced: !!price && !!binding && pricingCovers(price, binding.pricingKind),
+        // The image model beside a video model is priced like any image model (per request or token).
+        imagePriced: model.imageModelId ? !!imagePrice && pricingCovers(imagePrice, "tokens") : null,
         changed:
           active[role]?.connectionId !== model.connectionId ||
-          active[role]?.remoteModel !== model.remoteModel,
+          active[role]?.remoteModel !== model.remoteModel ||
+          (active[role]?.imageRemoteModel ?? null) !== model.imageRemoteModel,
       });
     }
     const tokenBounds = configurationTokenBounds(configuration);
