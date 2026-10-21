@@ -7,6 +7,7 @@ import {
   boundedMetadataInspection,
   metadataFailureCode,
   type MetadataAdapter,
+  type ModelCatalog,
 } from "./provider-metadata.js";
 import { appendEvent } from "./events.js";
 import type { PoolClient } from "pg";
@@ -106,7 +107,7 @@ export const defaultKeyTestLimits: KeyTestLimits = {
   perHour: 30,
   concurrent: 2,
 };
-interface Version {
+export interface Version {
   revision: number;
   configuration: z.infer<typeof providerConfigurationSchema>;
   job_policy: SupervisorJobPolicy;
@@ -266,6 +267,8 @@ export class WorkspaceProviders {
       label: adapter.label,
       guided: !!adapter.buildDraft,
       roleMethods: adapter.roleMethods ?? null,
+      pricingUrl: adapter.pricingUrl ?? null,
+      keyHelpUrl: adapter.keyHelpUrl ?? null,
     }));
   }
   async previewModels(actor: Actor, workspace: string, raw: unknown) {
@@ -506,10 +509,31 @@ export class WorkspaceProviders {
       .safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_KEY_TEST_INVALID", 400);
     const key = normalizeCredential(parsed.data.key),
-      kind = parsed.data.kind,
-      adapter = Object.hasOwn(this.metadataAdapters, kind)
-        ? this.metadataAdapters[kind]
-        : undefined;
+      kind = parsed.data.kind;
+    const checked = await this.checkKey(actor, workspace, kind, key);
+    return {
+      kind,
+      outcome: checked.outcome,
+      modelCount: checked.catalog?.models.length ?? null,
+      truncated: checked.catalog?.truncated ?? null,
+      stored: false,
+      generationPerformed: false,
+    };
+  }
+  /**
+   * Asks the provider for its model list with `key` (metadata only, no generation, no learner
+   * data), under the workspace's key-test rate limit and a short deadline. Records the outcome
+   * code in the audit log, never the key. Returns "ok" with the catalog, or a failure code.
+   */
+  async checkKey(
+    actor: Actor,
+    workspace: string,
+    kind: string,
+    key: string,
+  ) {
+    const adapter = Object.hasOwn(this.metadataAdapters, kind)
+      ? this.metadataAdapters[kind]
+      : undefined;
     const limits = this.keyTestLimits,
       now = Date.now(),
       state = this.keyTests.get(workspace) ?? { started: [], running: 0 };
@@ -526,12 +550,11 @@ export class WorkspaceProviders {
     state.running++;
     this.keyTests.set(workspace, state);
     let outcome: string = "ok",
-      modelCount: number | null = null,
-      truncated: boolean | null = null;
+      catalog: ModelCatalog | null = null;
     try {
       if (!adapter) outcome = "PROVIDER_METADATA_UNSUPPORTED";
       else {
-        const catalog = await boundedMetadataInspection(adapter, {
+        catalog = await boundedMetadataInspection(adapter, {
           getCredential: () => key,
           configuration: null,
           signal: AbortSignal.timeout(limits.timeoutMs),
@@ -541,11 +564,10 @@ export class WorkspaceProviders {
           "PROVIDER_METADATA_INVALID",
           503,
         );
-        modelCount = catalog.models.length;
-        truncated = catalog.truncated;
       }
     } catch (e) {
       outcome = metadataFailureCode(e);
+      catalog = null;
     } finally {
       state.running--;
     }
@@ -555,18 +577,15 @@ export class WorkspaceProviders {
         actorId: actor.id,
         actorKind: "staff",
         type: "provider.key_tested",
-        payload: { kind: adapter ? kind : null, outcome, modelCount },
+        payload: {
+          kind: adapter ? kind : null,
+          outcome,
+          modelCount: catalog?.models.length ?? null,
+        },
         idempotencyKey: "provider-key-test:" + randomUUID(),
       }),
     );
-    return {
-      kind,
-      outcome,
-      modelCount,
-      truncated,
-      stored: false,
-      generationPerformed: false,
-    };
+    return { outcome, catalog };
   }
   async save(actor: Actor, workspace: string, raw: unknown) {
     const parsed = providerSetupSchema.safeParse(raw);
@@ -590,150 +609,246 @@ export class WorkspaceProviders {
     );
     const requestDigest = this.vault.requestDigest(workspace, input),
       result = await transaction(this.db, async (client) => {
-        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-          "provider-setup:" + workspace,
-        ]);
-        await client.query(
-          "SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE",
-          [workspace],
+        await this.lockForChange(client, workspace, actor);
+        const cached = await this.receipt(
+          client,
+          workspace,
+          input.idempotencyKey,
+          requestDigest,
         );
-        const member = (
-          await client.query(
-            "SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2 FOR SHARE",
-            [workspace, actor.id],
-          )
-        ).rows[0];
+        if (cached) return cached;
+        const old = await this.version(client, workspace);
         requireCondition(
-          member && ["owner", "admin"].includes(member.role),
-          "FORBIDDEN",
-          403,
-        );
-        const receipt = (
-          await client.query(
-            "SELECT request_digest,result FROM provider_setup_receipts WHERE workspace_id=$1 AND idempotency_key=$2",
-            [workspace, input.idempotencyKey],
-          )
-        ).rows[0];
-        if (receipt) {
-          requireCondition(
-            receipt.request_digest === requestDigest,
-            "IDEMPOTENCY_CONFLICT",
-            409,
-          );
-          return receipt.result;
-        }
-        const old = await this.version(client, workspace),
-          revision = (old?.revision ?? 0) + 1;
-        requireCondition(
-          input.expectedRevision === revision - 1,
+          input.expectedRevision === (old?.revision ?? 0),
           "STALE_PROVIDER_REVISION",
           409,
         );
-        const secrets = old ? this.values(workspace, old) : {};
-        for (const [name, value] of Object.entries(input.credentials)) {
-          if (value === null) delete secrets[name];
-          else secrets[name] = value;
-        }
-        requireCondition(
-          Object.keys(secrets).length <= 20 &&
-            JSON.stringify(secrets).length <= 32768,
-          "PROVIDER_CREDENTIAL_LIMIT",
-          400,
-        );
-        const publicText = JSON.stringify(input.configuration);
-        for (const value of Object.values(secrets))
-          requireCondition(
-            !publicText.includes(value),
-            "PROVIDER_SECRET_FIELD_FORBIDDEN",
-            400,
-          );
-        try {
-          const runtime = composeProviders(
-            input.configuration,
-            (name) => secrets[name],
-            this.factories,
-          );
-          requireCondition(
-            runtime.describe().length <= 20,
-            "PROVIDER_CONFIGURATION_INVALID",
-            400,
-          );
-        } catch {
-          throw new ApiError(400, "PROVIDER_CONFIGURATION_INVALID");
-        }
-        requireCondition(
-          Object.values(configurationTokenBounds(input.configuration)).every(
-            (bound) => bound <= input.jobPolicy.allowance.tokens,
-          ),
-          "PROVIDER_TOKEN_RESERVATION_TOO_SMALL",
-          409,
-        );
-        // Agent eval gate: a changed or new revision of a covered role needs a passing
-        // result or an owner override (409 PROVIDER_EVAL_REQUIRED otherwise).
-        const previousEvaluation = old
-          ? ((
-              await client.query<{ evaluation: VersionEvaluation | null }>(
-                "SELECT evaluation FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=$2",
-                [workspace, old.revision],
-              )
-            ).rows[0]?.evaluation ?? null)
-          : null;
-        const evaluation = await activationDecision(
-          client,
-          workspace,
-          this.evalSuite,
-          old
-            ? { configuration: old.configuration, evaluation: previousEvaluation }
-            : undefined,
-          input.configuration,
-        );
-        const sealed = Object.fromEntries(
-          Object.entries(secrets).map(([name, value]) => [
-            name,
-            this.vault.seal(aad(workspace, revision, name), value),
-          ]),
-        );
-        await client.query(
-          "INSERT INTO workspace_provider_versions(workspace_id,revision,configuration,job_policy,sealed_credentials,changed_by,evaluation) VALUES($1,$2,$3,$4,$5,$6,$7)",
-          [
-            workspace,
-            revision,
-            JSON.stringify(input.configuration),
-            JSON.stringify(input.jobPolicy),
-            JSON.stringify(sealed),
-            actor.id,
-            JSON.stringify(evaluation),
-          ],
-        );
-        await client.query(
-          "INSERT INTO workspace_provider_settings(workspace_id,revision) VALUES($1,$2) ON CONFLICT(workspace_id) DO UPDATE SET revision=EXCLUDED.revision,updated_at=clock_timestamp()",
-          [workspace, revision],
-        );
-        // Recorded first (authoritative), then signalled so a call already under way ends now.
-        const cancelled = await requestSupervisorCancellation(client, { workspaceId: workspace }, "provider_changed");
+        const committed = await this.commitVersion(client, workspace, actor, {
+          old,
+          configuration: input.configuration,
+          jobPolicy: input.jobPolicy,
+          credentials: input.credentials,
+          cancelRunning: true,
+        });
         const receiptResult = {
-          revision,
+          revision: committed.revision,
           configurationSaved: true,
           verification: "not_run",
-          cancelledPendingJobs: cancelled.newlyCancelled,
+          cancelledPendingJobs: committed.cancelledPendingJobs,
           budgetChanged: false,
           evaluation: Object.fromEntries(
-            Object.entries(evaluation.roles).map(([role, d]) => [role, d!.decision]),
+            Object.entries(committed.evaluation.roles).map(([role, d]) => [
+              role,
+              d!.decision,
+            ]),
           ),
         };
-        await client.query(
-          "INSERT INTO provider_setup_receipts(workspace_id,idempotency_key,request_digest,result,actor_id,operation) VALUES($1,$2,$3,$4,$5,$6)",
-          [
-            workspace,
-            input.idempotencyKey,
-            requestDigest,
-            JSON.stringify(receiptResult),
-            actor.id,
-            "configuration",
-          ],
+        await this.storeReceipt(
+          client,
+          workspace,
+          actor,
+          input.idempotencyKey,
+          requestDigest,
+          receiptResult,
+          "configuration",
         );
         return receiptResult;
       });
     return result;
+  }
+  /** Serializes setup changes of one workspace and checks the actor may make them. */
+  async lockForChange(client: PoolClient, workspace: string, actor: Actor) {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      "provider-setup:" + workspace,
+    ]);
+    await client.query(
+      "SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE",
+      [workspace],
+    );
+    const member = (
+      await client.query(
+        "SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2 FOR SHARE",
+        [workspace, actor.id],
+      )
+    ).rows[0];
+    requireCondition(
+      member && ["owner", "admin"].includes(member.role),
+      "FORBIDDEN",
+      403,
+    );
+    return member.role as "owner" | "admin";
+  }
+  /** The stored result of an earlier request with this idempotency key, if any. */
+  async receipt(
+    client: PoolClient,
+    workspace: string,
+    idempotencyKey: string,
+    requestDigest: string,
+  ) {
+    const receipt = (
+      await client.query(
+        "SELECT request_digest,result FROM provider_setup_receipts WHERE workspace_id=$1 AND idempotency_key=$2",
+        [workspace, idempotencyKey],
+      )
+    ).rows[0];
+    if (!receipt) return undefined;
+    requireCondition(
+      receipt.request_digest === requestDigest,
+      "IDEMPOTENCY_CONFLICT",
+      409,
+    );
+    return receipt.result;
+  }
+  async storeReceipt(
+    client: PoolClient,
+    workspace: string,
+    actor: Actor,
+    idempotencyKey: string,
+    requestDigest: string,
+    result: unknown,
+    operation: "configuration" | "connection" | "activation",
+  ) {
+    await client.query(
+      "INSERT INTO provider_setup_receipts(workspace_id,idempotency_key,request_digest,result,actor_id,operation) VALUES($1,$2,$3,$4,$5,$6)",
+      [
+        workspace,
+        idempotencyKey,
+        requestDigest,
+        JSON.stringify(result),
+        actor.id,
+        operation,
+      ],
+    );
+  }
+  /**
+   * Writes a new active version inside the caller's transaction, after `lockForChange`. Every
+   * path that changes the active setup goes through here, so the same checks apply to all of
+   * them: secret limits, composition, token bounds and the quality-check gate
+   * (409 PROVIDER_EVAL_REQUIRED). `credentials` changes stored keys (null removes one); other
+   * keys are carried over. `cancelRunning` asks unfinished jobs to stop (model changes); key and
+   * connection changes leave them alone, since a job keeps the version it started with.
+   */
+  async commitVersion(
+    client: PoolClient,
+    workspace: string,
+    actor: Actor,
+    change: {
+      old: Version | undefined;
+      configuration: z.infer<typeof providerConfigurationSchema>;
+      jobPolicy: SupervisorJobPolicy;
+      credentials: Record<string, string | null>;
+      cancelRunning: boolean;
+    },
+  ) {
+    const { old, configuration, jobPolicy } = change,
+      revision = (old?.revision ?? 0) + 1;
+    const secrets = old ? this.values(workspace, old) : {};
+    for (const [name, value] of Object.entries(change.credentials)) {
+      if (value === null) delete secrets[name];
+      else secrets[name] = value;
+    }
+    requireCondition(
+      Object.keys(secrets).length <= 20 &&
+        JSON.stringify(secrets).length <= 32768,
+      "PROVIDER_CREDENTIAL_LIMIT",
+      400,
+    );
+    const publicText = JSON.stringify(configuration);
+    for (const value of Object.values(secrets))
+      requireCondition(
+        !publicText.includes(value),
+        "PROVIDER_SECRET_FIELD_FORBIDDEN",
+        400,
+      );
+    try {
+      const runtime = composeProviders(
+        configuration,
+        (name) => secrets[name],
+        this.factories,
+      );
+      requireCondition(
+        runtime.describe().length <= 20,
+        "PROVIDER_CONFIGURATION_INVALID",
+        400,
+      );
+    } catch {
+      throw new ApiError(400, "PROVIDER_CONFIGURATION_INVALID");
+    }
+    requireCondition(
+      Object.values(configurationTokenBounds(configuration)).every(
+        (bound) => bound <= jobPolicy.allowance.tokens,
+      ),
+      "PROVIDER_TOKEN_RESERVATION_TOO_SMALL",
+      409,
+    );
+    // Agent eval gate: a changed or new revision of a covered role needs a passing
+    // result or an owner override (409 PROVIDER_EVAL_REQUIRED otherwise).
+    const previousEvaluation = old
+      ? ((
+          await client.query<{ evaluation: VersionEvaluation | null }>(
+            "SELECT evaluation FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=$2",
+            [workspace, old.revision],
+          )
+        ).rows[0]?.evaluation ?? null)
+      : null;
+    const evaluation = await activationDecision(
+      client,
+      workspace,
+      this.evalSuite,
+      old
+        ? { configuration: old.configuration, evaluation: previousEvaluation }
+        : undefined,
+      configuration,
+    );
+    const sealed = Object.fromEntries(
+      Object.entries(secrets).map(([name, value]) => [
+        name,
+        this.vault.seal(aad(workspace, revision, name), value),
+      ]),
+    );
+    await client.query(
+      "INSERT INTO workspace_provider_versions(workspace_id,revision,configuration,job_policy,sealed_credentials,changed_by,evaluation) VALUES($1,$2,$3,$4,$5,$6,$7)",
+      [
+        workspace,
+        revision,
+        JSON.stringify(configuration),
+        JSON.stringify(jobPolicy),
+        JSON.stringify(sealed),
+        actor.id,
+        JSON.stringify(evaluation),
+      ],
+    );
+    await client.query(
+      "INSERT INTO workspace_provider_settings(workspace_id,revision) VALUES($1,$2) ON CONFLICT(workspace_id) DO UPDATE SET revision=EXCLUDED.revision,updated_at=clock_timestamp()",
+      [workspace, revision],
+    );
+    // Recorded first (authoritative), then signalled so a call already under way ends now.
+    const cancelled = change.cancelRunning
+      ? await requestSupervisorCancellation(
+          client,
+          { workspaceId: workspace },
+          "provider_changed",
+        )
+      : { newlyCancelled: 0 };
+    return {
+      revision,
+      evaluation,
+      cancelledPendingJobs: cancelled.newlyCancelled,
+    };
+  }
+  /** Unfinished jobs a model change would stop (not yet asked to stop). */
+  async runningJobs(client: Database | PoolClient, workspace: string) {
+    return Number(
+      (
+        await client.query<{ count: string }>(
+          "SELECT count(*) FROM supervisor_jobs WHERE workspace_id=$1 AND state NOT IN ('applied','cancelled','failed') AND NOT cancellation_requested",
+          [workspace],
+        )
+      ).rows[0]!.count,
+    );
+  }
+  /** Stored key values of the active version, by slot name. Server memory only. */
+  activeSecrets(workspace: string, row: Version) {
+    return this.values(workspace, row);
   }
 }

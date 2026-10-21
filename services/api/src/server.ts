@@ -64,6 +64,8 @@ import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import {registerProviderEvalRoutes} from './agent-evals/routes.js';
 import {ProviderEvaluations} from './agent-evals/gate.js';
 import {registerProviderCostRoutes} from './provider-costs.js';
+import {ProviderConnections,registerProviderConnectionRoutes} from './provider-connections.js';
+import {ProviderDrafts,registerProviderDraftRoutes} from './provider-drafts.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { deterministicConversationConfirmer } from './conversation-confirmation.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
@@ -142,6 +144,11 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerLocaleRoutes(app, db, auth);
   if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
   if(options.workspaceProviders)registerProviderEvalRoutes(app,auth,new ProviderEvaluations(db,options.workspaceProviders));
+  if(options.workspaceProviders){
+    const connections=new ProviderConnections(db,options.workspaceProviders);
+    registerProviderConnectionRoutes(app,auth,connections);
+    registerProviderDraftRoutes(app,auth,new ProviderDrafts(db,options.workspaceProviders,connections));
+  }
   // Pricing and spend views read the workspace's own bound models; they never contact a provider.
   registerProviderCostRoutes(app,db,auth,async(workspaceId,client)=>await options.workspaceProviders?.resolve(workspaceId,client)??providers);
   app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok', application: 'course-core', instanceId: options.instanceId ?? null }; });

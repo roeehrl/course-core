@@ -48,13 +48,13 @@ async function evidence(client: Sql, workspace: string, role: string, digest: st
   return { passed, override, latest };
 }
 
+export type RoleCheck = "passed" | "approved" | "unchanged" | "not_needed" | "needed" | "failed";
 /**
- * Decides whether `next` may become the active configuration. Unchanged roles keep their
- * standing; changed or new covered roles need evidence. Throws 409 PROVIDER_EVAL_REQUIRED
- * listing every role that lacks it.
+ * The gate's view of every bound role of `next` without throwing: what activation would record,
+ * and which changed covered roles still lack evidence (`missing`).
  */
-export async function activationDecision(client: PoolClient, workspace: string, suite: EvalSuite,
-  previous: { configuration: Configuration; evaluation: VersionEvaluation | null } | undefined, next: Configuration): Promise<VersionEvaluation> {
+export async function evaluateActivation(client: Sql, workspace: string, suite: EvalSuite,
+  previous: { configuration: Configuration; evaluation: VersionEvaluation | null } | undefined, next: Configuration) {
   const nextRevisions = await roleRevisions(next), previousRevisions = previous ? await roleRevisions(previous.configuration) : {};
   const roles: VersionEvaluation["roles"] = {}, missing: { role: AgentRole; revisionDigest: string; reason: string }[] = [];
   for (const role of AGENT_ROLES) {
@@ -75,6 +75,26 @@ export async function activationDecision(client: PoolClient, workspace: string, 
     else missing.push({ role, revisionDigest: revision.digest,
       reason: !found.latest ? "not_evaluated" : found.latest.suite_digest !== suite.digest ? "stale_suite" : "failed" });
   }
+  return { roles, missing };
+}
+/** Plain per-role check states for the admin page: what a role still needs before activation. */
+export function roleChecks(evaluated: Awaited<ReturnType<typeof evaluateActivation>>) {
+  const checks: Partial<Record<AgentRole, { check: RoleCheck; revisionDigest: string }>> = {};
+  for (const [role, decision] of Object.entries(evaluated.roles) as [AgentRole, RoleDecision][])
+    checks[role] = { revisionDigest: decision.revisionDigest, check: decision.decision === "passed" ? "passed" : decision.decision === "override" ? "approved"
+      : decision.decision === "unchanged" ? "unchanged" : "not_needed" };
+  for (const item of evaluated.missing) checks[item.role] = { revisionDigest: item.revisionDigest, check: item.reason === "failed" ? "failed" : "needed" };
+  return checks;
+}
+
+/**
+ * Decides whether `next` may become the active configuration. Unchanged roles keep their
+ * standing; changed or new covered roles need evidence. Throws 409 PROVIDER_EVAL_REQUIRED
+ * listing every role that lacks it.
+ */
+export async function activationDecision(client: PoolClient, workspace: string, suite: EvalSuite,
+  previous: { configuration: Configuration; evaluation: VersionEvaluation | null } | undefined, next: Configuration): Promise<VersionEvaluation> {
+  const { roles, missing } = await evaluateActivation(client, workspace, suite, previous, next);
   if (missing.length)
     throw new ApiError(409, "PROVIDER_EVAL_REQUIRED", "PROVIDER_EVAL_REQUIRED", { suiteId: suite.id, suiteDigest: suite.digest, roles: missing });
   return { gate: GATE_VERSION, suiteId: suite.id, suiteDigest: suite.digest, roles };
@@ -82,10 +102,18 @@ export async function activationDecision(client: PoolClient, workspace: string, 
 
 const key = z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/);
 const recordSchema = z.strictObject({ idempotencyKey: key, report: reportSchema });
-const overrideSchema = z.strictObject({
-  idempotencyKey: key, role: z.enum(AGENT_ROLES), revisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
-  reason: z.string().trim().min(20).max(1000),
-});
+const overrideSchema = z.union([
+  z.strictObject({
+    idempotencyKey: key, role: z.enum(AGENT_ROLES), revisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    reason: z.string().trim().min(20).max(1000),
+  }),
+  // The admin page approves the exact revision of a role in the open setup draft; the server
+  // resolves its digest, so nobody copies a fingerprint by hand.
+  z.strictObject({
+    idempotencyKey: key, role: z.enum(AGENT_ROLES), draftId: z.string().uuid(),
+    reason: z.string().trim().min(20).max(1000),
+  }),
+]);
 const iso = (value: Date | string) => new Date(value).toISOString();
 
 export class ProviderEvaluations {
@@ -191,16 +219,26 @@ export class ProviderEvaluations {
   async override(actor: Actor, workspace: string, raw: unknown) {
     const parsed = overrideSchema.safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_EVAL_OVERRIDE_INVALID", 400);
-    const input = parsed.data, suite = this.suite, requestDigest = sha256(canonicalJson({ workspace, ...input }));
+    const suite = this.suite, requestDigest = sha256(canonicalJson({ workspace, ...parsed.data }));
     return transaction(this.db, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["provider-eval:" + workspace]);
       await this.member(client, actor, workspace, ["owner"]);
       const earlier = (await client.query("SELECT id,role,revision_digest,suite_digest,request_digest,created_at FROM provider_eval_overrides WHERE workspace_id=$1 AND idempotency_key=$2",
-        [workspace, input.idempotencyKey])).rows[0];
+        [workspace, parsed.data.idempotencyKey])).rows[0];
       if (earlier) {
         requireCondition(earlier.request_digest === requestDigest, "IDEMPOTENCY_CONFLICT", 409);
         return { id: earlier.id, role: earlier.role, revisionDigest: earlier.revision_digest, suiteDigest: earlier.suite_digest, createdAt: iso(earlier.created_at) };
       }
+      let input: { idempotencyKey: string; role: AgentRole; revisionDigest: string; reason: string };
+      if ("draftId" in parsed.data) {
+        const draft = (await client.query<{ configuration: unknown }>("SELECT configuration FROM provider_setup_drafts WHERE workspace_id=$1 AND id=$2",
+          [workspace, parsed.data.draftId])).rows[0];
+        requireCondition(draft, "PROVIDER_DRAFT_NOT_FOUND", 404);
+        const configuration = providerConfigurationSchema.parse(draft.configuration);
+        const revision = (await roleRevisions(configuration))[parsed.data.role];
+        requireCondition(revision && covers(suite, parsed.data.role, revision.strategy), "PROVIDER_EVAL_ROLE_NOT_COVERED", 409);
+        input = { idempotencyKey: parsed.data.idempotencyKey, role: parsed.data.role, revisionDigest: revision.digest, reason: parsed.data.reason };
+      } else input = parsed.data;
       const id = randomUUID();
       const row = (await client.query<{ created_at: Date }>(
         "INSERT INTO provider_eval_overrides(id,workspace_id,role,revision_digest,suite_id,suite_digest,reason,actor_id,idempotency_key,request_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING created_at",

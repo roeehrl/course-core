@@ -166,23 +166,16 @@ test("calendar policy, exact before/after terms and learner-only consent", async
 test("provider configuration remains unverified; inspector displays safe records", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByText("Not verified")).toHaveCount(2);
-  await page
-    .getByRole("button", { name: "Request configuration", exact: true })
-    .first()
-    .click();
-  await page
-    .getByRole("textbox", { name: "Public connection label" })
-    .fill("Classroom text");
-  await page.getByRole("textbox", { name: "Environment name" }).fill("staging");
-  await page
-    .getByRole("button", { name: "Submit configuration request" })
-    .click();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  // The demo shows a read-only summary: no fake connection, test or configuration request.
   await expect(
-    page.getByRole("button", { name: "Configuration review pending" }),
-  ).toBeDisabled();
-  await expect(page.getByText("Not verified")).toHaveCount(2);
+    page.getByText(
+      "This is the demo. AI services are set up on a connected server.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Request configuration|Save connection/ }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Run inspector" }).click();
   await page
     .getByRole("button", { name: "Tool decisions", exact: true })
@@ -257,7 +250,7 @@ test("responsive layouts, focus and accessibility across admin views", async ({
     "Course & releases",
     "Enrollments",
     "Policy & extensions",
-    "Providers",
+    "AI services",
     "Run inspector",
   ]) {
     await page.getByRole("button", { name: view, exact: true }).click();
