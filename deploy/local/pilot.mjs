@@ -25,7 +25,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256','snapshots'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256','snapshots','courseSuppliedCodeFixtures'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -86,6 +86,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   ensure(config.loginCodes === undefined || typeof config.loginCodes === 'boolean', 'invalid_login_codes');
   config.telemetry = telemetryConfiguration(config.telemetry);
   config.allowInsecureOrigins = allowInsecureOriginsConfiguration(config.allowInsecureOrigins);
+  ensure(config.courseSuppliedCodeFixtures === undefined || typeof config.courseSuppliedCodeFixtures === 'boolean', 'invalid_course_supplied_configuration');
   config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, config.allowInsecureOrigins);
   config.coursePackageDirectories = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
   config.backupAgeRecipients = backupAgeRecipientsConfiguration(config.backupAgeRecipients);
@@ -387,6 +388,7 @@ export function servicePlan(root, state, config, instanceId) {
   if(config.sessionHours!==undefined)api.SESSION_HOURS=String(config.sessionHours);
   if(config.additionalOrigins?.length)api.ADDITIONAL_ORIGINS=config.additionalOrigins.join(',');
   if(config.coursePackageDirectories?.length)api.COURSE_PACKAGE_DIRECTORIES=JSON.stringify(config.coursePackageDirectories);
+  if(config.courseSuppliedCodeFixtures===true)api.COURSE_SUPPLIED_CODE_FIXTURES='on';
   api.ALLOW_INSECURE_ORIGINS=config.allowInsecureOrigins===true?'true':'false';
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
   Object.assign(api, telemetryEnvironment(config.telemetry));
