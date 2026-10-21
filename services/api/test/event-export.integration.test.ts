@@ -12,7 +12,7 @@ import { fixture } from "./fixture.js";
 
 // Real HTTP and PostgreSQL 17: the portable learning-event export (K14) in the SDK 0.6.0
 // learningEventExport format, validated against the vendored SDK schema.
-const schemaJson = JSON.parse(readFileSync(new URL("../vendor/sdk-event-export/learning-event-export.schema.json", import.meta.url), "utf8"));
+const schemaJson = JSON.parse(readFileSync(new URL("../src/vendor/sdk-event-export/learning-event-export.schema.json", import.meta.url), "utf8"));
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 (addFormats as unknown as (a: Ajv2020) => void)(ajv);
 const validateShape = ajv.compile(schemaJson);
