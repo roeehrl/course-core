@@ -288,7 +288,7 @@ const lineComponent = (over: Record<string, unknown> = {}) => ({ title: "Line ex
     { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
   outputs: [{ name: "y", label: "Output y" }],
   tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
-    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }], ...over });
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }, { id: "steeper", input: { slope: 3, x: 3, intercept: 1 }, expected: { y: 10 } }], ...over });
 const component = (over: Record<string, unknown> = {}) => () => ({ profileId: "component-profile", kind: "component", component: lineComponent(over), ...base });
 
 describe("generated interactive components (E05)", () => {
@@ -302,14 +302,19 @@ describe("generated interactive components (E05)", () => {
     expect(codeRuns).toEqual([LINE_COMPONENT_SOURCE, LINE_COMPONENT_SOURCE]);
     expect(await run.apply()).toBe("applied");
     const added = (await lesson(learner)).blocks.at(-1);
-    // The lesson block is the component's text alternative, written by the host from its labels.
+    // The lesson block is the component's text alternative, written by the host from its labels
+    // and the values its grader-verified tests showed, in the course's language.
     expect(added).toMatchObject({ type: "text" });
     expect(added.markdown).toContain("### Line explorer");
-    expect(added.markdown).toContain("- Slope: -5 – 5 (2)\n- Input x: 0 – 10 (3)");
+    expect(added.markdown).toContain("- Slope: from -5 to 5 in steps of 1, starting at 2\n- Input x: from 0 to 10 in steps of 1, starting at 3");
+    expect(added.markdown).toContain("At the start (Slope = 2, Input x = 3, Intercept = 1): Output y = 7.");
+    expect(added.markdown).toContain("- When Slope goes from 2 to 3 (other controls unchanged): Output y goes from 7 to 10.");
+    // Tests that move several controls at once are not described.
+    expect(added.markdown).not.toContain("40");
     const listed = await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(learner.learner) });
     expect(listed.statusCode, listed.body).toBe(200);
     expect(listed.json().components).toEqual([expect.objectContaining({ episodeId: "min", blockId: added.id, source: LINE_COMPONENT_SOURCE,
-      inputs: lineComponent().inputs, outputs: lineComponent().outputs, digest: expect.stringMatching(/^[a-f0-9]{64}$/) })]);
+      inputs: lineComponent().inputs, outputs: lineComponent().outputs, start: { outputs: { y: 7 } }, digest: expect.stringMatching(/^[a-f0-9]{64}$/) })]);
     expect(listed.json().components[0]).not.toHaveProperty("tests");
     expect((await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(await login()) })).statusCode).toBeGreaterThanOrEqual(403);
     // Published bytes cannot change.

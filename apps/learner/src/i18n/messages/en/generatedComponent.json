@@ -6,6 +6,7 @@
   "running": "Running…",
   "results": "Results",
   "notRun": "Run the model to see this.",
+  "startChecked": "These are the values at the starting position, checked before this was added. Change a value and run the model to see others.",
   "updated": "Results updated.",
   "failed": "The model could not run with these values. Try other values.",
   "badOutput": "The model returned something unexpected, so no result is shown. The description above has the same information.",

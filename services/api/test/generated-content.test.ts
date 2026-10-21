@@ -198,7 +198,47 @@ describe("generated components' text alternative", () => {
       tests: [{ id: "a", input: { x: 0 }, expected: { y: 0 } }, { id: "b", input: { x: 1 }, expected: { y: 1 } }, { id: "c", input: { x: -1 }, expected: { y: 1 } }] });
     expect(text).not.toMatch(/(?<!\\)\[here\]\(/);
     expect(text).not.toMatch(/(?<!\\)<b>/);
-    expect(text).toContain("- Input x: -1 – 1 (0)");
+    expect(text).toContain("- Input x: -1 – 1 (0; ±0.5)");
     expect(accessibilityProblems([text])).toEqual([]);
+  });
+  const ramp = (over: Record<string, unknown> = {}) => ({ title: "Ramp", description: "A ball rolls down a ramp.", source: "def solve(inputs):\n    return {}\n",
+    inputs: [{ name: "angle", label: "Angle", min: 0, max: 60, step: 5, initial: 30 }, { name: "mass", label: "Mass", min: 1, max: 10, step: 1, initial: 2 }],
+    outputs: [{ name: "speed", label: "Speed" }, { name: "note", label: "Note" }],
+    tests: [{ id: "start", input: { angle: 30, mass: 2 }, expected: { speed: 4.4, note: "rolls" } },
+      { id: "lower", input: { angle: 10, mass: 2 }, expected: { speed: 2.6, note: "rolls" } },
+      { id: "both", input: { angle: 60, mass: 9 }, expected: { speed: 5.8, note: "[fast](https://example.test)" } },
+      { id: "heavier", input: { angle: 30, mass: 8 }, expected: { speed: 4.4, note: "rolls" } }], ...over });
+  it("describes steps, the verified starting values and one-control changes from the grader's tests, in the course's language", async () => {
+    const { componentText } = await import("../src/generated-content.js");
+    const { accessibilityProblems } = await import("../src/teaching-accessibility.js");
+    const text = componentText(ramp(), "en-US");
+    expect(text).toContain("Controls:\n- Angle: from 0 to 60 in steps of 5, starting at 30\n- Mass: from 1 to 10 in steps of 1, starting at 2");
+    expect(text).toContain("Shows:\n- Speed\n- Note");
+    expect(text).toContain("At the start (Angle = 30, Mass = 2): Speed = 4.4, Note = rolls.");
+    // A control moved down is described going up; an output that did not move "stays".
+    expect(text).toContain("- When Angle goes from 10 to 30 (other controls unchanged): Speed goes from 2.6 to 4.4; Note stays rolls.");
+    expect(text).toContain("- When Mass goes from 2 to 8 (other controls unchanged): Speed stays 4.4; Note stays rolls.");
+    // A test that moved two controls at once is never described; its values stay server-side.
+    expect(text).not.toContain("5.8");
+    expect(text).not.toContain("fast");
+    expect(accessibilityProblems([text])).toEqual([]);
+    const hebrew = componentText(ramp(), "he");
+    expect(hebrew).toContain("- Angle: מ־0 עד 60 בצעדים של 5, ערך התחלתי 30");
+    expect(hebrew).toContain("בהתחלה (Angle = 30, Mass = 2): Speed = 4.4, Note = rolls.");
+    expect(hebrew).not.toMatch(/\b(from|when|start)\b/i);
+    // Another course language gets symbols, never English words.
+    const other = componentText(ramp(), "fr");
+    expect(other).toContain("- Angle: 0 – 60 (30; ±5)");
+    expect(other).toContain("- Angle: 10 → 30 ⇒ Speed: 2.6 → 4.4; Note: rolls");
+    expect(other).not.toMatch(/\b(from|when|start|steps)\b/i);
+  });
+  it("escapes verified text values like labels, and leaves out changes when no test moves a single control", async () => {
+    const { componentText } = await import("../src/generated-content.js");
+    const tests = [{ id: "start", input: { angle: 30, mass: 2 }, expected: { speed: 1, note: "*bold* <i>x</i>" } },
+      { id: "both", input: { angle: 40, mass: 3 }, expected: { speed: 2, note: "y" } }, { id: "both2", input: { angle: 50, mass: 4 }, expected: { speed: 3, note: "z" } }];
+    const text = componentText(ramp({ tests }), "en");
+    expect(text).toContain("Note = \\*bold\\* \\<i\\>x\\</i\\>");
+    expect(text).not.toContain("Checked before this was added");
+    expect(text).not.toContain("When ");
   });
 });
