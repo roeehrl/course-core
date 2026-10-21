@@ -713,6 +713,16 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     await page
       .getByRole("button", { name: "Close companion", exact: true })
       .click();
+  // P12: revisiting a finished lesson names where the learner returns, and takes them there.
+  await page.getByRole("button", { name: "← Course roadmap", exact: true }).click();
+  await page.getByRole("button", { name: "Inspect Minimum, Completed" }).click();
+  await page.getByRole("button", { name: "Revisit lesson →", exact: true }).click();
+  await expect(page.getByTestId("detour-return")).toContainText(
+    "You are revisiting a lesson you finished. When you are done, you return to “Maximum”",
+  );
+  await page.getByRole("button", { name: "Return to “Maximum”", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Maximum", exact: true })).toBeVisible();
+  await expect(page.getByTestId("detour-return")).toHaveCount(0);
   await chooseFromMenu(page, "Sign out");
   await expect(
     page.getByRole("heading", {
