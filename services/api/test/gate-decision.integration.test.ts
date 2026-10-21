@@ -432,6 +432,9 @@ describe("gate review and exception", () => {
     const listed = (await queue()).json().reviews;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ requestId, enrollmentId: enrollment, reason, decision: { decisionId: current.decisionId, status: "needs_evidence" }, canGrantException: true });
+    // The decision's texts also go out as codes, so a reviewer reads them in their own language.
+    expect(listed[0].decision.messages.reason.code).toMatch(/^reason\.needs_evidence/);
+    expect(Object.keys(listed[0].decision.messages.criteria).sort()).toEqual(listed[0].decision.criterionResults.map((c: { criterionId: string }) => c.criterionId).sort());
     // A reviewer may uphold but not grant an exception; nobody reviews their own request.
     const reviewer = await session("reviewer");
     expect((await queue(reviewer)).json().reviews[0].canGrantException).toBe(false);
