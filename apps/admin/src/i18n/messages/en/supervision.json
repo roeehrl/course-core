@@ -1,1 +1,15 @@
-{}
+{
+  "error.FORBIDDEN": "Your role cannot change AI supervision. Owners, admins and instructors can.",
+  "error.SUPERVISION_CONTROL_STALE": "Someone changed this learner's supervision since you opened it. Refresh and try again.",
+  "error.SUPERVISION_CONTROL_INVALID": "Stopped supervision must be resumed before it can be paused.",
+  "error.IDEMPOTENCY_CONFLICT": "A different change was already sent with this request. Refresh and try again.",
+  "error.ENROLLMENT_ERASED": "This learner's data was erased.",
+  "error.SUPERVISOR_EVENT_ALREADY_REQUEUED": "This request was already re-queued once. It will not be re-queued again.",
+  "error.SUPERVISOR_EVENT_NOT_QUARANTINED": "This request is no longer quarantined. Refresh to see where it is.",
+  "error.SUPERVISOR_EVENT_NOT_REQUEUEABLE": "This request was refused for good and cannot be re-queued.",
+  "error.SUPERVISOR_EVENT_NOT_FOUND": "This request is not one of this learner's. Refresh and try again.",
+  "error.SUPERVISION_CONSENT_WITHDRAWN": "The learner withdrew consent for AI supervision since this request. It was not re-queued.",
+  "error.RUBRIC_ASSIST_CONSENT_WITHDRAWN": "The learner withdrew consent for review drafts since this request. It was not re-queued.",
+  "error.INVALID_REQUEST": "Give a reason of at least 10 characters.",
+  "error.unavailable": "AI supervision is unavailable right now. Nothing changed."
+}

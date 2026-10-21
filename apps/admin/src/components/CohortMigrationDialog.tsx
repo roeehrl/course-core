@@ -3,7 +3,8 @@ import type { AdminClient } from "../domain/contracts";
 import type { LearningPolicy } from "../domain/policy";
 import type { CohortPreview, CohortResult } from "../domain/policyLedger";
 import { useSingleFlight } from "./LedgerActionDialog";
-import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
+import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
 /** A reviewed policy change for every active learner of this course. The server previews
  * each enrollment, names every grant the change would shorten, and applies nothing until
@@ -21,6 +22,15 @@ export function CohortMigrationDialog({
   onClose: () => void;
   onApplied: (result: CohortResult) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  const deadlineOrNone = (iso: string | null) =>
+    iso ? when(iso) : t("cohortMigrationDialog.none");
+  const grantKind = (kind: string) => {
+    const key = `cohortMigrationDialog.grantKind.${kind}` as MessageKey;
+    return i18n.has(key) ? t(key) : kind.replaceAll("_", " ");
+  };
   const [scopeId, setScopeId] = useState(
     policy.scopes.find((s) => s.parentScopeId === null)?.scopeId ??
       policy.scopes[0]!.scopeId,
@@ -42,17 +52,13 @@ export function CohortMigrationDialog({
     preview.shortenedGrantIds.every((id) => acknowledged.includes(id));
   return (
     <Dialog
-      title="Change a deadline for all learners"
+      title={t("cohortMigrationDialog.title")}
       onClose={onClose}
       pending={flight.pending}
-      eyebrow="Cohort-wide policy migration"
+      eyebrow={t("cohortMigrationDialog.eyebrow")}
     >
-      <Notice tone="gold">
-        Existing anchors, pools, grants and ledger history are preserved. Time
-        already promised by a grant is never shortened silently: each affected
-        grant must be acknowledged.
-      </Notice>
-      <Field label="Scope" htmlFor="cohort-scope">
+      <Notice tone="gold">{t("cohortMigrationDialog.notice")}</Notice>
+      <Field label={t("cohortMigrationDialog.scope")} htmlFor="cohort-scope">
         <select
           id="cohort-scope"
           value={scopeId}
@@ -64,13 +70,16 @@ export function CohortMigrationDialog({
           {policy.scopes
             .filter((s) => s.kind !== "episode")
             .map((s) => (
-              <option key={s.scopeId} value={s.scopeId}>
+              <option key={s.scopeId} value={s.scopeId} dir="auto">
                 {s.label}
               </option>
             ))}
         </select>
       </Field>
-      <Field label="New absolute deadline (UTC)" htmlFor="cohort-deadline">
+      <Field
+        label={t("cohortMigrationDialog.deadline")}
+        htmlFor="cohort-deadline"
+      >
         <input
           id="cohort-deadline"
           type="datetime-local"
@@ -95,41 +104,70 @@ export function CohortMigrationDialog({
           )
         }
       >
-        Preview every enrollment
+        {t("cohortMigrationDialog.preview")}
       </Button>
       {preview && (
         <div className="stack">
           <h3>
-            Impact on {preview.enrollments.length} active enrollment
-            {preview.enrollments.length === 1 ? "" : "s"}
+            {t("cohortMigrationDialog.impact", {
+              count: preview.enrollments.length,
+            })}
           </h3>
-          <small className="mono">
-            {preview.previewDigest} · expires {when(preview.expiresAt)}
+          <small>
+            {i18n.rich(
+              "cohortMigrationDialog.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           <ul>
             {preview.enrollments.map((entry) => (
               <li key={entry.enrollmentId}>
-                <strong>{entry.displayName}</strong>:{" "}
-                {entry.impacts.length
-                  ? entry.impacts
-                      .map(
-                        (i) =>
-                          `${label(i.scopeId)} ${i.effectiveDeadlineBefore ? when(i.effectiveDeadlineBefore) : "none"} → ${i.effectiveDeadlineAfter ? when(i.effectiveDeadlineAfter) : "none"}`,
-                      )
-                      .join("; ")
-                  : "no effective deadline changes"}
+                {i18n.rich(
+                  "cohortMigrationDialog.entry",
+                  {
+                    name: entry.displayName,
+                    changes: entry.impacts.length
+                      ? entry.impacts
+                          .map((i) =>
+                            t("cohortMigrationDialog.change", {
+                              scope: label(i.scopeId),
+                              before: deadlineOrNone(i.effectiveDeadlineBefore),
+                              after: deadlineOrNone(i.effectiveDeadlineAfter),
+                            }),
+                          )
+                          .join("; ")
+                      : t("cohortMigrationDialog.noChanges"),
+                  },
+                  {
+                    name: (children, key) => (
+                      <strong key={key}>{children}</strong>
+                    ),
+                  },
+                )}
               </li>
             ))}
             {preview.refused.map((entry) => (
               <li key={entry.enrollmentId}>
-                Not changed ({entry.code.replaceAll("_", " ").toLowerCase()}):{" "}
-                {entry.enrollmentId}
+                {t("cohortMigrationDialog.refused", {
+                  code: entry.code.replaceAll("_", " ").toLowerCase(),
+                  id: entry.enrollmentId,
+                })}
               </li>
             ))}
           </ul>
           {preview.shortenedGrantIds.length > 0 && (
             <fieldset className="stack">
-              <legend>Grants this change shortens</legend>
+              <legend>{t("cohortMigrationDialog.shortened")}</legend>
               {preview.enrollments.flatMap((entry) =>
                 entry.shortenedGrants.map((grant) => (
                   <label key={grant.entryId} className="check-label">
@@ -145,19 +183,25 @@ export function CohortMigrationDialog({
                       }
                     />
                     <span>
-                      I acknowledge that {entry.displayName}'s{" "}
-                      {grant.kind.replaceAll("_", " ")} ends{" "}
-                      {when(grant.effectiveDeadlineAfter)} instead of{" "}
-                      {when(grant.effectiveDeadlineBefore)}.
+                      {t("cohortMigrationDialog.acknowledge", {
+                        name: entry.displayName,
+                        kind: grantKind(grant.kind),
+                        after: when(grant.effectiveDeadlineAfter),
+                        before: when(grant.effectiveDeadlineBefore),
+                      })}
                     </span>
                   </label>
                 )),
               )}
             </fieldset>
           )}
-          <Field label="Reason for this change" htmlFor="cohort-reason">
+          <Field
+            label={t("cohortMigrationDialog.reason")}
+            htmlFor="cohort-reason"
+          >
             <input
               id="cohort-reason"
+              dir="auto"
               maxLength={1000}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -180,7 +224,7 @@ export function CohortMigrationDialog({
               })
             }
           >
-            Apply to all previewed learners
+            {t("cohortMigrationDialog.apply")}
           </Button>
         </div>
       )}

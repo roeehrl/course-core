@@ -1,1 +1,19 @@
-{}
+{
+  "region": "התנאים המדויקים לפני ואחרי",
+  "caption": "התנאים המדויקים לפני ואחרי, אם ההארכה תוענק בהמשך",
+  "column.term": "תנאי",
+  "column.current": "נוכחי",
+  "column.proposed": "מוצע",
+  "effective": "מועד אחרון בפועל",
+  "none": "אין",
+  "quota": "מגבלה {limit} · נוצלו {consumed} · שמורים {reserved} · נותרו {remaining}",
+  "notSupplied": "לא סופק",
+  "balance": "יתרת המכסה",
+  "balance.value": "{remaining} {unit, select, calendar_day {ימים קלנדריים} scope_calendar_day {ימים קלנדריים בתחום} planned_minute {דקות מתוכננות} episode {יחידות לימוד} other {יחידות}} / {grants, plural, one {הענקה אחת} two {שתי הענקות} other {# הענקות}}",
+  "cost": "העלות המדויקת מהמכסה אם תוענק",
+  "cost.row": "{amount} {unit, select, calendar_day {ימים קלנדריים} scope_calendar_day {ימים קלנדריים בתחום} planned_minute {דקות מתוכננות} episode {יחידות לימוד} other {יחידות}} מתוך <pool>{pool}</pool>",
+  "ancestor": "המגבלות של תחומי-העל ממשיכות לחול",
+  "ancestor.row": "{scope} · {kind} · {date}",
+  "approvals": "אישורי סמכות נדרשים: {approvals}.",
+  "approvals.none": "אישורי סמכות נדרשים: אין, מלבד הסכמה מפורשת של הלומד/ת לתנאים המדויקים."
+}

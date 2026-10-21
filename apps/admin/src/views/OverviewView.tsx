@@ -8,16 +8,16 @@ import {
   Loading,
   Notice,
   Stat,
-  when,
 } from "../components/ui";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
-const queueLabels: Record<keyof CourseOverview["approvalQueue"], string> = {
-  writtenAnswers: "Written answers to review",
-  secondOpinions: "Second opinions requested",
-  gateReviews: "Gate review requests",
-  generatedMedia: "Generated media to review",
-  releases: "Releases awaiting review",
-  providerRequests: "Provider requests",
+const queueKeys: Record<keyof CourseOverview["approvalQueue"], MessageKey> = {
+  writtenAnswers: "overviewView.queue.writtenAnswers",
+  secondOpinions: "overviewView.queue.secondOpinions",
+  gateReviews: "overviewView.queue.gateReviews",
+  generatedMedia: "overviewView.queue.generatedMedia",
+  releases: "overviewView.queue.releases",
+  providerRequests: "overviewView.queue.providerRequests",
 };
 
 /** What needs attention on this course: counts only, nothing learner-private. */
@@ -28,11 +28,12 @@ export function OverviewView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   if (!client.overview)
     return (
-      <Card title="Overview">
-        <EmptyState title="Overview is not available here">
-          Use a connected administration session.
+      <Card title={t("overviewView.title")}>
+        <EmptyState title={t("overviewView.unavailable.title")}>
+          {t("overviewView.unavailable.body")}
         </EmptyState>
       </Card>
     );
@@ -50,85 +51,113 @@ function Overview({
     (signal) => port.load(catalogId, signal),
     [port, catalogId],
   );
-  if (overview.loading) return <Loading label="Loading the course overview…" />;
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
+  if (overview.loading) return <Loading label={t("overviewView.loading")} />;
   if (overview.error || !overview.data)
-    return <Notice tone="red">{overviewErrorMessage(overview.error)}</Notice>;
+    return (
+      <Notice tone="red">{overviewErrorMessage(overview.error, t)}</Notice>
+    );
   const o = overview.data;
+  /** A server state shown by its label; an unknown state shows its code. */
+  const label = (key: string, fallback: string) =>
+    i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
   const waiting = Object.values(o.approvalQueue).reduce((a, b) => a + b, 0);
   const defects = o.contentDefects.activeReleaseChecksFailing.length;
   return (
     <div className="page-stack">
       <div className="stats-grid">
         <Stat
-          label="Live release"
-          value={o.release.active ? o.release.active.version : "None"}
+          label={t("overviewView.stat.liveRelease")}
+          value={
+            o.release.active ? (
+              <span dir="ltr">{o.release.active.version}</span>
+            ) : (
+              t("overviewView.stat.noRelease")
+            )
+          }
           detail={
             o.release.active
-              ? `published ${when(o.release.active.createdAt)}`
-              : "No release for new learners"
+              ? t("overviewView.stat.publishedAt", {
+                  date: when(o.release.active.createdAt),
+                })
+              : t("overviewView.stat.noReleaseDetail")
           }
         />
         <Stat
-          label="Waiting for staff"
-          value={waiting}
-          detail="Reviews, requests and releases"
+          label={t("overviewView.stat.waiting")}
+          value={i18n.number(waiting)}
+          detail={t("overviewView.stat.waitingDetail")}
         />
         <Stat
-          label="Deadline risks"
-          value={o.deadlineRisks ? o.deadlineRisks.length : "—"}
+          label={t("overviewView.stat.deadlineRisks")}
+          value={o.deadlineRisks ? i18n.number(o.deadlineRisks.length) : "—"}
           detail={
             o.deadlineRisks
-              ? "Active learners due within 7 days"
-              : "Not visible to your role"
+              ? t("overviewView.stat.deadlineRisksDetail")
+              : t("overviewView.stat.notVisible")
           }
         />
         <Stat
-          label="Content defects"
-          value={defects}
-          detail={`${o.contentDefects.evidenceInvalidatedLast30Days} evidence records invalidated in 30 days`}
+          label={t("overviewView.stat.contentDefects")}
+          value={i18n.number(defects)}
+          detail={t("overviewView.stat.invalidated", {
+            count: o.contentDefects.evidenceInvalidatedLast30Days,
+          })}
         />
       </div>
-      <Card title="Approval queue">
+      <Card title={t("overviewView.queue.title")}>
         <ul className="overview-list">
-          {(Object.keys(queueLabels) as (keyof typeof queueLabels)[]).map(
-            (key) => (
-              <li key={key}>
-                <span>{queueLabels[key]}</span>
-                <Badge tone={o.approvalQueue[key] ? "gold" : "neutral"}>
-                  {o.approvalQueue[key]}
-                </Badge>
-              </li>
-            ),
-          )}
+          {(Object.keys(queueKeys) as (keyof typeof queueKeys)[]).map((key) => (
+            <li key={key}>
+              <span>{t(queueKeys[key])}</span>
+              <Badge tone={o.approvalQueue[key] ? "gold" : "neutral"}>
+                {o.approvalQueue[key]}
+              </Badge>
+            </li>
+          ))}
         </ul>
       </Card>
-      <Card title="Releases and learners">
+      <Card title={t("overviewView.releases.title")}>
         {o.release.update?.availableVersion && (
-          <Notice tone="gold" title="Update available">
-            Version {o.release.update.availableVersion} is available at this
-            course's update source. Review and install it in Course &amp;
-            releases.
+          <Notice tone="gold" title={t("overviewView.releases.updateTitle")}>
+            {t("overviewView.releases.updateBody", {
+              version: o.release.update.availableVersion,
+            })}
           </Notice>
         )}
         <p>
-          {o.release.counts.published} published · {o.release.counts.draft}{" "}
-          draft · {o.release.counts.archived} archived
+          {t("overviewView.releases.counts", {
+            published: o.release.counts.published,
+            draft: o.release.counts.draft,
+            archived: o.release.counts.archived,
+          })}
         </p>
         {o.release.pinnedLearners.length > 0 && (
           <ul className="overview-list">
             {o.release.pinnedLearners.map((p) => (
               <li key={p.releaseId}>
-                <span>Learners on version {p.version ?? "unknown"}</span>
+                <span>
+                  {p.version
+                    ? t("overviewView.releases.pinned", { version: p.version })
+                    : t("overviewView.releases.pinnedUnknown")}
+                </span>
                 <Badge>{p.learners}</Badge>
               </li>
             ))}
           </ul>
         )}
         {o.lifecycle && (
-          <ul className="overview-list" aria-label="Enrollments by state">
+          <ul
+            className="overview-list"
+            aria-label={t("overviewView.lifecycle.label")}
+          >
             {Object.entries(o.lifecycle).map(([state, n]) => (
               <li key={state}>
-                <span>{state}</span>
+                <span>
+                  {label(`overviewView.lifecycle.state.${state}`, state)}
+                </span>
                 <Badge>{n}</Badge>
               </li>
             ))}
@@ -136,22 +165,26 @@ function Overview({
         )}
       </Card>
       {o.deadlineRisks && (
-        <Card title="Deadline risks">
+        <Card title={t("overviewView.risks.title")}>
           {o.deadlineRisks.length === 0 ? (
-            <EmptyState title="No learner is close to a deadline">
-              Active learners with unfinished lessons due within 7 days appear
-              here.
+            <EmptyState title={t("overviewView.risks.empty.title")}>
+              {t("overviewView.risks.empty.body")}
             </EmptyState>
           ) : (
             <ul className="overview-list">
               {o.deadlineRisks.map((r) => (
                 <li key={r.enrollmentId}>
                   <span>
-                    {r.learner} · {r.remainingEpisodes} lessons left · due{" "}
-                    {when(r.deadline)}
+                    {t("overviewView.risks.item", {
+                      learner: r.learner,
+                      count: r.remainingEpisodes,
+                      date: when(r.deadline),
+                    })}
                   </span>
                   <Badge tone={r.daysLeft < 0 ? "red" : "gold"}>
-                    {r.daysLeft < 0 ? "overdue" : `${r.daysLeft} days`}
+                    {r.daysLeft < 0
+                      ? t("overviewView.risks.overdue")
+                      : t("overviewView.risks.days", { count: r.daysLeft })}
                   </Badge>
                 </li>
               ))}
@@ -160,28 +193,43 @@ function Overview({
         </Card>
       )}
       {defects > 0 && (
-        <Card title="Content defects">
+        <Card title={t("overviewView.defects.title")}>
           <ul className="reason-list">
             {o.contentDefects.activeReleaseChecksFailing.map((c) => (
-              <li key={c.label}>
-                {c.label}: {c.detail}
+              <li key={c.label} dir="auto">
+                {t("overviewView.defects.item", {
+                  label: c.label,
+                  detail: c.detail,
+                })}
               </li>
             ))}
           </ul>
         </Card>
       )}
       {o.supervisorHealth && (
-        <Card title="AI supervision health">
+        <Card title={t("overviewView.health.title")}>
           <p>
-            {o.supervisorHealth.failedLast24h} failed in the last 24 hours
-            {o.supervisorHealth.oldestOpenJobAgeSeconds !== null &&
-              ` · oldest open job ${Math.round(o.supervisorHealth.oldestOpenJobAgeSeconds / 60)} minutes old`}
+            {o.supervisorHealth.oldestOpenJobAgeSeconds === null
+              ? t("overviewView.health.failed", {
+                  count: o.supervisorHealth.failedLast24h,
+                })
+              : t("overviewView.health.failedWithOldest", {
+                  count: o.supervisorHealth.failedLast24h,
+                  minutes: Math.round(
+                    o.supervisorHealth.oldestOpenJobAgeSeconds / 60,
+                  ),
+                })}
           </p>
           <ul className="overview-list">
             {Object.entries(o.supervisorHealth.jobsByState).map(
               ([state, n]) => (
                 <li key={state}>
-                  <span>{state.replaceAll("_", " ")}</span>
+                  <span>
+                    {label(
+                      `overviewView.jobState.${state}`,
+                      state.replaceAll("_", " "),
+                    )}
+                  </span>
                   <Badge tone={state === "failed" ? "red" : "neutral"}>
                     {n}
                   </Badge>

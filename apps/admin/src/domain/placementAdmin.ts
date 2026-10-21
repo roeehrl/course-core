@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 const count = z.number().int().nonnegative();
 export const placementSettingsSchema = z.object({
@@ -145,18 +146,13 @@ export class PlacementAdminError extends Error {
     this.name = "PlacementAdminError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Your role cannot change placement. Owners and admins set it; instructors may revoke an exemption.",
-  STALE_REVISION:
-    "These settings or this enrollment changed since you opened them. Refresh and try again.",
-  PLACEMENT_LIMIT_LOOSENS_AUTHOR:
-    "The question limit can only be lowered below what the course author allows.",
-  PLACEMENT_NOT_OFFERED:
-    "No published release of this course offers placement, so there is no question limit to set. Leave it empty.",
-  PLACEMENT_EXEMPTION_NOT_FOUND: "That exemption no longer exists. Refresh.",
-  INVALID_REQUEST: "Check the values: the reason needs at least 10 characters.",
+export const placementErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) => {
+  const code = error instanceof PlacementAdminError ? error.code : "";
+  const key = `placementAdmin.error.${code}` as MessageKey;
+  return code && englishTranslator().has(key)
+    ? t(key)
+    : t("placementAdmin.error.unavailable");
 };
-export const placementErrorMessage = (error: unknown) =>
-  messages[error instanceof PlacementAdminError ? error.code : ""] ??
-  "Placement administration is unavailable. Nothing changed.";

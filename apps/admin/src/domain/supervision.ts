@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 export const supervisionStateSchema = z.enum(["active", "paused", "stopped"]);
 export type SupervisionState = z.infer<typeof supervisionStateSchema>;
@@ -100,30 +101,26 @@ export class SupervisionError extends Error {
     this.name = "SupervisionError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Your role cannot change AI supervision. Owners, admins and instructors can.",
-  SUPERVISION_CONTROL_STALE:
-    "Someone changed this learner's supervision since you opened it. Refresh and try again.",
-  SUPERVISION_CONTROL_INVALID:
-    "Stopped supervision must be resumed before it can be paused.",
-  IDEMPOTENCY_CONFLICT:
-    "A different change was already sent with this request. Refresh and try again.",
-  ENROLLMENT_ERASED: "This learner's data was erased.",
-  SUPERVISOR_EVENT_ALREADY_REQUEUED:
-    "This request was already re-queued once. It will not be re-queued again.",
-  SUPERVISOR_EVENT_NOT_QUARANTINED:
-    "This request is no longer quarantined. Refresh to see where it is.",
-  SUPERVISOR_EVENT_NOT_REQUEUEABLE:
-    "This request was refused for good and cannot be re-queued.",
-  SUPERVISOR_EVENT_NOT_FOUND:
-    "This request is not one of this learner's. Refresh and try again.",
-  SUPERVISION_CONSENT_WITHDRAWN:
-    "The learner withdrew consent for AI supervision since this request. It was not re-queued.",
-  RUBRIC_ASSIST_CONSENT_WITHDRAWN:
-    "The learner withdrew consent for review drafts since this request. It was not re-queued.",
-  INVALID_REQUEST: "Give a reason of at least 10 characters.",
-};
-export const supervisionErrorMessage = (error: unknown) =>
-  messages[error instanceof SupervisionError ? error.code : ""] ??
-  "AI supervision is unavailable right now. Nothing changed.";
+const ERROR_CODES = new Set([
+  "FORBIDDEN",
+  "SUPERVISION_CONTROL_STALE",
+  "SUPERVISION_CONTROL_INVALID",
+  "IDEMPOTENCY_CONFLICT",
+  "ENROLLMENT_ERASED",
+  "SUPERVISOR_EVENT_ALREADY_REQUEUED",
+  "SUPERVISOR_EVENT_NOT_QUARANTINED",
+  "SUPERVISOR_EVENT_NOT_REQUEUEABLE",
+  "SUPERVISOR_EVENT_NOT_FOUND",
+  "SUPERVISION_CONSENT_WITHDRAWN",
+  "RUBRIC_ASSIST_CONSENT_WITHDRAWN",
+  "INVALID_REQUEST",
+]);
+export function supervisionErrorMessage(
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) {
+  const code = error instanceof SupervisionError ? error.code : "";
+  return ERROR_CODES.has(code)
+    ? t(`supervision.error.${code}` as MessageKey)
+    : t("supervision.error.unavailable");
+}

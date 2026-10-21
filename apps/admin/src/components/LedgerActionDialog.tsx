@@ -6,8 +6,9 @@ import type {
   LedgerPreview,
   LedgerResult,
 } from "../domain/policyLedger";
-import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
+import { Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
 /** One action at a time, with a stable idempotency key per reviewed preview and reason. */
 export function useSingleFlight() {
@@ -41,12 +42,6 @@ export function useSingleFlight() {
   return { pending, error, setError, run, key };
 }
 
-const titles: Record<LedgerAction["kind"], string> = {
-  revocation: "Revoke grant",
-  refund: "Refund allowance",
-  exception: "Exceptional grant",
-};
-
 /** Revocation, refund and exceptional grant are separate audited operations: the
  * server computes the exact effect first, then applies that reviewed preview only. */
 export function LedgerActionDialog({
@@ -62,6 +57,9 @@ export function LedgerActionDialog({
   onClose: () => void;
   onUpdated: (result: LedgerResult) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
   const [action, setAction] = useState(initial);
   const [preview, setPreview] = useState<LedgerPreview>();
   const [reason, setReason] = useState("");
@@ -75,24 +73,21 @@ export function LedgerActionDialog({
   };
   return (
     <Dialog
-      title={titles[action.kind]}
+      title={t(`ledgerActionDialog.title.${action.kind}` as MessageKey)}
       onClose={onClose}
       pending={flight.pending}
-      eyebrow="Audited ledger operation"
+      eyebrow={t("ledgerActionDialog.eyebrow")}
     >
       {action.kind === "revocation" && (
-        <Notice tone="gold">
-          A revocation keeps the grant and its usage in the ledger and does not
-          refund allowance. Refunding is a separate operation.
-        </Notice>
+        <Notice tone="gold">{t("ledgerActionDialog.revocation.notice")}</Notice>
       )}
       {action.kind === "refund" && (
         <>
-          <Notice tone="blue">
-            A refund returns allowance units to the pool. It never moves a
-            deadline.
-          </Notice>
-          <Field label="Units to refund" htmlFor="ledger-refund-amount">
+          <Notice tone="blue">{t("ledgerActionDialog.refund.notice")}</Notice>
+          <Field
+            label={t("ledgerActionDialog.refund.units")}
+            htmlFor="ledger-refund-amount"
+          >
             <input
               id="ledger-refund-amount"
               type="number"
@@ -109,11 +104,14 @@ export function LedgerActionDialog({
       {action.kind === "exception" && (
         <>
           <Notice tone="gold">
-            For this learner only, outside every allowance pool. It changes{" "}
-            {label(action.scopeId)} explicitly; an earlier ancestor deadline
-            still binds.
+            {t("ledgerActionDialog.exception.notice", {
+              scope: label(action.scopeId),
+            })}
           </Notice>
-          <Field label="Extra calendar days" htmlFor="ledger-exception-days">
+          <Field
+            label={t("ledgerActionDialog.exception.days")}
+            htmlFor="ledger-exception-days"
+          >
             <input
               id="ledger-exception-days"
               type="number"
@@ -138,66 +136,90 @@ export function LedgerActionDialog({
           )
         }
       >
-        {flight.pending && !preview ? "Computing…" : "Preview the effect"}
+        {flight.pending && !preview
+          ? t("ledgerActionDialog.computing")
+          : t("ledgerActionDialog.preview")}
       </Button>
       {preview && (
         <div className="stack">
-          <h3>Reviewed effect</h3>
-          <small className="mono">
-            {preview.previewDigest} · expires {when(preview.expiresAt)}
+          <h3>{t("ledgerActionDialog.reviewed")}</h3>
+          <small>
+            {i18n.rich(
+              "ledgerActionDialog.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           {preview.previewKind === "revocation" && (
             <ul>
               {preview.impacts.map((impact) => (
                 <li key={impact.scopeId}>
-                  {label(impact.scopeId)}:{" "}
-                  {impact.effectiveDeadlineBefore
-                    ? when(impact.effectiveDeadlineBefore)
-                    : "no deadline"}{" "}
-                  →{" "}
-                  {impact.effectiveDeadlineAfter
-                    ? when(impact.effectiveDeadlineAfter)
-                    : "no deadline"}
-                  {impact.shortened ? " (earlier)" : ""}
+                  {t(
+                    impact.shortened
+                      ? "ledgerActionDialog.impact.earlier"
+                      : "ledgerActionDialog.impact",
+                    {
+                      scope: label(impact.scopeId),
+                      before: impact.effectiveDeadlineBefore
+                        ? when(impact.effectiveDeadlineBefore)
+                        : t("ledgerActionDialog.noDeadline"),
+                      after: impact.effectiveDeadlineAfter
+                        ? when(impact.effectiveDeadlineAfter)
+                        : t("ledgerActionDialog.noDeadline"),
+                    },
+                  )}
                 </li>
               ))}
               <li>
                 {preview.shortensDeadline
-                  ? "This shortens promised time for the learner."
-                  : "No deadline gets earlier."}
+                  ? t("ledgerActionDialog.shortens")
+                  : t("ledgerActionDialog.notShorter")}
               </li>
             </ul>
           )}
           {preview.previewKind === "refund" && (
             <ul>
               <li>
-                Balance {preview.balanceBefore.remaining} →{" "}
-                {preview.balanceAfter.remaining} ({preview.poolId})
+                {t("ledgerActionDialog.balance", {
+                  before: preview.balanceBefore.remaining,
+                  after: preview.balanceAfter.remaining,
+                  pool: preview.poolId,
+                })}
               </li>
             </ul>
           )}
           {preview.previewKind === "exception" && (
             <ul>
               <li>
-                Effective deadline{" "}
-                {preview.effectiveDeadlineBefore
-                  ? when(preview.effectiveDeadlineBefore)
-                  : "none"}{" "}
-                →{" "}
-                {preview.effectiveDeadlineAfter
-                  ? when(preview.effectiveDeadlineAfter)
-                  : "none"}
+                {t("ledgerActionDialog.effective", {
+                  before: preview.effectiveDeadlineBefore
+                    ? when(preview.effectiveDeadlineBefore)
+                    : t("ledgerActionDialog.none"),
+                  after: preview.effectiveDeadlineAfter
+                    ? when(preview.effectiveDeadlineAfter)
+                    : t("ledgerActionDialog.none"),
+                })}
               </li>
-              <li>No allowance pool is debited.</li>
+              <li>{t("ledgerActionDialog.noDebit")}</li>
             </ul>
           )}
           <Field
-            label="Reason"
+            label={t("ledgerActionDialog.reason")}
             htmlFor="ledger-reason"
-            hint="A reference such as a ticket or decision number, not personal details."
+            hint={t("ledgerActionDialog.reason.hint")}
           >
             <input
               id="ledger-reason"
+              dir="auto"
               maxLength={1000}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -227,7 +249,7 @@ export function LedgerActionDialog({
               })
             }
           >
-            {`Apply: ${titles[action.kind].toLowerCase()}`}
+            {t(`ledgerActionDialog.apply.${action.kind}` as MessageKey)}
           </Button>
         </div>
       )}

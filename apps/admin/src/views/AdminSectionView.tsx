@@ -19,20 +19,18 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
+import { useFormatters, useT, type MessageKey } from "../i18n";
 
-const scopeLabels: Record<SectionScope, string> = {
-  course: "Whole course",
-  chapter: "One chapter",
-  enrollment: "One learner",
+const scopeKeys: Record<SectionScope, MessageKey> = {
+  course: "adminSectionView.scope.course",
+  chapter: "adminSectionView.scope.chapter",
+  enrollment: "adminSectionView.scope.enrollment",
 };
-const accessLabels: Record<SectionView["learnerDataAccess"], string> = {
-  none: "Uses no learner data.",
-  aggregate:
-    "Declares aggregate learner data. Core shares none with this section.",
-  scoped_with_consent:
-    "Asks for learner data with consent. There is no learner sharing control yet, so Core shares none.",
+const accessKeys: Record<SectionView["learnerDataAccess"], MessageKey> = {
+  none: "adminSectionView.access.none",
+  aggregate: "adminSectionView.access.aggregate",
+  scoped_with_consent: "adminSectionView.access.scoped_with_consent",
 };
 
 /**
@@ -51,9 +49,13 @@ export function AdminSectionView({
   list: AdminSectionList;
 }) {
   const id = useId();
+  const t = useT();
   const [scope, setScope] = useState<SectionScope>("course");
   const [scopeRef, setScopeRef] = useState("");
-  const [saved, setSaved] = useState("");
+  const [saved, setSaved] = useState<{
+    title: string;
+    revision: number;
+  } | null>(null);
   const learners = data.enrollments.filter((e) => e.status !== "erased");
   const ready = scope === "course" || scopeRef !== "";
   // The course level carries the section's description and levels; other levels load beside it.
@@ -76,40 +78,55 @@ export function AdminSectionView({
   );
   const view = scope === "course" ? course : other;
   if (course.loading && !course.data)
-    return <Loading label="Loading course settings…" />;
+    return <Loading label={t("adminSectionView.loading")} />;
   if (course.error || !course.data)
-    return <Notice tone="red">{adminSectionErrorMessage(course.error)}</Notice>;
+    return (
+      <Notice tone="red">{adminSectionErrorMessage(course.error, t)}</Notice>
+    );
   const header = course.data.section,
     section = view.data?.section;
   const scopes = header.scopes;
   return (
     <div className="page-stack">
       <div aria-live="polite">
-        {saved && <Notice tone="green">{saved}</Notice>}
+        {saved && (
+          <Notice tone="green">
+            {t("adminSectionView.saved", {
+              title: saved.title,
+              revision: saved.revision,
+            })}
+          </Notice>
+        )}
       </div>
       <Card
         title={header.title}
-        eyebrow={`Declared by release ${course.data.release.version} · section ${header.version}`}
+        eyebrow={t("adminSectionView.declaredBy", {
+          release: course.data.release.version,
+          version: header.version,
+        })}
       >
-        {header.description && <p>{header.description}</p>}
+        {header.description && <p dir="auto">{header.description}</p>}
         <div className="tag-row">
-          <Badge tone="blue">
-            Rendered by Core from the course's settings schema
-          </Badge>
+          <Badge tone="blue">{t("adminSectionView.renderedByCore")}</Badge>
           {header.renderer.declaredRendererRef && (
             <Badge>
-              Custom renderer {header.renderer.declaredRendererRef} not loaded
+              {t("adminSectionView.customRenderer", {
+                ref: header.renderer.declaredRendererRef,
+              })}
             </Badge>
           )}
         </div>
         <p className="muted">
-          {accessLabels[header.learnerDataAccess]} Every change is recorded in
-          the audit log.
+          {t(accessKeys[header.learnerDataAccess])}{" "}
+          {t("adminSectionView.audited")}
         </p>
       </Card>
       {scopes.length > 1 && (
-        <Card title="Where the settings apply">
-          <nav aria-label="Setting level" className="segmented">
+        <Card title={t("adminSectionView.levels.title")}>
+          <nav
+            aria-label={t("adminSectionView.levels.label")}
+            className="segmented"
+          >
             {scopes.map((s) => (
               <Button
                 key={s}
@@ -118,26 +135,29 @@ export function AdminSectionView({
                 onClick={() => {
                   setScope(s);
                   setScopeRef("");
-                  setSaved("");
+                  setSaved(null);
                 }}
               >
-                {scopeLabels[s]}
+                {t(scopeKeys[s])}
               </Button>
             ))}
           </nav>
           {scope === "chapter" && (
-            <Field label="Chapter" htmlFor={`${id}-chapter`}>
+            <Field
+              label={t("adminSectionView.chapter")}
+              htmlFor={`${id}-chapter`}
+            >
               <select
                 id={`${id}-chapter`}
                 value={scopeRef}
                 onChange={(e) => {
                   setScopeRef(e.target.value);
-                  setSaved("");
+                  setSaved(null);
                 }}
               >
-                <option value="">Choose a chapter</option>
+                <option value="">{t("adminSectionView.chooseChapter")}</option>
                 {list.chapters.map((c) => (
-                  <option key={c.id} value={c.id}>
+                  <option key={c.id} value={c.id} dir="auto">
                     {c.title}
                   </option>
                 ))}
@@ -146,18 +166,23 @@ export function AdminSectionView({
           )}
           {scope === "enrollment" &&
             (data.permissions.includes("enrollment.read") ? (
-              <Field label="Learner" htmlFor={`${id}-learner`}>
+              <Field
+                label={t("adminSectionView.learner")}
+                htmlFor={`${id}-learner`}
+              >
                 <select
                   id={`${id}-learner`}
                   value={scopeRef}
                   onChange={(e) => {
                     setScopeRef(e.target.value);
-                    setSaved("");
+                    setSaved(null);
                   }}
                 >
-                  <option value="">Choose a learner</option>
+                  <option value="">
+                    {t("adminSectionView.chooseLearner")}
+                  </option>
                   {learners.map((e) => (
-                    <option key={e.id} value={e.id}>
+                    <option key={e.id} value={e.id} dir="auto">
                       {e.profile.displayName}
                     </option>
                   ))}
@@ -165,21 +190,21 @@ export function AdminSectionView({
               </Field>
             ) : (
               <Notice tone="gold">
-                Your role cannot open learners' enrollments, so learner-level
-                settings are not available to you.
+                {t("adminSectionView.noLearnerAccess")}
               </Notice>
             ))}
         </Card>
       )}
       {view.error ? (
-        <Notice tone="red">{adminSectionErrorMessage(view.error)}</Notice>
+        <Notice tone="red">{adminSectionErrorMessage(view.error, t)}</Notice>
       ) : !ready ? (
-        <EmptyState title="Choose where to look">
-          Pick a {scope === "chapter" ? "chapter" : "learner"} to see its
-          settings.
+        <EmptyState title={t("adminSectionView.choose.title")}>
+          {scope === "chapter"
+            ? t("adminSectionView.choose.chapter")
+            : t("adminSectionView.choose.learner")}
         </EmptyState>
       ) : view.loading || !section ? (
-        <Loading label="Loading course settings…" />
+        <Loading label={t("adminSectionView.loading")} />
       ) : (
         <SettingsForm
           key={`${section.scope}:${section.scopeRef}:${section.revision}`}
@@ -187,7 +212,7 @@ export function AdminSectionView({
           catalogId={data.course.id}
           section={section}
           onSaved={(next) => {
-            setSaved(`${next.title} saved (revision ${next.revision}).`);
+            setSaved({ title: next.title, revision: next.revision });
             view.reload();
           }}
         />
@@ -208,6 +233,8 @@ function SettingsForm({
   onSaved: (section: SectionView) => void;
 }) {
   const id = useId();
+  const t = useT();
+  const { when } = useFormatters();
   const initial = Object.fromEntries(
     section.settings.map((s) => [
       s.id,
@@ -220,33 +247,35 @@ function SettingsForm({
   const editable = section.settings.filter((s) => s.canEdit);
   const changed = editable.filter((s) => values[s.id] !== initial[s.id]);
   const problems = Object.fromEntries(
-    editable.map((s) => [s.id, settingProblem(s, values[s.id]!)]),
+    editable.map((s) => [s.id, settingProblem(s, values[s.id]!, t)]),
   );
   const valid = changed.every((s) => problems[s.id] === null);
   if (!section.settings.length)
     return (
-      <EmptyState title="No settings at this level">
-        This section declares no settings here.
+      <EmptyState title={t("adminSectionView.noSettings.title")}>
+        {t("adminSectionView.noSettings.body")}
       </EmptyState>
     );
   return (
     <Card
-      title="Settings"
+      title={t("adminSectionView.settings")}
       actions={
         <small className="mono">
-          revision {section.revision}
-          {section.updatedAt ? ` · ${when(section.updatedAt)}` : ""}
+          {section.updatedAt
+            ? t("adminSectionView.revisionAt", {
+                revision: section.revision,
+                date: when(section.updatedAt),
+              })
+            : t("adminSectionView.revision", { revision: section.revision })}
         </small>
       }
     >
       {!editable.length && (
-        <Notice tone="gold">
-          Read only: your role cannot change these settings.
-        </Notice>
+        <Notice tone="gold">{t("adminSectionView.readOnly")}</Notice>
       )}
       <form
         className="input-grid"
-        aria-label={`${section.title} settings`}
+        aria-label={t("adminSectionView.formLabel", { title: section.title })}
         onSubmit={(e) => {
           e.preventDefault();
           setPending(true);
@@ -279,14 +308,14 @@ function SettingsForm({
         {!!editable.length && (
           <div className="wide stack">
             {error !== undefined && (
-              <Notice tone="red">{adminSectionErrorMessage(error)}</Notice>
+              <Notice tone="red">{adminSectionErrorMessage(error, t)}</Notice>
             )}
             <Button
               kind="primary"
               type="submit"
               disabled={pending || !changed.length || !valid}
             >
-              Save {section.title}
+              {t("adminSectionView.save", { title: section.title })}
             </Button>
           </div>
         )}
@@ -308,18 +337,22 @@ function SettingInput({
   problem: string | null;
   onChange: (value: string | boolean) => void;
 }) {
+  const t = useT();
   const hint = [
     setting.description,
     setting.type === "integer" || setting.type === "number"
-      ? `${setting.minimum} to ${setting.maximum}.`
+      ? t("adminSectionView.hint.range", {
+          min: setting.minimum,
+          max: setting.maximum,
+        })
       : null,
-    setting.type === "string" ? `Up to ${setting.maxLength} characters.` : null,
+    setting.type === "string"
+      ? t("adminSectionView.hint.maxLength", { max: setting.maxLength })
+      : null,
     setting.source === "default"
-      ? `Default: ${String(setting.default)}.`
+      ? t("adminSectionView.hint.default", { value: String(setting.default) })
       : null,
-    setting.discardedSavedValue
-      ? "The saved value no longer fits this release and is not used."
-      : null,
+    setting.discardedSavedValue ? t("adminSectionView.hint.discarded") : null,
     setting.canEdit && problem ? problem : null,
   ]
     .filter(Boolean)
@@ -335,13 +368,17 @@ function SettingInput({
             disabled={!setting.canEdit}
             onChange={(e) => onChange(e.target.checked)}
           />
-          {setting.label}
+          <bdi>{setting.label}</bdi>
         </label>
         {hint && <small className="muted">{hint}</small>}
       </div>
     );
   return (
-    <Field label={setting.label} htmlFor={id} hint={hint}>
+    // The same markup as Field, with the course-declared label isolated as course text.
+    <div className="field">
+      <label htmlFor={id} dir="auto">
+        {setting.label}
+      </label>
       {setting.type === "enum" ? (
         <select
           id={id}
@@ -350,7 +387,7 @@ function SettingInput({
           onChange={(e) => onChange(e.target.value)}
         >
           {setting.options.map((o) => (
-            <option key={o} value={o}>
+            <option key={o} value={o} dir="auto">
               {o}
             </option>
           ))}
@@ -359,6 +396,7 @@ function SettingInput({
         <input
           id={id}
           type="text"
+          dir="auto"
           value={String(value)}
           maxLength={setting.maxLength}
           disabled={!setting.canEdit}
@@ -379,6 +417,7 @@ function SettingInput({
           aria-invalid={!!problem}
         />
       )}
-    </Field>
+      {hint && <small id={`${id}-hint`}>{hint}</small>}
+    </div>
   );
 }

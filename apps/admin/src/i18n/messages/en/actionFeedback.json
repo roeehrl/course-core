@@ -1,1 +1,4 @@
-{}
+{
+  "demoReceipt": "Simulated receipt",
+  "serverReceipt": "Server receipt"
+}

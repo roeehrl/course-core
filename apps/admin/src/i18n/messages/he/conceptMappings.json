@@ -1,1 +1,15 @@
-{}
+{
+  "error.FORBIDDEN": "רק בעלים או מנהל/ת של שני הקורסים יכולים לשנות את המיפוי הזה. אפשר לקרוא אותו.",
+  "error.RELEASE_NOT_FOUND": "אחת מגרסאות הקורס האלה אינה זמינה לך.",
+  "error.CONCEPT_MAPPING_STALE": "מישהו שמר את המיפוי הזה מאז שנפתח. יש לטעון אותו מחדש ולבצע את השינוי שוב.",
+  "error.CONCEPT_MAPPING_SAME_RELEASE": "יש לבחור שתי גרסאות קורס שונות.",
+  "error.CONCEPT_MAPPING_SAME_COURSE": "שתי הבחירות הן גרסאות של אותו קורס. מיפוי מקשר בין שני קורסים שונים.",
+  "error.CONCEPT_MAPPING_DUPLICATE_LINK": "אפשר לקשר כל זוג מטרות למידה פעם אחת בלבד.",
+  "error.CONCEPT_MAPPING_LINK_SCOPE": "כל קישור צריך לחבר מטרת למידה מקורס אחד למטרת למידה מהקורס השני.",
+  "error.OBJECTIVE_OUT_OF_SCOPE": "אחת ממטרות הלמידה המקושרות אינה חלק מגרסת הקורס שלה.",
+  "error.CONCEPT_MAPPING_RETIRED": "המיפוי הזה כבר הוצא משימוש.",
+  "error.RELEASE_NOT_PUBLISHED": "אפשר למפות רק גרסאות קורס שפורסמו.",
+  "error.IDEMPOTENCY_CONFLICT": "שינוי אחר כבר נשלח עם הבקשה הזו. יש לטעון מחדש ולנסות שוב.",
+  "error.INVALID_REQUEST": "חלק מהקישורים חסרים. יש לבחור מטרת למידה בשני הצדדים של כל קישור.",
+  "error.unavailable": "מיפויי המושגים אינם זמינים כרגע. שום דבר לא השתנה."
+}

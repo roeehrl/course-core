@@ -4,7 +4,8 @@ import type {
   LearningPolicy,
 } from "../domain/policy";
 import { metricLabel } from "./PolicyDetails";
-import { when } from "./ui";
+import { useFormatters, useI18n, type MessageKey } from "../i18n";
+
 type Terms = Pick<
   ExtensionPreview,
   | "currentEffectiveDeadline"
@@ -26,38 +27,50 @@ export function ExtensionTerms({
   scopes: ScopePolicy[];
   pools: LearningPolicy["pools"];
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  /** The pool's unit code, selected inside the messages; "units" when unknown. */
   const unit = (poolId: string) =>
-    pools.find((pool) => pool.poolId === poolId)?.unit.replaceAll("_", " ") ??
-    "units";
+    pools.find((pool) => pool.poolId === poolId)?.unit ?? "units";
+  const scopeLabel = (scopeId: string) =>
+    scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
+  const quota = (q: Terms["currentWorkQuotas"][number]) =>
+    t("extensionTerms.quota", {
+      limit: q.limit,
+      consumed: q.consumed,
+      reserved: q.reserved,
+      remaining: q.remaining,
+    });
   return (
     <div className="stack">
       <div
         className="table-wrap"
         tabIndex={0}
         role="region"
-        aria-label="Exact before and after terms"
+        aria-label={t("extensionTerms.region")}
       >
         <table>
-          <caption>Exact before / after terms if later granted</caption>
+          <caption>{t("extensionTerms.caption")}</caption>
           <thead>
             <tr>
-              <th scope="col">Term</th>
-              <th scope="col">Current</th>
-              <th scope="col">Proposed</th>
+              <th scope="col">{t("extensionTerms.column.term")}</th>
+              <th scope="col">{t("extensionTerms.column.current")}</th>
+              <th scope="col">{t("extensionTerms.column.proposed")}</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <th scope="row">Effective deadline</th>
+              <th scope="row">{t("extensionTerms.effective")}</th>
               <td>
                 {terms.currentEffectiveDeadline
                   ? when(terms.currentEffectiveDeadline)
-                  : "None"}
+                  : t("extensionTerms.none")}
               </td>
               <td>
                 {terms.proposedEffectiveDeadline
                   ? when(terms.proposedEffectiveDeadline)
-                  : "None"}
+                  : t("extensionTerms.none")}
               </td>
             </tr>
             {terms.currentWorkQuotas.map((q, i) => {
@@ -70,21 +83,19 @@ export function ExtensionTerms({
               return (
                 <tr key={`quota-${i}`}>
                   <th scope="row">
-                    {scopes.find((s) => s.scopeId === q.scopeId)?.label ??
-                      q.scopeId}
+                    <bdi>{scopeLabel(q.scopeId)}</bdi>
                     <small>
-                      {metricLabel[q.metric]}
-                      {q.conceptId ? ` · ${q.conceptId}` : ""}
+                      {q.conceptId
+                        ? t("policyDetails.metricWithConcept", {
+                            metric: metricLabel(t, q.metric),
+                            concept: q.conceptId,
+                          })
+                        : metricLabel(t, q.metric)}
                     </small>
                   </th>
+                  <td>{quota(q)}</td>
                   <td>
-                    {q.limit} cap · {q.consumed} consumed · {q.reserved}{" "}
-                    reserved · {q.remaining} remaining
-                  </td>
-                  <td>
-                    {next
-                      ? `${next.limit} cap · ${next.consumed} consumed · ${next.reserved} reserved · ${next.remaining} remaining`
-                      : "Not supplied"}
+                    {next ? quota(next) : t("extensionTerms.notSupplied")}
                   </td>
                 </tr>
               );
@@ -96,17 +107,26 @@ export function ExtensionTerms({
               return (
                 <tr key={before.poolId}>
                   <th scope="row">
-                    Allowance balance
-                    <small className="mono">{before.poolId}</small>
+                    {t("extensionTerms.balance")}
+                    <small className="mono" dir="ltr">
+                      {before.poolId}
+                    </small>
                   </th>
                   <td>
-                    {before.remaining} {unit(before.poolId)} /{" "}
-                    {before.grantsRemaining} grants
+                    {t("extensionTerms.balance.value", {
+                      remaining: before.remaining,
+                      unit: unit(before.poolId),
+                      grants: before.grantsRemaining,
+                    })}
                   </td>
                   <td>
                     {after
-                      ? `${after.remaining} ${unit(before.poolId)} / ${after.grantsRemaining} grants`
-                      : "Not supplied"}
+                      ? t("extensionTerms.balance.value", {
+                          remaining: after.remaining,
+                          unit: unit(before.poolId),
+                          grants: after.grantsRemaining,
+                        })
+                      : t("extensionTerms.notSupplied")}
                   </td>
                 </tr>
               );
@@ -115,29 +135,45 @@ export function ExtensionTerms({
         </table>
       </div>
       <div>
-        <h3>Exact pool cost if granted</h3>
+        <h3>{t("extensionTerms.cost")}</h3>
         {terms.poolDebits.map((debit) => (
           <p key={debit.poolId}>
-            {debit.amount} {unit(debit.poolId)} from{" "}
-            <span className="mono">{debit.poolId}</span>
+            {i18n.rich(
+              "extensionTerms.cost.row",
+              {
+                amount: debit.amount,
+                unit: unit(debit.poolId),
+                pool: debit.poolId,
+              },
+              {
+                pool: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </p>
         ))}
       </div>
       <div>
-        <h3>Ancestor caps remain binding</h3>
+        <h3>{t("extensionTerms.ancestor")}</h3>
         {terms.bindingAncestorCaps.map((cap, i) => (
           <p key={i}>
-            {scopes.find((s) => s.scopeId === cap.scopeId)?.label ??
-              cap.scopeId}{" "}
-            · {cap.kind} · {when(cap.at)}
+            {t("extensionTerms.ancestor.row", {
+              scope: scopeLabel(cap.scopeId),
+              kind: t(`policyDetails.kind.${cap.kind}` as MessageKey),
+              date: when(cap.at),
+            })}
           </p>
         ))}
       </div>
       <small>
-        Required authority approvals:{" "}
-        {terms.requiredApprovals.join(", ") ||
-          "None beyond exact learner acceptance"}
-        .
+        {terms.requiredApprovals.length
+          ? t("extensionTerms.approvals", {
+              approvals: terms.requiredApprovals.join(", "),
+            })
+          : t("extensionTerms.approvals.none")}
       </small>
     </div>
   );

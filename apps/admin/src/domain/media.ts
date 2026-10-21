@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  englishTranslator,
+  type AdminTranslator,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
 
 const text = (max: number) => z.string().max(max);
 const iso = z.string().max(64);
@@ -187,66 +193,74 @@ export class MediaActionError extends Error {
     this.name = "MediaActionError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN: "Your role cannot do this. Nothing changed.",
-  MEDIA_PROVIDER_UNCONFIGURED:
-    "No media provider is configured for this workspace. Configure one under Providers first.",
-  MEDIA_CAPABILITY_MISSING:
-    "The configured provider has no video model assigned to the media role.",
-  MEDIA_PROVIDER_UNAVAILABLE:
-    "The media provider is not ready (for example, its key is missing). Nothing was charged.",
-  MEDIA_PRICING_UNAVAILABLE:
-    "The media role has no reviewed rate card, so no cost can be estimated. Nothing was charged.",
-  MEDIA_EPISODE_OUT_OF_SCOPE:
-    "That episode is not part of this learner's release.",
-  MEDIA_CAPTIONS_REQUIRED:
-    "Approval needs WebVTT captions with at least one cue.",
-  MEDIA_TEXT_ALTERNATIVE_REQUIRED:
-    "Approval needs a transcript and a description of what the video shows.",
-  MEDIA_REVIEW_FINDINGS_INCOMPLETE:
-    "Approval needs every review check confirmed. Reject the clip instead.",
-  MEDIA_ASSET_CHANGED:
-    "The stored clip changed since you opened it. Reload and review again.",
-  MEDIA_NOT_UNDER_REVIEW: "This job is no longer waiting for review.",
-  MEDIA_NOT_APPROVED: "Only an approved clip can be attached.",
-  MEDIA_PUBLICATION_DENIED:
-    "Current course policy does not allow publishing to this learner now (closed, past a deadline or no longer a member). Nothing was shown.",
-  MEDIA_EXPIRY_INVALID: "Choose an expiry between now and 180 days.",
-  MEDIA_NOT_CANCELLABLE: "This job has already finished.",
-  MEDIA_ATTACHMENT_ALREADY_REVOKED: "This attachment was already revoked.",
-  IDEMPOTENCY_CONFLICT:
-    "A different request already used this retry key. Start again.",
-  INVALID_INPUT: "Some fields are missing or out of range.",
-};
-export function mediaErrorMessage(error: unknown) {
+const MEDIA_CODES = new Set([
+  "FORBIDDEN",
+  "MEDIA_PROVIDER_UNCONFIGURED",
+  "MEDIA_CAPABILITY_MISSING",
+  "MEDIA_PROVIDER_UNAVAILABLE",
+  "MEDIA_PRICING_UNAVAILABLE",
+  "MEDIA_EPISODE_OUT_OF_SCOPE",
+  "MEDIA_CAPTIONS_REQUIRED",
+  "MEDIA_TEXT_ALTERNATIVE_REQUIRED",
+  "MEDIA_REVIEW_FINDINGS_INCOMPLETE",
+  "MEDIA_ASSET_CHANGED",
+  "MEDIA_NOT_UNDER_REVIEW",
+  "MEDIA_NOT_APPROVED",
+  "MEDIA_PUBLICATION_DENIED",
+  "MEDIA_EXPIRY_INVALID",
+  "MEDIA_NOT_CANCELLABLE",
+  "MEDIA_ATTACHMENT_ALREADY_REVOKED",
+  "IDEMPOTENCY_CONFLICT",
+  "INVALID_INPUT",
+]);
+/** Words of an unknown machine code, shown only as a fallback ("MEDIA_X_Y" → "x y"). */
+const codeWords = (code: string) => code.replaceAll("_", " ").toLowerCase();
+export function mediaErrorMessage(
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) {
   const code = error instanceof MediaActionError ? error.code : undefined;
-  if (code && messages[code]) return messages[code];
+  if (code && MEDIA_CODES.has(code))
+    return t(`media.error.${code}` as MessageKey);
   if (code?.startsWith("MEDIA_"))
-    return `The media service refused this (${code.slice(6).replaceAll("_", " ").toLowerCase()}). Nothing was published.`;
-  return "The media service is unavailable. Nothing was published.";
+    return t("media.error.refused", { reason: codeWords(code.slice(6)) });
+  return t("media.error.unavailable");
 }
-const refusals: Record<string, string> = {
-  MEDIA_BUDGET_EXHAUSTED:
-    "refused: the workspace or learner paid-work allowance cannot cover the per-job reservation",
-  MEDIA_PER_JOB_LIMIT: "refused: the estimate exceeds the per-job allowance",
-  MEDIA_POLICY_DENIED: "refused: current course policy does not allow new work",
-  MEDIA_CAPACITY: "refused: too many media jobs are already running",
-  MEDIA_OUTCOME_UNKNOWN:
-    "the provider never confirmed the submission; it was not resent",
-  MEDIA_DEADLINE_REACHED: "stopped at the job deadline",
-  MEDIA_POLL_LIMIT: "stopped after the polling limit",
-  MEDIA_PROVIDER_FAILED: "the provider reported a failed render",
-  MEDIA_PROVIDER_REJECTED: "the provider rejected the request",
-  MEDIA_ASSET_INVALID: "the returned file was not a supported video",
-  MEDIA_ASSET_TOO_LARGE: "the returned file exceeded the size limit",
-  MEDIA_REVIEW_REJECTED: "rejected in review",
-  MEDIA_CANCELLED: "cancelled by staff",
-  MEDIA_REVOKED: "revoked by staff",
-  MEDIA_ATTACHMENT_EXPIRED: "the attachment expired",
+const FAILURE_CODES = new Set([
+  "MEDIA_BUDGET_EXHAUSTED",
+  "MEDIA_PER_JOB_LIMIT",
+  "MEDIA_POLICY_DENIED",
+  "MEDIA_CAPACITY",
+  "MEDIA_OUTCOME_UNKNOWN",
+  "MEDIA_DEADLINE_REACHED",
+  "MEDIA_POLL_LIMIT",
+  "MEDIA_PROVIDER_FAILED",
+  "MEDIA_PROVIDER_REJECTED",
+  "MEDIA_ASSET_INVALID",
+  "MEDIA_ASSET_TOO_LARGE",
+  "MEDIA_REVIEW_REJECTED",
+  "MEDIA_CANCELLED",
+  "MEDIA_REVOKED",
+  "MEDIA_ATTACHMENT_EXPIRED",
+]);
+export const failureText = (
+  code: string | null,
+  t: Translate = englishTranslator().t,
+) =>
+  code
+    ? FAILURE_CODES.has(code)
+      ? t(`media.failure.${code}` as MessageKey)
+      : codeWords(code)
+    : null;
+/** A micro-dollar amount in the UI locale: 2 decimals for whole cents, else 4. */
+export const usd = (
+  microUsd: number | null,
+  i18n: Pick<AdminTranslator, "t" | "currency"> = englishTranslator(),
+) => {
+  if (microUsd === null) return i18n.t("media.usd.unavailable");
+  const digits = microUsd % 10_000 === 0 ? 2 : 4;
+  return i18n.currency(microUsd / 1_000_000, "USD", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 };
-export const failureText = (code: string | null) =>
-  code ? (refusals[code] ?? code.replaceAll("_", " ").toLowerCase()) : null;
-export const usd = (microUsd: number | null) =>
-  microUsd === null
-    ? "not available"
-    : `$${(microUsd / 1_000_000).toFixed(microUsd % 10_000 === 0 ? 2 : 4)}`;

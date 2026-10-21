@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
+  MEDIA_STATES,
   failureText,
   mediaErrorMessage,
   usd,
@@ -27,10 +28,10 @@ import {
   Field,
   Loading,
   Notice,
-  Status,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { isolate } from "@course-core/i18n";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
 const CANCELLABLE = [
@@ -43,21 +44,22 @@ const CANCELLABLE = [
   "under_review",
   "approved",
 ];
-const stateLabel: Record<MediaJob["state"], string> = {
-  requested: "requested",
-  admitted: "admitted · budget reserved",
-  submitted: "submitted",
-  polling: "generating",
-  generated: "generated",
-  under_review: "pending review",
-  approved: "approved",
-  rejected: "rejected",
-  attached: "attached",
-  expired: "expired",
-  failed: "failed",
-  cancelled: "cancelled",
-  uncertain: "outcome uncertain",
-};
+const stateTone: Partial<Record<MediaJob["state"], "gold" | "green" | "red">> =
+  {
+    under_review: "gold",
+    approved: "green",
+    rejected: "red",
+    failed: "red",
+  };
+/** A job state badge; the label comes from `mediaView.state.<state>`. */
+function StateBadge({ state }: { state: MediaJob["state"] }) {
+  const t = useT();
+  return (
+    <Badge tone={stateTone[state] ?? "neutral"}>
+      {t(`mediaView.state.${state}`)}
+    </Badge>
+  );
+}
 
 /** One retry key per logical command until it succeeds, so a lost response replays. */
 function useMediaCommand(onDone: () => void) {
@@ -112,37 +114,35 @@ export function MediaView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   const published = data.releases.filter((r) => r.state === "published");
   const [releaseId, setReleaseId] = useState(
     (published.find((r) => r.availableForNewLearners) ?? published[0])?.id,
   );
   if (!client.media)
     return (
-      <Card title="Generated media">
-        <EmptyState title="Generated media is not available here">
-          This workspace client does not provide media jobs. Use a connected
-          administration session.
+      <Card title={t("mediaView.title")}>
+        <EmptyState title={t("mediaView.unavailable.title")}>
+          {t("mediaView.unavailable.body")}
         </EmptyState>
       </Card>
     );
   if (!releaseId)
     return (
-      <Card title="Generated media">
-        <EmptyState title="Publish a release first">
-          Generated clips attach to an episode of a published release.
+      <Card title={t("mediaView.title")}>
+        <EmptyState title={t("mediaView.noRelease.title")}>
+          {t("mediaView.noRelease.body")}
         </EmptyState>
       </Card>
     );
   return (
     <div className="page-stack">
-      <Notice tone="blue" title="Nothing generated reaches learners unreviewed">
-        A finished render is not a teaching artifact. Staff review each clip
-        against the lesson, add captions and a text alternative, and only then
-        attach it as optional help. It never counts as progress or mastery.
+      <Notice tone="blue" title={t("mediaView.reviewed.title")}>
+        {t("mediaView.reviewed.body")}
       </Notice>
       {published.length > 1 && (
         <div className="field">
-          <label htmlFor="media-release">Release</label>
+          <label htmlFor="media-release">{t("mediaView.release.label")}</label>
           <select
             id="media-release"
             value={releaseId}
@@ -150,8 +150,12 @@ export function MediaView({
           >
             {published.map((r) => (
               <option key={r.id} value={r.id}>
-                Version {r.version}
-                {r.availableForNewLearners ? " (new learners)" : ""}
+                {t(
+                  r.availableForNewLearners
+                    ? "mediaView.release.optionNew"
+                    : "mediaView.release.option",
+                  { version: r.version },
+                )}
               </option>
             ))}
           </select>
@@ -169,6 +173,9 @@ function ReleaseMedia({
   port: MediaAdminPort;
   releaseId: string;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const library = useRemote(
     (signal) => port.library(releaseId, signal),
     [port, releaseId],
@@ -177,9 +184,9 @@ function ReleaseMedia({
   const [requesting, setRequesting] = useState(false);
   const [open, setOpen] = useState<string>();
   if (library.loading && !library.data)
-    return <Loading label="Loading media jobs…" />;
+    return <Loading label={t("mediaView.loading")} />;
   if (library.error || !library.data)
-    return <Notice tone="red">{mediaErrorMessage(library.error)}</Notice>;
+    return <Notice tone="red">{mediaErrorMessage(library.error, t)}</Notice>;
   const lib = library.data;
   const episodeTitle = (id: string) =>
     lib.episodes.find((e) => e.id === id)?.title ?? id;
@@ -188,20 +195,18 @@ function ReleaseMedia({
       <div aria-live="polite">
         {command.message && <Notice tone="green">{command.message}</Notice>}
         {command.error !== undefined && (
-          <Notice tone="red">{mediaErrorMessage(command.error)}</Notice>
+          <Notice tone="red">{mediaErrorMessage(command.error, t)}</Notice>
         )}
       </div>
       {!lib.liveGenerationVerified && (
-        <Notice tone="gold" title="Live generation not verified">
-          This deployment has not verified a real provider render end to end.
-          Treat cost estimates as the operator rate card, not a provider
-          invoice.
+        <Notice tone="gold" title={t("mediaView.unverified.title")}>
+          {t("mediaView.unverified.body")}
         </Notice>
       )}
       <ProviderCard library={lib} />
       <Card
-        eyebrow="Generated media"
-        title="Media jobs"
+        eyebrow={t("mediaView.title")}
+        title={t("mediaView.jobs.title")}
         actions={
           <Button
             kind="primary"
@@ -210,67 +215,71 @@ function ReleaseMedia({
             }
             onClick={() => setRequesting(true)}
           >
-            <Plus size={16} aria-hidden="true" /> Request a clip
+            <Plus size={16} aria-hidden="true" /> {t("mediaView.jobs.request")}
           </Button>
         }
       >
         {!lib.permissions.request && (
-          <p className="media-hint">
-            Requesting paid work needs the publish permission.
-          </p>
+          <p className="media-hint">{t("mediaView.jobs.needsPermission")}</p>
         )}
         {lib.jobs.length === 0 ? (
-          <p className="research-empty">No media jobs for this release yet.</p>
+          <p className="research-empty">{t("mediaView.jobs.empty")}</p>
         ) : (
-          <ul className="media-jobs" aria-label="Media jobs">
+          <ul className="media-jobs" aria-label={t("mediaView.jobs.title")}>
             {lib.jobs.map((job) => (
               <li key={job.id} className="media-job">
                 <div className="media-job-head">
-                  <strong>{job.title}</strong>
-                  <Status value={stateLabel[job.state]} />
+                  <strong dir="auto">{job.title}</strong>
+                  <StateBadge state={job.state} />
                 </div>
                 <dl className="media-facts">
                   <div>
-                    <dt>Learner</dt>
-                    <dd>{job.learnerName ?? "Unknown learner"}</dd>
+                    <dt>{t("mediaView.fact.learner")}</dt>
+                    <dd dir="auto">
+                      {job.learnerName ?? t("mediaView.fact.unknownLearner")}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Episode</dt>
-                    <dd>{episodeTitle(job.episodeId)}</dd>
+                    <dt>{t("mediaView.fact.episode")}</dt>
+                    <dd dir="auto">{episodeTitle(job.episodeId)}</dd>
                   </div>
                   <div>
-                    <dt>Estimate</dt>
-                    <dd>{usd(job.estimateMicroUsd)}</dd>
+                    <dt>{t("mediaView.fact.estimate")}</dt>
+                    <dd>{usd(job.estimateMicroUsd, i18n)}</dd>
                   </div>
                   <div>
-                    <dt>Charged</dt>
-                    <dd>{usd(job.chargedMicroUsd)}</dd>
+                    <dt>{t("mediaView.fact.charged")}</dt>
+                    <dd>{usd(job.chargedMicroUsd, i18n)}</dd>
                   </div>
                   <div className="media-wide">
-                    <dt>Provider operation</dt>
-                    <dd className="mono">
-                      {job.providerOperationId ?? "not submitted"}
+                    <dt>{t("mediaView.fact.operation")}</dt>
+                    <dd
+                      className="mono"
+                      dir={job.providerOperationId ? "ltr" : undefined}
+                    >
+                      {job.providerOperationId ??
+                        t("mediaView.fact.notSubmitted")}
                     </dd>
                   </div>
                 </dl>
                 {job.failureCode && (
                   <p className="media-failure">
-                    {failureText(job.failureCode)}
+                    {failureText(job.failureCode, t)}
                   </p>
                 )}
                 <div className="tag-row">
                   {job.learnerVisible && (
-                    <Badge tone="green">visible to learner</Badge>
+                    <Badge tone="green">{t("mediaView.visible")}</Badge>
                   )}
                   <small className="media-updated">
-                    Updated {when(job.updatedAt)}
+                    {t("mediaView.updated", { when: when(job.updatedAt) })}
                   </small>
                   <Button
                     kind="quiet"
                     onClick={() => setOpen(job.id)}
-                    aria-label={`Open ${job.title}`}
+                    aria-label={t("mediaView.openLabel", { title: job.title })}
                   >
-                    Open
+                    {t("mediaView.open")}
                   </Button>
                 </div>
               </li>
@@ -288,7 +297,7 @@ function ReleaseMedia({
             const ok = await command.run(
               "request:" + enrollmentId + JSON.stringify(input),
               (key) => port.request(enrollmentId, input, key),
-              "Request recorded. Check its state below: a refused request is kept with its reason and nothing is charged.",
+              t("mediaView.requested"),
             );
             if (ok) setRequesting(false);
           }}
@@ -312,54 +321,83 @@ function ReleaseMedia({
   );
 }
 
+const AVAILABILITY = new Set([
+  "ready",
+  "configuration_missing",
+  "capability_missing",
+]);
 function ProviderCard({ library }: { library: MediaLibrary }) {
+  const t = useT();
+  const i18n = useI18n();
   const p = library.provider;
   if (!p)
     return (
-      <Card eyebrow="Provider" title="No media provider">
-        <p className="research-empty">
-          Assign a video model to the media role under Providers, with a
-          reviewed rate card.
-        </p>
+      <Card
+        eyebrow={t("mediaView.provider.eyebrow")}
+        title={t("mediaView.provider.none.title")}
+      >
+        <p className="research-empty">{t("mediaView.provider.none.body")}</p>
       </Card>
     );
   return (
-    <Card eyebrow="Provider" title="Video generation">
+    <Card
+      eyebrow={t("mediaView.provider.eyebrow")}
+      title={t("mediaView.provider.title")}
+    >
       <dl className="media-facts">
         <div>
-          <dt>Model</dt>
-          <dd className="mono">{p.modelId}</dd>
-        </div>
-        <div>
-          <dt>Clip</dt>
-          <dd>
-            {p.settings.durationSeconds}s · {p.settings.aspectRatio} ·{" "}
-            {p.settings.resolution}
+          <dt>{t("mediaView.provider.model")}</dt>
+          <dd className="mono" dir="ltr">
+            {p.modelId}
           </dd>
         </div>
         <div>
-          <dt>Status</dt>
+          <dt>{t("mediaView.provider.clip")}</dt>
           <dd>
-            <Status value={p.availability.replaceAll("_", " ")} />
+            {t("mediaView.provider.clipSettings", {
+              seconds: p.settings.durationSeconds,
+              aspect: p.settings.aspectRatio,
+              resolution: p.settings.resolution,
+            })}
           </dd>
         </div>
         <div>
-          <dt>Estimate per clip</dt>
+          <dt>{t("mediaView.provider.status")}</dt>
+          <dd>
+            <Badge tone={p.availability === "ready" ? "neutral" : "red"}>
+              {AVAILABILITY.has(p.availability)
+                ? t(`mediaView.availability.${p.availability}` as MessageKey)
+                : p.availability.replaceAll("_", " ")}
+            </Badge>
+          </dd>
+        </div>
+        <div>
+          <dt>{t("mediaView.provider.estimate")}</dt>
           <dd>
             {p.pricing
-              ? `${usd(p.estimateMicroUsd)} (${usd(p.pricing.microUsdPerOutputSecond)}/s)`
-              : "no rate card"}
+              ? t("mediaView.provider.estimateValue", {
+                  estimate: usd(p.estimateMicroUsd, i18n),
+                  rate: usd(p.pricing.microUsdPerOutputSecond, i18n),
+                })
+              : t("mediaView.provider.noRateCard")}
           </dd>
         </div>
         <div>
-          <dt>Reserved at admission</dt>
-          <dd>{usd(p.perJobAllowanceMicroUsd)} (full per-job allowance)</dd>
+          <dt>{t("mediaView.provider.reserved")}</dt>
+          <dd>
+            {t("mediaView.provider.reservedValue", {
+              amount: usd(p.perJobAllowanceMicroUsd, i18n),
+            })}
+          </dd>
         </div>
         {p.pricing && (
           <div className="media-wide">
-            <dt>Rate card</dt>
+            <dt>{t("mediaView.provider.rateCard")}</dt>
             <dd>
-              {p.pricing.source}, reviewed {p.pricing.reviewedAt}
+              {t("mediaView.provider.rateCardValue", {
+                source: p.pricing.source,
+                reviewed: p.pricing.reviewedAt,
+              })}
             </dd>
           </div>
         )}
@@ -389,6 +427,8 @@ function RequestDialog({
     },
   ) => void;
 }) {
+  const t = useT();
+  const i18n = useI18n();
   const id = useId();
   const [enrollmentId, setEnrollmentId] = useState(
     library.enrollments[0]?.id ?? "",
@@ -410,7 +450,7 @@ function RequestDialog({
     script.trim().length >= 20;
   return (
     <Dialog
-      title="Request a generated clip"
+      title={t("mediaView.request.title")}
       onClose={onClose}
       pending={pending}
     >
@@ -427,12 +467,8 @@ function RequestDialog({
             });
         }}
       >
-        <p>
-          The clip is generated for one learner's episode and charged to their
-          paid-work allowance. It stays hidden until staff approve and attach
-          it.
-        </p>
-        <Field label="Learner" htmlFor={id + "-learner"}>
+        <p>{t("mediaView.request.intro")}</p>
+        <Field label={t("mediaView.fact.learner")} htmlFor={id + "-learner"}>
           <select
             id={id + "-learner"}
             value={enrollmentId}
@@ -448,7 +484,7 @@ function RequestDialog({
             ))}
           </select>
         </Field>
-        <Field label="Episode" htmlFor={id + "-episode"}>
+        <Field label={t("mediaView.fact.episode")} htmlFor={id + "-episode"}>
           <select
             id={id + "-episode"}
             value={episodeId}
@@ -464,33 +500,36 @@ function RequestDialog({
             ))}
           </select>
         </Field>
-        <Field label="Title" htmlFor={id + "-title"}>
+        <Field label={t("mediaView.request.clipTitle")} htmlFor={id + "-title"}>
           <input
             id={id + "-title"}
+            dir="auto"
             value={title}
             maxLength={200}
             onChange={(e) => setTitle(e.target.value)}
           />
         </Field>
         <Field
-          label="Teaching purpose"
+          label={t("mediaView.request.purpose")}
           htmlFor={id + "-objective"}
-          hint="What the learner should understand from it."
+          hint={t("mediaView.request.purposeHint")}
         >
           <textarea
             id={id + "-objective"}
+            dir="auto"
             value={objective}
             maxLength={2000}
             onChange={(e) => setObjective(e.target.value)}
           />
         </Field>
         <Field
-          label="Reviewed script"
+          label={t("mediaView.request.script")}
           htmlFor={id + "-script"}
-          hint="Sent to the provider exactly as written. No learner data."
+          hint={t("mediaView.request.scriptHint")}
         >
           <textarea
             id={id + "-script"}
+            dir="auto"
             value={script}
             maxLength={8000}
             onChange={(e) => setScript(e.target.value)}
@@ -508,30 +547,39 @@ function RequestDialog({
               );
             }}
           >
-            Check cost
+            {t("mediaView.request.checkCost")}
           </Button>
           {estimate.value && (
             <p>
-              Estimate {usd(estimate.value.estimateMicroUsd)};{" "}
-              {usd(estimate.value.reserveMicroUsd)} is reserved at admission (
-              {usd(estimate.value.availableMicroUsd)} available).{" "}
+              {t("mediaView.request.estimate", {
+                estimate: usd(estimate.value.estimateMicroUsd, i18n),
+                reserve: usd(estimate.value.reserveMicroUsd, i18n),
+                available: usd(estimate.value.availableMicroUsd, i18n),
+              })}{" "}
               <strong>
                 {estimate.value.admissible
-                  ? "Would be admitted."
-                  : `Would be refused: ${failureText(estimate.value.reason) ?? estimate.value.reason}.`}
+                  ? t("mediaView.request.admissible")
+                  : t("mediaView.request.refused", {
+                      reason:
+                        failureText(estimate.value.reason, t) ??
+                        String(estimate.value.reason),
+                    })}
               </strong>
             </p>
           )}
           {estimate.error !== undefined && (
-            <p className="media-failure">{mediaErrorMessage(estimate.error)}</p>
+            <p className="media-failure">
+              {mediaErrorMessage(estimate.error, t)}
+            </p>
           )}
         </div>
         <div className="tag-row">
           <Button kind="primary" type="submit" disabled={pending || !valid}>
-            <Clapperboard size={16} aria-hidden="true" /> Request clip
+            <Clapperboard size={16} aria-hidden="true" />{" "}
+            {t("mediaView.request.submit")}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
-            Cancel
+            {t("mediaView.cancel")}
           </Button>
         </div>
       </form>
@@ -554,6 +602,9 @@ function JobDialog({
   episodeTitle: (id: string) => string;
   onClose: () => void;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const detail = useRemote(
     (signal) => port.detail(jobId, signal),
     [port, jobId],
@@ -563,77 +614,84 @@ function JobDialog({
   const after = (ok: boolean) => ok && detail.reload();
   return (
     <Dialog
-      title={job?.title ?? "Media job"}
+      title={job ? isolate(job.title) : t("mediaView.job.title")}
       onClose={onClose}
       pending={command.pending}
     >
       {detail.loading && !job ? (
-        <Loading label="Loading job…" />
+        <Loading label={t("mediaView.job.loading")} />
       ) : detail.error || !job ? (
-        <Notice tone="red">{mediaErrorMessage(detail.error)}</Notice>
+        <Notice tone="red">{mediaErrorMessage(detail.error, t)}</Notice>
       ) : (
         <div className="stack">
           <div aria-live="polite">
             {command.message && <Notice tone="green">{command.message}</Notice>}
             {command.error !== undefined && (
-              <Notice tone="red">{mediaErrorMessage(command.error)}</Notice>
+              <Notice tone="red">{mediaErrorMessage(command.error, t)}</Notice>
             )}
           </div>
           <div className="tag-row">
-            <Status value={stateLabel[job.state]} />
+            <StateBadge state={job.state} />
             {job.learnerVisible ? (
-              <Badge tone="green">visible to learner</Badge>
+              <Badge tone="green">{t("mediaView.visible")}</Badge>
             ) : (
-              <Badge>hidden from learners</Badge>
+              <Badge>{t("mediaView.hidden")}</Badge>
             )}
           </div>
           {job.failureCode && (
-            <p className="media-failure">{failureText(job.failureCode)}</p>
+            <p className="media-failure">{failureText(job.failureCode, t)}</p>
           )}
           {job.remoteMayContinue && (
-            <Notice tone="gold">
-              The provider may still finish or bill this operation; cancelling
-              here is local only.
-            </Notice>
+            <Notice tone="gold">{t("mediaView.job.remoteMayContinue")}</Notice>
           )}
           <dl className="media-facts">
             <div>
-              <dt>Learner</dt>
-              <dd>{job.learnerName ?? "Unknown learner"}</dd>
+              <dt>{t("mediaView.fact.learner")}</dt>
+              <dd dir="auto">
+                {job.learnerName ?? t("mediaView.fact.unknownLearner")}
+              </dd>
             </div>
             <div>
-              <dt>Episode</dt>
-              <dd>{episodeTitle(job.episodeId)}</dd>
+              <dt>{t("mediaView.fact.episode")}</dt>
+              <dd dir="auto">{episodeTitle(job.episodeId)}</dd>
             </div>
             <div>
-              <dt>Estimate</dt>
-              <dd>{usd(job.estimateMicroUsd)}</dd>
+              <dt>{t("mediaView.fact.estimate")}</dt>
+              <dd>{usd(job.estimateMicroUsd, i18n)}</dd>
             </div>
             <div>
-              <dt>Charged</dt>
-              <dd>{usd(job.chargedMicroUsd)}</dd>
+              <dt>{t("mediaView.fact.charged")}</dt>
+              <dd>{usd(job.chargedMicroUsd, i18n)}</dd>
             </div>
             <div className="media-wide">
-              <dt>Provider operation</dt>
-              <dd className="mono">
-                {job.providerOperationId ?? "not submitted"}
+              <dt>{t("mediaView.fact.operation")}</dt>
+              <dd
+                className="mono"
+                dir={job.providerOperationId ? "ltr" : undefined}
+              >
+                {job.providerOperationId ?? t("mediaView.fact.notSubmitted")}
               </dd>
             </div>
             <div>
-              <dt>Submissions / polls</dt>
+              <dt>{t("mediaView.job.attempts")}</dt>
               <dd>
-                {job.submitAttempts} / {job.pollAttempts}
+                {t("mediaView.job.attemptsValue", {
+                  submits: job.submitAttempts,
+                  polls: job.pollAttempts,
+                })}
               </dd>
             </div>
             <div>
-              <dt>Deadline</dt>
+              <dt>{t("mediaView.job.deadline")}</dt>
               <dd>{when(job.deadlineAt)}</dd>
             </div>
           </dl>
           <details className="media-script">
-            <summary>Purpose and script</summary>
-            <p>{job.objective}</p>
-            <p className="research-text">{job.script}</p>
+            <summary>{t("mediaView.job.script")}</summary>
+            <p dir="auto">{job.objective}</p>
+            <p className="research-text" dir="auto">
+              {job.script}
+            </p>
           </details>
           {job.asset && (
             <div className="media-preview">
@@ -641,24 +699,35 @@ function JobDialog({
                 controls
                 preload="metadata"
                 playsInline
-                aria-label={`Generated clip: ${job.title}`}
+                aria-label={t("mediaView.job.videoLabel", { title: job.title })}
                 src={port.assetUrl(job.id)}
               />
-              <small className="mono">
-                sha256 {job.asset.sha256} ·{" "}
-                {(job.asset.byteLength / 1024).toFixed(1)} KiB ·{" "}
-                {job.asset.mimeType}
+              <small className="mono" dir="ltr">
+                {t("mediaView.job.asset", {
+                  sha: job.asset.sha256,
+                  size: i18n.number(job.asset.byteLength / 1024, {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1,
+                  }),
+                  mime: job.asset.mimeType,
+                })}
               </small>
             </div>
           )}
           {job.review && (
             <div className="media-review-summary">
-              <strong>Review: {job.review.decision}</strong>
-              <p>{job.review.rationale}</p>
+              <strong>
+                {t("mediaView.job.review", {
+                  decision: job.review.decision,
+                })}
+              </strong>
+              <p dir="auto">{job.review.rationale}</p>
               {job.review.transcript && (
                 <p>
-                  <span className="media-label">Transcript: </span>
-                  {job.review.transcript}
+                  <span className="media-label">
+                    {t("mediaView.job.transcript")}{" "}
+                  </span>
+                  <bdi>{job.review.transcript}</bdi>
                 </p>
               )}
             </div>
@@ -675,8 +744,8 @@ function JobDialog({
                       "review:" + job.id + JSON.stringify(input),
                       (key) => port.review(job.id, input, key),
                       input.decision === "approved"
-                        ? "Approved. It is still hidden until attached."
-                        : "Rejected. It will never be shown.",
+                        ? t("mediaView.review.approved")
+                        : t("mediaView.review.rejected"),
                     ),
                   )
                 }
@@ -690,13 +759,13 @@ function JobDialog({
                   await command.run(
                     "attach:" + job.id,
                     (key) => port.attach(job.id, expiresAt, key),
-                    "Attached as optional help for this learner.",
+                    t("mediaView.attach.done"),
                   ),
                 )
               }
             />
           )}
-          {events(job)}
+          <Events job={job} />
           <div className="tag-row">
             {job.attachment?.state === "active" &&
               library.permissions.review && (
@@ -705,7 +774,8 @@ function JobDialog({
                   disabled={command.pending}
                   onClick={() => setRevoking(true)}
                 >
-                  <CircleSlash size={16} aria-hidden="true" /> Revoke
+                  <CircleSlash size={16} aria-hidden="true" />{" "}
+                  {t("mediaView.revoke.button")}
                 </Button>
               )}
             {CANCELLABLE.includes(job.state) && library.permissions.request && (
@@ -717,16 +787,16 @@ function JobDialog({
                     await command.run(
                       "cancel:" + job.id,
                       (key) => port.cancel(job.id, key),
-                      "Cancelled. The reserved allowance is not returned.",
+                      t("mediaView.job.cancelled"),
                     ),
                   )
                 }
               >
-                Cancel job
+                {t("mediaView.job.cancel")}
               </Button>
             )}
             <Button onClick={onClose} disabled={command.pending}>
-              Close
+              {t("mediaView.close")}
             </Button>
           </div>
           {revoking && job.attachment && (
@@ -737,7 +807,7 @@ function JobDialog({
                 const ok = await command.run(
                   "revoke:" + job.attachment!.id,
                   (key) => port.revoke(job.attachment!.id, reason, key),
-                  "Revoked. Learners no longer see it.",
+                  t("mediaView.revoke.done"),
                 );
                 if (ok) setRevoking(false);
                 after(ok);
@@ -749,16 +819,27 @@ function JobDialog({
     </Dialog>
   );
 }
-function events(job: MediaJob) {
+function Events({ job }: { job: MediaJob }) {
+  const t = useT();
+  const { when } = useFormatters();
   if (!job.events?.length) return null;
   return (
     <details className="media-script">
-      <summary>History ({job.events.length})</summary>
+      <summary>{t("mediaView.history", { count: job.events.length })}</summary>
       <ol className="media-events">
         {job.events.map((e, i) => (
           <li key={i}>
-            <span>{stateLabel[e.to as MediaJob["state"]] ?? e.to}</span>
-            {e.code && <small className="mono"> {e.code}</small>}
+            <span>
+              {(MEDIA_STATES as readonly string[]).includes(e.to)
+                ? t(`mediaView.state.${e.to as MediaJob["state"]}`)
+                : e.to}
+            </span>
+            {e.code && (
+              <small className="mono" dir="ltr">
+                {" "}
+                {e.code}
+              </small>
+            )}
             <small> · {when(e.at)}</small>
           </li>
         ))}
@@ -767,10 +848,10 @@ function events(job: MediaJob) {
   );
 }
 const CHECKS = [
-  ["factualAccuracy", "Facts match the lesson and its reference computation"],
-  ["labelsAndEquations", "Labels, values and equations are exact"],
-  ["captionsMatchNarration", "Captions match what is said and shown"],
-  ["noMisleadingMotion", "Motion does not imply a wrong cause or order"],
+  "factualAccuracy",
+  "labelsAndEquations",
+  "captionsMatchNarration",
+  "noMisleadingMotion",
 ] as const;
 function ReviewForm({
   sha,
@@ -781,6 +862,7 @@ function ReviewForm({
   pending: boolean;
   onSubmit: (input: MediaReviewInput) => void;
 }) {
+  const t = useT();
   const id = useId();
   const [decision, setDecision] = useState<"approved" | "rejected">("approved");
   const [captions, setCaptions] = useState(
@@ -806,7 +888,7 @@ function ReviewForm({
   return (
     <form
       className="stack media-review"
-      aria-label="Review this clip"
+      aria-label={t("mediaView.review.label")}
       onSubmit={(e) => {
         e.preventDefault();
         if (!ready) return;
@@ -826,7 +908,7 @@ function ReviewForm({
       }}
     >
       <fieldset>
-        <legend>Decision</legend>
+        <legend>{t("mediaView.review.decision")}</legend>
         <div className="tag-row">
           {(["approved", "rejected"] as const).map((value) => (
             <label key={value} className="check-label">
@@ -836,14 +918,16 @@ function ReviewForm({
                 checked={decision === value}
                 onChange={() => setDecision(value)}
               />
-              {value === "approved" ? "Approve" : "Reject"}
+              {value === "approved"
+                ? t("mediaView.review.approve")
+                : t("mediaView.review.reject")}
             </label>
           ))}
         </div>
       </fieldset>
       <fieldset>
-        <legend>Checks</legend>
-        {CHECKS.map(([key, label]) => (
+        <legend>{t("mediaView.review.checks")}</legend>
+        {CHECKS.map((key) => (
           <label className="check-label" key={key}>
             <input
               type="checkbox"
@@ -852,57 +936,65 @@ function ReviewForm({
                 setChecks({ ...checks, [key]: e.target.checked })
               }
             />
-            {label}
+            {t(`mediaView.check.${key}`)}
           </label>
         ))}
       </fieldset>
       {approving && (
         <>
           <Field
-            label="Captions (WebVTT)"
+            label={t("mediaView.review.captions")}
             htmlFor={id + "-captions"}
-            hint="Required. At least one timed cue."
+            hint={t("mediaView.review.captionsHint")}
           >
             <textarea
               id={id + "-captions"}
+              dir="ltr"
               className="mono"
               value={captions}
               onChange={(e) => setCaptions(e.target.value)}
             />
           </Field>
           <Field
-            label="Transcript"
+            label={t("mediaView.review.transcriptLabel")}
             htmlFor={id + "-transcript"}
-            hint="Required text alternative of everything said."
+            hint={t("mediaView.review.transcriptHint")}
           >
             <textarea
               id={id + "-transcript"}
+              dir="auto"
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
             />
           </Field>
           <Field
-            label="What the video shows"
+            label={t("mediaView.review.description")}
             htmlFor={id + "-description"}
-            hint="Required for learners who cannot see it."
+            hint={t("mediaView.review.descriptionHint")}
           >
             <textarea
               id={id + "-description"}
+              dir="auto"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           </Field>
         </>
       )}
-      <Field label="Rationale" htmlFor={id + "-rationale"}>
+      <Field
+        label={t("mediaView.review.rationale")}
+        htmlFor={id + "-rationale"}
+      >
         <textarea
           id={id + "-rationale"}
+          dir="auto"
           value={rationale}
           onChange={(e) => setRationale(e.target.value)}
         />
       </Field>
       <Button kind="primary" type="submit" disabled={pending || !ready}>
-        <ShieldCheck size={16} aria-hidden="true" /> Save review
+        <ShieldCheck size={16} aria-hidden="true" />{" "}
+        {t("mediaView.review.submit")}
       </Button>
     </form>
   );
@@ -914,21 +1006,22 @@ function AttachForm({
   pending: boolean;
   onSubmit: (expiresAt: string) => void;
 }) {
+  const t = useT();
   const id = useId();
   const [days, setDays] = useState(30);
   return (
     <form
       className="stack media-review"
-      aria-label="Attach as optional help"
+      aria-label={t("mediaView.attach.label")}
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit(new Date(Date.now() + days * DAY).toISOString());
       }}
     >
       <Field
-        label="Show for (days)"
+        label={t("mediaView.attach.days")}
         htmlFor={id + "-days"}
-        hint="1 to 180 days. Publication is re-checked against current course policy."
+        hint={t("mediaView.attach.daysHint")}
       >
         <input
           id={id + "-days"}
@@ -944,7 +1037,8 @@ function AttachForm({
         type="submit"
         disabled={pending || !(days >= 1 && days <= 180)}
       >
-        <BookMarked size={16} aria-hidden="true" /> Attach as optional help
+        <BookMarked size={16} aria-hidden="true" />{" "}
+        {t("mediaView.attach.label")}
       </Button>
     </form>
   );
@@ -958,24 +1052,26 @@ function RevokeForm({
   onCancel: () => void;
   onSubmit: (reason: string) => void;
 }) {
+  const t = useT();
   const id = useId();
   const [reason, setReason] = useState("");
   return (
     <form
       className="stack media-review"
-      aria-label="Revoke attachment"
+      aria-label={t("mediaView.revoke.label")}
       onSubmit={(e) => {
         e.preventDefault();
         if (reason.trim().length >= 10) onSubmit(reason.trim());
       }}
     >
       <Field
-        label="Reason"
+        label={t("mediaView.revoke.reason")}
         htmlFor={id + "-reason"}
-        hint="At least 10 characters. Learners stop seeing the clip at once."
+        hint={t("mediaView.revoke.reasonHint")}
       >
         <textarea
           id={id + "-reason"}
+          dir="auto"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />
@@ -986,10 +1082,10 @@ function RevokeForm({
           type="submit"
           disabled={pending || reason.trim().length < 10}
         >
-          Confirm revoke
+          {t("mediaView.revoke.confirm")}
         </Button>
         <Button type="button" onClick={onCancel} disabled={pending}>
-          Keep it
+          {t("mediaView.revoke.keep")}
         </Button>
       </div>
     </form>

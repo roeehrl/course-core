@@ -4,6 +4,10 @@ import { createFetchAdminClient } from "../src/client/fetchClient";
 import { AuditView } from "../src/views/AuditView";
 import { OverviewError, overviewErrorMessage } from "../src/domain/overview";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
+import type { CourseOverview } from "../src/domain/overview";
+import { OverviewView } from "../src/views/OverviewView";
+import { stripBidiControls } from "@course-core/i18n";
+import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
 const workspace = (permissions: string[]) =>
   ({
@@ -86,5 +90,119 @@ describe("audit log", () => {
       />,
     );
     expect(screen.getByText(/cannot read the audit log/)).toBeVisible();
+  });
+});
+
+const overview: CourseOverview = {
+  catalogId: "00000000-0000-4000-8000-000000000010",
+  generatedAt: "2026-10-15T00:00:00.000Z",
+  release: {
+    active: {
+      id: "00000000-0000-4000-8000-000000000011",
+      version: "1.2.0",
+      status: "published",
+      digest: "abc",
+      createdAt: "2026-10-01T09:00:00.000Z",
+    },
+    counts: { draft: 1, published: 2, archived: 0 },
+    pinnedLearners: [],
+    update: null,
+  },
+  lifecycle: { active: 3, paused: 0, completed: 1, closed: 0, erased: 0 },
+  deadlineRisks: [
+    {
+      enrollmentId: "00000000-0000-4000-8000-000000000012",
+      learner: "Robin Example",
+      deadline: "2026-10-18T00:00:00.000Z",
+      daysLeft: 2,
+      remainingEpisodes: 1,
+    },
+  ],
+  contentDefects: {
+    activeReleaseChecksFailing: [],
+    evidenceInvalidatedLast30Days: 1,
+  },
+  supervisorHealth: {
+    jobsByState: { budget_wait: 1 },
+    failedLast24h: 0,
+    oldestOpenJobAgeSeconds: 120,
+  },
+  approvalQueue: {
+    writtenAnswers: 1,
+    secondOpinions: 0,
+    gateReviews: 0,
+    generatedMedia: 0,
+    releases: 0,
+    providerRequests: 0,
+  },
+};
+const overviewClient = {
+  overview: { load: vi.fn(async () => overview) },
+} as unknown as AdminClient;
+const text = () => stripBidiControls(document.body.textContent ?? "");
+
+describe("course overview", () => {
+  it("counts with plurals in English", async () => {
+    render(<OverviewView data={workspace([])} client={overviewClient} />);
+    expect(await screen.findByText("Approval queue")).toBeVisible();
+    expect(text()).toContain("Robin Example · 1 lesson left · due");
+    expect(text()).toContain("1 evidence record invalidated in 30 days");
+    expect(text()).toContain("oldest open job 2 minutes old");
+    expect(screen.getByText("budget wait")).toBeVisible();
+  });
+
+  it("renders in Hebrew with Hebrew plurals and translated states", async () => {
+    render(
+      <I18nProvider value={createAdminTranslator("he")}>
+        <OverviewView data={workspace([])} client={overviewClient} />
+      </I18nProvider>,
+    );
+    expect(await screen.findByText("תור האישורים")).toBeVisible();
+    expect(text()).toContain("Robin Example · נשאר שיעור אחד · מועד אחרון");
+    expect(screen.getByText("יומיים")).toBeVisible();
+    expect(screen.getByText("ממתינות לתקציב")).toBeVisible();
+    expect(screen.getByText("פעילות")).toBeVisible();
+    expect(screen.getByText("1.2.0")).toHaveAttribute("dir", "ltr");
+  });
+});
+
+describe("audit log in Hebrew", () => {
+  it("translates the table, actor kinds and refusals", async () => {
+    const he = createAdminTranslator("he");
+    const list = vi.fn(async () => ({
+      nextBefore: null,
+      events: [
+        {
+          sequence: "1",
+          id: "00000000-0000-4000-8000-000000000003",
+          at: "2026-10-15T00:00:00.000Z",
+          actorKind: "learner" as const,
+          actor: null,
+          type: "assessment.submitted",
+          enrollmentId: "00000000-0000-4000-8000-000000000004",
+          payload: null,
+          payloadWithheld: true,
+        },
+      ],
+    }));
+    render(
+      <I18nProvider value={he}>
+        <AuditView
+          data={workspace(["audit.read"])}
+          client={{ audit: { list } } as unknown as AdminClient}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      await screen.findByText("הפרטים מוסתרים · תיעוד של לומד/ת"),
+    ).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "מי" })).toBeVisible();
+    expect(screen.getByText("assessment.submitted")).toHaveAttribute(
+      "dir",
+      "ltr",
+    );
+    expect(overviewErrorMessage(new OverviewError("FORBIDDEN"), he.t)).toMatch(
+      /צופי תמיכה/,
+    );
   });
 });

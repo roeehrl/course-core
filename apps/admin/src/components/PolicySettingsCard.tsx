@@ -6,16 +6,8 @@ import type {
 } from "../domain/policyLedger";
 import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
-import {
-  Badge,
-  Button,
-  Card,
-  ErrorState,
-  Field,
-  Loading,
-  Notice,
-  when,
-} from "./ui";
+import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const optional = (value: string) => (value.trim() ? Number(value) : null);
 const text = (value: number | null) => (value === null ? "" : String(value));
@@ -33,14 +25,18 @@ export function PolicySettingsCard({
   courseId: string;
   canWrite: boolean;
 }) {
+  const t = useT();
   const remote = useRemote(
     (signal) => client.getPolicySettings!(courseId, signal),
     [client, courseId],
   );
   return (
-    <Card title="Course policy settings" eyebrow="For new enrollments">
+    <Card
+      title={t("policySettingsCard.title")}
+      eyebrow={t("policySettingsCard.eyebrow")}
+    >
       {remote.loading ? (
-        <Loading label="Loading course policy settings…" />
+        <Loading label={t("policySettingsCard.loading")} />
       ) : remote.error ? (
         <ErrorState error={remote.error} onRetry={remote.reload} />
       ) : (
@@ -69,6 +65,12 @@ function SettingsForm({
   courseId: string;
   canWrite: boolean;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  /** A server code shown through the catalog; an unknown code falls back. */
+  const label = (key: string, fallback: string) =>
+    i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
   const [draft, setDraft] = useState<PolicySettings>(
     structuredClone(view.settings),
   );
@@ -111,32 +113,34 @@ function SettingsForm({
       <div className="tag-row">
         <Badge tone={current.source === "configured" ? "blue" : "gold"}>
           {current.source === "configured"
-            ? `Revision ${current.revision}`
-            : "Documented defaults"}
+            ? t("policySettingsCard.revision", { revision: current.revision })
+            : t("policySettingsCard.defaults")}
         </Badge>
-        {current.changedAt && <small>Saved {when(current.changedAt)}</small>}
+        {current.changedAt && (
+          <small>
+            {t("policySettingsCard.saved", { date: when(current.changedAt) })}
+          </small>
+        )}
       </div>
-      <Notice tone="blue">
-        These settings apply to new enrollments. Existing learners keep the
-        terms they started with; change those with a reviewed policy migration.
-      </Notice>
+      <Notice tone="blue">{t("policySettingsCard.notice")}</Notice>
       <div className="input-grid">
         <Field
-          label="Deadline time zone (IANA)"
+          label={t("policySettingsCard.zone")}
           htmlFor="settings-zone"
-          hint="Used for absolute deadlines when no window names a zone."
+          hint={t("policySettingsCard.zone.hint")}
         >
           <input
             id="settings-zone"
+            dir="ltr"
             value={draft.timeZone}
             disabled={!canWrite}
             onChange={(e) => update({ ...draft, timeZone: e.target.value })}
           />
         </Field>
         <Field
-          label="Hard-deadline daylight-saving resolution"
+          label={t("policySettingsCard.hardDisambiguation")}
           htmlFor="settings-hard-disambiguation"
-          hint="Refusing is the default: a hard deadline never silently lands on a shifted local time."
+          hint={t("policySettingsCard.hardDisambiguation.hint")}
         >
           <select
             id="settings-hard-disambiguation"
@@ -150,18 +154,24 @@ function SettingsForm({
               })
             }
           >
-            <option value="reject">Refuse; require an explicit choice</option>
-            <option value="compatible">
-              Compatible (later in a gap, earlier in an overlap)
+            <option value="reject">
+              {t("policySettingsCard.option.reject")}
             </option>
-            <option value="earlier">Always the earlier time</option>
-            <option value="later">Always the later time</option>
+            <option value="compatible">
+              {t("policySettingsCard.option.compatible")}
+            </option>
+            <option value="earlier">
+              {t("policySettingsCard.option.earlier")}
+            </option>
+            <option value="later">
+              {t("policySettingsCard.option.later")}
+            </option>
           </select>
         </Field>
         <Field
-          label="Window daylight-saving resolution"
+          label={t("policySettingsCard.windowDisambiguation")}
           htmlFor="settings-disambiguation"
-          hint="How a relative window ending on a skipped or repeated local time resolves."
+          hint={t("policySettingsCard.windowDisambiguation.hint")}
         >
           <select
             id="settings-disambiguation"
@@ -176,14 +186,23 @@ function SettingsForm({
             }
           >
             <option value="compatible">
-              Compatible (later in a gap, earlier in an overlap)
+              {t("policySettingsCard.option.compatible")}
             </option>
-            <option value="earlier">Always the earlier time</option>
-            <option value="later">Always the later time</option>
-            <option value="reject">Refuse; require an explicit choice</option>
+            <option value="earlier">
+              {t("policySettingsCard.option.earlier")}
+            </option>
+            <option value="later">
+              {t("policySettingsCard.option.later")}
+            </option>
+            <option value="reject">
+              {t("policySettingsCard.option.reject")}
+            </option>
           </select>
         </Field>
-        <Field label="Extension approval" htmlFor="settings-approval">
+        <Field
+          label={t("policySettingsCard.approval")}
+          htmlFor="settings-approval"
+        >
           <select
             id="settings-approval"
             value={draft.extensions.approval}
@@ -199,14 +218,16 @@ function SettingsForm({
               })
             }
           >
-            <option value="learner">Learner acceptance</option>
+            <option value="learner">
+              {t("policySettingsCard.approval.learner")}
+            </option>
             <option value="learner_and_admin">
-              Learner acceptance and administrator approval
+              {t("policySettingsCard.approval.learnerAndAdmin")}
             </option>
           </select>
         </Field>
         {number(
-          "Offer cooldown (hours)",
+          t("policySettingsCard.cooldown"),
           "settings-cooldown",
           draft.extensions.offerCooldownHours,
           (n) =>
@@ -216,7 +237,7 @@ function SettingsForm({
             }),
         )}
         {number(
-          "Outstanding offers per scope",
+          t("policySettingsCard.outstanding"),
           "settings-outstanding",
           draft.extensions.maxOutstandingOffersPerScope,
           (n) =>
@@ -229,14 +250,14 @@ function SettingsForm({
             }),
         )}
         {number(
-          "Closed-course question budget",
+          t("policySettingsCard.questions"),
           "settings-questions",
           draft.closedQuestionBudget,
           (n) => update({ ...draft, closedQuestionBudget: n }),
-          "Explanatory questions allowed after an enrollment closes.",
+          t("policySettingsCard.questions.hint"),
         )}
         {number(
-          "Core headroom (minutes)",
+          t("policySettingsCard.coreMinutes"),
           "settings-core-minutes",
           draft.headroom.core.additionalMinutes,
           (n) =>
@@ -247,10 +268,10 @@ function SettingsForm({
                 core: { ...draft.headroom.core, additionalMinutes: n },
               },
             }),
-          "Reserved before enrichment.",
+          t("policySettingsCard.coreMinutes.hint"),
         )}
         {number(
-          "Final-assessment headroom (minutes)",
+          t("policySettingsCard.finalMinutes"),
           "settings-final-minutes",
           draft.headroom.finalAssessment.additionalMinutes,
           (n) =>
@@ -266,9 +287,9 @@ function SettingsForm({
             }),
         )}
         <Field
-          label="Estimated minutes per required episode"
+          label={t("policySettingsCard.episodeMinutes")}
           htmlFor="settings-episode-minutes"
-          hint="Optional. Enables the time-fit check."
+          hint={t("policySettingsCard.episodeMinutes.hint")}
         >
           <input
             id="settings-episode-minutes"
@@ -288,9 +309,9 @@ function SettingsForm({
           />
         </Field>
         <Field
-          label="Study minutes per day"
+          label={t("policySettingsCard.pace")}
           htmlFor="settings-pace"
-          hint="Optional declared pace."
+          hint={t("policySettingsCard.pace.hint")}
         >
           <input
             id="settings-pace"
@@ -321,42 +342,55 @@ function SettingsForm({
             )
           }
         >
-          Preview feasibility and daylight saving
+          {t("policySettingsCard.previewButton")}
         </Button>
       )}
       {feasibility && (
-        <div
-          className="stack"
-          aria-label="Feasibility for a learner enrolling now"
-        >
-          <h3>Feasibility for a learner enrolling now</h3>
+        <div className="stack" aria-label={t("policySettingsCard.feasibility")}>
+          <h3>{t("policySettingsCard.feasibility")}</h3>
           <Notice tone={feasibility.feasible ? "green" : "red"}>
             {feasibility.feasible
-              ? "The required core path and final assessment fit."
-              : "The required core path does not fit this envelope."}{" "}
-            Mastery criteria are unchanged.
+              ? t("policySettingsCard.feasible")
+              : t("policySettingsCard.infeasible")}
           </Notice>
           {feasibility.issues.length > 0 && (
             <ul>
               {feasibility.issues.map((issue, index) => (
                 <li key={index}>
                   <Badge tone={issue.severity === "error" ? "red" : "gold"}>
-                    {issue.severity}
+                    {t(
+                      `policySettingsCard.severity.${issue.severity}` as MessageKey,
+                    )}
                   </Badge>{" "}
-                  {issue.message}
-                  {issue.neededMinutes !== undefined &&
-                    ` Needs ${issue.neededMinutes} minutes; ${issue.availableMinutes} available.`}
+                  {label(
+                    `policySettingsCard.issue.${issue.code}`,
+                    issue.message,
+                  )}
+                  {issue.neededMinutes !== undefined && (
+                    <>
+                      {" "}
+                      {t("policySettingsCard.issue.needs", {
+                        needed: issue.neededMinutes,
+                        available: issue.availableMinutes ?? 0,
+                      })}
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           )}
           {feasibility.alternatives.length > 0 && (
             <p>
-              Alternatives:{" "}
-              {feasibility.alternatives
-                .map((a) => a.replaceAll("_", " "))
-                .join("; ")}
-              .
+              {t("policySettingsCard.alternatives", {
+                list: feasibility.alternatives
+                  .map((a) =>
+                    label(
+                      `policySettingsCard.alternative.${a}`,
+                      a.replaceAll("_", " "),
+                    ),
+                  )
+                  .join("; "),
+              })}
             </p>
           )}
         </div>
@@ -365,33 +399,45 @@ function SettingsForm({
         preview.preview &&
         preview.preview.calendar.some((row) => row.transitions.length > 0) && (
           <div className="table-wrap">
-            <table aria-label="Daylight-saving effects">
+            <table aria-label={t("policySettingsCard.dst")}>
               <thead>
                 <tr>
-                  <th scope="col">Rule</th>
-                  <th scope="col">Local date</th>
-                  <th scope="col">Local times</th>
-                  <th scope="col">Resolution</th>
+                  <th scope="col">{t("policySettingsCard.dst.rule")}</th>
+                  <th scope="col">{t("policySettingsCard.dst.localDate")}</th>
+                  <th scope="col">{t("policySettingsCard.dst.localTimes")}</th>
+                  <th scope="col">{t("policySettingsCard.dst.resolution")}</th>
                 </tr>
               </thead>
               <tbody>
                 {preview.preview.calendar.flatMap((row) =>
-                  row.transitions.map((t) => (
-                    <tr key={`${row.scopeId}:${row.rule}:${t.transitionAt}`}>
+                  row.transitions.map((transition) => (
+                    <tr
+                      key={`${row.scopeId}:${row.rule}:${transition.transitionAt}`}
+                    >
                       <td>
                         {row.rule === "window"
-                          ? `${row.calendarDays}-day window (${row.timeZone})`
-                          : `Deadline (${row.timeZone})`}
+                          ? t("policySettingsCard.dst.window", {
+                              days: row.calendarDays,
+                              zone: row.timeZone,
+                            })
+                          : t("policySettingsCard.dst.deadline", {
+                              zone: row.timeZone,
+                            })}
                       </td>
-                      <td>{t.localDate}</td>
+                      <td dir="ltr">{transition.localDate}</td>
                       <td>
-                        {t.kind === "gap" ? "skipped" : "repeated"}{" "}
-                        {t.localStart.slice(0, 5)}–{t.localEnd.slice(0, 5)}
+                        {t("policySettingsCard.dst.times", {
+                          kind: transition.kind,
+                          start: transition.localStart.slice(0, 5),
+                          end: transition.localEnd.slice(0, 5),
+                        })}
                       </td>
                       <td>
-                        {t.resolution === "rejected"
-                          ? "Refused"
-                          : `Resolves ${t.resolution}`}
+                        {transition.resolution === "rejected"
+                          ? t("policySettingsCard.dst.refused")
+                          : t("policySettingsCard.dst.resolves", {
+                              resolution: transition.resolution,
+                            })}
                       </td>
                     </tr>
                   )),
@@ -406,22 +452,32 @@ function SettingsForm({
             row.rejectsSomeStarts || row.rejectedExtensionDays.length > 0,
         ) && (
           <Notice tone="gold">
-            Some enrollment starts or extensions would be refused at these times
-            {preview.preview.calendar
-              .filter((row) => row.rejectedExtensionDays.length > 0)
-              .map(
-                (row) =>
-                  ` (deadline extensions of ${row.rejectedExtensionDays.join(", ")} day${row.rejectedExtensionDays.length === 1 ? "" : "s"} in ${row.timeZone})`,
-              )
-              .join("")}
-            . Choose another resolution to avoid that.
+            {(() => {
+              const details = preview.preview.calendar
+                .filter((row) => row.rejectedExtensionDays.length > 0)
+                .map((row) =>
+                  t("policySettingsCard.rejected.row", {
+                    days: row.rejectedExtensionDays.join(", "),
+                    count: row.rejectedExtensionDays.length,
+                    zone: row.timeZone,
+                  }),
+                )
+                .join(" ");
+              return details
+                ? t("policySettingsCard.rejected.withDetails", { details })
+                : t("policySettingsCard.rejected");
+            })()}
           </Notice>
         )}
       {canWrite && client.savePolicySettings && reviewed && (
         <div className="stack">
-          <Field label="Reason for this change" htmlFor="settings-reason">
+          <Field
+            label={t("policySettingsCard.reason")}
+            htmlFor="settings-reason"
+          >
             <input
               id="settings-reason"
+              dir="auto"
               maxLength={1000}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -439,11 +495,13 @@ function SettingsForm({
                 });
                 setCurrent(saved);
                 setReason("");
-                setMessage(saved.message ?? "Policy settings saved.");
+                setMessage(
+                  saved.message ?? t("policySettingsCard.savedMessage"),
+                );
               })
             }
           >
-            Save settings for new enrollments
+            {t("policySettingsCard.save")}
           </Button>
         </div>
       )}
