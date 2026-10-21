@@ -29,6 +29,7 @@ import { GeneratedComponentPanel, type GeneratedComponent } from "./GeneratedCom
 import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
 import type { ActivityClient } from "../client/activityClient";
 import { ActivityBlock } from "./ActivityBlock.web";
+import { PresenceRegion, type PresenceKind, type PresenceState, type ReportPresence } from "./presence.web";
 import { useT } from "../i18n";
 import { courseContentAttributes } from "../domain/contentLanguage";
 
@@ -42,6 +43,8 @@ export interface ConnectedLessonProps {
   answer: string;
   checkingAnswer?: boolean;
   policyPanel?: React.ReactNode;
+  /** Reports when the learner starts and stops using an interactive part (E03 safe boundary). */
+  onPresence?: (episodeId: string, blockId: string, kind: PresenceKind, state: PresenceState, leaving?: boolean) => void;
   /** Generated interactive components by `${episodeId}/${blockId}` (see GeneratedComponent.web.tsx). */
   components?: Map<string, GeneratedComponent>;
   /** Generated additions waiting for a safe point in this lesson (see pendingChanges.web.tsx). */
@@ -165,6 +168,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   useEffect(() => {
     props.onBlockChange(current?.id, blockTitle);
   }, [current?.id, blockTitle, props.onBlockChange]);
+  const reportPresence: ReportPresence | undefined = props.onPresence
+    ? (blockId, kind, state, leaving) => props.onPresence!(episode.id, blockId, kind, state, leaving)
+    : undefined;
   function renderBlock(block: Readable) {
     const media =
       block.type === "media"
@@ -181,10 +187,13 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             </div>
             {/* A generated component runs beside its text alternative, in the sandboxed runner. */}
             {props.components?.has(`${episode.id}/${block.id}`) && (
-              <GeneratedComponentPanel component={props.components.get(`${episode.id}/${block.id}`)!} />
+              <PresenceRegion blockId={block.id} kind="component" report={reportPresence}>
+                <GeneratedComponentPanel component={props.components.get(`${episode.id}/${block.id}`)!} />
+              </PresenceRegion>
             )}
           </>
         ) : block.type === "visual" ? (
+          <PresenceRegion blockId={block.id} kind="simulation" report={reportPresence}>
           <VisualBlock
             source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}
             onContextChange={props.onVisualContextChange}
@@ -194,6 +203,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               (visual) => visual.id === block.visualId,
             )}
           />
+          </PresenceRegion>
         ) : (
           <ReviewedMedia
             media={media}
@@ -366,8 +376,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           {!placement && props.activities && activityBlocks.length > 0 && (
             <div className="connected-activities">
               {activityBlocks.map((block) => (
+                <PresenceRegion key={block.id} blockId={block.id} kind="activity" report={reportPresence}
+                  done={Boolean(progress?.completedBlockIds.includes(block.id))}>
                 <ActivityBlock
-                  key={block.id}
                   client={props.activities!}
                   enrollmentId={server.enrollmentId}
                   episodeId={episode.id}
@@ -376,6 +387,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                   disabled={pending}
                   onChanged={() => props.onActivityChanged?.()}
                 />
+                </PresenceRegion>
               ))}
             </div>
           )}
