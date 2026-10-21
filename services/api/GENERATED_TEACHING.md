@@ -213,12 +213,20 @@ isolated workspace before it can be published: every test must use exactly the
 declared controls within range and exactly the declared outputs, one test must be
 the starting position, the tests must tell positions apart, and the model must pass
 every test in the installed grader. The lesson block is a text alternative the host
-writes from the labels and ranges (markup escaped), which the course verifier and
-the accessibility check read. On delivery the component is published once,
-content-addressed and immutable (migration 093, `generated_components`).
+writes (markup escaped), which the course verifier and the accessibility check read.
+It names each control with its range, step and starting value and each output, then
+gives the outputs at the starting position and, for each control that some test moves
+on its own from the start, what the outputs show when that control goes up ("When
+Slope goes from 2 to 3 (other controls unchanged): y goes from 7 to 10."). Every
+value comes from a test the grader ran; tests that move several controls stay
+server-side. The phrases follow the course locale (English and Hebrew; any other
+language gets symbols only, never English words). On delivery the component is
+published once, content-addressed and immutable (migration 093, `generated_components`).
 
 `GET /api/enrollments/:id/components` (the learner, or staff who may view the
-enrollment) returns the live components without their tests. The learner page runs
+enrollment) returns the live components without their tests, with the verified
+outputs at the starting position (`start.outputs`), which the panel shows until the
+learner moves a control. The learner page runs
 a component only in Core's sandboxed Python runner frame (opaque origin, no
 network, no access to the page) and shows the declared outputs it returns as text.
 Generated code never runs in the API process or the learner page's origin.

@@ -20,6 +20,8 @@ export interface GeneratedComponent {
   source: string;
   inputs: { name: string; label: string; min: number; max: number; step: number; initial: number }[];
   outputs: { name: string; label: string }[];
+  /** The outputs at the starting position, as the server's grader verified them before delivery. */
+  start?: { outputs: Record<string, number | string> };
 }
 type Runner = { run: (code: string, input: string | null, callbacks: { onOutput(stream: "stdout" | "stderr", text: string): void; onPhase?(phase: "loading" | "running"): void }) => Promise<RunResult> };
 
@@ -102,6 +104,11 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
         : parsed ? t("generatedComponent.updated") : t("generatedComponent.badOutput"));
   }
   const busy = phase !== "idle";
+  // Before a run, at the starting position, the verified starting values are shown instead of nothing.
+  const atStart = component.inputs.every((input) => values[input.name] === input.initial);
+  const shown = result ?? (atStart && component.start ? component.start.outputs : null);
+  const value = (item: number | string | undefined) =>
+    item === undefined ? t("generatedComponent.notRun") : typeof item === "number" ? i18n.number(item, { maximumFractionDigits: 6 }) : String(item);
   return (
     <section className="connected-component" aria-labelledby={`${id}-title`}>
       <h3 id={`${id}-title`}>{component.title}</h3>
@@ -135,17 +142,12 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
       />
       <div aria-live="polite">
         {status && <p className="connected-muted">{status}</p>}
+        {result === null && shown && <p className="connected-muted">{t("generatedComponent.startChecked")}</p>}
         <dl className="connected-component-results" aria-label={t("generatedComponent.results")}>
           {component.outputs.map((output) => (
             <div key={output.name}>
               <dt>{output.label}</dt>
-              <dd>
-                {result === null
-                  ? t("generatedComponent.notRun")
-                  : typeof result[output.name] === "number"
-                    ? i18n.number(result[output.name] as number, { maximumFractionDigits: 6 })
-                    : String(result[output.name])}
-              </dd>
+              <dd>{shown === null ? t("generatedComponent.notRun") : value(shown[output.name])}</dd>
             </div>
           ))}
         </dl>
