@@ -83,7 +83,9 @@ export function VisualInspector({
       action();
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : m.changeRefused);
+      setError(
+        cause instanceof Error ? m.describeError(cause) : m.changeRefused,
+      );
     }
   };
   const set = (key: string, value: Value) =>
@@ -218,7 +220,7 @@ export function VisualInspector({
             <caption>{m.computedProperties(node.id)}</caption>
             <tbody>
               <tr>
-                <th scope="row">visible</th>
+                <th scope="row">{m.visibleProperty}</th>
                 <td>{String(node.visible)}</td>
               </tr>
               {PROPERTIES.filter((p) => node[p] !== undefined).map((p) => (
@@ -228,7 +230,7 @@ export function VisualInspector({
                 </tr>
               ))}
               <tr>
-                <th scope="row">bounds</th>
+                <th scope="row">{m.boundsProperty}</th>
                 <td>
                   {round(node.bounds.x)}, {round(node.bounds.y)},{" "}
                   {round(node.bounds.width)} × {round(node.bounds.height)}
@@ -260,7 +262,7 @@ export function VisualInspector({
                   <li key={i}>
                     {m.checkKind[f.check]} <code>{f.id}</code> ·{" "}
                     {m.layout[f.layout]} · {m.milliseconds(String(f.atMs))}:{" "}
-                    {f.message}
+                    {m.describeError(f)}
                   </li>
                 ))}
               </ul>
