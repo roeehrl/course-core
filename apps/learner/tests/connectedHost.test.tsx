@@ -106,6 +106,8 @@ it("keeps lesson saves disabled until a placement decline is confirmed", async (
     "fetch",
     vi.fn(async (input: string, init?: RequestInit) => {
       const base = `/api/enrollments/${snapshot.enrollmentId}`;
+      // The app's platform report describes the device; it is not a lesson save.
+      if (input === `${base}/platform-capabilities`) return response({ recorded: true, duplicate: false, snapshotId: "snapshot" });
       if (init?.method === "POST") posts.push(input);
       if (input === "/auth/session")
         return response({ user: { id: "placement-user", displayName: "Learner" } });
