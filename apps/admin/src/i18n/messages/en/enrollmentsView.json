@@ -27,7 +27,7 @@
   "paceValue.focused": "focused",
   "placement": "Placement",
   "placement.notTaken": "Not taken",
-  "placement.accepted": "Accepted · placed out of {count} episode(s)",
+  "placement.accepted": "Accepted · placed out of {count, plural, one {# episode} other {# episodes}}",
   "placement.stateWithReason": "{state} · {reason}",
   "placement.state.declined": "declined",
   "placement.state.in_progress": "in progress",

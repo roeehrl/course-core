@@ -106,7 +106,7 @@ test("an owner sets up a study, opens recruiting, sees arm balance and consent c
   await page.getByRole("button", { name: "Check allocation" }).click();
   await expect(
     page.getByText(
-      "All 6 assignment(s) match the seeded draw (6 made in total).",
+      "All 6 assignments match the seeded draw (6 made in total).",
     ),
   ).toBeVisible();
   await accessible(page);

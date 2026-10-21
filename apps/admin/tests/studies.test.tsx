@@ -181,7 +181,7 @@ describe("study administration view", () => {
     );
     expect(
       await screen.findByText(
-        "All 11 assignment(s) match the seeded draw (12 made in total).",
+        "All 11 assignments match the seeded draw (12 made in total).",
       ),
     ).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Close study" }));
