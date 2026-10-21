@@ -107,5 +107,19 @@
   "steps.registryConsent": "I approve the packaged recovery registry ({count, plural, one {# profile} other {# profiles}}, digest {digest}) for version {version}.",
   "steps.approveRegistry": "Approve recovery registry",
   "steps.ownerMustApprove": "An owner or administrator must approve the registry.",
-  "status.slow": "Still working. A large package takes longer on a slow connection; keep this window open."
+  "status.slow": "Still working. A large package takes longer on a slow connection; keep this window open.",
+  "host.courseSupplied": "Supplied by the course",
+  "supplied.heading": "Files the course brings",
+  "supplied.explain": "This course brings its own files instead of asking the server operator to install them. Core never runs them on the server: hidden test cases are only data that the isolated grader checks learners' code against, and an activity runs in a sealed frame that cannot reach the internet, this site or anyone's data. Nothing is used until you approve it.",
+  "supplied.kind.code_fixtures": "Hidden test cases for code tasks",
+  "supplied.kind.sandboxed_web": "Interactive activity",
+  "supplied.status.installed": "Already approved on this server",
+  "supplied.status.approvable": "Needs your approval",
+  "supplied.status.unavailable": "Can't be used here",
+  "supplied.reason.NO_SANDBOX": "This server has no code grader turned on. Ask the server operator to turn on course-supplied test cases, then inspect the package again.",
+  "supplied.reason.INVALID_CODE_FIXTURE": "The test cases are not in the expected format. Ask the course author to fix the file and publish a new package.",
+  "supplied.reason.INVALID_SCRIPT": "The activity file is not readable text. Ask the course author to fix it and publish a new package.",
+  "supplied.reason.EXTENSION_ID_CONFLICT": "This server already runs a different file under the same name. Ask the course author to rename it, or remove the other one first.",
+  "supplied.reason.other": "Core cannot use this file here.",
+  "supplied.approve": "{count, plural, one {I approve the file this course brings. Core runs it only in its isolated grader or sealed activity frame.} other {I approve the # files this course brings. Core runs them only in its isolated grader or sealed activity frame.}}"
 }
