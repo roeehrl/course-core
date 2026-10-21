@@ -192,6 +192,22 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   });
   await save.click();
   await expect(page.getByText("Settings saved.")).toBeVisible();
+  // Stricter checkpoint confirmation: previewed with what waits now, then saved.
+  await page
+    .getByRole("radio", { name: /^A person confirms every one/ })
+    .check();
+  await expect(save).toBeDisabled();
+  await page.getByRole("button", { name: "Check what this changes" }).click();
+  await expect(
+    page.getByText(
+      /Every conversation checkpoint will wait for a person on staff\. No conversation answers are waiting/,
+    ),
+  ).toBeVisible();
+  await save.click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await expect(
+    page.getByRole("radio", { name: /^A person confirms every one/ }),
+  ).toBeChecked();
   // A tool family switched off is previewed as tools no longer used.
   await page.getByRole("checkbox", { name: /^Visuals/ }).uncheck();
   await page.getByRole("button", { name: "Check what this changes" }).click();

@@ -15,17 +15,25 @@ type Sql = Database | PoolClient;
  */
 export const AUTONOMY_LEVELS = ['recommend_only', 'propose_only', 'apply_verified_personal'] as const;
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
-export interface SupervisionSettings { autonomyLevel: AutonomyLevel; permittedToolFamilies: ToolFamily[]; revision: number }
+/**
+ * How conversation checkpoints are confirmed (Q08 gate evidence modes; migration 113):
+ * - as_authored: each gate's evaluator decides; a deterministic evaluator may confirm the AI
+ *   reviewer's quoted findings (conversation-confirmation.ts);
+ * - people_only: a person confirms every finding, whatever the course declares. Stricter only.
+ */
+export const CONVERSATION_CONFIRMATIONS = ['as_authored', 'people_only'] as const;
+export type ConversationConfirmation = (typeof CONVERSATION_CONFIRMATIONS)[number];
+export interface SupervisionSettings { autonomyLevel: AutonomyLevel; permittedToolFamilies: ToolFamily[]; conversationConfirmation: ConversationConfirmation; revision: number }
 export const DEFAULT_SUPERVISION_SETTINGS: Readonly<SupervisionSettings> = Object.freeze({
-  autonomyLevel: 'apply_verified_personal', permittedToolFamilies: [...TOOL_FAMILIES], revision: 0,
+  autonomyLevel: 'apply_verified_personal', permittedToolFamilies: [...TOOL_FAMILIES], conversationConfirmation: 'as_authored', revision: 0,
 });
 
 /** The workspace's settings (defaults when none were saved). Unknown stored families are dropped. */
 export async function supervisionSettingsWithin(client: Sql, workspaceId: string): Promise<SupervisionSettings> {
-  const row = (await client.query<{ autonomy_level: AutonomyLevel; permitted_tool_families: string[]; revision: number }>(
-    'SELECT autonomy_level,permitted_tool_families,revision FROM supervision_settings WHERE workspace_id=$1', [workspaceId])).rows[0];
+  const row = (await client.query<{ autonomy_level: AutonomyLevel; permitted_tool_families: string[]; conversation_confirmation: ConversationConfirmation; revision: number }>(
+    'SELECT autonomy_level,permitted_tool_families,conversation_confirmation,revision FROM supervision_settings WHERE workspace_id=$1', [workspaceId])).rows[0];
   if (!row) return { ...DEFAULT_SUPERVISION_SETTINGS, permittedToolFamilies: [...DEFAULT_SUPERVISION_SETTINGS.permittedToolFamilies] };
-  return { autonomyLevel: row.autonomy_level,
+  return { autonomyLevel: row.autonomy_level, conversationConfirmation: row.conversation_confirmation,
     permittedToolFamilies: row.permitted_tool_families.filter((f): f is ToolFamily => (TOOL_FAMILIES as readonly string[]).includes(f)),
     revision: row.revision };
 }

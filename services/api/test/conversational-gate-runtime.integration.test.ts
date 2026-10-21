@@ -316,6 +316,41 @@ describe("deterministic confirmation of a verified proposal", () => {
     expect((await decision(who)).status).toBe("needs_evidence");
   }, 60000);
 
+  it("leaves every conversation to a person when the workspace asks for people only (Q08), and confirms again once it is lifted", async () => {
+    const settings = `/api/admin/workspaces/${workspace}/supervision/settings`;
+    const current = (await call(owner, "GET", settings)).json();
+    const choose = async (conversationConfirmation: string, expectedRevision: number) => {
+      const body = { autonomyLevel: current.autonomyLevel, permittedToolFamilies: current.permittedToolFamilies, conversationConfirmation };
+      const preview = (await call(owner, "POST", `${settings}/preview`, body)).json();
+      expect(preview.confirmation).toBe(conversationConfirmation === "people_only" ? "people_confirm_every_conversation" : "checkpoints_as_authored");
+      const saved = await call(owner, "PUT", settings, { expectedRevision, ...body });
+      expect(saved.statusCode, saved.body).toBe(200);
+      return saved.json().revision as number;
+    };
+    expect((await call(owner, "PUT", settings, { expectedRevision: current.revision, autonomyLevel: current.autonomyLevel,
+      permittedToolFamilies: current.permittedToolFamilies, conversationConfirmation: "nobody" })).statusCode).toBe(400);
+    const revision = await choose("people_only", current.revision);
+    try {
+      const who = await enroll(deterministicCourse(`7.3.${versions++}`), true);
+      await passFamily(who);
+      draft = () => findings(INVARIANT, EXAMPLE);
+      const before = checked.length;
+      const attempt = await explain(who, firstTurn + " " + reply);
+      expect(await runProposal((await requestFor(attempt)).id)).toMatchObject({ verified: "ready", applied: "applied" });
+      // The proposal the fixed check would have confirmed waits for a person; the check was not asked.
+      expect(checked.length).toBe(before);
+      const [pending] = await queue(who);
+      expect(pending.assist).toMatchObject({ state: "suggested", automaticCheck: { state: "people_only" } });
+      expect(await evidenceCount(who)).toBe(0);
+      expect((await decision(who)).status).toBe("under_review");
+      // The audit names the change.
+      const audit = (await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?type=supervision.settings_changed`)).json();
+      expect(audit.events[0].payload).toMatchObject({ to: { conversationConfirmation: "people_only" }, from: { conversationConfirmation: "as_authored" } });
+    } finally {
+      await choose("as_authored", revision);
+    }
+  }, 60000);
+
   it("refuses a system activation for a request staff made, and a staff activation for the supervisor's", async () => {
     const who = await enroll(deterministicCourse(`7.4.${versions++}`), true);
     draft = () => findings(INVARIANT, "");
