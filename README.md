@@ -399,6 +399,34 @@ permissions are checked again on every run. The API runs due updates every
 audit-logged (`course_update.checked`), and failures wait longer each time (interval × 2^failures,
 at most 7 days). Changing the source turns automatic updates off again.
 
+**Moving learners to a newer version** (Course & releases → *Move learners to a newer version*;
+`/api/admin/courses/:courseId/version-moves`, owners and administrators). Learners stay on the
+release they enrolled in. Staff can move one learner, or everyone active or paused on a version,
+to a newer *published*, runnable version of the same course. A preview comes first and changes
+nothing: per learner, which completed lessons stay completed, which checkpoints must be passed
+again, which lessons the new version no longer has, how much evidence stays behind, what work is
+open and what happens to their deadlines. Confirming needs that exact preview (by digest, within
+15 minutes), a reason, and an explicit acknowledgement when anyone loses credit.
+- Evidence stays bound to the version it was earned on: attempts, evidence, progress, gate
+  decisions and activity state are never rewritten, so a checkpoint passed on the old version
+  is passed again on the new one (the lessons after it count again once it is).
+- Policy: every existing scope, anchor, deadline, grant and ledger entry is kept; chapters and
+  lessons the new version adds get scopes through the reviewed policy migration
+  (`migrate_policy`), without extension pools.
+- Refused, with a code: an enrollment that is not active or paused, a learner already enrolled
+  in the target version, personal changes (built on the old version), a learner in a research
+  study, a move already waiting, or a policy the package refuses.
+- Safe boundary: a learner with a question open, an activity changed in the last ten minutes,
+  a placement check in progress or the supervisor mid-run waits; waiting moves are retried
+  every `COURSE_VERSION_MOVE_TICK_MS` (default 60000, at least 10000; single-flight) and are
+  cancelled with a code if what the move costs the learner changed, the confirming person lost
+  the permission, or after 7 days. Staff can stop waiting moves.
+- Undo moves a learner back only while they have done nothing on the new version and are not
+  enrolled in the old one again. Scopes the move added stay in their policy (inert there).
+- Audited: `course_version.move_confirmed`, `course_version.moved`, `course_version.move_undone`
+  and `course_version.move_cancelled` (ids, versions, codes and counts; the staff reason on the
+  confirmation).
+
 API (`:courseId` is the admin course id): `GET /api/admin/courses/:courseId/updates`,
 `PUT …/updates/source` `{expectedRevision, source: {kind:"github", url} | {kind:"path",
 directoryId, subpath} | {kind:"none"}}`, `PUT …/updates/settings` `{expectedRevision, level,
