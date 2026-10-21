@@ -189,7 +189,168 @@ export function CheckSection(props: Props) {
       ) : (
         <p className="ai-muted">{t("aiServices.check.noneOn")}</p>
       )}
+      <HostFileRoles {...props} />
+      <CourseSetups {...props} />
     </Section>
+  );
+}
+
+/** The server's provider file: what jobs use while the workspace has no setup of its own. */
+function HostFileRoles(props: Props) {
+  const text = useAiText();
+  const { t } = text;
+  const host = props.data.evals?.hostFile;
+  if (!host?.inUse) return null;
+  const unchecked = host.roles.filter(
+    (r) => r.status !== "passed" && r.status !== "override",
+  );
+  return (
+    <div className="ai-sub">
+      <h3>{t("aiServices.check.hostFile.title")}</h3>
+      <p>{t("aiServices.check.hostFile.body")}</p>
+      {unchecked.length > 0 && (
+        <Message tone="warn">
+          {t("aiServices.check.hostFile.unchecked", {
+            jobs: text.list(unchecked.map((r) => jobName(t, r.role))),
+          })}
+        </Message>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Course-specific setups: a course may ask for a narrower version of a job (fewer tools, shorter
+ * answers). Each is its own revision; it answers the course's learners only after a passing check
+ * or an owner's approval of that exact setup, and is refused until then (never replaced by the
+ * wider standard job).
+ */
+function CourseSetups(props: Props) {
+  const text = useAiText();
+  const { t } = text;
+  const { port, workspaceId, owner, reload, onDirty } = props;
+  const setups = props.data.evals?.courseStrategies ?? [];
+  const waiting = setups.filter((s) => s.status === "not_covered");
+  const base = useId().replaceAll(":", "");
+  const [reason, setReason] = useState("");
+  const [errors, setErrors] = useState<FieldError[]>([]);
+  const [message, setMessage] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [approved, setApproved] = useState(false);
+  const keys = useRequestKeys();
+  useEffect(() => onDirty(!!reason.trim()), [reason, onDirty]);
+  useEffect(() => () => onDirty(false), [onDirty]);
+  if (!setups.length) return null;
+  const reasonId = `${base}-course-reason`;
+  async function approve() {
+    setMessage(undefined);
+    if (reason.trim().length < MIN_REASON) {
+      setErrors([
+        { field: reasonId, message: t("aiServices.check.errReason") },
+      ]);
+      return;
+    }
+    setErrors([]);
+    setSaving(true);
+    try {
+      for (const setup of waiting) {
+        const request = {
+          role: setup.role,
+          revisionDigest: setup.revisionDigest,
+          reason: reason.trim(),
+        };
+        await port.approve(workspaceId, {
+          ...request,
+          idempotencyKey: keys.key(request),
+        });
+      }
+      keys.settle();
+      setReason("");
+      setApproved(true);
+      await reload();
+    } catch (error) {
+      keys.settle(error);
+      setMessage(errorText(text, error));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const reasonError = errors.find((e) => e.field === reasonId)?.message;
+  return (
+    <div className="ai-sub">
+      <h3>{t("aiServices.check.course.title")}</h3>
+      <p>{t("aiServices.check.course.body")}</p>
+      {approved && !waiting.length && (
+        <Message tone="ok">{t("aiServices.check.course.approved")}</Message>
+      )}
+      <ul className="ai-list">
+        {setups.map((setup) => (
+          <li key={`${setup.releaseId}:${setup.strategy}`}>
+            {t("aiServices.check.course.item", {
+              job: jobName(t, setup.role),
+              course: setup.courseKey,
+              version: setup.version,
+            })}{" "}
+            <Ltr className="mono">{setup.strategy}</Ltr>
+            <span className="ai-muted">
+              {" "}
+              · {t(`aiServices.check.course.state.${setup.status}`)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {waiting.length > 0 &&
+        (owner ? (
+          <form
+            className="ai-form"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              void approve();
+            }}
+          >
+            {message && <Message tone="error">{message}</Message>}
+            <p className="ai-muted">
+              {t("aiServices.check.course.approveNote")}
+            </p>
+            <ErrorSummary errors={errors} />
+            <Field
+              id={reasonId}
+              label={t("aiServices.check.reasonLabel")}
+              hint={t("aiServices.check.reasonHint")}
+              error={reasonError}
+            >
+              <textarea
+                id={reasonId}
+                dir="auto"
+                rows={3}
+                maxLength={1000}
+                value={reason}
+                disabled={saving}
+                onChange={(event) => setReason(event.target.value)}
+                {...described(reasonId, true, reasonError)}
+              />
+            </Field>
+            <div className="ai-actions">
+              <button
+                type="submit"
+                className="button secondary"
+                disabled={saving}
+              >
+                {saving
+                  ? t("aiServices.check.approving")
+                  : t("aiServices.check.course.approve", {
+                      count: waiting.length,
+                    })}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <Message tone="warn">
+            {t("aiServices.check.approveOwnersOnly")}
+          </Message>
+        ))}
+    </div>
   );
 }
 

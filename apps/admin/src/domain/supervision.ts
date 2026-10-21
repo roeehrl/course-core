@@ -122,7 +122,9 @@ export const learnerBudgetSchema = z.object({
   usedToday: amount,
   usedInCurrentLessonToday: amount.nullable(),
   currentEpisodeId: z.string().max(200).nullable(),
-  dayBoundary: z.literal("utc"),
+  /** Days start at midnight UTC, or in the course's policy time zone (older servers: UTC only). */
+  dayBoundary: z.enum(["utc", "course_time_zone"]),
+  dayTimeZone: z.string().max(64).optional(),
 });
 export type LearnerBudget = z.infer<typeof learnerBudgetSchema>;
 /** A change the supervisor asked a person with authority to decide. */

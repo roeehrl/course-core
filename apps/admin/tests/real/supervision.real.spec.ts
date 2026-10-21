@@ -216,6 +216,11 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   await expect(
     page.getByRole("heading", { name: "AI spending limits for this learner" }),
   ).toBeVisible();
+  // Days start at midnight UTC here (the test course names no time zone); media counts too.
+  await expect(page.getByText(/Days start at midnight UTC\./)).toBeVisible();
+  await expect(
+    page.getByText(/Generated videos and images for this learner count/),
+  ).toBeVisible();
   await page.getByLabel("Per day (US dollars)", { exact: true }).fill("0.5");
   await page.getByLabel("Per day (tokens)", { exact: true }).fill("20000");
   await page.getByLabel("Per lesson per day (US dollars)").fill("1");

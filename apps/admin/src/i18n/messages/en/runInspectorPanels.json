@@ -131,5 +131,16 @@
   "cancel.reason": "Why stop it",
   "cancel.reasonHint": "Required, at least 10 characters. Kept in the staff record, not shown to the learner.",
   "cancel.submit": "Stop this run",
-  "cancel.pending": "Stopping…"
+  "cancel.pending": "Stopping…",
+  "policies.providerSource.host_file": "The server's provider file (this workspace had no AI services setup of its own)",
+  "policies.providerSource.workspace": "This workspace's AI services setup",
+  "strategies.title": "Which AI setup answered",
+  "strategies.none": "No call of this run recorded which AI setup answered. Runs from before this was recorded show nothing here.",
+  "strategies.unchecked": "At least one call ran with a setup that had no passing quality check and no owner approval at that time. It still ran; check or approve it on the AI services page.",
+  "strategies.source.core": "Course Core's own setup {strategy} (version {version})",
+  "strategies.source.course": "The course's narrower setup {strategy} (version {version})",
+  "strategies.standing.passed": "Passed the quality check",
+  "strategies.standing.approved": "Approved by an owner",
+  "strategies.standing.not_checked": "Not checked when it ran",
+  "strategies.standing.unknown": "Check status not known"
 }
