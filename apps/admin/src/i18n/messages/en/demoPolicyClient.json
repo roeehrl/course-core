@@ -1,3 +1,13 @@
 {
-  "offerProposed": "Demo offer proposed. Awaiting the learner’s exact consent; no deadline, work cap or allowance balance changed."
+  "offerProposed": "Demo offer proposed. Awaiting the learner’s exact consent; no deadline, work cap or allowance balance changed.",
+  "seed.planImpact": "{days, plural, one {One more calendar day} other {# more calendar days}} to finish the existing plan, with no added work.",
+  "seed.alternative": "Keep the current deadline and continue with the planned lessons.",
+  "approved": "Demo approval recorded. The learner-accepted terms are granted: the deadline moved and the allowance was used.",
+  "rejected": "Demo rejection recorded. Nothing was granted and no allowance was used.",
+  "revoked": "Demo grant revoked. The deadline moved back; the allowance use stays recorded until you refund it.",
+  "refunded": "Demo refund recorded: {count, plural, one {one unit} other {# units}} returned to the allowance.",
+  "exceptionGranted": "Demo exceptional grant recorded: {count, plural, one {one more day} other {# more days}}, with no allowance used.",
+  "cohortApplied": "Demo deadline change applied to {count, plural, one {one learner} other {# learners}}.",
+  "migrated": "Demo policy change applied. Open offers on changed parts were withdrawn.",
+  "accommodated": "Demo accommodation recorded and applied to this learner only."
 }

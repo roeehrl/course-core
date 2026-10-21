@@ -3,6 +3,10 @@ import { createDemoAssessments } from "./demoAssessments";
 import { createDemoMedia } from "./demoMedia";
 import { createDemoPlatform } from "./demoPlatform";
 import { createDemoPolicyLevels } from "./demoPolicyLevels";
+import {
+  createDemoPolicyLedger,
+  createDemoPolicyStore,
+} from "./demoPolicyLedger";
 import { createDemoSupervision } from "./demoSupervision";
 import {
   demoRun,
@@ -144,6 +148,24 @@ export function createDemoAdminClient({
       mutating = false;
     }
   }
+  function enrollmentCourse(enrollmentId: string) {
+    const found = [...courses.values()].find((course) =>
+      course.enrollments.some((item) => item.id === enrollmentId),
+    );
+    if (!found) throw new AdminError("not_found");
+    return found;
+  }
+  const policyStore = createDemoPolicyStore(
+    (enrollmentId) =>
+      enrollmentCourse(enrollmentId).enrollments.find(
+        (item) => item.id === enrollmentId,
+      )!,
+    (enrollmentId) =>
+      enrollmentCourse(enrollmentId).enrollments.findIndex(
+        (item) => item.id === enrollmentId,
+      ),
+    translate,
+  );
   return {
     mode: "demo",
     // In-memory stand-ins for the connected server's ports: fictional data, no provider calls.
@@ -177,6 +199,14 @@ export function createDemoAdminClient({
       courses: () => [...courses.values()],
       scenario,
       latency,
+      store: policyStore,
+    }),
+    ...createDemoPolicyLedger({
+      store: policyStore,
+      courseOf: enrollmentCourse,
+      course: get,
+      permitWrite: (workspace) => permit(workspace, "policy.write"),
+      translate,
     }),
     async getSession(signal) {
       await delay(signal);
@@ -388,21 +418,14 @@ export function createDemoAdminClient({
         },
       ),
     ...createDemoPolicyClient(
-      (enrollmentId) => {
-        const enrollment = [...courses.values()]
-          .flatMap((course) => course.enrollments)
-          .find((item) => item.id === enrollmentId);
-        if (!enrollment) throw new AdminError("not_found");
-        return enrollment;
-      },
-      (enrollmentId) => {
-        const course = [...courses.values()].find((course) =>
-          course.enrollments.some((item) => item.id === enrollmentId),
-        );
-        if (!course) throw new AdminError("not_found");
-        permit(course, "extension.propose");
-      },
+      (enrollmentId) =>
+        enrollmentCourse(enrollmentId).enrollments.find(
+          (item) => item.id === enrollmentId,
+        )!,
+      (enrollmentId) =>
+        permit(enrollmentCourse(enrollmentId), "extension.propose"),
       translate,
+      policyStore,
     ),
     requestProviderConfig: (id, providerId, input, context) =>
       mutate(
