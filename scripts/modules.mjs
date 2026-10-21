@@ -9,6 +9,7 @@ export const MODULES = Object.freeze({
   providers: { directory: 'packages/providers', typecheck: 'check', build: 'build' },
   adaptation: { directory: 'packages/adaptation', typecheck: 'check', build: 'build' },
   research: { directory: 'packages/research', typecheck: 'typecheck', build: 'build' },
+  i18n: { directory: 'packages/i18n', typecheck: 'typecheck', build: 'build' },
   'example-courses': { directory: 'examples/courses', typecheck: 'validate', build: 'validate' },
   sandbox: { directory: 'packages/sandbox', typecheck: 'typecheck', build: 'build', docker: 'test:docker' },
   visuals: { directory: 'packages/visuals', typecheck: 'typecheck', build: 'build', publishable: true, browser: 'test:browser' },

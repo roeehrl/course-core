@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@course-core/adaptation": "file:../../packages/adaptation",
+    "@course-core/i18n": "file:../../packages/i18n",
     "@course-core/policy": "file:../../packages/policy",
     "@course-core/providers": "file:../../packages/providers",
     "@course-core/research": "file:../../packages/research",
