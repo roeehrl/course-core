@@ -74,7 +74,7 @@ function runtimeVersions() {
 
 interface BackupRow { kind: 'snapshot' | 'backup' | 'restore_drill'; outcome: 'succeeded' | 'failed'; code: string | null; started_at: Date; finished_at: Date;
   encrypted: boolean; core_version: string | null; tables: number | null; rows: string | null; bytes: string | null }
-async function backupStatus(client: Sql, now: Date) {
+export async function backupStatus(client: Sql, now: Date) {
   const latest = async (kind: BackupRow['kind'], outcome?: BackupRow['outcome']) => (await client.query<BackupRow>(
     `SELECT kind,outcome,code,started_at,finished_at,encrypted,core_version,tables,rows::text,bytes::text FROM platform_backup_reports
       WHERE kind=$1 AND ($2::text IS NULL OR outcome=$2) ORDER BY finished_at DESC LIMIT 1`, [kind, outcome ?? null])).rows[0] ?? null;
@@ -90,9 +90,10 @@ async function backupStatus(client: Sql, now: Date) {
   const drillAgeDays = drill ? Math.floor((now.getTime() - drill.finished_at.getTime()) / 86_400_000) : null;
   const rtoStatus: CheckStatus = !drill ? 'no_data' : drill.outcome === 'failed' || drillMinutes! > RECOVERY_TARGETS.rtoMinutes ? 'failing'
     : drillAgeDays! > RECOVERY_TARGETS.drillMaxAgeDays ? 'warning' : 'ok';
-  // T03 asks for encrypted backups: the newest copy says whether it was (age, deploy/local/README.md).
+  // Whether the newest copy was encrypted (age, deploy/local/README.md). Encryption is optional
+  // (owner decision 9): an unencrypted copy is reported as not set up, never as a warning.
   const encryption = { latestEncrypted: newest ? newest.encrypted : null,
-    status: (!newest ? 'no_data' : newest.encrypted ? 'ok' : 'warning') as CheckStatus };
+    status: (!newest ? 'no_data' : newest.encrypted ? 'ok' : 'not_configured') as CheckStatus };
   const lastFailure = lastAttempts.find(r => r.outcome === 'failed' && (!newest || r.finished_at > newest.finished_at)) ?? null;
   return {
     lastSnapshot: view(snapshot), lastBackup: view(backup), lastRestoreDrill: view(drill), lastFailure: view(lastFailure),

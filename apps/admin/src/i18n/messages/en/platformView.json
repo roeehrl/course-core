@@ -89,5 +89,5 @@
   "targets.encryptionNone": "No snapshot or backup reported yet.",
   "targets.encryptionOn": "The newest copy is encrypted.",
   "targets.encryptionOff": "The newest copy is not encrypted.",
-  "targets.encryptionHelp": "Anyone who gets a copy of an unencrypted backup can read every learner's data. Install age on the server, put an age public key in the pilot's configuration as the backup recipient, and keep the private key somewhere else (see the pilot guide, \"Encrypting backups with age\")."
+  "targets.encryptionHelp": "Encryption is optional. Backups work without it, but anyone who gets a copy of an unencrypted backup can read every learner's data. To turn it on, install age on the server, put an age public key in the pilot's configuration as the backup recipient, and keep the private key somewhere else (see the pilot guide, \"Encrypting backups with age\")."
 }
