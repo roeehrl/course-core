@@ -261,6 +261,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "GET /api/enrollments/:enrollmentId/companion": "own-learner",
   "POST /api/enrollments/:enrollmentId/companion": "own-learner",
   "POST /api/enrollments/:enrollmentId/companion/context-exclusions": "own-learner",
+  "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/cancel": "own-learner",
   "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/delete": "own-learner",
   "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/cancel": "own-learner",
   "POST /api/enrollments/:enrollmentId/complete": "own-learner",

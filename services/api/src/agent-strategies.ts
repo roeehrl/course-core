@@ -75,6 +75,9 @@ export interface RuntimeResult { content: Json; usage: UsageReceipt; verificatio
 export interface StrategyRun {
   role: AgentRole; binding: RoleBinding; context: TeachingContext; accountingKey: string; signal: AbortSignal;
   router: ProviderRouter; tools?: SupervisorToolPort | undefined; beforeModelCall?: (() => Promise<void>) | undefined;
+  /** Companion only: receives the answer's text as the provider streams it (reply-drafts.ts).
+   * Unverified; the strategy's result stays the only output that can be stored. */
+  onText?: ((text: string) => void) | undefined;
 }
 /**
  * One way of running a host role: an SDK `defineAgentStrategy` contract (what it may read, call
@@ -287,14 +290,17 @@ export const companionStrategy = defineRuntimeStrategy({
   capability: () => 'tutoring',
   matches: () => true,
   reservationBound: contextBound,
-  async run({ binding, context, accountingKey, signal, router }) {
+  async run({ binding, context, accountingKey, signal, router, onText }) {
     if (context.constraints.independentAssessmentActive) throw new ProviderError('INVALID_INPUT');
     const instruction = companionInstruction(binding);
     const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - instruction.length - 1500));
     // A reply the provider cut off at the output limit is still delivered when it has enough
     // visible text: it is advisory tutoring text, and the learner sees that it was cut short.
-    const result = await router.tutor({ modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: instruction,
-      messages: [{ role: 'user', text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens, allowCutShort: true }, { signal, timeoutMs: 60000 });
+    const request = { modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: instruction,
+      messages: [{ role: 'user' as const, text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens, allowCutShort: true };
+    // The same request either way; streaming only lets the host show the text while it arrives.
+    const result = onText ? await router.tutorStream(request, { signal, timeoutMs: 60000 }, onText)
+      : await router.tutor(request, { signal, timeoutMs: 60000 });
     if (result.output.text.length > 32000) return refusal('companion', 'output_too_large', result.usage);
     return { content: { kind: 'companion_text', text: result.output.text, episodeId: context.episode.id, ...(result.output.cutShort ? { cutShort: true } : {}) }, usage: result.usage };
   },
