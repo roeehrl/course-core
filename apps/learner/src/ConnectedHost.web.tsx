@@ -267,12 +267,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     () => companionClient ?? createCompanionClient(api),
     [companionClient, api],
   );
-  const conversation = useCompanionConversation(
-    chat,
-    server?.enrollmentId,
-    Boolean(server && (paneShown || (!wide && companionOpen))),
-    server?.revision ?? 0,
-  );
+  // The conversation lives in <LiveConversation> inside the dock, so a new message re-renders
+  // the companion only, not the lesson and the panels beside it. The page needs one number from it.
+  const [unansweredQuestions, setUnansweredQuestions] = useState(0);
   // Leaving the page ends the study session on the server (trigger T10 "session ended"). A page
   // kept in the back/forward cache counts as left too; any later learner event starts a new one.
   const sessionEnrollment = server?.enrollmentId;
@@ -435,8 +432,6 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   useEffect(() => setQuestionsExhausted(undefined), [server?.enrollmentId]);
   // A refused or unanswered question is not charged: when one settles that way, the closed-course
   // allowance it held is returned, so read the allowance again instead of keeping a stale refusal.
-  const unansweredQuestions = conversation.messages.filter((message) =>
-    message.role === "learner" && ["refused", "failed", "cancelled"].includes(message.job_state ?? "")).length;
   const reloadPolicy = policy.reload;
   useEffect(() => {
     if (!unansweredQuestions) return;
@@ -1563,6 +1558,14 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 {closedHelpText(closedAllowance, helpExhausted, t)}
               </p>
             )}
+            <LiveConversation
+              client={chat}
+              enrollmentId={server.enrollmentId}
+              open={paneShown || (!wide && companionOpen)}
+              revision={server.revision}
+              onUnansweredChange={setUnansweredQuestions}
+            >
+              {(conversation) => (
             <ConnectedCompanion
               context={context}
               messages={conversation.messages}
@@ -1605,9 +1608,40 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 (episode && server.inaccessibleEpisodeIds.includes(episode.id)) || helpExhausted,
               )}
             />
+              )}
+            </LiveConversation>
           </CompanionDock>
         )}
       </div>
     </div>
   );
+}
+/**
+ * Holds the companion conversation (useCompanionConversation) and renders the companion from
+ * it. Its updates re-render this subtree only; the page hears the one count it acts on, and
+ * setting an unchanged count re-renders nothing.
+ */
+function LiveConversation({
+  client,
+  enrollmentId,
+  open,
+  revision,
+  onUnansweredChange,
+  children,
+}: {
+  client: ContextualCompanionClient;
+  enrollmentId: string;
+  open: boolean;
+  revision: number;
+  onUnansweredChange(count: number): void;
+  children(conversation: ReturnType<typeof useCompanionConversation>): React.ReactNode;
+}) {
+  const conversation = useCompanionConversation(client, enrollmentId, open, revision);
+  const unanswered = conversation.messages.filter(
+    (message) => message.role === "learner" && ["refused", "failed", "cancelled"].includes(message.job_state ?? ""),
+  ).length;
+  useEffect(() => onUnansweredChange(unanswered), [unanswered, onUnansweredChange]);
+  // Another enrollment's conversation starts from none.
+  useEffect(() => () => onUnansweredChange(0), [onUnansweredChange]);
+  return <>{children(conversation)}</>;
 }
