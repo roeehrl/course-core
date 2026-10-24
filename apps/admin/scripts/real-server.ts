@@ -911,9 +911,10 @@ app.post("/test/release-safety-fixture", async () => {
   await publish(second);
   return { code: await issueLoginCode(db, ownerId) };
 });
-// Test-only (K13): an owner, version 1.0.0 of the fixture course with two learners (one passed the
-// first checkpoint and completed its lesson, one has not started), and version 1.1.0 published
-// with a changed question in that checkpoint, so moving them to 1.1.0 can be previewed and undone.
+// Test-only (K13): an owner, version 1.0.0 of the fixture course with three learners (one passed the
+// first checkpoint and completed its lesson, one has not started, one has a personal change waiting
+// for a safe boundary), and version 1.1.0 published with a changed question in that checkpoint, so
+// moving them to 1.1.0 can be previewed, offered, forced and undone.
 app.post("/test/version-moves-fixture", async () => {
   const workspaceId = randomUUID(),
     ownerId = randomUUID();
@@ -926,6 +927,7 @@ app.post("/test/version-moves-fixture", async () => {
     [ownerId, "owner", "Moves owner"],
     [randomUUID(), "learner", "Avery Learner"],
     [randomUUID(), "learner", "Blake Learner"],
+    [randomUUID(), "learner", "Casey Learner"],
   ] as const;
   for (const [id, role, name] of people) {
     await db.query(
@@ -980,6 +982,18 @@ app.post("/test/version-moves-fixture", async () => {
     const enrollmentId = (
       await call("/api/enrollments", { releaseId: v1 }, learner)
     ).id as string;
+    if (index === 2) {
+      // A generated practice addition waiting for a safe boundary: a personal change.
+      const job = randomUUID();
+      await db.query(
+        "INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES($1,$2,$3,$4,'supervisor','applied',1,'{}')",
+        [job, enrollmentId, workspaceId, `moves-${job}`],
+      );
+      await db.query(
+        "INSERT INTO adaptation_pending_changes(id,enrollment_id,workspace_id,job_id,episode_id,artifact_kind,selection,reason) VALUES($1,$2,$3,$4,'min','practice','{}','attempt_in_progress')",
+        [randomUUID(), enrollmentId, workspaceId, job],
+      );
+    }
     if (index > 0) continue;
     const send = async (action: string, body: Record<string, unknown>) =>
       call(

@@ -58,6 +58,7 @@ import {
   undoResultSchema,
   versionLearnersSchema,
   versionMovesViewSchema,
+  forceResultSchema,
   VersionMoveError,
 } from "../domain/versionMoves";
 import {
@@ -972,6 +973,13 @@ export function createFetchAdminClient(
           moveCancelResultSchema,
           "POST",
           {},
+        ),
+      force: (courseId, moveId, enrollmentId, input) =>
+        moveCall(
+          `${moves(courseId)}/${encodeURIComponent(moveId)}/learners/${encodeURIComponent(enrollmentId)}/force`,
+          forceResultSchema,
+          "POST",
+          input,
         ),
     },
     courseUpdates: {

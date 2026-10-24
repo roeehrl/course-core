@@ -8,6 +8,7 @@ import {
   moveCodeMessage,
   VersionMoveError,
   type LearnerImpact,
+  type MoveDetail,
   type MovePreview,
   type VersionMovesPort,
   type VersionMovesView,
@@ -44,6 +45,34 @@ const learner = (over: Partial<LearnerImpact> = {}): LearnerImpact => ({
   openWork: { questions: 0, activities: 0 },
   personalChanges: 0,
   policy: { addedScopes: ["episode:range"], keptScopes: 5 },
+  carryOver: {
+    carried: {
+      count: 1,
+      items: [
+        {
+          id: "intro",
+          title: "Intro",
+          gateId: "intro-gate",
+          code: "CARRIED",
+          items: 2,
+        },
+      ],
+    },
+    notCarried: {
+      count: 1,
+      items: [
+        {
+          id: "min",
+          title: "Minimum",
+          gateId: "min-gate",
+          code: "ANSWER_KEY_CHANGED",
+          items: 2,
+        },
+      ],
+    },
+  },
+  personalChangeList: none,
+  dropsPersonalChanges: false,
   costDigest: "c".repeat(64),
   ...over,
 });
@@ -81,7 +110,15 @@ const preview: MovePreview = {
     questions: { added: 0, removed: 0, changed: 0 },
     newLessons: [{ id: "range", title: "Range" }],
   },
-  totals: { learners: 3, ready: 1, waits: 1, refused: 1, losingCredit: 1 },
+  totals: {
+    learners: 3,
+    ready: 1,
+    waits: 1,
+    refused: 1,
+    losingCredit: 1,
+    carriedCheckpoints: 3,
+    offered: 1,
+  },
   learners: [
     learner(),
     learner({
@@ -98,6 +135,12 @@ const preview: MovePreview = {
       outcome: "refused",
       refusal: "MOVE_PERSONAL_CHANGES",
       personalChanges: 1,
+      personalChangeList: {
+        count: 1,
+        items: [
+          { episodeId: "min", title: "Minimum", kind: "append_teaching" },
+        ],
+      },
     }),
   ],
   rules: { waitsAtMostDays: 7 },
@@ -165,6 +208,16 @@ describe("moving learners to a newer version", () => {
     expect(text).toContain("personal changes built on the current version");
     expect(text).toContain("Learner without a name");
     expect(text).toContain("New lessons: Range");
+    // What carries over unchanged, and why the rest does not.
+    expect(text).toContain("Carries over unchanged: Intro.");
+    expect(text).toContain(
+      "Minimum: this checkpoint does not carry over. The answer key or rubric of one of its questions changed in the new version.",
+    );
+    // Learners with personal changes are offered the move instead.
+    expect(text).toContain("Personal changes the move would drop: Minimum.");
+    expect(text).toContain(
+      "1 learner has personal changes. Instead of moving them now, confirming offers them the move in the app.",
+    );
     const submit = within(panel).getByRole("button", {
       name: "Move 2 learners",
     });
@@ -253,6 +306,131 @@ describe("moving learners to a newer version", () => {
   });
 });
 
+describe("forcing a move for a learner who did not accept", () => {
+  const detail = (
+    offer: object | null,
+    state: "refused" | "moved" = "refused",
+  ): MoveDetail => ({
+    moveId: "m-1",
+    scope: "learner" as const,
+    state: "confirmed",
+    reason: "Fixes",
+    from: preview.from,
+    to: preview.to,
+    createdAt: "2026-10-21T10:00:00Z",
+    confirmedAt: "2026-10-21T10:01:00Z",
+    totals: { moved: 0, waiting: 0, refused: 1, undone: 0, cancelled: 0 },
+    learners: [
+      {
+        enrollmentId: "e-3",
+        displayName: "Cy Example",
+        state,
+        code: state === "refused" ? "MOVE_PERSONAL_CHANGES" : null,
+        movedAt: null,
+        undoneAt: null,
+        undo: null,
+        dropsPersonalChanges: false,
+        offer: offer as MoveDetail["learners"][number]["offer"],
+      },
+    ],
+  });
+  const withHistory = {
+    ...view,
+    moves: [{ ...detail(null), learners: undefined, undoable: 0 }],
+  } as unknown as VersionMovesView;
+
+  it("needs a reason, says what happens to the personal changes, and reports the result", async () => {
+    const force = vi.fn(async () => ({
+      status: "moved" as const,
+      code: null,
+      move: detail(
+        {
+          state: "forced",
+          code: null,
+          reason: "Retiring v1",
+          decidedAt: "2026-10-21T11:00:00Z",
+          forcible: false,
+        },
+        "moved",
+      ),
+    }));
+    const { onMoved } = setup({
+      get: vi.fn(async () => withHistory),
+      detail: vi.fn(async () =>
+        detail({
+          state: "declined",
+          code: null,
+          reason: null,
+          decidedAt: "2026-10-21T10:30:00Z",
+          forcible: true,
+        }),
+      ),
+      force,
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Show learners" }),
+    );
+    expect(
+      await screen.findByText(
+        "The learner declined the move and keeps their personal changes.",
+      ),
+    ).toBeVisible();
+    const submit = screen.getByRole("button", { name: "Move anyway" });
+    expect(submit).toBeDisabled();
+    expect(
+      screen.getByText(
+        /archived, not deleted, and stay in their history and export/,
+      ),
+    ).toBeVisible();
+    await userEvent.type(
+      screen.getByLabelText("Why move this learner anyway?"),
+      "Retiring v1",
+    );
+    await userEvent.click(submit);
+    expect(force).toHaveBeenCalledWith("cat-1", "m-1", "e-3", {
+      reason: "Retiring v1",
+    });
+    expect(
+      await screen.findByText(
+        "The learner was moved. Their personal changes are archived.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        /Moved anyway by staff\. Their personal changes are archived\. Reason: Retiring v1/,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Move anyway" })).toBeNull();
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("does not offer forcing to a reader without permission, and says it in Hebrew", async () => {
+    setup(
+      {
+        get: vi.fn(async () => ({
+          ...withHistory,
+          permissions: { move: false },
+        })),
+        detail: vi.fn(async () =>
+          detail({
+            state: "offered",
+            code: null,
+            reason: null,
+            decidedAt: null,
+            forcible: true,
+          }),
+        ),
+      },
+      "he",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /הצגת הלומדים/ }),
+    );
+    expect(await screen.findByText(/נשלחה הצעה לעבור באפליקציה/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "להעביר בכל זאת" })).toBeNull();
+  });
+});
+
 describe("demo version moves", () => {
   it("moves demo learners only to a newer published version and moves them back", async () => {
     const client = demo();
@@ -311,6 +489,67 @@ describe("demo version moves", () => {
         ),
       ).toBe(false),
     );
+  });
+
+  it("offers the move to the demo learner with a personal change, and lets staff force it with a reason", async () => {
+    const client = demo();
+    const port = client.versionMoves!;
+    const workspace = await client.getCourse("sorting");
+    const draft = workspace.releases.find((r) => r.state === "draft")!;
+    for (const action of ["submit-review", "approve", "publish"] as const)
+      await client.transitionRelease(
+        "sorting",
+        draft.id,
+        action,
+        await currentContext(client),
+      );
+    const from = (await port.get("sorting")).versions.find(
+      (v) => v.version === "1.0.0",
+    )!;
+    const previewed = await port.preview("sorting", {
+      fromReleaseId: from.releaseId,
+      toReleaseId: from.newer[0]!.releaseId,
+    });
+    const personal = previewed.learners.find(
+      (l) => l.refusal === "MOVE_PERSONAL_CHANGES",
+    )!;
+    expect(personal.personalChangeList.count).toBe(1);
+    expect(previewed.totals.offered).toBe(1);
+    expect(previewed.totals.carriedCheckpoints).toBeGreaterThan(0);
+    const done = await port.confirm("sorting", previewed.moveId, {
+      previewDigest: previewed.previewDigest,
+      reason: "Demo",
+      acknowledgeLostCredit: false,
+    });
+    expect(
+      done.learners.find((l) => l.enrollmentId === personal.enrollmentId)!
+        .offer,
+    ).toMatchObject({ state: "offered", forcible: true });
+    await expect(
+      port.force("sorting", previewed.moveId, personal.enrollmentId, {
+        reason: " ",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    const forced = await port.force(
+      "sorting",
+      previewed.moveId,
+      personal.enrollmentId,
+      { reason: "Demo force" },
+    );
+    expect(
+      forced.move.learners.find(
+        (l) => l.enrollmentId === personal.enrollmentId,
+      ),
+    ).toMatchObject({
+      state: "moved",
+      dropsPersonalChanges: true,
+      offer: { state: "forced", reason: "Demo force" },
+    });
+    await expect(
+      port.force("sorting", previewed.moveId, personal.enrollmentId, {
+        reason: "Again",
+      }),
+    ).rejects.toMatchObject({ code: "MOVE_OFFER_NOT_OPEN" });
   });
 
   it("refuses moving for a reviewer", async () => {
