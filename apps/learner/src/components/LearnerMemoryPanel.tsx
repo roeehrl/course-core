@@ -535,7 +535,12 @@ function MemoryPanel({
                   }
                 />
                 {!!row.explanation && (
-                  <Text style={styles.small}>{row.explanation}</Text>
+                  <Text style={styles.small}>
+                    {t(
+                      `learnerMemoryPanel.why.${row.explanation.code}` as MessageKey,
+                      row.explanation.params,
+                    )}
+                  </Text>
                 )}
                 {row.gateId !== null ? (
                   <Text style={styles.body}>

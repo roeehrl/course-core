@@ -53,7 +53,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(course, gate, evidence, loaded.release.digest) : null;
     const understanding = decisionForGate?.objectives.map(objective => ({ objectiveId: objective.id, independentFamilies: objective.families.length, requiredFamilies: objective.required,
       status: objective.passed ? 'demonstrated' as const : 'needs_evidence' as const })) ?? [];
-    const latest = (await client.query<{ id: string; assessment_id: string; mode: string; assistance: string; result: { passed: boolean; abstained?: boolean; explanation?: string } }>(
+    const latest = (await client.query<{ id: string; assessment_id: string; mode: string; assistance: string; result: { passed: boolean; abstained?: boolean; explanation?: string; message?: { code: string } } }>(
       'SELECT id,assessment_id,mode,assistance,result FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at DESC LIMIT 8', [ref.enrollmentId])).rows;
     // Answers whose evidence the learner excluded from AI context are left out.
     const excluded = await excludedAttemptIds(client, ref.enrollmentId, latest.map(attempt => attempt.id));
@@ -61,7 +61,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const recentAttempts = attempts.map(attempt => ({ assessmentId: attempt.assessment_id,
       prompt: course.assessments.find(assessment => assessment.id === attempt.assessment_id)?.prompt.slice(0, 2000) ?? '',
       passed: attempt.result.passed, ...(attempt.result.abstained === true ? { abstained: true as const } : {}),
-      assistance: attempt.assistance, mode: attempt.mode, feedback: (attempt.result.explanation ?? '').slice(0, 1000) }));
+      assistance: attempt.assistance, mode: attempt.mode, feedback: (attempt.result.explanation ?? attempt.result.message?.code ?? '').slice(0, 1000) }));
     const policy=await loadPolicy(client,ref.enrollmentId),now=(await client.query<{at:Date}>('SELECT clock_timestamp() AS at')).rows[0]!.at.toISOString();
     // Policy scopes and the learner model cover base episodes; an inserted episode uses its anchor's.
     const scopeEpisodeId=policyEpisodeId(loaded.release,episode.id);
