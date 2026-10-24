@@ -15,6 +15,7 @@ import { anthropicAdapterFactory, composeProviders } from '../src/provider-compo
 import { anthropicModelDraft } from '../src/anthropic-model-setup.js';
 import type { ModelCatalog } from '../src/provider-metadata.js';
 import { fixture } from './fixture.js';
+import { anthropicStream } from './streamed-provider-fixture.js';
 
 // Real PostgreSQL, HTTP routes, supervisor transitions and the real Anthropic adapter. The only
 // substitute is the network: a scripted Anthropic-compatible HTTP server on loopback answers
@@ -54,6 +55,12 @@ function serve(request: IncomingMessage, response: ServerResponse) {
     seen.push(entry);
     const next = replies.shift();
     const reply = next ? next(entry) : apiError(500, 'api_error');
+    // A streamed companion call gets the scripted message as its event stream.
+    if (entry.body.stream === true && (reply.status ?? 200) === 200) {
+      response.writeHead(200, { 'content-type': 'text/event-stream', ...reply.headers });
+      response.end(anthropicStream(reply.json as Parameters<typeof anthropicStream>[0]));
+      return;
+    }
     response.writeHead(reply.status ?? 200, { 'content-type': 'application/json', ...reply.headers });
     response.end(JSON.stringify(reply.json));
   });
@@ -145,12 +152,14 @@ async function price(modelId: string, expectedVersion = 0, extra: Record<string,
     microUsdPerRequest: null, microUsdPerOutputSecond: null, effectiveFrom: new Date(Date.now() - 60_000).toISOString(), sourceNote: 'Synthetic operator test price', ...extra } });
   expect(r.statusCode, r.body).toBe(200); return r.json();
 }
-function expectMessagesRequest(request: Seen) {
+function expectMessagesRequest(request: Seen, streamed = false) {
   expect(request.method).toBe('POST'); expect(request.url).toBe('/v1/messages');
   expect(request.headers['x-api-key']).toBe(KEY); expect(request.headers['anthropic-version']).toBe('2023-06-01');
   expect(request.headers.authorization).toBeUndefined(); expect(request.headers['content-type']).toBe('application/json');
   // No sampling parameters, no prefill: current models reject them.
-  for (const field of ['temperature', 'top_p', 'top_k', 'stream', 'fallbacks']) expect(request.body[field]).toBeUndefined();
+  for (const field of ['temperature', 'top_p', 'top_k', 'fallbacks']) expect(request.body[field]).toBeUndefined();
+  // Companion replies stream (docs/streamed-replies.md); every other role asks for one whole answer.
+  expect(request.body.stream).toBe(streamed ? true : undefined);
   expect(request.body.messages.at(-1).role).toBe('user');
 }
 const noKey = (value: unknown) => expect(JSON.stringify(value)).not.toContain(KEY);
@@ -171,7 +180,7 @@ describe('Anthropic Messages API through the real role paths (scripted loopback 
       { input_tokens: 1200, output_tokens: 150, cache_read_input_tokens: 300, cache_creation_input_tokens: 0 }) }));
     const job = await prepare('companion');
     const outcome = await invoke(job);
-    expect(seen).toHaveLength(1); expectMessagesRequest(seen[0]!);
+    expect(seen).toHaveLength(1); expectMessagesRequest(seen[0]!, true);
     const body = seen[0]!.body;
     expect(body).toMatchObject({ model: 'claude-haiku-5-5', max_tokens: 2048, output_config: { effort: 'low' }, thinking: { type: 'disabled' } });
     expect(typeof body.system).toBe('string'); expect(body.messages).toHaveLength(1);
