@@ -11,6 +11,7 @@ import { readRelease } from './release-cache.js';
 import { adaptationSummary } from './adaptation-store.js';
 import { assessmentRecovery } from './assessment-recovery.js';
 import { armOffersRole, studyArmWithin } from './study.js';
+import { learnerMoveOffer } from './course-version-moves.js';
 
 /** The enrollment state every learner command returns, with each gate's current decision status,
  * its persisted decision ID and the learner's latest gate review request. Reads only. */
@@ -29,11 +30,15 @@ export const MOVE_NOTICE_DAYS = 30;
  * only, never prose: the learner app words it (courseVersionNotice namespace).
  */
 export async function courseVersionNotice(client: PoolClient, enrollmentId: string, releaseId: string) {
-  const row = (await client.query<{ id: string; payload: { moveId?: string; fromVersion?: string; toVersion?: string }; created_at: Date }>(
+  const row = (await client.query<{ id: string; payload: { moveId?: string; fromVersion?: string; toVersion?: string; carriedCheckpoints?: number; personalChangesArchived?: number;
+    personalChanges?: 'accepted' | 'forced' }; created_at: Date }>(
     `SELECT id,payload,created_at FROM learning_events WHERE enrollment_id=$1 AND event_type='course_version.moved' AND payload->>'toReleaseId'=$2
       AND created_at > now() - make_interval(days => $3) ORDER BY sequence DESC LIMIT 1`, [enrollmentId, releaseId, MOVE_NOTICE_DAYS])).rows[0];
   if (!row?.payload.fromVersion || !row.payload.toVersion) return null;
-  return { id: row.id, fromVersion: row.payload.fromVersion, toVersion: row.payload.toVersion, movedAt: row.created_at.toISOString() };
+  return { id: row.id, fromVersion: row.payload.fromVersion, toVersion: row.payload.toVersion, movedAt: row.created_at.toISOString(),
+    carriedCheckpoints: row.payload.carriedCheckpoints ?? 0,
+    // The move dropped their personal changes: they accepted it, or staff moved them anyway. Archived, not lost.
+    personalChanges: row.payload.personalChanges ?? null, personalChangesArchived: row.payload.personalChangesArchived ?? 0 };
 }
 
 /** What the learner app loads for one enrollment: its personal course (hidden
@@ -64,6 +69,8 @@ export async function learnerSnapshot(client: PoolClient, context: EnrollmentCon
     measuresUsability: arm.usabilityMeasures } : null;
   return { ...await enrollmentState(client, context), course, studyArm, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, closedRecordNotices: await closedRecordNotices(client, enrollmentId),
     // Staff moved this learner to the version they are on now (K13): the app says so for a while.
-    courseVersionNotice: await courseVersionNotice(client, enrollmentId, context.enrollment.course_release_id), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+    courseVersionNotice: await courseVersionNotice(client, enrollmentId, context.enrollment.course_release_id),
+    // A newer version they can move to by dropping their personal changes (they accept or decline).
+    courseVersionOffer: await learnerMoveOffer(client, enrollmentId, context.enrollment.course_release_id), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
     question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
 }

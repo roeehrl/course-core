@@ -39,6 +39,9 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'course_version.moved': keep,
   'course_version.move_undone': keep,
   'course_version.move_cancelled': keep,
+  // Offers to learners refused for personal changes, and staff forcing one (with the staff reason).
+  'course_version.move_offered': keep,
+  'course_version.move_forced': keep,
   'adaptation.registry_approved': keep,
   'extension.proposed': keep,
   'policy.migration_authorized': keep,
