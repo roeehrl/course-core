@@ -124,6 +124,7 @@
   "supplied.approve": "{count, plural, one {I approve the file this course brings. Core runs it only in its isolated grader or sealed activity frame.} other {I approve the # files this course brings. Core runs them only in its isolated grader or sealed activity frame.}}",
   "problem.runtime": "This host cannot run the course as declared. Install what the course needs, then check the package again.",
   "problem.SDK_UNSUPPORTED": "Built with SDK {sdkVersion}; this Core supports {min} up to (not including) {maxExclusive}. Rebuild the course with a supported SDK.",
+  "problem.SDK_BELOW_MINIMUM": "Built with SDK {sdkVersion}; this Core supports courses from SDK {minimum} on. Rebuild the course with SDK {minimum} or later.",
   "problem.SDK_OLDER_THAN_CORE": "Built with SDK {sdkVersion}, older than this Core's SDK {coreSdkVersion}. Core checked it with its own SDK and the course digest matches.",
   "problem.CORE_VERSION_TOO_OLD": "Needs Core {required}; this Core is {current}. Update Core first.",
   "problem.RELEASE_VERSION_CONFLICT": "Version {version} already exists here with different content. Give the package a new version number.",

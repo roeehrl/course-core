@@ -38,7 +38,13 @@ export const packagePreviewSchema = z.object({
     packageVersion: text,
     coreVersion: text,
     supported: z.object({ min: text, maxExclusive: text }),
-    status: z.enum(["supported", "newer", "older", "unsupported"]),
+    status: z.enum([
+      "supported",
+      "newer",
+      "older",
+      "below_minimum",
+      "unsupported",
+    ]),
   }),
   core: z.object({
     minimumVersion: text,

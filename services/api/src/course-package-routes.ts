@@ -42,7 +42,7 @@ import { ensureCatalog, transitionReleaseWithin, type AdminRuntimeOptions, type 
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { approveAdaptationRegistry, checkAdaptationConfiguration, type AdaptationConfiguration, type AdaptationRuntime } from './adaptation-store.js';
 import { digestJson } from './repository.js';
-import { COURSE_PACKAGE_LIMITS, compareSemver, CoursePackageError, coreCoursePackageVerifier, sha256, type CoursePackageVerifier, type VerifiedCoursePackage } from './course-package.js';
+import { COURSE_PACKAGE_LIMITS, belowMinimumSdk, compareSemver, CoursePackageError, MINIMUM_SUPPORTED_SDK, coreCoursePackageVerifier, sha256, type CoursePackageVerifier, type VerifiedCoursePackage } from './course-package.js';
 import { fetchGitHubPackage, type RemoteFetchMode, type RemoteFetchOptions } from './course-package-source.js';
 import { buildCourseSuppliedExtension, courseSuppliedViews, recordCourseSupplied, type CourseSuppliedRegistry } from './course-supplied-extensions.js';
 
@@ -77,9 +77,10 @@ export function repositoryCoreVersion(): string {
 /**
  * Core fully supports packages compiled by the SDK minor release it pins (0.x minors are
  * breaking): pinned to 0.5.x that is >=0.5.0 <0.6.0, and moving the pin to 0.6.x moves it to
- * >=0.6.0 <0.7.0 with no other change. A package from an older SDK of the same major installs
- * with a warning (Core validates it with its own SDK, and the schema only grew); one from a
- * newer SDK, or another major, is refused: its bundle may use contracts this Core cannot check.
+ * >=0.6.0 <0.7.0 with no other change. A package from an older SDK of the same major, at or above
+ * MINIMUM_SUPPORTED_SDK, installs with a warning (Core validates it with its own SDK, and the
+ * schema only grew); one below that minimum, from a newer SDK, or from another major, is refused:
+ * its bundle may use contracts this Core cannot check, or rules Core no longer weakens for it.
  */
 export function supportedSdkRange(version = SDK_VERSION) {
   const [major, minor] = version.split('.').map(Number) as [number, number];
@@ -91,9 +92,10 @@ export function supportedSdkRange(version = SDK_VERSION) {
  * pre-release of the bound itself (0.7.0-rc.1 against below 0.7.0): it already carries that version's data,
  * so it is compared by its release part, as npm ranges do.
  */
-export function sdkPackageStatus(sdkVersion: string, coreSdk = SDK_VERSION): 'supported' | 'older' | 'unsupported' {
+export function sdkPackageStatus(sdkVersion: string, coreSdk = SDK_VERSION): 'supported' | 'older' | 'below_minimum' | 'unsupported' {
   const range = supportedSdkRange(coreSdk);
   if (compareSemver(sdkVersion.replace(/[-+].*$/, ''), range.maxExclusive) >= 0) return 'unsupported';
+  if (belowMinimumSdk(sdkVersion)) return 'below_minimum';
   if (compareSemver(sdkVersion, range.min) >= 0) return 'supported';
   return sdkVersion.split('.')[0] === coreSdk.split('.')[0] ? 'older' : 'unsupported';
 }
@@ -124,7 +126,8 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   const coreVersion = options.coreVersion ?? repositoryCoreVersion();
   const range = supportedSdkRange();
   const sdkStatus = sdkPackageStatus(descriptor.sdkVersion);
-  if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', params: { sdkVersion: descriptor.sdkVersion, min: range.min, maxExclusive: range.maxExclusive } });
+  if (sdkStatus === 'below_minimum') problems.push({ code: 'SDK_BELOW_MINIMUM', severity: 'blocking', params: { sdkVersion: descriptor.sdkVersion, minimum: MINIMUM_SUPPORTED_SDK } });
+  else if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', params: { sdkVersion: descriptor.sdkVersion, min: range.min, maxExclusive: range.maxExclusive } });
   else if (sdkStatus === 'older') problems.push({ code: 'SDK_OLDER_THAN_CORE', severity: 'warning', params: { sdkVersion: descriptor.sdkVersion, coreSdkVersion: SDK_VERSION } });
   const coreSatisfied = compareSemver(coreVersion, descriptor.minimumCoreVersion) >= 0;
   if (!coreSatisfied) problems.push({ code: 'CORE_VERSION_TOO_OLD', severity: 'blocking', params: { required: descriptor.minimumCoreVersion, current: coreVersion } });

@@ -255,10 +255,9 @@ describe('automatic updates', () => {
     const events = (await db.query("SELECT payload FROM learning_events WHERE workspace_id=$1 AND event_type='course_package.installed' ORDER BY sequence", [w.workspaceId])).rows;
     expect(events.map(e => [e.payload.version, e.payload.published, e.payload.automatic])).toEqual([['1.1.0', true, true], ['1.2.0', true, true]]);
   });
-  it('publish level is refused (installed for a person instead) for a missing host requirement or an older SDK; a newer SDK installs nothing', async () => {
+  it('publish level is refused (installed for a person instead) for a missing host requirement; an SDK outside the supported range installs nothing', async () => {
     for (const [change, code] of [
       [{ extra: [{ name: 'verifier.json', bytes: Buffer.from('{}'), role: 'host-requirement' }] }, 'AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT'],
-      [{ descriptor: (d: Record<string, unknown>) => { d.sdkVersion = '0.4.0'; } }, 'AUTO_PUBLISH_REFUSED_SDK_RANGE'],
     ] as const) {
       const w = await workspace();
       await source(w);
@@ -268,10 +267,11 @@ describe('automatic updates', () => {
       expect(await row(w), code).toMatchObject({ last_result: 'installed', last_error_code: code });
       expect((await releases(w)).at(-1)).toMatchObject({ version: '1.1.0', status: 'draft', state: 'pending_review' });
     }
-    // A blocking problem (newer Core required, or a newer SDK minor than Core pins) installs nothing.
+    // A blocking problem (newer Core required, a newer SDK minor than Core pins, or an SDK below 0.5.0) installs nothing.
     for (const [change, code] of [
       [(d: Record<string, unknown>) => { d.minimumCoreVersion = '9.0.0'; }, 'CORE_VERSION_TOO_OLD'],
       [(d: Record<string, unknown>) => { d.sdkVersion = '0.6.0'; }, 'SDK_UNSUPPORTED'],
+      [(d: Record<string, unknown>) => { d.sdkVersion = '0.4.0'; }, 'SDK_BELOW_MINIMUM'],
     ] as const) {
       const w = await workspace();
       await source(w);
@@ -332,6 +332,7 @@ describe('automatic updates', () => {
     expect(variant({ core: { satisfied: false } })).toBe('AUTO_PUBLISH_REFUSED_CORE_VERSION');
     expect(variant({ sdk: { status: 'newer' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');
     expect(variant({ sdk: { status: 'older' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');
+    expect(variant({ sdk: { status: 'below_minimum' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');
   });
 });
 

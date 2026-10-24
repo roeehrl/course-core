@@ -341,6 +341,55 @@ describe("installing a course package", () => {
     ).toBeVisible();
   });
 
+  it("refuses a course built with SDK 0.4 and says to rebuild it with SDK 0.5, in English and Hebrew", async () => {
+    const old = () =>
+      preview({
+        installable: false,
+        sdk: {
+          packageVersion: "0.4.0",
+          coreVersion: "0.5.0",
+          supported: { min: "0.5.0", maxExclusive: "0.6.0" },
+          status: "below_minimum",
+        },
+        problems: [
+          {
+            code: "SDK_BELOW_MINIMUM",
+            severity: "blocking",
+            params: { sdkVersion: "0.4.0", minimum: "0.5.0" },
+          },
+        ],
+      });
+    setup({ inspectFile: vi.fn(async () => old()) });
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Built with SDK 0.4.0; this Core supports courses from SDK 0.5.0 on. Rebuild the course with SDK 0.5.0 or later.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Install draft" }),
+    ).toBeDisabled();
+    const he = createAdminTranslator("he");
+    expect(
+      stripBidiControls(
+        he.t("installCourse.problem.SDK_BELOW_MINIMUM", {
+          sdkVersion: "0.4.0",
+          minimum: "0.5.0",
+        }),
+      ),
+    ).toBe(
+      "נבנה עם SDK 0.4.0; ה-Core הזה תומך בקורסים מ-SDK 0.5.0 ואילך. יש לבנות את הקורס מחדש עם SDK 0.5.0 או חדש יותר.",
+    );
+    expect(packageMessage("SDK_BELOW_MINIMUM", he.t)).toContain("SDK 0.5");
+    expect(packageMessage("PUBLISH_RECOGNITION_ONLY_GATE")).toBe(
+      "A checkpoint in this version offers only multiple-choice questions, so it cannot be published. Add a question where the learner writes or calculates the answer.",
+    );
+  });
+
   it("requires the exact version before installing, approving and publishing at once", async () => {
     const { coursePackages } = setup();
     await userEvent.upload(

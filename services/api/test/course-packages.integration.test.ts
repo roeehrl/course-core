@@ -119,6 +119,33 @@ describe('course-package installation', () => {
     expect(patch.problems.map((p: { code: string }) => p.code)).not.toContain('SDK_UNSUPPORTED');
     expect(patch.problems.map((p: { code: string }) => p.code)).not.toContain('SDK_OLDER_THAN_CORE');
   });
+  it('refuses SDK 0.4 courses: below the minimum supported SDK 0.5.0 nothing installs, and an older draft never publishes', async () => {
+    const old = buildPackage(version('1.0.2'), { descriptor: d => { d.sdkVersion = '0.4.0'; } });
+    const preview = (await upload(sessions.admin!, old.bytes)).json();
+    expect(preview.installable).toBe(false);
+    expect(preview.sdk.status).toBe('below_minimum');
+    expect(preview.problems).toContainEqual({ code: 'SDK_BELOW_MINIMUM', severity: 'blocking', params: { sdkVersion: '0.4.0', minimum: '0.5.0' } });
+    expect(preview.problems.map((p: { code: string }) => p.code)).not.toContain('SDK_OLDER_THAN_CORE');
+    const refused = await install(sessions.admin!, old.sha256, { approveAndPublish: { confirmVersion: '1.0.2' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe('SDK_BELOW_MINIMUM');
+    expect((await db.query("SELECT 1 FROM course_releases WHERE workspace_id=$1 AND version='1.0.2'", [workspaceId])).rowCount).toBe(0);
+    // A draft recorded as built with SDK 0.4 (installed before the minimum existed) is refused at publish.
+    const pkg = buildPackage(version('1.0.1'));
+    expect((await upload(sessions.owner!, pkg.bytes)).statusCode).toBe(200);
+    const body = (await install(sessions.owner!, pkg.sha256)).json();
+    await db.query("UPDATE course_release_packages SET sdk_version='0.4.0' WHERE release_id=$1", [body.releaseId]);
+    const catalog = body.installation.catalogId;
+    const transition = async (action: string) => app.inject({ method: 'POST', url: `/api/admin/courses/${catalog}/releases/${body.releaseId}/transitions`,
+      headers: { ...headers(sessions.owner!), 'if-match': (await app.inject({ url: `/api/admin/courses/${catalog}`, headers: headers(sessions.owner!) })).json().revision, 'idempotency-key': randomUUID() }, payload: { action } });
+    expect((await transition('approve')).statusCode).toBe(200);
+    const publish = await transition('publish');
+    expect(publish.statusCode).toBe(409);
+    expect(publish.json()).toMatchObject({ error: 'PUBLISH_SDK_BELOW_MINIMUM', details: { sdkVersion: '0.4.0', minimum: '0.5.0' } });
+    const direct = await app.inject({ method: 'POST', url: `/api/releases/${body.releaseId}/publish`, headers: headers(sessions.owner!) });
+    expect(direct.json().error).toBe('PUBLISH_SDK_BELOW_MINIMUM');
+    expect((await db.query('SELECT status FROM course_releases WHERE id=$1', [body.releaseId])).rows[0].status).toBe('draft');
+  });
   it('detects an identical installed version as already installed', async () => {
     const same = buildPackage(fixture());
     const preview = (await upload(sessions.admin!, same.bytes)).json();

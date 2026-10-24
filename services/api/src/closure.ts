@@ -8,8 +8,8 @@ import { episodes, gateDecision } from './learning.js';
 import { ApiError, requireCondition } from './errors.js';
 
 /** Objectives a closure report may call demonstrated. Choosing among given answers alone
- * never demonstrates an objective, even under a 0.4 gate whose pass rule still unlocks the
- * next lesson; such an objective is reported as a gap, never as mastery. */
+ * never demonstrates an objective (gates refuse it too; this check also covers a decision recorded
+ * before they did); such an objective is reported as a gap, never as mastery. */
 export function demonstratedObjectiveIds(course: CourseManifest, context: Pick<EnrollmentContext, 'evidence' | 'release'>) {
   const assessments = new Map(course.assessments.map(a => [a.id, a]));
   const evidence = new Map(context.evidence.map(row => [row.id, row]));

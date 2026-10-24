@@ -118,7 +118,7 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     } else if (!DETERMINISTIC_ITEM_TYPES.has(assessment.type)) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
   }
   for (const gate of course.gates) {
-    if (isVersionedGate(gate)) assertVersionedGateRules(course, gate);
+    if (isVersionedGate(gate)) assertVersionedGateRules(course, gate); else assertUnversionedGateRules(course, gate);
     if (isVersionedGate(gate) ? !gate.conversationalRubricRef : !gate.conversationalEvaluatorId) continue;
     const resolved = gateConversation(course, gate);
     // Model impressions are not evidence: the rubric must require quotes, and a human or an installed
@@ -174,25 +174,25 @@ function assertRenderFeatures(course: CourseManifest, adapter: RuntimeExtension,
     { ...subject, rendererId: extensionId, declaredVersion: declared.version, missingFeatures: [...missing].sort(), supportedFeatures: [...supported].sort() });
 }
 
-/** A 0.4 gate judged in conversation keeps its family rule: the conversation is one family for
+/** A gate judged in conversation without a version counts the conversation as one family for
  * every gate objective, so the listed items must supply the rest. */
 function assertLegacyConversationReachable(course: CourseManifest, gate: LegacyProgressionGate, rubricId: string) {
   const items = gate.assessmentIds.map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
   const reachable = (objective: string) => new Set([...items.filter(item => item.objectiveIds.includes(objective)).map(item => item.familyId), `conversation:${rubricId}`]).size >= gate.minimumIndependentFamilies;
-  if (gate.requireAllObjectives ? !gate.objectiveIds.every(reachable) : !gate.objectiveIds.some(reachable))
-    throw new ApiError(409, 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', { gateId: gate.id });
+  if (!gate.objectiveIds.every(reachable)) throw new ApiError(409, 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', { gateId: gate.id });
 }
 
-/** Unversioned 0.4 gates whose items are all recognition (choosing among given answers) and that
- * have no judged conversation. SDK 0.4 bundles stay publishable unchanged (the compatibility
- * promise), so these are not refused; staff see them as a release warning, because such a gate can
- * be passed on recognition alone. Where a 0.4 gate offers any produced-answer task, evaluateGate
- * requires one, and declared critical misconceptions block it, as for versioned gates. */
-export function recognitionOnlyLegacyGates(course: CourseManifest): string[] {
-  return course.gates.filter((gate): gate is LegacyProgressionGate => !isVersionedGate(gate) && !gate.conversationalEvaluatorId).filter(gate => {
-    const items = gateAssessmentIds(gate).map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
-    return items.length > 0 && items.every(item => RECOGNITION_TYPES.has(item.type));
-  }).map(gate => gate.id);
+/** The full false-mastery rules for gates without a version (the family-count shape): there is no
+ * SDK 0.4 compatibility path. Recognition alone cannot pass one, so it must offer a task where the
+ * learner produces an answer (or a judged conversation), and it demonstrates all of its objectives
+ * or none, so `requireAllObjectives: false` is refused. evaluateGate then requires a produced
+ * answer for every objective and blocks readiness on an open declared critical misconception. */
+export function assertUnversionedGateRules(course: CourseManifest, gate: LegacyProgressionGate) {
+  const items = gateAssessmentIds(gate).map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
+  if (!gate.conversationalEvaluatorId && items.every(item => RECOGNITION_TYPES.has(item.type)))
+    throw new ApiError(409, 'PUBLISH_RECOGNITION_ONLY_GATE', 'PUBLISH_RECOGNITION_ONLY_GATE', { gateId: gate.id });
+  if (!gate.requireAllObjectives && gate.objectiveIds.length > 1)
+    throw new ApiError(409, 'PUBLISH_GATE_PARTIAL_OBJECTIVES', 'PUBLISH_GATE_PARTIAL_OBJECTIVES', { gateId: gate.id });
 }
 /** Assessment rules for versioned gates, enforced again here although the SDK validates them at
  * import: recognition alone cannot pass, transfer evidence must be collectable, and declared

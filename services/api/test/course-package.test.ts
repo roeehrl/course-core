@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gzipSync } from 'node:zlib';
 import { compileCourse } from '@course-core/sdk/compiler';
-import { compareSemver, COURSE_PACKAGE_LIMITS, isSemver, sha256, verifyCoursePackage } from '../src/course-package.js';
+import { belowMinimumSdk, compareSemver, MINIMUM_SUPPORTED_SDK, COURSE_PACKAGE_LIMITS, isSemver, sha256, verifyCoursePackage } from '../src/course-package.js';
 import { readTar, readTarGz, writeTar } from '../src/ustar.js';
 import { sdkPackageStatus } from '../src/course-package-routes.js';
 import { buildPackage, rawArchive, rawEntry } from './course-package-fixture.js';
@@ -125,5 +125,17 @@ describe('which SDK a package may be built with', () => {
     expect(sdkPackageStatus('0.7.0', '0.6.0')).toBe('unsupported');
     expect(sdkPackageStatus('0.5.2', '0.6.0')).toBe('older');
     expect(sdkPackageStatus('1.0.0-rc.1', '0.6.0')).toBe('unsupported');
+  });
+  it('refuses every package below the minimum supported SDK 0.5.0, whatever SDK Core pins', () => {
+    expect(MINIMUM_SUPPORTED_SDK).toBe('0.5.0');
+    for (const core of ['0.5.0', '0.6.0']) {
+      expect(sdkPackageStatus('0.4.0', core)).toBe('below_minimum');
+      expect(sdkPackageStatus('0.4.9', core)).toBe('below_minimum');
+      expect(sdkPackageStatus('0.5.0-rc.1', core)).toBe('below_minimum');
+      expect(sdkPackageStatus('0.1.0', core)).toBe('below_minimum');
+    }
+    expect(sdkPackageStatus('0.5.0', '0.5.0')).toBe('supported');
+    expect(belowMinimumSdk('0.5.0')).toBe(false);
+    expect(belowMinimumSdk('not-a-version')).toBe(true);
   });
 });

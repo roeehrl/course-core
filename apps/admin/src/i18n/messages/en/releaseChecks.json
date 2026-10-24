@@ -8,8 +8,16 @@
   "code.RUNTIME_SUPPORTED.detail": "Installed runtime supports required paths.",
   "code.RUNTIME_UNSUPPORTED.label": "Installed runtime capabilities",
   "code.RUNTIME_UNSUPPORTED.detail": "This host cannot run every path the course needs ({reason}). Install the missing capability, then check again.",
+  "code.GATE_RECOGNITION_ONLY.label": "Checkpoint passed by choosing answers alone",
+  "code.GATE_RECOGNITION_ONLY.detail": "Checkpoint {gate} offers only multiple-choice questions, so a learner could pass it by recognising answers. Add a question where the learner writes or calculates the answer, then check again. This version cannot be published until then.",
+  "code.GATE_PARTIAL_OBJECTIVES.label": "Checkpoint that skips some of its goals",
+  "code.GATE_PARTIAL_OBJECTIVES.detail": "Checkpoint {gate} lets a learner through after showing just one of its learning goals. A checkpoint must check every goal it lists: set it to require all of them, or split it into one checkpoint per goal, then check again.",
+  "code.GATE_TRANSFER_MISSING.label": "Checkpoint without a new-situation task",
+  "code.GATE_TRANSFER_MISSING.detail": "Checkpoint {gate} needs a task where the learner applies the idea to a new situation and produces the answer. Add one (or lower what the checkpoint asks for), then check again.",
+  "code.GATE_MISCONCEPTION_CHECK_MISSING.label": "Checkpoint that cannot rule out a key mix-up",
+  "code.GATE_MISCONCEPTION_CHECK_MISSING.detail": "The course names a critical mix-up for checkpoint {gate}, but the checkpoint has no question that can reveal it, or no rule that checks it. Add both, then check again.",
+  "code.GATE_EVIDENCE_UNREACHABLE.label": "Checkpoint that cannot be passed",
+  "code.GATE_EVIDENCE_UNREACHABLE.detail": "Checkpoint {gate} asks for more kinds of evidence than its questions can give. Add questions of another kind, or ask for fewer, then check again.",
   "code.SANDBOXED_WEB_ACTIVITIES.label": "Sandboxed web activities",
-  "code.SANDBOXED_WEB_ACTIVITIES.detail": "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints are blocked only by Core's script guard, and the frame can still navigate to this site or the reviewed video host), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.",
-  "code.LEGACY_RECOGNITION_ONLY_GATES.label": "Checkpoints passed by choosing answers alone",
-  "code.LEGACY_RECOGNITION_ONLY_GATES.detail": "SDK 0.4 checkpoints {gates} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates."
+  "code.SANDBOXED_WEB_ACTIVITIES.detail": "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints are blocked only by Core's script guard, and the frame can still navigate to this site or the reviewed video host), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed."
 }

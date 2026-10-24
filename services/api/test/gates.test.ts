@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decideGate, type CourseManifest, type VersionedProgressionGate } from "@course-core/sdk";
-import { assertCourseRunnable, assertVersionedGateRules, recognitionOnlyLegacyGates } from "../src/publication.js";
+import { assertCourseRunnable, assertVersionedGateRules } from "../src/publication.js";
 import { evaluateGate, type AttemptSignal, type GateEvidence } from "../src/gates.js";
 import { gradeDeterministic, numericAnswer, publicQuestion } from "../src/learning.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
@@ -162,8 +162,8 @@ function legacyCourse(options: { critical?: boolean; items?: string[] } = {}) {
 const row = (id: string, item: string, family: string, passed = true): GateEvidence =>
   ({ id, attempt_id: `a-${id}`, objective_id: "minimum", family_id: family, assessment_id: item, independent: true, course_digest: digest, mode: "independent", result: { passed }, created_at: at() });
 
-describe("false-mastery rules on unversioned 0.4 gates", () => {
-  it("keeps the 0.4 family rule when a produced answer is among the families", () => {
+describe("full false-mastery rules on gates without a version", () => {
+  it("passes on the required families when a produced answer is among them", () => {
     const { c, g } = legacyCourse();
     const decision = evaluateGate(c, g, [row("e1", "min-a", "compare"), row("e2", "min-b", "select")], digest);
     expect(decision).toMatchObject({ status: "ready", passed: true, gateVersion: "legacy-0.4" });
@@ -199,17 +199,33 @@ describe("false-mastery rules on unversioned 0.4 gates", () => {
     const cleared = evaluateGate(c, g, [b, row("e3", "min-a", "compare")], digest, { signals: [wrong] });
     expect(cleared).toMatchObject({ status: "ready", unresolvedMisconceptionIds: [] });
   });
-  it("keeps a 0.4 gate of recognition items only publishable (SDK compatibility) but names it for a staff warning", () => {
+  it("refuses at publish a gate of recognition items only, and never passes one on two recognition families", () => {
     const { c } = legacyCourse({ items: ["min-a"] });
-    expect(recognitionOnlyLegacyGates(c)).toEqual(["min-gate"]);
-    expect(() => assertCourseRunnable(c, [])).not.toThrow();
-    expect(recognitionOnlyLegacyGates(legacyCourse().c)).toEqual([]);
-    // Such a gate keeps its 0.4 rule: two recognition families pass it, as SDK 0.4 promised.
+    expect(() => assertCourseRunnable(c, [])).toThrow(expect.objectContaining({ code: "PUBLISH_RECOGNITION_ONLY_GATE", details: { gateId: "min-gate" } }));
+    expect(() => assertCourseRunnable(legacyCourse().c, [])).not.toThrow();
+    // Formerly the 0.4 rule: two recognition families passed it. The full rules need a produced answer.
     const { c: only, g } = legacyCourse({ items: ["min-a"] });
     only.assessments.push({ id: "min-c", type: "choice", objectiveIds: ["minimum"], familyId: "pick", prompt: "Which is smaller, 7 or 3?", options: [{ id: "three", text: "3" }, { id: "seven", text: "7" }],
       grading: { correctOptionId: "three", explanation: "3 is below 7." } });
     g.assessmentIds.push("min-c");
-    expect(evaluateGate(only, g, [row("e1", "min-a", "compare"), row("e2", "min-c", "pick")], digest).status).toBe("ready");
+    const decision = evaluateGate(only, g, [row("e1", "min-a", "compare"), row("e2", "min-c", "pick")], digest);
+    expect(decision).toMatchObject({ status: "needs_evidence", passed: false });
+    expect(decision.messages.criteria["independent_families:minimum"]).toMatchObject({ code: "criterion.familiesFor.needsProduction" });
+  });
+  it("refuses at publish a gate that passes on one of several objectives, and evaluates every objective anyway", () => {
+    const { c, g } = legacyCourse();
+    g.objectiveIds = ["minimum", "maximum"];
+    g.assessmentIds.push("max-a", "max-b");
+    g.requireAllObjectives = false;
+    expect(() => assertCourseRunnable(c, [])).toThrow(expect.objectContaining({ code: "PUBLISH_GATE_PARTIAL_OBJECTIVES", details: { gateId: "min-gate" } }));
+    // Formerly the 0.4 rule: the minimum alone passed it. Now the maximum is still needed.
+    const decision = evaluateGate(c, g, [row("e1", "min-a", "compare"), row("e2", "min-b", "select")], digest);
+    expect(decision).toMatchObject({ status: "needs_evidence", passed: false });
+    expect(decision.objectives.map((o) => [o.id, o.passed])).toEqual([["minimum", true], ["maximum", false]]);
+    // A gate with a single objective is the same either way, and stays publishable.
+    const { c: single, g: one } = legacyCourse();
+    one.requireAllObjectives = false;
+    expect(() => assertCourseRunnable(single, [])).not.toThrow();
   });
 });
 

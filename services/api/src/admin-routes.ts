@@ -57,7 +57,7 @@ import {
   extensionRequest,
   loadPolicy,
 } from "./policy-adapter.js";
-import { recognitionOnlyLegacyGates, assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
+import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
 import { checkManifest, previewAsLearners, publishImpact, requireConfirmedImpact } from "./release-editing.js";
@@ -255,10 +255,19 @@ function installed(options: AdminRuntimeOptions): RuntimeExtension[] {
       : (options.installedExtensions ?? [])),
   ];
 }
+/** Publication refusals of a checkpoint's evidence rules (publication.ts), shown as their own release check. */
+const GATE_RULE_CHECKS = {
+  PUBLISH_RECOGNITION_ONLY_GATE: "GATE_RECOGNITION_ONLY",
+  PUBLISH_GATE_PARTIAL_OBJECTIVES: "GATE_PARTIAL_OBJECTIVES",
+  PUBLISH_TRANSFER_EVIDENCE_REQUIRED: "GATE_TRANSFER_MISSING",
+  PUBLISH_MISCONCEPTION_CHECK_REQUIRED: "GATE_MISCONCEPTION_CHECK_MISSING",
+  PUBLISH_GATE_EVIDENCE_UNREACHABLE: "GATE_EVIDENCE_UNREACHABLE",
+} as const;
 /**
  * The checks shown on a release, as codes the admin app words (releaseChecks namespace):
  * SDK_DIGEST_MATCHES / SDK_DIGEST_MISMATCH, RUNTIME_SUPPORTED / RUNTIME_UNSUPPORTED (params.reason
- * is the refusal code), SANDBOXED_WEB_ACTIVITIES and LEGACY_RECOGNITION_ONLY_GATES (warnings).
+ * is the refusal code), a GATE_* check naming the checkpoint (params.gate) that breaks an evidence
+ * rule, and SANDBOXED_WEB_ACTIVITIES (a warning).
  */
 export function validation(release: ReleaseRow, options: AdminRuntimeOptions): ReleaseCheck[] {
   let valid = true,
@@ -269,22 +278,23 @@ export function validation(release: ReleaseRow, options: AdminRuntimeOptions): R
   } catch {
     valid = false;
   }
+  let gate: ReleaseCheck | null = null;
   try {
     assertCourseRunnable(release.server_bundle, installed(options));
   } catch (error) {
     reason = error instanceof ApiError ? error.code : "PUBLISH_CAPABILITY_MISSING";
+    // A checkpoint that breaks the false-mastery rules is the course's to fix, not the host's.
+    const rule = Object.hasOwn(GATE_RULE_CHECKS, reason) ? GATE_RULE_CHECKS[reason as keyof typeof GATE_RULE_CHECKS] : undefined;
+    const gateId = error instanceof ApiError && typeof error.details?.gateId === "string" ? error.details.gateId.slice(0, 200) : "";
+    if (rule) gate = { code: rule, passed: false, params: { gate: gateId } };
   }
   return [
     { code: valid ? "SDK_DIGEST_MATCHES" : "SDK_DIGEST_MISMATCH", passed: valid },
-    reason === null ? { code: "RUNTIME_SUPPORTED", passed: true } : { code: "RUNTIME_UNSUPPORTED", passed: false, params: { reason } },
+    gate ?? (reason === null ? { code: "RUNTIME_SUPPORTED", passed: true } : { code: "RUNTIME_UNSUPPORTED", passed: false, params: { reason } }),
     // Not a failure: a standing limit staff must know about before they publish such activities (README "Activity runtime").
     ...(installed(options).some((extension) => extension.activityRuntime?.kind === "sandboxed_web")
       ? [{ code: "SANDBOXED_WEB_ACTIVITIES" as const, passed: true, warning: true }]
       : []),
-    // Not a failure: SDK 0.4 bundles stay publishable, but staff should know a checkpoint can be passed on recognition alone.
-    ...((gates) => gates.length
-      ? [{ code: "LEGACY_RECOGNITION_ONLY_GATES" as const, passed: true, warning: true, params: { gates: gates.join(", ") } }]
-      : [])(recognitionOnlyLegacyGates(release.server_bundle)),
   ];
 }
 export interface ReleaseCheck {

@@ -63,6 +63,13 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
+/** The oldest SDK whose packages Core installs or publishes at all. SDK 0.4 courses (unversioned
+ * gates passed on recognition alone, or on one of several objectives) are not supported: Core
+ * applies the full false-mastery rules to every gate and keeps no compatibility path for them. */
+export const MINIMUM_SUPPORTED_SDK = '0.5.0';
+/** Whether a package compiled by `sdkVersion` is older than MINIMUM_SUPPORTED_SDK. */
+export const belowMinimumSdk = (sdkVersion: string) => !isSemver(sdkVersion) || compareSemver(sdkVersion, MINIMUM_SUPPORTED_SDK) < 0;
+
 // ---- descriptor -------------------------------------------------------------------------
 export interface PackageMember { name: string; bytes: number; sha256: string; role: PackageRole }
 export interface CoursePackageDescriptor {
