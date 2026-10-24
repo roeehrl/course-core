@@ -141,7 +141,16 @@ export type ProviderCallEnd = Readonly<{
 export type ProviderCallObserver = (call: ProviderCallStart) => ((end: ProviderCallEnd) => void) | void;
 /** A tutoring reply. `cutShort`: the provider stopped at the output limit (only when the request allowed it). */
 export interface TutoringOutput { text: string; cutShort?: true }
-export interface TutoringProvider { tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<TutoringOutput>> }
+/** Receives each piece of answer text as the provider streams it, in order. Unverified model
+ * output: callers check it before showing it to anyone (see the host's reply drafts). */
+export type TextDeltaListener = (text: string) => void;
+export interface TutoringProvider {
+  tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<TutoringOutput>>;
+  /** Optional streamed form of `tutor`: the same request, checks and receipt, with the answer's
+   * text also passed to `onText` as it arrives. The result is final only when this resolves; a
+   * stream that ends in a refusal or an incomplete answer rejects like `tutor` would. */
+  tutorStream?(request: TextRequest, options: CallOptions, onText: TextDeltaListener): Promise<ProviderResult<TutoringOutput>>;
+}
 export interface StructuredAssessmentProvider { assess(request: AssessmentRequest, options?: CallOptions): Promise<ProviderResult<Json>> }
 export interface ResearchProvider { research(request: TextRequest, options?: CallOptions): Promise<ProviderResult<ResearchOutput>> }
 export interface ImageJobProvider {
