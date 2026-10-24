@@ -6,6 +6,7 @@ import en_answerFeedback from "./messages/en/answerFeedback.json";
 import en_answers from "./messages/en/answers.json";
 import en_apiClient from "./messages/en/apiClient.json";
 import en_assessmentInput from "./messages/en/assessmentInput.json";
+import en_changedElsewhere from "./messages/en/changedElsewhere.json";
 import en_closureSummary from "./messages/en/closureSummary.json";
 import en_code from "./messages/en/code.json";
 import en_codeEditor from "./messages/en/codeEditor.json";
@@ -76,6 +77,7 @@ import he_answerFeedback from "./messages/he/answerFeedback.json";
 import he_answers from "./messages/he/answers.json";
 import he_apiClient from "./messages/he/apiClient.json";
 import he_assessmentInput from "./messages/he/assessmentInput.json";
+import he_changedElsewhere from "./messages/he/changedElsewhere.json";
 import he_closureSummary from "./messages/he/closureSummary.json";
 import he_code from "./messages/he/code.json";
 import he_codeEditor from "./messages/he/codeEditor.json";
@@ -148,6 +150,7 @@ export const en = {
   answers: en_answers,
   apiClient: en_apiClient,
   assessmentInput: en_assessmentInput,
+  changedElsewhere: en_changedElsewhere,
   closureSummary: en_closureSummary,
   code: en_code,
   codeEditor: en_codeEditor,
@@ -220,6 +223,7 @@ export const he: PartialCatalog<typeof en> = {
   answers: he_answers,
   apiClient: he_apiClient,
   assessmentInput: he_assessmentInput,
+  changedElsewhere: he_changedElsewhere,
   closureSummary: he_closureSummary,
   code: he_code,
   codeEditor: he_codeEditor,

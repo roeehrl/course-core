@@ -52,6 +52,8 @@ The wide layout (side companion pane, page scroll) needs a layout viewport of at
 
 `src/client/apiClient.ts` preserves exact semantic payload, admitted revision and idempotency key while a request is uncertain. Loading an enrollment reconciles its saved pending command before requesting the current snapshot. Four-hundred responses clear rejected commands; transport/server uncertainty retains them. Corrupt pending records fail closed. An in-memory copy preserves retry identity even if session storage fails; a visible notice explains that reload recovery then cannot be guaranteed. A saved-request retry action is available in the connected UI. Answer and companion drafts are separately scoped by account, enrollment, course digest, and challenge/episode.
 
+The profile editor and the study-days choice in delayed checks follow the saved values until the learner edits (`src/hooks/useEditableSnapshot.ts`, the admin app's hook): an enrollment refresh never resets an edit, and a version saved elsewhere meanwhile is named with "Show the saved version" or "Keep my edits" instead of being silently overwritten or kept; saving waits for that choice.
+
 Server snapshots and receipts remain authoritative. The UI does not fabricate passed checks, update credits optimistically, or convert practice into independent credit. Browser state is user-editable and is not an authorization boundary.
 
 ## Companion: real persisted messages, honest asynchronous state

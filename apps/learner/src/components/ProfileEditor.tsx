@@ -4,6 +4,8 @@ import { validateProfile } from "../domain/profile";
 import type { Profile } from "../domain/types";
 import { useT } from "../i18n";
 import { Badge, Button, ChoiceList, Field, Notice, styles } from "./ui";
+import { ChangedElsewhere } from "./ChangedElsewhere";
+import { useEditableSnapshot } from "../hooks/useEditableSnapshot";
 
 export function ProfileEditor({
   profile,
@@ -23,11 +25,15 @@ export function ProfileEditor({
   identityOnly?: boolean;
 }) {
   const t = useT();
-  const [draft, setDraft] = useState(profile);
+  // The saved profile until the learner edits it, derived rather than copied in once: a
+  // profile saved meanwhile (another tab or device) is shown while nothing is edited, and
+  // named instead of silently overwritten when it is (useEditableSnapshot).
+  const snapshot = useEditableSnapshot(profile);
+  const draft = snapshot.value;
   const [validation, setValidation] = useState<string>();
   const [edited, setEdited] = useState(false);
   function change(patch: Partial<Profile>) {
-    setDraft((current) => ({ ...current, ...patch }));
+    snapshot.set((current) => ({ ...current, ...patch }));
     setEdited(true);
     setValidation(undefined);
   }
@@ -85,11 +91,19 @@ export function ProfileEditor({
       {saved && !edited && (
         <Notice>{demo ? t("profileEditor.savedOnDevice") : t("profileEditor.saved")}</Notice>
       )}
+      {snapshot.changedElsewhere && (
+        <ChangedElsewhere
+          disabled={pending}
+          onShowSaved={snapshot.discard}
+          onKeep={snapshot.keep}
+        />
+      )}
       <Button
         label={pending ? t("profileEditor.saving") : t("profileEditor.save")}
         kind="primary"
-        disabled={pending}
+        disabled={pending || snapshot.changedElsewhere}
         onPress={() => {
+          if (snapshot.changedElsewhere) return;
           const candidate = identityOnly ? { ...profile, displayName: draft.displayName } : draft;
           const message = validateProfile(identityOnly ? { ...candidate, goal: '' } : candidate, t);
           if (message) {
@@ -97,6 +111,7 @@ export function ProfileEditor({
             return;
           }
           setEdited(false);
+          snapshot.settle();
           onSave(candidate);
         }}
       />
