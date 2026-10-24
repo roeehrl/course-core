@@ -373,6 +373,9 @@ describe("owner decisions on version moves (2026-10-24)", () => {
     expect(snapshot.courseVersionOffer).toMatchObject({ moveId: body.moveId, fromVersion: "1.0.0", toVersion: "4.0.0",
       personalChanges: { count: 1, items: [{ episodeId: "max", title: "Maximum", kind: "waiting_practice" }] },
       keeps: { lessons: 1, checkpointsCarried: 1, checkpointsAgain: 0 } });
+    // The home list marks the enrollment as offered a newer version.
+    const listed = async () => ((await call(who, "GET", "/api/enrollments")).json() as { id: string; versionOffer: boolean; course_key: string }[]).find((row) => row.id === id);
+    expect(await listed()).toMatchObject({ versionOffer: true, course_key: expect.any(String) });
     // The bell says so too.
     expect((await call(who, "GET", "/api/me/notifications")).json().items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "move_offer", params: { fromVersion: "1.0.0", toVersion: "4.0.0" }, link: `/enrollments/${id}` })]));
@@ -384,6 +387,7 @@ describe("owner decisions on version moves (2026-10-24)", () => {
     expect(declined.json()).toEqual({ status: "declined", code: null });
     expect(await waitingChanges(id)).toBe(1);
     expect((await call(who, "GET", `/api/enrollments/${id}`)).json().courseVersionOffer).toBeNull();
+    expect(await listed()).toMatchObject({ versionOffer: false });
     expect((await command(who, id, "version-offer/accept", { moveId: body.moveId })).json().error).toBe("MOVE_OFFER_NOT_OPEN");
     expect((await call(owner, "GET", `${base()}/${body.moveId}`)).json().learners[0].offer).toMatchObject({ state: "declined", forcible: true });
   });
