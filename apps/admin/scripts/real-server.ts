@@ -1292,8 +1292,9 @@ app.post("/test/people-scope-fixture", async () => {
     scopedCode: await issueLoginCode(db, scopedId),
   };
 });
-// Test-only: a course with one recent failed AI run and the workspace AI budget at 90%, for the
-// staff notification center (an owner and an instructor).
+// Test-only: a course with one recent failed AI run, the workspace AI budget at 90% and one
+// learner question held back by the workspace limit, for the staff notification center (an owner
+// and an instructor).
 app.post("/test/notifications-fixture", async () => {
   const workspaceId = randomUUID(),
     ownerId = randomUUID(),
@@ -1363,6 +1364,22 @@ app.post("/test/notifications-fixture", async () => {
     `INSERT INTO supervisor_workspace_budgets(workspace_id,limit_micro_usd,limit_tokens,used_micro_usd,used_tokens)
      VALUES($1,1000000,0,900000,0)`,
     [workspaceId],
+  );
+  // A question the workspace limit holds back, as a job stopped at that limit records it.
+  await db.query(
+    `INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
+     VALUES($1,$2,$3,$4,'companion','budget_wait',1,'{}',$5)`,
+    [
+      randomUUID(),
+      enrollmentId,
+      workspaceId,
+      `notify-${randomUUID()}`,
+      JSON.stringify({
+        reason: "budget_exhausted",
+        applicationReceiptId: null,
+        ceiling: "workspace",
+      }),
+    ],
   );
   return {
     ownerCode: await issueLoginCode(db, ownerId),

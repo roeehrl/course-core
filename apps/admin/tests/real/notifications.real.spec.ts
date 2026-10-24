@@ -54,6 +54,15 @@ test("the staff bell shows failed runs and the budget, by role, and opens the ru
   await expect(
     panel.getByText("AI spending is at 90% of the limit"),
   ).toBeVisible();
+  // A learner's question is held by the workspace limit: help is paused, said plainly.
+  await expect(
+    panel.getByText("AI help is paused: the AI budget is used up"),
+  ).toBeVisible();
+  await expect(
+    panel.getByText(
+      /1 request for AI help from 1 learner waited\. Learners are told that help is paused/,
+    ),
+  ).toBeVisible();
   expect(
     (await new AxeBuilder({ page: owner }).withTags(axeTags).analyze())
       .violations,
@@ -96,4 +105,5 @@ test("the staff bell shows failed runs and the budget, by role, and opens the ru
     theirs.getByText("1 AI run failed in the last day"),
   ).toBeVisible();
   await expect(theirs.getByText(/AI spending/)).toHaveCount(0);
+  await expect(theirs.getByText(/AI help is paused/)).toHaveCount(0);
 });
