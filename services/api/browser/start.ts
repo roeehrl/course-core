@@ -1119,6 +1119,41 @@ app.post("/test/study-session", async (request) => {
   await post(`/api/admin/studies/${created.study.id}/open`, { expectedRevision: created.study.revision });
   return { token: await issueLoginCode(db, userId) };
 });
+// A learner with a personal change (a generated addition waiting for a safe boundary) on version
+// 1.0.0 of a course whose 2.0.0 the owner moved everyone to: the move refused them and offers it
+// to them in the app instead (owner decision 2026-10-24).
+app.post("/test/version-offer-session", async () => {
+  const offerWorkspace = randomUUID(), ownerId = randomUUID(), userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [offerWorkspace, `offer-${offerWorkspace}`, "Version offer workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Offer owner"], [userId, "learner", "Offer learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `offer:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [offerWorkspace, id, role]);
+  }
+  const session = async (id: string) => {
+    const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+    return { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  };
+  const owner = await session(ownerId), learner = await session(userId);
+  const post = async (url: string, payload: unknown, headers = owner) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw Error(`Version offer fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const v1 = (await post(`/api/workspaces/${offerWorkspace}/releases`, { ...fixture(), title: "Version offer ordering" })).id;
+  await post(`/api/releases/${v1}/publish`, {});
+  const enrollmentId = (await post("/api/enrollments", { releaseId: v1 }, learner)).id;
+  const job = randomUUID();
+  await db.query("INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES($1,$2,$3,$4,'supervisor','applied',1,'{}')",
+    [job, enrollmentId, offerWorkspace, `offer-${job}`]);
+  await db.query("INSERT INTO adaptation_pending_changes(id,enrollment_id,workspace_id,job_id,episode_id,artifact_kind,selection,reason) VALUES($1,$2,$3,$4,'min','practice','{}','attempt_in_progress')",
+    [randomUUID(), enrollmentId, offerWorkspace, job]);
+  const v2 = (await post(`/api/workspaces/${offerWorkspace}/releases`, { ...fixture(), title: "Version offer ordering", version: "2.0.0" })).id;
+  await post(`/api/releases/${v2}/publish`, {});
+  const courseId = (await app.inject({ url: "/api/admin/session", headers: owner })).json().courses[0].id;
+  const preview = await post(`/api/admin/courses/${courseId}/version-moves/preview`, { fromReleaseId: v1, toReleaseId: v2 });
+  await post(`/api/admin/courses/${courseId}/version-moves/${preview.moveId}/confirm`, { previewDigest: preview.previewDigest, reason: "Version 2.0.0 for everyone." });
+  return { token: await issueLoginCode(db, userId) };
+});
 app.post("/test/session", async () => {
   const userId = randomUUID();
   await db.query(

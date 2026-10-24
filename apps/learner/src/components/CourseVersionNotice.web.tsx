@@ -35,8 +35,12 @@ export function CourseVersionNotice({ server }: { server: ServerSnapshot }) {
       </p>
       <ul>
         <li>{t("courseVersionNotice.kept")}</li>
+        {(notice.carriedCheckpoints ?? 0) > 0 && (
+          <li>{t("courseVersionNotice.carried", { count: notice.carriedCheckpoints ?? 0 })}</li>
+        )}
         <li>{t("courseVersionNotice.checkpoints")}</li>
         <li>{t("courseVersionNotice.deadlines")}</li>
+        {notice.personalChanges && <li>{t(`courseVersionNotice.personal.${notice.personalChanges}`)}</li>}
       </ul>
       <button
         type="button"
