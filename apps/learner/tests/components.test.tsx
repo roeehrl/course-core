@@ -113,6 +113,29 @@ describe("reusable learner components", () => {
     render(<ProfileEditor {...props} demo />);
     expect(screen.queryByText(/Course staff/)).toBeNull();
   });
+  it("shows a profile saved elsewhere while nothing is edited, so saving never sends the older one", async () => {
+    const save = vi.fn();
+    const props = { onSave: save, pending: false, saved: false, demo: false };
+    const { rerender } = render(<ProfileEditor {...props} profile={{ displayName: "Sam", goal: "", pace: "steady" }} />);
+    // The profile was renamed in another tab; the enrollment refresh brings it here.
+    rerender(<ProfileEditor {...props} profile={{ displayName: "Sasha", goal: "Sort lists", pace: "focused" }} />);
+    expect(screen.getByLabelText("Display name")).toHaveValue("Sasha");
+    await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(save).toHaveBeenCalledWith({ displayName: "Sasha", goal: "Sort lists", pace: "focused" });
+  });
+  it("keeps a name being typed when a newer profile arrives, names it, and saves over it only when kept", async () => {
+    const save = vi.fn();
+    const props = { onSave: save, pending: false, saved: false, demo: false };
+    const { rerender } = render(<ProfileEditor {...props} profile={{ displayName: "Sam", goal: "", pace: "steady" }} />);
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Sam B" } });
+    rerender(<ProfileEditor {...props} profile={{ displayName: "Sam", goal: "Sort lists", pace: "steady" }} />);
+    expect(screen.getByLabelText("Display name")).toHaveValue("Sam B");
+    expect(screen.getByText("This was changed elsewhere")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Keep my edits" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(save).toHaveBeenCalledWith({ displayName: "Sam B", goal: "", pace: "steady" });
+  });
   it("supports arrow-key selection and keyboard focus in choice groups", () => {
     const change = vi.fn();
     render(

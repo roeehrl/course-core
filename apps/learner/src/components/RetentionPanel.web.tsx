@@ -3,6 +3,8 @@ import { isAbortError, type CourseApi } from "../client/apiClient";
 import type { RetentionPanelProps } from "./RetentionPanel";
 import { useI18n, type MessageKey } from "../i18n";
 import { useFirstLoadDone } from "../connected/firstLoad";
+import { ChangedElsewhere } from "./ChangedElsewhere";
+import { useEditableSnapshot } from "../hooks/useEditableSnapshot";
 
 interface RetentionItem {
   objectiveId: string;
@@ -34,12 +36,15 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAva
     t = i18n.t;
   const [items, setItems] = useState<RetentionItem[]>([]);
   const [availability, setAvailability] = useState<RetentionView["availability"]>(null);
-  const [days, setDays] = useState<number[] | null>(null);
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [read, setRead] = useState(false);
   useFirstLoadDone("retention", read);
+  // The saved days until the learner picks others; a reload after any revision never resets a
+  // choice, and days saved elsewhere meanwhile are named (useEditableSnapshot).
+  const daysEdit = useEditableSnapshot<number[]>(availability?.weekdays ?? WEEK);
+  const days = daysEdit.edited ? daysEdit.value : null;
   useEffect(() => {
     const controller = new AbortController();
     (api as CourseApi)
@@ -48,7 +53,6 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAva
         if (controller.signal.aborted) return;
         setItems(v.available ? v.items : []);
         setAvailability(v.availability ?? null);
-        setDays(null);
         setRead(true);
       })
       .catch((error) => {
@@ -117,15 +121,14 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAva
           </p>
           <div role="group" aria-label={t("retentionPanel.days.legend")} className="connected-retention-day-list">
             {WEEK.map((day) => {
-              const chosen = (days ?? availability?.weekdays ?? WEEK).includes(day);
+              const chosen = daysEdit.value.includes(day);
               return (
                 <label key={day}>
                   <input
                     type="checkbox"
                     checked={chosen}
                     onChange={() => {
-                      const current = days ?? availability?.weekdays ?? WEEK;
-                      setDays(chosen ? current.filter((d) => d !== day) : [...current, day].sort());
+                      daysEdit.set((current) => (chosen ? current.filter((d) => d !== day) : [...current, day].sort()));
                       setSaved("");
                     }}
                   />{" "}
@@ -135,16 +138,21 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart, onSaveAva
             })}
           </div>
           <p className="connected-input-hint">{t("retentionPanel.days.hint")}</p>
+          {daysEdit.changedElsewhere && (
+            <ChangedElsewhere disabled={Boolean(busy)} onShowSaved={daysEdit.discard} onKeep={daysEdit.keep} />
+          )}
           <div className="connected-gate-actions">
             <button
               type="button"
               className="connected-button"
-              disabled={Boolean(busy) || days === null || days.length === 0}
+              disabled={Boolean(busy) || days === null || days.length === 0 || daysEdit.changedElsewhere}
               onClick={async () => {
+                if (days === null || daysEdit.changedElsewhere) return;
                 setBusy("days");
                 setError("");
                 try {
-                  await onSaveAvailability(days!.length === 7 ? null : days, browserZone());
+                  await onSaveAvailability(days.length === 7 ? null : days, browserZone());
+                  daysEdit.settle();
                   setSaved(t("retentionPanel.days.saved"));
                 } catch {
                   setError(t("retentionPanel.days.failed"));
