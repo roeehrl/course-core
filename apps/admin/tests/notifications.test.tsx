@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { NotificationBell } from "../src/components/NotificationBell";
 import { createDemoNotifications } from "../src/client/demoNotifications";
@@ -81,14 +87,26 @@ describe("staff notification bell", () => {
     });
     fireEvent.click(bell);
     const panel = screen.getByRole("dialog", { name: "Needs attention" });
-    expect(within(panel).getByText("3 items wait for a decision")).toBeVisible();
-    expect(within(panel).getByText(/In Sorting basics: answers to grade/)).toBeVisible();
-    expect(within(panel).getByText("Learner tutor needs a quality check")).toBeVisible();
+    expect(
+      within(panel).getByText("3 items wait for a decision"),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText(/In Sorting basics: answers to grade/),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText("Learner tutor needs a quality check"),
+    ).toBeVisible();
     expect(within(panel).getByText(/It keeps working meanwhile/)).toBeVisible();
-    expect(within(panel).getByText(/The newest backup is 95 minutes old/)).toBeVisible();
-    fireEvent.click(within(panel).getAllByRole("button", { name: "Go there" })[0]!);
+    expect(
+      within(panel).getByText(/The newest backup is 95 minutes old/),
+    ).toBeVisible();
+    fireEvent.click(
+      within(panel).getAllByRole("button", { name: "Go there" })[0]!,
+    );
     await waitFor(() =>
-      expect(port.markRead).toHaveBeenCalledWith(WORKSPACE, [expect.any(String)]),
+      expect(port.markRead).toHaveBeenCalledWith(WORKSPACE, [
+        expect.any(String),
+      ]),
     );
     expect(onOpen).toHaveBeenCalledWith({ view: "overview", courseId: COURSE });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -113,7 +131,9 @@ describe("staff notification bell", () => {
     // A course the session does not know is named generically.
     expect(screen.getByText(/In this course: answers to grade/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
-    await waitFor(() => expect(port.markRead).toHaveBeenCalledWith(WORKSPACE, undefined));
+    await waitFor(() =>
+      expect(port.markRead).toHaveBeenCalledWith(WORKSPACE, undefined),
+    );
     expect(
       await screen.findByRole("button", { name: "Notifications" }),
     ).toBeVisible();
@@ -130,8 +150,12 @@ describe("staff notification bell", () => {
       />,
     );
     await waitFor(() => expect(empty.list).toHaveBeenCalled());
-    fireEvent.click(screen.getAllByRole("button", { name: "Notifications" }).at(-1)!);
-    expect(await screen.findByText("Nothing needs your attention right now.")).toBeVisible();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Notifications" }).at(-1)!,
+    );
+    expect(
+      await screen.findByText("Nothing needs your attention right now."),
+    ).toBeVisible();
   });
 
   it("says what to do when the list cannot be loaded", async () => {
@@ -173,14 +197,22 @@ describe("staff notification bell", () => {
     );
     expect(screen.getByText("3 פריטים מחכים להחלטה")).toBeVisible();
     expect(screen.getByText(/מלווה הלמידה.*: נדרשת בדיקת איכות/)).toBeVisible();
-    expect(screen.getAllByRole("button", { name: "מעבר לטיפול" }).length).toBe(3);
+    expect(screen.getAllByRole("button", { name: "מעבר לטיפול" }).length).toBe(
+      3,
+    );
   });
 });
 
 describe("notification links and the demo port", () => {
   it("opens only the admin views it knows", () => {
-    expect(notificationTarget(`/courses/${COURSE}/runs`)).toEqual({ view: "runs", courseId: COURSE });
-    expect(notificationTarget("/platform")).toEqual({ view: "platform", courseId: null });
+    expect(notificationTarget(`/courses/${COURSE}/runs`)).toEqual({
+      view: "runs",
+      courseId: COURSE,
+    });
+    expect(notificationTarget("/platform")).toEqual({
+      view: "platform",
+      courseId: null,
+    });
     expect(notificationTarget("/elsewhere")).toBeNull();
     expect(notificationTarget("https://example.com/providers")).toBeNull();
     expect(notificationTarget(null)).toBeNull();
@@ -189,10 +221,25 @@ describe("notification links and the demo port", () => {
   it("the demo keeps read state and shows operators more kinds than other staff", async () => {
     const demo = createDemoNotifications({ latency: 0 });
     const first = await demo.list(DEMO_WORKSPACE_ID);
-    expect(first.items.map((i) => i.kind)).toEqual(["approvals_waiting", "jobs_failed", "ai_check_needed", "budget_near_limit"]);
-    expect((await demo.markRead(DEMO_WORKSPACE_ID, [first.items[0]!.id])).unread).toBe(3);
-    const instructor = await createDemoNotifications({ role: "instructor", latency: 0 }).list(DEMO_WORKSPACE_ID);
-    expect(instructor.items.map((i) => i.kind)).toEqual(["approvals_waiting", "jobs_failed"]);
-    await expect(createDemoNotifications({ latency: 0 }).list(crypto.randomUUID())).rejects.toThrow("FORBIDDEN");
+    expect(first.items.map((i) => i.kind)).toEqual([
+      "approvals_waiting",
+      "jobs_failed",
+      "ai_check_needed",
+      "budget_near_limit",
+    ]);
+    expect(
+      (await demo.markRead(DEMO_WORKSPACE_ID, [first.items[0]!.id])).unread,
+    ).toBe(3);
+    const instructor = await createDemoNotifications({
+      role: "instructor",
+      latency: 0,
+    }).list(DEMO_WORKSPACE_ID);
+    expect(instructor.items.map((i) => i.kind)).toEqual([
+      "approvals_waiting",
+      "jobs_failed",
+    ]);
+    await expect(
+      createDemoNotifications({ latency: 0 }).list(crypto.randomUUID()),
+    ).rejects.toThrow("FORBIDDEN");
   });
 });
