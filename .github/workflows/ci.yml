@@ -286,8 +286,9 @@ jobs:
     name: API / learner-owned and administration connected flows
     needs: audit
     runs-on: ubuntu-24.04
-    # Measured: about 13-17 min (the three suites alone are 11-16 min). 30 min is ~2x headroom.
-    timeout-minutes: 30
+    # Measured: 23-27 min on main after wave 2, about 31 min with wave 3's connected and real
+    # specs (learner Chromium 6 min, WebKit 9 min, admin real-server about 13 min). 45 min keeps headroom.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17
