@@ -2591,11 +2591,6 @@ html:has(.connected-host:not(.is-compact)) {
 .connected-course-page { display: contents; }
 .connected-course-page[hidden] { display: none; }
 
-/* Account dialogs open over the page (Overlay); the scrollbar's space stays reserved while one
-   locks scrolling, so the page behind does not shift sideways. */
-html:has(.connected-host) {
-  scrollbar-gutter: stable;
-}
 /* What the connected host shows in a dialog portalled to <body> (Overlay) keeps the host's
    type, colour and focus ring; a form there is the sheet's content, not a card on it. */
 .connected-portal {

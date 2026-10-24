@@ -14,8 +14,13 @@ export function Overlay({ title, onClose, children }: OverlayProps) {
     const previous = document.activeElement as HTMLElement | null;
     const root = document.getElementById("root");
     const wasInert = root?.inert;
-    const overflow = document.body.style.overflow;
+    const overflow = document.body.style.overflow,
+      gutter = document.documentElement.style.scrollbarGutter;
     if (root) root.inert = true;
+    // Where the window shows a classic scrollbar, its space stays reserved while scrolling is
+    // locked, so the page behind does not shift sideways.
+    if (window.innerWidth - document.documentElement.clientWidth > 0)
+      document.documentElement.style.scrollbarGutter = "stable";
     document.body.style.overflow = "hidden";
     ref.current?.focus();
     // Escape is heard on the document: a button that becomes disabled while it works (Add a
@@ -31,6 +36,7 @@ export function Overlay({ title, onClose, children }: OverlayProps) {
       document.removeEventListener("keydown", escape);
       if (root) root.inert = !!wasInert;
       document.body.style.overflow = overflow;
+      document.documentElement.style.scrollbarGutter = gutter;
       previous?.focus();
     };
   }, []);

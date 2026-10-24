@@ -26,10 +26,6 @@
 * {
   box-sizing: border-box;
 }
-/* The scrollbar's space stays reserved while a dialog locks scrolling, so nothing shifts. */
-html {
-  scrollbar-gutter: stable;
-}
 body {
   margin: 0;
 }
