@@ -60,6 +60,7 @@ import {
   DEFAULT_PASSKEY_PORT,
   parsePort,
 } from "./ports.js";
+import { installHostWatchdog } from "./host-watchdog.js";
 
 // Test-only loopback host. Not included in the API build or production routes.
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
@@ -387,6 +388,18 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
   // Test-only: inspections never touch the network.
   researchInspector: syntheticResearchInspector(),
 });
+// Fail loudly instead of hanging (browser/host-watchdog.ts): unhandled errors, a blocked event
+// loop and a host that stops answering its own /health are logged with what it was doing; the
+// unhandled errors and the unanswered /health end it.
+const watchdog = installHostWatchdog({ health: () => app.inject({ method: "GET", url: "/health" }) }, db);
+app.addHook("onRequest", async (request) => {
+  watchdog.requestStarted(request.id, request.method, request.url);
+});
+app.addHook("onResponse", async (request) => {
+  watchdog.requestEnded(request.id);
+});
+app.addHook("onClose", async () => watchdog.stop());
+
 const source = recovery.course,
   visual = toVisualExperience(sortingDemo);
 source.extensions.push({
