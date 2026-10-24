@@ -198,11 +198,126 @@ export class JsonTransport {
       const safe = safeError(error); safe.usage = structuredClone(usage); throw safe;
     } finally { total.dispose(); }
   }
+  /**
+   * A streamed POST answered with Server-Sent Events. Retries follow `request` and happen only
+   * before any event arrived (an explicit throttle answered with an error status); once the
+   * stream has started nothing is ever replayed, and a failure afterwards leaves the outcome
+   * unknown. The whole stream is bounded by the total timeout and `maxBytes`, and the wait for
+   * each next chunk by the attempt timeout.
+   */
+  async stream(path: string, body: unknown, usage: UsageReceipt, maxBytes: number, options: CallOptions, sink: StreamSink): Promise<void> {
+    ensure(this.#protocol.path(path, 'POST'), 'INVALID_INPUT');
+    const totalMs = options.timeoutMs ?? this.settings.totalTimeoutMs;
+    const total = abortScope(options.signal, totalMs); const start = performance.now();
+    try {
+      if (total.signal.aborted) throw new ProviderError('CANCELLED');
+      const key = await this.credential(total.signal, total.error);
+      const encoded = JSON.stringify(body);
+      for (let attempt = 1; attempt <= this.settings.maxAttempts; attempt++) {
+        const record = { attempt, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
+        usage.attempts.push(record);
+        let failure: ProviderError | undefined;
+        const scopeError = () => total.error();
+        try {
+          const response = await abortable(() => this.#fetch(`${this.#protocol.origin}${path}`, {
+            method: 'POST', headers: { ...this.#protocol.headers(key), 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+            body: encoded, signal: total.signal, redirect: 'error',
+          }), total.signal, scopeError);
+          record.status = response.status;
+          if (!response.ok) {
+            const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
+            const refined = this.#protocol.refineError
+              ? this.#protocol.refineError(response.status, await errorBody(response, total.signal, scopeError), retryAfterMs)
+              : (void response.body?.cancel().catch(() => {}), undefined);
+            throw refined ?? classifyHttpError(response.status, retryAfterMs);
+          }
+          try { await readEvents(response, maxBytes, Math.min(this.settings.attemptTimeoutMs, totalMs), total.signal, scopeError, sink); }
+          finally { try { record.tokens = sink.tokens(); } catch { /* counters stay unknown */ } }
+          usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
+          this.emit(usage.operation, attempt, 'response', response.status, null, start);
+          return;
+        } catch (error) {
+          const sanitized = safeError(error);
+          // Anything after the response began (including a refusal the stream reported) may have run.
+          failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }),
+            ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }),
+            submission: sanitized.submission === 'rejected' && record.status !== null && record.status >= 400 ? 'rejected' : 'unknown' });
+          usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : 'unknown' };
+          this.emit(usage.operation, attempt, 'error', failure.status, failure.code, start);
+        }
+        const retry = classifyRetry(failure, 'POST');
+        if (!retry.automaticRetryAllowed || failure.submission !== 'rejected' || attempt >= this.settings.maxAttempts || total.signal.aborted) throw failure;
+        const backoff = Math.min(this.settings.maxDelayMs, this.settings.baseDelayMs * 2 ** (attempt - 1));
+        const delay = Math.max(failure.retryAfterMs ?? 0, Math.ceil(backoff * (0.5 + Math.random() / 2)));
+        if (delay > this.settings.maxDelayMs || performance.now() - start + delay >= totalMs) throw failure;
+        this.emit(usage.operation, attempt, 'retry', failure.status, failure.code, start, delay);
+        await abortable(() => waitAbortable(delay, total.signal), total.signal, total.error);
+      }
+      throw new ProviderError('UPSTREAM_UNAVAILABLE');
+    } catch (error) {
+      const safe = safeError(error); safe.usage = structuredClone(usage); throw safe;
+    } finally { total.dispose(); }
+  }
+}
+
+/** Receives one parsed Server-Sent Event at a time. `event` throws a ProviderError to end the
+ * stream (a refusal or an invalid chunk); `tokens` reports the attempt's usage once it ended. */
+export interface StreamSink {
+  event(name: string, data: Record<string, unknown>): void;
+  tokens(): TokenUsage;
+}
+/** One SSE body read with fixed bounds: total bytes, one event's bytes, and the wait for the next
+ * chunk. Each `data:` payload must be bounded JSON. Comments and unknown fields are ignored. */
+async function readEvents(response: Response, maxBytes: number, idleMs: number, signal: AbortSignal, error: () => ProviderError, sink: StreamSink) {
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+  ensure(contentType === 'text/event-stream', 'INVALID_RESPONSE');
+  ensure(response.body, 'INVALID_RESPONSE');
+  const reader = response.body.getReader(), decoder = new TextDecoder('utf-8', { fatal: true });
+  let size = 0, buffer = '', name = 'message', data: string[] = [];
+  const dispatch = () => {
+    if (data.length) {
+      let parsed: unknown;
+      try { parsed = JSON.parse(data.join('\n')); } catch { throw new ProviderError('INVALID_RESPONSE'); }
+      boundedJson(parsed, 'INVALID_RESPONSE');
+      ensure(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed), 'INVALID_RESPONSE');
+      sink.event(name, parsed as Record<string, unknown>);
+    }
+    name = 'message'; data = [];
+  };
+  const line = (raw: string) => {
+    if (raw === '') { dispatch(); return; }
+    if (raw.startsWith(':')) return;
+    const colon = raw.indexOf(':'), field = colon < 0 ? raw : raw.slice(0, colon);
+    const value = colon < 0 ? '' : raw.slice(colon + 1).replace(/^ /, '');
+    if (field === 'event') name = value.slice(0, 64);
+    else if (field === 'data') data.push(value);
+  };
+  try {
+    while (true) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const idle = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ProviderError('TIMEOUT', { submission: 'unknown' })), idleMs); });
+      let part: ReadableStreamReadResult<Uint8Array>;
+      try { part = await Promise.race([abortable(() => reader.read(), signal, error), idle]); } finally { clearTimeout(timer); }
+      if (part.done) break;
+      size += part.value.byteLength; ensure(size <= maxBytes, 'OUTPUT_TOO_LARGE');
+      try { buffer += decoder.decode(part.value, { stream: true }); } catch { throw new ProviderError('INVALID_RESPONSE'); }
+      let cut: number;
+      while ((cut = buffer.search(/\r\n|\r|\n/)) >= 0) {
+        const raw = buffer.slice(0, cut);
+        buffer = buffer.slice(buffer[cut] === '\r' && buffer[cut + 1] === '\n' ? cut + 2 : cut + 1);
+        line(raw);
+      }
+      // One event (or one line) may not hold more than the response bound allows.
+      ensure(buffer.length + data.reduce((n, d) => n + d.length, 0) <= maxBytes, 'OUTPUT_TOO_LARGE');
+    }
+    if (buffer) line(buffer);
+    dispatch();
+  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
 const googleProtocol: JsonProtocol = {
   adapter: 'google', origin: GOOGLE_ORIGIN,
-  path: path => /^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+|interactions)$/.test(path),
+  path: path => /^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|streamGenerateContent\?alt=sse|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+|interactions)$/.test(path),
   headers: key => ({ 'x-goog-api-key': key }),
   // generateContent reports `usageMetadata`; the Interactions API reports `usage`.
   tokens: data => data.usage !== undefined && data.usageMetadata === undefined ? interactionUsage(data.usage) : tokenUsage(data.usageMetadata),

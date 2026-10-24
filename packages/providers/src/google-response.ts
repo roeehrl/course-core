@@ -3,6 +3,7 @@ import { counter, type ImageOutput, type ResearchOutput } from './contracts.js';
 import { type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError } from './errors.js';
 import { parse } from './validation.js';
+import { tokenUsage } from './http.js';
 
 const partSchema = z.strictObject({
   text: z.string().optional(), thought: z.boolean().optional(), thoughtSignature: z.string().optional(),
@@ -36,6 +37,49 @@ export function responseText(c: Candidate): string {
   return answer;
 }
 
+const BLOCKING_FINISH = ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'RECITATION', 'SPII'];
+const chunkSchema = z.object({
+  promptFeedback: z.object({ blockReason: z.string().optional() }).optional(),
+  candidates: z.array(z.object({
+    index: counter.optional(), finishReason: z.string().optional(),
+    content: z.object({ role: z.literal('model').optional(), parts: z.array(partSchema).max(256).optional() }).optional(),
+    safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional(),
+  })).max(1).optional(),
+  usageMetadata: z.unknown().optional(),
+});
+/**
+ * Reads streamGenerateContent chunks with the checks `candidate` applies to a whole response: a
+ * prompt block, a blocked rating or a blocking finish reason in any chunk is BLOCKED; the answer
+ * is complete only when a chunk finished with STOP; only visible (non-thought) text parts count.
+ * Usage metadata is cumulative, so the last chunk that carries it is the attempt's usage.
+ */
+export function streamedCandidate(onText: (text: string) => void) {
+  let finish: string | undefined, usage: unknown, text = '';
+  return {
+    event(_name: string, data: Record<string, unknown>) {
+      const chunk = parse(chunkSchema, data, 'INVALID_RESPONSE');
+      if (chunk.promptFeedback?.blockReason && chunk.promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED') throw new ProviderError('BLOCKED');
+      if (chunk.usageMetadata !== undefined) { tokenUsage(chunk.usageMetadata); usage = chunk.usageMetadata; }
+      const c = chunk.candidates?.[0];
+      if (!c) return;
+      ensure(finish === undefined && (c.index === undefined || c.index === 0), 'INVALID_RESPONSE');
+      if (c.safetyRatings?.some(r => r.blocked) || (c.finishReason && BLOCKING_FINISH.includes(c.finishReason))) throw new ProviderError('BLOCKED');
+      for (const part of c.content?.parts ?? []) {
+        if (part.thought) continue;
+        ensure(part.text !== undefined, 'INVALID_RESPONSE');
+        if (!part.text) continue;
+        text += part.text; onText(part.text);
+      }
+      if (c.finishReason && c.finishReason !== 'FINISH_REASON_UNSPECIFIED') finish = c.finishReason;
+    },
+    tokens: () => tokenUsage(usage),
+    answer() {
+      ensure(finish === 'STOP', 'INCOMPLETE_OUTPUT');
+      ensure(text.trim().length > 0, 'INVALID_RESPONSE');
+      return text;
+    },
+  };
+}
 export function httpsUrl(value: string): URL {
   ensure(value.length <= 8192 && !/[\u0000-\u0020\\]/.test(value), 'INVALID_RESPONSE');
   let url: URL;

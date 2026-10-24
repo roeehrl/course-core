@@ -133,7 +133,16 @@ export type ProviderCallEnd = Readonly<{
 /** Called before dispatch; the returned function (if any) is called once when the call settles.
  * Observer failures are ignored: they can neither fail nor replay a paid call. */
 export type ProviderCallObserver = (call: ProviderCallStart) => ((end: ProviderCallEnd) => void) | void;
-export interface TutoringProvider { tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<{ text: string }>> }
+/** Receives each piece of answer text as the provider streams it, in order. Unverified model
+ * output: callers check it before showing it to anyone (see the host's reply drafts). */
+export type TextDeltaListener = (text: string) => void;
+export interface TutoringProvider {
+  tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<{ text: string }>>;
+  /** Optional streamed form of `tutor`: the same request, checks and receipt, with the answer's
+   * text also passed to `onText` as it arrives. The result is final only when this resolves; a
+   * stream that ends in a refusal or an incomplete answer rejects like `tutor` would. */
+  tutorStream?(request: TextRequest, options: CallOptions, onText: TextDeltaListener): Promise<ProviderResult<{ text: string }>>;
+}
 export interface StructuredAssessmentProvider { assess(request: AssessmentRequest, options?: CallOptions): Promise<ProviderResult<Json>> }
 export interface ResearchProvider { research(request: TextRequest, options?: CallOptions): Promise<ProviderResult<ResearchOutput>> }
 export interface ImageJobProvider {

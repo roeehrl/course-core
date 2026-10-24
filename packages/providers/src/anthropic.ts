@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { callOptionsSchema, id, textRequestSchema, type AccountingInput, type AssessmentRequest, type CallOptions, type Capability,
   type CapabilityPorts, type Json, type ModelConfig, type Operation, type ProviderAdapter, type ProviderResult, type ResearchOutput,
-  type ResearchProvider, type StructuredAssessmentProvider, type TextRequest, type TutoringProvider, type UsageReceipt } from './contracts.js';
+  type ResearchProvider, type StructuredAssessmentProvider, type TextDeltaListener, type TextRequest, type TutoringProvider, type UsageReceipt } from './contracts.js';
 import { requireAnthropicModel, type AnthropicResolvedModel } from './anthropic-contracts.js';
-import { anthropicMessage, anthropicResearch, anthropicText, anthropicTokens } from './anthropic-response.js';
+import { anthropicMessage, anthropicResearch, anthropicStream, anthropicText, anthropicTokens } from './anthropic-response.js';
 import { classifyHttpError, ensure, ProviderError, safeError } from './errors.js';
 import { JsonTransport, type JsonProtocol, type TransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
@@ -116,6 +116,35 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
   }
   tutor(request: TextRequest, options: CallOptions = {}): Promise<ProviderResult<{ text: string }>> {
     return this.#generate(request, 'tutoring', 'tutor', raw => ({ text: anthropicText(anthropicMessage(raw, false)) }), options);
+  }
+  /** `tutor` with `stream: true`: the same body, answered as Messages API server-sent events.
+   * Text deltas go to `onText` as they arrive; the answer counts only when the stream ended with
+   * `message_stop` after stop_reason `end_turn`. A `refusal` stop is BLOCKED and an `error` event
+   * (for example `overloaded_error`) is a failure whose outcome is unknown. */
+  async tutorStream(input: TextRequest, options: CallOptions, onText: TextDeltaListener): Promise<ProviderResult<{ text: string }>> {
+    const request = parse(textRequestSchema, input), call = parse(callOptionsSchema, options);
+    const model = this.#require(request.modelId, 'tutoring'), config = model.providerConfig;
+    const characters = request.messages.reduce((n, m) => n + m.text.length, request.systemInstruction?.length ?? 0);
+    ensure(characters <= model.limits.maxInputCharacters && request.maxOutputTokens <= (model.limits.maxOutputTokens ?? 0));
+    const usage = this.#usage(model, 'tutor', request.accounting, characters, request.maxOutputTokens);
+    try {
+      const stream = anthropicStream(onText);
+      await this.#transport.stream('/v1/messages', {
+        model: model.remoteModel, max_tokens: request.maxOutputTokens, stream: true,
+        ...(request.systemInstruction === undefined ? {} : { system: request.systemInstruction }),
+        messages: request.messages.map(message => ({ role: message.role, content: message.text })),
+        ...(config.effort ? { output_config: { effort: config.effort } } : {}),
+        ...(config.thinking ? { thinking: { type: config.thinking } } : {}),
+      }, usage, config.maxResponseBytes, call, stream);
+      return { output: { text: stream.answer() }, usage: structuredClone(usage) };
+    } catch (error) {
+      const safe = safeError(error);
+      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
+        ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
+        submission: usage.attempts.length > 0 && safe.submission === 'not_sent' ? 'unknown' : safe.submission });
+      sanitized.usage = structuredClone(usage);
+      throw sanitized;
+    }
   }
   async assess(input: AssessmentRequest, options: CallOptions = {}): Promise<ProviderResult<Json>> {
     const request = parse(textRequestSchema.extend({ outputSchema: z.unknown() }), input);

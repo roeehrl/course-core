@@ -98,3 +98,67 @@ export function anthropicResearch(message: AnthropicMessage): ResearchOutput {
   return { text, parts, sources, citations, searchQueries, searchSuggestionsHtml: null,
     grounding: sources.length > 0 && citations.length > 0 ? 'grounded' : 'not_grounded' };
 }
+
+const streamEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('message_start'), message: z.object({ type: z.literal('message'), role: z.literal('assistant'), usage: z.record(z.string(), z.unknown()).optional() }) }),
+  z.object({ type: z.literal('content_block_start'), index: counter, content_block: z.object({ type: z.string().max(64) }) }),
+  z.object({ type: z.literal('content_block_delta'), index: counter, delta: z.object({ type: z.string().max(64), text: z.string().optional() }) }),
+  z.object({ type: z.literal('content_block_stop'), index: counter }),
+  z.object({ type: z.literal('message_delta'), delta: z.object({ stop_reason: z.string().nullable().optional() }), usage: z.record(z.string(), z.unknown()).nullable().optional() }),
+  z.object({ type: z.literal('message_stop') }),
+  z.object({ type: z.literal('ping') }),
+  z.object({ type: z.literal('error'), error: z.object({ type: z.string().max(128) }) }),
+]);
+const STREAM_EVENTS = new Set(['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop', 'ping', 'error']);
+/**
+ * Reads Messages API stream events with the checks `anthropicMessage` applies to a whole turn:
+ * only text and thinking blocks, stop_reason `end_turn` (a `refusal` is BLOCKED, any other stop
+ * incomplete) and a final `message_stop`. Visible text deltas go to `onText`; thinking and
+ * signature deltas are dropped. `message_start` carries the input usage and each `message_delta`
+ * the cumulative usage, so later counters replace earlier ones. Unknown event types are ignored,
+ * as the API's versioning policy asks; an `error` event ends the stream as an unknown outcome.
+ */
+export function anthropicStream(onText: (text: string) => void) {
+  const blocks = new Map<number, string>();
+  let started = false, stopped = false, stop: string | null | undefined, usage: Record<string, unknown> = {}, text = '';
+  return {
+    event(_name: string, data: Record<string, unknown>) {
+      if (typeof data.type !== 'string' || !STREAM_EVENTS.has(data.type)) return;
+      const event = parse(streamEventSchema, data, 'INVALID_RESPONSE');
+      ensure(!stopped, 'INVALID_RESPONSE');
+      switch (event.type) {
+        case 'error':
+          throw event.error.type === 'overloaded_error' ? new ProviderError('UPSTREAM_UNAVAILABLE', { status: 529, submission: 'unknown' })
+            : new ProviderError(event.error.type === 'rate_limit_error' ? 'THROTTLED' : 'UPSTREAM_UNAVAILABLE', { submission: 'unknown' });
+        case 'ping': return;
+        case 'message_start': ensure(!started, 'INVALID_RESPONSE'); started = true; usage = { ...(event.message.usage ?? {}) }; return;
+        case 'content_block_start':
+          ensure(started && !blocks.has(event.index) && ['text', 'thinking', 'redacted_thinking'].includes(event.content_block.type), 'INVALID_RESPONSE');
+          blocks.set(event.index, event.content_block.type); return;
+        case 'content_block_delta': {
+          const block = blocks.get(event.index);
+          ensure(block !== undefined, 'INVALID_RESPONSE');
+          if (event.delta.type === 'text_delta') {
+            ensure(block === 'text' && typeof event.delta.text === 'string', 'INVALID_RESPONSE');
+            if (event.delta.text) { text += event.delta.text; onText(event.delta.text); }
+          } else ensure(block !== 'text' && ['thinking_delta', 'signature_delta'].includes(event.delta.type), 'INVALID_RESPONSE');
+          return;
+        }
+        case 'content_block_stop': ensure(blocks.has(event.index), 'INVALID_RESPONSE'); return;
+        case 'message_delta':
+          ensure(started, 'INVALID_RESPONSE');
+          if (event.delta.stop_reason !== undefined) stop = event.delta.stop_reason;
+          if (event.usage) usage = { ...usage, ...event.usage };
+          return;
+        case 'message_stop': ensure(started, 'INVALID_RESPONSE'); stopped = true; return;
+      }
+    },
+    tokens: () => started ? anthropicTokens({ usage }) : emptyTokens(),
+    answer() {
+      if (stop === 'refusal') throw new ProviderError('BLOCKED');
+      ensure(stopped && stop === 'end_turn', 'INCOMPLETE_OUTPUT');
+      ensure(text.trim().length > 0, 'INVALID_RESPONSE');
+      return text;
+    },
+  };
+}
