@@ -9,8 +9,9 @@ connected-browser tests:
 
 It signs in a synthetic learner on the disposable test host, reloads the course list,
 opens the fixture course, and then makes 12 round trips between the roadmap and the
-first lesson. It then answers the lesson's two checks. Every run attaches its
-measurements as `budgets.json` and prints them in a `budgets {…}` log line.
+first lesson. It then answers five checks across both lessons: one warm-up answer and
+four measured ones (see [How feedback is judged](#how-feedback-is-judged)). Every run
+attaches its measurements as `budgets.json` and prints them in a `budgets {…}` log line.
 
 ## What is measured
 
@@ -19,7 +20,7 @@ measurements as `budgets.json` and prints them in a `budgets {…}` log line.
 | Cold course list | After a full reload, time from navigation start until the course card's heading is in the DOM. That heading needs the signed-in course list from the API, so the empty shell does not count |
 | Roadmap → lesson | In the page, from the press of "Continue learning →" to the first animation frame where the lesson heading has replaced the roadmap. The lesson heading needs the lesson data |
 | Lesson → roadmap | The same measurement for the roadmap button |
-| Answer feedback | From the press of "Check answer" to the first animation frame where the result text ("Correct. 2 is below 5.", then the completed-checks message) is on the page. The result needs the graded answer from the API |
+| Answer feedback | From the press of "Check answer" to the first animation frame where that answer's result text (for example "Correct. 4 is below 9.") is on the page. The result needs the graded answer from the API |
 | Command acknowledgement | From the press of a lesson command ("Mark this part read", "Start the next check →") to `responseEnd` of that command's POST in Resource Timing, so the server's acknowledgement has fully arrived |
 | JS heap (Chromium only) | `JSHeapUsedSize` from the DevTools protocol after a forced garbage collection: once after the first lesson opens, and again after the round trips |
 
@@ -54,7 +55,7 @@ replies, which Core does not have yet, and a live measurement, which needs the o
 | Cold course list | < 3,000 ms | 32–78 ms | — |
 | Roadmap → lesson, median of 13 | < 200 ms (slowest < 600 ms) | 7–12 ms (slowest ≤ 20 ms) | < 200 ms navigation (T01) |
 | Lesson → roadmap, median of 12 | < 200 ms (slowest < 600 ms) | 8–14 ms (slowest ≤ 20 ms) | < 200 ms navigation (T01) |
-| Answer feedback, each of 2 | < 300 ms | 24–53 ms | < 300 ms feedback (T01) |
+| Answer feedback, median of 4 after a warm-up | < 300 ms (slowest < 900 ms) | 35–47 ms (slowest ≤ 62 ms, 2026-10-24) | < 300 ms feedback (T01) |
 | Command acknowledgement, each of 3 | < 500 ms | 6–27 ms | < 500 ms acknowledgement (T01) |
 | JS heap after the round trips | < 64 MiB | 6.6 MiB | browser shell < 250 MB (T02) |
 | JS heap growth over 12 round trips | < 8 MiB | 0.4 MiB | no leak |
@@ -69,6 +70,28 @@ product target, such as a navigation that now waits on a slow request. A pass sh
 the targets are met on loopback, not for a real learner over a real network. The JS
 heap is only part of a tab's memory, and the load and heap thresholds stay loose
 regression guards.
+
+## How feedback is judged
+
+Feedback used to be asserted on each of two answers, so one sample decided the result. The
+first answer is the first time the page runs the answer path: the grading receipt, the result
+notice and the reloads a new course revision starts. On a busy CI runner that single cold
+sample occasionally exceeded 300 ms on WebKit (690 ms once, PR #208) while the answers after it
+took 30–60 ms. One sample cannot tell a slow machine from a slow app.
+
+The rule is now the same as for the navigations:
+
+1. **One warm-up answer is not judged.** The first check is answered wrongly on purpose, which
+   also makes the lesson offer its second check and a fresh one. Its time is recorded as
+   `warmUpFeedbackMs` in `budgets.json`.
+2. **Four measured answers** follow: the second check and the fresh check of the first lesson,
+   then both checks of the second lesson.
+3. **The median of the four must be under 300 ms** (the T01 target, unchanged), and **the slowest
+   under 900 ms** (three times the target, the same hard cap as the navigations). A regression
+   that slows every answer moves the median and fails; one starved frame on a shared runner
+   does not, unless it is far beyond the target.
+
+Command acknowledgement is still asserted on every command (< 500 ms each).
 
 ## When a budget fails
 
