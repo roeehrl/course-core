@@ -162,14 +162,39 @@ The CLI and `POST …/provider-evals/results` remain available for developers.
 ## Paid-work budgets
 
 Budgets default to zero. Both workspace and enrollment ledgers must have room
-before a call. A learner whose own limit was never set uses the workspace's default limit
-for each learner (`POST /budgets` with `scope: "default_enrollment"`; migration 088); with no
-default it is zero. `limits.tokens` may be omitted: money is then the binding limit and the
+before a call. A learner whose own limit was never set uses the workspace's choice for each
+learner (`POST /budgets` with `scope: "default_enrollment"`; migrations 088 and 120,
+`src/learner-limit.ts`), reported as `defaultEnrollment.mode`:
+
+- `unset` (nothing chosen yet): zero, so nothing paid runs for that learner;
+- `limit`: the default amount (`limits`);
+- `unlimited` (`mode: "unlimited"`, no `limits`): no per-learner ceiling, by the owner's
+  explicit choice. The workspace total still stops spending for everyone, and a learner's own,
+  daily and per-lesson limits still apply. It is stored as its own mode, never as a missing
+  amount, and needs paid-work approval like a positive amount.
+
+`limits.tokens` may be omitted: money is then the binding limit and the
 token limit is the maximum. Positive budget changes require explicit paid-work approval and
-compare-and-swap revisions. Changes preserve existing usage/reservations and
+compare-and-swap revisions. Every change is in the workspace audit log as
+`provider.budget_changed` (scope, mode, amounts and the consent flag). Changes preserve existing usage/reservations and
 cannot lower limits beneath them. These are application accounting allowances,
 not a provider invoice or guaranteed external billing cap. Configuration and
 budget changes do not alter learning deadlines, assessments, mastery or work caps.
+
+### What learners spend
+
+`GET /api/admin/workspaces/:workspaceId/provider-spend/learners?from&to&page&pageSize` (a
+workspace role with `enrollment.read`; a course grant does not open it) reads the spend ledger
+for at most 93 UTC days: the number of learners and learner-days with AI cost, the median,
+90th percentile and highest spend of a learner's day, of an active hour (an hour with a
+learning event the learner sent or an AI call for them) and of a learner's total; totals by
+job and by lesson; reserved (estimate), charged and actual (priced from the provider's reported
+usage, reconciled calls only) amounts; and a page of at most 25 learners, highest spend first,
+each by enrollment id and course with their days, lessons and jobs. No names, emails or learner
+text. With at least 5 learners and 20 learner-days it recommends a limit for each learner: the
+90th percentile of learner totals times 1.5, rounded up to $0.50 and never above the workspace
+total (`src/learner-spend.ts`); with less it reports the counts. The admin page applies a
+recommendation through the same `POST /budgets` save and consent.
 
 The local launcher supplies `PROVIDER_VAULT_DIRECTORY` only to the API. Workers
 use authenticated HTTP capability/operation interfaces; they receive no vault

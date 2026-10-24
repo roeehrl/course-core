@@ -227,6 +227,8 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "PUT /api/admin/workspaces/:workspaceId/provider-setup/service-keys/:id": "roles:owner,admin",
   "POST /api/admin/workspaces/:workspaceId/provider-setup/test-key": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/provider-spend": "roles:owner,admin",
+  // Workspace-wide like the audit log: a course grant never opens workspace spending data.
+  "GET /api/admin/workspaces/:workspaceId/provider-spend/learners": "roles:owner,admin,instructor,reviewer,support_observer,service",
   "GET /api/admin/workspaces/:workspaceId/supervision/enrollments/:enrollmentId/budget": "roles:owner,admin",
   "PUT /api/admin/workspaces/:workspaceId/supervision/enrollments/:enrollmentId/budget": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/supervision/requests": "roles:owner,admin",
@@ -394,6 +396,8 @@ export const PROBE_INPUT: Record<string, (ids: Record<string, string>) => { body
   "POST /api/admin/workspaces/:workspaceId/policy-ceilings/preview": () => ({ body: { ceilings: DEFAULT_ORGANIZATION_CEILINGS } }),
   "PUT /api/admin/workspaces/:workspaceId/policy-ceilings": () => ({ body: { expectedRevision: 0, ceilings: DEFAULT_ORGANIZATION_CEILINGS, reason: "Matrix probe" } }),
   "POST /api/admin/courses/:courseId/accommodations/batch/preview": () => ({ body: { scopeId: "course", kind: "accommodation", change: { work: { additionalMinutes: 1 } } } }),
+  // "No limit per learner" carries no amounts, so the schema refines on `limits` and `mode`.
+  "POST /api/admin/workspaces/:workspaceId/provider-setup/budgets": () => ({ body: { limits: { microUsd: 0 }, paidWorkApproved: false } }),
   "POST /api/admin/media-storyboards/:storyboardId/edit": () => ({ body: { expectedRevision: 1, idempotencyKey: "matrix-storyboard-edit",
     shots: [{ id: "intro", kind: "generated", description: "A matrix probe shot.", durationSeconds: 4 }] } }),
 };
