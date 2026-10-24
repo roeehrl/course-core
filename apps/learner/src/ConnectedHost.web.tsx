@@ -96,6 +96,7 @@ import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
 import { CourseVersionNotice } from "./components/CourseVersionNotice.web";
 import { CourseVersionOffer } from "./components/CourseVersionOffer.web";
+import { LearnerNotifications } from "./connected/Notifications.web";
 import { ContinuationTrack } from "./components/ContinuationTrack";
 import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
 import { PasskeyManager, PasskeySignIn, passkeysSupported } from "./connected/Passkeys.web";
@@ -1083,6 +1084,23 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             <span lang="en" dir="ltr">Course Core</span> <span>{t("connectedHost.brandSection")}</span>
           </div>
           {account && (
+            <div className="connected-header-actions">
+            <LearnerNotifications
+              request={api.request}
+              onOpen={(target) =>
+                void transact(async () => {
+                  await refresh(target.enrollmentId);
+                  setPreview(undefined);
+                  setEpisodeId(undefined);
+                  setPlacement(false);
+                  setView("learn");
+                  if (target.companion) {
+                    if (wide) setPaneCollapsed(false);
+                    else setCompanionOpen(true);
+                  }
+                }).catch(() => {})
+              }
+            />
             <YourCourseMenu
               label={server ? t("connectedHost.menu.yourCourse") : t("connectedHost.menu.account")}
               description={
@@ -1142,6 +1160,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 },
               ]}
             />
+            </div>
           )}
         </div>
       </header>

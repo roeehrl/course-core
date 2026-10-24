@@ -41,6 +41,7 @@ import { toVisualExperience } from "@course-core/visuals/headless";
 import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
+import { notifyUser } from "../src/notifications.js";
 import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
 import { generatedContentFixture, lineScene, LINE_COMPONENT_SOURCE, syntheticCodeEvaluator } from "../test/generated-content-fixture.js";
 import { recoveryFixture } from "../test/recovery-fixture.js";
@@ -1164,6 +1165,19 @@ app.post("/test/session", async () => {
     "INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')",
     [workspaceId, userId],
   );
+  return { token: await issueLoginCode(db, userId) };
+});
+// A learner enrolled in the ordering course with one unread "your course was updated" notification
+// (notifications.ts), for the learner's notification bell.
+app.post("/test/notification-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)", [userId, `test:${userId}`, "Browser learner"]);
+  await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, userId]);
+  const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const learner = { origin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id as string;
+  await notifyUser(db, { workspaceId, userId, audience: "learner", kind: "course_updated", enrollmentId, params: { fromVersion: "0.9.0", toVersion: "1.0.0" },
+    link: `/enrollments/${enrollmentId}`, dedupeKey: `browser:${enrollmentId}` });
   return { token: await issueLoginCode(db, userId) };
 });
 // A member with a username and password (optionally a temporary one that must be
