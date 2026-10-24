@@ -11,6 +11,7 @@
   "panel.retry": "Try again",
   "kind.course_updated": "Your course was updated from version {from} to version {to}.",
   "kind.move_offer": "Your course has a new version ({to}). You can choose whether to move to it.",
+  "kind.move_forced": "Your course team moved you from version {from} to version {to}. Your personal changes are archived, not deleted.",
   "kind.reply_ready": "Your companion answered your question.",
   "kind.unknown": "You have a new notification."
 }
