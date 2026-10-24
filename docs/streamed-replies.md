@@ -66,12 +66,21 @@ until the checked reply replaces it.
 ## Stopping and reconnecting
 
 - **Stop:** `POST /api/enrollments/:id/companion/messages/:messageId/cancel` (the learner's own
-  enrollment only). The draft stops at once, the job is cancelled like any host cancellation
-  (reason `learner_cancelled`: its next step stops it and a wake-up reaches a running workflow)
-  and nothing it produced is kept. The model call already sent runs to its end, bounded by its
+  enrollment only). This is the same route, with the same meaning, as "Stop waiting for this
+  answer" on a question that is still queued: an undelivered request is withdrawn, the job is
+  cancelled like any host cancellation (reason `learner_cancelled`: its next step stops it and a
+  wake-up reaches a running workflow), a draft being shown stops at once, and nothing the job
+  produced is kept. The question stays and reads as cancelled (event
+  `companion.question.cancelled`). The model call already sent runs to its end, bounded by its
   output and time limits, so its usage is settled from the provider's receipt instead of being
-  charged at the reservation ceiling. A reply already shown cannot be stopped; the question can
-  be deleted.
+  charged at the reservation ceiling. A reply already shown cannot be stopped
+  (`MESSAGE_ALREADY_ANSWERED`), nor one already cancelled (`MESSAGE_NOT_PENDING`); the question
+  can be deleted.
+- **Checks:** a streamed answer is assembled and judged by the same checks as a whole one
+  (`candidate`/`tutoringText` for Google, `anthropicMessage`/`anthropicTutoring` for Anthropic),
+  with the same thinking setting and output limit, so a reply cut short at the output limit is
+  delivered marked when it has enough visible text, and a refused or incomplete reply that the
+  provider finished is settled at its reported usage like any refused answer.
 - **Reconnect:** the event stream resumes by `Last-Event-ID` as before, and a (re)connected
   stream first receives every current draft whole, so a draft continues after a dropped
   connection. While the stream is down the draft says it is reconnecting.
