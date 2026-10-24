@@ -934,10 +934,15 @@
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
     ],
     "Q08": [
+      "core:apps/admin/tests/real/notifications.real.spec.ts::the staff bell shows failed runs and the budget, by role",
       "core:apps/admin/tests/real/supervision.real.spec.ts::Stricter checkpoint confirmation",
       "core:apps/admin/tests/real/supervision.real.spec.ts::an owner checks and saves the supervision settings",
+      "core:apps/learner/tests/connected-web/notifications.spec.ts::the learner's bell shows a course update and opens the course",
       "core:services/api/test/admin-roles.integration.test.ts::supervision settings",
       "core:services/api/test/conversational-gate-runtime.integration.test.ts::leaves every conversation to a person when the workspace asks for people only",
+      "core:services/api/test/notifications.integration.test.ts::AI check needed: one per role whose setup has no passing check",
+      "core:services/api/test/notifications.integration.test.ts::budget near its limit from 80%",
+      "core:services/api/test/notifications.integration.test.ts::failed AI runs in the last day, per course",
       "core:services/api/test/teaching-loop.integration.test.ts::AI supervision settings for owners and admins"
     ],
     "Q09": [
@@ -1111,11 +1116,11 @@
       "core:services/api/test/release-transition-latency.integration.test.ts"
     ],
     "T03": [
-      "core:apps/admin/tests/platform.test.tsx::says when the newest backup is not encrypted",
+      "core:apps/admin/tests/platform.test.tsx::notes, without warning, when the newest backup is not encrypted",
       "core:deploy/local/backup-drill.test.mjs::online snapshot of a running database",
       "core:deploy/local/backup.test.mjs",
       "core:deploy/local/backup.test.mjs::pilot snapshot schedule",
-      "core:services/api/test/admin-operations.integration.test.ts::a newer copy written without encryption",
+      "core:services/api/test/admin-operations.integration.test.ts::a newer copy written without it is reported as not",
       "core:services/api/test/admin-operations.integration.test.ts::recovery targets"
     ],
     "T04": [
