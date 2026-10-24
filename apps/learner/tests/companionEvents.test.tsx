@@ -147,11 +147,12 @@ describe("companion conversation, event-driven", () => {
     unmount();
     vi.useRealTimers();
 
-    // Stream up and a reply due: only the slow safety read.
+    // Stream up and a reply under way (its call is out, the draft arrives on the stream): only the
+    // slow safety read.
     vi.unstubAllGlobals();
     const stream = fakeStream();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const pending = vi.fn().mockResolvedValue([queued]);
+    const pending = vi.fn().mockResolvedValue([{ ...queued, job_state: "running" }]);
     const due: ContextualCompanionClient = { load: pending, send: vi.fn() };
     renderHook(() => useCompanionConversation(due, "e", false, 1));
     await vi.waitFor(() => expect(stream.opened).toHaveLength(1));
@@ -161,6 +162,30 @@ describe("companion conversation, event-driven", () => {
     expect(pending).toHaveBeenCalledTimes(1);
     await act(async () => vi.advanceTimersByTimeAsync(200));
     expect(pending).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads a queued question at the fallback pace until its reply starts, so a lost dispatch signal shows within seconds", async () => {
+    const stream = fakeStream();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const load = vi.fn().mockResolvedValue([queued]);
+    const client: ContextualCompanionClient = { load, send: vi.fn() };
+    const { unmount } = renderHook(() => useCompanionConversation(client, "e", false, 1));
+    await vi.waitFor(() => expect(stream.opened).toHaveLength(1));
+    await act(async () => {});
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_FALLBACK_POLL_MS + 100));
+    expect(load).toHaveBeenCalledTimes(2);
+    // Its dispatch frame arrives: one read at once, then only the safety read while it is written.
+    stream.opened[0]!.push(`event: companion-draft\ndata: ${JSON.stringify({ jobId: "job", messageId: "q2", offset: 0, text: "", state: "streaming" })}\n\n`);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_FALLBACK_POLL_MS * 3));
+    expect(load).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_SAFETY_POLL_MS));
+    expect(load).toHaveBeenCalledTimes(4);
+    unmount();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("reads a question not yet prepared into a job at the fallback pace, since a refusal at preparation records no event", async () => {

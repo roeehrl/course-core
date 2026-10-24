@@ -97,12 +97,18 @@ export class ReplyDrafts {
    * Opens the draft of one companion job. Returns a writer the gateway feeds with provider text;
    * null when the enrollment was erased meanwhile or the process already holds its bound of
    * drafts (the learner then sees the verified reply only, as before streaming).
+   *
+   * Opening is the dispatch signal: the gateway opens the draft right after it recorded that the
+   * call may be sent, so an empty `streaming` frame goes out at once. The learner's app then shows
+   * the question as sent (a reply is being written) and offers Stop, without waiting for a read of
+   * the conversation or for the first sentence.
    */
   open(key: { enrollmentId: string; jobId: string; messageId: string }) {
     this.sweep();
     if (this.forgotten.has(key.enrollmentId) || this.drafts.size >= MAX_DRAFTS) return null;
     const draft: Draft = { ...key, released: '', pending: '', state: 'streaming', openedAt: this.now(), endedAt: null };
     this.drafts.set(key.jobId, draft);
+    this.emit(draft, { jobId: draft.jobId, messageId: draft.messageId, offset: 0, text: '', state: 'streaming' });
     return {
       /** Provider text as it arrives. Ignored once the draft ended (stopped, withdrawn, erased). */
       push: (text: string) => {

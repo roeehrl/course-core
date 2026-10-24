@@ -17,8 +17,10 @@ applied it, exactly as before.
    opens the job's draft and calls the model with streaming on: Google `streamGenerateContent`
    with `alt=sse`, Anthropic Messages with `stream: true` (`packages/providers`). An adapter
    without streaming answers as before and no draft text appears.
-3. Text is released into the draft at safe boundaries (below) and pushed to the learner's open
-   event stream as `companion-draft` events. Nothing polls for it.
+3. Opening the draft is the dispatch signal: an empty `companion-draft` frame (`offset` 0, no
+   text, state `streaming`) goes to the learner's open event stream at once, before the model has
+   written anything. Text is then released into the draft at safe boundaries (below) and pushed
+   the same way. Nothing polls for it.
 4. When the model finishes, the gateway stores the answer and its receipt exactly as before; the
    receipt (reported usage, priced with the operator's price) still settles the cost. The draft
    is marked `complete`. Verification and application follow; the new learning event reaches
@@ -84,6 +86,36 @@ until the checked reply replaces it.
 - **Reconnect:** the event stream resumes by `Last-Event-ID` as before, and a (re)connected
   stream first receives every current draft whole, so a draft continues after a dropped
   connection. While the stream is down the draft says it is reconnecting.
+
+## What the learner is offered, and what it costs
+
+A question's card follows the newest of its saved job and its draft, so it never shows a state
+that is already over:
+
+| State | Shown | Controls |
+| --- | --- | --- |
+| Saved, no call sent yet | "Queued · not sent yet" | Stop waiting for this answer, Cancel and ask again (costs nothing) |
+| Call sent (the draft opened, or the saved job runs) | "Sent · a reply is being written", then the draft | Stop this reply |
+| Written, being checked | "Preparing a reply · checking it before it is shown" | Stop this reply |
+| Cancelled before a call was sent | "Cancelled before it was sent · nothing was used" | Ask again |
+| Stopped after its call was sent | "Stopped after it was sent · what that call used still counts toward this course's AI use" | Ask again |
+| Held by a spending limit | "Help is paused" with the limit (the course's AI budget, the learner's own allowance, or today's) and that staff were told | Stop waiting, Cancel and ask again |
+
+The switch to Stop comes from the dispatch frame itself (and a read of the conversation it
+triggers), so it shows within a second of the call being sent, not at the next safety read.
+Before the change it waited for that read: about 5 s when the question had no job yet at the
+last read, and the 30 s safety read when it had (qualification 0.1.57). While a question waits to
+start without a draft, the conversation is read at the 5 s fallback pace, so a lost signal also
+shows within seconds. The conversation read reports `job_sent` (a call for the question was
+started: reserved and sent, settled or still unknown) and, for a held question, `job_ceiling`
+(`workspace`, `enrollment`, `daily` or `artifact`). Cancelling keeps its meaning: a call already
+sent is settled from its receipt, never resent.
+
+A question held by a spending limit also tells staff at once: the transaction that stops the job
+at the limit writes a `help_paused` notification for every staff member who can change limits
+(one for the workspace total, one for learners' own limits, counting learners and held requests of the
+last day), and the staff bell keeps it while the condition holds. A held question is not resumed
+when a limit is raised; the learner asks again.
 
 ## Accessibility
 

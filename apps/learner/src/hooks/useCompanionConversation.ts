@@ -13,9 +13,13 @@ export const COMPANION_FALLBACK_POLL_MS = 5000;
 /** A slow safety read while a reply is due and the stream is up, in case an event was lost. */
 export const COMPANION_SAFETY_POLL_MS = 30000;
 /** While a question is not yet prepared into a job, a refusal at preparation (closed-course
- * budget, access policy) records no event of its own, so it is read at the fallback pace. */
-const awaitingJob = (messages: readonly CompanionMessage[]) =>
-  messages.some((message) => message.role === "learner" && !message.job_id && companionHasPending([message]));
+ * budget, access policy) records no event of its own; and while its job waits to be picked up,
+ * the moment its call is sent is signalled only by the draft opening on this stream (from the
+ * process that sends it). Both are read at the fallback pace, so a lost signal shows within
+ * seconds, not at the safety read. */
+const awaitingStart = (messages: readonly CompanionMessage[], drafted: ReadonlySet<string>) =>
+  messages.some((message) => message.role === "learner" && companionHasPending([message]) &&
+    (!message.job_id || ((!message.job_state || message.job_state === "queued") && !drafted.has(message.id))));
 type Drafts = Readonly<Record<string, CompanionDraft>>;
 type HeldDrafts = { id: string; drafts: Drafts; connected: boolean };
 const NO_DRAFTS: readonly CompanionDraft[] = [];
@@ -60,6 +64,8 @@ export function useCompanionConversation(
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pending = false, unprepared = false;
+    // Questions whose reply has started on this stream (a draft opened), and the jobs seen so far.
+    const drafted = new Set<string>(), seenJobs = new Set<string>();
     let streaming = false;
     // One read at a time; requests while one runs (a replayed burst of events) read once more after it.
     let running = false, again = false;
@@ -84,7 +90,7 @@ export function useCompanionConversation(
         const messages = await client.load(enrollmentId!, controller.signal);
         if (controller.signal.aborted) return;
         pending = companionHasPending(messages);
-        unprepared = awaitingJob(messages);
+        unprepared = awaitingStart(messages, drafted);
         const text = JSON.stringify(messages);
         // An identical answer sets no state at all (even an updater that returns the old state
         // can cost a render). A change is applied as a transition, so a read never holds back
@@ -147,10 +153,14 @@ export function useCompanionConversation(
         onEvent,
         onDraft: (frame) => {
           updateDrafts((old) => ({ ...old, drafts: applyDraftFrame(old.drafts, frame) }));
-          // A finished draft means the stored reply (or its refusal) is close: read it now
-          // (coalesced with any read already running).
-          const state = (frame as { state?: unknown } | null)?.state;
-          if (state === "complete" || state === "withdrawn") void load();
+          const { state, jobId, messageId } = (frame ?? {}) as { state?: unknown; jobId?: unknown; messageId?: unknown };
+          if (typeof messageId === "string") drafted.add(messageId);
+          // The first frame of a job is its dispatch: the panel already shows the reply as under
+          // way from the frame itself; the saved job is read once to match. A finished draft means
+          // the stored reply (or its refusal) is close: read it now. Reads are coalesced.
+          const first = typeof jobId === "string" && !seenJobs.has(jobId);
+          if (first && seenJobs.size < 1000) seenJobs.add(jobId);
+          if (first || state === "complete" || state === "withdrawn") void load();
         },
       },
     );
