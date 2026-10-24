@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 import type { EnrollmentPolicy, PolicyClient } from "../client/policyClient";
 import { isAbortError } from "../client/apiClient";
 import { useT } from "../i18n";
@@ -21,22 +21,26 @@ export function useEnrollmentPolicy(
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   useEffect(() => {
     if (!id) return;
+    // A background reload after a revision: applied as a transition, so it never holds back the
+    // paint of what the learner just did (an answer's result, a started check).
     const controller = new AbortController();
     void client
       .load(id, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted)
-          setSaved({ client, id, revision, attempt, data });
+          startTransition(() => setSaved({ client, id, revision, attempt, data }));
       })
       .catch((error) => {
         if (!controller.signal.aborted && !isAbortError(error))
-          setSaved({
-            client,
-            id,
-            revision,
-            attempt,
-            failed: true,
-          });
+          startTransition(() =>
+            setSaved({
+              client,
+              id,
+              revision,
+              attempt,
+              failed: true,
+            }),
+          );
       });
     return () => controller.abort();
   }, [client, id, revision, attempt]);

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { startTransition, useCallback, useEffect, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import { Button } from "../components/ui";
 import { useT } from "../i18n";
@@ -20,14 +20,16 @@ export function usePendingChanges(api: CourseApi, enrollmentId: string | undefin
   const [items, setItems] = useState<PendingChange[]>([]);
   useEffect(() => {
     if (!enrollmentId) return setItems([]);
+    // A background reload after a revision: applied as a transition, so it never holds back the
+    // paint of what the learner just did (an answer's result, a started check).
     const controller = new AbortController();
     api
       .request<{ pending: PendingChange[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/personal-changes/pending`, "GET", undefined, {
         signal: controller.signal,
       })
-      .then((value) => !controller.signal.aborted && setItems(value.pending ?? []))
+      .then((value) => !controller.signal.aborted && startTransition(() => setItems(value.pending ?? [])))
       // Without the list nothing waiting is offered; the change still waits on the server.
-      .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
+      .catch((error) => !controller.signal.aborted && !isAbortError(error) && startTransition(() => setItems([])));
     return () => controller.abort();
   }, [api, enrollmentId, revision]);
   return items;

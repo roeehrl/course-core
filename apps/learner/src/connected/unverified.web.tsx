@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { startTransition, useEffect, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import { useT } from "../i18n";
 
@@ -43,15 +43,17 @@ export function useUnverifiedContent(api: CourseApi, enrollmentId: string | unde
   const [content, setContent] = useState<UnverifiedContent>(emptyUnverified);
   useEffect(() => {
     if (!enrollmentId) return setContent(emptyUnverified());
+    // A background reload after a revision: applied as a transition, so it never holds back the
+    // paint of what the learner just did (an answer's result, a started check).
     const controller = new AbortController();
     api
       .request<{ changes: ChangeRow[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/personal-changes`, "GET", undefined, {
         signal: controller.signal,
       })
-      .then((value) => !controller.signal.aborted && setContent(indexUnverified(value.changes ?? [])))
+      .then((value) => !controller.signal.aborted && startTransition(() => setContent(indexUnverified(value.changes ?? []))))
       .catch((error) => {
         // Without the list nothing is labelled; the profile panel still lists every change.
-        if (!controller.signal.aborted && !isAbortError(error)) setContent(emptyUnverified());
+        if (!controller.signal.aborted && !isAbortError(error)) startTransition(() => setContent(emptyUnverified()));
       });
     return () => controller.abort();
   }, [api, enrollmentId, revision]);
