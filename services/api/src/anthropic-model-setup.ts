@@ -66,15 +66,17 @@ export function anthropicModelDraft({
       "PROVIDER_GUIDE_METHOD_UNSUPPORTED",
       409,
     );
-    // Thinking tokens count toward max_tokens. When the model cannot turn thinking off,
-    // leave room for it so an ordinary answer is not cut off.
+    // Thinking tokens count toward max_tokens (and `output_tokens`). Current models think
+    // adaptively; a fixed thinking budget (`budget_tokens`) is deprecated or refused there, so depth
+    // is set with `effort` (low) and the output limit leaves room for thinking and the answer.
+    // With thinking off, the whole limit is the visible answer.
     const thinkingOff = m.methods.includes(THINKING_DISABLED),
       maxInputCharacters = Math.min(
         role === "supervisor" ? 30000 : role === "reviewer" ? 20000 : 12000,
         Math.floor(Math.max(0, (m.inputTokenLimit ?? 0) - 4096) / 4),
       ),
       maxOutputTokens = Math.min(
-        thinkingOff ? 1000 : 4000,
+        thinkingOff ? 2048 : role === "companion" ? 4096 : 8192,
         m.outputTokenLimit ?? 0,
       );
     requireCondition(

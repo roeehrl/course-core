@@ -396,3 +396,16 @@ it("shows the receipts of a run that ended without delivery as ended, never as p
     view.unmount();
   }
 });
+
+it("says what paid supervisor work still runs while personal support is off, and that it changes nothing", async () => {
+  mount(client());
+  await screen.findByRole("button", { name: "Enable personal support" });
+  // Supervisor review is admitted by the course's settings and spending limits, not by this opt-in.
+  expect(
+    screen.getByText(
+      /Even while this is off, your course's AI supervisor may review your recorded answers, results and saved questions.*within the AI spending limits your course staff set.*It cannot change your lessons while this is off/,
+    ),
+  ).toBeVisible();
+  mount(client(), vi.fn(), "timeline");
+  expect(screen.getAllByText(/Even while this is off/)).toHaveLength(1);
+});

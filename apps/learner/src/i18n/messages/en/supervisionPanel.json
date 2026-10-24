@@ -48,6 +48,7 @@
   "settings.title": "Personal lesson support",
   "timeline.title": "Supervisor activity",
   "settings.body": "Allow the supervisor to add reviewed explanations and practice within your course limits, propose source-linked learning preferences for your review in Learning memory, and note ideas about what may help you from your answers and questions, for you to correct or reject. While it is on, the AI model your course uses also receives your open ideas about what may help you, including ones you wrote and your corrections, to guide your teaching. Ideas you reject or that lapse are not sent, and nothing from other learners is included. Your independent checks and completion requirements stay the same. You can turn this off at any time.",
+  "settings.whenOff": "Even while this is off, your course's AI supervisor may review your recorded answers, results and saved questions in this course with the AI model your course uses, within the AI spending limits your course staff set, to prepare suggestions for staff. It cannot change your lessons while this is off, and your own learning preferences and ideas about what may help you are not sent.",
   "timeline.body": "See the tools used for your enrollment and whether selected support reached your lesson. This record is optional; continue learning on your course path.",
   "loading": "Loading supervisor information",
   "badge.enabled": "Enabled",

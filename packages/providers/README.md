@@ -145,6 +145,17 @@ System instructions are separate. Unknown fields, empty history, non-text conten
 oversized requests fail closed. Characters are JavaScript string code units, not token
 estimates. Assessment schema size counts toward the input character bound.
 
+**Thinking and cut-off replies.** A Google `generate_content` model may declare
+`providerConfig.thinking`: `{ level: 'minimal' | 'low' | 'medium' | 'high' }` (Gemini 3 and
+later, sent as `generationConfig.thinkingConfig.thinkingLevel`) or `{ budget: n }` (Gemini 2.5,
+`thinkingBudget`; `-1` dynamic). Exactly one is allowed; absent, the model default applies.
+Thought tokens count toward `maxOutputTokens` and are reported as `tokens.thoughts`, separately
+from the visible `output`, and inside `total`. A response stopped at the output limit
+(`MAX_TOKENS`, Claude `max_tokens`) is `INCOMPLETE_OUTPUT` with its usage kept on the error,
+unless a tutoring request sets `allowCutShort: true`: then a reply with at least
+`MIN_CUT_SHORT_CHARACTERS` (200) visible characters is returned as `{ text, cutShort: true }`.
+Assessment and research output is never accepted when cut off.
+
 `assess({...request, outputSchema})` uses a bounded, provider-neutral schema descriptor:
 
 ```ts

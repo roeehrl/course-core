@@ -173,7 +173,7 @@ describe('Anthropic Messages API through the real role paths (scripted loopback 
     const outcome = await invoke(job);
     expect(seen).toHaveLength(1); expectMessagesRequest(seen[0]!);
     const body = seen[0]!.body;
-    expect(body).toMatchObject({ model: 'claude-haiku-5-5', max_tokens: 1000, output_config: { effort: 'low' }, thinking: { type: 'disabled' } });
+    expect(body).toMatchObject({ model: 'claude-haiku-5-5', max_tokens: 2048, output_config: { effort: 'low' }, thinking: { type: 'disabled' } });
     expect(typeof body.system).toBe('string'); expect(body.messages).toHaveLength(1);
     expect(body.messages[0].content).toContain('How do I find the minimum of a list?');
     expect(body.tools).toBeUndefined(); expect(body.output_config.format).toBeUndefined();
@@ -221,14 +221,19 @@ describe('Anthropic Messages API through the real role paths (scripted loopback 
     expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', reserved: ALLOWANCE, charged: 5000, actual: 5000, model_id: 'claude:supervisor' }]);
   }, 60000);
 
-  it('supervisor: a structured answer cut off by max_tokens is never applied and keeps the reservation', async () => {
+  it('supervisor: a structured answer cut off by max_tokens is never applied; it is settled at its reported usage and rejected', async () => {
     replies.push(() => ({ json: text('{"decision":"finish","tool":"none","argumentsJson":"{}","summ', { input_tokens: 2000, output_tokens: 1000 },
       { stop_reason: 'max_tokens' }) }));
     const job = await prepare('supervisor');
-    expect(await invoke(job)).toEqual({ status: 'uncertain' });
+    // The provider answered and reported its usage: a definite, priced refusal (2000 * 1.0 + 1000 * 5.0), not an uncertain call.
+    expect(await invoke(job)).toMatchObject({ status: 'succeeded', usage: { microUsd: 7000, tokens: 3000 }, usageBasis: { microUsd: 'reported', tokens: 'reported' } });
     expect(seen).toHaveLength(1);
-    expect((await dispatch(job.operation!.id)).failure_code).toBe('INCOMPLETE_OUTPUT');
-    expect(await ledger(job.enrollmentId)).toMatchObject([{ state: 'uncertain', charged: ALLOWANCE, actual: null }]);
+    expect(await dispatch(job.operation!.id)).toMatchObject({ failure_code: 'INCOMPLETE_OUTPUT', cost: 7000 });
+    expect(await ledger(job.enrollmentId)).toMatchObject([{ state: 'reconciled', reserved: ALLOWANCE, charged: 7000, actual: 7000 }]);
+    const stored = await db.query('SELECT content FROM supervisor_artifacts WHERE job_id=$1', [job.ref.jobId]);
+    expect(stored.rows.map(r => r.content)).toEqual([{ kind: 'output_refusal', role: 'supervisor', reason: 'provider_output_incomplete' }]);
+    const verify = await app.inject({ method: 'POST', url: '/v1/supervisor/bridge', headers: { authorization: `Bearer ${token}` }, payload: { method: 'transition', command: { type: 'verify', ref: job.ref } } });
+    expect(verify.json().snapshot).toMatchObject({ state: 'failed', reason: 'verification_rejected' });
   }, 60000);
 
   it('529 overloaded, 500 and 504 are outages with an uncertain outcome: one request, never replayed, reservation held', async () => {
@@ -296,9 +301,13 @@ describe('Anthropic Messages API through the real role paths (scripted loopback 
     replies.push(() => ({ json: text('I cannot help with that.', { input_tokens: 900, output_tokens: 4 },
       { stop_reason: 'refusal', stop_details: { type: 'refusal', category: null, explanation: 'Declined.' } }) }));
     const job = await prepare('companion');
-    expect(await invoke(job)).toEqual({ status: 'uncertain' });
+    // A completed answer with known usage: charged at that usage (900 * 1.0 + 4 * 5.0), then rejected.
+    expect(await invoke(job)).toMatchObject({ status: 'succeeded', usage: { microUsd: 920, tokens: 904 }, usageBasis: { microUsd: 'reported' } });
     const row = await dispatch(job.operation!.id);
     expect(row.failure_code).toBe('BLOCKED');
+    expect(row.cost).toBe(920);
+    const verify = await app.inject({ method: 'POST', url: '/v1/supervisor/bridge', headers: { authorization: `Bearer ${token}` }, payload: { method: 'transition', command: { type: 'verify', ref: job.ref } } });
+    expect(verify.json().snapshot).toMatchObject({ state: 'failed', reason: 'verification_rejected' });
     expect(row.provider_usage.attempts[0]).toMatchObject({ status: 200, outcome: 'response', tokens: { input: 900, output: 4 } });
     expect(JSON.stringify(row)).not.toContain('Declined');
     const reply = await db.query("SELECT 1 FROM companion_messages WHERE enrollment_id=$1 AND role='assistant'", [job.enrollmentId]);

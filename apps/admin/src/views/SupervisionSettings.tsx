@@ -103,6 +103,7 @@ export function SupervisionSettingsCard({
     <Card title={t("supervisionSettings.title")}>
       <div className="stack">
         <p>{t("supervisionSettings.intro")}</p>
+        <p>{t("supervisionSettings.admission")}</p>
         <fieldset className="stack">
           <legend className="section-title">
             {t("supervisionSettings.autonomy.title")}

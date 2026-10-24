@@ -70,6 +70,8 @@ export interface CompanionMessage {
     courseDigest?: string;
     enrollmentRevision?: number;
     contextRevision?: number;
+    /** Assistant messages: the reply reached its length limit and was delivered as far as it got. */
+    cutShort?: boolean;
   };
   /** Assistant messages: the capsule its answer was built from (null if not recorded). */
   context_used?: CompanionContextUsed | null;
@@ -110,6 +112,11 @@ export interface ContextualCompanionClient {
     snapshot: ServerSnapshot,
     messageId: string,
   ): Promise<{ messageId: string; deleted: true; revision: number }>;
+  /** Stop waiting for the answer to one of the learner's questions; the question stays. */
+  cancelQuestion?(
+    snapshot: ServerSnapshot,
+    messageId: string,
+  ): Promise<{ messageId: string; cancelled: true; revision: number }>;
   /** Stop (or resume) using one of the learner's earlier messages as context. */
   excludeContext?(
     snapshot: ServerSnapshot,
@@ -223,6 +230,17 @@ export function createCompanionClient(
         throw new Error("Invalid companion delete receipt");
       return result;
     },
+    async cancelQuestion(snapshot, messageId) {
+      const result = await api.command<{ messageId: string; cancelled: true; revision: number }>(
+        snapshot,
+        `companion/messages/${messageId}/cancel`,
+        {},
+      );
+      if (!result || result.messageId !== messageId || result.cancelled !== true || !Number.isSafeInteger(result.revision))
+        // i18n-ignore: malformed-response diagnostic; callers show their own message
+        throw new Error("Invalid companion cancel receipt");
+      return result;
+    },
     async excludeContext(snapshot, messageId, excluded) {
       const result = await api.command<{
         messageId: string;
@@ -251,16 +269,23 @@ function focusPayload(selection: FocusSelection) {
   return { ...selection };
 }
 /** The companion's overall state, from saved messages and the browser:
- * offline, waiting for the learner, building or checking a reply, queued,
- * service unavailable, or available. Never derived from provider text. */
+ * offline, waiting for the learner, building or checking a reply, still
+ * working on a question that is waiting for the service, queued, service
+ * unavailable (not configured), or available. A question that is waiting
+ * never makes the whole companion unavailable: past messages stay readable and
+ * the learner can cancel, retry or ask something else. Never derived from
+ * provider text. */
 export type CompanionState =
   | "offline"
   | "waiting_for_you"
   | "building"
   | "checking"
+  | "still_working"
   | "queued"
   | "unavailable"
   | "available";
+/** Job states of a question whose reply is held up (service busy, budget, uncertain call). */
+const WAITING_STATES = ["waiting", "budget_wait", "blocked", "deferred"];
 export function companionState(
   messages: readonly CompanionMessage[],
   input: { online: boolean; awaitingChoice: boolean },
@@ -274,14 +299,17 @@ export function companionState(
     return "building";
   if (open.some((m) => ["verifying", "ready"].includes(m.job_state ?? "")))
     return "checking";
+  // Only a missing service configuration makes the companion unavailable.
   if (
     open.some(
       (m) =>
         m.job_reason === "configuration_missing" ||
-        ["waiting", "budget_wait", "blocked", "deferred", "configuration_pending"].includes(m.job_state ?? ""),
+        m.job_state === "configuration_pending",
     )
   )
     return "unavailable";
+  if (open.some((m) => WAITING_STATES.includes(m.job_state ?? "")))
+    return "still_working";
   if (open.length) return "queued";
   return "available";
 }
@@ -291,7 +319,7 @@ export function companionStateText(state: CompanionState, t: Translate = english
 }
 /** English labels, for callers that have not moved to `companionStateText(state, t)`. */
 export const companionStateLabel = Object.fromEntries(
-  (["offline", "waiting_for_you", "building", "checking", "queued", "unavailable", "available"] as const).map(
+  (["offline", "waiting_for_you", "building", "checking", "still_working", "queued", "unavailable", "available"] as const).map(
     (state) => [state, companionStateText(state)],
   ),
 ) as Record<CompanionState, string>;
@@ -318,18 +346,20 @@ export function companionJobLabel(
     case "succeeded":
     case "done":
       return t("companionClient.job.processed");
-    case "refused":
     case "cancelled":
+      return t("companionClient.job.cancelled");
+    case "refused":
     case "failed":
     case "dead":
     case "dead_letter":
       return t("companionClient.job.unavailable");
+    case "configuration_pending":
+      return t("companionClient.job.configurationMissing");
     case "waiting":
     case "budget_wait":
     case "blocked":
     case "deferred":
-    case "configuration_pending":
-      return t("companionClient.job.waiting");
+      return t("companionClient.job.stillWorking");
     default:
       return t("companionClient.job.queued");
   }
@@ -339,6 +369,12 @@ export function companionJobLabel(
 export function companionCouldNotAnswer(message: CompanionMessage): boolean {
   return message.role === "learner" && message.job_state === "failed" &&
     (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
+}
+/** A pending question the learner may cancel or ask again: queued or held up, not while a reply
+ * is being built or checked (it is about to arrive). */
+export function companionCanCancel(message: CompanionMessage): boolean {
+  return message.role === "learner" && message.content !== "[deleted]" && companionHasPending([message]) &&
+    !["running", "leased", "processing", "verifying", "ready"].includes(message.job_state ?? "");
 }
 export function companionHasPending(
   messages: readonly CompanionMessage[],

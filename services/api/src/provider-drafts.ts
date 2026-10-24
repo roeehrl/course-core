@@ -14,6 +14,7 @@ import {
   type VersionEvaluation,
 } from "./agent-evals/gate.js";
 import { modelAssignmentsSchema } from "./google-model-setup.js";
+import { upgradeLegacyProviderConfiguration } from "./provider-defaults.js";
 import {
   composeProviders,
   providerConfigurationSchema,
@@ -217,7 +218,7 @@ export class ProviderDrafts {
               id,
               draft.baseRevision,
               draft.source,
-              JSON.stringify(draft.configuration),
+              JSON.stringify(upgradeLegacyProviderConfiguration(draft.configuration, draft.jobPolicy.allowance.tokens)),
               JSON.stringify(draft.jobPolicy),
               actor.id,
             ],
@@ -310,12 +311,16 @@ export class ProviderDrafts {
     }));
   }
   private async row(client: Database | PoolClient, workspace: string) {
-    return (
+    const row = (
       await client.query<DraftRow>(
         "SELECT id,base_revision,source,configuration,job_policy,updated_at FROM provider_setup_drafts WHERE workspace_id=$1",
         [workspace],
       )
     ).rows[0];
+    // A draft made before Core set Gemini thinking is read with the same upgrade as the active
+    // setup, so its roles compare equal to what saving it will store (provider-defaults.ts).
+    return row ? { ...row, configuration: upgradeLegacyProviderConfiguration(row.configuration as never,
+      (row.job_policy as { allowance?: { tokens?: number } } | null)?.allowance?.tokens) } : row;
   }
   async current(actor: Actor, workspace: string) {
     await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);

@@ -1806,4 +1806,15 @@ test("the companion says when it is offline, holds the question, and sends it on
   await expect(page.getByText("Asked while the train is in a tunnel.", { exact: true })).toBeVisible();
   await expect(page.getByText("Companion: Your question is queued", { exact: true })).toBeVisible();
   expect(posted).toBe(1);
+  // A question still waiting can be cancelled and asked again; the conversation stays readable.
+  const log = page.getByRole("log", { name: "Saved companion messages" });
+  await expect(log.getByRole("button", { name: "Stop waiting for this answer", exact: true })).toBeVisible();
+  await log.getByRole("button", { name: "Cancel and ask again", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Message to your companion", exact: true })).toHaveValue("Asked while the train is in a tunnel.");
+  await expect(log.getByText("Asked while the train is in a tunnel.", { exact: true })).toBeVisible();
+  await expect(log.getByText("Cancelled · your message is saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Companion: Available", { exact: true })).toBeVisible();
+  await expect(log.getByRole("button", { name: "Stop waiting for this answer", exact: true })).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });

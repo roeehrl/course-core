@@ -477,6 +477,50 @@ describe("persisted companion integration", () => {
     );
     expect(screen.queryByRole("button", { name: "Delete this question" })).not.toBeInTheDocument();
   });
+  it("keeps past messages and offers cancel or retry while the last question is still being worked on", async () => {
+    const waiting: CompanionMessage = { ...message, id: "w", content: "Frozen layers?", job_state: "waiting", job_reason: "provider_uncertain" };
+    const answered: CompanionMessage[] = [
+      { ...message, id: "q1", content: "Why does w go up?", job_state: "applied" },
+      { id: "a1", role: "assistant", content: "Because the step subtracts a negative.", context: { episodeId: "intro", cutShort: true }, created_at: "2026-01-02", job_id: "job" },
+    ];
+    const cancelQuestion = vi.fn().mockResolvedValue(undefined), draft = vi.fn();
+    render(
+      <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[...answered, waiting]} episodeTitles={{ intro: "Notice change" }}
+        draft="" onDraftChange={draft} onSend={vi.fn()} onCancelQuestion={cancelQuestion} pending={false} loaded />,
+    );
+    expect(screen.getByText("Because the step subtracts a negative.")).toBeVisible();
+    expect(screen.getByText(/This reply was cut short/)).toBeVisible();
+    expect(screen.getByText("Companion: Still working on your last question · you can keep reading and asking")).toBeVisible();
+    expect(screen.getByText("Still working on your last question · your message is saved")).toBeVisible();
+    expect(screen.queryByText(/Companion service unavailable/)).not.toBeInTheDocument();
+    // Only the waiting question offers cancel and retry; an answered one does not.
+    expect(screen.getAllByRole("button", { name: "Stop waiting for this answer" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel and ask again" }));
+    await waitFor(() => expect(cancelQuestion).toHaveBeenCalledWith("w"));
+    await waitFor(() => expect(draft).toHaveBeenCalledWith("Frozen layers?"));
+    fireEvent.click(screen.getByRole("button", { name: "Stop waiting for this answer" }));
+    await waitFor(() => expect(cancelQuestion).toHaveBeenCalledTimes(2));
+    expect(draft).toHaveBeenCalledTimes(1);
+  });
+  it("labels waiting, cancelled and building questions in Hebrew too, and hides cancel while a reply is being built", () => {
+    const { t } = createLearnerTranslator("he");
+    expect(companionJobLabel({ ...message, job_state: "waiting" }, t)).toBe("עדיין עובדים על השאלה האחרונה שלך · ההודעה שלך נשמרה");
+    expect(companionJobLabel({ ...message, job_state: "cancelled" })).toBe("Cancelled · your message is saved");
+    expect(companionHasPending([{ ...message, job_state: "cancelled" }])).toBe(false);
+    render(
+      <ConnectedCompanion context={context} messages={[{ ...message, job_state: "running" }]} episodeTitles={{ intro: "Notice change" }}
+        draft="" onDraftChange={() => {}} onSend={vi.fn()} onCancelQuestion={vi.fn()} pending={false} loaded />,
+    );
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).not.toBeInTheDocument();
+  });
+  it("sends a cancel command for one question and checks its receipt", async () => {
+    const command = vi.fn().mockResolvedValue({ messageId: "m", cancelled: true, revision: 3 }), snapshot = connectedSnapshot();
+    const client = createCompanionClient({ command } as unknown as Parameters<typeof createCompanionClient>[0]);
+    await expect(client.cancelQuestion!(snapshot, "m")).resolves.toEqual({ messageId: "m", cancelled: true, revision: 3 });
+    expect(command).toHaveBeenCalledWith(snapshot, "companion/messages/m/cancel", {});
+    command.mockResolvedValueOnce({ messageId: "other", cancelled: true, revision: 3 });
+    await expect(client.cancelQuestion!(snapshot, "m")).rejects.toThrow();
+  });
   it("derives truthful companion states from saved jobs and the browser", () => {
     const at = (job_state: string | null, job_reason: string | null = null): CompanionMessage => ({ ...message, job_state, job_reason });
     expect(companionState([at("running")], { online: false, awaitingChoice: true })).toBe("offline");
@@ -484,7 +528,11 @@ describe("persisted companion integration", () => {
     expect(companionState([at("running")], { online: true, awaitingChoice: false })).toBe("building");
     expect(companionState([at("verifying")], { online: true, awaitingChoice: false })).toBe("checking");
     expect(companionState([at("queued", "configuration_missing")], { online: true, awaitingChoice: false })).toBe("unavailable");
-    expect(companionState([at("budget_wait")], { online: true, awaitingChoice: false })).toBe("unavailable");
+    // A question held up by the service is "still working", never the whole companion unavailable.
+    expect(companionState([at("budget_wait")], { online: true, awaitingChoice: false })).toBe("still_working");
+    expect(companionState([at("waiting", "provider_uncertain")], { online: true, awaitingChoice: false })).toBe("still_working");
+    expect(companionState([at("waiting", "configuration_missing")], { online: true, awaitingChoice: false })).toBe("unavailable");
+    expect(companionState([at("configuration_pending")], { online: true, awaitingChoice: false })).toBe("unavailable");
     expect(companionState([at("queued")], { online: true, awaitingChoice: false })).toBe("queued");
     expect(companionState([at("applied")], { online: true, awaitingChoice: false })).toBe("available");
     expect(companionState([], { online: true, awaitingChoice: false })).toBe("available");

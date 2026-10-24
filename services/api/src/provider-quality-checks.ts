@@ -9,6 +9,7 @@ import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
+import { upgradeLegacyProviderConfiguration } from "./provider-defaults.js";
 import { evaluateActivation, roleChecks, uncheckedRoles, type ProviderEvaluations, type VersionEvaluation } from "./agent-evals/gate.js";
 import { runSuite, type CallRecord, type EvalReport } from "./agent-evals/runner.js";
 import { dialoguesFor, EVAL_ROLES, type Dialogue, type EvalRole } from "./agent-evals/suite.js";
@@ -139,8 +140,10 @@ export class ProviderQualityChecks {
   async idle() { await Promise.allSettled([...this.running.values()]); }
 
   private async draft(client: Database | PoolClient, workspace: string) {
-    return (await client.query<{ id: string; base_revision: number; configuration: unknown; job_policy: unknown }>(
+    const row = (await client.query<{ id: string; base_revision: number; configuration: unknown; job_policy: unknown }>(
       "SELECT id,base_revision,configuration,job_policy FROM provider_setup_drafts WHERE workspace_id=$1", [workspace])).rows[0];
+    return row ? { ...row, configuration: upgradeLegacyProviderConfiguration(row.configuration as never,
+      (row.job_policy as { allowance?: { tokens?: number } } | null)?.allowance?.tokens) as unknown } : row;
   }
 
   /**

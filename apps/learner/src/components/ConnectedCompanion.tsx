@@ -6,6 +6,7 @@ import type {
   CompanionReceipt,
 } from "../client/companionClient";
 import {
+  companionCanCancel,
   companionCouldNotAnswer,
   companionJobLabel,
   companionState,
@@ -37,6 +38,8 @@ export interface ConnectedCompanionProps {
   onExcludeContext?: (messageId: string, excluded: boolean) => Promise<void>;
   /** Delete one of the learner's questions and its answer. */
   onDeleteMessage?: (messageId: string) => Promise<void>;
+  /** Stop waiting for the answer to one of the learner's questions (the question stays). */
+  onCancelQuestion?: (messageId: string) => Promise<void>;
 }
 function useCompanionFocus() {
   const [focus, setFocus] = useState<CompanionFocusState>(companionFocus.get());
@@ -81,8 +84,23 @@ export function ConnectedCompanion({
   storageUnavailable,
   onExcludeContext,
   onDeleteMessage,
+  onCancelQuestion,
 }: ConnectedCompanionProps) {
   const t = useT();
+  /** Cancel a waiting question; a retry also puts it back in the draft to send again. */
+  async function cancel(message: CompanionMessage, retry: boolean) {
+    if (!onCancelQuestion) return;
+    setCorrecting(message.id);
+    setCorrectionError("");
+    try {
+      await onCancelQuestion(message.id);
+      if (retry) onDraftChange(message.content);
+    } catch {
+      setCorrectionError(t("connectedCompanion.error.cancel"));
+    } finally {
+      setCorrecting("");
+    }
+  }
   const [confirmDelete, setConfirmDelete] = useState("");
   async function remove(messageId: string) {
     if (!onDeleteMessage) return;
@@ -265,8 +283,27 @@ export function ConnectedCompanion({
                   : message.content
               }
             />
-            {companionJobLabel(message) && (
-              <Text style={styles.small}>{companionJobLabel(message)}</Text>
+            {message.role === "assistant" && message.context.cutShort === true && message.content !== "[deleted]" && (
+              <Text style={styles.small}>{t("connectedCompanion.cutShort")}</Text>
+            )}
+            {companionJobLabel(message, t) && (
+              <Text style={styles.small}>{companionJobLabel(message, t)}</Text>
+            )}
+            {onCancelQuestion && companionCanCancel(message) && (
+              <View style={{ gap: 6 }}>
+                <Button
+                  label={t("connectedCompanion.cancel")}
+                  kind="quiet"
+                  disabled={correcting === message.id}
+                  onPress={() => void cancel(message, false)}
+                />
+                <Button
+                  label={t("connectedCompanion.retry")}
+                  kind="quiet"
+                  disabled={correcting === message.id}
+                  onPress={() => void cancel(message, true)}
+                />
+              </View>
             )}
             {companionCouldNotAnswer(message) && message.content !== "[deleted]" && (
               // Asking again is a new question: it goes back into the draft to send as usual.

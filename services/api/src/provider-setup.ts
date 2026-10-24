@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { modelAssignmentsSchema } from "./google-model-setup.js";
+import { upgradeLegacyProviderConfiguration } from "./provider-defaults.js";
+import { roleReservation, SIZED_ROLES } from "./role-reservation.js";
+import { pricingInForce } from "./provider-costs.js";
 import { randomUUID } from "node:crypto";
 import {
   googleMetadataAdapter,
@@ -175,7 +178,10 @@ export class WorkspaceProviders {
         revision === undefined ? [workspace] : [workspace, revision],
       )
     ).rows[0];
-    return row;
+    // Gemini roles drafted before Core set thinking get the current defaults (provider-defaults.ts).
+    return row
+      ? { ...row, configuration: upgradeLegacyProviderConfiguration(row.configuration, row.job_policy?.allowance?.tokens) }
+      : row;
   }
   private values(workspace: string, row: Version) {
     const values: Record<string, string> = {};
@@ -229,12 +235,18 @@ export class WorkspaceProviders {
       workspace,
     ]);
     const row = await this.version(client, workspace);
-    return row
-      ? {
-          revision: row.revision,
-          jobPolicy: jobPolicySchema.parse(row.job_policy),
-        }
-      : null;
+    if (!row) return null;
+    const jobPolicy = jobPolicySchema.parse(row.job_policy);
+    // A text role's reservation is sized from its own limits and the price in force, so a cheap
+    // companion turn does not hold the whole job allowance (role-reservation.ts).
+    const roleAllowances: Partial<Record<string, { microUsd: number; tokens: number }>> = {};
+    for (const role of SIZED_ROLES) {
+      const binding = row.configuration.roles[role];
+      if (!binding) continue;
+      const sized = roleReservation(binding, await pricingInForce(client, workspace, binding.modelId), jobPolicy.allowance);
+      if (sized) roleAllowances[role] = sized;
+    }
+    return { revision: row.revision, jobPolicy, roleAllowances };
   }
   async read(actor: Actor, workspace: string) {
     await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
@@ -740,7 +752,8 @@ export class WorkspaceProviders {
       cancelRunning: boolean;
     },
   ) {
-    const { old, configuration, jobPolicy } = change,
+    const { old, jobPolicy } = change,
+      configuration = upgradeLegacyProviderConfiguration(change.configuration, jobPolicy.allowance.tokens),
       revision = (old?.revision ?? 0) + 1;
     const secrets = old ? this.values(workspace, old) : {};
     for (const [name, value] of Object.entries(change.credentials)) {

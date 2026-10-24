@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { priceMediaUnits, subscriptionAdapter, type ProviderAdapter, type TextRequest, type UsageReceipt, type VideoJob, type VideoRequest } from '@course-core/providers';
 import { composeProviders, unconfiguredProviders } from '../src/provider-composition.js';
 import { minimizeContext, type TeachingContext } from '../src/provider-runtime.js';
+import { contextHeadroom } from '../src/agent-strategies.js';
 import {teachingPolicyView} from '../src/teaching-constraints.js';
 import {initialPolicy} from '../src/policy-adapter.js';
 import {fixture as courseFixture} from './fixture.js';
@@ -160,4 +161,45 @@ it('rechecks host authority before each model round and retains earlier usage wh
  const runtime=composeProviders(cfg,()=> 'synthetic',{custom:()=>adapter});
  await expect(runtime.execute('supervisor',context(),'fenced-round',new AbortController().signal,{async invoke(){return {receiptId:crypto.randomUUID(),result:{available:true}};}},async()=>{if(fences++)throw Error('Scope revoked');})).rejects.toMatchObject({submission:'unknown',usage:{attempts:[expect.anything()]}});
  expect(calls).toBe(1);expect(fences).toBe(2);
+});
+describe('context minimization keeps the question and anchors, leaves headroom and does not refuse a long conversation', () => {
+  const long = () => {
+    const input = context();
+    input.episode.teaching = 'Lesson text with "quotes" and\nnew lines. '.repeat(2000);
+    input.learner.recentHistory = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'learner', content: `turn ${i} ` + 'explanation '.repeat(330) }));
+    input.learner.recentAttempts = Array.from({ length: 10 }, (_, i) => ({ assessmentId: `a${i}`, prompt: 'prompt '.repeat(200), passed: false, assistance: 'none', mode: 'practice', feedback: 'feedback '.repeat(100) }));
+    input.learner.model = { notes: 'model '.repeat(500) };
+    input.conversation = { scope: 'this_lesson_only', earlierQuestions: { count: 5, excerpts: Array.from({ length: 5 }, () => 'earlier '.repeat(20)), note: 'n' } };
+    input.question = 'CURRENT_QUESTION: do frozen layers still affect the prediction?';
+    return input;
+  };
+  it.each([1000, 2500, 8000, 10300, 30000])('fits %i characters with headroom, keeping the question and lesson anchors', (bound) => {
+    const input = long(), result = minimizeContext(input, bound), size = JSON.stringify(result).length;
+    expect(size).toBeLessThanOrEqual(bound - contextHeadroom(bound));
+    expect(result.question).toBe(input.question);
+    expect(result.questionTruncated).toBeUndefined();
+    expect(result.episode).toMatchObject({ id: input.episode.id, title: input.episode.title });
+    expect(result.episode.objectives.map(o => o.id)).toEqual(input.episode.objectives.map(o => o.id));
+    expect(result.course).toEqual(input.course);
+    expect(result.historyTruncated).toBe(true);
+  });
+  it('keeps the newest history first and lesson text before dropping more', () => {
+    const input = long(), result = minimizeContext(input, 30000);
+    if (result.learner.recentHistory.length) expect(result.learner.recentHistory.at(-1)).toEqual(input.learner.recentHistory.at(-1));
+  });
+  it('a question longer than a tiny bound is shortened and marked, never dropped', () => {
+    const input = context(); input.question = 'Q '.repeat(1800);
+    const result = minimizeContext(input, 1000);
+    expect(result.questionTruncated).toBe(true);
+    expect(result.question.length).toBeGreaterThan(0);
+    expect(input.question.startsWith(result.question)).toBe(true);
+  });
+  it('the companion run never refuses a long conversation before sending', async () => {
+    const { runtime, seen } = fixture();
+    const result = await runtime.execute('companion', long(), 'operation-long', new AbortController().signal);
+    expect(result.content).toMatchObject({ kind: 'companion_text' });
+    expect(seen[0]!.messages[0]!.text).toContain('CURRENT_QUESTION');
+    expect(seen[0]!.allowCutShort).toBe(true);
+    expect(seen[0]!.systemInstruction).toContain('Keep replies short and plain');
+  });
 });

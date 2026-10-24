@@ -254,6 +254,10 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
             : "supervisionPanel.timeline.body",
         )}
       </Text>
+      {mode === "settings" && (
+        // What still runs without the opt-in: paid review that prepares suggestions only.
+        <Text style={styles.small}>{t("supervisionPanel.settings.whenOff")}</Text>
+      )}
       {mode === "timeline" && loading && (
         <ActivityIndicator accessibilityLabel={t("supervisionPanel.loading")} />
       )}

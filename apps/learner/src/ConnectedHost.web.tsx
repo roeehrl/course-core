@@ -1459,6 +1459,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       })
                   : undefined
               }
+              onCancelQuestion={
+                chat.cancelQuestion
+                  ? (messageId) =>
+                      transact(async () => {
+                        await chat.cancelQuestion!(server, messageId);
+                        await refresh(server.enrollmentId);
+                      })
+                  : undefined
+              }
               onDeleteMessage={
                 chat.deleteMessage
                   ? (messageId) =>

@@ -2,6 +2,7 @@
   "loading": "Loading AI supervision settings…",
   "title": "AI supervision settings",
   "intro": "These settings apply to every course in this workspace. Learners still decide for themselves whether the supervisor may change their personal lessons.",
+  "admission": "The supervisor reviews the recorded activity of every learner in a course (answers, results and saved questions), including learners who have not opted in. This is paid AI work and runs within the workspace's and each learner's AI spending limits. For learners who have not opted in it only prepares suggestions for staff: it cannot change their lessons, and their own learning preferences and teaching ideas are not sent to the AI model.",
   "autonomy.title": "How much the supervisor may do on its own",
   "autonomy.recommend_only": "Only suggest",
   "autonomy.recommend_only.help": "The supervisor notes what would help, but starts no work and changes nothing. Scheduled follow-ups end.",

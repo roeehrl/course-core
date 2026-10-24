@@ -1,8 +1,12 @@
 # The supervision loop: teaching actions, follow-ups, roles and authority
 
-Design §4 (requirements B02 to B06, B08, B09, N01, Q08, C01, C06). Everything here runs
-after the learner's course-scoped opt-in ("personal support"), within the workspace's
-autonomy level, its permitted tool families and the paid limits. Scripted models are
+Design §4 (requirements B02 to B06, B08, B09, N01, Q08, C01, C06). Teaching actions and
+their follow-ups run only after the learner's course-scoped opt-in ("personal support"),
+within the workspace's autonomy level, its permitted tool families and the paid limits.
+Paid supervisor review itself is admitted by workspace policy and spending limits, also for
+learners who have not opted in; for them it reads reduced context and can only prepare
+suggestions for staff (requirement B06 governs what the supervisor may change, not whether a
+paid analysis runs). Scripted models are
 used in tests: they prove Core's orchestration and authority checks, not any model's
 teaching quality.
 
