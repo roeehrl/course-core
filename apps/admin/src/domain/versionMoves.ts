@@ -12,6 +12,25 @@ const lessons = z.object({
   items: z.array(lesson).max(200),
 });
 const versionRef = z.object({ releaseId: text, version: text });
+/** A checkpoint passed on the old version: whether it carries over, and why (a code). */
+const checkpoints = z.object({
+  count: z.number().int().nonnegative(),
+  items: z
+    .array(
+      lesson.extend({
+        gateId: text,
+        code,
+        items: z.number().int().nonnegative(),
+      }),
+    )
+    .max(200),
+});
+const personalChangeLines = z.object({
+  count: z.number().int().nonnegative(),
+  items: z
+    .array(z.object({ episodeId: text, title: text, kind: text }))
+    .max(50),
+});
 
 export const learnerImpactSchema = z.object({
   enrollmentId: text,
@@ -44,6 +63,14 @@ export const learnerImpactSchema = z.object({
     addedScopes: z.array(text).max(400),
     keptScopes: z.number().int().nonnegative(),
   }),
+  carryOver: z
+    .object({ carried: checkpoints, notCarried: checkpoints })
+    .default({
+      carried: { count: 0, items: [] },
+      notCarried: { count: 0, items: [] },
+    }),
+  personalChangeList: personalChangeLines.default({ count: 0, items: [] }),
+  dropsPersonalChanges: z.boolean().default(false),
   costDigest: text,
 });
 export type LearnerImpact = z.infer<typeof learnerImpactSchema>;
@@ -77,6 +104,8 @@ export const movePreviewSchema = z.object({
     waits: z.number().int().nonnegative(),
     refused: z.number().int().nonnegative(),
     losingCredit: z.number().int().nonnegative(),
+    carriedCheckpoints: z.number().int().nonnegative().default(0),
+    offered: z.number().int().nonnegative().default(0),
   }),
   learners: z.array(learnerImpactSchema).max(500),
   rules: z.object({ waitsAtMostDays: z.number().int().positive() }),
@@ -135,6 +164,24 @@ export const moveDetailSchema = moveSummarySchema
           undo: z
             .object({ possible: z.boolean(), code: code.nullable() })
             .nullable(),
+          dropsPersonalChanges: z.boolean().default(false),
+          /** The learner's offer, when the move refused them for personal changes. */
+          offer: z
+            .object({
+              state: z.enum([
+                "offered",
+                "accepted",
+                "declined",
+                "forced",
+                "withdrawn",
+              ]),
+              code: code.nullable(),
+              reason: text.nullable(),
+              decidedAt: text.nullable(),
+              forcible: z.boolean(),
+            })
+            .nullable()
+            .default(null),
         }),
       )
       .max(500),
@@ -147,6 +194,11 @@ export const undoResultSchema = z.object({
 });
 export const moveCancelResultSchema = z.object({
   cancelled: z.number().int().nonnegative(),
+  move: moveDetailSchema,
+});
+export const forceResultSchema = z.object({
+  status: z.enum(["moved", "waiting", "withdrawn"]),
+  code: code.nullable(),
   move: moveDetailSchema,
 });
 export const versionLearnersSchema = z.object({
@@ -199,6 +251,13 @@ export interface VersionMovesPort {
     courseId: string,
     moveId: string,
   ): Promise<z.infer<typeof moveCancelResultSchema>>;
+  /** Moves a learner who did not accept the offer anyway (owners and admins), with a reason. */
+  force(
+    courseId: string,
+    moveId: string,
+    enrollmentId: string,
+    input: { reason: string },
+  ): Promise<z.infer<typeof forceResultSchema>>;
 }
 
 /** A refusal or failure, by the server's code. */

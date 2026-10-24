@@ -2,7 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 // Real server and PostgreSQL (K13): staff preview moving learners to a newer published version,
-// confirm it with a reason and an acknowledgement of lost credit, and move them back.
+// confirm it with a reason and an acknowledgement of lost credit, force the move for a learner with
+// personal changes who was offered it, and move them back.
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
   expect(
@@ -32,7 +33,7 @@ test("preview, confirm and undo a move of everyone on 1.0.0 to 1.1.0", async ({
       name: "Move learners to a newer version",
     }),
   });
-  await expect(card).toContainText("Version 1.0.0 · 2 learners");
+  await expect(card).toContainText("Version 1.0.0 · 3 learners");
   await expect(card.getByLabel("Move them to")).toHaveValue(/.+/);
 
   // Test before saving: the preview changes nothing.
@@ -47,6 +48,17 @@ test("preview, confirm and undo a move of everyone on 1.0.0 to 1.1.0", async ({
   );
   await expect(preview).toContainText(
     "2 pieces of evidence stay recorded with version 1.0.0.",
+  );
+  // The changed question means the checkpoint's pass does not carry over; the preview says why.
+  await expect(preview).toContainText(
+    "Minimum: this checkpoint does not carry over.",
+  );
+  // The learner with a personal change is offered the move instead.
+  await expect(preview).toContainText(
+    "Personal changes the move would drop: Minimum.",
+  );
+  await expect(preview).toContainText(
+    "1 learner has personal changes. Instead of moving them now",
   );
   await accessible(page);
   await preview.screenshot({
@@ -63,15 +75,34 @@ test("preview, confirm and undo a move of everyone on 1.0.0 to 1.1.0", async ({
     .getByRole("checkbox", { name: /1 learner must redo some progress/ })
     .check();
   await submit.click();
-  await expect(card.getByText("2 learners moved.")).toBeVisible();
+  await expect(card.getByText(/2 learners moved\./)).toBeVisible();
   await expect(card).toContainText("Version 1.1.0 · 2 learners");
 
-  // Nobody has worked on 1.1.0 yet, so both can go back.
+  // Casey was offered the move; an owner moves them anyway, with a reason.
+  await expect(card).toContainText(
+    "Offered the move in the app. Waiting for the learner to answer.",
+  );
+  const moveAnyway = card.getByRole("button", { name: "Move anyway" });
+  await expect(moveAnyway).toBeDisabled();
+  await card
+    .getByLabel("Why move this learner anyway?")
+    .fill("Version 1.0.0 is being retired.");
+  await accessible(page);
+  await moveAnyway.click();
+  await expect(
+    card.getByText(
+      "The learner was moved. Their personal changes are archived.",
+    ),
+  ).toBeVisible();
+  await expect(card).toContainText("Reason: Version 1.0.0 is being retired.");
+  await expect(card).toContainText("Version 1.1.0 · 3 learners");
+
+  // Nobody has worked on 1.1.0 yet, so all can go back.
   await card
     .getByLabel("Why are you moving them back?")
     .fill("Moved too early.");
-  await card.getByRole("button", { name: "Move 2 learners back" }).click();
-  await expect(card.getByText("2 learners moved back.")).toBeVisible();
-  await expect(card).toContainText("Version 1.0.0 · 2 learners");
+  await card.getByRole("button", { name: "Move 3 learners back" }).click();
+  await expect(card.getByText("3 learners moved back.")).toBeVisible();
+  await expect(card).toContainText("Version 1.0.0 · 3 learners");
   await accessible(page);
 });

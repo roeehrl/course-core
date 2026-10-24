@@ -14,6 +14,9 @@ import {
  * It follows the server's rules where the demo can: only forward, only to a published version,
  * only active or paused learners, a preview confirmed by its digest with a reason, and undo only
  * while the learner has not changed since. Demo learners have no open questions, so nobody waits.
+ * The paused demo learner has a personal change: the move refuses them and offers it to them
+ * instead, and staff may force it with a reason. The first lesson's checkpoint is unchanged in
+ * every demo version, so it carries over.
  */
 export function createDemoVersionMoves({
   getWorkspace,
@@ -32,6 +35,10 @@ export function createDemoVersionMoves({
   type Stored = MoveDetail & { courseId: string; preview: MovePreview };
   const moves = new Map<string, Stored>();
   let sequence = 0;
+  // Learners staff moved anyway: their personal change was archived, so a later move does not refuse them.
+  const forced = new Set<string>();
+  const hasPersonalChange = (enrollmentId: string) =>
+    enrollmentId.endsWith("-learner-02") && !forced.has(enrollmentId);
   const clone = <T>(value: T): T => structuredClone(value);
   async function delay(signal?: AbortSignal) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -150,14 +157,36 @@ export function createDemoVersionMoves({
         title: translate()("demoClient.versionMoves.newLesson"),
       };
       const none = { count: 0, items: [] };
+      const firstLesson = translate()("demoClient.versionMoves.firstLesson");
       const learners: LearnerImpact[] = cohort.map((e) => {
         const movable = e.status === "active" || e.status === "paused";
+        const personal = movable && hasPersonalChange(e.id);
+        const refusal = !movable
+          ? "MOVE_ENROLLMENT_NOT_ACTIVE"
+          : personal
+            ? "MOVE_PERSONAL_CHANGES"
+            : null;
+        const carried =
+          e.completed > 0
+            ? {
+                count: 1,
+                items: [
+                  {
+                    id: "lesson-1",
+                    title: firstLesson,
+                    gateId: "lesson-1-check",
+                    code: "CARRIED",
+                    items: 2,
+                  },
+                ],
+              }
+            : none;
         return {
           enrollmentId: e.id,
           displayName: e.profile.displayName,
           status: e.status,
-          outcome: movable ? "ready" : "refused",
-          refusal: movable ? null : "MOVE_ENROLLMENT_NOT_ACTIVE",
+          outcome: refusal ? "refused" : "ready",
+          refusal,
           policyCode: null,
           wait: null,
           progress: {
@@ -178,11 +207,25 @@ export function createDemoVersionMoves({
               .length,
           },
           openWork: { questions: 0, activities: 0 },
-          personalChanges: 0,
+          personalChanges: personal ? 1 : 0,
           policy: {
             addedScopes: movable ? [`episode:${newLesson.id}`] : [],
             keptScopes: movable ? 4 : 0,
           },
+          carryOver: { carried, notCarried: none },
+          personalChangeList: personal
+            ? {
+                count: 1,
+                items: [
+                  {
+                    episodeId: "lesson-1",
+                    title: firstLesson,
+                    kind: "append_teaching",
+                  },
+                ],
+              }
+            : none,
+          dropsPersonalChanges: false,
           costDigest: "0".repeat(64),
         };
       });
@@ -207,6 +250,12 @@ export function createDemoVersionMoves({
           waits: 0,
           refused: learners.filter((l) => l.outcome === "refused").length,
           losingCredit: 0,
+          carriedCheckpoints: learners.reduce(
+            (n, l) => n + l.carryOver.carried.count,
+            0,
+          ),
+          offered: learners.filter((l) => l.refusal === "MOVE_PERSONAL_CHANGES")
+            .length,
         },
         learners,
         rules: { waitsAtMostDays: 7 },
@@ -237,7 +286,11 @@ export function createDemoVersionMoves({
       if (input.previewDigest !== move.preview.previewDigest)
         throw new VersionMoveError("STALE_PREVIEW");
       if (!input.reason.trim()) throw new VersionMoveError("INVALID_REQUEST");
-      if (!move.preview.learners.some((l) => l.outcome === "ready"))
+      if (
+        !move.preview.learners.some(
+          (l) => l.outcome === "ready" || l.refusal === "MOVE_PERSONAL_CHANGES",
+        )
+      )
         throw new VersionMoveError("MOVE_NOBODY_TO_MOVE");
       const at = new Date().toISOString();
       move.learners = move.preview.learners.map((impact) => {
@@ -256,6 +309,17 @@ export function createDemoVersionMoves({
           movedAt: ready ? at : null,
           undoneAt: null,
           undo: ready ? { possible: true, code: null } : null,
+          dropsPersonalChanges: false,
+          offer:
+            impact.refusal === "MOVE_PERSONAL_CHANGES"
+              ? {
+                  state: "offered" as const,
+                  code: null,
+                  reason: null,
+                  decidedAt: null,
+                  forcible: true,
+                }
+              : null,
         };
       });
       move.state = "confirmed";
@@ -312,6 +376,43 @@ export function createDemoVersionMoves({
       current.revision = String(Number(current.revision) + 1);
       setWorkspace(courseId, current);
       return { undone, refused, move: detail(move) };
+    },
+    async force(courseId, moveId, enrollmentId, input) {
+      await delay();
+      const current = clone(workspace(courseId, true));
+      const move = moves.get(moveId);
+      if (!move || move.courseId !== courseId || move.state !== "confirmed")
+        throw new VersionMoveError("MOVE_NOT_FOUND");
+      if (!input.reason.trim()) throw new VersionMoveError("INVALID_REQUEST");
+      const learner = move.learners.find(
+        (l) => l.enrollmentId === enrollmentId,
+      );
+      if (!learner?.offer?.forcible)
+        throw new VersionMoveError("MOVE_OFFER_NOT_OPEN");
+      const enrollment = current.enrollments.find((e) => e.id === enrollmentId);
+      if (enrollment?.releaseVersion !== move.from.version)
+        throw new VersionMoveError("MOVE_ENROLLMENT_CHANGED");
+      const at = new Date().toISOString();
+      enrollment.releaseVersion = move.to.version;
+      forced.add(enrollmentId);
+      Object.assign(learner, {
+        state: "moved" as const,
+        code: null,
+        movedAt: at,
+        undo: { possible: true, code: null },
+        dropsPersonalChanges: true,
+        offer: {
+          state: "forced" as const,
+          code: null,
+          reason: input.reason.trim(),
+          decidedAt: at,
+          forcible: false,
+        },
+      });
+      move.totals = totals(move);
+      current.revision = String(Number(current.revision) + 1);
+      setWorkspace(courseId, current);
+      return { status: "moved" as const, code: null, move: detail(move) };
     },
     async cancel(courseId) {
       await delay();
