@@ -390,7 +390,9 @@ async function moveNow(client: PoolClient, move: MoveRow, enrollment: Enrollment
       WHERE id=$1 AND course_release_id=$5 RETURNING revision`,
   [enrollment.id, to.id, JSON.stringify(to.server_bundle.policy), keepsPlace ? enrollment.current_episode_id : null, from.id])).rows[0];
   requireCondition(updated, 'STALE_PREVIEW', 409);
-  await notifyUser(client, { workspaceId: move.workspace_id, userId: enrollment.user_id, audience: 'learner', kind: 'course_updated', enrollmentId: enrollment.id,
+  // The learner is told; a forced move says their personal changes were archived.
+  await notifyUser(client, { workspaceId: move.workspace_id, userId: enrollment.user_id, audience: 'learner',
+    kind: assessed.dropsPersonalChanges && how === 'forced' ? 'move_forced' : 'course_updated', enrollmentId: enrollment.id,
     params: { fromVersion: from.version.slice(0, 40), toVersion: to.version.slice(0, 40) }, link: `/enrollments/${enrollment.id}`, dedupeKey: `course-updated:${move.id}:${enrollment.id}` });
   await client.query(`UPDATE course_version_move_entries SET state='moved',code=NULL,before=$3,moved_revision=$4,moved_at=clock_timestamp(),updated_at=clock_timestamp()
     WHERE move_id=$1 AND enrollment_id=$2`, [move.id, enrollment.id,
@@ -448,6 +450,8 @@ async function offerMove(client: PoolClient, move: MoveRow, enrollment: Enrollme
   await appendEvent(client, { workspaceId: move.workspace_id, enrollmentId: enrollment.id, actorKind: 'system', type: 'course_version.move_offered',
     payload: { moveId: move.id, fromReleaseId: from.id, toReleaseId: to.id, fromVersion: from.version, toVersion: to.version },
     idempotencyKey: `course-version-move:${move.id}:${enrollment.id}:offered` });
+  await notifyUser(client, { workspaceId: move.workspace_id, userId: enrollment.user_id, audience: 'learner', kind: 'move_offer', enrollmentId: enrollment.id,
+    params: { fromVersion: from.version.slice(0, 40), toVersion: to.version.slice(0, 40) }, link: `/enrollments/${enrollment.id}`, dedupeKey: `move-offer:${move.id}:${enrollment.id}` });
 }
 
 /**
