@@ -282,6 +282,33 @@ function fakePort(
     Record<keyof AiServicesPort, ReturnType<typeof vi.fn>>;
 }
 
+/** Runs with React's act environment off, so updates and effects are scheduled as in a browser
+ * (inside act, React flushes them before a test's next step, which hides ordering races). */
+async function withoutAct<T>(work: () => Promise<T>): Promise<T> {
+  const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const before = env.IS_REACT_ACT_ENVIRONMENT;
+  env.IS_REACT_ACT_ENVIRONMENT = false;
+  try {
+    return await work();
+  } finally {
+    env.IS_REACT_ACT_ENVIRONMENT = before;
+  }
+}
+/** Resolves in the DOM change that first shows the element, as a person acting at once would. */
+function firstSight<E extends Element>(find: () => E | null): Promise<E> {
+  return new Promise((resolve) => {
+    const present = find();
+    if (present) return resolve(present);
+    const observer = new MutationObserver(() => {
+      const element = find();
+      if (!element) return;
+      observer.disconnect();
+      resolve(element);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
 describe("AI services text", () => {
   it("formats plurals in English and Hebrew (one, two, other)", () => {
     expect(t("issue.prices", { count: 1 })).toBe("1 model needs a price");
@@ -454,6 +481,50 @@ describe("AI services page", () => {
       limits: { microUsd: 2_000_000 },
       paidWorkApproved: true,
     });
+  });
+
+  it("keeps a spending limit typed the moment the limits appear", async () => {
+    render(
+      <AiServicesPage workspaceId={workspace} port={fakePort()} role="owner" />,
+    );
+    const learner = await withoutAct(() =>
+      firstSight(() => screen.queryByLabelText(t("spending.perLearner"))),
+    );
+    // Edited in the same task the limits appeared in, before React's pending effects ran.
+    await withoutAct(async () => {
+      fireEvent.change(learner, { target: { value: "30" } });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(learner).toHaveValue("30");
+  });
+
+  it("keeps a model picked the moment the model list appears", async () => {
+    const port = fakePort({
+      setup: vi.fn().mockResolvedValue(setup(activeConfiguration, 2)),
+      connections: vi
+        .fn()
+        .mockResolvedValue({ ...noConnections, connections: [connection] }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const label = t("models.modelFor", { job: t("role.research.name") });
+    const research = await withoutAct(() =>
+      firstSight(() => {
+        const select = screen.queryByLabelText<HTMLSelectElement>(label);
+        return select &&
+          [...select.options].some(
+            (option) => option.value === "connection-1\u0000gemini-9.0-flash",
+          )
+          ? select
+          : null;
+      }),
+    );
+    await withoutAct(async () => {
+      fireEvent.change(research, {
+        target: { value: "connection-1\u0000gemini-9.0-flash" },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(research).toHaveValue("connection-1\u0000gemini-9.0-flash");
   });
 
   it("only an owner approves without checking; approval names the draft and job, then turns it on", async () => {
