@@ -2969,6 +2969,27 @@ code.digest {
     transform: translateY(8px);
   }
 }
+/* Tablet widths keep the top bar on one row: its actions never wrap, the course picker narrows. */
+@media (min-width: 761px) {
+  .topbar > .tag-row {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+  .topbar > .course-picker {
+    flex: 1 1 auto;
+  }
+}
+/* Below wide screens the button shows the initials only (the name is in its label and at the
+   top of the open menu), so the course picker keeps its room in the top bar. */
+@media (max-width: 1180px) {
+  .topbar .account-name {
+    display: none;
+  }
+  .topbar .account-button {
+    padding-inline-end: 8px;
+    gap: 4px;
+  }
+}
 @media (max-width: 760px) {
   .account-name {
     display: none;
