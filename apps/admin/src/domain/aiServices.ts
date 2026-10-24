@@ -336,6 +336,10 @@ export class AiServicesError extends Error {
       count?: number;
       neededMicroUsd?: number;
       availableMicroUsd?: number;
+      /** PROVIDER_PRICING_EFFECTIVE_DATE_INVALID: the earliest start (the start of the price in
+       * force now; absent when none is) and the latest start a new price may have, ISO times. */
+      earliest?: string;
+      latest?: string;
     },
   ) {
     super(code);

@@ -480,6 +480,47 @@
   font-weight: 650;
   overflow-wrap: anywhere;
 }
+/* A later price already saved: one line and its two actions, inside the model's block. */
+.ai-price-scheduled {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-block: 10px 4px;
+  padding-inline: 12px;
+  border-radius: 10px;
+  background: var(--ice);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ai-price-scheduled p {
+  margin: 0;
+}
+/* Link-like actions at the start of the line, side by side when they fit (also on phones). */
+.ai-price-scheduled .ai-actions {
+  justify-content: flex-start;
+  gap: 0 20px;
+}
+.ai-price-scheduled .ai-actions .button.quiet {
+  flex: 0 1 auto;
+  min-height: 44px;
+  padding-inline: 0;
+  text-align: start;
+}
+.ai-price-preview {
+  margin: 0;
+}
+.dialog.ai-price-dialog {
+  max-inline-size: min(560px, calc(100vw - 24px));
+}
+.ai-price-dialog h2 {
+  margin-block: 0 6px;
+  font-size: 19px;
+}
+.ai-price-dialog .ai-muted {
+  margin: 0;
+}
 .ai-list {
   display: flex;
   flex-direction: column;

@@ -321,6 +321,22 @@ export function errorText(text: AiText, error: unknown, service = ""): string {
       return t("aiServices.err.configInvalid");
     case "PROVIDER_SECRET_FIELD_FORBIDDEN":
       return t("aiServices.err.secretField");
+    case "PROVIDER_PRICING_EFFECTIVE_DATE_INVALID": {
+      const latest = error.details?.latest
+        ? text.date(error.details.latest)
+        : null;
+      if (!latest) return t("aiServices.err.pricingDateGeneric");
+      return error.details?.earliest
+        ? t("aiServices.err.pricingDate", {
+            earliest: text.date(error.details.earliest),
+            latest,
+          })
+        : t("aiServices.err.pricingDateLatest", { latest });
+    }
+    case "PROVIDER_PRICING_UNKNOWN_MODEL":
+      return t("aiServices.err.pricingUnknownModel");
+    case "PROVIDER_PRICING_INVALID":
+      return t("aiServices.err.pricingInvalid");
     default:
       return (
         keyProblemText(text, error.code, service) ?? t("aiServices.err.generic")
@@ -382,6 +398,7 @@ export function Confirm({
   onConfirm,
   onCancel,
   pending,
+  tone = "danger",
 }: {
   title: string;
   body: string;
@@ -389,6 +406,8 @@ export function Confirm({
   onConfirm: () => void;
   onCancel: () => void;
   pending?: boolean;
+  /** A confirmation that loses nothing is primary; one that stops or deletes is danger. */
+  tone?: "danger" | "primary";
 }) {
   const text = useAiText();
   const ref = useRef<HTMLDialogElement>(null),
@@ -427,7 +446,7 @@ export function Confirm({
         </button>
         <button
           type="button"
-          className="button danger"
+          className={`button ${tone}`}
           onClick={onConfirm}
           disabled={pending}
         >
