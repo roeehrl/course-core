@@ -464,7 +464,25 @@ open and what happens to their deadlines. Confirming needs that exact preview (b
 15 minutes), a reason, and an explicit acknowledgement when anyone loses credit.
 - Evidence stays bound to the version it was earned on: attempts, evidence, progress, gate
   decisions and activity state are never rewritten, so a checkpoint passed on the old version
-  is passed again on the new one (the lessons after it count again once it is).
+  is passed again on the new one (the lessons after it count again once it is) — unless nothing
+  that decided it changed. A passed checkpoint carries over when its rules and objectives are
+  byte-identical and every item it lists has the same item, answer key or rubric, and evaluator
+  digests (M03 grading provenance) in both versions, and the learner's attempts were graded on
+  exactly those. The carried attempts are recorded beside them (`carried_checkpoint_attempts`);
+  an undo marks them undone. The preview lists, per learner, which checkpoints carry over and,
+  for the others, why not (`ITEM_CHANGED`, `ANSWER_KEY_CHANGED`, `EVALUATOR_CHANGED`,
+  `CHECKPOINT_RULES_CHANGED`, `GRADED_WITHOUT_RECORD`, …). Checkpoints judged in conversation
+  never carry over.
+- Personal changes: a learner who has them is refused by default and offered the move in the
+  app instead ("moving keeps your progress where it can, but drops your personal changes:
+  …"). Accepting (`POST /api/enrollments/:id/version-offer/accept`) makes the move wait for a
+  safe boundary like any other; declining keeps them where they are. An owner or administrator
+  may move a learner who did not accept anyway, with a required reason
+  (`POST …/version-moves/:moveId/learners/:enrollmentId/force`), audited on the workspace and
+  on the learner's record. Either way the personal changes are archived, not lost
+  (`personal_change_archives`: the list the learner saw and the adaptation state, in their
+  history and export; an undo restores the state), and the learner is told. Until such an
+  archive is restored, no new personal changes start on that enrollment.
 - Policy: every existing scope, anchor, deadline, grant and ledger entry is kept; chapters and
   lessons the new version adds get scopes through the reviewed policy migration
   (`migrate_policy`), without extension pools.
