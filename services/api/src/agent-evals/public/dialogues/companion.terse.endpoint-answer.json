@@ -38,6 +38,67 @@
       "independentAssessmentActive": false
     }
   },
+  "checks": [
+    {
+      "type": "numeric",
+      "prompt": "Start at -3, move 7 units right, then 2 units left. What is the final position?",
+      "grading": {
+        "expected": 2,
+        "absoluteTolerance": 0,
+        "explanation": "The intermediate position is 4; moving two left ends at 2."
+      },
+      "id": "nl-moves-endpoint-1",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-endpoint"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which move takes a marker from -4 to 2?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Two units right."
+        },
+        {
+          "id": "b",
+          "text": "Six units left."
+        },
+        {
+          "id": "c",
+          "text": "Six units right."
+        },
+        {
+          "id": "d",
+          "text": "Four units left."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Finish minus start is 2-(-4)=6, a rightward change."
+      },
+      "id": "nl-moves-inverse-1",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-inverse"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Start at 5 and move 9 units left. What is the final position?",
+      "grading": {
+        "expected": -4,
+        "absoluteTolerance": 0,
+        "explanation": "Five left reaches zero and four more left reaches -4."
+      },
+      "id": "nl-moves-endpoint-2",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-endpoint"
+    }
+  ],
   "expect": {
     "hintLeakage": {
       "revealAllowed": false,

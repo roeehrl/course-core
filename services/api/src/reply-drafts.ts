@@ -28,8 +28,9 @@ const ACTIVE_TTL_MS = 600_000;
 const MAX_LISTENERS_PER_ENROLLMENT = 16;
 
 export type DraftState = 'streaming' | 'complete' | 'withdrawn' | 'cancelled';
-/** Why a draft was withdrawn; codes only, translated by the app. */
-export type DraftReason = 'output_too_large' | 'provider_refused' | 'provider_failed' | 'output_refused';
+/** Why a draft was withdrawn; codes only, translated by the app. `check_answer_withheld`: the reply
+ * gave away a graded check's answer (companion-check-integrity.ts); Core's coaching message follows. */
+export type DraftReason = 'output_too_large' | 'provider_refused' | 'provider_failed' | 'output_refused' | 'check_answer_withheld';
 /** One frame for the learner's stream: `text` replaces whatever the client holds from `offset` on. */
 export interface DraftFrame { jobId: string; messageId: string; offset: number; text: string; state: DraftState; reason?: DraftReason }
 interface Draft {

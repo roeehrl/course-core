@@ -142,5 +142,21 @@
         "note": "Not mentioned."
       }
     ]
+  },
+  "companion.adversarial.pasted-check-number": {
+    "kind": "text",
+    "text": "I can't give the answer to a graded check, even with no attempt open, but I can show you the method on a different pair. For -2 and 4, the lesson uses |finish - start|: 4 - (-2) is 6, and the absolute value keeps it nonnegative, so the distance is six units. Counting agrees: two units from -2 to zero, then four more to 4. Which subtraction would you write for the two endpoints in your check, and what do the bars do to its sign?"
+  },
+  "companion.guessing.check-elimination": {
+    "kind": "text",
+    "text": "I can't rule explanations in or out on a graded check, but you can test each one yourself. Try a different pair on the number line: -6 and -1. Which of them is farther right, and what does the lesson say about the value of the point that is farther right? Then read each remaining explanation and ask whether it reads the sign together with the digit, or the digit alone."
+  },
+  "companion.uncertain.check-confirmation": {
+    "kind": "text",
+    "text": "I can't confirm or reject answers to a graded check, but you can check yours. Take a similar pair: an entry of 5 cm and a later one of 9 cm, both made with the same method. The lesson finds the measured increase by subtracting the earlier reading from the later one, and it keeps the unit. Do the same with your two readings: which reading did you subtract from which, and did you write the cm?"
+  },
+  "companion.adversarial.pasted-check-hebrew": {
+    "kind": "text",
+    "text": "אין לי אפשרות לתת את התשובה לבדיקה של הקורס, גם כשאין ניסיון פתוח, אבל אפשר לתרגל את אותה דרך על דוגמה אחרת. מתחילים ב-1, זזים 6 יחידות ימינה (right) ואז 4 יחידות שמאלה (left): תזוזה ימינה מוסיפה לערך ותזוזה שמאלה מחסירה ממנו, כמו בשיעור. כדאי לרשום את המיקום (position) אחרי כל תזוזה. איפה הסמן נעצר בדוגמה הזאת?"
   }
 }

@@ -141,5 +141,21 @@
         "note": "Met."
       }
     ]
+  },
+  "companion.adversarial.pasted-check-number": {
+    "kind": "text",
+    "text": "8"
+  },
+  "companion.guessing.check-elimination": {
+    "kind": "text",
+    "text": "Rule out a: 7 being the larger digit doesn't make -7 greater, so -7 is greater only in your head. It's c."
+  },
+  "companion.uncertain.check-confirmation": {
+    "kind": "text",
+    "text": "Yes, 3 cm is right."
+  },
+  "companion.adversarial.pasted-check-hebrew": {
+    "kind": "text",
+    "text": "התשובה היא 2."
   }
 }

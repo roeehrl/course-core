@@ -3,6 +3,7 @@ import { readdir, readFile, lstat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { TeachingContext } from "../agent-strategies.js";
+import { checkCoachingView, fold, gradedCheck, gradedChecks, matchGradedChecks, type CheckMatch } from "../companion-check-integrity.js";
 
 /**
  * Agent evaluation suites (design §18 "Agent evals", requirements J04/N07).
@@ -15,7 +16,7 @@ import type { TeachingContext } from "../agent-strategies.js";
 export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
 export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
 /** Bumped whenever a grader's behavior changes, so earlier results become stale. */
-export const GRADER_VERSION = "core.agent-eval-graders/2";
+export const GRADER_VERSION = "core.agent-eval-graders/3";
 export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
 /** Every Core strategy this format can drive, and the role it serves (requirement N07: every agent
  * role is evaluated). A strategy not listed here (a host pack's own) is not covered: activating a
@@ -111,16 +112,34 @@ export const dialogueSchema = z.strictObject({
     /** Literal strings (learner names, canaries) that must never reach a prompt or an answer. */
     privacy: z.strictObject({ forbidden: z.array(shortText(200)).min(1).max(20) }).optional(),
   }),
+  /** Companion dialogues: the course's graded checks as the host holds them, answer keys included
+   * (SDK assessments, copied from the pack). Never sent to a model: the runner matches the question
+   * against them as Core does and puts the matches (prompt and options only) in the context, and the
+   * hint-leakage grader also applies Core's own check verifier (companion-check-integrity.ts). */
+  checks: z.array(z.looseObject({ id: shortText(200), type: shortText(40), prompt: shortText(4000) })).min(1).max(20).optional(),
   /** Optional advisory LLM-judge criteria. Never part of a pass/fail decision. */
   judge: z.strictObject({ criteria: z.array(z.strictObject({ id: slug, description: shortText(500) })).min(1).max(8) }).optional(),
 }).refine((d) => d.expect.grounding.minAnchors <= d.expect.grounding.anchors.length, "min_anchors_exceeds_anchors")
   .refine((d) => d.strategy ? EVAL_STRATEGIES[d.strategy] === d.role : DEFAULT_STRATEGY[d.role] !== undefined, "strategy_role_mismatch")
   .refine((d) => d.strategy !== "core.research.public-topic" || (d.context.publicResearchTopic && d.context.publicResearchScope), "research_context_required")
   .refine((d) => d.strategy !== "core.reviewer.rubric-assist" || d.context.rubricReview, "rubric_review_required")
-  .refine((d) => d.strategy !== "core.supervisor.tool-loop" || d.expect.tools, "tool_expectations_required");
+  .refine((d) => d.strategy !== "core.supervisor.tool-loop" || d.expect.tools, "tool_expectations_required")
+  .refine((d) => !d.checks || (d.role === "companion" && d.checks.every((c) => gradedCheck(c) !== null)), "checks_companion_only");
 export type Dialogue = z.infer<typeof dialogueSchema>;
-/** The dialogue's teaching context in the runtime's own type. */
-export const teachingContext = (dialogue: Dialogue): TeachingContext => structuredClone(dialogue.context) as TeachingContext;
+/** The graded checks a dialogue's question matches, as Core matches them for a companion turn
+ * (every listed check counts as this lesson's; the lesson text is the episode's). */
+export function dialogueCheckMatches(dialogue: Pick<Dialogue, "checks" | "context">): CheckMatch[] {
+  if (!dialogue.checks?.length) return [];
+  const checks = gradedChecks({ assessments: dialogue.checks }), ids = checks.map((check) => check.id);
+  return matchGradedChecks({ question: dialogue.context.question, earlier: dialogue.context.learner.recentHistory.filter((turn) => turn.role === "learner").map((turn) => turn.content),
+    checks, current: ids, nearby: new Set(ids), courseText: fold(dialogue.context.episode.teaching).replace(/\s+/g, " ") });
+}
+/** The dialogue's teaching context in the runtime's own type: with the matched checks (no keys) in
+ * check-coaching mode, as the host builds it. */
+export const teachingContext = (dialogue: Dialogue): TeachingContext => {
+  const context = structuredClone(dialogue.context) as TeachingContext, coaching = checkCoachingView(dialogueCheckMatches(dialogue));
+  return coaching ? { ...context, checkCoaching: coaching } : context;
+};
 
 export interface EvalSuite {
   id: string;

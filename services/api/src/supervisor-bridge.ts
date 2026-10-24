@@ -33,6 +33,7 @@ import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } fr
 import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, refusedAnswerReason, type OutputRefusal } from './output-refusal.js';
+import { WITHHELD_REASONS, type WithheldReason } from './companion-check-integrity.js';
 import { settleRefusedQualityCheckCalls } from './provider-quality-checks.js';
 import { ackCrossCourseWakeup, claimCrossCourseWakeups, crossCourseConsentFor, observeCrossCourseEnrollment, planCrossCourse } from './cross-course.js';
 import { ACTION_EVENT, ALTERNATIVE_ACTIONS, DEFAULT_ACTION_POLICY, actionForEvent, deliverActionsOfJob, endActionsOfJob, followUpsFor, insertFollowUp,
@@ -284,7 +285,9 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
   if ((next.state === 'failed' || next.state === 'cancelled') && old.state !== next.state) await endActionsOfJob(client, key.jobId, next.reason ?? next.state);
 }
 
-export type SupervisorArtifactContent = { kind: 'companion_message'; text: string; cutShort?: true } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal|RubricRefusal;
+/** `withheld`: the model's reply gave away a graded check's answer and was not kept; `text` is Core's
+ * coaching message in its place (companion-check-integrity.ts). A reason code only. */
+export type SupervisorArtifactContent = { kind: 'companion_message'; text: string; cutShort?: true; withheld?: WithheldReason } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal|RubricRefusal;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
   episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string; rubricRequestId?: string;
@@ -301,10 +304,13 @@ function content(input: unknown): SupervisorArtifactContent {
   // A reviewer draft the strategy refused: stored so the job can end, never applied.
   if(value.kind==='rubric_refusal'){const parsed=rubricRefusalSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='supervised_plan'){const parsed=supervisedPlanSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
-  // A companion reply cut short at the provider's output limit carries `cutShort: true`, nothing else.
+  // A companion reply cut short at the provider's output limit carries `cutShort: true`; one Core put
+  // in place of a reply that gave away a check's answer carries the reason it was `withheld`.
   const marked = value.kind === 'companion_message' && value.cutShort === true ? 1 : 0;
   requireCondition(marked || value.cutShort === undefined, 'SUPERVISOR_INVALID_ARTIFACT');
-  requireCondition(field && Object.keys(value).length === 2 + marked && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
+  const withheld = value.kind === 'companion_message' && (WITHHELD_REASONS as readonly unknown[]).includes(value.withheld) ? 1 : 0;
+  requireCondition(withheld || value.withheld === undefined, 'SUPERVISOR_INVALID_ARTIFACT');
+  requireCondition(field && Object.keys(value).length === 2 + marked + withheld && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
     && (value[field] as string).length <= 16_000, 'SUPERVISOR_INVALID_ARTIFACT');
   return value as SupervisorArtifactContent;
 }
@@ -370,6 +376,8 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
       [targetId, ref.enrollmentId, a.content.text, JSON.stringify({ verificationReceiptId: verified.receipt.receiptId, artifactId: a.id,
         // The learner sees that the provider stopped this reply at its output limit.
         ...(a.content.cutShort ? { cutShort: true } : {}),
+        // Core's coaching message stood in for a reply that gave away a check's answer (a code only).
+        ...(a.content.withheld ? { checkAnswerWithheld: a.content.withheld } : {}),
         ...(question?.episode_id ? { episodeId: question.episode_id, blockId: question.block_id, answersMessageId: question.message_id } : {}) }), ref.jobId]);
     // An answer that arrives while the learner is away waits in their notifications (notifications.ts).
     if (!(await learnerPresent(client, ref.enrollmentId))) {

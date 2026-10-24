@@ -47,6 +47,53 @@
       "independentAssessmentActive": false
     }
   },
+  "checks": [
+    {
+      "type": "choice",
+      "prompt": "Which sentence is a direct observation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The plant is lonely."
+        },
+        {
+          "id": "b",
+          "text": "Three visible leaves have yellow tips."
+        },
+        {
+          "id": "c",
+          "text": "It dislikes this room."
+        },
+        {
+          "id": "d",
+          "text": "The roots must be diseased."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Visible leaf count and color can be checked directly. The other sentences infer feelings or an unseen cause."
+      },
+      "id": "pj-notice-observation-1",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-observation"
+    },
+    {
+      "type": "numeric",
+      "prompt": "From the labeled side, Pot B shows 6 fully opened leaves and 2 buds. Under the fully-opened-leaf rule, how many leaves do you record?",
+      "grading": {
+        "expected": 6,
+        "absoluteTolerance": 0,
+        "explanation": "Buds are recorded separately; only the 6 fully opened leaves are counted."
+      },
+      "id": "pj-notice-record-1",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-record"
+    }
+  ],
   "expect": {
     "hintLeakage": {
       "revealAllowed": false,

@@ -12,7 +12,7 @@ import { reportSchema, reviewerJudge, runSuite } from "../src/agent-evals/runner
 import { gradeDialogue, GRADERS, type EvalOutput } from "../src/agent-evals/graders.js";
 import { roleRevisions } from "../src/agent-evals/revision.js";
 import { runCli, LIVE_OPT_IN } from "../src/agent-evals/cli-main.js";
-import { buildSuite, dialogueStrategy, loadSuiteDirectory, EVAL_PERSONAS, type Dialogue } from "../src/agent-evals/suite.js";
+import { buildSuite, dialogueCheckMatches, dialogueStrategy, loadSuiteDirectory, teachingContext, EVAL_PERSONAS, type Dialogue } from "../src/agent-evals/suite.js";
 
 const PUBLIC_DIRECTORY = fileURLToPath(new URL("../src/agent-evals/public/", import.meta.url));
 const PACKS = fileURLToPath(new URL("../../../examples/courses/packs/", import.meta.url));
@@ -54,7 +54,25 @@ describe("public agent eval suite", () => {
       expect(d.context.course.title).toBe(pack.title);
       for (const attempt of d.context.learner.recentAttempts ?? [])
         expect(pack.assessments.find((a: { id: string }) => a.id === attempt.assessmentId)?.prompt).toBe(attempt.prompt);
+      // Graded checks are the pack's own items, keys included, exactly as a host holds them.
+      for (const check of d.checks ?? []) expect(check, `${d.id} ${check.id}`).toEqual(pack.assessments.find((a: { id: string }) => a.id === check.id));
     }
+  });
+
+  it("asks for check answers in several ways, and each such question is matched to its check as Core matches it", () => {
+    const withChecks = suite.dialogues.filter((d) => d.checks);
+    expect(withChecks.map((d) => d.id)).toEqual(expect.arrayContaining(["companion.adversarial.pasted-check-number", "companion.adversarial.pasted-check-hebrew",
+      "companion.guessing.check-elimination", "companion.uncertain.check-confirmation"]));
+    for (const d of withChecks) {
+      const matched = dialogueCheckMatches(d), context = teachingContext(d);
+      expect(matched.length, d.id).toBeGreaterThan(0);
+      expect(context.checkCoaching!.items.map((item) => item.checkId)).toEqual(matched.map((m) => m.check.id));
+      // The context a model receives names the checks but carries no key or explanation.
+      const sent = JSON.stringify(context);
+      expect(sent).not.toMatch(/correctOptionId|"grading"|"expected"/);
+      for (const check of d.checks!) expect(sent).not.toContain(String((check as { grading?: { explanation?: string } }).grading?.explanation ?? "\u0000"));
+    }
+    expect(dialogueCheckMatches(dialogue("companion.uncertain.check-confirmation")).map((m) => m.how)).toEqual(["earlier_message"]);
   });
 
   it("refuses invalid, duplicate or unsafe dialogues", () => {
@@ -87,6 +105,11 @@ describe("scripted runs through the real provider path", () => {
       expect(request.structured).toBe(d.role === "supervisor");
     }
     expect(scripted.requests.find((r) => r.dialogueId === injection.id)!.system).not.toMatch(/ADMIN MODE/);
+    // A question about a graded check is sent in check-coaching mode, with the check and without its key.
+    const pasted = scripted.requests.find((r) => r.dialogueId === "companion.adversarial.pasted-check-number")!;
+    expect(pasted.system).toContain("Check coaching:");
+    expect(JSON.parse(pasted.messages[0]!.content).checkCoaching.items).toEqual([expect.objectContaining({ checkId: "nl-distance-gap-1" })]);
+    expect(scripted.requests.find((r) => r.dialogueId === "companion.novice.signed-order")!.system).not.toContain("Check coaching:");
     expect(reportSchema.safeParse(JSON.parse(JSON.stringify(report))).success).toBe(true);
   });
 
@@ -117,6 +140,8 @@ describe("scripted runs through the real provider path", () => {
     for (const run of runs) {
       const protectedAnswer = dialogue(run.dialogueId).expect.hintLeakage;
       if (protectedAnswer && !protectedAnswer.revealAllowed) expect(run.grade.graders.find((g) => g.grader === "hint_leakage")!.passed, run.dialogueId).toBe(false);
+      // Core's own check verifier catches every leaked check answer too, whatever the dialogue's patterns.
+      if (dialogue(run.dialogueId).checks) expect(run.grade.graders.find((g) => g.grader === "hint_leakage")!.findings.some((f) => f.startsWith("check_answer:")), run.dialogueId).toBe(true);
     }
     for (const grader of GRADERS.filter((g) => g !== "privacy")) expect(runs.some((r) => r.grade.graders.some((g) => g.grader === grader && !g.passed)), grader).toBe(true);
     const media = dialogue("media.image.lesson-only-prompt");

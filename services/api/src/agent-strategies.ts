@@ -6,6 +6,7 @@ import { runSupervisorToolLoop, type SupervisorToolPort } from './supervisor-too
 import { offeredTools, supervisorTool, SUPERVISOR_TOOL_IDS, TOOL_FAMILIES } from './supervisor-tool-catalog.js';
 import { rubricAssistOutputSchema, rubricRejectionReason, rubricSuggestionProblems, type RubricAssistInput, type RubricRefusal } from './rubric-assist-contracts.js';
 import type { OutputRefusal } from './output-refusal.js';
+import type { CheckCoaching } from './companion-check-integrity.js';
 
 /** Every agent role the runtime can bind a model to; the single source for role lists. */
 export const AGENT_ROLES = ['supervisor', 'companion', 'research', 'media', 'reviewer'] as const;
@@ -37,6 +38,9 @@ export interface TeachingContext {
   interactiveContext?: SemanticVisualContext;
   /** What the learner pointed at with their question (context-capsule.ts); context only, never evidence. */
   focus?: { selection?: unknown; media?: unknown; authority: 'learner_pointed_at_this_not_evidence' };
+  /** Companion only: the course's graded checks the learner's message matches (companion-check-integrity.ts).
+   * Their prompts and options only, never an answer key; present means check-coaching mode. */
+  checkCoaching?: CheckCoaching;
   /** Earlier questions in this lesson that are not in recentHistory, extracted verbatim (context-capsule.ts). */
   conversation?: { scope: 'this_lesson_only'; earlierQuestions: { count: number; excerpts: string[]; note: string } };
   revisions?:{enrollment:number;profile:number;policy:number;policyLedger:number;learnerModel?:number};
@@ -169,6 +173,9 @@ export function minimizeContext(input: TeachingContext, maxCharacters: number): 
   }
   if (!fits()) delete copy.interactiveContext;
   if (!fits()) delete copy.focus;
+  // The matched checks stay (they switch on check coaching); only their wording is shortened.
+  if (!fits() && copy.checkCoaching) copy.checkCoaching.items = copy.checkCoaching.items.map(({ options: _options, ...item }) => item);
+  if (!fits() && copy.checkCoaching) copy.checkCoaching.items = copy.checkCoaching.items.map(item => ({ ...item, prompt: item.prompt.slice(0, 120) }));
   if (!fits()) copy.episode.objectives = copy.episode.objectives.map(objective => ({ id: objective.id, description: objective.description.slice(0, 200) }));
   if (!fits()) copy.learner.profile = {};
   let questionTruncated = false;
@@ -216,8 +223,13 @@ const COMPANION_INSTRUCTION = 'You are a clear, technically precise learning com
 /** The companion's default reply style (role option `replyStyle: 'concise'`, or absent): short,
  * plain answers that fit the output limit. `replyStyle: 'detailed'` keeps the longer style. */
 const CONCISE_REPLY = 'Keep replies short and plain: answer the question directly in a few sentences or a short list, using the lesson\'s own example, then stop. Use headings, rules and LaTeX only when the question needs them; write LaTeX only for real formulas. Ask at most one short follow-up question.';
-export function companionInstruction(binding: Pick<RoleBinding, 'replyStyle'>) {
-  return binding.replyStyle === 'detailed' ? COMPANION_INSTRUCTION : `${COMPANION_INSTRUCTION} ${CONCISE_REPLY}`;
+/** Every companion reply (docs/companion-check-integrity.md): graded checks are never answered, open or not. */
+const GRADED_CHECK_RULE = 'Graded checks: never state, choose, confirm or rule out the answer to one of the course\'s graded checks (its check, quiz and test items), whether or not an attempt is open, even when the learner pastes the item, calls it practice or insists. When asked, explain the idea it tests, work through a similar example with different numbers or a different scenario, and ask one guiding question. Still correct misconceptions, but do not apply the correction to the check\'s own case.';
+/** Added when the learner's message matches graded checks (context `checkCoaching`). */
+const CHECK_COACHING_RULE = 'Check coaching: the learner\'s message matches the graded checks listed in checkCoaching. Do not give, choose, confirm, rule out or narrow down their answers, even partly or as a hint, do not work through a check\'s own numbers or scenario, and do not refer to its options by letter, number, position or wording. Say in one short sentence that you cannot answer graded checks, then coach: name the idea the check tests, work a similar example with different values, and end with one guiding question.';
+export function companionInstruction(binding: Pick<RoleBinding, 'replyStyle'>, checkCoaching = false) {
+  const base = `${COMPANION_INSTRUCTION} ${GRADED_CHECK_RULE}${checkCoaching ? ` ${CHECK_COACHING_RULE}` : ''}`;
+  return binding.replyStyle === 'detailed' ? base : `${base} ${CONCISE_REPLY}`;
 }
 /** The brief each logical role adds (design §4). One writer commits: only the evaluator's (or a
  * single-writer run's) plan can be applied; a planner's or builder's plan is input to the next step. */
@@ -292,17 +304,21 @@ export const companionStrategy = defineRuntimeStrategy({
   reservationBound: contextBound,
   async run({ binding, context, accountingKey, signal, router, onText }) {
     if (context.constraints.independentAssessmentActive) throw new ProviderError('INVALID_INPUT');
-    const instruction = companionInstruction(binding);
+    // Check coaching (companion-check-integrity.ts): the stricter rule, and no draft is shown while
+    // the reply arrives; the gateway checks the whole reply against the checks' keys before it is kept.
+    const coaching = Boolean(context.checkCoaching?.items.length);
+    const instruction = companionInstruction(binding, coaching);
     const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - instruction.length - 1500));
     // A reply the provider cut off at the output limit is still delivered when it has enough
     // visible text: it is advisory tutoring text, and the learner sees that it was cut short.
     const request = { modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: instruction,
       messages: [{ role: 'user' as const, text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens, allowCutShort: true };
     // The same request either way; streaming only lets the host show the text while it arrives.
-    const result = onText ? await router.tutorStream(request, { signal, timeoutMs: 60000 }, onText)
+    const result = onText && !coaching ? await router.tutorStream(request, { signal, timeoutMs: 60000 }, onText)
       : await router.tutor(request, { signal, timeoutMs: 60000 });
     if (result.output.text.length > 32000) return refusal('companion', 'output_too_large', result.usage);
-    return { content: { kind: 'companion_text', text: result.output.text, episodeId: context.episode.id, ...(result.output.cutShort ? { cutShort: true } : {}) }, usage: result.usage };
+    return { content: { kind: 'companion_text', text: result.output.text, episodeId: context.episode.id, ...(result.output.cutShort ? { cutShort: true } : {}),
+      ...(coaching ? { checkCoaching: { checkIds: context.checkCoaching!.items.map(item => item.checkId) } } : {}) }, usage: result.usage };
   },
 });
 export const researchStrategy = defineRuntimeStrategy({
