@@ -786,8 +786,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
   return bridge;
 }
 /**
- * Rewrites gateway receipts that recorded a refused but completed reply as uncertain (Core before
- * 0.1.53) into the outcome the gateway records now: an output refusal artifact (reason code only),
+ * Rewrites gateway receipts that recorded a refused but completed reply as uncertain (an older
+ * gateway did, for example after the first live companion run) into the outcome the gateway records now: an output refusal artifact (reason code only),
  * charged at the reported usage times the price version in force when the call started, or at the
  * reservation when the call was unpriced. Only companion and supervisor jobs whose operation is
  * still uncertain under the same owner qualify. Each row changes at most once (guarded update);
