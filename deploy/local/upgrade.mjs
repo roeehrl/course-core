@@ -26,7 +26,12 @@ async function waitFor(state, wanted, timeoutMs) {
 async function healthy(origin) {
   try { const r = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(3000) }); return r.ok && (await r.json()).status === 'ok'; } catch { return false; }
 }
-const runtime = { loadConfiguration, verifyTemporalCli, createBackup, verifyBackup, launch, waitFor, healthy, control, ownerRecord, timeoutMs: 120_000 };
+/** Whether the runtime at `root` knows a config.json key. Older releases reject unknown keys, so
+ * the rollback launch of such a release would fail on configuration added for the new one. */
+async function acceptsConfigurationKey(root, key) {
+  try { return (await readFile(path.join(root, 'deploy/local/pilot.mjs'), 'utf8')).includes(`'${key}'`); } catch { return false; }
+}
+const runtime = { loadConfiguration, acceptsConfigurationKey, verifyTemporalCli, createBackup, verifyBackup, launch, waitFor, healthy, control, ownerRecord, timeoutMs: 120_000 };
 const reasonOf = error => error instanceof PilotError ? error.code : 'upgrade_operation_failed';
 /** Stop → consistent backup → restore drill → start the new pinned runtime →
  * health. Any failure after the pilot was stopped (backup, restore drill,
@@ -40,6 +45,8 @@ export async function upgradePilot({ from, to, state, backups, pgBin, ageBin, id
   const next = await run.loadConfiguration(toRoot, state), previous = await run.loadConfiguration(fromRoot, state);
   // An encrypted backup can only be drilled with the identity; refuse before stopping anything.
   ensure(!previous.config.backupAgeRecipients.length || identity, 'age_identity_required');
+  // A `mediaTools` key the previous runtime does not know would block the rollback; refuse first.
+  ensure(!next.config.mediaTools || await run.acceptsConfigurationKey(fromRoot, 'mediaTools'), 'media_tools_unsupported_by_previous_runtime');
   // Before stopping anything: the new root's Temporal CLI must be a pinned or explicitly configured build.
   await run.verifyTemporalCli(path.join(toRoot, '.local/bin/temporal'), next.config.temporalCliSha256);
   const version = JSON.parse(await readFile(path.join(toRoot, 'package.json'), 'utf8')).version;

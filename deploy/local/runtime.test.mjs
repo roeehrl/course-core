@@ -5,7 +5,7 @@ import {createServer,connect} from 'node:net';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
 import {privateDirectory,privateFile,privateFileInfo,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
-import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES,parseSecurityArguments,manageSecurity,allowInsecureOriginsConfiguration} from './pilot.mjs';
+import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES,parseSecurityArguments,manageSecurity,allowInsecureOriginsConfiguration,mediaToolsConfiguration} from './pilot.mjs';
 import {manager,launchdDefinition,plist} from './service.mjs';
 async function fixture(body){const directory=await mkdtemp('/tmp/cc-rt-');try{return await body(await privateDirectory(directory));}finally{await rm(directory,{recursive:true,force:true});}}
 async function executableFixture(root){for(const filename of ['.local/bin/temporal','services/api/dist/main.js','services/supervisor/dist/src/cli.js','apps/learner/dist/index.html','apps/admin/dist/index.html']){const target=path.join(root,filename);await mkdir(path.dirname(target),{recursive:true,mode:0o700});await writeFile(target,filename.endsWith('.html')?'<!doctype html>':'#!/usr/bin/env node\nprocess.exit(0);\n',{mode:0o700});}}
@@ -83,6 +83,32 @@ test('service plans preserve queue identity across instance changes and apply bo
 test('invalid resource and provider environment settings cannot escape the bounded process plan',()=>fixture(async state=>{
   for(const changed of [{resources:{workerConcurrency:999}},{resources:{apiHeapMiB:100000}},{temporalTaskQueue:'queue\nextra'},{providerCredentials:{NODE_OPTIONS:'--require untrusted'}}]){
     const c={...config(),...changed};await writePrivate(path.join(state,'config.json'),JSON.stringify(c),true);await assert.rejects(loadConfiguration(state,state));
+  }
+}));
+test('media tools are optional host programs passed only to the API as the CLIP_* variables',()=>fixture(async state=>{
+  await executableFixture(state);const bin=path.join(state,'tools');await mkdir(bin,{mode:0o700});
+  const tool=async(name,mode=0o700)=>{const file=path.join(bin,name);await writeFile(file,'#!/bin/sh\nexit 0\n',{mode});await chmod(file,mode);return file;};
+  const ffmpeg=await tool('ffmpeg'),ffprobe=await tool('ffprobe'),rasterizer=await tool('rsvg-convert'),plain=await tool('not-executable',0o600);
+  await writePrivate(path.join(state,'config.json'),JSON.stringify(config()),true);
+  let loaded=await loadConfiguration(state,state);assert.equal(loaded.config.mediaTools,null);
+  for(const service of servicePlan(state,state,loaded.config,randomUUID()))for(const name of ['CLIP_FFMPEG_PATH','CLIP_FFPROBE_PATH','CLIP_RASTERIZER_PATH'])assert(!Object.hasOwn(service.env,name));
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),mediaTools:{ffmpeg,ffprobe,rasterizer}}),true);
+  loaded=await loadConfiguration(state,state);assert.deepEqual(loaded.config.mediaTools,{ffmpeg,ffprobe,rasterizer});
+  const plan=servicePlan(state,state,loaded.config,randomUUID()),api=plan.find(service=>service.name==='api');
+  assert.equal(api.env.CLIP_FFMPEG_PATH,ffmpeg);assert.equal(api.env.CLIP_FFPROBE_PATH,ffprobe);assert.equal(api.env.CLIP_RASTERIZER_PATH,rasterizer);
+  for(const service of plan.filter(service=>service.name!=='api'))assert(!Object.keys(service.env).some(name=>name.startsWith('CLIP_')),service.name);
+  // ffmpeg alone (frame check only): the API finds ffprobe beside it; no other variable is set.
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),mediaTools:{ffmpeg}}),true);
+  const only=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID()).find(service=>service.name==='api').env;
+  assert.equal(only.CLIP_FFMPEG_PATH,ffmpeg);assert(!Object.hasOwn(only,'CLIP_FFPROBE_PATH'));assert(!Object.hasOwn(only,'CLIP_RASTERIZER_PATH'));
+  for(const [bad,code,hint] of [[null,'invalid_media_tools',/only ffmpeg, ffprobe, rasterizer/],[[ffmpeg],'invalid_media_tools',/only/],[{},'invalid_media_tools',/ffmpeg is required/],
+    [{ffmpeg,extra:ffmpeg},'invalid_media_tools',/only/],[{rasterizer},'invalid_media_tools',/ffmpeg is required/],[{ffmpeg:'ffmpeg'},'invalid_media_tools',/ffmpeg must be an absolute/],
+    [{ffmpeg,ffprobe:`${bin}/../tools/ffprobe`},'invalid_media_tools',/ffprobe must be an absolute, normalized/],[{ffmpeg:`${ffmpeg}\n`},'invalid_media_tools',/absolute/],[{ffmpeg,rasterizer:7},'invalid_media_tools',/rasterizer/],
+    [{ffmpeg:path.join(bin,'missing')},'media_tool_missing',/ffmpeg does not exist/],[{ffmpeg:bin},'media_tool_missing',/ffmpeg is not a file/],
+    [{ffmpeg,rasterizer:plain},'media_tool_not_executable',/rasterizer is not executable/]]){
+    await assert.rejects(mediaToolsConfiguration(bad),error=>error.code===code&&hint.test(error.hint),JSON.stringify(bad));
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),mediaTools:bad}),true);
+    await assert.rejects(loadConfiguration(state,state),error=>error.code===code,JSON.stringify(bad));
   }
 }));
 test('operational logs retain bounded fixed metadata, rotate, and reject raw output fields',()=>fixture(async state=>{

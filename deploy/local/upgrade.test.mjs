@@ -121,6 +121,23 @@ test('nothing is stopped when the upgrade is refused up front', () => fixture(as
   assert.deepEqual(sim.calls, []); assert.equal(sim.running, 'from');
 }));
 
+test('mediaTools is refused before stopping when the previous runtime would reject it on rollback', () => fixture(async options => {
+  const withTools = async (root, state) => ({ state, config: { backupAgeRecipients: [], publicOrigin: 'http://127.0.0.1:1', mediaTools: { ffmpeg: '/usr/bin/ffmpeg' } } });
+  // The previous runtime's launcher has no mediaTools key (an older release), or no launcher at all.
+  let sim = pilot(); sim.deps.loadConfiguration = withTools;
+  await assert.rejects(upgradePilot(options, sim.deps), /media_tools_unsupported_by_previous_runtime/);
+  await mkdir(path.join(options.from, 'deploy/local'), { recursive: true });
+  await writeFile(path.join(options.from, 'deploy/local/pilot.mjs'), "const keys = ['schemaVersion', 'snapshots'];\n");
+  await assert.rejects(upgradePilot(options, sim.deps), /media_tools_unsupported_by_previous_runtime/);
+  assert.deepEqual(sim.calls, []); assert.equal(sim.running, 'from');
+  // A previous runtime that knows the key can be rolled back to, so the upgrade proceeds.
+  await writeFile(path.join(options.from, 'deploy/local/pilot.mjs'), "const keys = ['schemaVersion', 'snapshots', 'mediaTools'];\n");
+  const result = await upgradePilot(options, sim.deps);
+  assert.equal(result.status, 'upgraded'); assert.equal(sim.running, 'to');
+  // Without the key nothing is checked.
+  sim = pilot(); assert.equal((await upgradePilot(options, sim.deps)).status, 'upgraded');
+}));
+
 test('the command line reports a blocked upgrade as one JSON line with its code', async () => {
   const run = await exec(process.execPath, [upgradeScript, '--from', '/nonexistent-a'], { encoding: 'utf8' }).then(() => assert.fail('must exit 1'), e => e);
   assert.equal(run.code, 1);
