@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { isAbortError, pageDepartureSignal } from "../client/apiClient";
 import { useT } from "../i18n";
 import {
@@ -6,6 +6,27 @@ import {
   type CompanionMessage,
   type ContextualCompanionClient,
 } from "../client/companionClient";
+/** How often the conversation is read again while the event stream is down (and the panel is open or a reply is due). */
+export const COMPANION_FALLBACK_POLL_MS = 5000;
+/** A slow safety read while a reply is due and the stream is up, in case an event was lost. */
+export const COMPANION_SAFETY_POLL_MS = 30000;
+type Saved = {
+  client: ContextualCompanionClient;
+  id: string;
+  messages: readonly CompanionMessage[];
+  /** The last refresh failed; translated when returned, so it follows the UI locale. */
+  failed: boolean;
+  loaded: boolean;
+};
+/**
+ * The companion conversation for one enrollment, kept current by events, not by polling.
+ *
+ * One event stream per enrollment stays open for the life of the panel: a new course revision
+ * or opening the panel re-reads the conversation over it, without reopening the stream. A
+ * companion event (question saved, answer recorded, supervisor applied) reads it at once.
+ * Polling is only a fallback while the stream is down. A read that returns the same messages
+ * changes no state, so nothing re-renders when nothing changed.
+ */
 export function useCompanionConversation(
   client: ContextualCompanionClient,
   enrollmentId: string | undefined,
@@ -13,27 +34,84 @@ export function useCompanionConversation(
   revision: number,
 ) {
   const t = useT();
-  const [saved, setSaved] = useState<{
-    client: ContextualCompanionClient;
-    id: string;
-    messages: readonly CompanionMessage[];
-    /** The last refresh failed; translated when returned, so it follows the UI locale. */
-    failed: boolean;
-    loaded: boolean;
-  }>();
+  const [saved, setSaved] = useState<Saved>();
+  // The current panel state, read by the stream effect without restarting it.
+  const openNow = useRef(open);
+  openNow.current = open;
+  const reread = useRef<(() => void) | undefined>(undefined);
+  const lastSeen = useRef({ open, revision });
   useEffect(() => {
     if (!enrollmentId) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pending = false;
-    // The enrollment's resumable event stream reloads the conversation as soon as a question
-    // or an answer is recorded; polling continues more slowly as the fallback.
     let streaming = false;
-    const onEvent = (type: string) => {
-      if (/^(companion\.|supervisor\.applied$)/.test(type)) {
-        clearTimeout(timer);
-        void load();
+    // One read at a time; requests while one runs (a replayed burst of events) read once more after it.
+    let running = false, again = false;
+    // The text of the last messages read, to tell a real change from an identical answer.
+    let shown: string | undefined, failedShown = false;
+    const schedule = () => {
+      clearTimeout(timer);
+      if (controller.signal.aborted) return;
+      const delay = streaming
+        ? pending ? COMPANION_SAFETY_POLL_MS : undefined
+        : openNow.current || pending ? COMPANION_FALLBACK_POLL_MS : undefined;
+      if (delay !== undefined) timer = setTimeout(() => void load(), delay);
+    };
+    async function load(): Promise<void> {
+      if (running) {
+        again = true;
+        return;
       }
+      running = true;
+      clearTimeout(timer);
+      try {
+        const messages = await client.load(enrollmentId!, controller.signal);
+        if (controller.signal.aborted) return;
+        pending = companionHasPending(messages);
+        const text = JSON.stringify(messages);
+        // An identical answer sets no state at all: even an updater that returns the old
+        // state can cost a render.
+        // A change is applied as a transition, so a read never holds back the paint of what
+        // the learner just did.
+        if (text !== shown || failedShown) {
+          const changed = text !== shown;
+          startTransition(() =>
+            changed
+              ? setSaved({ client, id: enrollmentId!, messages, failed: false, loaded: true })
+              : setSaved((old) => old && { ...old, failed: false }),
+          );
+          shown = text;
+          failedShown = false;
+        }
+      } catch (error) {
+        // Cancelled (by this effect or by leaving the page): nothing failed.
+        if (controller.signal.aborted || isAbortError(error)) return;
+        if (!failedShown) {
+          failedShown = true;
+          startTransition(() =>
+            setSaved((old) => ({
+              client,
+              id: enrollmentId!,
+              messages: old?.client === client && old.id === enrollmentId ? old.messages : [],
+              failed: true,
+              loaded: true,
+            })),
+          );
+        }
+      } finally {
+        running = false;
+      }
+      if (again) {
+        again = false;
+        return load();
+      }
+      schedule();
+    }
+    // The enrollment's resumable event stream reads the conversation again as soon as a
+    // question or an answer is recorded.
+    const onEvent = (type: string) => {
+      if (/^(companion\.|supervisor\.applied$)/.test(type)) void load();
     };
     void followEventStream(
       `/api/enrollments/${encodeURIComponent(enrollmentId)}/events/stream`,
@@ -41,59 +119,50 @@ export function useCompanionConversation(
       {
         onOpen: () => {
           streaming = true;
+          // A new stream replays the enrollment's events and a resumed one continues after
+          // the last id, so nothing recorded meanwhile is missed; the fallback timer stops.
+          if (!running) schedule();
         },
         onDown: () => {
           streaming = false;
+          schedule();
         },
         onEvent,
       },
     );
-    async function load() {
-      try {
-        const messages = await client.load(enrollmentId!, controller.signal);
-        if (controller.signal.aborted) return;
-        pending = companionHasPending(messages);
-        // Applied as a transition, so a reload never holds back the paint of what the learner just did.
-        startTransition(() =>
-          setSaved({
-            client,
-            id: enrollmentId!,
-            messages,
-            failed: false,
-            loaded: true,
-          }),
-        );
-      } catch (error) {
-        // Cancelled (by this effect or by leaving the page): nothing failed.
-        if (controller.signal.aborted || isAbortError(error)) return;
-        startTransition(() =>
-          setSaved((old) => ({
-            client,
-            id: enrollmentId!,
-            messages:
-              old?.client === client && old.id === enrollmentId
-                ? old.messages
-                : [],
-            failed: true,
-            loaded: true,
-          })),
-        );
-      }
-      if (!controller.signal.aborted && (open || pending)) {
-        clearTimeout(timer);
-        timer = setTimeout(() => void load(), open ? 3000 : streaming ? 10000 : 5000);
-      }
-    }
+    reread.current = () => void load();
+    lastSeen.current = { open: openNow.current, revision };
     void load();
     return () => {
+      reread.current = undefined;
       controller.abort();
       clearTimeout(timer);
     };
-  }, [client, enrollmentId, open, revision]);
+    // The revision and the panel state are followed by the effect below, in place.
+  }, [client, enrollmentId]);
+  useEffect(() => {
+    const seen = lastSeen.current;
+    if (seen.open === open && seen.revision === revision) return;
+    lastSeen.current = { open, revision };
+    // A new course revision, or the panel opening or closing: read once over the open stream
+    // (which also resets the fallback timer for the new panel state).
+    reread.current?.();
+  }, [open, revision]);
   if (saved?.client !== client || saved.id !== enrollmentId)
-    return { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
-  const { failed, ...rest } = saved;
-  return { ...rest, error: failed ? t("useCompanionConversation.refreshFailed") : "" };
+    return EMPTY;
+  return saved.failed ? withError(saved, t("useCompanionConversation.refreshFailed")) : withoutError(saved);
+}
+const EMPTY = { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
+// The returned object keeps its identity while the conversation is unchanged, so a memoized
+// panel given it does not re-render.
+const results = new WeakMap<Saved, { messages: readonly CompanionMessage[]; error: string; loaded: boolean }>();
+function withoutError(saved: Saved) {
+  let result = results.get(saved);
+  if (!result) results.set(saved, (result = { messages: saved.messages, error: "", loaded: saved.loaded }));
+  return result;
+}
+function withError(saved: Saved, error: string) {
+  return { messages: saved.messages, error, loaded: saved.loaded };
 }
 
 /**
