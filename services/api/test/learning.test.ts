@@ -12,7 +12,8 @@ describe('honest evidence and progression', () => {
     const gate = { ...fixture().gates[0]!, objectiveIds: ['minimum', 'maximum'] };
     const minEvidence = [evidence('minimum', 'min-a', 'compare'), evidence('minimum', 'min-b', 'select')];
     expect(gateDecision(fixture(), gate, minEvidence, 'digest').passed).toBe(false);
-    expect(gateDecision(fixture(), { ...gate, requireAllObjectives: false }, minEvidence, 'digest').passed).toBe(true);
+    // No SDK 0.4 compatibility: one demonstrated objective never stands for the others, whatever requireAllObjectives says.
+    expect(gateDecision(fixture(), { ...gate, requireAllObjectives: false }, minEvidence, 'digest').passed).toBe(false);
     expect(gateDecision(fixture(), fixture().gates[0]!, [minEvidence[0]!, { ...minEvidence[0]!, id: 'another' }], 'digest').passed).toBe(false);
   });
   it('rejects stale, failed, assisted, and unrelated evidence separately', () => {
