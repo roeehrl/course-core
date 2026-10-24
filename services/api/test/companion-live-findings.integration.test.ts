@@ -15,6 +15,7 @@ import { fixture } from './fixture.js';
 import { credentialVault } from '../src/key-vault.js';
 import { WorkspaceProviders } from '../src/provider-setup.js';
 import { roleReservation } from '../src/role-reservation.js';
+import { streamedIfAsked } from './streamed-provider-fixture.js';
 
 // Findings of the first live companion run, reproduced with the real Google REST adapter, gateway
 // route, bridge, verifier, spend ledger and PostgreSQL. Only the provider endpoint is scripted, with
@@ -26,13 +27,16 @@ const ALLOWANCE = 100_000, MODEL = 'gemini-test';
 const INPUT_PRICE = 750_000, OUTPUT_PRICE = 3_750_000;
 const priced = (input: number, output: number) => Math.ceil((input * INPUT_PRICE + output * OUTPUT_PRICE) / 1_000_000);
 const LONG_REPLY = 'The weight goes up because gradient descent steps against the gradient: new w = 2 - 0.1 x (-6) = 2.6. '.repeat(3);
-type Step = { reply: string | null; finish: 'STOP' | 'MAX_TOKENS'; thoughts: number; visible: number } | 'hang';
-const script: Step[] = [], requests: Record<string, unknown>[] = [];
+type Step = { reply: string | null; finish: 'STOP' | 'MAX_TOKENS' | 'SAFETY'; thoughts: number; visible: number } | 'hang';
+const script: Step[] = [], requests: Record<string, unknown>[] = [], urls: string[] = [];
 let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge, operator: string, courseDigest: string;
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-const scriptedFetch: typeof fetch = async (_url, init) => {
-  requests.push(JSON.parse(String(init?.body)));
+// Companion replies stream (docs/streamed-replies.md): a scripted answer is re-encoded as the
+// streamGenerateContent SSE the adapter asked for, so these findings also cover the streamed path.
+const scriptedFetch: typeof fetch = async (url, init) => streamedIfAsked(String(url), init, await scriptedAnswer(url, init));
+const scriptedAnswer: typeof fetch = async (url, init) => {
+  requests.push(JSON.parse(String(init?.body))); urls.push(String(url));
   const step = script.shift();
   if (!step) throw new Error('Unexpected provider request');
   if (step === 'hang') return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }));
@@ -124,6 +128,8 @@ const refusal = async (jobId: string) => (await db.query("SELECT content FROM su
 describe('live companion findings', () => {
   it('sends the companion thinking level and delivers a reply cut short at the output limit, marked, priced at the reported usage', async () => {
     const { job, claimed, outcome, settled } = await once({ reply: LONG_REPLY, finish: 'MAX_TOKENS', thoughts: 3700, visible: 396 });
+    // The streamed call carries the same thinking setting and cut-short handling as a whole reply.
+    expect(urls.at(-1)).toContain(':streamGenerateContent?alt=sse');
     const sent = requests.at(-1) as { generationConfig: Record<string, unknown> };
     expect(sent.generationConfig).toMatchObject({ maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: 'low' } });
     const cost = priced(2002, 396 + 3700);
@@ -157,6 +163,17 @@ describe('live companion findings', () => {
     const before = requests.length;
     expect(await invoke(claimed.request)).toEqual(outcome);
     expect(requests.length).toBe(before);
+  }, 60000);
+
+  it('a streamed reply the provider refuses (safety stop) is settled at its reported usage and priced, and nothing of it is kept', async () => {
+    const { job, claimed, outcome } = await once({ reply: 'Here is how to bypass', finish: 'SAFETY', thoughts: 120, visible: 6 });
+    expect(urls.at(-1)).toContain(':streamGenerateContent?alt=sse');
+    const cost = priced(2002, 6 + 120);
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: cost, tokens: 2002 + 6 + 120 }, usageBasis: { microUsd: 'reported', tokens: 'reported' } });
+    expect(await used(job.enrollmentId)).toBe(cost);
+    expect(await dispatch(claimed.operation.id)).toMatchObject({ state: 'completed', failure_code: 'BLOCKED', cost });
+    expect(await refusal(job.ref.jobId)).toEqual([{ kind: 'output_refusal', role: 'companion', reason: 'provider_output_blocked' }]);
+    expect((await transition({ type: 'verify', ref: job.ref })).json().snapshot).toMatchObject({ state: 'failed', reason: 'verification_rejected' });
   }, 60000);
 
   it('a timeout after sending still stays uncertain with the reservation held', async () => {
