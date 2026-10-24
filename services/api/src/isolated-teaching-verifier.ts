@@ -162,6 +162,20 @@ export async function isolatedTeachingVerifier(
     503,
   );
   const qualification = await sandbox.grade({ source: config.source, cases });
+  // A sandbox that could not run the cases (busy, unavailable, a cleanup failure) or ran out of
+  // time says nothing about the verifier: those are 503s a caller may retry (main.ts retries them
+  // at startup within a deadline). Only cases that ran and did not all pass, or broke the output
+  // protocol, are a failed qualification. Either way nothing is installed.
+  requireCondition(
+    !["busy", "unavailable", "cleanup_failed"].includes(qualification.status),
+    "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE",
+    503,
+  );
+  requireCondition(
+    qualification.status !== "timeout",
+    "TEACHING_VERIFIER_QUALIFICATION_TIMEOUT",
+    503,
+  );
   requireCondition(
     qualification.status === "graded" && qualification.passed,
     "TEACHING_VERIFIER_QUALIFICATION_FAILED",

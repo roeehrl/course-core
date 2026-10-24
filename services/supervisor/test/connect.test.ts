@@ -84,10 +84,11 @@ for (const mode of ['dispatch-once', 'worker']) test(`${mode} exits with a clear
     child.once('error', reject); child.once('close', code => { clearTimeout(kill); resolve({ code, stderr }); });
   });
   assert.equal(code, 1);
-  const lines = stderr.trim().split('\n').map(line => JSON.parse(line) as { code: string; attempts?: number });
+  const lines = stderr.trim().split('\n').map(line => JSON.parse(line) as { code: string; attempts?: number; startup?: string; step?: string });
   assert.ok(lines.some(line => line.code === 'temporal_connect_retry'), stderr);
   const last = lines.at(-1)!;
   assert.equal(last.code, 'temporal_unavailable'); assert.ok(last.attempts! >= 2);
+  assert.deepEqual([last.startup, last.step], ['failed', 'temporal']);
   assert.ok(Date.now() - started < 30_000);
   assert.doesNotMatch(stderr, new RegExp(String(port)));
 });

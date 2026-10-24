@@ -27,5 +27,5 @@ export async function assertRuntimePrivileges(db: Database) {
     `SELECT r.rolsuper AS superuser,has_schema_privilege(current_user,current_schema(),'CREATE') AS can_create,
        EXISTS(SELECT 1 FROM pg_tables WHERE schemaname=current_schema() AND tableowner=current_user) AS owns
      FROM pg_roles r WHERE r.rolname=current_user`)).rows[0]!;
-  if (row.superuser || row.can_create || row.owns) throw new Error('DATABASE_URL must use a least-privilege runtime role when MIGRATION_DATABASE_URL is set.');
+  if (row.superuser || row.can_create || row.owns) throw Object.assign(new Error('DATABASE_URL must use a least-privilege runtime role when MIGRATION_DATABASE_URL is set.'), { code: 'RUNTIME_PRIVILEGES' });
 }

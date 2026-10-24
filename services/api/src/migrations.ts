@@ -15,7 +15,7 @@ export async function migrate(db: Database, directory: string): Promise<string[]
       const digest = createHash('sha256').update(sql).digest('hex');
       const old = await client.query<{ digest: string }>('SELECT digest FROM schema_migrations WHERE name = $1', [name]);
       if (old.rowCount) {
-        if (old.rows[0]!.digest !== digest) throw new Error(`Applied migration changed: ${name}`);
+        if (old.rows[0]!.digest !== digest) throw Object.assign(new Error(`Applied migration changed: ${name}`), { code: 'MIGRATION_CHANGED' });
         continue;
       }
       await client.query(sql);
