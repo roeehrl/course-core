@@ -54,13 +54,16 @@ one view. See [i18n.md](i18n.md) for how catalogs work.
 | regrade | בדיקה מחדש | |
 | appeal / dispute | ערעור | evidence dispute → ערעור על ראיה |
 | companion | מלווה הלמידה | short form המלווה |
-| supervisor (AI agent) | המפקח | |
+| tutor (the AI supervisor as learners see it) | המנחה | owner-approved 2026-10-24; plural המנחים. In the learner app every "supervisor" or "tutor" is המנחה; personal AI supervision → ההנחיה האישית של ה-AI |
+| supervisor (AI agent, staff-facing) | המפקח | admin only, next to פיקוח AI; learners never see המפקח |
 | supervision | פיקוח | AI supervision → פיקוח AI |
 | teaching hypothesis | השערת הוראה | |
 | learner memory | זיכרון הלמידה | |
 | learning record | תיעוד הלמידה | |
 | profile | פרופיל | |
 | placement | שיבוץ | placement check → בדיקת שיבוץ |
+| placed out | פטור בזכות השיבוץ | owner-approved 2026-10-24; counts → "{n} עם פטור בזכות השיבוץ"; never "דולג" |
+| exemption | פטור | owner-approved 2026-10-24; plural פטורים |
 | workspace | סביבת עבודה | plural סביבות עבודה |
 | owner | בעלים | role label; same in singular and plural |
 | admin / administrator | מנהל/ת | the admin app → אזור הניהול |
@@ -73,6 +76,8 @@ one view. See [i18n.md](i18n.md) for how catalogs work.
 | role | תפקיד | people & roles → אנשים ותפקידים |
 | permission | הרשאה | |
 | enrollment | הרשמה | plural הרשמות; enrolled learners → לומדים רשומים |
+| enrollment states | פעיל / מושהה / סגור / הושלם | owner-approved 2026-10-24; active / paused / closed / completed, as standalone status labels |
+| cohort | מחזור | owner-approved 2026-10-24 |
 | release (a published course version) | גרסה | course & releases → קורס וגרסאות |
 | version | גרסה | version numbers stay LTR |
 | draft | טיוטה | |
@@ -81,18 +86,29 @@ one view. See [i18n.md](i18n.md) for how catalogs work.
 | revision (record revision number) | מהדורה | "revision 3" → מהדורה 3 |
 | digest (hash) | גיבוב | shown LTR, e.g. sha256 values |
 | policy | מדיניות | |
+| scope (policy scope) | תחום | owner-approved 2026-10-24; ancestor scope → תחום-על; never היקף or רמה for a scope |
+| ledger | פנקס | owner-approved 2026-10-24 |
+| remediation | חיזוק | owner-approved 2026-10-24; remediation cycles → סבבי חיזוק |
 | extension (more time or work) | הארכה | extension offer → הצעת הארכה |
 | deadline | מועד אחרון | |
 | learning window | חלון הלמידה | |
 | allowance / quota | מכסה | |
 | accommodation | התאמה | |
 | study (research study) | מחקר | studies → מחקרים |
+| study arm | זרוע | owner-approved 2026-10-24; plural זרועות |
 | consent | הסכמה | |
 | research sources | מקורות מחקר | |
 | generated media | מדיה שנוצרה | |
 | provider (AI model provider) | ספק AI | providers → ספקי AI |
 | model | מודל | |
 | run (an agent run) | הרצה | run inspector → בודק ההרצות |
+| rerun / retry a run | הרצה מחדש | owner-approved 2026-10-24; "retried" → הורצה מחדש. Generic retry buttons stay ניסיון נוסף |
+| replay (sandboxed replay, visual replay) | הפעלה חוזרת | owner-approved 2026-10-24; "replaying…" → מפעילים מחדש… |
+| debug inspector | כלי דיבוג | owner-approved 2026-10-24; definite כלי הדיבוג |
+| receipt | אישור | owner-approved 2026-10-24; plural אישורים (not אישור רישום) |
+| artifact (run output) | תוצר | owner-approved 2026-10-24; plural תוצרים |
+| quarantined | בהסגר | owner-approved 2026-10-24 |
+| inspection (source or release scan) | סריקה | owner-approved 2026-10-24 |
 | audit log | יומן ביקורת | |
 | overview | סקירה כללית | |
 | dashboard | לוח בקרה | |
