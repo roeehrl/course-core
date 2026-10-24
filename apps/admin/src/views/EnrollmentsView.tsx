@@ -23,6 +23,7 @@ import {
   PermissionHint,
 } from "../components/ui";
 import { useI18n, useT, type MessageKey } from "../i18n";
+import { learnerName } from "../domain/learnerName";
 
 /** Status badge tones, as the shared status badge colours them. */
 const statusTone: Record<string, "green" | "gold" | "red"> = {
@@ -60,7 +61,7 @@ export function EnrollmentsView({
     data.permissions.includes("evidence.regrade") && !!client.regrade;
   const selected = data.enrollments.find((item) => item.id === selectedId);
   const visible = data.enrollments.filter((item) =>
-    `${item.profile.displayName} ${item.learnerRef}`
+    `${learnerName(t, item)} ${item.learnerRef}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
@@ -121,7 +122,7 @@ export function EnrollmentsView({
                 </span>
                 <span>
                   <strong>
-                    <bdi>{item.profile.displayName}</bdi>
+                    <bdi>{learnerName(t, item)}</bdi>
                   </strong>
                   <small>
                     {t("enrollmentsView.item.progress", {
@@ -146,7 +147,7 @@ export function EnrollmentsView({
         {selected ? (
           <div className="stack">
             <Card
-              title={selected.profile.displayName}
+              title={learnerName(t, selected)}
               titleDir="auto"
               eyebrow={t("enrollmentsView.profile.eyebrow")}
               actions={
@@ -236,7 +237,7 @@ export function EnrollmentsView({
               </div>
               <progress
                 aria-label={t("enrollmentsView.progress.label", {
-                  name: selected.profile.displayName,
+                  name: learnerName(t, selected),
                 })}
                 value={selected.completed}
                 max={selected.required}

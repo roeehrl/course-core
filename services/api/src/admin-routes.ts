@@ -333,7 +333,8 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
       id: enrollmentId,
       learnerRef: context.enrollment.user_id,
       revision: context.enrollment.revision,
-      profile: { displayName: "Erased learning data", goal: "", pace: "steady" as const },
+      // No name: the admin words an erased enrollment in the reader's language (status "erased").
+      profile: { displayName: "", goal: "", pace: "steady" as const },
       releaseVersion: course.version,
       status: "erased",
       completed: 0,
@@ -517,7 +518,8 @@ async function workspaceView(
       id: catalogId,
       title: catalog.title,
       description: catalog.description,
-      category: "Course workspace",
+      // A code, worded by the admin app in the reader's language (adminApp.workspace).
+      categoryCode: "course_workspace" as const,
       objectives: (visible[0]?.server_bundle.objectives ?? []).map(
         (o) => o.description,
       ),

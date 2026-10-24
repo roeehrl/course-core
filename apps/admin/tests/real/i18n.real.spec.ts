@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { accent } from "@course-core/i18n";
 
 /**
  * Every admin view against the real API, in Hebrew (right to left, axe, no overflow) and under
@@ -115,4 +116,42 @@ test("every admin view on the real API leaves no untranslated text under en-XA",
       problems.push(`${name}: ${wide}px overflow (${info.project.name})`);
   });
   expect(problems).toEqual([]);
+});
+
+test("the AI supervision settings wrap their long labels under en-XA instead of widening the page", async ({
+  page,
+}, info) => {
+  // The 0.1.54 qualification measured 261 px of overflow here at a 1280 px desktop, from one
+  // unbroken pseudo-locale run in the help text; the desktop run checks that narrower width too.
+  if (info.project.name === "desktop")
+    await page.setViewportSize({ width: 1280, height: 900 });
+  await signIn(page);
+  await page.goto("/admin/?locale=en-XA");
+  await page
+    .locator(".nav-links")
+    .getByRole("button", { name: accent("AI supervision") })
+    .click();
+  const settings = page.locator(".supervision-settings").first();
+  await expect(
+    settings.getByRole("heading", { name: accent("AI supervision settings") }),
+  ).toBeVisible();
+  await expect(page.locator("main .loading")).toHaveCount(0);
+  expect(
+    await overflow(page),
+    `${info.project.name} overflows`,
+  ).toBeLessThanOrEqual(0);
+  // A word longer than the column (a long translation, or an unbroken run like the one above)
+  // wraps inside the card's help text, legends and choices instead of widening the page.
+  await settings.evaluate((card) => {
+    const long = "W".repeat(400);
+    for (const target of card.querySelectorAll("p, legend, label span"))
+      target.append(` ${long}`);
+  });
+  expect(
+    await overflow(page),
+    `${info.project.name} overflows with a long word`,
+  ).toBeLessThanOrEqual(0);
+  // The card itself stays inside the content column.
+  const box = (await settings.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 });

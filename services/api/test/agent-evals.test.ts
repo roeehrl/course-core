@@ -130,7 +130,8 @@ describe("scripted runs through the real provider path", () => {
     const report = await runSuite({ suite, configuration, runtime, mode: "scripted", beforeDialogue: (d) => { scripted.current = d.id; } });
     expect(report.passed).toBe(false);
     for (const run of report.roles.flatMap((r) => r.dialogues)) {
-      expect(["error"]).toContain(run.output.kind);
+      // A provider safety stop is a reply the provider finished: a refusal with its reason code. A server error stays a failed call.
+      expect(run.output).toEqual(outputs[run.dialogueId]!.kind === "refusal" ? { kind: "refusal", reason: "provider_output_blocked" } : { kind: "error", code: "UPSTREAM_UNAVAILABLE" });
       expect(run.grade.graders.every((g) => !g.passed && g.findings[0]!.startsWith("no_answer:"))).toBe(true);
     }
   });

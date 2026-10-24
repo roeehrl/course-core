@@ -163,7 +163,8 @@ export const enrollmentSchema = z.object({
   id,
   learnerRef: id,
   revision: z.number().int().positive().optional(),
-  profile: profileSchema,
+  /** No name for an erased enrollment: the admin words it (domain/learnerName.ts). */
+  profile: profileSchema.extend({ displayName: z.string().trim().max(100) }),
   releaseVersion: text,
   status: z.enum(["active", "paused", "completed", "closed", "erased"]),
   completed: z.number().int().nonnegative(),
@@ -380,7 +381,10 @@ export const runSchema = runSummarySchema.extend({
 export type SupervisorRun = z.infer<typeof runSchema>;
 export const workspaceSchema = z.object({
   course: courseSummarySchema.extend({
-    category: text,
+    /** Course-authored category text (demo data). The connected API sends `categoryCode` instead. */
+    category: text.optional(),
+    /** What kind of page this is, as a code the admin app words in the reader's language. */
+    categoryCode: z.enum(["course_workspace"]).optional(),
     objectives: z.array(text),
   }),
   revision: id,
