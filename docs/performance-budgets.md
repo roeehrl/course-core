@@ -32,22 +32,37 @@ the app's own rendering and API round trips, not network latency to a remote hos
 The navigation, feedback and acknowledgement budgets are the T01 product targets
 themselves. First-token time (3 s) for AI answers is measured separately, below.
 
-### First reply from the companion (T01, 3 s)
+### First token from the companion (T01, 3 s)
 
-Core does not stream a reply word by word: the learner sees the whole verified reply at once,
-so "first token" here is the first reply. Its time is the sum of:
+Companion replies stream ([streamed-replies.md](streamed-replies.md)): the learner sees the first
+words of a reply as a draft while the model writes, and the checked reply replaces it. "First
+token" is the first streamed text on the learner's event stream. `services/api/qualification/supervised-flow.ts`
+measures it end to end (`firstTokenMs`, check `streamed_reply_first_token_under_3s`) with nothing
+called by hand: the learner's real HTTP question, the dispatcher's own loop (woken at commit,
+2 s backstop poll), real Temporal, the HTTP provider gateway, a stub model that streams over
+loopback HTTP after `QUALIFICATION_FIRST_TOKEN_MS` (default 600 ms, allowed 300–800 ms), and the
+learner's real SSE event stream. The gate fails at 3,000 ms or more.
 
-| Part | Where it is measured or set | Value |
+| Part | How it is bounded now | Before streaming |
 | --- | --- | --- |
-| Wait for the dispatcher to pick the question up | `SUPERVISOR_DISPATCH_INTERVAL_MS` (default 2,000 ms, minimum 1,000) | 0 to one interval |
-| Core's pipeline: dispatch, workflow, provider call, verification, application, reply readable | `services/api/qualification/supervised-flow.ts` (`firstReplyPipelineMs`, real PostgreSQL, real Temporal, a loopback provider that answers at once); fails above 1,500 ms | 396 ms locally (2026-10-21) |
-| The learner app noticing the reply | event stream poll (`services/api/src/event-stream.ts`, 1,000 ms) | 0 to 1 s |
-| The model's own time | live provider only | not measured |
+| Dispatcher picks the question up | woken by a PostgreSQL notification at commit (`outbox.wait` long poll); the 2 s interval is only a backstop | 0 to 2 s poll |
+| Core's pipeline to the model call | workflow start, availability, claim, gateway admission | part of `firstReplyPipelineMs` |
+| The model's own time to its first token | stub: 300–800 ms; live provider: not measured | — |
+| Text reaching the learner | pushed on the open event stream when released at a safe boundary | 0 to 1 s poll, after verification |
 
-With the defaults the worst case before the model's own time is about 3.4 s, so the 3 s
-target cannot be met for every question. Setting `SUPERVISOR_DISPATCH_INTERVAL_MS=1000` brings
-the worst case to about 2.4 s plus the model. Meeting 3 s with a real model needs streamed
-replies, which Core does not have yet, and a live measurement, which needs the owner's provider.
+Measured locally (2026-10-24, loaded Apple-silicon Mac):
+
+| Stub first token | `firstTokenMs` (question sent → first text on the learner's stream) | `streamedReplyMs` (→ stored reply readable) |
+| --- | --- | --- |
+| 300 ms | 394 ms | 722 ms |
+| 600 ms (default) | 673 ms | 972 ms |
+| 800 ms | 864 ms | 1,154 ms |
+
+So Core adds about 65–95 ms before the model's own first token, and the 3 s target leaves the
+model about 2.5 s. `firstReplyPipelineMs` (391 ms, budget 1,500 ms) still measures Core's
+non-streaming pipeline from dispatch to a readable stored reply with a provider that answers at
+once. A live measurement with a real model needs the owner's provider and is not part of this
+gate.
 
 | Budget | Threshold | Measured locally (2026-10-21) | Product target |
 | --- | --- | --- | --- |

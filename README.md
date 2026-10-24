@@ -353,6 +353,12 @@ files the host configured (`CODE_FIXTURE_FILES`, `TEACHING_VERIFIER_FILES`) and 
 digests only. The verifier is `services/api/src/course-package.ts`; it is structured so it can
 delegate to the SDK's canonical verifier once Core pins an SDK release that has one.
 
+When the API cannot start it writes one JSON line naming the failing step (database, migrations,
+Docker, sandbox image, verifier qualification, port and others) with a fixed code and a hint, and exits 1;
+`LOG_LEVEL=debug` logs each step's duration on a successful start. Startup waits up to
+`SANDBOX_STARTUP_TIMEOUT_MS` (default 2 minutes) for a slow Docker before teaching-verifier
+qualification fails; qualification is never skipped. See [docs/startup-diagnostics.md](docs/startup-diagnostics.md).
+
 **Files a course brings.** A course can carry two kinds of extension in its package instead of
 asking the operator to install them: a data-only code fixture registry (hidden input/expected
 cases, `execution: 'server'`) and a `sandboxed_web` activity script. The course's extension
@@ -1043,7 +1049,9 @@ stream for the same readers, with the same payload rule: staff readers get
 allowlisted payloads only. Each event's SSE id is its sequence, so a
 reconnecting client resumes after the last event it received
 (`Last-Event-ID`), and `?after=` starts after a known cursor. Limits:
-- up to 100 events per read, and a read every second while idle;
+- new events are sent as soon as their transaction commits (a PostgreSQL
+  notification), with a read every second while idle as the backstop;
+- up to 100 events per read;
 - a heartbeat every 15 s;
 - access rechecked every 30 s, and a `closed` event when access ends;
 - a `reconnect` event after 5 minutes;
@@ -1052,6 +1060,14 @@ reconnecting client resumes after the last event it received
 
 The companion reloads at once when the stream reports a question or an answer,
 and polls more slowly in the background while the stream is connected.
+
+Companion replies stream: while the model writes, the enrollment's own learner
+receives the reply as an unchecked draft (`companion-draft` events on this
+stream, never sent to staff), released at safe boundaries and replaced by the
+stored reply once it is verified. The learner can stop a reply being prepared
+(`POST /api/enrollments/:id/companion/messages/:messageId/cancel`). Drafts are
+kept in memory only, never stored or exported, and dropped on erasure. See
+[docs/streamed-replies.md](docs/streamed-replies.md).
 
 The companion also states what it is doing:
 - available;

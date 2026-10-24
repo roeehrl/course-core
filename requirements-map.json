@@ -1089,9 +1089,15 @@
       "core:services/api/test/visual-accessibility.test.ts"
     ],
     "T01": [
+      "core:apps/learner/tests/companion.test.tsx::shows a streaming draft labelled as unchecked, outside the live announcements",
+      "core:packages/providers/test/streaming.test.mjs::Anthropic stream: stream:true on the Messages body",
+      "core:packages/providers/test/streaming.test.mjs::Google stream: streamGenerateContent with alt=sse",
       "core:services/api/browser/budgets.spec.ts::feedbackMs",
       "core:services/api/qualification/supervised-flow.ts::firstReplyPipelineMs",
-      "core:services/api/test/release-transition-latency.integration.test.ts"
+      "core:services/api/qualification/supervised-flow.ts::streamed_reply_first_token_under_3s",
+      "core:services/api/test/release-transition-latency.integration.test.ts",
+      "core:services/api/test/streamed-replies.integration.test.ts::answers at the commit of new work, not after its timeout",
+      "core:services/api/test/streamed-replies.integration.test.ts::pushes released text to the learner while the model answers, never to staff, and the receipt still settles the call"
     ],
     "T03": [
       "core:apps/admin/tests/platform.test.tsx::says when the newest backup is not encrypted",
