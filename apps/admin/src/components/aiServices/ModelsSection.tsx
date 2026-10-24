@@ -25,6 +25,8 @@ import {
   type FieldError,
 } from "./shared";
 import { AiServicesError } from "../../domain/aiServices";
+import { ChangedElsewhere } from "../ChangedElsewhere";
+import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 type Choice = {
@@ -147,13 +149,20 @@ export function ModelsSection(props: Props) {
     return result;
   }, [draft, active, usable, lists]);
   // Until the operator picks a model the form shows the saved choices or the suggestions,
-  // derived rather than copied in an effect: a copy effect still pending when the section
-  // appears would run after a pick made at that moment and overwrite it.
-  const [edited, setEdited] = useState<typeof initial | null>(null);
-  const choices = edited ?? initial,
-    touched = edited !== null;
-  const setChoices = (update: (current: typeof initial) => typeof initial) =>
-    setEdited((edit) => update(edit ?? initial));
+  // derived rather than copied in, so a pick made the moment the section appears (or while
+  // the page reloads) is kept. The saved version is what is on and the open draft; the
+  // suggestions arriving with the model lists are not a change made elsewhere.
+  const snapshot = useEditableSnapshot(
+    initial,
+    JSON.stringify([
+      data.setup.revision,
+      draft?.id ?? null,
+      draft?.updatedAt ?? null,
+    ]),
+  );
+  const choices = snapshot.value,
+    touched = snapshot.edited;
+  const setChoices = snapshot.set;
   const [showAll, setShowAll] = useState(false);
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [message, setMessage] = useState<{
@@ -238,7 +247,7 @@ export function ModelsSection(props: Props) {
         message: t("aiServices.models.errVideo"),
       });
     setErrors(problems);
-    if (problems.length) return;
+    if (problems.length || snapshot.changedElsewhere) return;
     setSaving(true);
     try {
       const assignments = {} as Record<Job, Assignment>;
@@ -267,7 +276,7 @@ export function ModelsSection(props: Props) {
         });
       } else if (await activate(created))
         setMessage({ tone: "ok", text: t("aiServices.models.saved") });
-      setEdited(null);
+      snapshot.settle();
       await reload();
     } catch (error) {
       const service = serviceName(t, usable[0]?.kind ?? "");
@@ -294,7 +303,7 @@ export function ModelsSection(props: Props) {
     setSaving(true);
     try {
       await port.discardDraft(workspaceId);
-      setEdited(null);
+      snapshot.settle();
       setMessage({ tone: "ok", text: t("aiServices.models.discarded") });
       await reload();
     } catch (error) {
@@ -593,11 +602,20 @@ export function ModelsSection(props: Props) {
         </label>
         <p className="ai-muted">{t("aiServices.models.basis")}</p>
         {message && <Message tone={message.tone}>{message.text}</Message>}
+        {snapshot.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={saving}
+            onShowSaved={snapshot.discard}
+            onKeep={snapshot.keep}
+          />
+        )}
         <div className="ai-actions">
           <button
             type="submit"
             className="button primary"
-            disabled={saving || (!changed && !draft?.stale)}
+            disabled={
+              saving || (!changed && !draft?.stale) || snapshot.changedElsewhere
+            }
           >
             {saving
               ? t("aiServices.models.saving")

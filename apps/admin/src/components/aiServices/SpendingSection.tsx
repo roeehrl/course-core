@@ -17,6 +17,8 @@ import {
   useAiText,
   type FieldError,
 } from "./shared";
+import { ChangedElsewhere } from "../ChangedElsewhere";
+import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 /** Proposed when nothing is set yet (the operator's decision): $25 in total, $2 per learner. */
@@ -40,12 +42,12 @@ export function SpendingSection(props: Props) {
     }),
     [savedTotal, savedLearner],
   );
-  // Until the operator edits a limit the form shows the saved (or proposed) values. Deriving
-  // them, rather than copying them in an effect, keeps an edit typed the moment the section
-  // appears: a copy effect still pending then would run after the edit and overwrite it.
-  const [edited, setEdited] = useState<typeof initial | null>(null);
-  const form = edited ?? initial,
-    touched = edited !== null;
+  // Until the operator edits a limit the form shows the saved (or proposed) values, derived
+  // rather than copied in, so an edit typed the moment the section appears or while the page
+  // reloads is kept (see useEditableSnapshot).
+  const snapshot = useEditableSnapshot(initial);
+  const form = snapshot.value,
+    touched = snapshot.edited;
   const total = parseUsd(form.total, MAX),
     learner = parseUsd(form.learner, MAX);
   // Changed: there is something to save (the proposed limits count). Unsaved: the operator edited it.
@@ -93,7 +95,13 @@ export function SpendingSection(props: Props) {
         message: t("aiServices.spending.errLearnerMore"),
       });
     setErrors(problems);
-    if (problems.length || total === null || learner === null || !budgets)
+    if (
+      problems.length ||
+      total === null ||
+      learner === null ||
+      !budgets ||
+      snapshot.changedElsewhere
+    )
       return;
     setSaving(true);
     try {
@@ -125,7 +133,7 @@ export function SpendingSection(props: Props) {
         });
       }
       keys.settle();
-      setEdited(null);
+      snapshot.settle();
       setMessage({
         tone: "ok",
         text: total
@@ -185,10 +193,7 @@ export function SpendingSection(props: Props) {
                   disabled={saving}
                   onChange={(event) => {
                     const total = event.target.value;
-                    setEdited((current) => ({
-                      ...(current ?? initial),
-                      total,
-                    }));
+                    snapshot.set((current) => ({ ...current, total }));
                   }}
                   {...described(totalId, !!savedTotal, totalError)}
                 />
@@ -210,10 +215,7 @@ export function SpendingSection(props: Props) {
                   disabled={saving}
                   onChange={(event) => {
                     const learner = event.target.value;
-                    setEdited((current) => ({
-                      ...(current ?? initial),
-                      learner,
-                    }));
+                    snapshot.set((current) => ({ ...current, learner }));
                   }}
                   {...described(learnerId, true, learnerError)}
                 />
@@ -250,11 +252,18 @@ export function SpendingSection(props: Props) {
           </p>
           <p className="ai-muted">{t("aiServices.spending.consent")}</p>
           {message && <Message tone={message.tone}>{message.text}</Message>}
+          {snapshot.changedElsewhere && (
+            <ChangedElsewhere
+              disabled={saving}
+              onShowSaved={snapshot.discard}
+              onKeep={snapshot.keep}
+            />
+          )}
           <div className="ai-actions">
             <button
               type="submit"
               className="button primary"
-              disabled={saving || !changed}
+              disabled={saving || !changed || snapshot.changedElsewhere}
             >
               {saving
                 ? t("aiServices.spending.saving")

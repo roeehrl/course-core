@@ -23,6 +23,7 @@ import {
   type MessageKey,
 } from "../src/i18n";
 import { createFetchAdminClient } from "../src/client/fetchClient";
+import { actNow, firstSight, withoutAct } from "./raceHelpers";
 
 // The quality check run from the page, prefilled prices and the reasons next to model
 // suggestions. The port is a fake: nothing here contacts a server or a provider.
@@ -553,6 +554,20 @@ describe("prefilled prices", () => {
       outputMicroUsdPerMillionTokens: 7500000,
       effectiveFrom: "2027-01-01T00:00:00.000Z",
     });
+  });
+
+  it("keeps a price typed the moment the prices appear", async () => {
+    const port = fakePort({
+      currentDraft: vi.fn().mockResolvedValue(draft(true, false)),
+      pricing: vi.fn().mockResolvedValue(pricing("2027-01-01")),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const input = await withoutAct(() =>
+      firstSight(() => screen.queryAllByDisplayValue("0.75")[0] ?? null),
+    );
+    // Typed in the same task the prices appeared in, before React's pending effects ran.
+    await actNow(() => fireEvent.change(input, { target: { value: "0.80" } }));
+    expect(input).toHaveValue("0.80");
   });
 
   it("warns when an announced change is within 60 days, and saves only what the owner changed", async () => {

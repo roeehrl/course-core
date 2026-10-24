@@ -12,6 +12,8 @@ import {
   sectionAnchor,
   useAiText,
 } from "./shared";
+import { ChangedElsewhere } from "../ChangedElsewhere";
+import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
 
 type Props = SectionProps & { unsaved: boolean };
 type Note = { tone: "ok" | "info" | "error"; text: string } | undefined;
@@ -53,15 +55,16 @@ export function AdvancedSection(props: Props) {
     adapters?: Adapter[];
   } & Record<string, unknown>;
   const pretty = JSON.stringify(configuration, null, 2);
+  // Each form here shows the saved values until edited, derived rather than copied in an
+  // effect, so an edit made the moment the section appears or while the page reloads is kept,
+  // and a change saved elsewhere meanwhile is named instead of overwritten (useEditableSnapshot).
   const [editing, setEditing] = useState(false);
-  const [json, setJson] = useState(pretty);
+  const jsonEdit = useEditableSnapshot(pretty);
+  const json = jsonEdit.value;
   const [notes, setNotes] = useState<Record<string, Note>>({});
   const [busy, setBusy] = useState(false);
   const note = (key: string, value: Note) =>
     setNotes((current) => ({ ...current, [key]: value }));
-  useEffect(() => {
-    if (!editing) setJson(pretty);
-  }, [pretty, editing]);
   const policy = data.setup.jobPolicy;
   const initialLimits = {
     cost: String(policy.allowance.microUsd / 1000000),
@@ -70,24 +73,29 @@ export function AdvancedSection(props: Props) {
     timeout: String(Math.round(policy.timeoutMs / 1000)),
     attempts: String(policy.maxAttempts),
   };
-  const [limits, setLimits] = useState(initialLimits);
+  const limitsEdit = useEditableSnapshot(initialLimits);
+  const limits = limitsEdit.value;
   const limitsKey = JSON.stringify(initialLimits);
-  useEffect(() => setLimits(JSON.parse(limitsKey)), [limitsKey]);
   const [youtube, setYoutube] = useState("");
+  const requirePricing = data.pricing?.requirePricing ?? true;
+  const ruleEdit = useEditableSnapshot({ require: requirePricing, ack: false });
+  const rule = ruleEdit.value;
   const dirty =
     (editing && json !== pretty) ||
     JSON.stringify(limits) !== limitsKey ||
-    !!youtube;
+    !!youtube ||
+    rule.require !== requirePricing;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
 
-  /** Saves a whole configuration and job policy as a draft, then turns it on when no check is needed. */
+  /** Saves a whole configuration and job policy as a draft, then turns it on when no check is
+   * needed. Resolves true once the draft is saved. */
   async function apply(
     key: string,
     next: unknown,
     jobPolicy: unknown,
     done: string,
-  ) {
+  ): Promise<boolean> {
     setBusy(true);
     setNotes({});
     try {
@@ -99,15 +107,21 @@ export function AdvancedSection(props: Props) {
       if (draft.waitingForCheck.length)
         note(key, { tone: "info", text: t("aiServices.advanced.jsonWaiting") });
       else if (await activate(draft)) note(key, { tone: "ok", text: done });
-      setEditing(false);
+      if (key === "json") {
+        setEditing(false);
+        jsonEdit.discard();
+      } else if (key === "limits") limitsEdit.settle();
       await reload();
+      return true;
     } catch (error) {
       note(key, { tone: "error", text: errorText(text, error) });
+      return false;
     } finally {
       setBusy(false);
     }
   }
   function saveJson() {
+    if (jsonEdit.changedElsewhere) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(json);
@@ -123,6 +137,7 @@ export function AdvancedSection(props: Props) {
     void apply("json", parsed, policy, t("aiServices.advanced.jsonSaved"));
   }
   function saveLimits() {
+    if (limitsEdit.changedElsewhere) return;
     const numbers = {
       cost: Math.round(Number(limits.cost) * 1000000),
       tokens: Number(limits.tokens),
@@ -186,7 +201,7 @@ export function AdvancedSection(props: Props) {
       enabled,
       ...(slot ? { credentialEnv: slot } : {}),
     };
-    await apply(
+    return apply(
       `fallback-${adapterId}`,
       next,
       policy,
@@ -216,14 +231,8 @@ export function AdvancedSection(props: Props) {
       setBusy(false);
     }
   }
-  const requirePricing = data.pricing?.requirePricing ?? true;
-  const [rule, setRule] = useState({ require: requirePricing, ack: false });
-  useEffect(
-    () => setRule({ require: requirePricing, ack: false }),
-    [requirePricing],
-  );
   async function saveRule() {
-    if (!data.pricing) return;
+    if (!data.pricing || ruleEdit.changedElsewhere) return;
     setBusy(true);
     note("rule", undefined);
     try {
@@ -234,6 +243,7 @@ export function AdvancedSection(props: Props) {
         ...(rule.require ? {} : { acknowledgeConservativeCharge: rule.ack }),
       });
       note("rule", { tone: "ok", text: t("aiServices.advanced.ruleSaved") });
+      ruleEdit.settle();
       await reload();
     } catch (error) {
       note("rule", { tone: "error", text: errorText(text, error) });
@@ -295,7 +305,7 @@ export function AdvancedSection(props: Props) {
               spellCheck={false}
               value={json}
               disabled={busy}
-              onChange={(event) => setJson(event.target.value)}
+              onChange={(event) => jsonEdit.set(event.target.value)}
             />
           </Field>
         ) : (
@@ -309,6 +319,13 @@ export function AdvancedSection(props: Props) {
           </pre>
         )}
         {show("json")}
+        {editing && jsonEdit.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={busy}
+            onShowSaved={jsonEdit.discard}
+            onKeep={jsonEdit.keep}
+          />
+        )}
         <div className="ai-actions">
           <button
             type="button"
@@ -329,7 +346,10 @@ export function AdvancedSection(props: Props) {
               type="checkbox"
               checked={editing}
               disabled={busy}
-              onChange={(event) => setEditing(event.target.checked)}
+              onChange={(event) => {
+                setEditing(event.target.checked);
+                if (!event.target.checked) jsonEdit.discard();
+              }}
             />
             {t("aiServices.advanced.editJson")}
           </label>
@@ -337,7 +357,7 @@ export function AdvancedSection(props: Props) {
             <button
               type="button"
               className="button primary"
-              disabled={busy}
+              disabled={busy || jsonEdit.changedElsewhere}
               onClick={saveJson}
             >
               {t("aiServices.advanced.saveJson")}
@@ -365,19 +385,31 @@ export function AdvancedSection(props: Props) {
                 inputMode={mode}
                 value={limits[key]}
                 disabled={busy}
-                onChange={(event) =>
-                  setLimits({ ...limits, [key]: event.target.value })
-                }
+                onChange={(event) => {
+                  const value = event.target.value;
+                  limitsEdit.set((current) => ({ ...current, [key]: value }));
+                }}
               />
             </Field>
           ))}
         </div>
         {show("limits")}
+        {limitsEdit.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={busy}
+            onShowSaved={limitsEdit.discard}
+            onKeep={limitsEdit.keep}
+          />
+        )}
         <div className="ai-actions">
           <button
             type="button"
             className="button secondary"
-            disabled={busy || JSON.stringify(limits) === limitsKey}
+            disabled={
+              busy ||
+              JSON.stringify(limits) === limitsKey ||
+              limitsEdit.changedElsewhere
+            }
             onClick={saveLimits}
           >
             {t("aiServices.advanced.saveLimits")}
@@ -397,7 +429,7 @@ export function AdvancedSection(props: Props) {
               keyed={keyed}
               busy={busy}
               onSave={(enabled, slot) =>
-                void saveFallback(adapter.id, enabled, slot)
+                saveFallback(adapter.id, enabled, slot)
               }
               note={show(`fallback-${adapter.id}`)}
             />
@@ -460,7 +492,7 @@ export function AdvancedSection(props: Props) {
             checked={rule.require}
             disabled={busy}
             onChange={(event) =>
-              setRule({ require: event.target.checked, ack: false })
+              ruleEdit.set({ require: event.target.checked, ack: false })
             }
           />
           {t("aiServices.advanced.requirePricing")}
@@ -471,20 +503,29 @@ export function AdvancedSection(props: Props) {
               type="checkbox"
               checked={rule.ack}
               disabled={busy}
-              onChange={(event) =>
-                setRule({ ...rule, ack: event.target.checked })
-              }
+              onChange={(event) => {
+                const ack = event.target.checked;
+                ruleEdit.set((current) => ({ ...current, ack }));
+              }}
             />
             {t("aiServices.advanced.requirePricingAck")}
           </label>
         )}
         {show("rule")}
+        {ruleEdit.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={busy}
+            onShowSaved={ruleEdit.discard}
+            onKeep={ruleEdit.keep}
+          />
+        )}
         <div className="ai-actions">
           <button
             type="button"
             className="button secondary"
             disabled={
               busy ||
+              ruleEdit.changedElsewhere ||
               rule.require === requirePricing ||
               (!rule.require && !rule.ack)
             }
@@ -557,17 +598,16 @@ function Fallback({
     slot: string;
   }[];
   busy: boolean;
-  onSave: (enabled: boolean, slot: string) => void;
+  onSave: (enabled: boolean, slot: string) => Promise<boolean>;
   note: React.ReactNode;
 }) {
   const { t } = useAiText();
   const base = useId().replaceAll(":", "");
-  const [enabled, setEnabled] = useState(
-    adapter.automaticFallback?.enabled === true,
-  );
-  const [slot, setSlot] = useState(
-    adapter.automaticFallback?.credentialEnv ?? "",
-  );
+  const edit = useEditableSnapshot({
+    enabled: adapter.automaticFallback?.enabled === true,
+    slot: adapter.automaticFallback?.credentialEnv ?? "",
+  });
+  const { enabled, slot } = edit.value;
   return (
     <div className="ai-form">
       <label className="ai-check">
@@ -575,7 +615,10 @@ function Fallback({
           type="checkbox"
           checked={enabled}
           disabled={busy}
-          onChange={(event) => setEnabled(event.target.checked)}
+          onChange={(event) => {
+            const enabled = event.target.checked;
+            edit.set((current) => ({ ...current, enabled }));
+          }}
         />
         {t("aiServices.advanced.fallbackLabel", { name: adapter.id })}
       </label>
@@ -584,7 +627,10 @@ function Fallback({
           id={`${base}-slot`}
           value={slot}
           disabled={busy}
-          onChange={(event) => setSlot(event.target.value)}
+          onChange={(event) => {
+            const slot = event.target.value;
+            edit.set((current) => ({ ...current, slot }));
+          }}
         >
           <option value="">{t("aiServices.advanced.fallbackChoose")}</option>
           {keyed.map(({ c, slot: value }) => (
@@ -597,12 +643,21 @@ function Fallback({
         </select>
       </Field>
       {note}
+      {edit.changedElsewhere && (
+        <ChangedElsewhere
+          disabled={busy}
+          onShowSaved={edit.discard}
+          onKeep={edit.keep}
+        />
+      )}
       <div className="ai-actions">
         <button
           type="button"
           className="button secondary"
-          disabled={busy || (enabled && !slot)}
-          onClick={() => onSave(enabled, slot)}
+          disabled={busy || (enabled && !slot) || edit.changedElsewhere}
+          onClick={() =>
+            void onSave(enabled, slot).then((saved) => saved && edit.settle())
+          }
         >
           {t("aiServices.advanced.saveFallback")}
         </button>
