@@ -330,7 +330,7 @@ function CourseWorkspace({
           <div className="page-heading">
             <div>
               <p className="eyebrow">
-                {data?.course.category
+                {data?.course.category && !data.course.categoryCode
                   ? t("adminApp.eyebrow", { category: data.course.category })
                   : t("adminApp.eyebrow", {
                       category: t("adminApp.workspace"),

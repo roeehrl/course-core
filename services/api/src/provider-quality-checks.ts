@@ -17,6 +17,7 @@ import { composeProviders, providerConfigurationSchema } from "./provider-compos
 import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-costs.js";
 import { jobPolicySchema, type WorkspaceProviders } from "./provider-setup.js";
 import { roleModels } from "./provider-drafts.js";
+import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal.js";
 
 /**
  * Quality checks run from the admin "AI services" page. The server runs Core's eval suite against
@@ -33,7 +34,9 @@ import { roleModels } from "./provider-drafts.js";
  *   no price, cost nothing and reserve nothing.
  * - Each conversation settles its ledger row right after its model call: the reported usage at the
  *   saved price (the rest of the reservation is released), nothing when the provider certainly
- *   refused it, the full reservation when the outcome is unknown.
+ *   refused it, the full reservation when the outcome is unknown. A reply the provider returned in
+ *   full that the adapter's output checks refused (cut off, malformed, blocked; output-refusal.ts)
+ *   is settled like an answer and recorded as a failed conversation with its reason code.
  * - A finished run is recorded through `ProviderEvaluations.record`, exactly like an uploaded
  *   report: Core regrades the answers and a pass lets the waiting models turn on.
  * - A provider fault (key, quota, network) stops the run and records nothing; the reason is kept.
@@ -72,7 +75,8 @@ interface CheckRow {
   completed_dialogues: number; estimate_micro_usd: string; reserved_micro_usd: string; outcome: RoleOutcome[] | null;
   deadline_at: Date; created_at: Date; finished_at: Date | null;
 }
-interface RoleOutcome { role: EvalRole; passed: boolean; dialogues: number; failed: { dialogueId: string; graders: string[] }[] }
+/** `reason` names why a conversation has no answer to grade (e.g. `provider_output_invalid`); absent when it was answered. */
+interface RoleOutcome { role: EvalRole; passed: boolean; dialogues: number; failed: { dialogueId: string; graders: string[]; reason?: string }[] }
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -96,6 +100,11 @@ const PROVIDER_FAULTS: Record<string, string> = {
   INVALID_CONFIG: "PROVIDER_CONFIGURATION_INVALID",
 };
 class StopRun extends Error {}
+/** The reason code of a conversation that had no answer to grade (graders.ts `no_answer:<code>`). */
+function noAnswerReason(graders: readonly { findings?: readonly string[] }[]) {
+  const finding = graders[0]?.findings?.[0];
+  return finding?.startsWith("no_answer:") ? finding.slice("no_answer:".length) : null;
+}
 
 /** The typical model usage of one practice conversation. */
 export interface TypicalUsage { calls: number; inputTokens: number; outputTokens: number }
@@ -407,9 +416,12 @@ export class ProviderQualityChecks {
       return this.finish(actor, workspace, row.id, { state: "error", reason }, "not_started");
     }
     const outcome: RoleOutcome[] = recorded.results.map((r) => {
-      const grades = r.grades as { dialogueId: string; passed: boolean; graders: { grader: string; passed: boolean }[] }[];
+      const grades = r.grades as { dialogueId: string; passed: boolean; graders: { grader: string; passed: boolean; findings: string[] }[] }[];
       return { role: r.role as EvalRole, passed: r.outcome === "passed", dialogues: grades.length,
-        failed: grades.filter((g) => !g.passed).map((g) => ({ dialogueId: g.dialogueId, graders: g.graders.filter((x) => !x.passed).map((x) => x.grader) })) };
+        failed: grades.filter((g) => !g.passed).map((g) => {
+          const reason = noAnswerReason(g.graders);
+          return { dialogueId: g.dialogueId, graders: g.graders.filter((x) => !x.passed).map((x) => x.grader), ...(reason ? { reason } : {}) };
+        }) };
     });
     return this.finish(actor, workspace, row.id, { state: outcome.every((o) => o.passed) ? "passed" : "failed", reason: null, outcome }, "not_started");
   }
@@ -419,11 +431,14 @@ export class ProviderQualityChecks {
     const error = call.error;
     const notSent = error instanceof ProviderError && error.submission === "not_sent" && !error.usage?.attempts.length;
     const rejected = error && !notSent ? definiteRejection(error) : null;
+    // A reply the provider returned in full (usage reported) that the adapter's output checks refused
+    // is a definite outcome (output-refusal.ts): it is paid like an answer, never held as uncertain.
+    const refused = error ? answeredRefusalReason(error) : null, answered = !error || refused !== null;
     const usage: UsageReceipt | null = call.usage;
     // No pricing (a media conversation, which holds no ledger row): nothing to price.
-    const cost = !error && usage && pricing ? priceUsage(usage, pricing).cost : null;
+    const cost = answered && usage && pricing ? priceUsage(usage, pricing).cost : null;
     const totals = usage?.attempts.map((a) => a.tokens.total) ?? [];
-    const tokens = !error && totals.length && totals.every((t) => t !== null) ? totals.reduce<number>((n, t) => n + t!, 0) : null;
+    const tokens = answered && totals.length && totals.every((t) => t !== null) ? totals.reduce<number>((n, t) => n + t!, 0) : null;
     await afterCommitTransaction(this.db, async (client) => {
       await client.query("SELECT 1 FROM supervisor_workspace_budgets WHERE workspace_id=$1 FOR UPDATE", [workspace]);
       const open = (await client.query<{ reserved_micro_usd: string; reserved_tokens: string; model_id: string | null; role: string }>(
@@ -445,9 +460,9 @@ export class ProviderQualityChecks {
         releaseTokens = tokens !== null ? Math.max(0, reservedTokens - tokens) : 0;
         events.push({ kind: "actual", role: open.role, microUsd: cost.microUsd, modelId: open.model_id, basis: "reported" });
       } else
-        // Answered but not priceable, or the outcome is unknown: the reservation stays charged.
+        // Answered (or refused after answering) but not priceable, or the outcome is unknown: the reservation stays charged.
         await client.query(`UPDATE provider_spend_ledger SET state=$2,settled_at=clock_timestamp() WHERE source='quality_check' AND source_ref=$1 AND attempt=1`,
-          [ref, error ? "uncertain" : "unpriced"]);
+          [ref, answered ? "unpriced" : "uncertain"]);
       if (release || releaseTokens) {
         await client.query("UPDATE supervisor_workspace_budgets SET used_micro_usd=used_micro_usd-$2,used_tokens=used_tokens-$3 WHERE workspace_id=$1",
           [workspace, release, releaseTokens]);
@@ -472,6 +487,42 @@ export class ProviderQualityChecks {
         idempotencyKey: `provider.quality_check.finished:${id}` });
     });
   }
+}
+
+/**
+ * The reconcile pass for quality-check calls an older Core left `uncertain` although the provider had
+ * answered in full and only the adapter's output checks refused the reply (INVALID_RESPONSE,
+ * INCOMPLETE_OUTPUT, BLOCKED). The check's own recorded result is the evidence: the conversation at
+ * that ledger position (refs follow the check's role order and each role's dialogues, as `start`
+ * numbered them) failed with that code and no answer. Those calls are definite, so each row becomes
+ * `unpriced`. Older Core kept no usage receipt for them, so nothing can be priced and the
+ * reservation stays charged (the gateway's basis for a refused reply without a price); it is never
+ * guessed down. A row whose check recorded no result, or whose position or role does not match,
+ * is left for staff. Each row changes at most once (guarded update). Returns the rows settled.
+ */
+export async function settleRefusedQualityCheckCalls(db: Database, workspaces: readonly string[], limit: number) {
+  const rows = (await db.query<{ id: string; workspace_id: string; role: string; position: string; check_id: string; roles: EvalRole[]; total_dialogues: number }>(
+    `SELECT l.id,l.workspace_id,l.role,split_part(l.source_ref,':',2) AS position,c.id AS check_id,c.roles,c.total_dialogues
+     FROM provider_spend_ledger l JOIN provider_quality_checks c ON c.workspace_id=l.workspace_id AND l.source_ref LIKE c.id::text || ':%'
+     WHERE l.source='quality_check' AND l.state='uncertain' AND l.workspace_id=ANY($1::uuid[]) AND c.state<>'running'
+       AND EXISTS (SELECT 1 FROM provider_eval_results r WHERE r.workspace_id=c.workspace_id AND r.idempotency_key='quality-check:' || c.id::text)
+     ORDER BY l.reserved_at,l.id LIMIT $2`, [workspaces, limit])).rows;
+  const codes = new Set<string>([...Object.keys(PROVIDER_OUTPUT_REASONS), ...Object.values(PROVIDER_OUTPUT_REASONS)]);
+  const results = new Map<string, { role: string; reason: string | null }[] | null>();
+  let settled = 0;
+  for (const row of rows) {
+    if (!results.has(row.check_id)) {
+      const recorded = (await db.query<{ role: string; grades: { graders: { findings?: string[] }[] }[] }>(
+        "SELECT role,grades FROM provider_eval_results WHERE workspace_id=$1 AND idempotency_key=$2", [row.workspace_id, `quality-check:${row.check_id}`])).rows;
+      const ordered = row.roles.flatMap((role) => recorded.find((r) => r.role === role)?.grades.map((g) => ({ role, reason: noAnswerReason(g.graders) })) ?? []);
+      results.set(row.check_id, recorded.length && ordered.length === row.total_dialogues ? ordered : null);
+    }
+    const position = /^[0-9]+$/.test(row.position) ? Number(row.position) : -1, entry = results.get(row.check_id)?.[position];
+    if (!entry || entry.role !== row.role || !entry.reason || !codes.has(entry.reason)) continue;
+    const updated = await db.query("UPDATE provider_spend_ledger SET state='unpriced' WHERE id=$1 AND source='quality_check' AND state='uncertain'", [row.id]);
+    settled += updated.rowCount ?? 0;
+  }
+  return settled;
 }
 
 export function registerProviderQualityCheckRoutes(app: FastifyInstance, auth: ReturnType<typeof authService>, service: ProviderQualityChecks) {

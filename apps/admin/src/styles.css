@@ -371,6 +371,15 @@ button svg {
   gap: 20px;
   margin-bottom: 12px;
 }
+/* AI supervision settings: long labels and help (translations, the en-XA pseudo-locale) wrap
+   inside the card instead of widening the page. */
+.supervision-settings {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.supervision-settings fieldset {
+  min-width: 0;
+}
 .draft-file-status p {
   margin: 0;
   font-size: 13px;

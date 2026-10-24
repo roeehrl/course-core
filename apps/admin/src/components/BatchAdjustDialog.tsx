@@ -10,6 +10,7 @@ import { useSingleFlight } from "./LedgerActionDialog";
 import { useScopeLabel } from "./scopeLabel";
 import { Badge, Button, Dialog, ErrorState, Field, Notice } from "./ui";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
+import { learnerName } from "../domain/learnerName";
 
 /** One reviewed accommodation or outage adjustment for several learners at once. The server
  * previews every learner, applies all or nothing, and records the batch with its reason and
@@ -192,7 +193,7 @@ export function BatchAdjustDialog({
                   reset();
                 }}
               />
-              <bdi>{enrollment.profile.displayName}</bdi>
+              <bdi>{learnerName(t, enrollment)}</bdi>
             </label>
           ))}
       </fieldset>

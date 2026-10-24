@@ -6,6 +6,7 @@ import type { ProviderRuntime } from "../provider-runtime.js";
 import { EVAL_ROLES, GRADER_VERSION, REPORT_SCHEMA, dialoguesFor, sha256, teachingContext, type Dialogue, type EvalRole, type EvalSuite } from "./suite.js";
 import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput } from "./graders.js";
 import { roleRevisions } from "./revision.js";
+import { answeredRefusalReason } from "../output-refusal.js";
 
 /** Advisory LLM-judge verdict. Never part of `passed`, never accepted as gate evidence. */
 export interface AdvisoryJudgement { kind: "llm_judge_advisory"; state: "judged" | "refused" | "failed"; criteria: { id: string; met: boolean }[]; reason?: string }
@@ -90,7 +91,10 @@ export async function runSuite(options: {
       } catch (error) {
         failure = error;
         usage = error instanceof ProviderError ? error.usage ?? null : null;
-        output = { kind: "error", code: error instanceof ProviderError ? error.code : "UNEXPECTED" };
+        // A reply the provider returned in full that the adapter's output checks refused is a definite
+        // refusal with its reason code (output-refusal.ts); anything else stays a failed call.
+        const refused = answeredRefusalReason(error);
+        output = refused ? { kind: "refusal", reason: refused } : { kind: "error", code: error instanceof ProviderError ? error.code : "UNEXPECTED" };
       }
       await options.afterCall?.({ role, dialogue, usage, error: failure });
       const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output) };

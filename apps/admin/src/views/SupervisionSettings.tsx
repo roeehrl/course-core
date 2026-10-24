@@ -109,7 +109,10 @@ export function SupervisionSettingsCard({
     }
   }
   return (
-    <Card title={t("supervisionSettings.title")}>
+    <Card
+      title={t("supervisionSettings.title")}
+      className="supervision-settings"
+    >
       <div className="stack">
         <p>{t("supervisionSettings.intro")}</p>
         <p>{t("supervisionSettings.admission")}</p>
@@ -350,7 +353,10 @@ export function AuthorityQueueCard({
           })
         : "";
   return (
-    <Card title={t("supervisionSettings.requests.title")}>
+    <Card
+      title={t("supervisionSettings.requests.title")}
+      className="supervision-settings"
+    >
       <div className="stack">
         <p>{t("supervisionSettings.requests.intro")}</p>
         <div aria-live="polite">
@@ -520,7 +526,10 @@ export function LearnerBudgetCard({
   }
   const usd = (microUsd: number) => money(Math.round(microUsd / 10_000));
   return (
-    <section className="stack" aria-labelledby={`${id}-title`}>
+    <section
+      className="stack supervision-settings"
+      aria-labelledby={`${id}-title`}
+    >
       <h3 className="section-title" id={`${id}-title`}>
         {t("supervisionSettings.budget.title")}
       </h3>

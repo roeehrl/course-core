@@ -31,6 +31,7 @@ import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } fr
 import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, refusedAnswerReason, type OutputRefusal } from './output-refusal.js';
+import { settleRefusedQualityCheckCalls } from './provider-quality-checks.js';
 import { ackCrossCourseWakeup, claimCrossCourseWakeups, crossCourseConsentFor, observeCrossCourseEnrollment, planCrossCourse } from './cross-course.js';
 import { ACTION_EVENT, ALTERNATIVE_ACTIONS, DEFAULT_ACTION_POLICY, actionForEvent, deliverActionsOfJob, endActionsOfJob, followUpsFor, insertFollowUp,
   resolveFollowUp, type ActionRow } from './teaching-actions.js';
@@ -753,6 +754,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
       //    cut off at the output limit). They become the definite, priced refusal the gateway now
       //    records (output-refusal.ts), so step 1 settles them like any finished receipt.
       await repairRefusedAnswers(db, config.workspaces, limit);
+      //    The same for quality-check calls an older Core left uncertain (provider-quality-checks.ts).
+      await settleRefusedQualityCheckCalls(db, config.workspaces, limit);
       // 1. Uncertain calls whose gateway receipt has since finished with a definite outcome. The
       //    receipt is the gateway's own record for this exact operation and owner; nothing is resent.
       const open = (await db.query<{ job_id: string; enrollment_id: string; workspace_id: string; generation: number; operation_id: string; owner_id: string; outcome: unknown }>(

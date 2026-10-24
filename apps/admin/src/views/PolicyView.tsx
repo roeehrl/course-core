@@ -31,6 +31,7 @@ import { OrganizationCeilingsCard } from "../components/OrganizationCeilingsCard
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import { learnerName } from "../domain/learnerName";
 import { serverMessageText } from "../domain/serverMessages";
 
 export function PolicyView({
@@ -90,7 +91,7 @@ export function PolicyView({
               {data.enrollments.map((item) => (
                 <option key={item.id} value={item.id}>
                   {t("policyView.enrollment.option", {
-                    name: item.profile.displayName,
+                    name: learnerName(t, item),
                     version: item.releaseVersion,
                   })}
                 </option>

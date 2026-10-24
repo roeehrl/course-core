@@ -13,7 +13,8 @@ import { ScriptedModel, SCRIPTED_CREDENTIAL, SCRIPTED_RESEARCH_MODEL_ID, scripte
 import type { Dialogue } from "../src/agent-evals/suite.js";
 import { GATE_VERSION } from "../src/agent-evals/gate.js";
 import { roleRevisions } from "../src/agent-evals/revision.js";
-import { estimateMicroUsd, typicalUsage } from "../src/provider-quality-checks.js";
+import { estimateMicroUsd, settleRefusedQualityCheckCalls, typicalUsage } from "../src/provider-quality-checks.js";
+import { createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 
 // Quality checks run from the admin page, over HTTP and real PostgreSQL. The model is Core's
 // offline scripted model behind the real Anthropic adapter: the adapter builds real requests and a
@@ -27,8 +28,9 @@ const jobPolicy = { ...defaultJobPolicy, allowance: { microUsd: 100000, tokens: 
 // The draft binds the companion tutor and the supervisor's plan strategy: their dialogues only.
 const conversations = publicSuite().dialogues.filter((d) => ["core.companion.tutor", "core.supervisor.plan"].includes(dialogueStrategy(d) ?? "")).length;
 
-/** What the scripted provider does next: answer from a table, or refuse the key. */
-let mode: "reference" | "known-bad" | "reject" = "reference";
+/** What the scripted provider does next: answer from a table, refuse the key, or answer in full with
+ * output the adapter refuses (empty text, or structured output that is not JSON). */
+let mode: "reference" | "known-bad" | "reject" | "malformed" = "reference";
 const models = { reference: new ScriptedModel(PUBLIC_SCRIPTED_MODELS.reference), "known-bad": new ScriptedModel(PUBLIC_SCRIPTED_MODELS["known-bad"]) };
 let sent = 0;
 const scriptedFetch: typeof fetch = async (input, init) => {
@@ -36,6 +38,12 @@ const scriptedFetch: typeof fetch = async (input, init) => {
   if (mode === "reject")
     return new Response(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "synthetic refusal" } }),
       { status: 401, headers: { "content-type": "application/json" } });
+  if (mode === "malformed") {
+    const body = JSON.parse(String(init?.body)) as { model: string; output_config?: { format?: unknown } };
+    return new Response(JSON.stringify({ id: "msg_malformed", type: "message", role: "assistant", model: body.model, stop_reason: "end_turn",
+      content: [{ type: "text", text: body.output_config?.format ? "{not json" : "" }], usage: { input_tokens: 400, output_tokens: 20 } }),
+    { status: 200, headers: { "content-type": "application/json" } });
+  }
   return models[mode].fetch(input, init);
 };
 /** Holds a run before its next conversation until the test lets it go. */
@@ -242,6 +250,87 @@ describe("quality check from the AI services page", () => {
     expect((await ledger(workspace)).every((r) => r.state === "reconciled")).toBe(true);
     // The owner can run it again later (a new key) once the models change; it is offered again now.
     expect((await call(owner, "GET", checks(workspace))).json().blocked).toBeNull();
+  });
+
+  it("settles a reply the adapter refused at its reported usage, releases the rest and records the conversation failed with its reason", async () => {
+    const { workspace, owner, draftId } = await prepared({ limitMicroUsd: 5_000_000 });
+    mode = "malformed";
+    const before = sent;
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId });
+    expect(started.statusCode, started.body).toBe(200);
+    const done = await finished(owner, workspace, started.json().id);
+    mode = "reference";
+    expect(sent - before).toBeGreaterThanOrEqual(conversations);
+    expect(done).toMatchObject({ state: "failed", reason: null, completed: conversations });
+    // Every conversation failed with the refusal's reason code; no reply text is kept.
+    const failed = done.outcome.flatMap((o: { failed: { reason?: string }[] }) => o.failed);
+    expect(failed).toHaveLength(conversations);
+    expect(new Set(failed.map((f: { reason?: string }) => f.reason))).toEqual(new Set(["provider_output_invalid"]));
+    expect(JSON.stringify(done)).not.toContain("not json");
+    const grades = (await db.query("SELECT grades FROM provider_eval_results WHERE workspace_id=$1", [workspace])).rows
+      .flatMap((r) => r.grades as { graders: { findings: string[] }[] }[]);
+    expect(grades.every((g) => g.graders.every((x) => x.findings[0] === "no_answer:provider_output_invalid"))).toBe(true);
+    // Paid at the reported usage and price, never held as uncertain at the full reservation.
+    const rows = await ledger(workspace);
+    expect(rows).toHaveLength(conversations);
+    for (const row of rows) {
+      expect(row).toMatchObject({ state: "reconciled", reserved: 100000 });
+      expect(row.charged).toBe(row.actual);
+      expect(row.charged).toBeGreaterThan(0);
+      expect(row.charged).toBeLessThan(100000);
+    }
+    const charged = rows.reduce((n, r) => n + r.charged, 0);
+    expect(done.chargedMicroUsd).toBe(charged);
+    expect((await used(workspace)).usd).toBe(charged);
+    const draft = (await call(owner, "GET", setup(workspace) + "/drafts/current")).json().draft;
+    expect(draft.roles.map((r: { check: string }) => r.check)).toEqual(["failed", "failed"]);
+  });
+
+  it("settles a refused-reply call an older Core left uncertain in the reconcile pass, and leaves calls it cannot prove", async () => {
+    const { workspace, owner, draftId } = await prepared({ limitMicroUsd: 5_000_000 });
+    // Simulates a finished check of an older Core: its recorded result says which conversations had no answer and why.
+    const id = randomUUID(), suiteDigest = publicSuite().digest, revision = "a".repeat(64);
+    await db.query(`INSERT INTO provider_quality_checks(id,workspace_id,draft_id,provider_revision,actor_id,idempotency_key,request_digest,state,roles,total_dialogues,
+      estimate_micro_usd,reserved_micro_usd,deadline_at,finished_at) VALUES($1,$2,$3,1,$4,$5,$6,'failed',ARRAY['companion'],4,6000,400000,now(),now())`,
+      [id, workspace, draftId, owner.id, key(), "0".repeat(64)]);
+    const finding = (code: string | null) => ({ dialogueId: randomUUID(), passed: code === null,
+      graders: [{ grader: "hint_leakage", passed: code === null, findings: code === null ? [] : [`no_answer:${code}`] }] });
+    await db.query(`INSERT INTO provider_eval_results(id,workspace_id,role,revision_digest,suite_id,suite_digest,grader_version,mode,outcome,grades,actor_id,idempotency_key,request_digest)
+      VALUES($1,$2,'companion',$3,$4,$5,'1','live','failed',$6,$7,$8,$9)`,
+      [randomUUID(), workspace, revision, publicSuite().id, suiteDigest, JSON.stringify([finding("INVALID_RESPONSE"), finding("TIMEOUT"), finding(null), finding("INCOMPLETE_OUTPUT")]),
+        owner.id, `quality-check:${id}`, "1".repeat(64)]);
+    const states = ["uncertain", "uncertain", "reconciled", "uncertain"];
+    for (const [n, state] of states.entries())
+      await db.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,state,reserved_micro_usd,reserved_tokens,charged_micro_usd,
+          actual_micro_usd,pricing_version_id,settled_at)
+        VALUES($1,'quality_check',$2,1,$3,NULL,$4,$5,100000,1000,100000,$6,$7,now())`,
+        [randomUUID(), `${id}:${n}`, workspace, n === 3 ? "supervisor" : "companion", state, state === "reconciled" ? 100000 : null,
+          state === "reconciled" ? (await db.query("SELECT id FROM provider_model_prices WHERE workspace_id=$1 LIMIT 1", [workspace])).rows[0].id : null]);
+    // A check that recorded no result (stopped early) proves nothing.
+    const other = randomUUID();
+    await db.query(`INSERT INTO provider_quality_checks(id,workspace_id,draft_id,provider_revision,actor_id,idempotency_key,request_digest,state,reason_code,roles,total_dialogues,
+      estimate_micro_usd,reserved_micro_usd,deadline_at,finished_at) VALUES($1,$2,$3,1,$4,$5,$6,'error','PROVIDER_QUALITY_CHECK_INTERRUPTED',ARRAY['companion'],1,6000,100000,now(),now())`,
+      [other, workspace, draftId, owner.id, key(), "0".repeat(64)]);
+    await db.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,state,reserved_micro_usd,reserved_tokens,charged_micro_usd,settled_at)
+      VALUES($1,'quality_check',$2,1,$3,NULL,'companion','uncertain',100000,1000,100000,now())`, [randomUUID(), `${other}:0`, workspace]);
+    const budgetBefore = await used(workspace);
+    // Another workspace's reconcile pass leaves these rows alone.
+    expect(await settleRefusedQualityCheckCalls(db, [randomUUID()], 100)).toBe(0);
+    // The dispatcher's reconcile pass settles them.
+    const bridge = createPostgresSupervisorBridge(db, { serviceToken: "s".repeat(32), workspaceIds: [workspace] });
+    await bridge.reconcile(100);
+    const rows = (await db.query("SELECT source_ref,state,charged_micro_usd::int AS charged FROM provider_spend_ledger WHERE workspace_id=$1 AND source='quality_check' ORDER BY source_ref", [workspace])).rows;
+    const byRef = Object.fromEntries(rows.map((r) => [r.source_ref, r]));
+    // The refused reply is definite: no longer uncertain. No usage was kept for it, so its reservation stays charged, never guessed down.
+    expect(byRef[`${id}:0`]).toMatchObject({ state: "unpriced", charged: 100000 });
+    // A timeout's fate is unknown, a reconciled row is already settled, a role that does not match the recorded position is not proven.
+    expect(byRef[`${id}:1`]).toMatchObject({ state: "uncertain", charged: 100000 });
+    expect(byRef[`${id}:2`]).toMatchObject({ state: "reconciled" });
+    expect(byRef[`${id}:3`]).toMatchObject({ state: "uncertain" });
+    expect(byRef[`${other}:0`]).toMatchObject({ state: "uncertain" });
+    expect(await used(workspace)).toEqual(budgetBefore);
+    // Each row changes at most once.
+    expect(await settleRefusedQualityCheckCalls(db, [workspace], 100)).toBe(0);
   });
 
   it("stops at a refused key with the key reason, records nothing and releases what was never charged", async () => {

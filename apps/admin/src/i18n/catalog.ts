@@ -45,6 +45,7 @@ import en_integrationsView from "./messages/en/integrationsView.json";
 import en_learnerData from "./messages/en/learnerData.json";
 import en_learnerDataCard from "./messages/en/learnerDataCard.json";
 import en_learnerInspector from "./messages/en/learnerInspector.json";
+import en_learnerName from "./messages/en/learnerName.json";
 import en_learnerPreview from "./messages/en/learnerPreview.json";
 import en_learnerView from "./messages/en/learnerView.json";
 import en_learnerViewCard from "./messages/en/learnerViewCard.json";
@@ -150,6 +151,7 @@ import he_integrationsView from "./messages/he/integrationsView.json";
 import he_learnerData from "./messages/he/learnerData.json";
 import he_learnerDataCard from "./messages/he/learnerDataCard.json";
 import he_learnerInspector from "./messages/he/learnerInspector.json";
+import he_learnerName from "./messages/he/learnerName.json";
 import he_learnerPreview from "./messages/he/learnerPreview.json";
 import he_learnerView from "./messages/he/learnerView.json";
 import he_learnerViewCard from "./messages/he/learnerViewCard.json";
@@ -257,6 +259,7 @@ export const en = {
   learnerData: en_learnerData,
   learnerDataCard: en_learnerDataCard,
   learnerInspector: en_learnerInspector,
+  learnerName: en_learnerName,
   learnerPreview: en_learnerPreview,
   learnerView: en_learnerView,
   learnerViewCard: en_learnerViewCard,
@@ -364,6 +367,7 @@ export const he: PartialCatalog<typeof en> = {
   learnerData: he_learnerData,
   learnerDataCard: he_learnerDataCard,
   learnerInspector: he_learnerInspector,
+  learnerName: he_learnerName,
   learnerPreview: he_learnerPreview,
   learnerView: he_learnerView,
   learnerViewCard: he_learnerViewCard,
