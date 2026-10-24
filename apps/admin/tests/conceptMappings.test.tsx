@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConceptMappingsView } from "../src/views/ConceptMappingsView";
@@ -11,6 +17,7 @@ import {
   type MappingPair,
 } from "../src/domain/conceptMappings";
 import type { AdminClient } from "../src/domain/contracts";
+import { actNow, firstSight, withoutAct } from "./raceHelpers";
 
 const A = "00000000-0000-4000-8000-0000000000a1",
   B = "00000000-0000-4000-8000-0000000000b2";
@@ -205,6 +212,36 @@ describe("concept mapping editor", () => {
     expect(within(history).getByText("Created")).toBeVisible();
     expect(within(history).getByText(/Owner of both/)).toBeVisible();
     expect(within(history).getByText("(owner / admin)")).toBeVisible();
+  });
+
+  it("keeps a link added the moment the saved mapping appears", async () => {
+    const existing = saved([
+      {
+        relation: "equivalent",
+        from: { releaseId: B, objectiveId: "minimum" },
+        to: { releaseId: A, objectiveId: "minimum" },
+      },
+    ]);
+    let arrive = () => {};
+    setup({
+      pair: vi.fn(
+        () =>
+          new Promise<MappingPair>((resolve) => {
+            arrive = () => resolve(pair(existing));
+          }),
+      ),
+    });
+    await choose();
+    const add = await withoutAct(() => {
+      arrive();
+      return firstSight(() =>
+        screen.queryByRole("button", { name: "Add link" }),
+      );
+    });
+    // Added in the same task the mapping appeared in, before React's pending effects ran.
+    await actNow(() => fireEvent.click(add));
+    expect(screen.getByRole("group", { name: "Link 1" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Link 2" })).toBeVisible();
   });
 
   it("shows a saved mapping from either side, retires it and explains refusals without changing anything", async () => {
