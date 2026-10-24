@@ -26,7 +26,13 @@ export const messagesSchema = z.array(z.strictObject({ role: z.enum(['user', 'as
 export const textRequestSchema = z.strictObject({
   modelId, accounting: accountingSchema, messages: messagesSchema,
   systemInstruction: text.optional(), maxOutputTokens: positive,
+  /** Tutoring only: a reply the provider stopped at the output limit is delivered, marked
+   * `cutShort`, when it already has at least MIN_CUT_SHORT_CHARACTERS of visible text. Absent or
+   * false (and for every other operation), such a reply is refused as INCOMPLETE_OUTPUT. */
+  allowCutShort: z.boolean().optional(),
 });
+/** The least visible text a reply cut short at the output limit must have to be delivered. */
+export const MIN_CUT_SHORT_CHARACTERS = 200;
 export const imageRequestSchema = z.strictObject({ modelId, accounting: accountingSchema, prompt: text, maxOutputTokens: positive,
   /** Optional output settings; an adapter refuses values its configured model does not declare. */
   aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/).optional(), imageSize: z.string().regex(/^[0-9]{1,4}K?$/).optional() });
@@ -133,7 +139,9 @@ export type ProviderCallEnd = Readonly<{
 /** Called before dispatch; the returned function (if any) is called once when the call settles.
  * Observer failures are ignored: they can neither fail nor replay a paid call. */
 export type ProviderCallObserver = (call: ProviderCallStart) => ((end: ProviderCallEnd) => void) | void;
-export interface TutoringProvider { tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<{ text: string }>> }
+/** A tutoring reply. `cutShort`: the provider stopped at the output limit (only when the request allowed it). */
+export interface TutoringOutput { text: string; cutShort?: true }
+export interface TutoringProvider { tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<TutoringOutput>> }
 export interface StructuredAssessmentProvider { assess(request: AssessmentRequest, options?: CallOptions): Promise<ProviderResult<Json>> }
 export interface ResearchProvider { research(request: TextRequest, options?: CallOptions): Promise<ProviderResult<ResearchOutput>> }
 export interface ImageJobProvider {

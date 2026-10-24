@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { callOptionsSchema, id, textRequestSchema, type AccountingInput, type AssessmentRequest, type CallOptions, type Capability,
   type CapabilityPorts, type Json, type ModelConfig, type Operation, type ProviderAdapter, type ProviderResult, type ResearchOutput,
-  type ResearchProvider, type StructuredAssessmentProvider, type TextRequest, type TutoringProvider, type UsageReceipt } from './contracts.js';
+  type ResearchProvider, type StructuredAssessmentProvider, type TextRequest, type TutoringOutput, type TutoringProvider, type UsageReceipt, MIN_CUT_SHORT_CHARACTERS } from './contracts.js';
 import { requireAnthropicModel, type AnthropicResolvedModel } from './anthropic-contracts.js';
-import { anthropicMessage, anthropicResearch, anthropicText, anthropicTokens } from './anthropic-response.js';
+import { anthropicMessage, anthropicResearch, anthropicText, anthropicTokens, anthropicTutoring } from './anthropic-response.js';
 import { classifyHttpError, ensure, ProviderError, safeError } from './errors.js';
 import { JsonTransport, type JsonProtocol, type TransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
@@ -114,8 +114,8 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
       throw sanitized;
     }
   }
-  tutor(request: TextRequest, options: CallOptions = {}): Promise<ProviderResult<{ text: string }>> {
-    return this.#generate(request, 'tutoring', 'tutor', raw => ({ text: anthropicText(anthropicMessage(raw, false)) }), options);
+  tutor(request: TextRequest, options: CallOptions = {}): Promise<ProviderResult<TutoringOutput>> {
+    return this.#generate(request, 'tutoring', 'tutor', raw => anthropicTutoring(anthropicMessage(raw, false, request.allowCutShort === true), MIN_CUT_SHORT_CHARACTERS), options);
   }
   async assess(input: AssessmentRequest, options: CallOptions = {}): Promise<ProviderResult<Json>> {
     const request = parse(textRequestSchema.extend({ outputSchema: z.unknown() }), input);

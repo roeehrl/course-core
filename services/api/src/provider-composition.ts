@@ -15,6 +15,8 @@ export const providerConfigurationSchema = z.strictObject({
     && (!a.automaticFallback?.enabled || a.automaticFallback.credentialEnv !== undefined))).max(20),
   roles: z.partialRecord(z.enum(AGENT_ROLES), z.strictObject({ modelId: z.string().min(1).max(2048), maxInputCharacters: z.number().int().min(2000).max(100000), maxOutputTokens: z.number().int().min(0).max(16000),
     maxToolRounds:z.number().int().min(2).max(8).optional(),
+    /** Companion only: 'concise' (the default when absent) or 'detailed' replies. */
+    replyStyle: z.enum(['concise', 'detailed']).optional(),
     mediaKind: z.enum(['image', 'video']).optional(), video: z.strictObject({ durationSeconds: z.number().int().min(1).max(20), aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: z.string().min(1).max(128) }).optional(),
     image: z.strictObject({ aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/).optional(), imageSize: z.string().regex(/^[0-9]{1,4}K?$/).optional() }).optional(),
     /** Operator-reviewed rate card for generated media. Absent pricing refuses paid media admission. */

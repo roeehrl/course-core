@@ -14,7 +14,13 @@ const candidateSchema = z.object({
   groundingMetadata: z.unknown().optional(),
   safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional(),
 });
-export function candidate(data: Record<string, unknown>) {
+/**
+ * The single candidate of a finished response. A stop at the output limit (MAX_TOKENS) is
+ * refused as INCOMPLETE_OUTPUT unless `allowCutShort` is set, in which case the candidate is
+ * returned with `cutShort: true` for the caller to judge (a cut-off thinking turn may carry no
+ * visible part at all, which then stays incomplete).
+ */
+export function candidate(data: Record<string, unknown>, allowCutShort = false) {
   const envelope = parse(z.object({
     promptFeedback: z.object({ blockReason: z.string().optional() }).optional(), candidates: z.array(z.unknown()).optional(),
   }), data, 'INVALID_RESPONSE');
@@ -22,10 +28,21 @@ export function candidate(data: Record<string, unknown>) {
   ensure(envelope.candidates?.length === 1, 'INVALID_RESPONSE');
   const raw = parse(z.object({ finishReason: z.string(), safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional() }), envelope.candidates[0], 'INVALID_RESPONSE');
   if (raw.safetyRatings?.some(r => r.blocked) || ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'RECITATION', 'SPII'].includes(raw.finishReason)) throw new ProviderError('BLOCKED');
-  ensure(raw.finishReason === 'STOP', 'INCOMPLETE_OUTPUT');
-  const result = parse(candidateSchema, envelope.candidates[0], 'INVALID_RESPONSE');
+  const cutShort = allowCutShort && raw.finishReason === 'MAX_TOKENS';
+  ensure(raw.finishReason === 'STOP' || cutShort, 'INCOMPLETE_OUTPUT');
+  const checked = candidateSchema.safeParse(envelope.candidates[0]);
+  if (!checked.success) throw new ProviderError(cutShort ? 'INCOMPLETE_OUTPUT' : 'INVALID_RESPONSE');
+  const result = checked.data;
   ensure(result.index === undefined || result.index === 0, 'INVALID_RESPONSE');
-  return result;
+  return cutShort ? { ...result, cutShort: true as const } : result;
+}
+/** The visible text of a tutoring reply. A reply cut short at the output limit is delivered,
+ * marked, only with at least `minimum` visible characters; otherwise it is incomplete. */
+export function tutoringText(c: Candidate, minimum: number): { text: string; cutShort?: true } {
+  if (!('cutShort' in c)) return { text: responseText(c) };
+  const visible = c.content.parts.filter(p => !p.thought && p.text !== undefined).map(p => p.text).join('');
+  ensure(visible.trim().length >= minimum, 'INCOMPLETE_OUTPUT');
+  return { text: visible, cutShort: true };
 }
 export type Candidate = ReturnType<typeof candidate>;
 export function responseText(c: Candidate): string {

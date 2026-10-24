@@ -49,6 +49,12 @@ export async function pricingInForce(client: Queryable, workspaceId: string, mod
   const row = (await client.query<PriceRow>(IN_FORCE, [workspaceId, modelId])).rows[0];
   return row && row.status === 'active' ? pricingOf(row) : null;
 }
+/** The active price version that was in force at `at` (for settling an earlier call), or null. */
+export async function pricingAt(client: Queryable, workspaceId: string, modelId: string, at: Date): Promise<ModelPricing | null> {
+  const row = (await client.query<PriceRow>(`SELECT * FROM provider_model_prices WHERE workspace_id=$1 AND model_id=$2 AND effective_from<=$3
+    ORDER BY effective_from DESC,version DESC LIMIT 1`, [workspaceId, modelId, at])).rows[0];
+  return row && row.status === 'active' ? pricingOf(row) : null;
+}
 /** Default true: paid work needs an operator price for the bound model. */
 export async function requiresPricing(client: Queryable, workspaceId: string) {
   const row = (await client.query<{ require_priced_models: boolean }>('SELECT require_priced_models FROM workspace_cost_settings WHERE workspace_id=$1', [workspaceId])).rows[0];

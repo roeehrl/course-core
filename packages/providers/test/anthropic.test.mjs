@@ -360,3 +360,21 @@ test('Messages API usage prices from operator rates: cache reads at the cached r
   const error = await harness([refused]).client.tutor(request()).catch(e => e);
   assert.equal(error.code, 'BLOCKED'); assert.equal(priceUsage(error.usage, operatorPrice()).cost.microUsd, 50 + 10);
 });
+
+test('tutoring may deliver a reply cut short at max_tokens, marked, only when allowed and with enough visible text', async () => {
+  const long = 'Backward computes gradients; the optimizer step changes the weight. '.repeat(4);
+  const raw = () => {
+    const m = message([{ type: 'thinking', thinking: '', signature: 'sig' }, { type: 'text', text: long }]);
+    m.stop_reason = 'max_tokens'; m.usage = { input_tokens: 2000, output_tokens: 4096, output_tokens_details: { thinking_tokens: 3800 } };
+    return m;
+  };
+  await assert.rejects(harness([raw()]).client.tutor(request()), code('INCOMPLETE_OUTPUT'));
+  const result = await harness([raw()]).client.tutor(request({ allowCutShort: true }));
+  assert.deepEqual(result.output, { text: long, cutShort: true });
+  assert.equal(result.usage.attempts[0].tokens.thoughts, 3800); assert.equal(result.usage.attempts[0].tokens.total, 6096);
+  const short = message([{ type: 'text', text: 'Backward computes' }]); short.stop_reason = 'max_tokens';
+  await assert.rejects(harness([short]).client.tutor(request({ allowCutShort: true })), code('INCOMPLETE_OUTPUT'));
+  // Structured output is never accepted when cut off.
+  const json = text('{"score": 2, "feedback": "Explain the missing step.", "requiresReview": true, "labels": []}'); json.stop_reason = 'max_tokens';
+  await assert.rejects(harness([json]).client.assess({ ...request({ allowCutShort: true }), outputSchema: assessmentSchema }), code('INCOMPLETE_OUTPUT'));
+});

@@ -88,3 +88,32 @@ it("rejects missing models, incompatible methods, unknown limits, too-small supe
       }),
     ).toThrow();
 });
+it("gives Gemini thinking models a thinking setting per role and an output limit with room to think", () => {
+  const models = (["gemini-3.8-flash", "gemini-2.5-flash", "gemini-3-pro-preview"] as const).map((remoteModel) => ({
+    remoteModel, displayName: remoteModel, description: "Synthetic metadata", inputTokenLimit: 1048576, outputTokenLimit: 65536, methods: ["generateContent"],
+  }));
+  const draftFor = (remoteModel: string) => googleModelDraft({ configuration, adapterId: "google", catalog: { ...catalog, models },
+    assignments: { companion: remoteModel, supervisor: remoteModel, reviewer: remoteModel } });
+  const config = (draft: ReturnType<typeof googleModelDraft>, role: string) =>
+    (draft.registry.models.find((m) => m.id === `google:${role}`) as { providerConfig: Record<string, unknown> }).providerConfig;
+  const flash = draftFor("gemini-3.8-flash");
+  expect(config(flash, "companion").thinking).toEqual({ level: "low" });
+  expect(config(flash, "supervisor").thinking).toEqual({ level: "medium" });
+  expect(flash.roles.companion).toMatchObject({ maxOutputTokens: 4096 });
+  expect(flash.roles.supervisor).toMatchObject({ maxOutputTokens: 8192 });
+  expect(flash.registry.models.find((m) => m.id === "google:companion")).toMatchObject({ limits: { maxOutputTokens: 4096 } });
+  // Gemini 2.5 takes a budget, never a level.
+  const legacy = draftFor("gemini-2.5-flash");
+  expect(config(legacy, "companion").thinking).toEqual({ budget: 512 });
+  expect(config(legacy, "reviewer").thinking).toEqual({ budget: -1 });
+  // A level the model refuses (Gemini 3 Pro has no medium) is not sent: the model default applies.
+  const pro = draftFor("gemini-3-pro-preview");
+  expect(config(pro, "companion").thinking).toEqual({ level: "low" });
+  expect(config(pro, "supervisor").thinking).toBeUndefined();
+  expect(pro.roles.supervisor).toMatchObject({ maxOutputTokens: 8192 });
+  // Not a thinking family: unchanged bounded default, no thinking setting.
+  const plain = googleModelDraft({ configuration, adapterId: "google", catalog, assignments: { companion: "public-text" } });
+  expect(config(plain, "companion").thinking).toBeUndefined();
+  expect(plain.roles.companion).toMatchObject({ maxOutputTokens: 1000 });
+  composeProviders(flash, () => "configured");
+});

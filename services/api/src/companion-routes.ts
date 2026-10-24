@@ -27,7 +27,11 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       // An answer recorded before it carried its lesson takes the lesson of the question it answers.
       `SELECT m.id,m.role,m.content,CASE WHEN m.role='assistant' AND m.context->>'episodeId' IS NULL AND q.context->>'episodeId' IS NOT NULL
           THEN m.context||jsonb_build_object('episodeId',q.context->'episodeId','blockId',COALESCE(q.context->'blockId','null'::jsonb)) ELSE m.context END AS context,m.created_at,m.job_id,
-        CASE WHEN m.role='learner' AND m.job_id IS NULL AND ${REFUSED_QUESTION_SQL} THEN 'refused' ELSE j.state END AS job_state,j.result->>'reason' AS job_reason,
+        -- A cancellation the learner (or staff) asked for reads as cancelled at once, before the job's next step ends it.
+        CASE WHEN m.role='learner' AND m.job_id IS NULL AND EXISTS (SELECT 1 FROM learning_events ce WHERE ce.enrollment_id=m.enrollment_id
+            AND ce.event_type='companion.question.cancelled' AND ce.payload->>'messageId'=m.id::text) THEN 'cancelled'
+          WHEN m.role='learner' AND m.job_id IS NULL AND ${REFUSED_QUESTION_SQL} THEN 'refused'
+          WHEN j.cancellation_requested AND j.state NOT IN ('applied','cancelled','failed') THEN 'cancelled' ELSE j.state END AS job_state,j.result->>'reason' AS job_reason,
         -- Why Core refused the reply it received (a reason code only; the refused text is never stored).
         CASE WHEN m.role='learner' AND j.state='failed' THEN (SELECT a.content->>'reason' FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.enrollment_id=j.enrollment_id
           AND a.content->>'kind'='output_refusal' LIMIT 1) END AS refusal_reason,
@@ -72,6 +76,37 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'companion.message.deleted',
         payload: { messageId, answersDeleted: answers, jobCancelled: cancelled > 0, capsulesRevised: capsules, revokedProposalIds }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
       return { messageId, deleted: true, eventId: event.id, revision: context.enrollment.revision, answersDeleted: answers, jobCancelled: cancelled > 0, capsulesRevised: capsules, revokedProposalIds };
+    });
+  });
+  /** The learner stops waiting for the answer to one of their questions. The question stays (it is
+   * not deleted and can be asked again); the job preparing its answer is cancelled, so no new provider
+   * call starts for it, and its undelivered request is withdrawn. A call already out is settled by the
+   * workflow, never resent; a job with no call out is ended by the dispatcher's reconcile pass. */
+  app.post(`${path}/messages/:messageId/cancel`, { schema: { params: { type: 'object', required: ['enrollmentId', 'messageId'],
+    properties: { enrollmentId: { type: 'string', format: 'uuid' }, messageId: { type: 'string', format: 'uuid' } } },
+    body: { type: 'object', additionalProperties: false, required: ['expectedRevision', 'idempotencyKey'], properties: {
+      expectedRevision: { type: 'integer', minimum: 1 }, idempotencyKey: { type: 'string', minLength: 8, maxLength: 200, pattern: '^[A-Za-z0-9:_-]+$' } } } } }, async request => {
+    const actor = await auth.authenticate(request), { enrollmentId, messageId } = request.params as { enrollmentId: string; messageId: string };
+    const input = request.body as CommandInput;
+    return enrollmentCommand(db, actor, enrollmentId, 'companion.cancel', { ...input, messageId }, async (client, context) => {
+      const message = (await client.query<{ job_id: string | null; content: string }>("SELECT job_id,content FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner' FOR UPDATE",
+        [messageId, enrollmentId])).rows[0];
+      requireCondition(message, 'MESSAGE_NOT_FOUND', 404);
+      requireCondition(message.content !== '[deleted]', 'MESSAGE_ALREADY_DELETED', 409);
+      const answered = message.job_id ? (await client.query("SELECT 1 FROM companion_messages WHERE enrollment_id=$1 AND job_id=$2 AND role='assistant' LIMIT 1",
+        [enrollmentId, message.job_id])).rowCount : 0;
+      requireCondition(!answered, 'MESSAGE_ALREADY_ANSWERED', 409);
+      const requested = (await client.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
+        [enrollmentId, messageId])).rows.map(row => row.id);
+      // Not yet prepared into a job: withdrawing the request is the whole cancellation.
+      const withdrawn = (await client.query('UPDATE outbox SET quarantined_at=clock_timestamp() WHERE event_id=ANY($1::uuid[]) AND delivered_at IS NULL AND quarantined_at IS NULL',
+        [requested])).rowCount ?? 0;
+      const cancelled = message.job_id ? (await client.query("UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1 AND enrollment_id=$2 AND state NOT IN ('applied','cancelled','failed') AND NOT cancellation_requested",
+        [message.job_id, enrollmentId])).rowCount ?? 0 : 0;
+      requireCondition(withdrawn > 0 || cancelled > 0, 'MESSAGE_NOT_PENDING', 409);
+      const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'companion.question.cancelled',
+        payload: { messageId, jobCancelled: cancelled > 0, requestWithdrawn: withdrawn > 0 }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
+      return { messageId, cancelled: true, eventId: event.id, revision: context.enrollment.revision };
     });
   });
   app.post(path, { schema: { params, body: { type: 'object', additionalProperties: false,

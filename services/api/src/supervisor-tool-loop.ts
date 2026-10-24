@@ -1,3 +1,4 @@
+import { markHostCaused } from "./output-refusal.js";
 import {
   definiteRejection,
   ProviderError,
@@ -383,6 +384,8 @@ export async function runSupervisorToolLoop(options: {
       if (original?.usage) receipts.push(original.usage);
       failure.usage = aggregateSupervisorUsage(receipts, options.accountingKey);
     } else if (original?.usage) failure.usage = original.usage;
+    // Not a provider error: a host-side cause, never a refused reply of the model (output-refusal.ts).
+    if (!original) markHostCaused(failure);
     throw failure;
   }
 }

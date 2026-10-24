@@ -111,6 +111,48 @@ describe('deleting one companion question', () => {
   });
 });
 
+describe('cancelling one companion question', () => {
+  it('stops waiting for its answer, keeps the question, and refuses answered, foreign and deleted questions', async () => {
+    const learner = await member(), id = await enroll(learner);
+    // A question whose job is held up waiting for the service (an uncertain provider call).
+    const waiting = await answered(learner, id, 'WAITING_QUESTION_CANARY');
+    await db.query("DELETE FROM companion_messages WHERE job_id=$1 AND role='assistant'", [waiting.jobId]);
+    await db.query("UPDATE supervisor_jobs SET state='waiting',result=$2 WHERE id=$1", [waiting.jobId, JSON.stringify({ reason: 'provider_uncertain' })]);
+    const listed = async () => (await app.inject({ url: `/api/enrollments/${id}/companion`, headers: learner.headers })).json().messages as { id: string; content: string; job_state: string }[];
+    expect((await listed()).find(m => m.id === waiting.messageId)?.job_state).toBe('waiting');
+
+    for (const who of [await member('owner'), await member()]) expect((await command(who, id, `companion/messages/${waiting.messageId}/cancel`)).statusCode).toBe(404);
+    const before = await revision(id);
+    const cancelled = await command(learner, id, `companion/messages/${waiting.messageId}/cancel`);
+    expect(cancelled.statusCode, cancelled.body).toBe(200);
+    expect(cancelled.json()).toMatchObject({ messageId: waiting.messageId, cancelled: true });
+    // Not a context change: the revision stays, the question text stays, the job is flagged and reads as cancelled.
+    expect(await revision(id)).toBe(before);
+    expect((await db.query('SELECT cancellation_requested FROM supervisor_jobs WHERE id=$1', [waiting.jobId])).rows[0].cancellation_requested).toBe(true);
+    const row = (await listed()).find(m => m.id === waiting.messageId)!;
+    expect(row).toMatchObject({ content: 'WAITING_QUESTION_CANARY', job_state: 'cancelled' });
+    expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.question.cancelled' AND payload->>'messageId'=$2",
+      [id, waiting.messageId])).rows[0].n).toBe(1);
+    // Nothing is left to cancel a second time.
+    expect((await command(learner, id, `companion/messages/${waiting.messageId}/cancel`)).json().error).toBe('MESSAGE_NOT_PENDING');
+
+    // A question still queued (not yet prepared into a job): its request is withdrawn.
+    const queued = (await command(learner, id, 'companion', { episodeId: 'min', content: 'Queued question.' })).json() as { messageId: string; eventId: string };
+    const withdrawn = await command(learner, id, `companion/messages/${queued.messageId}/cancel`);
+    expect(withdrawn.statusCode, withdrawn.body).toBe(200);
+    expect((await db.query('SELECT quarantined_at FROM outbox WHERE event_id=$1', [queued.eventId])).rows[0].quarantined_at).not.toBeNull();
+    expect((await listed()).find(m => m.id === queued.messageId)).toMatchObject({ content: 'Queued question.', job_state: 'cancelled' });
+
+    // An answered question, an answer and a deleted question cannot be cancelled.
+    const done = await answered(learner, id, 'Answered question.');
+    expect((await command(learner, id, `companion/messages/${done.messageId}/cancel`)).json().error).toBe('MESSAGE_ALREADY_ANSWERED');
+    const answer = (await db.query("SELECT id FROM companion_messages WHERE job_id=$1 AND role='assistant'", [done.jobId])).rows[0].id;
+    expect((await command(learner, id, `companion/messages/${answer}/cancel`)).json().error).toBe('MESSAGE_NOT_FOUND');
+    expect((await command(learner, id, `companion/messages/${done.messageId}/delete`)).statusCode).toBe(200);
+    expect((await command(learner, id, `companion/messages/${done.messageId}/cancel`)).json().error).toBe('MESSAGE_ALREADY_DELETED');
+  });
+});
+
 describe('account erasure', () => {
   it('erases every enrollment and the account, and signs it out everywhere', async () => {
     const first = await member('learner', [0, 1]);

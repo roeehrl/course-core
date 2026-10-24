@@ -22,14 +22,15 @@ import { canonicalJson } from '@course-core/sdk/compiler';
 import { artifactStore, claimObject, releaseObject, stageObject, withArtifactContent, type StagedObject } from './artifact-store.js';
 import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
 import type {SupervisorJobPolicy} from './provider-setup.js';
-import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
+import { pricingAt, recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
+import { priceUsage, type UsageReceipt } from '@course-core/providers';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { telemetry } from '@course-core/supervisor/telemetry';
 import { noteBridgeContact } from './platform-operations.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
-import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
+import { outputRefusalSchema, refusedAnswerReason, type OutputRefusal } from './output-refusal.js';
 import { ackCrossCourseWakeup, claimCrossCourseWakeups, crossCourseConsentFor, observeCrossCourseEnrollment, planCrossCourse } from './cross-course.js';
 import { ACTION_EVENT, ALTERNATIVE_ACTIONS, DEFAULT_ACTION_POLICY, actionForEvent, deliverActionsOfJob, endActionsOfJob, followUpsFor, insertFollowUp,
   resolveFollowUp, type ActionRow } from './teaching-actions.js';
@@ -61,7 +62,8 @@ export interface SupervisorBridgeOptions {
   /** Trusted server composition only: after a verified rubric proposal is stored, the gate's
    * installed deterministic evaluator may confirm it (conversation-confirmation.ts). */
   confirmRubricSuggestion?:(client:PoolClient,ref:RunRef,suggestion:RubricSuggestion,suggestionId:string)=>Promise<void>;
-  providerBinding?:(client:PoolClient,workspaceId:string)=>Promise<{revision:number;jobPolicy:SupervisorJobPolicy}|null>;
+  /** `roleAllowances`: a role's reservation sized from its limits and price (role-reservation.ts), in place of the policy allowance. */
+  providerBinding?:(client:PoolClient,workspaceId:string)=>Promise<{revision:number;jobPolicy:SupervisorJobPolicy;roleAllowances?:Partial<Record<string,{microUsd:number;tokens:number}>>}|null>;
 }
 interface Settings {
   workspaces: string[]; allowance: { microUsd: number; tokens: number };
@@ -254,7 +256,7 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
   if ((next.state === 'failed' || next.state === 'cancelled') && old.state !== next.state) await endActionsOfJob(client, key.jobId, next.reason ?? next.state);
 }
 
-export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal|RubricRefusal;
+export type SupervisorArtifactContent = { kind: 'companion_message'; text: string; cutShort?: true } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal|RubricRefusal;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
   episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string; rubricRequestId?: string;
@@ -271,7 +273,10 @@ function content(input: unknown): SupervisorArtifactContent {
   // A reviewer draft the strategy refused: stored so the job can end, never applied.
   if(value.kind==='rubric_refusal'){const parsed=rubricRefusalSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='supervised_plan'){const parsed=supervisedPlanSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
-  requireCondition(field && Object.keys(value).length === 2 && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
+  // A companion reply cut short at the provider's output limit carries `cutShort: true`, nothing else.
+  const marked = value.kind === 'companion_message' && value.cutShort === true ? 1 : 0;
+  requireCondition(marked || value.cutShort === undefined, 'SUPERVISOR_INVALID_ARTIFACT');
+  requireCondition(field && Object.keys(value).length === 2 + marked && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
     && (value[field] as string).length <= 16_000, 'SUPERVISOR_INVALID_ARTIFACT');
   return value as SupervisorArtifactContent;
 }
@@ -335,6 +340,8 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
       FROM companion_messages WHERE job_id=$1 AND enrollment_id=$2 AND role='learner' LIMIT 1`, [ref.jobId, ref.enrollmentId])).rows[0];
     await client.query(`INSERT INTO companion_messages (id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)`,
       [targetId, ref.enrollmentId, a.content.text, JSON.stringify({ verificationReceiptId: verified.receipt.receiptId, artifactId: a.id,
+        // The learner sees that the provider stopped this reply at its output limit.
+        ...(a.content.cutShort ? { cutShort: true } : {}),
         ...(question?.episode_id ? { episodeId: question.episode_id, blockId: question.block_id, answersMessageId: question.message_id } : {}) }), ref.jobId]);
   } else if (a.content.kind === 'rubric_suggestion') {
     // A draft for a human reviewer: no evidence, grade or learner-visible change.
@@ -573,7 +580,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     }
     if (disposition === 'prepared') {
       const policy=binding?.jobPolicy;
-      const admission=policy?{allowance:policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
+      const admission=policy?{allowance:binding?.roleAllowances?.[role]??policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
       const ref = { jobId: randomUUID(), workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: 1 };
       // An action that builds new material gets a planner, concurrent alternative builders and an
       // evaluator that commits (design §4), when the workspace lets the supervisor apply changes.
@@ -720,6 +727,11 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     observeEnrollment(workspaceId, enrollmentId) { return observeCrossCourseEnrollment(db, config.workspaces, workspaceId, enrollmentId); },
     async reconcile(limit) {
       rpcRequestSchema.parse({ method: 'reconcile', limit });
+      // 0. Receipts an older gateway left uncertain although the provider had answered in full with
+      //    known usage and only the adapter's output checks refused the reply (for example a reply
+      //    cut off at the output limit). They become the definite, priced refusal the gateway now
+      //    records (output-refusal.ts), so step 1 settles them like any finished receipt.
+      await repairRefusedAnswers(db, config.workspaces, limit);
       // 1. Uncertain calls whose gateway receipt has since finished with a definite outcome. The
       //    receipt is the gateway's own record for this exact operation and owner; nothing is resent.
       const open = (await db.query<{ job_id: string; enrollment_id: string; workspace_id: string; generation: number; operation_id: string; owner_id: string; outcome: unknown }>(
@@ -772,6 +784,48 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     },
   };
   return bridge;
+}
+/**
+ * Rewrites gateway receipts that recorded a refused but completed reply as uncertain (Core before
+ * 0.1.53) into the outcome the gateway records now: an output refusal artifact (reason code only),
+ * charged at the reported usage times the price version in force when the call started, or at the
+ * reservation when the call was unpriced. Only companion and supervisor jobs whose operation is
+ * still uncertain under the same owner qualify. Each row changes at most once (guarded update);
+ * a row that cannot be repaired is left for staff, never guessed.
+ */
+async function repairRefusedAnswers(db: Database, workspaces: readonly string[], limit: number) {
+  const rows = (await db.query<{ operation_id: string; owner_id: string; job_id: string; enrollment_id: string; workspace_id: string; role: string; generation: number;
+    failure_code: string | null; provider_usage: unknown; model_id: string | null; started_at: Date; reservation: { microUsd: number; tokens: number } | null }>(
+    `SELECT d.operation_id,d.owner_id,d.job_id,d.enrollment_id,d.workspace_id,j.role,(j.runtime_snapshot->>'generation')::integer AS generation,
+       d.failure_code,d.provider_usage,d.model_id,d.started_at,
+       (SELECT o->'reservation' FROM jsonb_array_elements(j.runtime_snapshot->'operations') o WHERE o->>'id'=d.operation_id LIMIT 1) AS reservation
+     FROM provider_dispatches d JOIN supervisor_jobs j ON j.id=d.job_id AND j.enrollment_id=d.enrollment_id AND j.workspace_id=d.workspace_id
+     WHERE d.workspace_id=ANY($1::uuid[]) AND d.state='uncertain' AND d.outcome->>'status'='uncertain' AND d.finished_at IS NOT NULL
+       AND d.failure_code IN ('INCOMPLETE_OUTPUT','INVALID_RESPONSE','BLOCKED') AND d.provider_usage IS NOT NULL AND j.role IN ('companion','supervisor')
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements(j.runtime_snapshot->'operations') o
+         WHERE o->>'id'=d.operation_id AND o->>'status'='uncertain' AND o->>'ownerId'=d.owner_id::text)
+     ORDER BY d.finished_at,d.operation_id LIMIT $2`, [workspaces, limit])).rows;
+  let repaired = 0;
+  for (const row of rows) {
+    const reason = refusedAnswerReason(row.failure_code, row.provider_usage);
+    if (!reason || !row.reservation) continue;
+    try {
+      const receipt = row.provider_usage as UsageReceipt;
+      const tokens = receipt.attempts.reduce((sum, attempt) => sum + attempt.tokens.total!, 0);
+      const pricing = row.model_id ? await pricingAt(db, row.workspace_id, row.model_id, row.started_at) : null;
+      const priced = pricing ? priceUsage(receipt, pricing).cost : null;
+      const charge = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
+      const ref = { jobId: row.job_id, workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: row.generation };
+      const artifact = await storeSupervisorArtifact(db, ref, row.operation_id, row.owner_id, { kind: 'output_refusal', role: row.role === 'companion' ? 'companion' : 'supervisor', reason });
+      const outcome = outcomeSchema.parse({ status: 'succeeded', artifact, usage: { microUsd: charge ? charge.microUsd : row.reservation.microUsd, tokens },
+        usageBasis: { microUsd: charge ? 'reported' : 'reserved_ceiling', tokens: 'reported' } });
+      const updated = await db.query(`UPDATE provider_dispatches SET state='completed',outcome=$3,provider_usage=$4,pricing_version_id=$5,cost_micro_usd=$6
+        WHERE operation_id=$1 AND owner_id=$2 AND state='uncertain' AND outcome->>'status'='uncertain'`,
+        [row.operation_id, row.owner_id, JSON.stringify(outcome), JSON.stringify({ ...receipt, cost: charge }), charge?.pricingVersionId ?? null, charge?.microUsd ?? null]);
+      if (updated.rowCount === 1) repaired++;
+    } catch { /* Fenced, erased or changed meanwhile: left for staff review, never guessed. */ }
+  }
+  return repaired;
 }
 /** One host transition inside the caller's transaction: every lock, fence and budget check of the
  * bridge's `transition`, for trusted host paths that already hold a transaction (follow-up and

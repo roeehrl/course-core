@@ -999,7 +999,13 @@ what it returned (a companion reply over the size bound, or a supervisor teachin
 proposal naming an objective outside the lesson), that is a definite outcome, not
 an uncertain submission. The strategy returns an `output_refusal` holding only the
 role and a reason code (`output_too_large`, `objective_out_of_scope`), never the
-refused text, and the call's reported usage is charged. The verifier rejects it, so
+refused text, and the call's reported usage is charged. The same holds when the
+provider answered in full with known usage but the adapter refused the reply itself,
+for example a reply cut off at the output limit (`provider_output_incomplete`,
+`provider_output_invalid`, `provider_output_blocked`; see
+`services/api/PROVIDER_SETUP.md`, "Thinking models, output limits and cut-off replies").
+A companion reply cut off with enough visible text is instead delivered with a
+"cut short" notice. The verifier rejects it, so
 the job ends `failed` with `verification_rejected` and nothing is delivered. The
 learner sees "The companion couldn't answer this question" with **Ask this
 question again**, which puts the question back in the draft to send as a new one

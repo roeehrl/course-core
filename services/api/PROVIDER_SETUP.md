@@ -353,6 +353,101 @@ invoice and have not been compared with a live bill. All of them, and the gatewa
 reservation, settlement, erasure or receipt write reports nothing, and a retried or
 duplicate settlement is counted once.
 
+## Thinking models, output limits and cut-off replies
+
+Gemini 2.5 and later, and current Claude models, think before they answer, and the thinking
+counts toward the output limit (`maxOutputTokens`, `max_tokens`). A limit reached while the
+model is still thinking leaves a cut-off or empty answer that is billed anyway. Google's advice
+is to lower the thinking level rather than shrink the limit
+(https://ai.google.dev/gemini-api/docs/generate-content/thinking).
+
+**Gemini.** A `generate_content` model may set `providerConfig.thinking`, sent as
+`generationConfig.thinkingConfig`: `{ "level": "minimal" | "low" | "medium" | "high" }` for
+Gemini 3 and later (`thinkingLevel`), or `{ "budget": n }` for Gemini 2.5 (`thinkingBudget`,
+`-1` dynamic, `0` off on Flash). The API refuses both at once, so the schema allows exactly one.
+The guided draft sets, per role, a thinking level and an output limit with room for both:
+
+| Role | Gemini 3+/4 level | Gemini 2.5 budget | Output limit |
+| --- | --- | --- | --- |
+| companion | `low` | 512 | 4,096 |
+| supervisor, reviewer, research | `medium` | dynamic | 8,192 |
+
+A level a model is documented to refuse is not sent (for example `medium` on Gemini 3 Pro,
+`minimal` on Gemini 3.8 Flash); the model default applies. Models outside the thinking families
+keep the earlier 1,000-token limit and no thinking setting.
+
+**Setups saved by the earlier guide (Core 0.1.52 and before)** get these defaults when the
+configuration is read, and again before a new version or draft is stored
+(`src/provider-defaults.ts`). Only what the guide itself produced changes: a Gemini thinking model
+bound to one text role and without a thinking setting gets the role's level, and a limit still at
+the guide's 1,000 tokens is raised on the model and the role when the role's token bound still
+fits the job token allowance. When it does not fit (for example a four-round supervisor under a
+500,000-token allowance), the limit stays and the role thinks at the `low` level instead. Stored
+versions are never rewritten.
+
+**Anthropic.** Current Claude models think adaptively; a fixed `budget_tokens` is deprecated or
+refused there, so depth is set with `effort` (`low` in the guided draft). The draft gives a
+companion 4,096 output tokens and other roles 8,192, or 2,048 where thinking is turned off.
+
+**Cut-off replies.** A companion reply that stops at the output limit (Gemini `MAX_TOKENS`,
+Claude `max_tokens`) is delivered when it already has at least 200 visible characters, with a
+"reply was cut short" notice for the learner (`cutShort` on the answer). Tutoring text is
+advisory, so a long but unfinished explanation is safe to show marked. A shorter one, any
+structured output (supervisor, reviewer) and research are refused as `INCOMPLETE_OUTPUT`. A retry
+with a lower thinking level was considered and not used: on the pilot's model the companion
+already runs at the lowest supported level (`low`; `minimal` is refused on Gemini 3.8 Flash), and
+a retry is a second billed call inside one reservation.
+
+**A refused reply is settled, never left uncertain.** When the provider answered in full (HTTP
+response read, every attempt reporting a token total) and only the adapter's output checks refused
+the reply (`INCOMPLETE_OUTPUT`, `INVALID_RESPONSE`, `BLOCKED`), the gateway records a refusal
+artifact (`output_refusal` with `provider_output_incomplete`, `provider_output_invalid` or
+`provider_output_blocked`; a `rubric_refusal` for the reviewer), never the text. The call is
+charged at the reported usage times the price version, the rest of the reservation is released,
+and the verifier rejects the artifact, so the job ends `failed` with `verification_rejected` and
+the learner can ask again. Research keeps the earlier rule: it has no refusal record, so such a
+reply stays `provider_uncertain`. A timeout, reset or cut-off body after sending is still
+uncertain.
+
+Receipts an older gateway left `uncertain` in exactly this case (failure code
+`INCOMPLETE_OUTPUT`, `INVALID_RESPONSE` or `BLOCKED`, usage reported for every attempt, companion
+or supervisor job still waiting on that operation) are repaired by the reconcile pass the
+dispatcher already runs: priced at the version in force when the call started (the reservation
+when unpriced), settled, and the job resumed to end rejected. No operator action is needed. A row
+without a reported total for every attempt is left for staff, never guessed.
+
+## Reservations sized from the role
+
+A supervisor job reserves, per checkpoint, the job allowance (`jobPolicy.allowance`), which is
+far above one companion turn. For the companion, supervisor and reviewer, when the bound model
+has token prices in force, the reservation is sized from the role instead
+(`src/role-reservation.ts`):
+
+```
+rounds × ((maxInputCharacters + 1,024) × input price + maxOutputTokens × output price) × 1.25
+```
+
+never above the job allowance, with the role's own token bound as the token reservation. For the
+pilot's companion (12,000 characters, 4,096 output tokens, $0.75 / $3.75 per million) that is
+about $0.031 instead of $0.10. Unused reservation is released when the call settles. Research
+(per-search billing) and media keep the job allowance, as does any role without token prices.
+
+## Companion reply style
+
+The companion asks for concise, plain replies by default: a direct answer in a few sentences or
+a short list using the lesson's example, headings and LaTeX only when the question needs them,
+at most one follow-up. `roles.companion.replyStyle: "detailed"` keeps the earlier, longer style
+(`"concise"` or absent is the default).
+
+The style is part of the companion prompt, so it is part of the role's revision
+(`AGENT_EVALS.md`). After upgrading, the companion role (and any Gemini role the load-time
+defaults changed) has a new revision. There is no runtime gate: the role keeps running, and saving
+the setup again without changing the role needs no new evidence, because both sides of the
+comparison are read with the same defaults. The quality-check page shows the role as needing a
+check until the owner runs one (a live call, with the owner's key) or approves the new revision.
+**For the pilot:** run the companion quality check after upgrading, or record an owner approval
+for the new companion revision; until then it runs as before the upgrade, grandfathered.
+
 ## Anthropic connections
 
 Choose "Anthropic" as the installed provider and paste a Console API key. The key goes
@@ -367,7 +462,8 @@ mixed providers are supported.
 
 The guided draft sets effort `low`, disables thinking only where the model reports that
 it can be disabled (Claude Haiku 5.5), and otherwise leaves more output room because
-thinking tokens count toward `max_tokens`. Paid work stays refused until the operator
+thinking tokens count toward `max_tokens` (see "Thinking models, output limits and cut-off
+replies" above). Paid work stays refused until the operator
 enters prices for each bound model; for research, also enter the per-web-search price.
 Live behavior, real costs and teaching quality are unverified: the adapter and the
 supervisor/companion paths are tested only against a scripted Anthropic-compatible

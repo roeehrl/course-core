@@ -14,6 +14,8 @@ import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import { telemetry } from './telemetry.js';
 import { pricedStatus, pricingDecision } from './provider-costs.js';
+import { answeredRefusalReason } from './output-refusal.js';
+import type { TeachingContext } from './agent-strategies.js';
 
 import type {AdaptationRuntime} from "./adaptation-store.js";
 
@@ -105,6 +107,31 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       return { invoke: true as const };
     });
     if (!admitted.invoke) return admitted.outcome;
+    /** A completed reply the adapter refused, recorded as a refusal artifact (reason code only, never
+     * the reply) and priced at its reported usage. Null when the outcome stays uncertain: an
+     * attempt without a read response or reported total, a role without a refusal record, or a
+     * refusal that could not be stored. */
+    const settleRefusedAnswer = async (error: ProviderError, context: TeachingContext | null) => {
+      const reason = answeredRefusalReason(error), receipt = error.usage;
+      if (!reason || !receipt) return null;
+      const content: SupervisorArtifactContent | null = body.role === 'companion' || body.role === 'supervisor'
+        ? { kind: 'output_refusal', role: body.role, reason }
+        : body.role === 'reviewer' && context?.rubricReview
+          ? { kind: 'rubric_refusal', requestId: context.rubricReview.requestId, attemptId: context.rubricReview.attemptId, reason: 'host_check_failed', problems: [reason] }
+          : null;
+      if (!content) return null;
+      let artifact: Awaited<ReturnType<typeof storeSupervisorArtifact>>;
+      try { artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, content); }
+      catch { return null; }
+      const tokens = receipt.attempts.reduce((sum, attempt) => sum + attempt.tokens.total!, 0);
+      const priced = pricing ? priceUsage(receipt, pricing).cost : null;
+      const charge = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
+      receipt.cost = charge;
+      const outcome: Outcome = { status: 'succeeded', artifact, usage: { microUsd: charge ? charge.microUsd : body.checkpoint.allowance.microUsd, tokens },
+        usageBasis: { microUsd: charge ? 'reported' : 'reserved_ceiling', tokens: 'reported' } };
+      return { outcome, cost: charge };
+    };
+    let assembled: TeachingContext | null = null;
     let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
     let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
     // Role, checkpoint, outcome, usage counts and cost estimate only; never the request, context or candidate.
@@ -123,6 +150,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         requireCondition(decision.admit, 'PROVIDER_PRICING_REQUIRED', 409);
         pricing = decision.pricing;
         const context = await teachingContext(db, operation.ref, operation.input.context);
+        assembled = context;
         // Strategies the course release declared, bound by Core to narrow its own (course-strategies.ts).
         const release = (await db.query<{ digest: string; strategies: unknown }>(`SELECT r.digest,r.server_bundle->'agentStrategies' AS strategies FROM enrollments e
           JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id WHERE e.id=$1 AND e.workspace_id=$2`, [body.job.enrollmentId, body.job.workspaceId])).rows[0];
@@ -147,7 +175,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         const value = generated.content as Record<string, unknown>;
         const artifactContent: SupervisorArtifactContent = value.kind === 'output_refusal' ? generated.content as unknown as SupervisorArtifactContent
           : generated.role === 'companion'
-          ? { kind: 'companion_message', text: String(value.text) }
+          ? { kind: 'companion_message', text: String(value.text), ...(value.cutShort === true ? { cutShort: true as const } : {}) }
           : (value.kind==='supervised_plan'||value.kind==='research_candidate'||value.kind==='rubric_suggestion'||value.kind==='rubric_refusal')?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
         const artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, artifactContent);
         const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
@@ -163,6 +191,15 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
           usageBasis: { microUsd: cost ? 'reported' : 'reserved_ceiling', tokens: knownTokens ? 'reported' : 'reserved_ceiling' } };
       }
     } catch (error) {
+      // The provider answered in full and reported its usage, but the adapter's own checks refused
+      // the reply (cut off at the output limit, malformed, blocked): a definite outcome, charged at
+      // the reported usage like any answer and then rejected by the verifier, never an uncertain one.
+      const refusedAnswer = started && error instanceof ProviderError ? await settleRefusedAnswer(error, assembled) : null;
+      if (refusedAnswer) {
+        usage = error instanceof ProviderError ? error.usage ?? null : null; failureCode = error instanceof ProviderError ? error.code : null;
+        cost = refusedAnswer.cost; if (!cost) pricingState = 'unpriced';
+        result = refusedAnswer.outcome;
+      } else {
       const definitelyNotSent = !started || (error instanceof ProviderError && error.submission === 'not_sent' && !error.usage?.attempts.length);
       // Sent, but every attempt was refused with a documented rejection status (auth, permission,
       // invalid request, rate limit...): the model never ran, so the reservation is released.
@@ -174,6 +211,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         : { status: 'uncertain' };
       failureCode = error instanceof ProviderError ? error.code : error instanceof ApiError ? error.code : 'PROVIDER_OPERATION_FAILED';
       if (error instanceof ProviderError) usage = error.usage ?? null;
+      }
     } finally { if (acquired) active -= 1; }
     result = outcomeSchema.parse(result);
     }); } finally {

@@ -11,8 +11,23 @@ const googleCommonConfig = {
   apiVersion: z.enum(['v1', 'v1beta']),
   maxResponseBytes: positive.max(32 * 1024 * 1024),
 };
+/** Gemini thinking levels (generateContent `generationConfig.thinkingConfig.thinkingLevel`). */
+export const GOOGLE_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
+/**
+ * How much a thinking model may reason before it answers, sent as `thinkingConfig`. Gemini 3 and
+ * later take a level; the Gemini 2.5 series takes a token budget instead (-1 dynamic, 0 off on
+ * Flash). The API refuses a request with both (400), so exactly one is configured. Thought tokens
+ * count toward `maxOutputTokens`: a low level leaves room for the visible answer. Absent, the
+ * model's own default applies (medium or high on current models). See
+ * https://ai.google.dev/gemini-api/docs/generate-content/thinking
+ */
+export const googleThinkingSchema = z.union([
+  z.strictObject({ level: z.enum(GOOGLE_THINKING_LEVELS) }),
+  z.strictObject({ budget: z.number().int().min(-1).max(32_768) }),
+]);
+export type GoogleThinking = z.infer<typeof googleThinkingSchema>;
 export const googleModelConfigSchema = z.discriminatedUnion('transport', [
-  z.strictObject({ ...googleCommonConfig, transport: z.literal('generate_content') }),
+  z.strictObject({ ...googleCommonConfig, transport: z.literal('generate_content'), thinking: googleThinkingSchema.optional() }),
   z.strictObject({ ...googleCommonConfig, transport: z.literal('video_lro'), video: z.strictObject({
     durationSeconds: z.array(positive).min(1).max(32), aspectRatios: z.array(z.string().regex(/^\d{1,2}:\d{1,2}$/)).min(1),
     resolutions: z.array(id).min(1), downloadHosts: z.array(z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/)).min(1),

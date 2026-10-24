@@ -4,10 +4,10 @@ import { callOptionsSchema, id, imageRequestSchema, textRequestSchema, videoRequ
   type CapabilityPorts, type Json, type ModelConfig, type Operation, type ProviderAdapter, type ProviderResult, type ResearchOutput, type ResearchProvider, type StructuredAssessmentProvider,
   type TextRequest, type TutoringProvider, type UsageReceipt, type VideoJob, type VideoJobProvider, type VideoRequest,
   type DownloadOptions, type VideoAsset, MAX_VIDEO_DOWNLOAD_BYTES,
-  type CostEstimate, type MediaCapabilities, type MediaPrice, priceMediaUnits } from './contracts.js';
+  type CostEstimate, type MediaCapabilities, type MediaPrice, type TutoringOutput, MIN_CUT_SHORT_CHARACTERS, priceMediaUnits } from './contracts.js';
 import { googleVideoJobSchema, requireGoogleModel, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError, safeError } from './errors.js';
-import { candidate, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, validateOperationName } from './google-response.js';
+import { candidate, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, tutoringText, validateOperationName } from './google-response.js';
 import { abortable, abortScope, GoogleTransport, waitAbortable, type GoogleTransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -100,14 +100,16 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
         contents: request.messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.text }] })),
         ...(request.systemInstruction === undefined ? {} : { systemInstruction: { parts: [{ text: request.systemInstruction }] } }),
         generationConfig: { candidateCount: 1, maxOutputTokens: request.maxOutputTokens,
+          ...(config.transport === 'generate_content' && config.thinking ? { thinkingConfig: 'level' in config.thinking
+            ? { thinkingLevel: config.thinking.level } : { thinkingBudget: config.thinking.budget } } : {}),
           ...(format === undefined ? {} : { responseFormat: { text: { mimeType: 'application/json', schema: format } } }) },
         ...(capability === 'research' ? { tools: [{ googleSearch: {} }] } : {}),
       }, usage, config.maxResponseBytes, call);
       return decode(data);
     });
   }
-  tutor(request: TextRequest, options: CallOptions = {}): Promise<ProviderResult<{ text: string }>> {
-    return this.#generate(request, 'tutoring', 'tutor', raw => ({ text: responseText(candidate(raw)) }), options);
+  tutor(request: TextRequest, options: CallOptions = {}): Promise<ProviderResult<TutoringOutput>> {
+    return this.#generate(request, 'tutoring', 'tutor', raw => tutoringText(candidate(raw, request.allowCutShort === true), MIN_CUT_SHORT_CHARACTERS), options);
   }
   async assess(input: AssessmentRequest, options: CallOptions = {}): Promise<ProviderResult<Json>> {
     const request = parse(textRequestSchema.extend({ outputSchema: z.unknown() }), input);

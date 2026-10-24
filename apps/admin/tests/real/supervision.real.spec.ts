@@ -167,6 +167,11 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   await expect(
     page.getByRole("heading", { name: "AI supervision settings" }),
   ).toBeVisible();
+  // Supervisor review is paid and admitted for every learner by these settings and the spending
+  // limits; the learner's opt-in only governs changes to their lessons and what extra context is sent.
+  await expect(
+    page.getByText(/including learners who have not opted in\. This is paid AI work/),
+  ).toBeVisible();
   // Saving needs a check of what the change does first.
   await page.getByRole("radio", { name: /^Only suggest/ }).check();
   const save = page.getByRole("button", { name: "Save settings" });

@@ -135,8 +135,8 @@ it("drafts Anthropic text roles from metadata and keeps another provider's roles
     assignments: { companion: "claude-haiku-5-5", reviewer: "claude-opus-5-5", research: "claude-haiku-5-5" },
   });
   expect(draft.roles.supervisor?.modelId).toBe("google:supervisor");
-  expect(draft.roles.companion).toEqual({ modelId: "claude:companion", maxInputCharacters: 12000, maxOutputTokens: 1000 });
-  expect(draft.roles.reviewer).toEqual({ modelId: "claude:reviewer", maxInputCharacters: 20000, maxOutputTokens: 4000 });
+  expect(draft.roles.companion).toEqual({ modelId: "claude:companion", maxInputCharacters: 12000, maxOutputTokens: 2048 });
+  expect(draft.roles.reviewer).toEqual({ modelId: "claude:reviewer", maxInputCharacters: 20000, maxOutputTokens: 8192 });
   const models = Object.fromEntries(draft.registry.models.map((m) => [m.id, m]));
   expect(models["claude:companion"]).toMatchObject({ providerId: "claude", remoteModel: "claude-haiku-5-5", capabilities: ["tutoring"], tools: [],
     providerConfig: { transport: "messages", apiVersion: "2023-06-01", maxResponseBytes: 1048576, effort: "low", thinking: "disabled" } });
@@ -144,9 +144,9 @@ it("drafts Anthropic text roles from metadata and keeps another provider's roles
   expect(models["claude:research"]).toMatchObject({ capabilities: ["research"], tools: ["web_search"], providerConfig: { webSearch: { toolType: "web_search_20250305", maxUses: 5 } } });
   const runtime = composeProviders(draft, (name) => (name === "GOOGLE_API_KEY" || name === "COURSE_PROVIDER_CLAUDE_API_KEY" ? "configured" : undefined));
   expect(runtime.status()).toMatchObject({ supervisor: { status: "ready" }, companion: { status: "ready" }, reviewer: { status: "ready" }, research: { status: "ready" } });
-  expect(configurationTokenBounds(draft).reviewer).toBe(20000 * 4 + 4000 + 4096);
+  expect(configurationTokenBounds(draft).reviewer).toBe(20000 * 4 + 8192 + 4096);
   const supervisor = anthropicModelDraft({ configuration, adapterId: "claude", catalog, assignments: { supervisor: "claude-haiku-5-5" } });
-  expect(supervisor.roles.supervisor).toEqual({ modelId: "claude:supervisor", maxInputCharacters: 30000, maxOutputTokens: 1000, maxToolRounds: 4 });
+  expect(supervisor.roles.supervisor).toEqual({ modelId: "claude:supervisor", maxInputCharacters: 30000, maxOutputTokens: 2048, maxToolRounds: 4 });
 });
 
 it("never offers media and rejects missing models, unsupported methods, small contexts and another provider's connection", () => {

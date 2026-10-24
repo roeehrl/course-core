@@ -45,18 +45,28 @@ const messageSchema = z.object({
   content: z.array(z.unknown()).max(1024),
   stop_reason: z.string().nullable(),
 });
-export interface AnthropicMessage { content: Block[] }
+export interface AnthropicMessage { content: Block[]; cutShort?: true }
 
 /** Accept only a complete turn. A refusal is `BLOCKED`; a token cap, context overflow, pause or
- * any other stop is incomplete. Structured output that stopped early is never parsed. */
-export function anthropicMessage(data: Record<string, unknown>, allowSearch: boolean): AnthropicMessage {
+ * any other stop is incomplete. Structured output that stopped early is never parsed. With
+ * `allowCutShort` (tutoring text only), a stop at `max_tokens` is returned marked `cutShort`. */
+export function anthropicMessage(data: Record<string, unknown>, allowSearch: boolean, allowCutShort = false): AnthropicMessage {
   const message = parse(messageSchema, data, 'INVALID_RESPONSE');
   if (message.stop_reason === 'refusal') throw new ProviderError('BLOCKED');
-  ensure(message.stop_reason === 'end_turn', 'INCOMPLETE_OUTPUT');
+  const cutShort = allowCutShort && message.stop_reason === 'max_tokens';
+  ensure(message.stop_reason === 'end_turn' || cutShort, 'INCOMPLETE_OUTPUT');
   const content = message.content.map(raw => parse(blockSchema, raw, 'INVALID_RESPONSE'));
   ensure(content.every(block => block.type === 'text' || block.type === 'thinking' || block.type === 'redacted_thinking'
     || allowSearch && (block.type === 'web_search_tool_result' || block.type === 'server_tool_use' && block.name === 'web_search')), 'INVALID_RESPONSE');
-  return { content };
+  return cutShort ? { content, cutShort: true } : { content };
+}
+/** Tutoring text: a reply cut short at `max_tokens` is delivered, marked, only with at least
+ * `minimum` visible characters (thinking may have used the whole allowance); otherwise incomplete. */
+export function anthropicTutoring(message: AnthropicMessage, minimum: number): { text: string; cutShort?: true } {
+  if (!message.cutShort) return { text: anthropicText(message) };
+  const text = message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('');
+  ensure(text.trim().length >= minimum, 'INCOMPLETE_OUTPUT');
+  return { text, cutShort: true };
 }
 
 export function anthropicText(message: AnthropicMessage): string {
