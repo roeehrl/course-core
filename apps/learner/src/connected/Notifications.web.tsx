@@ -99,6 +99,7 @@ export function LearnerNotifications({
       to = String(item.params.toVersion ?? "");
     if (item.kind === "course_updated") return t("notifications.kind.course_updated", { from, to });
     if (item.kind === "move_offer") return t("notifications.kind.move_offer", { to });
+    if (item.kind === "move_forced") return t("notifications.kind.move_forced", { from, to });
     if (item.kind === "reply_ready") return t("notifications.kind.reply_ready");
     return t("notifications.kind.unknown");
   };

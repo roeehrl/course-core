@@ -373,6 +373,9 @@ describe("owner decisions on version moves (2026-10-24)", () => {
     expect(snapshot.courseVersionOffer).toMatchObject({ moveId: body.moveId, fromVersion: "1.0.0", toVersion: "4.0.0",
       personalChanges: { count: 1, items: [{ episodeId: "max", title: "Maximum", kind: "waiting_practice" }] },
       keeps: { lessons: 1, checkpointsCarried: 1, checkpointsAgain: 0 } });
+    // The bell says so too.
+    expect((await call(who, "GET", "/api/me/notifications")).json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "move_offer", params: { fromVersion: "1.0.0", toVersion: "4.0.0" }, link: `/enrollments/${id}` })]));
     // Another person cannot answer the learner's offer.
     const stranger = await session("learner", "Stranger");
     expect((await call(stranger, "POST", `/api/enrollments/${id}/version-offer/decline`, { moveId: body.moveId, expectedRevision: snapshot.revision, idempotencyKey: randomUUID() })).statusCode).toBe(404);
@@ -433,6 +436,8 @@ describe("owner decisions on version moves (2026-10-24)", () => {
     expect(events).toHaveLength(2);
     expect(events.every((e) => e.actor_id === owner.userId && e.payload.reason === "The old version is being retired.")).toBe(true);
     expect((await call(who, "GET", `/api/enrollments/${id}`)).json().courseVersionNotice).toMatchObject({ personalChanges: "forced" });
+    expect((await call(who, "GET", "/api/me/notifications")).json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "move_forced", params: { fromVersion: "1.0.0", toVersion: "4.0.0" } })]));
     // Undo restores the archived adaptation state.
     const undone = await call(owner, "POST", `${base()}/${body.moveId}/undo`, { reason: "Changed our mind." });
     expect(undone.json().undone).toEqual([id]);
