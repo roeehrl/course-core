@@ -202,6 +202,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     carried_checkpoint_attempts: { gate_id: "min-gate", from_course_digest: hex("1"), course_digest: hex("2") },
     course_version_move_offers: { state: "forced", force_reason: "Forced: " + secret, decided_at: new Date().toISOString() },
     personal_change_archives: { how: "forced", changes: [{ episodeId: "min", title: "Title " + secret, kind: "replace_teaching" }], state: { snapshot: { note: said } } },
+    // In-app notifications (migration 118): deleted with the enrollment.
+    notifications: { audience: "learner", kind: "reply_ready", dedupe_key: "reply-ready:" + secret, params: { episodeId: secret } },
   };
 }
 

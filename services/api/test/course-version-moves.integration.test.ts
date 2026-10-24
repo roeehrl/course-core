@@ -155,6 +155,9 @@ describe("moving learners to a newer course version", () => {
     // The learner app is told the course was updated: versions only, no prose.
     expect(state.courseVersionNotice).toEqual({ id: expect.any(String), fromVersion: "1.0.0", toVersion: "2.0.0", movedAt: expect.any(String),
       carriedCheckpoints: 0, personalChanges: null, personalChangesArchived: 0 });
+    // And its notification bell has one unread "course updated" notification linking to the course.
+    expect((await call(who, "GET", "/api/me/notifications")).json()).toMatchObject({ unread: 1,
+      items: [{ kind: "course_updated", params: { fromVersion: "1.0.0", toVersion: "2.0.0" }, link: `/enrollments/${id}`, enrollmentId: id, read: false }] });
     // Existing scopes kept as they were; the new lesson got its own.
     const policy = (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [id])).rows[0].snapshot;
     expect(policy.scopes.map((s: { scopeId: string }) => s.scopeId)).toContain("episode:range");
