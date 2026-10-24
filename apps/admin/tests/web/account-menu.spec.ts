@@ -299,3 +299,25 @@ test("before any course exists, the first-run screen has the same header and acc
   await page.keyboard.press("Escape");
   await expect(button).toBeFocused();
 });
+
+test("on a tablet the top bar keeps the course picker and every action on one row", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 834, height: 1112 });
+  await mockConnectedAdmin(page, context);
+  await page.goto("/admin/");
+  await expect(page.locator(".notification-bell")).toBeVisible();
+  const middle = async (locator: string) => {
+    const box = (await page.locator(locator).boundingBox())!;
+    return box.y + box.height / 2;
+  };
+  const row = await middle(".account-button");
+  for (const locator of ["#course-select", ".notification-bell"])
+    expect(Math.abs((await middle(locator)) - row)).toBeLessThan(4);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
+});
