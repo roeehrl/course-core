@@ -5,7 +5,7 @@
   "scope.course": "קורס",
   "scope.chapter": "פרק: {title}",
   "scope.lesson": "שיעור: {title}",
-  "scope.other": "היקף הלמידה",
+  "scope.other": "תחום הלמידה",
   "quota.additionalMinutes": "דקות למידה נוספות",
   "quota.additionalEpisodes": "שיעורים נוספים",
   "quota.remediationCyclesPerConcept": "סבבי חזרה לכל מיומנות",

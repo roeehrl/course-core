@@ -19,7 +19,7 @@
   "continue": "המשך למידה ←",
   "path": "מסלול הלמידה שלך",
   "progress": "{completed, number} הושלמו / {total, number}",
-  "progressPlaced": "{completed, number} הושלמו · {placed, number} בפטור שיבוץ / {total, number}",
+  "progressPlaced": "{completed, number} הושלמו · {placed, number} עם פטור בזכות השיבוץ / {total, number}",
   "legendLabel": "מצבי השיעורים",
   "legend": "{mark} {state}",
   "lessonsIn": "השיעורים ב-{section}",
