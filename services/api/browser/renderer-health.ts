@@ -1,4 +1,23 @@
-import type { CDPSession, Page, TestInfo } from "@playwright/test";
+// The parts of Playwright's Page, CDPSession and TestInfo this file uses, written out so it
+// imports no package: the learner app's connected tests import it from outside services/api,
+// and the learner CI job installs only the learner's dependencies, so `@playwright/test` does
+// not resolve from here there (renderer-health-imports.test.ts keeps it that way).
+interface DevToolsSession {
+  send(method: "Runtime.evaluate", params: { expression: string; returnByValue: boolean }): Promise<unknown>;
+  send(method: "Runtime.terminateExecution"): Promise<unknown>;
+  detach(): Promise<void>;
+}
+interface Page {
+  context(): { browser(): { browserType(): { name(): string } } | null; newCDPSession(page: never): Promise<DevToolsSession> };
+  isClosed(): boolean;
+}
+type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
+interface FinishedTest {
+  status?: TestStatus;
+  expectedStatus: TestStatus;
+  annotations: { type: string; description?: string }[];
+  attach(name: string, options: { body: string; contentType: string }): Promise<void>;
+}
 
 const NO_ANSWER: unique symbol = Symbol("no answer");
 type NoAnswer = typeof NO_ANSWER;
@@ -10,14 +29,14 @@ const within = <T>(work: Promise<T>, ms: number): Promise<T | NoAnswer> => {
   ]).finally(() => clearTimeout(timer));
 };
 
-const sessions = new WeakMap<Page, CDPSession>();
+const sessions = new WeakMap<Page, DevToolsSession>();
 
 /** Opens the DevTools session the health check uses. It must exist before the page
  * stops answering: attaching a new session needs the renderer's main thread. No
  * DevTools domain is enabled, so it does not change how the page runs. */
 export async function watchRenderer(page: Page) {
   if (page.context().browser()?.browserType().name() === "chromium")
-    sessions.set(page, await page.context().newCDPSession(page));
+    sessions.set(page, await page.context().newCDPSession(page as never));
 }
 
 /** After a failed Chromium test, records whether the page's renderer still answers.
@@ -33,7 +52,7 @@ export async function watchRenderer(page: Page) {
  * failure is an ordinary one. */
 export async function recordRendererHealth(
   page: Page,
-  testInfo: Pick<TestInfo, "status" | "expectedStatus" | "annotations" | "attach">,
+  testInfo: FinishedTest,
 ) {
   const cdp = sessions.get(page);
   if (!cdp) return;
