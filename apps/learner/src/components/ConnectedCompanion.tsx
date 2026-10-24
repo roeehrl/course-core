@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import type {
   CompanionContext,
+  CompanionDraft,
   CompanionMessage,
   CompanionReceipt,
 } from "../client/companionClient";
 import {
   companionCanCancel,
   companionCouldNotAnswer,
+  companionHasPending,
   companionJobLabel,
   companionState,
 } from "../client/companionClient";
@@ -40,6 +42,10 @@ export interface ConnectedCompanionProps {
   onDeleteMessage?: (messageId: string) => Promise<void>;
   /** Stop waiting for the answer to one of the learner's questions (the question stays). */
   onCancelQuestion?: (messageId: string) => Promise<void>;
+  /** Replies being written, streamed before Core has checked them. */
+  drafts?: readonly CompanionDraft[];
+  /** False while the event stream reconnects; a draft continues once it is back. */
+  streamConnected?: boolean;
 }
 function useCompanionFocus() {
   const [focus, setFocus] = useState<CompanionFocusState>(companionFocus.get());
@@ -85,6 +91,8 @@ export function ConnectedCompanion({
   onExcludeContext,
   onDeleteMessage,
   onCancelQuestion,
+  drafts = [],
+  streamConnected = true,
 }: ConnectedCompanionProps) {
   const t = useT();
   /** Cancel a waiting question; a retry also puts it back in the draft to send again. */
@@ -99,6 +107,19 @@ export function ConnectedCompanion({
       setCorrectionError(t("connectedCompanion.error.cancel"));
     } finally {
       setCorrecting("");
+    }
+  }
+  const [stopping, setStopping] = useState(""), [stopError, setStopError] = useState("");
+  async function stop(messageId: string) {
+    if (!onCancelQuestion) return;
+    setStopping(messageId);
+    setStopError("");
+    try {
+      await onCancelQuestion(messageId);
+    } catch {
+      setStopError(t("connectedCompanion.error.stop"));
+    } finally {
+      setStopping("");
     }
   }
   const [confirmDelete, setConfirmDelete] = useState("");
@@ -138,7 +159,7 @@ export function ConnectedCompanion({
   current.current = { context, draft };
   const online = useOnline(),
     [heldOffline, setHeldOffline] = useState<{ consent?: true } | null>(null);
-  const state = companionState(messages, { online, awaitingChoice: consent });
+  const state = companionState(messages, { online, awaitingChoice: consent, drafts });
   // A question held while offline is sent once, when the browser is back online,
   // only if the learner is still in the same lesson with the same draft.
   const held = useRef<{ draft: string; episodeId?: string; consent?: true } | null>(null);
@@ -241,8 +262,8 @@ export function ConnectedCompanion({
         style={{ gap: 16 }}
       >
         {messages.map((message) => (
+          <React.Fragment key={message.id}>
           <View
-            key={message.id}
             style={[
               styles.card,
               {
@@ -327,6 +348,18 @@ export function ConnectedCompanion({
                 <Button label={t("connectedCompanion.delete.start")} kind="quiet" onPress={() => setConfirmDelete(message.id)} />
               )
             )}
+            {/* While the reply is being written (or streams) the learner can stop it; before that,
+                the cancel and retry buttons above do the same through the same route. */}
+            {message.role === "learner" && onCancelQuestion && message.job_id && message.content !== "[deleted]" &&
+              companionHasPending([message]) && !companionCanCancel(message) &&
+              !messages.some((row) => row.role === "assistant" && row.job_id === message.job_id) && (
+              <Button
+                label={t(stopping === message.id ? "connectedCompanion.stop.stopping" : "connectedCompanion.stop.start")}
+                kind="quiet"
+                disabled={stopping === message.id}
+                onPress={() => void stop(message.id)}
+              />
+            )}
             {message.role === "assistant" && message.context_used && (
               <ContextUsed
                 used={message.context_used}
@@ -340,6 +373,14 @@ export function ConnectedCompanion({
               />
             )}
           </View>
+          {message.role === "learner" && (
+            <DraftReply
+              draft={drafts.find((row) => row.messageId === message.id &&
+                !messages.some((m) => m.role === "assistant" && m.job_id === row.jobId))}
+              connected={streamConnected}
+            />
+          )}
+          </React.Fragment>
         ))}
       </View>
       {sent && (
@@ -356,6 +397,7 @@ export function ConnectedCompanion({
         </Notice>
       )}
       {sendError && <Notice error>{sendError}</Notice>}
+      {stopError && <Notice error>{stopError}</Notice>}
       {correctionError && <Notice error>{correctionError}</Notice>}
       {(focus.selection || focus.media) && (
         <View
@@ -469,6 +511,43 @@ export function ConnectedCompanion({
       <Text style={styles.small}>
         {t(storageUnavailable ? "connectedCompanion.draft.tabOnly" : "connectedCompanion.draft.saved")}
       </Text>
+    </View>
+  );
+}
+
+/**
+ * A reply the companion is still writing. Plain text (no formatting until the checked reply
+ * replaces it), clearly labelled as not yet checked. The text itself is not a live region: a
+ * screen reader is not interrupted at every word. The status line above announces "replying"
+ * once, and the checked reply is announced once when it enters the conversation log.
+ */
+function DraftReply({ draft, connected }: { draft?: CompanionDraft; connected: boolean }) {
+  const t = useT();
+  if (!draft) return null;
+  if (draft.state === "withdrawn" || draft.state === "cancelled") {
+    if (draft.state === "withdrawn" && !draft.shown) return null;
+    return (
+      <Text style={styles.small} aria-live="off">
+        {t(draft.state === "cancelled" ? "connectedCompanion.reply.stopped" : "connectedCompanion.reply.withdrawn")}
+      </Text>
+    );
+  }
+  if (!draft.text) return null;
+  return (
+    <View
+      aria-live="off"
+      aria-busy={draft.state === "streaming"}
+      accessibilityLabel={t("connectedCompanion.reply.region")}
+      style={[styles.card, { padding: 16, backgroundColor: "#F7F4FC", borderStyle: "dashed" }]}
+    >
+      <Text style={styles.eyebrow}>{t("connectedCompanion.role.companion")}</Text>
+      <Text style={styles.small}>
+        {t(draft.state === "streaming" ? "connectedCompanion.reply.writing" : "connectedCompanion.reply.checking")}
+      </Text>
+      <Text style={[styles.body, { writingDirection: "auto" } as object]}>{draft.text}</Text>
+      {!connected && draft.state === "streaming" && (
+        <Text style={styles.small}>{t("connectedCompanion.reply.reconnecting")}</Text>
+      )}
     </View>
   );
 }
