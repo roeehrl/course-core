@@ -467,5 +467,14 @@
   "check.course.state.not_covered": "Waiting for an owner's approval — turned down for this course's learners until then",
   "check.course.approveNote": "There is no automatic check for course-specific setups yet. Read what the course asks for in its release notes, then approve. The approval covers this exact setup; a new course version or a model change needs a new one.",
   "check.course.approve": "{count, plural, one {Approve this setup} other {Approve these # setups}}",
-  "check.course.approved": "Approved. The course's learners get these setups from now on."
+  "check.course.approved": "Approved. The course's learners get these setups from now on.",
+  "check.flag.list": "Jobs that are on and need a quality check",
+  "check.flag.needsCheck": "Needs a check",
+  "check.flag.needsApproval": "Needs an owner's approval",
+  "check.flag.approveInstead": "The quality check doesn't cover this job. It keeps working as it is. An owner can approve it in AI services, under Quality check.",
+  "check.flag.estimate": "Checks this job only, with {count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}}. Uses your key. About {amount}.",
+  "check.flag.run": "Run check",
+  "check.flag.runFor": "Run check for {job}",
+  "check.flag.progressLabel": "Quality check progress for {job}",
+  "check.flag.allTitle": "Or check all of them at once"
 }

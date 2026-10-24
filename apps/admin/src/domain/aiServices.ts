@@ -261,6 +261,13 @@ export const qualityCheckSchema = z.object({
   deadlineAt: z.string().nullable(),
 });
 export type QualityCheck = z.infer<typeof qualityCheckSchema>;
+/** Why a check cannot start now, with what the message needs. */
+const qualityBlockedSchema = z.object({
+  code: z.string().max(100),
+  roles: z.array(job).max(5).optional(),
+  neededMicroUsd: micro.optional(),
+  availableMicroUsd: micro.optional(),
+});
 export const qualityStatusSchema = z.object({
   /** What a check started now would check; null when nothing needs one. */
   target: qualityTargetSchema.nullable().default(null),
@@ -279,16 +286,28 @@ export const qualityStatusSchema = z.object({
   conversations: z.number().int().nonnegative(),
   estimateMicroUsd: micro,
   reserveMicroUsd: micro,
-  blocked: z
-    .object({
-      code: z.string().max(100),
-      roles: z.array(job).max(5).optional(),
-      neededMicroUsd: micro.optional(),
-      availableMicroUsd: micro.optional(),
-    })
-    .nullable(),
+  blocked: qualityBlockedSchema.nullable(),
   latest: qualityCheckSchema.nullable(),
+  /**
+   * Each job that is on and needs a check (for example after an upgrade), with what checking that
+   * job alone runs and costs and why it cannot start now. Older servers omit it.
+   */
+  activeRoles: z
+    .array(
+      z.object({
+        role: job,
+        remoteModel: z.string().max(2048).nullable(),
+        conversations: z.number().int().nonnegative(),
+        priced: z.boolean(),
+        estimateMicroUsd: micro.nullable(),
+        reserveMicroUsd: micro,
+        blocked: qualityBlockedSchema.nullable(),
+      }),
+    )
+    .max(5)
+    .default([]),
 });
+export type ActiveRoleCheck = QualityStatus["activeRoles"][number];
 export type QualityStatus = z.infer<typeof qualityStatusSchema>;
 export type AiPricing = z.infer<typeof aiPricingSchema>;
 
@@ -438,7 +457,7 @@ export interface AiServicesPort {
     workspace: string,
     input:
       | { idempotencyKey: string; draftId: string }
-      | { idempotencyKey: string; target: "active" },
+      | { idempotencyKey: string; target: "active"; role?: Job },
   ): Promise<QualityCheck>;
   qualityCheck(
     workspace: string,
