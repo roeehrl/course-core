@@ -15,5 +15,6 @@
   "job.unavailable": "Reply unavailable · your message is saved",
   "job.stillWorking": "Still working on your last question · your message is saved",
   "job.cancelled": "Cancelled · your message is saved",
-  "job.queued": "Queued · waiting for a reply"
+  "job.queued": "Queued · waiting for a reply",
+  "state.replying": "Writing a reply · it is checked before it is kept"
 }

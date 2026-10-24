@@ -1,8 +1,10 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { isAbortError, pageDepartureSignal } from "../client/apiClient";
 import { useT } from "../i18n";
 import {
+  applyDraftFrame,
   companionHasPending,
+  type CompanionDraft,
   type CompanionMessage,
   type ContextualCompanionClient,
 } from "../client/companionClient";
@@ -10,6 +12,9 @@ import {
 export const COMPANION_FALLBACK_POLL_MS = 5000;
 /** A slow safety read while a reply is due and the stream is up, in case an event was lost. */
 export const COMPANION_SAFETY_POLL_MS = 30000;
+type Drafts = Readonly<Record<string, CompanionDraft>>;
+type HeldDrafts = { id: string; drafts: Drafts; connected: boolean };
+const NO_DRAFTS: readonly CompanionDraft[] = [];
 type Saved = {
   client: ContextualCompanionClient;
   id: string;
@@ -25,7 +30,8 @@ type Saved = {
  * or opening the panel re-reads the conversation over it, without reopening the stream. A
  * companion event (question saved, answer recorded, supervisor applied) reads it at once.
  * Polling is only a fallback while the stream is down. A read that returns the same messages
- * changes no state, so nothing re-renders when nothing changed.
+ * changes no state, so nothing re-renders when nothing changed. A reply being written arrives on
+ * the same stream as draft frames (`companion-draft`), kept per enrollment and never stored.
  */
 export function useCompanionConversation(
   client: ContextualCompanionClient,
@@ -40,8 +46,13 @@ export function useCompanionConversation(
   openNow.current = open;
   const reread = useRef<(() => void) | undefined>(undefined);
   const lastSeen = useRef({ open, revision });
+  // Replies being written, as streamed over the event stream; kept per enrollment and never stored.
+  const [drafts, setDrafts] = useState<HeldDrafts>();
   useEffect(() => {
     if (!enrollmentId) return;
+    setDrafts({ id: enrollmentId, drafts: {}, connected: true });
+    const updateDrafts = (change: (old: HeldDrafts) => HeldDrafts) =>
+      setDrafts((old) => change(old?.id === enrollmentId ? old : { id: enrollmentId, drafts: {}, connected: true }));
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pending = false;
@@ -118,15 +129,24 @@ export function useCompanionConversation(
       {
         onOpen: () => {
           streaming = true;
+          updateDrafts((old) => (old.connected ? old : { ...old, connected: true }));
           // A new stream replays the enrollment's events and a resumed one continues after
           // the last id, so nothing recorded meanwhile is missed; the fallback timer stops.
           if (!running) schedule();
         },
         onDown: () => {
           streaming = false;
+          updateDrafts((old) => (old.connected ? { ...old, connected: false } : old));
           schedule();
         },
         onEvent,
+        onDraft: (frame) => {
+          updateDrafts((old) => ({ ...old, drafts: applyDraftFrame(old.drafts, frame) }));
+          // A finished draft means the stored reply (or its refusal) is close: read it now
+          // (coalesced with any read already running).
+          const state = (frame as { state?: unknown } | null)?.state;
+          if (state === "complete" || state === "withdrawn") void load();
+        },
       },
     );
     reread.current = () => void load();
@@ -147,9 +167,17 @@ export function useCompanionConversation(
     // (which also resets the fallback timer for the new panel state).
     reread.current?.();
   }, [open, revision]);
-  if (saved?.client !== client || saved.id !== enrollmentId)
-    return EMPTY;
-  return saved.failed ? withError(saved, t("useCompanionConversation.refreshFailed")) : withoutError(saved);
+  const conversation = saved?.client !== client || saved.id !== enrollmentId
+    ? EMPTY
+    : saved.failed ? withError(saved, t("useCompanionConversation.refreshFailed")) : withoutError(saved);
+  const held = drafts?.id === enrollmentId ? drafts : undefined;
+  // Keeps its identity while neither the conversation nor the drafts changed.
+  return useMemo(() => ({
+    ...conversation,
+    drafts: held ? Object.values(held.drafts) : NO_DRAFTS,
+    /** False while the event stream is reconnecting; a draft resumes once it is back. */
+    streamConnected: held?.connected ?? true,
+  }), [conversation, held]);
 }
 const EMPTY = { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
 // The returned object keeps its identity while the conversation is unchanged, so a memoized
@@ -175,7 +203,7 @@ function withError(saved: Saved, error: string) {
 export async function followEventStream(
   url: string,
   signal: AbortSignal,
-  handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
+  handlers: StreamHandlers,
 ) {
   if (typeof fetch !== "function" || typeof TextDecoder === "undefined") return;
   // Leaving the page aborts the stream first: a long-lived request the browser has to
@@ -193,10 +221,17 @@ export async function followEventStream(
     leaving.removeEventListener("abort", stopLocal);
   }
 }
+interface StreamHandlers {
+  onOpen(): void;
+  onDown(): void;
+  onEvent(type: string): void;
+  /** A streamed companion draft frame (`companion-draft`), parsed but not yet validated. */
+  onDraft?(frame: unknown): void;
+}
 async function follow(
   url: string,
   signal: AbortSignal,
-  handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
+  handlers: StreamHandlers,
 ) {
   let last: string | undefined;
   let delay = 3000;
@@ -236,6 +271,13 @@ async function follow(
           }
           if (id && /^[0-9]{1,18}$/.test(id)) last = id;
           if (event === "closed") stop = true;
+          if (event === "companion-draft" && handlers.onDraft) {
+            try {
+              handlers.onDraft(JSON.parse(data));
+            } catch {
+              /* malformed: the stored reply still arrives */
+            }
+          }
           if (event === "learning-event") {
             try {
               const type = (JSON.parse(data) as { event_type?: unknown }).event_type;

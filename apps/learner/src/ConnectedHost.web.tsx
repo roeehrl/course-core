@@ -1627,6 +1627,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       })
                   : undefined
               }
+              drafts={conversation.drafts}
+              streamConnected={conversation.streamConnected}
               onCancelQuestion={
                 chat.cancelQuestion
                   ? (messageId) =>

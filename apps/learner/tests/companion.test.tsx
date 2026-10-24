@@ -18,6 +18,8 @@ import {
   companionJobLabel,
   companionState,
   companionHasPending,
+  applyDraftFrame,
+  type CompanionDraft,
   type CompanionContext,
   type CompanionMessage,
   type ContextualCompanionClient,
@@ -617,4 +619,104 @@ describe("persisted companion integration", () => {
       window.dispatchEvent(new Event("pageshow"));
     } finally { vi.unstubAllGlobals(); }
   }, 15000);
+});
+
+describe("streamed companion replies (T01)", () => {
+  const frame = (offset: number, text: string, state = "streaming", extra = {}) => ({ jobId: "job", messageId: "m", offset, text, state, ...extra });
+  it("applies frames by offset, restores a whole draft on reconnect, ignores gaps and malformed frames, and keeps nothing when withdrawn", () => {
+    let drafts = applyDraftFrame({}, frame(0, "Compare the values. "));
+    drafts = applyDraftFrame(drafts, frame(20, "Left is smaller."));
+    expect(drafts.job!.text).toBe("Compare the values. Left is smaller.");
+    // A gap (a frame lost while reconnecting) is ignored until the whole draft comes again.
+    expect(applyDraftFrame(drafts, frame(99, "lost"))).toBe(drafts);
+    expect(applyDraftFrame(drafts, { jobId: 1 })).toBe(drafts);
+    expect(applyDraftFrame(drafts, frame(0, "x", "invented"))).toBe(drafts);
+    drafts = applyDraftFrame(drafts, frame(0, "Compare the values. Left is smaller. Done.", "complete"));
+    expect(drafts.job).toMatchObject({ state: "complete", text: "Compare the values. Left is smaller. Done.", shown: true });
+    const withdrawn = applyDraftFrame(drafts, frame(0, "", "withdrawn", { reason: "provider_refused" }));
+    expect(withdrawn.job).toMatchObject({ state: "withdrawn", text: "", shown: true, reason: "provider_refused" });
+    expect(applyDraftFrame({}, frame(0, "x".repeat(16001)))).toEqual({});
+  });
+  it("reads companion-draft frames from the event stream into the hook", async () => {
+    const encoder = new TextEncoder();
+    let push: (text: string) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { push = (text) => controller.enqueue(encoder.encode(text)); } }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    }));
+    try {
+      const load = vi.fn().mockResolvedValue([message]);
+      const client: ContextualCompanionClient = { load, send: vi.fn() };
+      const { result, unmount } = renderHook(() => useCompanionConversation(client, "e", false, 1));
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+      push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, "First sentence. "))}\n\n`);
+      await waitFor(() => expect(result.current.drafts).toEqual([expect.objectContaining({ jobId: "job", text: "First sentence. ", state: "streaming" })]));
+      push(`event: companion-draft\ndata: ${JSON.stringify(frame(16, "Second.", "streaming"))}\n\nevent: companion-draft\ndata: {broken\n\n`);
+      await waitFor(() => expect(result.current.drafts[0]!.text).toBe("First sentence. Second."));
+      // A finished draft reads the stored conversation at once.
+      push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, "First sentence. Second.", "complete"))}\n\n`);
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      unmount();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  const draft = (extra: Partial<CompanionDraft> = {}): CompanionDraft => ({ jobId: "job", messageId: "m", text: "Compare them on a number line. ", state: "streaming", shown: true, ...extra });
+  const pending = { ...message, job_state: "running" };
+  function show(props: Partial<React.ComponentProps<typeof ConnectedCompanion>> = {}) {
+    return render(
+      <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{ intro: "Notice change" }}
+        draft="" onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded {...props} />,
+    );
+  }
+  it("shows a streaming draft labelled as unchecked, outside the live announcements, with one replying status", () => {
+    show({ drafts: [draft()] });
+    const region = screen.getByLabelText("Reply being written, not yet checked");
+    expect(region).toHaveAttribute("aria-live", "off");
+    expect(region).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Compare them on a number line.", { exact: false })).toBeVisible();
+    expect(screen.getByText(/not checked yet/)).toBeVisible();
+    expect(screen.getByRole("status", { name: /Writing a reply/ })).toBeVisible();
+    expect(companionState([pending], { online: true, awaitingChoice: false, drafts: [draft()] })).toBe("replying");
+  });
+  it("tells the learner the stream is reconnecting, and replaces the draft by the stored reply", () => {
+    const { rerender } = show({ drafts: [draft()], streamConnected: false });
+    expect(screen.getByText(/Connection lost · the reply continues/)).toBeVisible();
+    const answer: CompanionMessage = { id: "a", role: "assistant", content: "Stored and checked reply.", context: { episodeId: "intro" }, created_at: "2026-01-01", job_id: "job" };
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...message, job_state: "applied" }, answer]} episodeTitles={{ intro: "Notice change" }}
+      draft="" onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded drafts={[draft({ state: "complete" })]} />);
+    expect(screen.queryByLabelText("Reply being written, not yet checked")).toBeNull();
+    expect(screen.getByText("Stored and checked reply.")).toBeVisible();
+  });
+  it("a withdrawn draft says so only when text had been shown; a stopped one says it was stopped", () => {
+    const { rerender } = show({ drafts: [draft({ state: "withdrawn", text: "", shown: true })] });
+    expect(screen.getByText(/withdrawn because it did not pass the checks/)).toBeVisible();
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{}} draft="" onDraftChange={vi.fn()} onSend={vi.fn()}
+      pending={false} loaded drafts={[draft({ state: "withdrawn", text: "", shown: false })]} />);
+    expect(screen.queryByText(/withdrawn because/)).toBeNull();
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{}} draft="" onDraftChange={vi.fn()} onSend={vi.fn()}
+      pending={false} loaded drafts={[draft({ state: "cancelled", text: "" })]} />);
+    expect(screen.getByText("You stopped this reply. Nothing of it was kept.")).toBeVisible();
+  });
+  it("lets the learner stop a reply being prepared, reports a failure, and offers no stop once it is answered or stopped", async () => {
+    const cancel = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+    const { rerender } = show({ onCancelReply: cancel });
+    fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
+    await waitFor(() => expect(screen.getByText(/could not be stopped/)).toBeVisible());
+    fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(2));
+    expect(cancel).toHaveBeenCalledWith("m");
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, cancel_requested: true }]} episodeTitles={{}} draft=""
+      onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelReply={cancel} />);
+    expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
+    expect(screen.getByText(/You stopped this reply · your question is saved/)).toBeVisible();
+    expect(companionHasPending([{ ...pending, cancel_requested: true }])).toBe(false);
+  });
+  it("the cancel command posts to the stop route and checks the receipt", async () => {
+    const command = vi.fn().mockResolvedValue({ messageId: "m", cancelled: true, revision: 3 });
+    const client = createCompanionClient({ command } as never);
+    await expect(client.cancelReply!(connectedSnapshot() as never, "m")).resolves.toMatchObject({ cancelled: true });
+    expect(command).toHaveBeenCalledWith(expect.anything(), "companion/messages/m/cancel", {});
+    command.mockResolvedValueOnce({ messageId: "other", cancelled: true, revision: 3 });
+    await expect(client.cancelReply!(connectedSnapshot() as never, "m")).rejects.toThrow();
+  });
 });
