@@ -15,6 +15,8 @@ import {
   type Translate,
 } from "../i18n";
 import { Badge, Button, Card, Dialog, Field, Notice } from "./ui";
+import { ChangedElsewhere } from "./ChangedElsewhere";
+import { useEditableSnapshot } from "../hooks/useEditableSnapshot";
 
 const levels: UpdateLevel[] = ["off", "check", "install", "publish"];
 const message = (error: unknown, t: Translate) =>
@@ -50,32 +52,34 @@ export function CourseUpdates({
   const [check, setCheck] = useState<CheckResult["outcome"]>();
   const [updating, setUpdating] = useState(false);
   const [installPending, setInstallPending] = useState(false);
-  const [kind, setKind] = useState<"github" | "path" | "none">("none");
-  const [url, setUrl] = useState("");
-  const [directoryId, setDirectoryId] = useState("");
-  const [subpath, setSubpath] = useState("");
-  const [level, setLevel] = useState<UpdateLevel>("off");
-  const [interval, setInterval_] = useState("24");
-  const [acknowledge, setAcknowledge] = useState(false);
-  const [registry, setRegistry] = useState(false);
-  function adopt(next: UpdatesView) {
-    setView(next);
-    setKind(next.source?.kind ?? "none");
-    setUrl(next.source?.kind === "github" ? next.source.url : "");
-    setDirectoryId(
-      next.source?.kind === "path"
-        ? next.source.directoryId
-        : (next.directories[0]?.id ?? ""),
-    );
-    setSubpath(next.source?.kind === "path" ? next.source.subpath : "");
-    setLevel(next.settings.level);
-    setInterval_(String(next.settings.intervalHours));
-    setAcknowledge(false);
-    setRegistry(next.settings.autoApproveRegistry);
-  }
+  // The two forms show the saved source and settings until edited (useEditableSnapshot): a
+  // reload, a check or saving the other form never resets an edit, and a change saved
+  // elsewhere meanwhile is named instead of overwritten.
+  const source = view?.source;
+  const sourceEdit = useEditableSnapshot({
+    kind: (source?.kind ?? "none") as "github" | "path" | "none",
+    url: source?.kind === "github" ? source.url : "",
+    directoryId:
+      source?.kind === "path"
+        ? source.directoryId
+        : (view?.directories[0]?.id ?? ""),
+    subpath: source?.kind === "path" ? source.subpath : "",
+  });
+  const { kind, url, directoryId, subpath } = sourceEdit.value;
+  const editSource = (patch: Partial<typeof sourceEdit.value>) =>
+    sourceEdit.set((current) => ({ ...current, ...patch }));
+  const settingsEdit = useEditableSnapshot({
+    level: view?.settings.level ?? ("off" as UpdateLevel),
+    interval: String(view?.settings.intervalHours ?? 24),
+    acknowledge: false,
+    registry: view?.settings.autoApproveRegistry ?? false,
+  });
+  const { level, interval, acknowledge, registry } = settingsEdit.value;
+  const editSettings = (patch: Partial<typeof settingsEdit.value>) =>
+    settingsEdit.set((current) => ({ ...current, ...patch }));
   useEffect(() => {
     const controller = new AbortController();
-    port.get(courseId, controller.signal).then(adopt, (cause) => {
+    port.get(courseId, controller.signal).then(setView, (cause) => {
       if (!controller.signal.aborted) setError(message(cause, t));
     });
     return () => controller.abort();
@@ -94,8 +98,9 @@ export function CourseUpdates({
   }
   const saveSource = (event: FormEvent) => {
     event.preventDefault();
+    if (sourceEdit.changedElsewhere) return;
     void run(async () => {
-      adopt(
+      setView(
         await port.saveSource(
           courseId,
           view!.revision,
@@ -106,6 +111,7 @@ export function CourseUpdates({
               : { kind: "none" },
         ),
       );
+      sourceEdit.discard();
       setCheck(undefined);
       setNotice(
         kind === "none"
@@ -116,8 +122,9 @@ export function CourseUpdates({
   };
   const saveSettings = (event: FormEvent) => {
     event.preventDefault();
+    if (settingsEdit.changedElsewhere) return;
     void run(async () => {
-      adopt(
+      setView(
         await port.saveSettings(courseId, {
           expectedRevision: view!.revision,
           level,
@@ -127,6 +134,7 @@ export function CourseUpdates({
             : {}),
         }),
       );
+      settingsEdit.discard();
       setNotice(t("courseUpdates.notice.settingsSaved"));
     });
   };
@@ -238,7 +246,7 @@ export function CourseUpdates({
                   (value === "path" && !view.directories.length) ||
                   (value === "github" && view.remoteFetch === "off")
                 }
-                onChange={() => setKind(value)}
+                onChange={() => editSource({ kind: value })}
               />
               {t(`courseUpdates.source.${value}`)}
             </label>
@@ -259,7 +267,7 @@ export function CourseUpdates({
               spellCheck={false}
               value={url}
               disabled={pending || !canConfigure}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => editSource({ url: e.target.value })}
             />
           </Field>
         )}
@@ -275,7 +283,7 @@ export function CourseUpdates({
                 aria-describedby={`${id}-directory-hint`}
                 value={directoryId}
                 disabled={pending || !canConfigure}
-                onChange={(e) => setDirectoryId(e.target.value)}
+                onChange={(e) => editSource({ directoryId: e.target.value })}
               >
                 {view.directories.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -297,7 +305,7 @@ export function CourseUpdates({
                 spellCheck={false}
                 value={subpath}
                 disabled={pending || !canConfigure}
-                onChange={(e) => setSubpath(e.target.value)}
+                onChange={(e) => editSource({ subpath: e.target.value })}
               />
             </Field>
           </>
@@ -305,8 +313,18 @@ export function CourseUpdates({
         {kind === "path" && !view.directories.length && (
           <small>{t("courseUpdates.noDirectories")}</small>
         )}
+        {sourceEdit.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={pending}
+            onShowSaved={sourceEdit.discard}
+            onKeep={sourceEdit.keep}
+          />
+        )}
         <div className="button-row">
-          <Button type="submit" disabled={pending || !canConfigure}>
+          <Button
+            type="submit"
+            disabled={pending || !canConfigure || sourceEdit.changedElsewhere}
+          >
             {t("courseUpdates.saveSource")}
           </Button>
           <Button
@@ -407,10 +425,12 @@ export function CourseUpdates({
             aria-describedby={`${id}-level-hint`}
             value={level}
             disabled={pending || !canConfigure || !view.source}
-            onChange={(e) => {
-              setLevel(e.target.value as UpdateLevel);
-              setAcknowledge(false);
-            }}
+            onChange={(e) =>
+              editSettings({
+                level: e.target.value as UpdateLevel,
+                acknowledge: false,
+              })
+            }
           >
             {levels.map((value) => (
               <option
@@ -440,7 +460,7 @@ export function CourseUpdates({
             step={1}
             value={interval}
             disabled={pending || !canConfigure || !view.source}
-            onChange={(e) => setInterval_(e.target.value)}
+            onChange={(e) => editSettings({ interval: e.target.value })}
           />
         </Field>
         {level === "publish" && (
@@ -450,7 +470,9 @@ export function CourseUpdates({
                 type="checkbox"
                 checked={acknowledge}
                 disabled={pending}
-                onChange={(e) => setAcknowledge(e.target.checked)}
+                onChange={(e) =>
+                  editSettings({ acknowledge: e.target.checked })
+                }
               />
               {t("courseUpdates.auto.acknowledge")}
             </label>
@@ -459,11 +481,18 @@ export function CourseUpdates({
                 type="checkbox"
                 checked={registry}
                 disabled={pending}
-                onChange={(e) => setRegistry(e.target.checked)}
+                onChange={(e) => editSettings({ registry: e.target.checked })}
               />
               {t("courseUpdates.auto.registry")}
             </label>
           </div>
+        )}
+        {settingsEdit.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={pending}
+            onShowSaved={settingsEdit.discard}
+            onKeep={settingsEdit.keep}
+          />
         )}
         <Button
           type="submit"
@@ -471,7 +500,8 @@ export function CourseUpdates({
             pending ||
             !canConfigure ||
             !view.source ||
-            (level === "publish" && !acknowledge)
+            (level === "publish" && !acknowledge) ||
+            settingsEdit.changedElsewhere
           }
         >
           {t("courseUpdates.auto.save")}
@@ -500,7 +530,7 @@ export function CourseUpdates({
             onFinished={(catalogId) => {
               setUpdating(false);
               setCheck(undefined);
-              void port.get(courseId).then(adopt, () => undefined);
+              void port.get(courseId).then(setView, () => undefined);
               onInstalled(catalogId);
             }}
           />

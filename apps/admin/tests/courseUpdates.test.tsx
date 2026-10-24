@@ -268,6 +268,92 @@ describe("course updates", () => {
     ).toBeVisible();
   });
 
+  it("keeps an automatic-updates edit when the source is saved", async () => {
+    const { courseUpdates } = setup(withSource);
+    const interval = await screen.findByLabelText("Check every (hours)");
+    await userEvent.clear(interval);
+    await userEvent.type(interval, "6");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save update source" }),
+    );
+    await waitFor(() => expect(courseUpdates.saveSource).toHaveBeenCalled());
+    await screen.findByText(/Update source saved/);
+    expect(interval).toHaveValue(6);
+  });
+
+  it("names automatic-update settings changed elsewhere and saves the edit over them only when kept", async () => {
+    const { courseUpdates } = setup(withSource);
+    courseUpdates.check.mockImplementationOnce(
+      async () =>
+        ({
+          outcome: { result: "up_to_date" as const, version: "1.0.0" },
+          updates: {
+            ...withSource,
+            revision: 5,
+            settings: {
+              ...withSource.settings,
+              level: "check",
+              intervalHours: 12,
+            },
+          },
+        }) as never,
+    );
+    const interval = await screen.findByLabelText("Check every (hours)");
+    await userEvent.clear(interval);
+    await userEvent.type(interval, "6");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check for updates" }),
+    );
+    expect(
+      await screen.findByText("These settings were changed elsewhere"),
+    ).toBeVisible();
+    expect(interval).toHaveValue(6);
+    const save = screen.getByRole("button", { name: "Save automatic updates" });
+    expect(save).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Keep my edits" }),
+    );
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(courseUpdates.saveSettings).toHaveBeenCalledWith("cat-1", {
+        expectedRevision: 5,
+        level: "off",
+        intervalHours: 6,
+      }),
+    );
+  });
+
+  it("shows the newer automatic-update settings when chosen", async () => {
+    const { courseUpdates } = setup(withSource);
+    courseUpdates.check.mockImplementationOnce(
+      async () =>
+        ({
+          outcome: { result: "up_to_date" as const, version: "1.0.0" },
+          updates: {
+            ...withSource,
+            revision: 5,
+            settings: {
+              ...withSource.settings,
+              level: "check",
+              intervalHours: 12,
+            },
+          },
+        }) as never,
+    );
+    const interval = await screen.findByLabelText("Check every (hours)");
+    await userEvent.clear(interval);
+    await userEvent.type(interval, "6");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check for updates" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Show the saved version" }),
+    );
+    expect(interval).toHaveValue(12);
+    expect(screen.getByLabelText("Automatic level")).toHaveValue("check");
+    expect(courseUpdates.saveSettings).not.toHaveBeenCalled();
+  });
+
   it("offers only the levels the role may choose", async () => {
     setup({
       ...withSource,
