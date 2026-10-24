@@ -2,10 +2,14 @@ import { useEffect, useState } from "react";
 import { isAbortError, pageDepartureSignal } from "../client/apiClient";
 import { useT } from "../i18n";
 import {
+  applyDraftFrame,
   companionHasPending,
+  type CompanionDraft,
   type CompanionMessage,
   type ContextualCompanionClient,
 } from "../client/companionClient";
+type Drafts = Readonly<Record<string, CompanionDraft>>;
+const NO_DRAFTS: readonly CompanionDraft[] = [];
 export function useCompanionConversation(
   client: ContextualCompanionClient,
   enrollmentId: string | undefined,
@@ -21,8 +25,13 @@ export function useCompanionConversation(
     failed: boolean;
     loaded: boolean;
   }>();
+  // Replies being written, as streamed over the event stream; kept per enrollment and never stored.
+  const [drafts, setDrafts] = useState<{ id: string; drafts: Drafts; connected: boolean }>();
   useEffect(() => {
     if (!enrollmentId) return;
+    setDrafts({ id: enrollmentId, drafts: {}, connected: true });
+    const updateDrafts = (change: (old: { id: string; drafts: Drafts; connected: boolean }) => { id: string; drafts: Drafts; connected: boolean }) =>
+      setDrafts((old) => change(old?.id === enrollmentId ? old : { id: enrollmentId, drafts: {}, connected: true }));
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pending = false;
@@ -41,11 +50,22 @@ export function useCompanionConversation(
       {
         onOpen: () => {
           streaming = true;
+          updateDrafts((old) => ({ ...old, connected: true }));
         },
         onDown: () => {
           streaming = false;
+          updateDrafts((old) => ({ ...old, connected: false }));
         },
         onEvent,
+        onDraft: (frame) => {
+          updateDrafts((old) => ({ ...old, drafts: applyDraftFrame(old.drafts, frame) }));
+          // A finished draft means the stored reply (or its refusal) is close: read it now.
+          const state = (frame as { state?: unknown } | null)?.state;
+          if (state === "complete" || state === "withdrawn") {
+            clearTimeout(timer);
+            void load();
+          }
+        },
       },
     );
     async function load() {
@@ -85,10 +105,16 @@ export function useCompanionConversation(
       clearTimeout(timer);
     };
   }, [client, enrollmentId, open, revision]);
+  const held = drafts?.id === enrollmentId ? drafts : undefined;
+  const live = {
+    drafts: held ? Object.values(held.drafts) : NO_DRAFTS,
+    /** False while the event stream is reconnecting; a draft resumes once it is back. */
+    streamConnected: held?.connected ?? true,
+  };
   if (saved?.client !== client || saved.id !== enrollmentId)
-    return { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
+    return { messages: [] as readonly CompanionMessage[], error: "", loaded: false, ...live };
   const { failed, ...rest } = saved;
-  return { ...rest, error: failed ? t("useCompanionConversation.refreshFailed") : "" };
+  return { ...rest, error: failed ? t("useCompanionConversation.refreshFailed") : "", ...live };
 }
 
 /**
@@ -102,7 +128,7 @@ export function useCompanionConversation(
 export async function followEventStream(
   url: string,
   signal: AbortSignal,
-  handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
+  handlers: StreamHandlers,
 ) {
   if (typeof fetch !== "function" || typeof TextDecoder === "undefined") return;
   // Leaving the page aborts the stream first: a long-lived request the browser has to
@@ -120,10 +146,17 @@ export async function followEventStream(
     leaving.removeEventListener("abort", stopLocal);
   }
 }
+interface StreamHandlers {
+  onOpen(): void;
+  onDown(): void;
+  onEvent(type: string): void;
+  /** A streamed companion draft frame (`companion-draft`), parsed but not yet validated. */
+  onDraft?(frame: unknown): void;
+}
 async function follow(
   url: string,
   signal: AbortSignal,
-  handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
+  handlers: StreamHandlers,
 ) {
   let last: string | undefined;
   let delay = 3000;
@@ -163,6 +196,13 @@ async function follow(
           }
           if (id && /^[0-9]{1,18}$/.test(id)) last = id;
           if (event === "closed") stop = true;
+          if (event === "companion-draft" && handlers.onDraft) {
+            try {
+              handlers.onDraft(JSON.parse(data));
+            } catch {
+              /* malformed: the stored reply still arrives */
+            }
+          }
           if (event === "learning-event") {
             try {
               const type = (JSON.parse(data) as { event_type?: unknown }).event_type;

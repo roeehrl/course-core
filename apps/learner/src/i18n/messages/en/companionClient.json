@@ -13,5 +13,7 @@
   "job.processed": "Request processed",
   "job.unavailable": "Reply unavailable · your message is saved",
   "job.waiting": "Waiting for service availability · your message is saved",
-  "job.queued": "Queued · waiting for a reply"
+  "job.queued": "Queued · waiting for a reply",
+  "state.replying": "Writing a reply · it is checked before it is kept",
+  "job.stopped": "You stopped this reply · your question is saved"
 }

@@ -1574,6 +1574,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       })
                   : undefined
               }
+              drafts={conversation.drafts}
+              streamConnected={conversation.streamConnected}
+              onCancelReply={
+                chat.cancelReply
+                  ? (messageId) =>
+                      transact(async () => {
+                        await chat.cancelReply!(server, messageId);
+                        await refresh(server.enrollmentId);
+                      })
+                  : undefined
+              }
               onDeleteMessage={
                 chat.deleteMessage
                   ? (messageId) =>

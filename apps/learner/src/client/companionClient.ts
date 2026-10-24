@@ -81,6 +81,55 @@ export interface CompanionMessage {
   job_reason?: string | null;
   /** Learner messages: Core refused the reply it received (a code, never provider text). */
   refusal_reason?: string | null;
+  /** Learner messages: the learner stopped the reply that was being prepared. */
+  cancel_requested?: boolean;
+}
+/** A reply the companion is still writing, streamed over the event stream (`companion-draft`).
+ * Not yet checked by Core: shown as a draft and replaced by the stored reply once applied. */
+export interface CompanionDraft {
+  jobId: string;
+  messageId: string;
+  text: string;
+  state: "streaming" | "complete" | "withdrawn" | "cancelled";
+  reason?: string;
+  /** Some text of this draft was shown (a withdrawal of nothing shown needs no notice). */
+  shown: boolean;
+}
+const DRAFT_STATES = new Set(["streaming", "complete", "withdrawn", "cancelled"]);
+/** The most text a draft may hold; matches the longest reply the server stores. */
+export const COMPANION_DRAFT_MAX = 16000;
+/**
+ * Applies one `companion-draft` frame: its text replaces what is held from its offset on (a
+ * reconnect sends offset 0 with the whole draft). A frame that does not fit what is held (a gap)
+ * or is malformed is ignored; the next whole-draft frame or the stored reply repairs it.
+ */
+export function applyDraftFrame(
+  drafts: Readonly<Record<string, CompanionDraft>>,
+  raw: unknown,
+): Readonly<Record<string, CompanionDraft>> {
+  const frame = raw as Partial<{ jobId: unknown; messageId: unknown; offset: unknown; text: unknown; state: unknown; reason: unknown }> | null;
+  if (
+    !frame || typeof frame.jobId !== "string" || typeof frame.messageId !== "string" ||
+    !Number.isSafeInteger(frame.offset) || (frame.offset as number) < 0 || typeof frame.text !== "string" ||
+    typeof frame.state !== "string" || !DRAFT_STATES.has(frame.state)
+  )
+    return drafts;
+  const old = drafts[frame.jobId], offset = frame.offset as number;
+  const held = old?.text ?? "";
+  if (offset > held.length) return drafts;
+  const text = frame.state === "withdrawn" || frame.state === "cancelled" ? "" : held.slice(0, offset) + frame.text;
+  if (text.length > COMPANION_DRAFT_MAX) return drafts;
+  return {
+    ...drafts,
+    [frame.jobId]: {
+      jobId: frame.jobId,
+      messageId: frame.messageId,
+      text,
+      state: frame.state as CompanionDraft["state"],
+      ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
+      shown: Boolean(old?.shown || text),
+    },
+  };
 }
 export interface CompanionReceipt {
   messageId: string;
@@ -110,6 +159,11 @@ export interface ContextualCompanionClient {
     snapshot: ServerSnapshot,
     messageId: string,
   ): Promise<{ messageId: string; deleted: true; revision: number }>;
+  /** Stop the reply being prepared for one of the learner's questions; the question stays. */
+  cancelReply?(
+    snapshot: ServerSnapshot,
+    messageId: string,
+  ): Promise<{ messageId: string; cancelled: true; revision: number }>;
   /** Stop (or resume) using one of the learner's earlier messages as context. */
   excludeContext?(
     snapshot: ServerSnapshot,
@@ -223,6 +277,17 @@ export function createCompanionClient(
         throw new Error("Invalid companion delete receipt");
       return result;
     },
+    async cancelReply(snapshot, messageId) {
+      const result = await api.command<{ messageId: string; cancelled: true; revision: number }>(
+        snapshot,
+        `companion/messages/${messageId}/cancel`,
+        {},
+      );
+      if (!result || result.messageId !== messageId || result.cancelled !== true || !Number.isSafeInteger(result.revision))
+        // i18n-ignore: malformed-response diagnostic; callers show their own message
+        throw new Error("Invalid companion cancel receipt");
+      return result;
+    },
     async excludeContext(snapshot, messageId, excluded) {
       const result = await api.command<{
         messageId: string;
@@ -256,6 +321,7 @@ function focusPayload(selection: FocusSelection) {
 export type CompanionState =
   | "offline"
   | "waiting_for_you"
+  | "replying"
   | "building"
   | "checking"
   | "queued"
@@ -263,10 +329,14 @@ export type CompanionState =
   | "available";
 export function companionState(
   messages: readonly CompanionMessage[],
-  input: { online: boolean; awaitingChoice: boolean },
+  input: { online: boolean; awaitingChoice: boolean; drafts?: readonly CompanionDraft[] },
 ): CompanionState {
   if (!input.online) return "offline";
   if (input.awaitingChoice) return "waiting_for_you";
+  // A reply is being written where the learner can see it: one status, not one per word.
+  if (input.drafts?.some((draft) => draft.state === "streaming" && draft.text &&
+    !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId)))
+    return "replying";
   const open = messages.filter(
     (message) => message.role === "learner" && companionHasPending([message]),
   );
@@ -295,6 +365,8 @@ export function companionJobLabel(
   t: Translate = englishTranslator().t,
 ): string | undefined {
   if (message.role !== "learner") return;
+  if (message.cancel_requested && message.job_state !== "applied")
+    return t("companionClient.job.stopped");
   if (message.job_reason === "configuration_missing")
     return t("companionClient.job.configurationMissing");
   if (companionCouldNotAnswer(message))
@@ -340,6 +412,7 @@ export function companionHasPending(
   return messages.some(
     (message) =>
       message.role === "learner" &&
+      !message.cancel_requested &&
       ![
         "applied",
         "refused",
