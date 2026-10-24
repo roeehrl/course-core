@@ -135,6 +135,23 @@ describe("reusable learner components", () => {
     fireEvent.keyDown(document.activeElement!, { key: " " });
     expect(change).toHaveBeenLastCalledWith("b");
   });
+  it("a locked choice takes no focus from a tap or click, and an open one is chosen by it", () => {
+    const change = vi.fn();
+    const options = [
+      { id: "a", label: "First" },
+      { id: "b", label: "Second" },
+    ];
+    const { rerender } = render(<ChoiceList label="An example" options={options} value="" onChange={change} disabled />);
+    const second = screen.getByRole("radio", { name: "Second" });
+    // fireEvent returns false when the default (moving focus) was prevented.
+    expect(fireEvent.mouseDown(second)).toBe(false);
+    fireEvent.click(second);
+    expect(change).not.toHaveBeenCalled();
+    rerender(<ChoiceList label="An example" options={options} value="" onChange={change} />);
+    expect(fireEvent.mouseDown(screen.getByRole("radio", { name: "Second" }))).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "Second" }));
+    expect(change).toHaveBeenCalledWith("b");
+  });
   it("traps dialog focus, dismisses with Escape and restores the trigger", async () => {
     const user = userEvent.setup();
     const close = vi.fn();
