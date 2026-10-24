@@ -1039,6 +1039,41 @@ app.post("/test/companion-context-session", async () => {
     [randomUUID(), enrollment, "A note saved before replies recorded their lesson."]);
   return { token: await issueLoginCode(db, userId) };
 });
+// Test-only: "Context used" on an answer whose earlier conversation has a reply written in Markdown
+// and TeX, and a question the learner cancelled before it was answered: the capsule is built by the
+// real retrieval (teachingContext), so the cancelled question is not context and the excerpts are
+// shown as plain words.
+app.post("/test/companion-context-rich-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "companion-rich:" + userId, "Context learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [contextWorkspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: contextReleaseId } })).json().id;
+  const revision = async () => (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision as number;
+  const ask = async (content: string) => {
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/companion`, headers, payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), episodeId: "min", content } });
+    if (r.statusCode !== 200) throw Error("Companion rich context fixture failed: " + r.body);
+    return r.json() as { messageId: string; eventId: string };
+  };
+  const answer = async (question: { messageId: string; eventId: string }, text: string, capsule: boolean) => {
+    const jobId = randomUUID();
+    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES ($1,$2,$3,$4,'companion','running',1,'{}')`,
+      [jobId, enrollment, contextWorkspaceId, `browser-rich-${jobId}`]);
+    await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [question.messageId, jobId]);
+    if (capsule) await teachingContext(db, { jobId, workspaceId: contextWorkspaceId, enrollmentId: enrollment, generation: 1 },
+      { kind: "learning_event", eventId: question.eventId, eventType: "companion.requested", courseReleaseId: contextReleaseId, episodeId: "min", messageId: question.messageId });
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,'{}',$4)", [randomUUID(), enrollment, text, jobId]);
+    await db.query("UPDATE supervisor_jobs SET state='applied' WHERE id=$1", [jobId]);
+  };
+  await answer(await ask("What does minimum mean here?"), "* **Minimum** means *no greater* than any other member: $m \\le x$ for every $x$.", false);
+  const cancelled = await ask("Can you just tell me the answer to the check?");
+  const cancel = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/companion/messages/${cancelled.messageId}/cancel`, headers,
+    payload: { expectedRevision: await revision(), idempotencyKey: randomUUID() } });
+  if (cancel.statusCode !== 200) throw Error("Companion rich context cancel failed: " + cancel.body);
+  await answer(await ask("Why does it say no greater than?"), "Because the minimum may be equal to another member, not only smaller.", true);
+  return { token: await issueLoginCode(db, userId) };
+});
 // Test-only: a question whose reply Core refused (the job ended failed/verification_rejected and only the
 // refusal reason was kept), asked through the real API.
 app.post("/test/companion-refused-session", async () => {
@@ -1185,19 +1220,20 @@ app.post("/test/companion-draft", async (request) => {
   return { opened: true, jobId };
 });
 // A sent question whose job reached a given state, as the supervisor records it: held back by a
-// spending limit (budget_wait, reason budget_exhausted, the ceiling it hit), or cancelled after its
-// call was sent (an operation that succeeded). The learner's companion words each one. No provider
-// and no dispatcher are involved.
+// spending limit (budget_wait, reason budget_exhausted, the ceiling it hit), cancelled after its
+// call was sent (an operation that succeeded), or answered (applied, with the stored reply). The
+// learner's companion words each one. No provider and no dispatcher are involved.
 app.post("/test/companion-job", async (request) => {
-  const body = (request.body ?? {}) as { question?: string; state?: string; ceiling?: string };
-  const state = body.state === "cancelled" ? "cancelled" : "budget_wait";
+  const body = (request.body ?? {}) as { question?: string; state?: string; ceiling?: string; answer?: string };
+  const state = body.state === "cancelled" || body.state === "applied" ? body.state : "budget_wait";
   const ceiling = ["workspace", "enrollment", "daily", "artifact"].includes(String(body.ceiling)) ? String(body.ceiling) : "workspace";
-  const row = (await db.query<{ id: string; enrollment_id: string; workspace_id: string }>(
-    "SELECT m.id,m.enrollment_id,e.workspace_id FROM companion_messages m JOIN enrollments e ON e.id=m.enrollment_id WHERE m.content=$1 AND m.role='learner' ORDER BY m.created_at DESC LIMIT 1",
+  const row = (await db.query<{ id: string; enrollment_id: string; workspace_id: string; context: unknown }>(
+    "SELECT m.id,m.enrollment_id,e.workspace_id,m.context FROM companion_messages m JOIN enrollments e ON e.id=m.enrollment_id WHERE m.content=$1 AND m.role='learner' ORDER BY m.created_at DESC LIMIT 1",
     [String(body.question)])).rows[0];
   if (!row) return { updated: false, reason: "question_not_found" };
   const jobId = randomUUID();
-  const result = state === "budget_wait" ? { reason: "budget_exhausted", applicationReceiptId: null, ceiling } : { reason: "cancel_requested", applicationReceiptId: null };
+  const result = state === "budget_wait" ? { reason: "budget_exhausted", applicationReceiptId: null, ceiling }
+    : state === "applied" ? { reason: null, applicationReceiptId: null } : { reason: "cancel_requested", applicationReceiptId: null };
   // Only what the companion read needs: the job's identity, its state and one call that was sent.
   const snapshot = state === "cancelled" ? { specification: { key: { jobId, enrollmentId: row.enrollment_id, workspaceId: row.workspace_id } }, state,
     operations: [{ id: `${jobId}:generate`, status: "succeeded" }] } : null;
@@ -1208,6 +1244,9 @@ app.post("/test/companion-job", async (request) => {
     VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6,$7,$8)`, [jobId, row.enrollment_id, row.workspace_id, `browser-job-${jobId}`, state, JSON.stringify(result),
     snapshot && requested ? JSON.stringify(snapshot) : null, requested]);
   await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
+  if (state === "applied")
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
+      [randomUUID(), row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null }), jobId]);
   return { updated: true, jobId };
 });
 app.post("/test/session", async () => {

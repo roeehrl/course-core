@@ -1717,6 +1717,28 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   await expect(log.getByText("And what about this part?", { exact: true })).toBeVisible();
 });
 
+test("context used reads as plain words and leaves out a question the learner cancelled", async ({ page, request }) => {
+  const session = await request.post("/test/companion-context-rich-session");
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
+  const trigger = page.getByRole("button", { name: "Companion", exact: true });
+  if (await trigger.isVisible()) await trigger.click();
+  const log = page.getByRole("log", { name: "Saved companion messages" });
+  await expect(log.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toBeVisible();
+  // The cancelled question stays in the conversation and can be asked again.
+  await expect(log.getByText("Can you just tell me the answer to the check?", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Show context used", exact: true }).click();
+  // Two earlier messages (the first question and its answer); not the cancelled question.
+  await expect(page.getByText("2 earlier messages from this lesson:", { exact: true })).toBeVisible();
+  await expect(page.getByText("You: “What does minimum mean here?”", { exact: true })).toBeVisible();
+  await expect(page.getByText("Companion: “Minimum means no greater than any other member: m ≤ x for every x.”", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Can you just tell me the answer to the check\?”/)).toHaveCount(0);
+  await expect(page.getByText(/\*\*|\$m|\\le/)).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test("a question whose reply Core refused says it couldn't be answered and can be asked again", async ({ page, request }, info) => {
   const session = await request.post("/test/companion-refused-session");
   expect(session.ok()).toBe(true);
@@ -1812,7 +1834,7 @@ test("the companion says when it is offline, holds the question, and sends it on
   await log.getByRole("button", { name: "Cancel and ask again", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Message to your companion", exact: true })).toHaveValue("Asked while the train is in a tunnel.");
   await expect(log.getByText("Asked while the train is in a tunnel.", { exact: true })).toBeVisible();
-  await expect(log.getByText("Cancelled · your message is saved", { exact: true })).toBeVisible();
+  await expect(log.getByText("Cancelled before it was sent · nothing was used · your message is saved", { exact: true })).toBeVisible();
   await expect(page.getByText("Companion: Available", { exact: true })).toBeVisible();
   await expect(log.getByRole("button", { name: "Stop waiting for this answer", exact: true })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
