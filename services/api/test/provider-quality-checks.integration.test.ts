@@ -575,6 +575,65 @@ describe("upgrade from a release where only the companion and the plan superviso
     expect((await providers.resolve(workspace)).availability("supervisor").status).toBe("ready");
   });
 
+  it("flags each job that is on and needs a check with its own check, runs exactly the one asked for, and never turns any off", async () => {
+    const { workspace, owner } = await upgradedPilot();
+    await limit(owner, workspace, 50_000_000);
+    const suite = publicSuite();
+    // Every job that is on and needs a check is flagged on its own, with what checking it alone costs.
+    const before = (await call(owner, "GET", checks(workspace))).json();
+    const flagged = before.activeRoles as { role: string; conversations: number; reserveMicroUsd: number; blocked: unknown }[];
+    expect(flagged.map((r) => r.role)).toEqual(before.roles.map((r: { role: string }) => r.role));
+    expect(flagged.map((r) => r.role)).toContain("research");
+    for (const r of flagged) {
+      expect(r.blocked, r.role).toBeNull();
+      expect(r.reserveMicroUsd, r.role).toBe(r.conversations * 100000);
+    }
+    const research = flagged.find((r) => r.role === "research")!;
+    expect(research.conversations).toBe(dialoguesFor(suite, "research", "core.research.public-topic").length);
+
+    // "Run check" beside the research job checks the research job only.
+    const idempotencyKey = key();
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active", role: "research" });
+    expect(started.statusCode, started.body).toBe(200);
+    expect(started.json()).toMatchObject({ target: "active", roles: ["research"], total: research.conversations });
+    // The same key for another job is a different request.
+    const conflict = await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active", role: "companion" });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error).toBe("IDEMPOTENCY_CONFLICT");
+    // While it runs, every flagged job says a check is already running.
+    const during = (await call(owner, "GET", checks(workspace))).json();
+    expect(during.activeRoles.every((r: { blocked: { code: string } | null }) => r.blocked?.code === "PROVIDER_QUALITY_CHECK_RUNNING")).toBe(true);
+    const done = await finished(owner, workspace, started.json().id);
+    expect(done.state, JSON.stringify(done.outcome)).toBe("passed");
+    expect(done.outcome.map((o: { role: string }) => o.role)).toEqual(["research"]);
+    const evals = await evalStatus(owner, workspace);
+    expect(evals.research).toEqual(["passed", true]);
+    expect(evals.companion).toEqual(["stale", true]);
+    expect(evals.supervisor).toEqual(["not_evaluated", true]);
+    // The research job is no longer flagged; the others still are, and every job still serves.
+    const after = (await call(owner, "GET", checks(workspace))).json();
+    expect(after.activeRoles.map((r: { role: string }) => r.role)).toEqual(flagged.map((r) => r.role).filter((role) => role !== "research"));
+    const runtime = await providers.resolve(workspace);
+    for (const role of ["companion", "supervisor", "research", "reviewer"] as const) expect(runtime.availability(role).status, role).toBe("ready");
+
+    // A job that no longer needs a check, or is not on, is refused and says so; an unknown job is invalid.
+    for (const role of ["research", "media"]) {
+      const refused = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active", role });
+      expect(refused.statusCode, role).toBe(409);
+      expect(refused.json().error, role).toBe("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
+    }
+    for (const payload of [{ target: "active", role: "wizard" }, { target: "active", role: "" }, { draftId: randomUUID(), role: "research" }])
+      expect((await call(owner, "POST", checks(workspace), { idempotencyKey: key(), ...payload })).statusCode, JSON.stringify(payload)).toBe(400);
+    // Only owners and administrators run one.
+    for (const role of ["author", "instructor", "learner"]) {
+      const who = await login(role, workspace);
+      expect((await call(who, "POST", checks(workspace), { idempotencyKey: key(), target: "active", role: "companion" })).statusCode, role).toBe(403);
+    }
+    // The start is in the workspace audit log, naming the one job.
+    const audit = (await db.query("SELECT payload FROM learning_events WHERE workspace_id=$1 AND event_type='provider.quality_check.started'", [workspace])).rows;
+    expect(audit.map((r) => r.payload.roles)).toEqual([["research"]]);
+  });
+
   it("lets only owners and administrators check the active setup, and an administrator cannot approve it", async () => {
     const { workspace, revisions } = await upgradedPilot();
     for (const role of ["author", "instructor", "reviewer", "learner", "observer"]) {
