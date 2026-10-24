@@ -187,8 +187,10 @@ Before building candidates, the candidate job runs two checks on the tested comm
 The range of course packages Core accepts follows the SDK it pins
 (`supportedSdkRange` in `services/api/src/course-package-routes.ts`): pinned to 0.5.x it
 is `>=0.5.0 <0.6.0`, and pinning 0.6.x makes it `>=0.6.0 <0.7.0` with no code change.
-Packages from an older minor still install with a warning; a newer minor is refused
-(`SDK_UNSUPPORTED`) until Core pins it. Adopt a release only after it is tagged and its
+Packages from an older minor at or above the minimum supported SDK (`MINIMUM_SUPPORTED_SDK`,
+0.5.0, in `services/api/src/course-package.ts`) still install with a warning; below it they
+are refused (`SDK_BELOW_MINIMUM`), and a newer minor is refused (`SDK_UNSUPPORTED`) until
+Core pins it. Adopt a release only after it is tagged and its
 tarball is published on the SDK's GitHub release; never pin an unreleased commit.
 
 1. Move the four pins to the release tarball URL and refresh each lockfile with
@@ -202,8 +204,9 @@ tarball is published on the SDK's GitHub release; never pin an unreleased commit
 3. For 0.6.0: replace the vendored `services/api/src/vendor/sdk-event-export` schema with
    the released `@course-core/sdk/event-export-schema` (see its README) and rerun
    `test/event-export.integration.test.ts`.
-4. Run `services/api/test/sdk-compat.integration.test.ts`, which pins the digests of
-   packs from older SDKs, and update the README's SDK table and supported range.
+4. Run `services/api/test/sdk-support.integration.test.ts` (the pinned SDK and the gate
+   rules over HTTP) and update the README's supported range. Raise `MINIMUM_SUPPORTED_SDK`
+   (API and `scripts/release-compat.mjs`) only as a deliberate, documented break.
 5. Move `repositories.sdk.commit` in `requirements-map.json` to the released tag's
    commit and run `node scripts/requirements-map.mjs`.
 6. Courses can then move to the new SDK; packages they compile are refused by any Core
@@ -267,6 +270,39 @@ from v0.1.36.
 
 Notes for operators and workspace owners, newest first. They describe what changes for a
 running deployment; the candidate's own manifest remains the record of what was built.
+
+### Next release: SDK 0.4 courses are no longer supported
+
+Core is not in production, so it keeps no backward compatibility with SDK 0.4 courses
+where that compatibility weakened the false-mastery rules:
+
+- **Minimum SDK 0.5.0.** A course package compiled with an SDK older than 0.5.0 is a
+  blocking problem, `SDK_BELOW_MINIMUM`: nothing installs, and automatic updates install
+  nothing either. A draft already recorded as built with such an SDK is refused at
+  publication (`PUBLISH_SDK_BELOW_MINIMUM`). The supported range itself is unchanged
+  (`>=0.5.0 <0.6.0` while Core pins 0.5.x); when Core pins 0.6, 0.5 packages install with
+  the usual older-SDK warning and anything below 0.5.0 stays refused.
+- **Full rules for every gate.** A gate without a version (the family-count shape,
+  `minimumIndependentFamilies`) gets the same rules as a versioned one. Publication refuses
+  one whose items are all multiple choice (`PUBLISH_RECOGNITION_ONLY_GATE`) and one that
+  passes on one of several objectives (`requireAllObjectives: false`,
+  `PUBLISH_GATE_PARTIAL_OBJECTIVES`). Every objective needs independent success in the
+  required families including a produced answer (or a confirmed conversation), and an open
+  declared critical misconception blocks the gate. The release warning
+  `LEGACY_RECOGNITION_ONLY_GATES` is gone: such a course is no longer publishable, and the
+  release page names the checkpoint to fix (`GATE_RECOGNITION_ONLY`,
+  `GATE_PARTIAL_OBJECTIVES`, `GATE_TRANSFER_MISSING`, `GATE_MISCONCEPTION_CHECK_MISSING`,
+  `GATE_EVIDENCE_UNREACHABLE`).
+- **Example courses.** The Spanish greetings (1.2.0) and plant journal (1.1.0) packs had
+  checkpoints of choice items only; each now has one family where the learner types or
+  calculates the answer. The SDK 0.4 digest pins and the 0.4 compatibility test were
+  removed (`services/api/test/sdk-support.integration.test.ts` replaces it).
+
+What to do: rebuild any course still compiled with SDK 0.4 with SDK 0.5, give every
+checkpoint at least one task beyond choosing among given answers, and make each checkpoint
+require all of its objectives (or split it). Releases already published keep their
+learners' records, but a course that breaks these rules can no longer be published or
+picked as the target of a version move.
 
 ### Next release: course packages from a newer SDK are refused
 
