@@ -533,10 +533,28 @@ describe('membership revocation and independent login sessions', () => {
     const op = result.snapshot.operations[0]!;
     const artifact = await storeSupervisorArtifact(db, ref, op.id, op.ownerId, { kind: 'companion_message', text: 'Synthetic background answer after sign-out.' });
     await b.transition({ type: 'settle', ref, operationId: op.id, ownerId: op.ownerId, outcome: { status: 'succeeded', artifact, usage: { microUsd: 25, tokens: 40 } } });
+    // The learner's study session went quiet a while ago (they left after asking).
+    await db.query("UPDATE learner_sessions SET last_activity_at=clock_timestamp()-interval '10 minutes' WHERE enrollment_id=$1", [s.enrollmentId]);
     await verify(s, { b, ref }); expect((await b.transition({ type: 'apply', ref })).snapshot.state).toBe('applied');
     expect(await count('auth_sessions', 'id=$1 AND revoked_at IS NOT NULL', [sessionId])).toBe(1);
     expect(await count('memberships', 'workspace_id=$1 AND user_id=$2', [s.workspaceId, s.userId])).toBe(1);
     expect(await count('companion_messages', "job_id=$1 AND role='assistant'", [ref.jobId])).toBe(1);
+    // The learner was away, so the answer waits in their notifications (notifications.ts).
+    expect((await db.query("SELECT kind,link,enrollment_id FROM notifications WHERE user_id=$1 AND audience='learner'", [s.userId])).rows)
+      .toEqual([{ kind: 'reply_ready', link: `/enrollments/${s.enrollmentId}/companion`, enrollment_id: s.enrollmentId }]);
+  });
+  it('does not notify a learner who is using the app when the answer arrives', async () => {
+    const s = await seed(), b = bridge(s), e = await event(s, true); await fund(s);
+    await db.query(`INSERT INTO learner_sessions(enrollment_id,workspace_id,started_at,last_activity_at) VALUES($1,$2,clock_timestamp(),clock_timestamp())
+      ON CONFLICT (enrollment_id) DO UPDATE SET last_activity_at=clock_timestamp(),ended_at=NULL,end_reason=NULL`, [s.enrollmentId, s.workspaceId]);
+    const lease = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!; expect(lease.eventId).toBe(e.id);
+    const ref = (await b.prepareOutbox(lease))[0]!, result = await claim(b, ref); expect(result.effect).toBe('invoke');
+    const op = result.snapshot.operations[0]!;
+    const artifact = await storeSupervisorArtifact(db, ref, op.id, op.ownerId, { kind: 'companion_message', text: 'Synthetic answer while present.' });
+    await b.transition({ type: 'settle', ref, operationId: op.id, ownerId: op.ownerId, outcome: { status: 'succeeded', artifact, usage: { microUsd: 25, tokens: 40 } } });
+    await verify(s, { b, ref }); expect((await b.transition({ type: 'apply', ref })).snapshot.state).toBe('applied');
+    expect(await count('companion_messages', "job_id=$1 AND role='assistant'", [ref.jobId])).toBe(1);
+    expect(await count('notifications', 'user_id=$1', [s.userId])).toBe(0);
   });
 });
 

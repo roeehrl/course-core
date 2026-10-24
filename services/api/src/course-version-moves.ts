@@ -58,6 +58,7 @@ import { attemptSignals, digestJson } from './repository.js';
 import { releaseDiff } from './release-safety.js';
 import { initialPolicy, loadPolicy, releasePolicySettings } from './policy-adapter.js';
 import { savePolicy } from './admin-routes.js';
+import { notifyUser } from './notifications.js';
 import { resolveRole, roleCan } from './course-access.js';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { effectiveDigestSql, planCarryOver, withCarried, type AttemptProvenance, type CarryCode } from './carried-checkpoints.js';
@@ -389,6 +390,8 @@ async function moveNow(client: PoolClient, move: MoveRow, enrollment: Enrollment
       WHERE id=$1 AND course_release_id=$5 RETURNING revision`,
   [enrollment.id, to.id, JSON.stringify(to.server_bundle.policy), keepsPlace ? enrollment.current_episode_id : null, from.id])).rows[0];
   requireCondition(updated, 'STALE_PREVIEW', 409);
+  await notifyUser(client, { workspaceId: move.workspace_id, userId: enrollment.user_id, audience: 'learner', kind: 'course_updated', enrollmentId: enrollment.id,
+    params: { fromVersion: from.version.slice(0, 40), toVersion: to.version.slice(0, 40) }, link: `/enrollments/${enrollment.id}`, dedupeKey: `course-updated:${move.id}:${enrollment.id}` });
   await client.query(`UPDATE course_version_move_entries SET state='moved',code=NULL,before=$3,moved_revision=$4,moved_at=clock_timestamp(),updated_at=clock_timestamp()
     WHERE move_id=$1 AND enrollment_id=$2`, [move.id, enrollment.id,
     JSON.stringify({ releaseId: from.id, currentEpisodeId: enrollment.current_episode_id, policy: enrollment.policy }), updated.revision]);

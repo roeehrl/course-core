@@ -103,16 +103,24 @@ export async function courseOverview(client: Sql, catalog: OverviewCatalog, acce
       oldestOpenJobAgeSeconds: oldest ? Math.max(0, Math.round((now.getTime() - oldest.getTime()) / 1000)) : null, uncheckedCallsLast7Days: unchecked };
   }
 
+  const approvals = await approvalQueue(client, catalog);
+  return { catalogId: catalog.id, generatedAt: now.toISOString(), release, lifecycle, deadlineRisks, contentDefects, supervisorHealth, approvalQueue: approvals };
+}
+
+/** What waits for a person's decision on one course: written answers to grade, second opinions,
+ * checkpoint reviews, generated media, releases submitted for approval and AI service requests.
+ * Counts only. Shared by the overview and the staff notification center (notifications.ts). */
+export async function approvalQueue(client: Sql, catalog: { id: string; workspace_id: string; course_key: string }) {
   const count = async (sql: string, values: unknown[]) => (await client.query<{ n: number }>(sql, values)).rows[0]!.n;
   const course = [catalog.workspace_id, catalog.course_key];
   const scoped = `JOIN enrollments e ON e.id=q.enrollment_id JOIN course_releases r ON r.id=e.course_release_id WHERE e.workspace_id=$1 AND r.course_key=$2 AND e.status<>'erased'`;
-  const approvalQueue = {
+  return {
     writtenAnswers: await count(`SELECT count(*)::int AS n FROM attempts q LEFT JOIN rubric_reviews v ON v.attempt_id=q.id ${scoped} AND v.id IS NULL AND q.result->>'status'='pending_review'`, course),
     secondOpinions: await count(`SELECT count(*)::int AS n FROM rubric_appeals q ${scoped} AND q.state='open'`, course),
     gateReviews: await count(`SELECT count(*)::int AS n FROM gate_review_requests q ${scoped} AND q.state='open'`, course),
     generatedMedia: await count(`SELECT count(*)::int AS n FROM media_jobs q ${scoped} AND q.state='under_review'`, course),
-    releases: releases.filter(r => r.status === 'draft' && r.review_state === 'pending_review').length,
+    releases: await count(`SELECT count(*)::int AS n FROM course_releases r JOIN admin_release_reviews v ON v.release_id=r.id
+      WHERE v.catalog_id=$1 AND r.workspace_id=$2 AND r.course_key=$3 AND r.status='draft' AND v.state='pending_review'`, [catalog.id, ...course]),
     providerRequests: await count(`SELECT count(*)::int AS n FROM admin_provider_requests WHERE catalog_id=$1 AND state='pending_review'`, [catalog.id]),
   };
-  return { catalogId: catalog.id, generatedAt: now.toISOString(), release, lifecycle, deadlineRisks, contentDefects, supervisorHealth, approvalQueue };
 }

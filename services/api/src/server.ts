@@ -104,6 +104,7 @@ import { registerLocaleRoutes } from './locale.js';
 import { runAutomaticUpdates } from './course-updates.js';
 import { registerCourseVersionMoveRoutes } from './course-version-move-routes.js';
 import { runWaitingMoves } from './course-version-moves.js';
+import { registerNotificationRoutes } from './notifications.js';
 import type { PackageDirectory } from './course-package-directory.js';
 
 const uuid = { type: 'string', format: 'uuid' };
@@ -423,6 +424,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
   registerCourseUpdateRoutes(app, db, auth, updater);
   registerCourseVersionMoveRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [] });
+  registerNotificationRoutes(app, db, auth, { providers: options.workspaceProviders });
   if (options.courseVersionMoveTickMs !== undefined) {
     if (!Number.isInteger(options.courseVersionMoveTickMs) || options.courseVersionMoveTickMs < 10_000) throw new Error('courseVersionMoveTickMs must be at least 10000.');
     // Single-flight across processes (advisory lock); failures are logged as codes only.
