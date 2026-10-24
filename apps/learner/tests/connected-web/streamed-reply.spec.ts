@@ -19,8 +19,9 @@ test("a streaming reply shows as an unchecked draft and a refused one is withdra
     await draft.fill(question);
     await page.getByRole("button", { name: "Send message", exact: true }).click();
     await expect(page.getByText(question, { exact: true })).toBeVisible();
-    const played = await (await request.post("/test/companion-draft", { data: { question, pieces: ["Picture both values on a number line. ", "The one farther left ", "is smaller."], end, gapMs: 250 } })).json();
-    expect(played.opened).toBe(true);
+    // The question is saved by the time the host can find it; then the scripted model plays.
+    await expect.poll(async () => (await (await request.post("/test/companion-draft", { data: { question,
+      pieces: ["Picture both values on a number line. ", "The one farther left ", "is smaller."], end, gapMs: 250 } })).json()).reason ?? "opened").toBe("opened");
     const region = drafts.nth(index);
     await expect(region).toContainText("Picture both values on a number line.");
     await expect(region).toHaveAttribute("aria-live", "off");
