@@ -686,6 +686,8 @@
       "core:scripts/release-compat.test.mjs::compatibility versions follow semantic version order and the API package rule",
       "core:services/api/test/admin.integration.test.ts",
       "core:services/api/test/course-package.test.ts::refuses a pre-release of the upper bound of the range",
+      "core:services/api/test/course-package.test.ts::refuses every package below the minimum supported SDK 0.5.0, whatever SDK Core pins",
+      "core:services/api/test/course-packages.integration.test.ts::refuses SDK 0.4 courses: below the minimum supported SDK 0.5.0 nothing installs, and an older draft never publishes",
       "core:services/api/test/course-packages.integration.test.ts::refuses a package from a newer SDK minor than the pinned one",
       "core:services/api/test/course-packages.integration.test.ts::refuses a version older than the newest installed unless explicitly confirmed, and records the choice",
       "core:services/api/test/course-packages.integration.test.ts::reports blocking problems: newer Core required, unsupported SDK, version conflict",
@@ -1046,9 +1048,12 @@
     "S03": [
       "core:services/api/test/api.integration.test.ts",
       "core:services/api/test/api.integration.test.ts::refuses skipped lessons and a fabricated mastery field",
-      "core:services/api/test/gates.test.ts::false-mastery rules on unversioned 0.4 gates",
+      "core:services/api/test/gates.test.ts::full false-mastery rules on gates without a version",
+      "core:services/api/test/gates.test.ts::refuses at publish a gate of recognition items only, and never passes one on two recognition families",
+      "core:services/api/test/gates.test.ts::refuses at publish a gate that passes on one of several objectives, and evaluates every objective anyway",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learning.test.ts",
+      "core:services/api/test/sdk-support.integration.test.ts::refuses to publish a gate of choice items only, and shows the checkpoint to staff before they try",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "S04": [
