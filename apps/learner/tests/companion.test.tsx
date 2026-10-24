@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
 import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
 import { stripBidiControls } from "@course-core/i18n";
-import { createLearnerTranslator } from "../src/i18n";
+import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";
 import {
   createCompanionClient,
@@ -507,7 +507,12 @@ describe("persisted companion integration", () => {
   it("labels waiting, cancelled and building questions in Hebrew too, and hides cancel while a reply is being built", () => {
     const { t } = createLearnerTranslator("he");
     expect(companionJobLabel({ ...message, job_state: "waiting" }, t)).toBe("עדיין עובדים על השאלה האחרונה שלך · ההודעה שלך נשמרה");
-    expect(companionJobLabel({ ...message, job_state: "cancelled" })).toBe("Cancelled · your message is saved");
+    expect(companionJobLabel({ ...message, job_state: "cancelled" })).toBe("Cancelled before it was sent · nothing was used · your message is saved");
+    expect(companionJobLabel({ ...message, job_state: "cancelled", job_sent: true }))
+      .toBe("Stopped after it was sent · what that call used still counts toward this course's AI use · your message is saved");
+    expect(companionJobLabel({ ...message, job_state: "cancelled", job_sent: true }, t)).toBe("נעצרה אחרי שנשלחה · מה שכבר נוצל בבקשה הזו נספר בשימוש של הקורס ב-AI · ההודעה שלך נשמרה");
+    expect(companionJobLabel({ ...message, job_state: "running" }, t)).toBe("נשלחה · התשובה נכתבת עכשיו");
+    expect(companionJobLabel({ ...message, job_state: "queued" }, t)).toBe("בתור · עוד לא נשלחה");
     expect(companionHasPending([{ ...message, job_state: "cancelled" }])).toBe(false);
     render(
       <ConnectedCompanion context={context} messages={[{ ...message, job_state: "running" }]} episodeTitles={{ intro: "Notice change" }}
@@ -650,13 +655,18 @@ describe("streamed companion replies (T01)", () => {
       const client: ContextualCompanionClient = { load, send: vi.fn() };
       const { result, unmount } = renderHook(() => useCompanionConversation(client, "e", false, 1));
       await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+      // The dispatch frame (no text yet) opens the draft and reads the saved job once.
+      push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, ""))}\n\n`);
+      await waitFor(() => expect(result.current.drafts).toEqual([expect.objectContaining({ jobId: "job", text: "", state: "streaming", shown: false })]));
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
       push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, "First sentence. "))}\n\n`);
       await waitFor(() => expect(result.current.drafts).toEqual([expect.objectContaining({ jobId: "job", text: "First sentence. ", state: "streaming" })]));
       push(`event: companion-draft\ndata: ${JSON.stringify(frame(16, "Second.", "streaming"))}\n\nevent: companion-draft\ndata: {broken\n\n`);
       await waitFor(() => expect(result.current.drafts[0]!.text).toBe("First sentence. Second."));
-      // A finished draft reads the stored conversation at once.
+      // Later frames of the same reply read nothing; a finished draft reads the stored conversation at once.
+      expect(load).toHaveBeenCalledTimes(2);
       push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, "First sentence. Second.", "complete"))}\n\n`);
-      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
       unmount();
     } finally { vi.unstubAllGlobals(); }
   });
@@ -708,7 +718,7 @@ describe("streamed companion replies (T01)", () => {
     rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, job_state: "cancelled" }]} episodeTitles={{}} draft=""
       onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={cancel} />);
     expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
-    expect(screen.getByText(/Cancelled · your message is saved/)).toBeVisible();
+    expect(screen.getByText(/Cancelled before it was sent · nothing was used · your message is saved/)).toBeVisible();
     expect(companionHasPending([{ ...pending, job_state: "cancelled" }])).toBe(false);
   });
   it("offers one way to stop: cancel and retry while the question waits, Stop once the reply is being written", () => {
@@ -720,5 +730,86 @@ describe("streamed companion replies (T01)", () => {
       onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={cancel} />);
     expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
+  });
+  it("switches to Stop as soon as the reply's call is sent, even while the saved job still reads queued", () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const queued = { ...message, job_state: "queued" };
+    const { rerender } = show({ onCancelQuestion: cancel, messages: [queued] });
+    expect(screen.getByText("Queued · not sent yet")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Stop waiting for this answer" })).toBeVisible();
+    const again = (drafts: CompanionDraft[], messages: CompanionMessage[] = [queued]) => rerender(
+      <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={messages} episodeTitles={{}} draft=""
+        onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={cancel} drafts={drafts} />);
+    // The dispatch frame: no text yet, but the call is out.
+    again([draft({ text: "", shown: false })]);
+    expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel and ask again" })).toBeNull();
+    expect(screen.getByText("Sent · a reply is being written")).toBeVisible();
+    expect(screen.getByRole("status", { name: /Writing a reply/ })).toBeVisible();
+    // The first sentence: still Stop, never the queued controls (job not re-read yet).
+    again([draft()]);
+    expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
+    // A question without its job id yet (read before preparation) is matched by message.
+    again([draft()], [{ ...queued, job_id: null }]);
+    expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
+    // Stopped: the draft says so and the label is honest that the sent call counts.
+    again([draft({ state: "cancelled", text: "" })]);
+    expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
+    expect(screen.getByText(/Stopped after it was sent · what that call used still counts/)).toBeVisible();
+    expect(companionState([queued], { online: true, awaitingChoice: false, drafts: [draft({ text: "" })] })).toBe("replying");
+  });
+  it("shows the same switch in Hebrew", () => {
+    const he = createLearnerTranslator("he");
+    render(
+      <I18nProvider value={he}>
+        <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...message, job_state: "queued" }]} episodeTitles={{}}
+          draft="" onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={vi.fn()} drafts={[draft({ text: "", shown: false })]} />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole("button", { name: "עצירת התשובה" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "להפסיק לחכות לתשובה הזו" })).toBeNull();
+    expect(screen.getByText("נשלחה · התשובה נכתבת עכשיו")).toBeVisible();
+  });
+});
+
+describe("help paused by a spending limit", () => {
+  const held = (ceiling: string): CompanionMessage => ({ ...message, job_state: "budget_wait", job_reason: "budget_exhausted", job_ceiling: ceiling });
+  function show(messages: CompanionMessage[], locale: "en" | "he" = "en") {
+    return render(
+      <I18nProvider value={createLearnerTranslator(locale)}>
+        <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={messages} episodeTitles={{}}
+          draft="" onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={vi.fn()} />
+      </I18nProvider>,
+    );
+  }
+  it("says plainly that help is paused at the course's AI budget and that staff were told, and keeps cancel and ask again", () => {
+    show([held("workspace")]);
+    expect(screen.getByText("Companion: Help is paused · your question is saved")).toBeVisible();
+    expect(screen.getByText(/Help is paused · this course's AI budget is used up, so your companion and your AI tutor can't answer for now\. Course staff have been told\./)).toBeVisible();
+    expect(screen.queryByText(/Still working on your last question/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop waiting for this answer" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Cancel and ask again" })).toBeVisible();
+    expect(companionState([held("workspace")], { online: true, awaitingChoice: false })).toBe("paused");
+  });
+  it("names the learner's own limit, and today's limits, differently", () => {
+    expect(companionJobLabel(held("enrollment"))).toMatch(/^Help is paused · you've used the AI help set aside for you in this course/);
+    expect(companionJobLabel(held("daily"))).toMatch(/^Help is paused for today · you've used today's AI help in this course\..*ask it again tomorrow\.$/);
+    expect(companionJobLabel(held("artifact"))).toMatch(/today's AI help for this lesson/);
+    // Without a named limit (an older server, or a held call) it stays the general message.
+    expect(companionJobLabel({ ...message, job_state: "budget_wait" })).toBe("Still working on your last question · your message is saved");
+    expect(companionJobLabel({ ...message, job_state: "waiting", job_ceiling: "workspace" })).toBe("Still working on your last question · your message is saved");
+  });
+  it("in Hebrew uses the glossary (המנחה, המלווה) and no gendered address", () => {
+    show([held("workspace")], "he");
+    expect(screen.getByRole("status", { name: /^מצב המלווה: .?העזרה מושהית · השאלה שלך נשמרה.?$/ })).toBeVisible();
+    expect(screen.getByText(/תקציב ה-AI של הקורס נוצל במלואו, ולכן המלווה והמנחה לא יכולים לענות כרגע\. צוות הקורס קיבל הודעה\./)).toBeVisible();
+    const { t } = createLearnerTranslator("he");
+    expect(companionJobLabel(held("enrollment"), t)).toContain("ניצלת את כל עזרת ה-AI שהוקצתה לך בקורס");
+    expect(companionJobLabel(held("daily"), t)).toContain("ואפשר לשאול אותה שוב מחר");
+    for (const ceiling of ["workspace", "enrollment", "daily", "artifact"])
+      expect(companionJobLabel(held(ceiling), t)).not.toMatch(/המפקח|את\/ה|תוכל|תוכלי/);
   });
 });

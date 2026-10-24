@@ -9,13 +9,15 @@ import type {
 import {
   companionCanCancel,
   companionCouldNotAnswer,
-  companionHasPending,
+  companionDraftFor,
+  companionHeldByLimit,
   companionJobLabel,
+  companionReplyStarted,
   companionState,
 } from "../client/companionClient";
 import { useOnline } from "../hooks/useOnline";
 import { CourseApiError } from "../client/apiClient";
-import { Badge, Button, Field, Notice, styles } from "./ui";
+import { Badge, Button, Field, Notice, colors, styles } from "./ui";
 import { MarkdownContent } from "./MarkdownContent";
 import {
   companionFocus,
@@ -261,7 +263,12 @@ export function ConnectedCompanion({
         accessibilityLabel={t("connectedCompanion.log")}
         style={{ gap: 16 }}
       >
-        {messages.map((message) => (
+        {messages.map((message) => {
+          // The reply being written for this question, newer than the saved job: once its call
+          // is sent (the draft opens), the question offers Stop instead of "Stop waiting".
+          const replyDraft = companionDraftFor(message, messages, drafts);
+          const jobLabel = companionJobLabel(message, t, replyDraft);
+          return (
           <React.Fragment key={message.id}>
           <View
             style={[
@@ -307,10 +314,16 @@ export function ConnectedCompanion({
             {message.role === "assistant" && message.context.cutShort === true && message.content !== "[deleted]" && (
               <Text style={styles.small}>{t("connectedCompanion.cutShort")}</Text>
             )}
-            {companionJobLabel(message, t) && (
-              <Text style={styles.small}>{companionJobLabel(message, t)}</Text>
-            )}
-            {onCancelQuestion && companionCanCancel(message) && (
+            {jobLabel && (companionHeldByLimit(message) && !replyDraft ? (
+              // Help is paused by a spending limit: said once, calmly, inside the question's card.
+              <View style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.paper,
+                borderStartWidth: 3, borderStartColor: colors.teal, borderStyle: "solid" }}>
+                <Text style={[styles.small, { color: colors.ink }]}>{jobLabel}</Text>
+              </View>
+            ) : (
+              <Text style={styles.small}>{jobLabel}</Text>
+            ))}
+            {onCancelQuestion && companionCanCancel(message, replyDraft) && (
               <View style={{ gap: 6 }}>
                 <Button
                   label={t("connectedCompanion.cancel")}
@@ -325,6 +338,18 @@ export function ConnectedCompanion({
                   onPress={() => void cancel(message, true)}
                 />
               </View>
+            )}
+            {/* While the reply is being written (its call was sent) the learner can stop it; before
+                that, the cancel and retry buttons above do the same through the same route. */}
+            {message.role === "learner" && onCancelQuestion && message.content !== "[deleted]" &&
+              companionReplyStarted(message, replyDraft) &&
+              !messages.some((row) => row.role === "assistant" && row.job_id === message.job_id && !!message.job_id) && (
+              <Button
+                label={t(stopping === message.id ? "connectedCompanion.stop.stopping" : "connectedCompanion.stop.start")}
+                kind="quiet"
+                disabled={stopping === message.id}
+                onPress={() => void stop(message.id)}
+              />
             )}
             {companionCouldNotAnswer(message) && message.content !== "[deleted]" && (
               // Asking again is a new question: it goes back into the draft to send as usual.
@@ -348,18 +373,6 @@ export function ConnectedCompanion({
                 <Button label={t("connectedCompanion.delete.start")} kind="quiet" onPress={() => setConfirmDelete(message.id)} />
               )
             )}
-            {/* While the reply is being written (or streams) the learner can stop it; before that,
-                the cancel and retry buttons above do the same through the same route. */}
-            {message.role === "learner" && onCancelQuestion && message.job_id && message.content !== "[deleted]" &&
-              companionHasPending([message]) && !companionCanCancel(message) &&
-              !messages.some((row) => row.role === "assistant" && row.job_id === message.job_id) && (
-              <Button
-                label={t(stopping === message.id ? "connectedCompanion.stop.stopping" : "connectedCompanion.stop.start")}
-                kind="quiet"
-                disabled={stopping === message.id}
-                onPress={() => void stop(message.id)}
-              />
-            )}
             {message.role === "assistant" && message.context_used && (
               <ContextUsed
                 used={message.context_used}
@@ -374,14 +387,11 @@ export function ConnectedCompanion({
             )}
           </View>
           {message.role === "learner" && (
-            <DraftReply
-              draft={drafts.find((row) => row.messageId === message.id &&
-                !messages.some((m) => m.role === "assistant" && m.job_id === row.jobId))}
-              connected={streamConnected}
-            />
+            <DraftReply draft={replyDraft} connected={streamConnected} />
           )}
           </React.Fragment>
-        ))}
+          );
+        })}
       </View>
       {sent && (
         <Notice>

@@ -25,7 +25,8 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     await loadEnrollment(db, actor, enrollmentId);
     // A question the supervisor refused has no job; it reads as 'refused' instead of queued forever.
-    const rows = (await db.query<{ id: string; role: string; content: string; context: Record<string, unknown>; created_at: Date; job_id: string | null; job_state: string | null; job_reason: string | null; refusal_reason: string | null; capsule: CompanionCapsule | null }>(
+    const rows = (await db.query<{ id: string; role: string; content: string; context: Record<string, unknown>; created_at: Date; job_id: string | null; job_state: string | null; job_reason: string | null;
+      job_sent: boolean | null; job_ceiling: string | null; refusal_reason: string | null; capsule: CompanionCapsule | null }>(
       // An answer recorded before it carried its lesson takes the lesson of the question it answers.
       `SELECT m.id,m.role,m.content,CASE WHEN m.role='assistant' AND m.context->>'episodeId' IS NULL AND q.context->>'episodeId' IS NOT NULL
           THEN m.context||jsonb_build_object('episodeId',q.context->'episodeId','blockId',COALESCE(q.context->'blockId','null'::jsonb)) ELSE m.context END AS context,m.created_at,m.job_id,
@@ -34,6 +35,12 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
             AND ce.event_type='companion.question.cancelled' AND ce.payload->>'messageId'=m.id::text) THEN 'cancelled'
           WHEN m.role='learner' AND m.job_id IS NULL AND ${REFUSED_QUESTION_SQL} THEN 'refused'
           WHEN j.cancellation_requested AND j.state NOT IN ('applied','cancelled','failed') THEN 'cancelled' ELSE j.state END AS job_state,j.result->>'reason' AS job_reason,
+        -- Whether a provider call for the question was started (a reservation that was sent, settled or is still unknown):
+        -- a question cancelled after that may still be charged for what the call used; one cancelled before it costs nothing.
+        CASE WHEN m.role='learner' AND j.id IS NOT NULL THEN EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(j.runtime_snapshot->'operations','[]'::jsonb)) o
+          WHERE o->>'status' IN ('in_flight','succeeded','uncertain')) END AS job_sent,
+        -- Which spending limit holds a question back (workspace, enrollment, daily, artifact), so the learner can be told.
+        CASE WHEN m.role='learner' AND j.state='budget_wait' AND NOT j.cancellation_requested THEN j.result->>'ceiling' END AS job_ceiling,
         -- Why Core refused the reply it received (a reason code only; the refused text is never stored).
         CASE WHEN m.role='learner' AND j.state='failed' THEN (SELECT a.content->>'reason' FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.enrollment_id=j.enrollment_id
           AND a.content->>'kind'='output_refusal' LIMIT 1) END AS refusal_reason,

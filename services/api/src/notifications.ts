@@ -9,8 +9,9 @@
  * - Staff notifications describe a condition that holds now. They are refreshed from their sources
  *   when the person opens the list (at most every REFRESH_SECONDS per person and workspace): the
  *   course overview's approval queue, the AI quality-check gate (a role whose setup has no passing
- *   check, for example after a Core upgrade), failed AI runs, the workspace AI budget and the backup
- *   recovery target. Each kind is shown only to roles that can act on it. A notification whose
+ *   check, for example after a Core upgrade), failed AI runs, the workspace AI budget, AI help held
+ *   back by a spending limit (`help_paused`, also written at once when a job stops at a limit) and
+ *   the backup recovery target. Each kind is shown only to roles that can act on it. A notification whose
  *   condition cleared is deleted; one whose condition got worse (more approvals waiting, a later
  *   failure) is unread again. An unencrypted backup is not a problem here, only an overdue one.
  * - Learner notifications record something that happened: the course moved to a newer version, a
@@ -50,7 +51,7 @@ export const NOTIFICATION_LIMITS = Object.freeze({
   /** The AI budget counts as near its limit from this share of it. */
   budgetPercent: 80,
 });
-export const STAFF_NOTIFICATION_KINDS = ['approvals_waiting', 'ai_check_needed', 'jobs_failed', 'budget_near_limit', 'backups_overdue'] as const;
+export const STAFF_NOTIFICATION_KINDS = ['approvals_waiting', 'ai_check_needed', 'jobs_failed', 'budget_near_limit', 'help_paused', 'backups_overdue'] as const;
 export const LEARNER_NOTIFICATION_KINDS = ['course_updated', 'move_offer', 'reply_ready'] as const;
 /** Workspace roles that have a staff bell. Course-scoped members and service principals have none. */
 export const STAFF_ROLES = ['owner', 'admin', 'author', 'instructor', 'reviewer', 'observer', 'support_observer'] as const;
@@ -87,13 +88,55 @@ async function prune(client: Sql, userId: string, audience: 'learner' | 'staff')
  * an English and a Hebrew message in the app that shows it.
  */
 export async function notifyUser(client: PoolClient | Database, input: { workspaceId: string; userId: string; audience: 'learner' | 'staff'; kind: string;
-  params?: Record<string, string | number | boolean | null>; link?: string | null; dedupeKey: string; enrollmentId?: string | null }): Promise<void> {
+  params?: Record<string, string | number | boolean | null>; link?: string | null; dedupeKey: string; enrollmentId?: string | null;
+  /** A changed fingerprint with a rank at least the old one makes a read notification unread again. */
+  fingerprint?: string; rank?: number }): Promise<void> {
   await upsert(client, input);
   await prune(client, input.userId, input.audience);
 }
 
 interface Condition { kind: (typeof STAFF_NOTIFICATION_KINDS)[number]; subject: string; params: Params; link: string; fingerprint: string; rank: number }
 export interface StaffSources { providers?: WorkspaceProviders | undefined }
+
+/** Who is told that AI help is paused: the roles that can change the spending limits. */
+const canChangeLimits = (role: string) => roleCan(role, 'supervision.settings');
+/** The window in which a held question counts: a stop the owner has not seen stays visible a day. */
+const HELD_WINDOW_MS = 86_400_000;
+/**
+ * AI work held back by a spending limit in the last day (`help_paused`): one condition for the
+ * workspace total (every learner's help is paused) and one for learners who reached their own
+ * limit (total, per day or per lesson). Counts learners and held requests (learners' questions and
+ * their AI tutor's work); never names a learner.
+ */
+export async function heldWorkConditions(client: Sql, workspaceId: string, now = new Date()): Promise<Condition[]> {
+  const rows = (await client.query<{ scope: 'workspace' | 'learner'; learners: number; requests: number }>(
+    `SELECT CASE WHEN j.result->>'ceiling'='workspace' THEN 'workspace' ELSE 'learner' END AS scope,
+        count(DISTINCT j.enrollment_id)::int AS learners,count(*)::int AS requests
+      FROM supervisor_jobs j WHERE j.workspace_id=$1 AND j.state='budget_wait' AND NOT j.cancellation_requested
+        AND j.result->>'reason'='budget_exhausted' AND j.result->>'ceiling' IN ('workspace','enrollment','daily','artifact') AND j.updated_at > $2
+      GROUP BY 1 ORDER BY 1`, [workspaceId, new Date(now.getTime() - HELD_WINDOW_MS)])).rows;
+  // More learners held makes a read notice unread again; fewer leaves it as it is.
+  return rows.map(row => ({ kind: 'help_paused' as const, subject: row.scope, params: { scope: row.scope, learners: row.learners, requests: row.requests },
+    link: '/providers', fingerprint: String(row.learners), rank: row.learners }));
+}
+/**
+ * Tells the staff who can change the limits, at once, that AI work is held by a spending limit
+ * (called in the transaction that stopped a job at a limit). The same notice the staff bell's own
+ * refresh keeps while the condition holds, so the learner's "staff have been told" is true from
+ * the moment their question is held.
+ */
+export async function notifyStaffOfHeldWork(client: PoolClient, workspaceId: string, now = new Date()) {
+  const conditions = await heldWorkConditions(client, workspaceId, now);
+  if (!conditions.length) return;
+  const staff = (await client.query<{ user_id: string; role: string }>(
+    'SELECT user_id,role FROM memberships WHERE workspace_id=$1 AND role=ANY($2::text[]) ORDER BY user_id LIMIT 200',
+    [workspaceId, STAFF_ROLES.filter(canChangeLimits)])).rows;
+  for (const person of staff)
+    for (const condition of conditions)
+      await notifyUser(client, { workspaceId, userId: person.user_id, audience: 'staff', kind: condition.kind, params: condition.params, link: condition.link,
+        dedupeKey: staffKey(workspaceId, condition), fingerprint: condition.fingerprint, rank: condition.rank });
+}
+const staffKey = (workspaceId: string, condition: Pick<Condition, 'kind' | 'subject'>) => `staff:${workspaceId}:${condition.kind}:${condition.subject}`;
 
 /** The conditions one staff member should be told about now, by what their role can act on. */
 export async function staffConditions(client: Sql, workspaceId: string, role: string, sources: StaffSources, now = new Date()): Promise<Condition[]> {
@@ -124,6 +167,7 @@ export async function staffConditions(client: Sql, workspaceId: string, role: st
         conditions.push({ kind: 'ai_check_needed', subject: item.role, params: { role: item.role, failed: item.failed, checkable: item.covered },
           link: '/providers', fingerprint: `${item.revisionDigest}:${item.failed}`, rank: 0 });
   }
+  if (canChangeLimits(role)) conditions.push(...await heldWorkConditions(client, workspaceId, now));
   if (roleCan(role, 'supervision.settings')) {
     const budget = (await client.query<{ limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }>(
       'SELECT limit_micro_usd,limit_tokens,used_micro_usd,used_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1', [workspaceId])).rows[0];
@@ -150,7 +194,7 @@ export async function refreshStaffNotifications(client: Sql, workspaceId: string
   const conditions = await staffConditions(client, workspaceId, role, sources, now);
   const keys: string[] = [];
   for (const condition of conditions) {
-    const dedupeKey = `staff:${workspaceId}:${condition.kind}:${condition.subject}`;
+    const dedupeKey = staffKey(workspaceId, condition);
     keys.push(dedupeKey);
     await upsert(client, { workspaceId, userId, audience: 'staff', kind: condition.kind, params: condition.params, link: condition.link, dedupeKey,
       fingerprint: condition.fingerprint, rank: condition.rank });

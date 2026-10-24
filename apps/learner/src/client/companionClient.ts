@@ -83,6 +83,12 @@ export interface CompanionMessage {
   job_reason?: string | null;
   /** Learner messages: Core refused the reply it received (a code, never provider text). */
   refusal_reason?: string | null;
+  /** Learner messages: a provider call for the question was started, so stopping it later may
+   * still count what that call used. False or absent: nothing was sent. */
+  job_sent?: boolean | null;
+  /** Learner messages held by a spending limit: which one (`workspace`, `enrollment`, `daily`,
+   * `artifact`). */
+  job_ceiling?: string | null;
 }
 /** A reply the companion is still writing, streamed over the event stream (`companion-draft`).
  * Not yet checked by Core: shown as a draft and replaced by the stored reply once applied. */
@@ -328,29 +334,64 @@ export type CompanionState =
   | "replying"
   | "building"
   | "checking"
+  | "paused"
   | "still_working"
   | "queued"
   | "unavailable"
   | "available";
 /** Job states of a question whose reply is held up (service busy, budget, uncertain call). */
 const WAITING_STATES = ["waiting", "budget_wait", "blocked", "deferred"];
+/** Job states while the reply is being built: the provider call is out. */
+const RUNNING_STATES = ["running", "leased", "processing", "analyzing", "building", "evaluating"];
+/** Job states while a written reply is checked before it is stored. */
+const CHECKING_STATES = ["verifying", "ready"];
+/** Spending limits a held question can name (supervisor-bridge.ts BudgetCeiling). */
+const CEILINGS = ["workspace", "enrollment", "daily", "artifact"];
+/** Help is paused for this question: a spending limit holds it back. */
+export const companionHeldByLimit = (message: CompanionMessage) =>
+  message.role === "learner" && message.job_state === "budget_wait" && CEILINGS.includes(message.job_ceiling ?? "");
+/** The reply being written for one question, if the event stream brought one (and it is not yet
+ * replaced by the stored reply). */
+export function companionDraftFor(
+  message: CompanionMessage,
+  messages: readonly CompanionMessage[],
+  drafts: readonly CompanionDraft[] = [],
+): CompanionDraft | undefined {
+  if (message.role !== "learner") return;
+  return drafts.find((draft) => draft.messageId === message.id &&
+    !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId));
+}
+/**
+ * Whether the reply to a question is under way: its call was sent. That is known from the stream
+ * the moment the gateway sends the call (a draft opens, before any text), or from the saved job
+ * (running, or a call recorded as started). Then the learner is offered Stop, not "Stop waiting".
+ */
+export function companionReplyStarted(message: CompanionMessage, draft?: CompanionDraft): boolean {
+  if (message.role !== "learner" || message.content === "[deleted]" || !companionHasPending([message])) return false;
+  if (draft) return draft.state === "streaming" || draft.state === "complete";
+  return RUNNING_STATES.includes(message.job_state ?? "") || CHECKING_STATES.includes(message.job_state ?? "");
+}
 export function companionState(
   messages: readonly CompanionMessage[],
   input: { online: boolean; awaitingChoice: boolean; drafts?: readonly CompanionDraft[] },
 ): CompanionState {
   if (!input.online) return "offline";
   if (input.awaitingChoice) return "waiting_for_you";
-  // A reply is being written where the learner can see it: one status, not one per word.
-  if (input.drafts?.some((draft) => draft.state === "streaming" && draft.text &&
-    !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId)))
+  // A reply is being written where the learner can see it (its call was sent; the first text may
+  // not have arrived yet): one status, not one per word.
+  if (input.drafts?.some((draft) => draft.state === "streaming" &&
+    !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId) &&
+    messages.some((m) => m.id === draft.messageId && companionHasPending([m]))))
     return "replying";
   const open = messages.filter(
     (message) => message.role === "learner" && companionHasPending([message]),
   );
-  if (open.some((m) => ["running", "leased", "processing"].includes(m.job_state ?? "")))
+  if (open.some((m) => RUNNING_STATES.includes(m.job_state ?? "")))
     return "building";
-  if (open.some((m) => ["verifying", "ready"].includes(m.job_state ?? "")))
+  if (open.some((m) => CHECKING_STATES.includes(m.job_state ?? "")))
     return "checking";
+  // A spending limit holds a question: help is paused, said plainly.
+  if (open.some(companionHeldByLimit)) return "paused";
   // Only a missing service configuration makes the companion unavailable.
   if (
     open.some(
@@ -369,21 +410,39 @@ export function companionState(
 export function companionStateText(state: CompanionState, t: Translate = englishTranslator().t): string {
   return t(`companionClient.state.${state}` as MessageKey);
 }
-/** Only known public state labels are shown; provider error/reason text is never surfaced. */
+/** Only known public state labels are shown; provider error/reason text is never surfaced.
+ * `draft` is the reply being written for this question (companionDraftFor), which is newer than
+ * the saved job: a draft that opened means the call was sent. */
 export function companionJobLabel(
   message: CompanionMessage,
   t: Translate = englishTranslator().t,
+  draft?: CompanionDraft,
 ): string | undefined {
   if (message.role !== "learner") return;
   if (message.job_reason === "configuration_missing")
     return t("companionClient.job.configurationMissing");
   if (companionCouldNotAnswer(message))
     return t("companionClient.job.couldNotAnswer");
+  if (draft && companionHasPending([message])) {
+    if (draft.state === "streaming") return t("companionClient.job.writing");
+    if (draft.state === "complete") return t("companionClient.job.checking");
+    // Stopped by the learner: the call had been sent, so what it used is counted.
+    if (draft.state === "cancelled") return t("companionClient.job.cancelledSent");
+    // Withdrawn: the draft says why; the saved outcome follows.
+    return;
+  }
+  if (companionHeldByLimit(message))
+    return t(message.job_ceiling === "workspace" ? "companionClient.job.pausedWorkspace"
+      : message.job_ceiling === "enrollment" ? "companionClient.job.pausedLearner"
+        : message.job_ceiling === "artifact" ? "companionClient.job.pausedLessonToday" : "companionClient.job.pausedToday");
   switch (message.job_state) {
     case "running":
     case "leased":
     case "processing":
-      return t("companionClient.job.building");
+    case "analyzing":
+    case "building":
+    case "evaluating":
+      return t("companionClient.job.writing");
     case "verifying":
     case "ready":
       return t("companionClient.job.checking");
@@ -393,7 +452,9 @@ export function companionJobLabel(
     case "done":
       return t("companionClient.job.processed");
     case "cancelled":
-      return t("companionClient.job.cancelled");
+      // Honest about cost: a question stopped after its call was sent may still be charged for
+      // what that call used; one cancelled before anything was sent costs nothing.
+      return t(message.job_sent ? "companionClient.job.cancelledSent" : "companionClient.job.cancelled");
     case "refused":
     case "failed":
     case "dead":
@@ -416,11 +477,11 @@ export function companionCouldNotAnswer(message: CompanionMessage): boolean {
   return message.role === "learner" && message.job_state === "failed" &&
     (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
 }
-/** A pending question the learner may cancel or ask again: queued or held up, not while a reply
- * is being built or checked (it is about to arrive). */
-export function companionCanCancel(message: CompanionMessage): boolean {
-  return message.role === "learner" && message.content !== "[deleted]" && companionHasPending([message]) &&
-    !["running", "leased", "processing", "verifying", "ready"].includes(message.job_state ?? "");
+/** A pending question the learner may cancel or ask again: queued or held up, not once its reply
+ * is under way (a draft opened, or the job is running or checking): that one offers Stop. */
+export function companionCanCancel(message: CompanionMessage, draft?: CompanionDraft): boolean {
+  return message.role === "learner" && message.content !== "[deleted]" && companionHasPending([message]) && !draft &&
+    !companionReplyStarted(message);
 }
 export function companionHasPending(
   messages: readonly CompanionMessage[],

@@ -66,7 +66,7 @@ async function session(userId: string) {
   expect(login.statusCode, login.body).toBe(200);
   return { origin, cookie: login.cookies.map(c => `${c.name}=${c.value}`).join('; '), 'x-csrf-token': login.json().csrfToken as string };
 }
-async function prepare() {
+async function prepare(limitMicroUsd = 1_000_000) {
   const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), now = new Date().toISOString(), course = fixture();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [studentId, `test:${studentId}`, 'Streamed learner']);
   await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, studentId]);
@@ -78,10 +78,10 @@ async function prepare() {
     payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
   const lease = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(lease); await bridge.ackOutbox(lease);
-  await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 1_000_000, tokens: 100_000 });
+  await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: limitMicroUsd, tokens: 100_000 });
   const claim = await bridge.transition({ type: 'claim', ref: ref!, checkpointId: 'generate', ownerId: randomUUID(), availability: { status: 'ready' } });
-  expect(claim.effect).toBe('invoke');
-  const snapshot = claim.snapshot, operation = snapshot.operations[0]!;
+  expect(claim.effect).toBe(limitMicroUsd ? 'invoke' : 'stop');
+  const snapshot = claim.snapshot, operation = snapshot.operations[0] ?? { id: 'none' };
   const request: ProviderRequest = { schemaVersion: 1, operationId: operation.id, job: snapshot.specification.key, role: 'companion', checkpoint: snapshot.specification.checkpoints[0]!, fence: snapshot.specification.fence };
   return { ref: ref!, request, operation, enrollmentId, messageId, studentId, learner: await session(studentId) };
 }
@@ -127,15 +127,50 @@ function holdLast(pieces: string[], end?: 'refuse') {
 }
 
 describe('streamed companion replies', () => {
+  it('signals the dispatch on the learner stream the moment the call is sent, before any text', async () => {
+    const job = await prepare(), mine = follow(job.learner, job.enrollmentId);
+    await mine.opened;
+    const before = (await app.inject({ method: 'GET', url: `/api/enrollments/${job.enrollmentId}/companion`, headers: job.learner })).json();
+    // Claimed: the reservation is made and the call is on its way (the saved job runs); no draft yet.
+    expect(before.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ job_state: 'running', job_sent: true });
+    expect(mine.frames).toEqual([]);
+    // The model holds its only sentence: the call is out and nothing is written yet.
+    const step = holdLast(['The only sentence. ']);
+    const call = invoke(job.request);
+    await step.reached;
+    await until(() => mine.frames.length > 0);
+    expect(mine.frames).toEqual([{ jobId: job.ref.jobId, messageId: job.messageId, offset: 0, text: '', state: 'streaming' }]);
+    step.release();
+    expect((await call).json().status).toBe('succeeded');
+    await until(() => mine.frames.at(-1)?.state === 'complete');
+    await mine.close();
+  });
+
+  it('a question held by a spending limit says which limit, and the staff who can raise it are told at once', async () => {
+    const job = await prepare(0);
+    const read = (await app.inject({ method: 'GET', url: `/api/enrollments/${job.enrollmentId}/companion`, headers: job.learner })).json();
+    expect(read.messages.find((m: { id: string }) => m.id === job.messageId))
+      .toMatchObject({ job_state: 'budget_wait', job_reason: 'budget_exhausted', job_ceiling: 'enrollment', job_sent: false });
+    const notice = (await db.query("SELECT params,link,read_at FROM notifications WHERE user_id=$1 AND kind='help_paused'", [ownerId])).rows;
+    expect(notice).toEqual([{ params: { scope: 'learner', learners: 1, requests: 1 }, link: '/providers', read_at: null }]);
+    // The learner is told nothing about other learners and gets no staff notice.
+    expect((await db.query("SELECT 1 FROM notifications WHERE user_id=$1", [job.studentId])).rowCount).toBe(0);
+  });
+
   it('pushes released text to the learner while the model answers, never to staff, and the receipt still settles the call', async () => {
     const job = await prepare(), staff = follow({ cookie: (await session(ownerId)).cookie }, job.enrollmentId), mine = follow(job.learner, job.enrollmentId);
     await Promise.all([mine.opened, staff.opened]);
     const step = holdLast(['Compare the values on a number line. ', 'The one farther left ', 'is smaller.']);
     const call = invoke(job.request);
     await step.reached;
-    // Before the provider finished: the first sentence is on the learner's stream, the unfinished one is held.
-    await until(() => mine.frames.length > 0);
-    expect(mine.frames[0]).toEqual({ jobId: job.ref.jobId, messageId: job.messageId, offset: 0, text: 'Compare the values on a number line. ', state: 'streaming' });
+    // Before the provider finished: the dispatch frame (the call was sent, no text yet), then the
+    // first sentence; the unfinished one is held.
+    await until(() => mine.frames.some(f => f.text));
+    expect(mine.frames.slice(0, 2)).toEqual([{ jobId: job.ref.jobId, messageId: job.messageId, offset: 0, text: '', state: 'streaming' },
+      { jobId: job.ref.jobId, messageId: job.messageId, offset: 0, text: 'Compare the values on a number line. ', state: 'streaming' }]);
+    // The saved question says its call was sent while the reply is written.
+    const writing = (await app.inject({ method: 'GET', url: `/api/enrollments/${job.enrollmentId}/companion`, headers: job.learner })).json();
+    expect(writing.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ job_state: 'running', job_sent: true, job_ceiling: null });
     step.release();
     const outcome = (await call).json();
     expect(outcome.status).toBe('succeeded');
@@ -177,7 +212,7 @@ describe('streamed companion replies', () => {
     await mine.opened;
     const step = holdLast(['Started explaining here. ', 'never shown']);
     const call = invoke(job.request);
-    await step.reached; await until(() => mine.frames.length > 0);
+    await step.reached; await until(() => mine.frames.some(f => f.text));
     const revision = Number((await db.query('SELECT revision FROM enrollments WHERE id=$1', [job.enrollmentId])).rows[0].revision);
     const other = await prepare();
     const foreign = await app.inject({ method: 'POST', url: `/api/enrollments/${job.enrollmentId}/companion/messages/${job.messageId}/cancel`, headers: other.learner,
@@ -189,7 +224,7 @@ describe('streamed companion replies', () => {
     expect(cancel.json()).toMatchObject({ messageId: job.messageId, cancelled: true, revision });
     await until(() => mine.frames.at(-1)?.state === 'cancelled');
     step.release(); await call;
-    expect(mine.frames.filter(f => f.state === 'streaming').map(f => f.text)).toEqual(['Started explaining here. ']);
+    expect(mine.frames.filter(f => f.state === 'streaming').map(f => f.text)).toEqual(['', 'Started explaining here. ']);
     const flagged = (await db.query('SELECT cancellation_requested FROM supervisor_jobs WHERE id=$1', [job.ref.jobId])).rows[0];
     expect(flagged.cancellation_requested).toBe(true);
     const delivery = (await db.query('SELECT reason,jobs FROM supervisor_job_cancellations WHERE enrollment_id=$1', [job.enrollmentId])).rows;
@@ -197,7 +232,8 @@ describe('streamed companion replies', () => {
     // One route and one meaning (shared with "stop waiting"): the question stays and reads as
     // cancelled, recorded as companion.question.cancelled.
     const read = (await app.inject({ method: 'GET', url: `/api/enrollments/${job.enrollmentId}/companion`, headers: job.learner })).json();
-    expect(read.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ content: 'How do I compare the numbers?', job_state: 'cancelled' });
+    // Stopped after its call was sent: the app can say honestly that what the call used counts.
+    expect(read.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ content: 'How do I compare the numbers?', job_state: 'cancelled', job_sent: true });
     const events = (await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.question.cancelled'", [job.enrollmentId])).rows;
     expect(events).toEqual([{ payload: expect.objectContaining({ messageId: job.messageId, jobCancelled: true }) }]);
     // Stopping it again, or an unknown question, is refused.

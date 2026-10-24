@@ -29,8 +29,10 @@ describe('reply drafts release text only at safe boundaries (T01)', () => {
   it('streams frames in order that rebuild the answer, then completes with the remainder', () => {
     const drafts = new ReplyDrafts(), frames = follow(drafts);
     const writer = drafts.open(key)!;
+    // Opening is the dispatch signal: an empty streaming frame at once, before any text.
+    expect(frames).toEqual([{ jobId: 'j1', messageId: 'm1', offset: 0, text: '', state: 'streaming' }]);
     for (const piece of ['Compare ', 'the values on a number line', '. The one farther', ' left is smaller']) writer.push(piece);
-    expect(frames.map(f => f.state)).toEqual(['streaming']);
+    expect(frames.map(f => f.state)).toEqual(['streaming', 'streaming']);
     expect(rebuild(frames)).toBe('Compare the values on a number line. ');
     writer.complete();
     expect(frames.at(-1)!.state).toBe('complete');
@@ -57,14 +59,14 @@ describe('reply drafts release text only at safe boundaries (T01)', () => {
     expect(drafts.cancel('other-enrollment', 'j2')).toBe(false);
     expect(drafts.cancel('e1', 'j2')).toBe(true);
     second.push('Ignored. '); second.complete();
-    expect(frames.filter(f => f.jobId === 'j2').map(f => f.state)).toEqual(['streaming', 'cancelled']);
+    expect(frames.filter(f => f.jobId === 'j2').map(f => [f.state, f.text])).toEqual([['streaming', ''], ['streaming', 'Another. '], ['cancelled', '']]);
   });
   it('erasure drops every draft and follower and refuses new drafts for the enrollment', () => {
     const drafts = new ReplyDrafts(), frames = follow(drafts), writer = drafts.open(key)!;
     writer.push('Private text. ');
     drafts.forget('e1');
     writer.push('After erasure. '); writer.complete();
-    expect(frames).toHaveLength(1);
+    expect(frames).toHaveLength(2);
     expect(drafts.current('e1')).toEqual([]);
     expect(drafts.open({ ...key, jobId: 'j3' })).toBeNull();
     expect(drafts.open({ enrollmentId: 'e2', jobId: 'j4', messageId: 'm4' })).not.toBeNull();
@@ -86,6 +88,6 @@ describe('reply drafts release text only at safe boundaries (T01)', () => {
   it('another enrollment never receives the frames', () => {
     const drafts = new ReplyDrafts(), mine = follow(drafts, 'e1'), theirs = follow(drafts, 'e2');
     drafts.open(key)!.push('Only for e1. ');
-    expect(mine).toHaveLength(1); expect(theirs).toHaveLength(0);
+    expect(mine).toHaveLength(2); expect(theirs).toHaveLength(0);
   });
 });

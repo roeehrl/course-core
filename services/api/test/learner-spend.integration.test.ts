@@ -15,6 +15,7 @@ import { createPostgresSupervisorBridge, lockPaidWorkBudgets, type PostgresSuper
 import { fixture } from "./fixture.js";
 import { MEDIA_CREDENTIAL, ScriptedVideo, approveRevisionsForTest, mediaConfiguration, mediaJobPolicy } from "./media-fixture.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
+import { heldWorkConditions, resetNotificationRefresh } from "../src/notifications.js";
 
 /**
  * "No limit per learner" (an explicit owner choice, never a missing amount) and the learner
@@ -53,6 +54,9 @@ async function supervisorClaim() {
   const claim = await bridge.transition({ type: "claim", ref: ref!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
   return { claim, jobId: ref!.jobId };
 }
+/** The help_paused notices a person has, oldest subject first. */
+const heldNotices = async (userId: string) => (await db.query("SELECT kind,params,link,read_at IS NULL AS unread FROM notifications WHERE user_id=$1 AND kind='help_paused' ORDER BY dedupe_key",
+  [userId])).rows;
 const ceiling = async (jobId: string) => (await db.query("SELECT result FROM supervisor_jobs WHERE id=$1", [jobId])).rows[0].result.ceiling;
 const available = (enrollmentId: string) => transaction(db, (client) => lockPaidWorkBudgets(client, { workspaceId: workspace, enrollmentId }));
 async function enroll() {
@@ -100,6 +104,9 @@ describe("no limit per learner: an explicit choice; the workspace total still st
     expect((await get(owner, budgets)).json().defaultEnrollment).toEqual({ revision: 0, mode: "unset", limit_micro_usd: null, limit_tokens: null });
     const first = await supervisorClaim();
     expect([first.claim.snapshot.state, await ceiling(first.jobId)]).toEqual(["budget_wait", "enrollment"]);
+    // The staff who can change limits are told at once (no bell refresh needed); the learner is not.
+    expect(await heldNotices(owner.id)).toEqual([{ kind: "help_paused", params: { scope: "learner", learners: 1, requests: 1 }, link: "/providers", unread: true }]);
+    expect(await heldNotices(learner.id)).toEqual([]);
   });
 
   it("refuses the choice without consent, with amounts, or for another scope", async () => {
@@ -148,6 +155,18 @@ describe("no limit per learner: an explicit choice; the workspace total still st
     // 450k used: 50k left is less than a job's 100k allowance, and the ceiling named is the workspace's.
     const stopped = await supervisorClaim();
     expect([stopped.claim.snapshot.state, await ceiling(stopped.jobId)]).toEqual(["budget_wait", "workspace"]);
+    // Help is paused for everyone: told at once, as its own notice beside the learner-limit one.
+    expect(await heldNotices(owner.id)).toEqual([
+      { kind: "help_paused", params: { scope: "learner", learners: 1, requests: 1 }, link: "/providers", unread: true },
+      { kind: "help_paused", params: { scope: "workspace", learners: 1, requests: 1 }, link: "/providers", unread: true },
+    ]);
+    // The bell's own refresh keeps the same notices while the condition holds (no duplicates).
+    resetNotificationRefresh();
+    const bell = (await get(owner, `/api/admin/workspaces/${workspace}/notifications`)).json();
+    expect(bell.items.filter((i: { kind: string }) => i.kind === "help_paused").map((i: { params: { scope: string } }) => i.params.scope).sort()).toEqual(["learner", "workspace"]);
+    // A cancelled question no longer counts.
+    await db.query("UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1", [stopped.jobId]);
+    expect((await heldWorkConditions(db, workspace)).map((c) => c.subject)).toEqual(["learner"]);
     const used = (await db.query("SELECT used_micro_usd::int FROM supervisor_workspace_budgets WHERE workspace_id=$1", [workspace])).rows[0].used_micro_usd;
     expect(used).toBe(450_000);
   });

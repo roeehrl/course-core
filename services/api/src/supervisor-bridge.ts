@@ -28,7 +28,7 @@ import { priceUsage, type UsageReceipt } from '@course-core/providers';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { telemetry } from '@course-core/supervisor/telemetry';
 import { noteBridgeContact } from './platform-operations.js';
-import { learnerPresent, notifyUser } from './notifications.js';
+import { learnerPresent, notifyStaffOfHeldWork, notifyUser } from './notifications.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
@@ -277,6 +277,9 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
       // A budget stop names the ceiling it hit, so staff and learners can be told why.
       ...(next.reason === 'budget_exhausted' && ceiling ? { ceiling } : {}) }), key.workspaceId, key.enrollmentId, old.version]);
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
+  // Work held back by a spending limit: the staff who can change the limits are told at once, so
+  // the learner's notice that help is paused and staff know is true from this moment.
+  if (next.state === 'budget_wait' && old.state !== 'budget_wait' && ceiling) await notifyStaffOfHeldWork(client, key.workspaceId);
   // A teaching action whose job stopped without delivering its change ends with the job's reason.
   if ((next.state === 'failed' || next.state === 'cancelled') && old.state !== next.state) await endActionsOfJob(client, key.jobId, next.reason ?? next.state);
 }
