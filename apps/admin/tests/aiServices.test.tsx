@@ -28,6 +28,7 @@ import type { ReactNode } from "react";
 import { createFetchAdminClient } from "../src/client/fetchClient";
 import { demoSession, demoWorkspace } from "../src/data/fixtures";
 import { demo } from "./helpers";
+import { actNow, firstSight, withoutAct } from "./raceHelpers";
 
 const workspace = "00000000-0000-4000-8000-000000000001";
 const key = ["SYNTHETIC", "UNIT", "KEY", "7Q2c"].join("_");
@@ -280,33 +281,6 @@ function fakePort(
   };
   return port as unknown as AiServicesPort &
     Record<keyof AiServicesPort, ReturnType<typeof vi.fn>>;
-}
-
-/** Runs with React's act environment off, so updates and effects are scheduled as in a browser
- * (inside act, React flushes them before a test's next step, which hides ordering races). */
-async function withoutAct<T>(work: () => Promise<T>): Promise<T> {
-  const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
-  const before = env.IS_REACT_ACT_ENVIRONMENT;
-  env.IS_REACT_ACT_ENVIRONMENT = false;
-  try {
-    return await work();
-  } finally {
-    env.IS_REACT_ACT_ENVIRONMENT = before;
-  }
-}
-/** Resolves in the DOM change that first shows the element, as a person acting at once would. */
-function firstSight<E extends Element>(find: () => E | null): Promise<E> {
-  return new Promise((resolve) => {
-    const present = find();
-    if (present) return resolve(present);
-    const observer = new MutationObserver(() => {
-      const element = find();
-      if (!element) return;
-      observer.disconnect();
-      resolve(element);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
 }
 
 describe("AI services text", () => {
@@ -949,6 +923,149 @@ describe("where AI services appear", () => {
     expect(fetcher.mock.calls[0]![1]!.method).toBe("DELETE");
     await expect(client.aiServices!.connections("w")).rejects.toMatchObject({
       code: "UNAVAILABLE",
+    });
+  });
+});
+
+describe("AI services forms while the page reloads", () => {
+  const elsewhere = (key: string) =>
+    english.t(`changedElsewhere.${key}` as MessageKey);
+  /** Saving the YouTube key reloads the whole page, as a save in any section does. */
+  async function reloadBySavingAnotherSection(
+    port: ReturnType<typeof fakePort>,
+  ) {
+    fireEvent.change(screen.getByLabelText(t("advanced.youtube")), {
+      target: { value: "synthetic-youtube-key" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: t("advanced.saveServiceKey") }),
+    );
+    await waitFor(() => expect(port.setServiceKey).toHaveBeenCalledTimes(1));
+    await screen.findByText(t("advanced.serviceKeyStored"));
+  }
+
+  it("keeps a request limit typed the moment the advanced section appears", async () => {
+    render(
+      <AiServicesPage workspaceId={workspace} port={fakePort()} role="owner" />,
+    );
+    const cost = await withoutAct(() =>
+      firstSight(() => screen.queryByLabelText(t("advanced.limitCost"))),
+    );
+    await actNow(() => fireEvent.change(cost, { target: { value: "0.5" } }));
+    expect(cost).toHaveValue("0.5");
+  });
+
+  it("keeps the unpriced-model rule changed the moment it appears", async () => {
+    render(
+      <AiServicesPage workspaceId={workspace} port={fakePort()} role="owner" />,
+    );
+    const rule = await withoutAct(() =>
+      firstSight(() =>
+        screen.queryByRole<HTMLInputElement>("checkbox", {
+          name: t("advanced.requirePricing"),
+        }),
+      ),
+    );
+    expect(rule).toBeChecked();
+    await actNow(() => fireEvent.click(rule));
+    expect(rule).not.toBeChecked();
+  });
+
+  it("keeps a spending edit when a newer limit arrives, names the change and saves over it only when kept", async () => {
+    const port = fakePort({
+      budgets: vi
+        .fn()
+        .mockResolvedValueOnce(budgets("25000000", "2000000"))
+        .mockResolvedValue({
+          ...budgets("25000000", "5000000"),
+          defaultEnrollment: {
+            revision: 2,
+            limit_micro_usd: "5000000",
+            limit_tokens: "1000000000",
+          },
+        }),
+      setServiceKey: vi.fn().mockResolvedValue({}),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const learner = await screen.findByLabelText(t("spending.perLearner"));
+    expect(learner).toHaveValue("2.00");
+    fireEvent.change(learner, { target: { value: "3" } });
+    await reloadBySavingAnotherSection(port);
+    // The edit is kept, the newer limit is named, and saving waits for a choice.
+    expect(learner).toHaveValue("3");
+    expect(await screen.findByText(elsewhere("title"))).toBeInTheDocument();
+    const allow = screen.getByRole("button", {
+      name: "Allow spending up to $25.00",
+    });
+    expect(allow).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: elsewhere("keep") }));
+    expect(screen.queryByText(elsewhere("title"))).toBeNull();
+    fireEvent.click(allow);
+    await waitFor(() => expect(port.saveBudget).toHaveBeenCalledTimes(1));
+    expect(port.saveBudget.mock.calls[0]![1]).toMatchObject({
+      scope: "default_enrollment",
+      expectedRevision: 2,
+      limits: { microUsd: 3_000_000 },
+    });
+  });
+
+  it("shows the newer limit when the operator chooses the saved version", async () => {
+    const port = fakePort({
+      budgets: vi
+        .fn()
+        .mockResolvedValueOnce(budgets("25000000", "2000000"))
+        .mockResolvedValue(budgets("25000000", "5000000")),
+      setServiceKey: vi.fn().mockResolvedValue({}),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const learner = await screen.findByLabelText(t("spending.perLearner"));
+    fireEvent.change(learner, { target: { value: "3" } });
+    await reloadBySavingAnotherSection(port);
+    fireEvent.click(
+      await screen.findByRole("button", { name: elsewhere("showSaved") }),
+    );
+    expect(learner).toHaveValue("5.00");
+    expect(screen.queryByText(elsewhere("title"))).toBeNull();
+    expect(port.saveBudget).not.toHaveBeenCalled();
+  });
+
+  it("does not save edited JSON over a configuration changed meanwhile", async () => {
+    const changed = {
+      ...activeConfiguration,
+      roles: { companion: activeConfiguration.roles.companion },
+    };
+    const port = fakePort({
+      setup: vi
+        .fn()
+        .mockResolvedValueOnce(setup(activeConfiguration, 2))
+        .mockResolvedValue(setup(changed, 3)),
+      connections: vi
+        .fn()
+        .mockResolvedValue({ ...noConnections, connections: [connection] }),
+      setServiceKey: vi.fn().mockResolvedValue({}),
+      draftFromJson: vi
+        .fn()
+        .mockResolvedValue({ ...draft, waitingForCheck: [] }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: t("advanced.editJson") }),
+    );
+    const editor = screen.getByLabelText(t("advanced.jsonLabel"));
+    fireEvent.change(editor, { target: { value: '{"edited":true}' } });
+    await reloadBySavingAnotherSection(port);
+    expect(editor).toHaveValue('{"edited":true}');
+    expect(await screen.findByText(elsewhere("title"))).toBeInTheDocument();
+    const saveJson = screen.getByRole("button", {
+      name: t("advanced.saveJson"),
+    });
+    expect(saveJson).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: elsewhere("keep") }));
+    fireEvent.click(saveJson);
+    await waitFor(() => expect(port.draftFromJson).toHaveBeenCalledTimes(1));
+    expect(port.draftFromJson.mock.calls[0]![1]).toMatchObject({
+      baseRevision: 3,
+      configuration: { edited: true },
     });
   });
 });
