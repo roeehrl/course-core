@@ -1,5 +1,14 @@
+/* The app owns the whole page: the page background is the app's, so no scroll position, overscroll
+ * bounce or band below short content ever shows a white page around it. */
+html:has(.connected-host),
+html:has(.connected-host) body {
+  background: #f8f8f2;
+}
 .connected-host {
   min-height: 100dvh;
+  /* A flex item of the full-height root: it grows with its content and never shrinks below it, so
+   * its background covers everything the page scrolls through. */
+  flex: 1 0 auto;
   background: #f8f8f2;
   color: #183237;
   font:
@@ -82,7 +91,9 @@
 .connected-layout {
   max-width: 1344px;
   margin: auto;
-  padding: 20px 32px 64px;
+  /* The bottom padding clears the floating companion button (50px high, 18px from the edge), so
+   * the last content scrolls fully above it. */
+  padding: 20px 32px calc(96px + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 32px;
@@ -536,7 +547,7 @@
 }
 @media (max-width: 839px) {
   .connected-layout {
-    padding-bottom: 110px;
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
   }
 }
 @media (max-width: 599px) {
@@ -560,7 +571,7 @@
     font-size: 12px;
   }
   .connected-layout {
-    padding: 14px 18px 110px;
+    padding: 14px 18px calc(110px + env(safe-area-inset-bottom));
     gap: 20px;
   }
   .connected-main {
@@ -1000,9 +1011,21 @@
 .connected-host.is-compact {
   height: 100dvh;
   min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  /* The page itself never scrolls on a compact screen: the learning pane does. A positioned,
+   * clipping host keeps absolutely positioned descendants (screen-reader-only text deep in a long
+   * lesson) from making the document taller than the screen, which let the window scroll to a
+   * blank page. `clip`, unlike `hidden`, is not a scroll container that focus could scroll. */
+  position: relative;
+  overflow: clip;
+}
+html:has(.connected-host.is-compact),
+html:has(.connected-host.is-compact) body {
+  height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 .connected-host.is-compact .connected-header {
   flex: 0 0 auto;
@@ -1019,14 +1042,29 @@
 .connected-host.is-compact .connected-main {
   grid-row: 1;
   min-height: 0;
+  /* Positioned so screen-reader-only text stays inside the pane's own scrolling. */
+  position: relative;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scroll-padding-block: 16px;
-  padding-bottom: 16px;
+  padding-bottom: 24px;
+}
+/* A hairline where the learning pane ends and the companion row begins, so content scrolling out
+ * of the pane reads as continuing, not as cut off by the companion button. */
+.connected-host.is-compact .connected-layout::before {
+  content: "";
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
+  height: 1px;
+  margin-top: -6px;
+  background: #dce6e2;
+  pointer-events: none;
 }
 .connected-host.is-compact .connected-companion-trigger {
   grid-row: 2;
+  grid-column: 1;
   position: static;
   justify-self: end;
   min-height: 50px;
@@ -2694,4 +2732,94 @@ html:has(.connected-host:not(.is-compact)) {
     inset-block-end: calc(16px + env(safe-area-inset-bottom));
     width: auto;
   }
+}
+
+/* Formulas (MathFormula.web.tsx): MathML drawn from the parsed TeX. */
+.math-formula math {
+  color: inherit;
+}
+.math-formula mi.is-bold {
+  font-weight: 700;
+}
+.math-formula mtable {
+  border-spacing: 0.8em 0.25em;
+}
+.math-formula mtd.is-start {
+  text-align: left;
+}
+.math-formula.is-display:focus-visible {
+  outline: 3px solid #183237;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Home: one card per course (connected/library.ts), with a newer version stated on it. */
+.connected-course-card {
+  gap: 16px;
+}
+.connected-course-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.connected-course-new {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f2edfb;
+  color: #5b3f8c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+}
+.connected-course-newer {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f2edfb;
+  border-inline-start: 4px solid #7050a4;
+  color: #183237;
+}
+.connected-course-newer p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.connected-course-others {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #e6eeeb;
+  padding-top: 12px;
+}
+.connected-course-others ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.connected-course-others li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+/* Markdown tables (MarkdownTable.web.tsx): a table wider than its column scrolls sideways, and a
+ * soft shadow at the edge shows there is more (the white covers scroll with the content). */
+.markdown-table {
+  background:
+    linear-gradient(to right, #fff 30%, rgb(255 255 255 / 0)) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, #fff 30%, rgb(255 255 255 / 0)) right center / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(24 50 55 / 0.2), rgb(24 50 55 / 0)) left center / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(24 50 55 / 0.2), rgb(24 50 55 / 0)) right center / 12px 100% no-repeat scroll,
+    #fff;
+}
+.markdown-table:focus-visible {
+  outline: 3px solid #183237;
+  outline-offset: 2px;
 }

@@ -128,8 +128,10 @@ export function CourseRoadmap({
           </Text>
         </View>
       </View>
-      <View style={[local.resume, compact && { alignItems: "stretch" }]}>
-        <View style={{ flex: 1, minWidth: 150, gap: 6 }}>
+      {/* On a phone the next step stacks: its text, then a full-width button of normal height
+          (side by side, the button stretched into a tall square). */}
+      <View style={[local.resume, compact && { flexDirection: "column", flexWrap: "nowrap", alignItems: "stretch", padding: 20, gap: 16 }]}>
+        <View style={compact ? { gap: 6, alignSelf: "flex-start" } : { flex: 1, minWidth: 150, gap: 6 }}>
           <Text style={styles.eyebrow}>
             {resume ? t("courseRoadmap.resume.eyebrow") : t("courseRoadmap.finished.eyebrow")}
           </Text>
