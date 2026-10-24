@@ -15,6 +15,7 @@ import en_auditExport from "./messages/en/auditExport.json";
 import en_auditView from "./messages/en/auditView.json";
 import en_batchAdjustDialog from "./messages/en/batchAdjustDialog.json";
 import en_billedCosts from "./messages/en/billedCosts.json";
+import en_changedElsewhere from "./messages/en/changedElsewhere.json";
 import en_cohortMigrationDialog from "./messages/en/cohortMigrationDialog.json";
 import en_conceptMappings from "./messages/en/conceptMappings.json";
 import en_conceptMappingsView from "./messages/en/conceptMappingsView.json";
@@ -120,6 +121,7 @@ import he_auditExport from "./messages/he/auditExport.json";
 import he_auditView from "./messages/he/auditView.json";
 import he_batchAdjustDialog from "./messages/he/batchAdjustDialog.json";
 import he_billedCosts from "./messages/he/billedCosts.json";
+import he_changedElsewhere from "./messages/he/changedElsewhere.json";
 import he_cohortMigrationDialog from "./messages/he/cohortMigrationDialog.json";
 import he_conceptMappings from "./messages/he/conceptMappings.json";
 import he_conceptMappingsView from "./messages/he/conceptMappingsView.json";
@@ -227,6 +229,7 @@ export const en = {
   auditView: en_auditView,
   batchAdjustDialog: en_batchAdjustDialog,
   billedCosts: en_billedCosts,
+  changedElsewhere: en_changedElsewhere,
   cohortMigrationDialog: en_cohortMigrationDialog,
   conceptMappings: en_conceptMappings,
   conceptMappingsView: en_conceptMappingsView,
@@ -334,6 +337,7 @@ export const he: PartialCatalog<typeof en> = {
   auditView: he_auditView,
   batchAdjustDialog: he_batchAdjustDialog,
   billedCosts: he_billedCosts,
+  changedElsewhere: he_changedElsewhere,
   cohortMigrationDialog: he_cohortMigrationDialog,
   conceptMappings: he_conceptMappings,
   conceptMappingsView: he_conceptMappingsView,
