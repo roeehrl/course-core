@@ -81,6 +81,8 @@ All real writes use PostgreSQL transactions and stored receipts. Course writes s
 | observer       | Course overview and published releases; no enrollment or debug data                                                                                                    |
 | learner        | No `/api/admin` access                                                                                                                                                 |
 
+Edit forms over saved server values use `src/hooks/useEditableSnapshot.ts`: a form shows the saved values until the operator edits ("derived until dirty"), so neither a pending copy effect nor a reload can overwrite an edit. When the saved version changes under unsaved edits (a save in another section, a check, another tab or person), the form keeps the edits and shows `ChangedElsewhere` ("Show the saved version" or "Keep my edits"); saving waits for that choice, and the request still carries the expected revision. AI services (spending limits, models, prices, advanced JSON, request limits, unpriced-model rule, subscription fallback), concept mappings and course updates (source and automatic updates) use it. Race tests turn off React's act environment for the step that edits as the form appears (`tests/raceHelpers.ts`).
+
 Presentation flags are derived per workspace. Every server route authorizes again. Cookie authentication, exact Origin and CSRF validation use the existing auth service; the browser never supplies an authoritative actor/role or provider credential.
 
 ## Actual implemented workflows
