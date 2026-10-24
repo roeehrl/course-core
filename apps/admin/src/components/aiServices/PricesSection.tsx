@@ -24,6 +24,8 @@ import {
   useAiText,
   type FieldError,
 } from "./shared";
+import { ChangedElsewhere } from "../ChangedElsewhere";
+import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 const FIELDS = [
@@ -118,19 +120,15 @@ export function PricesSection(props: Props) {
   const prefilled = groups
     .filter((g) => !g.priced && !!suggestionFor(g))
     .map((g) => g.key);
-  const [forms, setForms] = useState(initial);
-  const [touched, setTouched] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    setForms((current) => {
-      const next = { ...initial };
-      for (const key of touched) if (current[key]) next[key] = current[key];
-      return next;
-    });
-  }, [initial]);
+  // Until the owner edits a price the form shows the saved (or table) prices, derived rather
+  // than copied in, so a price typed the moment the section appears or while the page reloads
+  // is kept (see useEditableSnapshot).
+  const snapshot = useEditableSnapshot(initial);
+  const forms = snapshot.value;
   const dirtyKeys = groups
     .filter(
       (g) =>
-        touched.has(g.key) &&
+        snapshot.edited &&
         JSON.stringify(forms[g.key]) !== JSON.stringify(initial[g.key]),
     )
     .map((g) => g.key);
@@ -196,7 +194,7 @@ export function PricesSection(props: Props) {
     setMessage(undefined);
     const problems = validate();
     setErrors(problems);
-    if (problems.length) return;
+    if (problems.length || snapshot.changedElsewhere) return;
     setSaving(true);
     try {
       for (const group of groups) {
@@ -270,7 +268,7 @@ export function PricesSection(props: Props) {
         }
       }
       keys.settle();
-      setTouched(new Set());
+      snapshot.settle();
       setMessage({ tone: "ok", text: t("aiServices.prices.saved") });
       await reload();
     } catch (error) {
@@ -281,8 +279,7 @@ export function PricesSection(props: Props) {
     }
   }
   const update = (group: PriceGroup, field: keyof Form, value: string) => {
-    setTouched((current) => new Set(current).add(group.key));
-    setForms((current) => ({
+    snapshot.set((current) => ({
       ...current,
       [group.key]: { ...current[group.key]!, [field]: value },
     }));
@@ -421,11 +418,18 @@ export function PricesSection(props: Props) {
           );
         })}
         {message && <Message tone={message.tone}>{message.text}</Message>}
+        {snapshot.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={saving}
+            onShowSaved={snapshot.discard}
+            onKeep={snapshot.keep}
+          />
+        )}
         <div className="ai-actions">
           <button
             type="submit"
             className="button primary"
-            disabled={saving || !savable.length}
+            disabled={saving || !savable.length || snapshot.changedElsewhere}
           >
             {saving
               ? t("aiServices.prices.saving")
