@@ -721,6 +721,45 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(() => parseMemorySnapshot({ ...snapshot, suggestions: { ...snapshot.suggestions, items: [{ ...first, expiresAt: "soon" } as never] } }, scope)).toThrow();
   });
 
+  it("words the server's coded skill-state reason in the reader's language, never showing server English", async () => {
+    // The 0.1.56 qualification found a server sentence on the Hebrew profile: the API now
+    // sends the state as a code with its values, and the app words it.
+    const snapshot = fixture();
+    snapshot.understanding[0] = {
+      ...snapshot.understanding[0]!,
+      explanation: { code: "needs_evidence", params: { independentFamilies: 1, requiredFamilies: 2 } },
+    };
+    for (const [locale, expected, absent] of [
+      ["en", "The gate needs independent answers from more question families before this counts as demonstrated.", "נקודת הבקרה"],
+      ["he", "נקודת הבקרה צריכה תשובות עצמאיות מעוד משפחות שאלות לפני שזה ייחשב כמוכח.", "question families"],
+    ] as const) {
+      const h = harness(snapshot);
+      const { unmount, container } = render(
+        <I18nProvider value={createLearnerTranslator(locale)}>
+          <LearnerMemoryPanel {...h.props} />
+        </I18nProvider>,
+      );
+      expect(await screen.findByText(expected)).toBeVisible();
+      expect(container.textContent).not.toContain(absent);
+      unmount();
+    }
+  });
+
+  it("refuses a skill-state reason that is English text, another state's code or carries unknown values", () => {
+    const model = fixture();
+    const gated = model.understanding[0]!;
+    for (const explanation of [
+      "The gate needs independent answers from more question families before this counts as demonstrated.",
+      { code: "demonstrated" },
+      { code: "needs_evidence", params: { independentFamilies: "one", requiredFamilies: 2 } },
+      { code: "needs_evidence", params: { independentFamilies: 1, requiredFamilies: 2, note: "x" } },
+      { code: "needs_evidence", text: "More evidence" },
+    ])
+      expect(() => parseMemorySnapshot({ ...model, understanding: [{ ...gated, explanation } as never] }, scope)).toThrow();
+    expect(parseMemorySnapshot({ ...model, understanding: [{ ...gated, explanation: { code: "needs_evidence" } }] }, scope).understanding[0]!.explanation)
+      .toEqual({ code: "needs_evidence" });
+  });
+
   it("rejects inconsistent skill projections from the server", () => {
     const model = fixture();
     const gated = model.understanding[0]! as Extract<MemorySnapshot["understanding"][number], { gateId: string }>;

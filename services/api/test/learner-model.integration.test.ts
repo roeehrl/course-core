@@ -120,7 +120,10 @@ afterAll(async () => {
 describe('derived understanding and learner corrections', () => {
   it('requires independent current-course gate evidence; claims and review never award mastery', async () => {
     const { learner, id } = await fresh();
-    expect((await model(learner, id)).understanding[0].status).toBe('needs_evidence');
+    const first = await model(learner, id);
+    expect(first.understanding[0]).toMatchObject({ status: 'needs_evidence', explanation: { code: 'needs_evidence', params: { independentFamilies: 0, requiredFamilies: 2 } } });
+    // The reason is a code with values that the app words in the reader's language, never a server sentence.
+    expect(JSON.stringify(first.understanding)).not.toMatch(/"[^"]*[A-Za-z]+ [A-Za-z]+ [A-Za-z]+[^"]*"/);
     expect((await edit(learner, id)).statusCode).toBe(200);
     expect((await model(learner, id)).understanding[0].status).toBe('needs_evidence');
     await answer(learner, id, 'min-a', 'two');
@@ -137,7 +140,7 @@ describe('derived understanding and learner corrections', () => {
     expect((await db.query('SELECT id,result,independent,invalidated_at FROM evidence WHERE enrollment_id=$1 ORDER BY id', [id])).rows).toEqual(before);
     expect(JSON.stringify(view)).not.toMatch(/probability|diagnosis|retainedMastery/);
     expect(JSON.stringify(view)).not.toContain(bankCanary); expect(JSON.stringify(view)).not.toContain(oracleCanary);
-    expect((await model(learner, id, '?episodeId=free')).understanding[0].status).toBe('not_assessed');
+    expect((await model(learner, id, '?episodeId=free')).understanding[0]).toMatchObject({ status: 'not_assessed', explanation: { code: 'not_assessed' } });
     await db.query('UPDATE evidence SET invalidated_at=now(),invalidation_reason=$2 WHERE id=$1', [before[0].id, 'Synthetic staff invalidation']);
     expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', demonstrated: false, practiceAttempts: 1 });
   });
@@ -550,12 +553,12 @@ describe('learner evidence controls (dispute and exclude)', () => {
     const { learner, id } = await fresh();
     await answer(learner, id, 'min-a', 'five');
     const [evidence] = await evidenceOf(id);
-    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', openDisputes: 0, explanation: expect.stringContaining('practice') });
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', openDisputes: 0, explanation: { code: 'practicing' } });
     const reason = `DISPUTE_REASON_CANARY_${randomUUID()}`;
     const disputed = await control(learner, id, evidence!.id, 'dispute', { reason });
     expect(disputed.statusCode, disputed.body).toBe(200);
     expect(disputed.json()).toMatchObject({ evidenceId: evidence!.id, disputed: true, excluded: false, grantsMastery: false, changesCredit: false });
-    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'disputed', openDisputes: 1, explanation: expect.stringContaining('review') });
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'disputed', openDisputes: 1, explanation: { code: 'disputed' } });
     const history = (await app.inject({ url: urlFor(id) + '/history?episodeId=min&kind=evidence', headers: headers(learner) })).json();
     expect(history.items[0].evidenceRefs[0]).toMatchObject({ evidenceId: evidence!.id, disputed: true, excluded: false });
     // Credit is untouched: the attempt and evidence rows are unchanged.

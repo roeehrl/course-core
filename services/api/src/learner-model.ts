@@ -213,17 +213,14 @@ async function readProfile(client: PoolClient, context: ReadContext | Enrollment
   }
   return { revision: row?.revision ?? 0, profile };
 }
-/** Why each projection state was given, in the learner's terms. Shown with the
- * state wherever it appears (learner, staff and provider projections). */
-export const SKILL_STATE_EXPLANATIONS = {
-  not_assessed: 'No gate assesses this objective, and nothing has been recorded for it yet.',
-  needs_evidence: 'The gate needs independent answers from more question families before this counts as demonstrated.',
-  practicing: 'Answers are recorded, but they do not yet meet the gate: this is practice, not a demonstration.',
-  demonstrated: 'Independent answers from enough question families met the gate in this course version.',
-  retained: 'Demonstrated, and a later independent check confirmed it was kept.',
-  needs_review: 'Demonstrated earlier, but a later check suggests reviewing it again.',
-  disputed: 'A review the learner asked for is open. Until it is decided the result is shown as disputed.',
-} as const;
+/** Why each projection state was given, as a wording code and its values; the apps word it in the
+ * reader's language (docs/i18n.md, "The API speaks codes, not prose"). The code is the state itself;
+ * a gated row adds how many independent question families it has and how many the gate requires. */
+export const SKILL_STATES = ['not_assessed', 'needs_evidence', 'practicing', 'demonstrated', 'retained', 'needs_review', 'disputed'] as const;
+export type SkillState = typeof SKILL_STATES[number];
+export function skillStateExplanation(status: SkillState, families?: { independent: number; required: number }) {
+  return families ? { code: status, params: { independentFamilies: families.independent, requiredFamilies: families.required } } : { code: status };
+}
 /** A learner's dispute is open until withdrawn, until staff review the evidence
  * after it was raised, or until the evidence is invalidated. Alias `c` is the
  * control row; it joins `evidence` itself. */
@@ -271,7 +268,7 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
     const common = { retention: retentionState, retentionDueAt: schedule?.due_at?.toISOString() ?? null, practiceAttempts, openDisputes };
     if (!gate || !gateObjectives(gate).includes(objectiveId)) {
       const status = openDisputes ? 'disputed' as const : practiceAttempts ? 'practicing' as const : 'not_assessed' as const;
-      results.push({ objectiveId, status, explanation: SKILL_STATE_EXPLANATIONS[status], gateId: null, demonstrated: false, evidenceRefs: [], ...common }); continue;
+      results.push({ objectiveId, status, explanation: skillStateExplanation(status), gateId: null, demonstrated: false, evidenceRefs: [], ...common }); continue;
     }
     // At most 101 distinct families per objective. Gates can require at most 100.
     // Omitted older families cannot turn an unmet threshold into a false pass.
@@ -290,7 +287,7 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
       : demonstrated ? 'demonstrated' as const : practiceAttempts ? 'practicing' as const : 'needs_evidence' as const;
     // The companion and supervisor never receive references the learner excluded; the count still follows credit.
     const refs = supervisor ? rows.filter(row => !row.excluded) : rows;
-    results.push({ objectiveId, gateId: gate.id, status, explanation: SKILL_STATE_EXPLANATIONS[status], demonstrated, basis: 'current_course_independent_gate_evidence', ...common,
+    results.push({ objectiveId, gateId: gate.id, status, explanation: skillStateExplanation(status, { independent: Math.min(rows.length, 100), required: gateFamilies(gate) }), demonstrated, basis: 'current_course_independent_gate_evidence', ...common,
       independentFamilies: Math.min(rows.length, 100), familiesTruncated: rows.length > 100, requiredFamilies: gateFamilies(gate),
       // Provenance (design §5, requirement C06): which evaluator issued the evidence, whether a
       // person or an automatic check decided it, and when it was recorded.

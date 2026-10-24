@@ -243,3 +243,34 @@ it("renders server run failures and refuses inconsistent or malformed pass recei
     }),
   ).toThrow();
 });
+
+it("words Core's coded answer feedback in English and Hebrew and refuses unknown or malformed codes", async () => {
+  const { answerFeedback } = await import("../src/connected/answerFeedback");
+  const { createLearnerTranslator } = await import("../src/i18n");
+  const { stripBidiControls } = await import("@course-core/i18n");
+  const hebrew = createLearnerTranslator("he").t;
+  const he = ((...args: Parameters<typeof hebrew>) => stripBidiControls(hebrew(...args))) as typeof hebrew;
+  const code = (message: unknown, passed = false) => ({
+    result: { passed, independent: true, message, execution: { status: passed ? "graded" : "timeout" } },
+  });
+  expect(answerFeedback(code({ code: "code_limit", params: { limit: "time" } }))).toBe(
+    "Code check did not pass. The submission did not finish within the time limit. No credit was granted.",
+  );
+  expect(answerFeedback(code({ code: "code_limit", params: { limit: "time" } }), false, he)).toBe(
+    "בדיקת הקוד לא עברה. ההרצה לא הסתיימה בתוך מגבלת הזמן. לא ניתן קרדיט.",
+  );
+  expect(answerFeedback(code({ code: "code_all_matched", params: { total: 3 } }, true), false, he)).toContain("כל 3 מקרי הבדיקה הנסתרים התאימו.");
+  expect(answerFeedback(code({ code: "code_all_matched", params: { total: 3 } }, true))).toBe("Code check passed. All 3 hidden reference cases matched.");
+  const pending = { result: { passed: false, pendingReview: true, independent: true, message: { code: "pending_review" } } };
+  expect(answerFeedback(pending, false, he)).not.toMatch(/[A-Za-z]{3}/);
+  const abstained = { result: { passed: false, abstained: true, independent: true, message: { code: "abstained" } } };
+  expect(answerFeedback(abstained, false, he)).not.toMatch(/[A-Za-z]{3}/);
+  expect(answerFeedback(code({ code: "made_up" }), false, he)).toContain("(קוד made_up)");
+  for (const message of [
+    { code: "Made up" },
+    "All 3 hidden reference cases matched.",
+    { code: "code_limit", params: { limit: "patience" } },
+    { code: "code_some_matched", params: { passed: "2", total: 3 } },
+  ])
+    expect(() => answerFeedback(code(message), false, he)).toThrow();
+});

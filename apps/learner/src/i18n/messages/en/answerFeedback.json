@@ -9,5 +9,11 @@
   "verdictPractice.codePassed": "Code check passed. {explanation} This counts as practice because help or prior exposure was involved.",
   "verdictPractice.codeFailed": "Code check did not pass. {explanation} This counts as practice because help or prior exposure was involved.",
   "verdictPractice.correct": "Correct. {explanation} This counts as practice because help or prior exposure was involved.",
-  "verdictPractice.revisit": "Let’s revisit this. {explanation} This counts as practice because help or prior exposure was involved."
+  "verdictPractice.revisit": "Let’s revisit this. {explanation} This counts as practice because help or prior exposure was involved.",
+  "message.abstained": "A reviewer or the companion can help you prepare for a fresh check.",
+  "message.pending_review": "It is checked against the rubric and counts only after a reviewer cites your answer for every required criterion.",
+  "message.code_all_matched": "{total, plural, one {The hidden reference case matched.} other {All # hidden reference cases matched.}}",
+  "message.code_some_matched": "{passed} of {total} reference cases matched. Review the required input/output contract and try a fresh exercise variant.",
+  "message.code_limit": "{limit, select, time {The submission did not finish within the time limit.} output {The submission went past the output limit.} other {The submission did not finish within the execution limits.}} No credit was granted.",
+  "message.unknown": "There is feedback this version of the app cannot show yet (code {code})."
 }

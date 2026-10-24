@@ -61,10 +61,15 @@ export type MemorySkillStatus =
   | "retained"
   | "needs_review"
   | "disputed";
+/** The server's reason for a skill state: never a sentence, the app words it in the reader's language. */
+export type MemorySkillExplanation = {
+  code: MemorySkillStatus;
+  params?: { independentFamilies: number; requiredFamilies: number };
+};
 export type MemoryUnderstanding = {
   objectiveId: string;
-  /** Why this state was given (server copy). */
-  explanation?: string;
+  /** Why this state was given, as a code (the state) and its values; the app words it. */
+  explanation?: MemorySkillExplanation;
   evidenceRefs: {
     evidenceId: string;
     attemptId: string;
@@ -249,6 +254,22 @@ const text = (v: unknown, max = 128): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= max;
 const boundedText = (v: unknown, max: number): v is string =>
   typeof v === "string" && v.length <= max;
+/** A coded skill-state reason whose code is the row's own state. English text is refused. */
+const skillExplanation = (v: unknown, status: unknown): boolean => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const { code, params, ...rest } = v as { code?: unknown; params?: unknown };
+  if (Object.keys(rest).length || code !== status) return false;
+  if (params === undefined) return true;
+  if (!params || typeof params !== "object" || Array.isArray(params)) return false;
+  const { independentFamilies, requiredFamilies, ...more } = params as Record<string, unknown>;
+  return (
+    !Object.keys(more).length &&
+    Number.isSafeInteger(independentFamilies) &&
+    Number.isSafeInteger(requiredFamilies) &&
+    (independentFamilies as number) >= 0 &&
+    (requiredFamilies as number) >= 0
+  );
+};
 const number = (v: unknown, max = 2147483647): v is number =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= max;
 const digest = (v: unknown) =>
@@ -372,7 +393,7 @@ export function parseMemorySnapshot(
         )
           return false;
         if (
-          !(row.explanation === undefined || text(row.explanation, 500)) ||
+          !(row.explanation === undefined || skillExplanation(row.explanation, row.status)) ||
           typeof row.demonstrated !== "boolean" ||
           !["not_scheduled", "scheduled", "retained", "needs_review"].includes(
             String(row.retention),

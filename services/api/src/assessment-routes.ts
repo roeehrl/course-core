@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { answerMessage } from './answer-messages.js';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import type { Assessment } from '@course-core/sdk';
@@ -181,13 +182,14 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       if (input.abstain) {
         // "I don't know" is recorded honestly: no evidence row, no failed evidence, no credit.
         requireCondition(assessment.allowAbstain !== false, 'ABSTAIN_NOT_ALLOWED', 409);
-        const explanation = explanationOf(assessment) ?? 'Nothing was recorded against you. A reviewer or the companion can help you prepare for a fresh check.';
+        // The author's explanation when the item has one; otherwise Core's coded message.
+        const explanation = explanationOf(assessment), said = explanation === undefined ? { message: answerMessage('abstained') } : { explanation };
         await insertAttempt(null, { status: 'abstained', abstained: true, passed: false, evaluator: 'abstain@1', independentEligible: independent });
         // A held-out retention check answered "I don't know" schedules a review; it is not a failed result.
         if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, false, independent, clock.now(), true);
         // Teaching signal only (T7): "I don't know" is never a misconception.
         await recordAnswerSignal(client, context, { attemptId, assessment, answer: null, passed: false, independent, mode: challenge.mode, confidence, abstained: true });
-        return finish({ abstained: true }, { passed: false, abstained: true, explanation });
+        return finish({ abstained: true }, { passed: false, abstained: true, ...said });
       }
       const rubric = reviewedRubric(course, assessment.id);
       if (rubric) {
@@ -200,7 +202,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         // A gate conversation: the supervisor proposes quoted findings (learner opt-in); a person or the gate's deterministic evaluator confirms them.
         if (rubric.conversationGateId && await proposalsAvailable(context.enrollment.workspace_id))
           await proposeConversationFindings(client, { attemptId, enrollmentId, workspaceId: context.enrollment.workspace_id, assessment: rubric, response: input.answer });
-        return finish({ pendingReview: true }, { passed: false, pendingReview: true, explanation: 'Submitted for review against the rubric. It counts only after a reviewer cites your answer for every required criterion.' });
+        return finish({ pendingReview: true }, { passed: false, pendingReview: true, message: answerMessage('pending_review') });
       }
       const code = codeView(course, assessment);
       const result = code ? await gradeCodeAnswer(client, enrollmentId, code, input.answer, course, installed) : gradeDeterministic(assessment, input.answer);

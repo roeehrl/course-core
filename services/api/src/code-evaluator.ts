@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { answerMessage, type AnswerMessage } from './answer-messages.js';
 import type { Assessment,CourseManifest } from '@course-core/sdk';
 import { type DockerSandbox, validateSubmission, type Case } from '@course-core/sandbox';
 import { z } from 'zod';
@@ -13,7 +14,8 @@ const fixtureSchema = z.strictObject({ schemaVersion: z.literal(1), id: z.string
   fixtures: z.array(z.strictObject({ id: z.string().min(1).max(200), language: z.literal('python'), cases: z.array(z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/), input: z.unknown(), expected: z.unknown(),
     absoluteTolerance: z.number().finite().min(0).max(0.1).optional(), relativeTolerance: z.number().finite().min(0).max(0.1).optional() })).min(1).max(100) })).min(1).max(50),
 });
-export interface CodeGrade { passed: boolean; explanation: string; evaluator: string;
+/** `message` is Core's own coded feedback; an extension evaluator may instead send its own `explanation`. */
+export interface CodeGrade { passed: boolean; explanation?: string; message?: AnswerMessage; evaluator: string;
   execution: { status: string; sourceDigest: string; durationMs: number; passedCases: number; totalCases: number; outputBytes?:number; batchesCompleted?:number; runtime: { protocol: 'python-json-v1'; image: string } } }
 
 /** Partition conservative reference envelopes without omitting/reordering a case.
@@ -49,9 +51,9 @@ export async function codeEvaluator(bytes: Buffer, sandbox: CodeSandbox): Promis
     const cases = structuredClone(fixtureCases), report = await sandbox.grade({ source, cases, batchCaseCounts: codeFixtureBatchPlan(cases) });
     if (['busy', 'unavailable', 'cleanup_failed'].includes(report.status)) throw new ApiError(503, 'CODE_EVALUATOR_UNAVAILABLE');
     const passedCases = report.cases.filter(row => row.passed).length;
-    return { passed: report.passed, explanation: report.passed ? `All ${cases.length} hidden reference cases matched.`
-      : report.status === 'graded' ? `${passedCases} of ${cases.length} reference cases matched. Review the required input/output contract and try a fresh exercise variant.`
-        : `The submission did not complete within the ${report.status === 'timeout' ? 'time' : report.status === 'output_limit' ? 'output' : 'execution'} limits. No credit was granted.`,
+    return { passed: report.passed, message: report.passed ? answerMessage('code_all_matched', { total: cases.length })
+      : report.status === 'graded' ? answerMessage('code_some_matched', { passed: passedCases, total: cases.length })
+        : answerMessage('code_limit', { limit: report.status === 'timeout' ? 'time' : report.status === 'output_limit' ? 'output' : 'execution' }),
       evaluator: `${config.id}@${config.version}:${integrity}:${report.runtime.image}`, execution: { status: report.status, sourceDigest: report.sourceDigest, durationMs: report.durationMs, passedCases, totalCases: cases.length, outputBytes:report.outputBytes,batchesCompleted:report.batchesCompleted,runtime: report.runtime } };
   };
   return { id: config.id, version: config.version, integrity, platforms: ['web'], capabilities: ['assessment.evaluate'], codeReady: ready.ready,
