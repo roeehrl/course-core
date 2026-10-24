@@ -306,7 +306,7 @@ describe("AI services", () => {
   it("saves money-only limits and a default limit for each learner that new learners get", async () => {
     const enrollment = await seedEnrollment();
     const budgets = (await call(owner, "GET", base + "/budgets")).json();
-    expect(budgets.defaultEnrollment).toEqual({ revision: 0, limit_micro_usd: null, limit_tokens: null });
+    expect(budgets.defaultEnrollment).toEqual({ revision: 0, mode: "unset", limit_micro_usd: null, limit_tokens: null });
     // Without consent a positive limit is refused.
     const noConsent = await call(owner, "POST", base + "/budgets", { expectedRevision: 0, idempotencyKey: key(), scope: "default_enrollment", limits: { microUsd: 2000000 }, paidWorkApproved: false });
     expect(noConsent.json().error).toBe("PAID_WORK_CONSENT_REQUIRED");
@@ -321,7 +321,7 @@ describe("AI services", () => {
     const later = await seedEnrollment();
     expect((await available(later)).microUsd).toBe(2000000);
     const view = (await call(owner, "GET", base + "/budgets")).json();
-    expect(view.defaultEnrollment).toEqual({ revision: 1, limit_micro_usd: "2000000", limit_tokens: "1000000000" });
+    expect(view.defaultEnrollment).toEqual({ revision: 1, mode: "limit", limit_micro_usd: "2000000", limit_tokens: "1000000000" });
     expect(view.enrollments.find((e: { enrollmentId: string }) => e.enrollmentId === later)).toMatchObject({ limitSource: "default", limit_micro_usd: "2000000" });
     // An own limit (even zero) wins over the default.
     const own = await call(owner, "POST", base + "/budgets", { expectedRevision: 0, idempotencyKey: key(), enrollmentId: later, limits: { microUsd: 0, tokens: 0 }, paidWorkApproved: false });

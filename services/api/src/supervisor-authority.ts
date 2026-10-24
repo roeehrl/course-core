@@ -14,6 +14,9 @@ import { requireSameRequest } from './erased-digests.js';
 import { parkDeadlineWithin, parkSupervisorJobWithin, resumeSupervisorJobWithin, transitionWithin } from './supervisor-bridge.js';
 import type { AuthorityRequest } from './supervisor-tool-loop.js';
 import { listTeachingActions } from './teaching-actions.js';
+import { effectiveLearnerLimit } from './learner-limit.js';
+/** A token ceiling of this size never binds before money does (provider-setup-routes MAX_LIMIT). */
+const MAX_LIMIT_TOKENS = 1_000_000_000;
 
 /**
  * Separate authority (design §4 autonomy, requirement B06). After the learner's opt-in the
@@ -78,9 +81,12 @@ async function decideWithin(client: PoolClient, row: RequestRow, actor: Actor, a
       await client.query(`UPDATE learner_model_profiles SET profile=jsonb_set(profile,'{preferences}',COALESCE(profile->'preferences','{}'::jsonb)||$2::jsonb)
         WHERE enrollment_id=$1 AND manually_edited`, [row.enrollment_id, JSON.stringify({ goal: row.proposal.goal })]);
     } else if (row.kind === 'paid_ceiling') {
-      const budget = (await client.query<{ limit_tokens: string; limit_source: string }>('SELECT limit_tokens,limit_source FROM supervisor_enrollment_budgets WHERE enrollment_id=$1', [row.enrollment_id])).rows[0];
-      const workspace = (await client.query<{ default_enrollment_limit_tokens: string | null }>('SELECT default_enrollment_limit_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1', [row.workspace_id])).rows[0];
-      const tokens = Number(budget?.limit_source === 'own' ? budget.limit_tokens : workspace?.default_enrollment_limit_tokens ?? 0);
+      const budget = (await client.query<{ limit_micro_usd: string; limit_tokens: string; limit_source: string }>('SELECT limit_micro_usd,limit_tokens,limit_source FROM supervisor_enrollment_budgets WHERE enrollment_id=$1', [row.enrollment_id])).rows[0];
+      const workspace = (await client.query<{ default_enrollment_limit_mode: string; default_enrollment_limit_tokens: string | null }>(
+        'SELECT default_enrollment_limit_mode,default_enrollment_limit_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1', [row.workspace_id])).rows[0];
+      // The approved amount becomes the learner's own limit; the token ceiling they had stays.
+      // Under "no limit per learner" they had none, so money alone binds (tokens at the maximum).
+      const tokens = effectiveLearnerLimit(budget, workspace)?.tokens ?? MAX_LIMIT_TOKENS;
       // configureSupervisorBudget opens its own transaction; this decision holds the enrollment, so
       // write the same row here instead.
       await client.query(`INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id,limit_micro_usd,limit_tokens,limit_source) VALUES ($1,$2,$3,$4,'own')
