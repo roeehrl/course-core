@@ -637,6 +637,8 @@ export function createFetchAdminClient(
           count?: unknown;
           neededMicroUsd?: unknown;
           availableMicroUsd?: unknown;
+          earliest?: unknown;
+          latest?: unknown;
         };
       };
       const code =
@@ -666,11 +668,22 @@ export function createFetchAdminClient(
           : undefined;
       const neededMicroUsd = amount(record.details?.neededMicroUsd),
         availableMicroUsd = amount(record.details?.availableMicroUsd);
+      // Start-date limits of a refused price (PROVIDER_PRICING_EFFECTIVE_DATE_INVALID).
+      const instant = (value: unknown) =>
+        typeof value === "string" &&
+        value.length <= 40 &&
+        Number.isFinite(Date.parse(value))
+          ? value
+          : undefined;
+      const earliest = instant(record.details?.earliest),
+        latest = instant(record.details?.latest);
       throw new AiServicesError(code, response.status, {
         ...(roles ? { roles } : {}),
         ...(count !== undefined ? { count } : {}),
         ...(neededMicroUsd !== undefined ? { neededMicroUsd } : {}),
         ...(availableMicroUsd !== undefined ? { availableMicroUsd } : {}),
+        ...(earliest !== undefined ? { earliest } : {}),
+        ...(latest !== undefined ? { latest } : {}),
       });
     }
     const parsed = schema.safeParse(body);

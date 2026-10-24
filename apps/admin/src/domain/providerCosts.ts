@@ -42,6 +42,9 @@ export const pricingViewSchema = z.object({
           }),
         ),
         history: z.array(priceVersionSchema).max(20),
+        /** Later versions already saved, soonest first: each applies from its own time unless
+         * replaced at that time. Older servers do not report it. */
+        scheduled: z.array(priceVersionSchema).max(10).optional(),
       }),
     )
     .max(50),

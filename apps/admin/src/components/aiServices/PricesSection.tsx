@@ -11,6 +11,7 @@ import {
 } from "../../domain/aiServices";
 import type { SectionProps } from "./AiServicesPage";
 import {
+  Confirm,
   ErrorSummary,
   Field,
   Ltr,
@@ -24,20 +25,25 @@ import {
   useAiText,
   type FieldError,
 } from "./shared";
+import type { PriceVersion } from "../../domain/providerCosts";
+import {
+  FIELDS,
+  WIRE,
+  formProblems,
+  priorOf,
+  pricesOf,
+  rate,
+  repeatsAfter,
+  scheduledChanges,
+  scheduledText,
+  type PriceField,
+  type PriceForm as Form,
+} from "./priceForm";
+import { ScheduledPriceDialog, saveRun } from "./ScheduledPriceDialog";
 import { ChangedElsewhere } from "../ChangedElsewhere";
 import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
-const FIELDS = [
-  "input",
-  "output",
-  "cached",
-  "perRequest",
-  "perSearch",
-  "perVideoSecond",
-] as const;
-type PriceField = (typeof FIELDS)[number];
-type Form = Record<PriceField, string> & { source: string };
 /** A scheduled price change this close is called out as a warning. */
 export const CHANGE_WARNING_DAYS = 60;
 const DAY_MS = 86_400_000;
@@ -45,14 +51,6 @@ const TABLE_FIELDS: Partial<Record<PriceField, keyof SuggestedPrice>> = {
   input: "inputMicroUsdPerMillionTokens",
   output: "outputMicroUsdPerMillionTokens",
   cached: "cachedInputMicroUsdPerMillionTokens",
-};
-const WIRE: Record<PriceField, string> = {
-  input: "inputMicroUsdPerMillionTokens",
-  output: "outputMicroUsdPerMillionTokens",
-  cached: "cachedInputMicroUsdPerMillionTokens",
-  perRequest: "microUsdPerRequest",
-  perSearch: "microUsdPerServerToolRequest",
-  perVideoSecond: "microUsdPerOutputSecond",
 };
 
 export function PricesSection(props: Props) {
@@ -76,6 +74,14 @@ export function PricesSection(props: Props) {
     )?.adapters?.find((a) => a.id === group.connectionId)?.kind ??
     "";
   const today = text.date(new Date());
+  /** Later price versions already saved for a group (from its first model that has any). */
+  const scheduledFor = (group: PriceGroup): PriceVersion[] =>
+    scheduledChanges(
+      data.pricing?.models.find(
+        (m) =>
+          group.modelIds.includes(m.modelId) && scheduledChanges(m).length > 0,
+      ),
+    );
   /** The bundled table's price for a group's model, when Core knows it. */
   const suggestionFor = (group: PriceGroup) =>
     data.pricing?.models.find(
@@ -144,6 +150,53 @@ export function PricesSection(props: Props) {
   }>();
   const [saving, setSaving] = useState(false);
   const keys = useRequestKeys();
+  // One dialog at a time: changing a scheduled price, or confirming that the current price stays.
+  const [editing, setEditing] = useState<{
+    group: PriceGroup;
+    version: PriceVersion;
+  } | null>(null);
+  const [keeping, setKeeping] = useState<{
+    group: PriceGroup;
+    version: PriceVersion;
+  } | null>(null);
+  const keepKeys = useRequestKeys();
+  async function keepEarlier(group: PriceGroup, version: PriceVersion) {
+    setMessage(undefined);
+    setSaving(true);
+    const date = text.date(version.effectiveFrom);
+    try {
+      for (const modelId of group.modelIds) {
+        const model = data.pricing?.models.find((m) => m.modelId === modelId);
+        const target = model?.scheduled?.find(
+          (v) => v.effectiveFrom === version.effectiveFrom,
+        );
+        if (!model || !target) continue;
+        // The price before the change, again from its date (and at later dates that repeated it).
+        await saveRun(port, workspaceId, keepKeys, {
+          modelId,
+          expectedVersion: model.latestVersion,
+          prices: pricesOf(priorOf(model, target)),
+          sourceNote: t("aiServices.prices.keepSource", { date }),
+          at: [
+            target.effectiveFrom,
+            ...repeatsAfter(model, target.effectiveFrom, target).map(
+              (v) => v.effectiveFrom,
+            ),
+          ],
+        });
+      }
+      keepKeys.settle();
+      setKeeping(null);
+      setMessage({ tone: "ok", text: t("aiServices.prices.kept", { date }) });
+      await reload();
+    } catch (error) {
+      keepKeys.settle(error);
+      setKeeping(null);
+      setMessage({ tone: "error", text: errorText(text, error) });
+    } finally {
+      setSaving(false);
+    }
+  }
   const times = useRef(new Map<string, string>());
   const effective = (id: string) => {
     let value = times.current.get(id);
@@ -171,22 +224,7 @@ export function PricesSection(props: Props) {
       const form = forms[group.key]!;
       const any = FIELDS.some((f) => form[f].trim());
       if (!any) continue;
-      for (const field of FIELDS)
-        if (form[field].trim() && parseUsd(form[field]) === null)
-          problems.push({
-            field: fieldId(group, field),
-            message: t("aiServices.prices.errAmount"),
-          });
-      if (!!form.input.trim() !== !!form.output.trim())
-        problems.push({
-          field: fieldId(group, form.input.trim() ? "output" : "input"),
-          message: t("aiServices.prices.errBoth"),
-        });
-      if (form.source.trim().length < 3)
-        problems.push({
-          field: fieldId(group, "source"),
-          message: t("aiServices.prices.errSource"),
-        });
+      problems.push(...formProblems(form, (field) => fieldId(group, field), t));
     }
     return problems;
   }
@@ -243,6 +281,17 @@ export function PricesSection(props: Props) {
             idempotencyKey: id,
             effectiveFrom: effective(id),
           });
+          // A later version that only kept today's price (a removed change) keeps following it.
+          if (model?.inForce)
+            await saveRun(port, workspaceId, keys, {
+              modelId,
+              expectedVersion: saved.version,
+              prices: pricesOf({ ...request, status: "active" }),
+              sourceNote: request.sourceNote,
+              at: repeatsAfter(model, null, model.inForce).map(
+                (v) => v.effectiveFrom,
+              ),
+            });
           if (change) {
             const next = {
               ...request,
@@ -368,9 +417,37 @@ export function PricesSection(props: Props) {
               {!group.priced && (
                 <p className="ai-muted">{t("aiServices.prices.missingNote")}</p>
               )}
+              {scheduledFor(group).map((version, index) => (
+                <div className="ai-price-scheduled" key={version.id}>
+                  <p>{scheduledText(text, version)}</p>
+                  <div className="ai-actions ai-actions-start">
+                    <button
+                      type="button"
+                      className="button quiet"
+                      disabled={saving}
+                      onClick={() => setEditing({ group, version })}
+                    >
+                      {t("aiServices.prices.scheduledEdit")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button quiet"
+                      disabled={saving}
+                      onClick={() => setKeeping({ group, version })}
+                    >
+                      {t(
+                        index === 0
+                          ? "aiServices.prices.scheduledKeep"
+                          : "aiServices.prices.scheduledRemove",
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))}
               <TableNote
                 suggestion={suggestionFor(group)}
                 prefilled={prefilled.includes(group.key)}
+                scheduled={scheduledFor(group)}
               />
               <div className="ai-grid">
                 {money(group, "input", t("aiServices.prices.input"))}
@@ -414,6 +491,13 @@ export function PricesSection(props: Props) {
                   }
                 />
               </Field>
+              {scheduledFor(group)[0] && (
+                <p className="ai-muted ai-price-preview">
+                  {t("aiServices.prices.previewUntil", {
+                    date: text.date(scheduledFor(group)[0]!.effectiveFrom),
+                  })}
+                </p>
+              )}
             </fieldset>
           );
         })}
@@ -437,25 +521,66 @@ export function PricesSection(props: Props) {
           </button>
         </div>
       </form>
+      {editing && data.pricing && (
+        <ScheduledPriceDialog
+          group={editing.group}
+          version={editing.version}
+          pricing={data.pricing}
+          port={port}
+          workspaceId={workspaceId}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            setMessage({
+              tone: "ok",
+              text: t("aiServices.prices.scheduledSaved"),
+            });
+            void reload();
+          }}
+        />
+      )}
+      {keeping && (
+        <Confirm
+          title={t("aiServices.prices.keepTitle", {
+            date: text.date(keeping.version.effectiveFrom),
+          })}
+          body={t("aiServices.prices.keepBody", {
+            date: text.date(keeping.version.effectiveFrom),
+          })}
+          confirm={t("aiServices.prices.keepGo")}
+          tone="primary"
+          pending={saving}
+          onCancel={() => setKeeping(null)}
+          onConfirm={() => void keepEarlier(keeping.group, keeping.version)}
+        />
+      )}
     </Section>
   );
 }
 
-const rate = (micro: number | null) =>
-  micro === null ? "" : `$${usdInput(micro)}`;
 /** Where a prefilled price came from, its long-prompt tier, and an announced change. */
 function TableNote({
   suggestion,
   prefilled,
+  scheduled,
 }: {
   suggestion: SuggestedPrice | null;
   prefilled: boolean;
+  scheduled: readonly PriceVersion[];
 }) {
   const text = useAiText();
   const { t } = text;
   if (!suggestion) return null;
   const service = serviceName(t, suggestion.service);
-  const change = suggestion.change;
+  // An announced change already saved as a scheduled version is shown (and changed) there.
+  const change =
+    suggestion.change &&
+    !scheduled.some(
+      (version) =>
+        version.effectiveFrom.slice(0, 10) === suggestion.change!.from,
+    )
+      ? suggestion.change
+      : null;
   const days = change
     ? (Date.parse(`${change.from}T00:00:00Z`) - Date.now()) / DAY_MS
     : Infinity;
