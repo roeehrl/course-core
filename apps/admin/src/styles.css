@@ -738,6 +738,11 @@ button svg {
   font-family: ui-monospace, monospace;
   overflow-wrap: anywhere;
 }
+.info-note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
 .permission-note {
   font-size: 12px;
   display: flex;

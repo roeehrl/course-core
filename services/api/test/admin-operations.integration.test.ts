@@ -268,11 +268,12 @@ describe("platform readiness and integrations (Q11, Q12, T03)", () => {
     expect(body.targets.rpo).toMatchObject({ currentMinutes: 20, status: "ok" });
     expect(body.targets.encryption).toEqual({ latestEncrypted: true, status: "ok" });
     expect(byId(body).backups).toMatchObject({ status: "warning", facts: { lastSnapshot: { encrypted: true, rows: 1200 }, lastFailure: { code: "pg_dump_failed" } } });
-    // T03: a newer copy written without encryption turns the backups check to a warning.
+    // Encryption is optional (owner decision 9): a newer copy written without it is reported as not
+    // set up, never as a warning. It also supersedes the earlier failure, so the backups check is ok.
     await report("snapshot", "succeeded", 2, 4, null, false);
     const plain = (await call(owner, "GET", url)).json();
-    expect(plain.targets.encryption).toEqual({ latestEncrypted: false, status: "warning" });
-    expect(byId(plain).backups!.status).toBe("warning");
+    expect(plain.targets.encryption).toEqual({ latestEncrypted: false, status: "not_configured" });
+    expect(byId(plain).backups!.status).toBe("ok");
     await report("restore_drill", "failed", 1, 30, "restored_row_counts_differ");
     expect((await call(owner, "GET", url)).json().targets.rto.status).toBe("failing");
     expect(RECOVERY_TARGETS).toMatchObject({ rpoMinutes: 60, rtoMinutes: 60 });

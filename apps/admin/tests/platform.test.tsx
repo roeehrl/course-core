@@ -260,14 +260,14 @@ describe("platform readiness (Q11, T03)", () => {
     expect(screen.getAllByText("Encrypted").length).toBeGreaterThan(0);
   });
 
-  it("says when the newest backup is not encrypted and what to do (T03)", async () => {
+  it("notes, without warning, when the newest backup is not encrypted and how to turn encryption on", async () => {
     const base = readiness();
     const platform = port({
       readiness: vi.fn(async () => ({
         ...base,
         targets: {
           ...base.targets,
-          encryption: { latestEncrypted: false, status: "warning" as const },
+          encryption: { latestEncrypted: false, status: "not_configured" as const },
         },
       })),
     });
@@ -280,9 +280,11 @@ describe("platform readiness (Q11, T03)", () => {
     expect(
       await screen.findByText("The newest copy is not encrypted."),
     ).toBeVisible();
-    expect(
-      screen.getByText(/Install age on the server, put an age public key/),
-    ).toBeVisible();
+    const note = screen.getByText(/Encryption is optional\. .*install age on the server/);
+    expect(note).toBeVisible();
+    // An informational note, not a warning.
+    expect(note.closest(".notice")).toBeNull();
+    expect(note.closest('[role="alert"]')).toBeNull();
   });
 
   it("explains how to meet a missed RPO, and refuses other roles", async () => {

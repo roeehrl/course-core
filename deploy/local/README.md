@@ -670,6 +670,10 @@ The admin **Platform** page monitors the RPO and RTO from the backup reports (se
 | RPO | The newest successful snapshot or backup finished at most 60 minutes ago | 61 to 120 minutes ago | Older than 120 minutes. "No data" when nothing was ever reported |
 | RTO | The latest restore drill succeeded, took at most 60 minutes and is at most 7 days old | The drill is older than 7 days | The latest drill failed or took longer than 60 minutes |
 
+Encryption is optional: the page notes whether the newest copy was encrypted and
+how to turn it on, as information rather than a warning, and the admin
+notification center raises only overdue backups, never unencrypted ones.
+
 The drill's duration (decryption included) stands in for the restore time. Run
 `verify` on a recent snapshot at least weekly so the RTO check stays current.
 
