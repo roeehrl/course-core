@@ -376,7 +376,7 @@ A level a model is documented to refuse is not sent (for example `medium` on Gem
 `minimal` on Gemini 3.8 Flash); the model default applies. Models outside the thinking families
 keep the earlier 1,000-token limit and no thinking setting.
 
-**Setups saved by the earlier guide (Core 0.1.52 and before)** get these defaults when the
+**Setups saved by the earlier guide** (before thinking settings existed) get these defaults when the
 configuration is read, and again before a new version or draft is stored
 (`src/provider-defaults.ts`). Only what the guide itself produced changes: a Gemini thinking model
 bound to one text role and without a thinking setting gets the role's level, and a limit still at
