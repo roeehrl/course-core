@@ -1592,13 +1592,21 @@
   gap: 8px;
 }
 /* The learner's notifications (Notifications.web.tsx): a bell beside the course menu. */
+.connected-notifications {
+  position: relative;
+}
 .connected-header .connected-bell {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 44px;
+  min-height: 44px;
   padding: 8px 12px;
+  border: 1px solid #dce6e2;
+  background: #fff;
+  color: #183237;
+  border-radius: 999px;
 }
 .connected-bell-count {
   position: absolute;
@@ -1615,10 +1623,37 @@
   text-align: center;
 }
 .connected-notifications-panel {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + 8px);
+  z-index: 1000;
   width: min(340px, calc(100vw - 32px));
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dce6e2;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px #18323726;
+  padding: 10px;
 }
-.connected-notifications-panel h2.connected-menu-heading {
-  font-size: 11px;
+.connected-notifications-panel[hidden] {
+  display: none !important;
+}
+.connected-notifications-heading {
+  margin: 6px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #087b69;
+}
+.connected-notifications-note {
+  margin: 4px 10px 8px;
+  font-size: 13px;
+  color: #526a70;
+}
+.connected-notifications-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .connected-notifications-panel li {
   padding: 8px 10px;
@@ -1634,10 +1669,18 @@
   color: #526a70;
   font-size: 12px;
 }
-.connected-header .connected-notifications-panel li button {
-  width: auto;
+.connected-header .connected-notifications-panel button {
   padding-inline: 0;
   color: #087b69;
+}
+@media (max-width: 600px) {
+  /* On a phone the list spans the screen under the header rather than hanging off the bell. */
+  .connected-notifications-panel {
+    position: fixed;
+    top: 72px;
+    inset-inline: 16px;
+    width: auto;
+  }
 }
 .connected-header .connected-menu-toggle {
   border: 1px solid #dce6e2;
