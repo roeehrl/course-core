@@ -198,4 +198,35 @@ describe("reusable learner components", () => {
     expect(trigger).toHaveFocus();
     trigger.remove();
   });
+  it("closes on Escape even when focus has dropped out of the sheet (a button disabled while it works)", () => {
+    const close = vi.fn();
+    render(
+      <Overlay title="test panel" onClose={close}>
+        <button>Inside</button>
+      </Overlay>,
+    );
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(close).toHaveBeenCalledOnce();
+    // Text being composed with an input method keeps its Escape.
+    fireEvent.keyDown(document.body, { key: "Escape", isComposing: true });
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it("never ends the focus cycle on a hidden field, such as a username kept for password managers", async () => {
+    const user = userEvent.setup();
+    render(
+      <Overlay title="test panel" onClose={() => {}}>
+        <button>Last control</button>
+        <input name="username" defaultValue="learner" readOnly hidden />
+      </Overlay>,
+    );
+    screen.getByRole("button", { name: "Last control" }).focus();
+    await user.tab();
+    expect(
+      screen.getByRole("button", { name: "Close test panel" }),
+    ).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Last control" })).toHaveFocus();
+  });
 });

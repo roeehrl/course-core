@@ -6,7 +6,7 @@ import {
   type PublicKeyCredentialCreationOptionsJSON,
   type PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/browser";
-import { Button, Card, Field, Notice } from "./components/ui";
+import { Button, Field, Notice } from "./components/ui";
 import { AuthRequestError, authErrorMessage, postJson } from "./SignIn";
 import {
   englishTranslator,
@@ -168,17 +168,20 @@ export function PasskeySignInButton({
 }
 
 /** Lists, adds and removes the signed-in person's passkeys. Passwords stay available,
- * so removing the last passkey is allowed. */
-export function PasskeysCard({
+ * so removing the last passkey is allowed. The body of the "Passkeys" dialog. */
+export function PasskeysPanel({
   loginName,
   hasPassword,
   headers,
   onClose,
+  onPendingChange,
 }: {
   loginName?: string | null;
   hasPassword: boolean;
   headers: () => HeadersInit;
   onClose: () => void;
+  /** While a passkey is being added or removed the dialog does not close. */
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const id = useId();
   const i18n = useI18n();
@@ -192,9 +195,13 @@ export function PasskeysCard({
     [name, setName] = useState(() => defaultPasskeyName(undefined, t)),
     [password, setPassword] = useState(""),
     [needsPassword, setNeedsPassword] = useState(false),
-    [pending, setPending] = useState(false),
+    [pending, setPendingState] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const setPending = (value: boolean) => {
+    setPendingState(value);
+    onPendingChange?.(value);
+  };
   const load = useCallback(async () => {
     const data = (await requestJson("GET", "/auth/passkeys", {})) as {
       available: boolean;
@@ -248,7 +255,7 @@ export function PasskeysCard({
   }
   const supported = passkeysSupported();
   return (
-    <Card title={t("passkeys.title")} className="passkeys">
+    <div className="stack passkeys">
       <p>{t("passkeys.intro")}</p>
       {passkeys === undefined && !error && (
         <p role="status">{t("passkeys.loading")}</p>
@@ -292,6 +299,8 @@ export function PasskeysCard({
           ))}
         </ul>
       )}
+      {error && <Notice tone="red">{error}</Notice>}
+      {notice && <Notice tone="green">{notice}</Notice>}
       {!available || !supported ? (
         <>
           <Notice tone="gold">
@@ -299,7 +308,7 @@ export function PasskeysCard({
               ? t("passkeys.unavailableServer")
               : t("passkeys.unavailableBrowser")}
           </Notice>
-          <div className="tag-row">
+          <div className="dialog-actions">
             <Button type="button" onClick={onClose}>
               {t("passkeys.close")}
             </Button>
@@ -360,7 +369,7 @@ export function PasskeysCard({
           {needsPassword && !hasPassword && (
             <Notice tone="gold">{t("passkeys.signInAgain")}</Notice>
           )}
-          <div className="tag-row">
+          <div className="dialog-actions">
             <Button
               type="submit"
               kind="primary"
@@ -374,8 +383,6 @@ export function PasskeysCard({
           </div>
         </form>
       )}
-      {error && <Notice tone="red">{error}</Notice>}
-      {notice && <Notice tone="green">{notice}</Notice>}
-    </Card>
+    </div>
   );
 }

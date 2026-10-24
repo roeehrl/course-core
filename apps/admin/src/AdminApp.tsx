@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   BookOpen,
@@ -54,6 +54,8 @@ import { useI18n, useT, type AdminTranslator, type MessageKey } from "./i18n";
 
 export interface AdminAppProps {
   client: AdminClient;
+  /** The signed-in person's menu (connected host), shown at the end of the top bar. */
+  account?: ReactNode;
 }
 const views = [
   { id: "overview", titleKey: "adminApp.nav.overview", icon: Gauge },
@@ -87,7 +89,35 @@ export function roleLabel(i18n: AdminTranslator, role: string) {
 }
 /** A fixed view, or `section:<id>` for an admin section the live release declares. */
 type ViewId = (typeof views)[number]["id"] | `section:${string}`;
-export function AdminApp({ client }: AdminAppProps) {
+/** The product name, as the sidebar and the startup header show it. */
+function Brand() {
+  const t = useT();
+  return (
+    <div className="brand">
+      <span className="brand-mark">
+        <Layers3 size={22} aria-hidden="true" />
+      </span>
+      <span>
+        <span lang="en" dir="ltr">
+          {/* i18n-ignore: product name, not translated */}
+          course<span className="brand-core">core</span>
+        </span>
+        <small>{t("adminApp.brandSection")}</small>
+      </span>
+    </div>
+  );
+}
+/** Screens before a course workspace opens still carry the header with the account menu. */
+function StartupHeader({ account }: { account?: ReactNode }) {
+  if (!account) return null;
+  return (
+    <header className="startup-header">
+      <Brand />
+      {account}
+    </header>
+  );
+}
+export function AdminApp({ client, account }: AdminAppProps) {
   const t = useT();
   const session = useRemote((signal) => client.getSession(signal), [client]);
   // After installing a new course, reload the session and open that course.
@@ -104,27 +134,36 @@ export function AdminApp({ client }: AdminAppProps) {
     );
   if (session.error)
     return (
-      <main className="startup">
-        <h1>{t("adminApp.title")}</h1>
-        <ErrorState error={session.error} onRetry={session.reload} />
-      </main>
+      <>
+        <StartupHeader account={account} />
+        <main className="startup">
+          <h1>{t("adminApp.title")}</h1>
+          <ErrorState error={session.error} onRetry={session.reload} />
+        </main>
+      </>
     );
   if (!session.data?.courses.length) {
     // An owner or administrator can set up the workspace before any course exists.
     const workspace = session.data?.workspaces?.[0];
     if (workspace)
       return (
-        <FirstRun
-          client={client}
-          workspace={workspace}
-          onCourseInstalled={openCourse}
-        />
+        <>
+          <StartupHeader account={account} />
+          <FirstRun
+            client={client}
+            workspace={workspace}
+            onCourseInstalled={openCourse}
+          />
+        </>
       );
     return (
-      <main className="startup">
-        <h1>{t("adminApp.noAccess.title")}</h1>
-        <p>{t("adminApp.noAccess.body")}</p>
-      </main>
+      <>
+        <StartupHeader account={account} />
+        <main className="startup">
+          <h1>{t("adminApp.noAccess.title")}</h1>
+          <p>{t("adminApp.noAccess.body")}</p>
+        </main>
+      </>
     );
   }
   return (
@@ -133,6 +172,7 @@ export function AdminApp({ client }: AdminAppProps) {
       session={session.data}
       initialCourseId={preferred}
       onOpenCourse={openCourse}
+      account={account}
     />
   );
 }
@@ -141,11 +181,13 @@ function AdminWorkspace({
   session,
   initialCourseId,
   onOpenCourse,
+  account,
 }: {
   client: AdminClient;
   session: AdminSession;
   initialCourseId?: string | undefined;
   onOpenCourse: (id: string) => void;
+  account?: ReactNode;
 }) {
   const [courseId, setCourseId] = useState(
     session.courses.find((course) => course.id === initialCourseId)?.id ??
@@ -165,6 +207,7 @@ function AdminWorkspace({
         setCourseId(id);
       }}
       onOpenCourse={onOpenCourse}
+      account={account}
     />
   );
 }
@@ -175,6 +218,7 @@ function CourseWorkspace({
   initialView,
   onCourseChange,
   onOpenCourse,
+  account,
 }: {
   client: AdminClient;
   session: AdminSession;
@@ -182,6 +226,7 @@ function CourseWorkspace({
   initialView: ViewId;
   onCourseChange: (id: string, view?: ViewId) => void;
   onOpenCourse: (id: string) => void;
+  account?: ReactNode;
 }) {
   const i18n = useI18n();
   const t = i18n.t;
@@ -259,18 +304,7 @@ function CourseWorkspace({
         {t("adminApp.skipLink")}
       </a>
       <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">
-            <Layers3 size={22} aria-hidden="true" />
-          </span>
-          <span>
-            <span lang="en" dir="ltr">
-              {/* i18n-ignore: product name, not translated */}
-              course<span className="brand-core">core</span>
-            </span>
-            <small>{t("adminApp.brandSection")}</small>
-          </span>
-        </div>
+        <Brand />
         <div className="workspace-label">
           <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
         </div>
@@ -355,6 +389,7 @@ function CourseWorkspace({
             >
               <RefreshCw size={18} aria-hidden="true" />
             </Button>
+            {account}
           </div>
         </header>
         <main

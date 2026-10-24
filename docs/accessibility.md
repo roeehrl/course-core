@@ -81,8 +81,11 @@ Do each step with the screen reader only: no mouse, screen off or not looked at 
     send it with Enter; with an IME (for example Japanese), the Enter that commits the text must
     not send the message. The reply is announced when it is complete, not word by word. Escape
     closes the dialog and returns focus to the button that opened it.
-12. **Menu and sign out.** Open the "Your course" menu: expect a menu with menu items, arrow-key
-    navigation and Escape to close. Sign out; expect the sign-in form again.
+12. **Menu and sign out.** Open the "Your course" menu: expect an expanded button followed by
+    grouped buttons (Tab or the arrow keys move between them) and Escape to close it. Choose
+    "Change password": expect a dialog named "Change password" over the page, with focus inside
+    it; Escape closes it and focus returns to the menu button. Sign out; expect the sign-in form
+    again.
 
 A step fails if something is silent, announced twice, read out of visual order, named only by
 an icon, or if focus is lost (moves to the page top or to nothing).

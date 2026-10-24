@@ -2590,3 +2590,113 @@ html:has(.connected-host:not(.is-compact)) {
  * It stays hidden until the page's panels have loaded (connected/firstLoad.ts). */
 .connected-course-page { display: contents; }
 .connected-course-page[hidden] { display: none; }
+
+/* Account dialogs open over the page (Overlay); the scrollbar's space stays reserved while one
+   locks scrolling, so the page behind does not shift sideways. */
+html:has(.connected-host) {
+  scrollbar-gutter: stable;
+}
+/* What the connected host shows in a dialog portalled to <body> (Overlay) keeps the host's
+   type, colour and focus ring; a form there is the sheet's content, not a card on it. */
+.connected-portal {
+  color: #183237;
+  font:
+    15px/1.6 system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+.connected-portal * {
+  box-sizing: border-box;
+}
+.connected-portal button {
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.connected-portal button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.connected-portal :is(button, input, textarea, select, a):focus-visible {
+  outline: 3px solid #183237;
+  outline-offset: 4px;
+}
+.connected-portal .connected-reading-card {
+  padding: 8px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+@media (forced-colors: active) {
+  .connected-portal button {
+    border: 1px solid ButtonText !important;
+  }
+  .connected-portal :is(button, input, textarea, select, a):focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 3px;
+  }
+}
+/* A short confirmation floating at the bottom of the window (connected/Toast.web.tsx). It never
+   moves the page. */
+.connected-toast-region {
+  position: fixed;
+  z-index: 1100;
+  inset-block-end: 24px;
+  inset-inline-end: 24px;
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.connected-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 12px;
+  padding-inline: 14px 8px;
+  border: 1px solid #dce6e2;
+  border-inline-start: 4px solid #087b69;
+  border-radius: 14px;
+  background: #fff;
+  color: #183237;
+  box-shadow: 0 14px 40px rgb(24 50 55 / 0.18);
+  animation: connected-toast-in 0.18s ease-out;
+}
+.connected-toast p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.connected-toast-mark {
+  color: #087b69;
+  font-weight: 700;
+}
+.connected-toast-dismiss {
+  min-width: 32px;
+  min-height: 32px;
+  margin-block: -6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #526a70;
+  font-size: 22px;
+  line-height: 1;
+}
+.connected-toast-dismiss:hover {
+  background: #eef6f2;
+}
+@keyframes connected-toast-in {
+  from {
+    transform: translateY(8px);
+  }
+}
+@media (max-width: 640px) {
+  .connected-toast-region {
+    inset-inline: 16px;
+    inset-block-end: calc(16px + env(safe-area-inset-bottom));
+    width: auto;
+  }
+}

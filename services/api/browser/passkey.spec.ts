@@ -74,6 +74,9 @@ test("a learner adds a passkey, signs in with it, removes it and still signs in 
   await noAxeViolations(page);
   await noHorizontalScroll(page);
   await page.screenshot({ path: info.outputPath("learner-passkeys.png"), fullPage: true });
+  // Passkeys is a dialog over the page: close it before using the menu again.
+  await page.keyboard.press("Escape");
+  await expect(manager).toHaveCount(0);
 
   await chooseFromMenu(page, "Sign out");
   await page.getByRole("button", { name: "Sign in with passkey" }).click();
@@ -87,6 +90,8 @@ test("a learner adds a passkey, signs in with it, removes it and still signs in 
   await chooseFromMenu(page, "Passkeys");
   await manager.getByRole("button", { name: "Remove passkey Learner test device" }).click();
   await expect(manager.getByText("You have no passkeys yet.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(manager).toHaveCount(0);
   await chooseFromMenu(page, "Sign out");
   await page.getByRole("button", { name: "Sign in with passkey" }).click();
   await expect(page.getByRole("alert")).toContainText("That passkey was not accepted.");
@@ -102,11 +107,12 @@ test("an owner adds a passkey in administration and signs in with it", async ({ 
   await expect(page.getByRole("button", { name: "Sign in with passkey" })).toBeVisible();
   await noAxeViolations(page);
   await passwordSignIn(page, account);
-  await expect(page.getByText("Connected to your workspace · authenticated session")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Change password" })).toBeVisible();
-
-  await page.getByRole("button", { name: "Passkeys" }).click();
-  const card = page.locator(".passkeys");
+  // Account settings live in the account menu at the end of the header and open as dialogs.
+  const accountMenu = page.getByRole("button", { name: /^Your account:/ });
+  await accountMenu.click();
+  await expect(page.getByRole("menuitem", { name: "Change password" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Passkeys" }).click();
+  const card = page.getByRole("dialog", { name: "Passkeys" });
   await expect(card.getByText("You have no passkeys yet.")).toBeVisible();
   await card.getByLabel("Passkey name").fill("Owner test device");
   await card.getByRole("button", { name: "Add a passkey" }).click();
@@ -115,9 +121,12 @@ test("an owner adds a passkey in administration and signs in with it", async ({ 
   await noHorizontalScroll(page);
   await page.screenshot({ path: info.outputPath("admin-passkeys.png"), fullPage: true });
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await accountMenu.click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await page.getByRole("button", { name: "Sign in with passkey" }).click();
-  await expect(page.getByText("Connected to your workspace · authenticated session")).toBeVisible();
+  await expect(accountMenu).toBeVisible();
   await noHorizontalScroll(page);
 
   // The same passkey works in the learner app: one account, one relying party.

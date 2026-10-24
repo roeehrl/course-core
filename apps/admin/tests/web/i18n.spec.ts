@@ -73,14 +73,20 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expectNoHorizontalOverflow(page);
 
-  await page.getByLabel("Language").selectOption("he");
+  // The language is chosen in the account menu at the end of the top bar.
+  await page.getByRole("button", { name: "Your account: Mock user" }).click();
+  await page.getByRole("menuitemradio", { name: "עברית" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.getByText("סביבה מחוברת")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "קורס וגרסאות",
   );
-  await expect(page.getByRole("button", { name: "יציאה" })).toBeVisible();
+  await page
+    .getByRole("button", { name: /^החשבון שלך: \W*Mock user\W*$/ })
+    .click();
+  await expect(page.getByRole("menuitem", { name: "יציאה" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect
     .poll(() => saved)
     .toEqual([{ body: { locale: "he" }, csrf: "mock-csrf" }]);

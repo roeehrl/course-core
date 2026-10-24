@@ -63,6 +63,7 @@ import en_studyConsent from "./messages/en/studyConsent.json";
 import en_supervisionPanel from "./messages/en/supervisionPanel.json";
 import en_supervisorRequests from "./messages/en/supervisorRequests.json";
 import en_teachingHypothesesPanel from "./messages/en/teachingHypothesesPanel.json";
+import en_toast from "./messages/en/toast.json";
 import en_unverified from "./messages/en/unverified.json";
 import en_useCompanionConversation from "./messages/en/useCompanionConversation.json";
 import en_useEnrollmentPolicy from "./messages/en/useEnrollmentPolicy.json";
@@ -135,6 +136,7 @@ import he_studyConsent from "./messages/he/studyConsent.json";
 import he_supervisionPanel from "./messages/he/supervisionPanel.json";
 import he_supervisorRequests from "./messages/he/supervisorRequests.json";
 import he_teachingHypothesesPanel from "./messages/he/teachingHypothesesPanel.json";
+import he_toast from "./messages/he/toast.json";
 import he_unverified from "./messages/he/unverified.json";
 import he_useCompanionConversation from "./messages/he/useCompanionConversation.json";
 import he_useEnrollmentPolicy from "./messages/he/useEnrollmentPolicy.json";
@@ -209,6 +211,7 @@ export const en = {
   supervisionPanel: en_supervisionPanel,
   supervisorRequests: en_supervisorRequests,
   teachingHypothesesPanel: en_teachingHypothesesPanel,
+  toast: en_toast,
   unverified: en_unverified,
   useCompanionConversation: en_useCompanionConversation,
   useEnrollmentPolicy: en_useEnrollmentPolicy,
@@ -283,6 +286,7 @@ export const he: PartialCatalog<typeof en> = {
   supervisionPanel: he_supervisionPanel,
   supervisorRequests: he_supervisorRequests,
   teachingHypothesesPanel: he_teachingHypothesesPanel,
+  toast: he_toast,
   unverified: he_unverified,
   useCompanionConversation: he_useCompanionConversation,
   useEnrollmentPolicy: he_useEnrollmentPolicy,

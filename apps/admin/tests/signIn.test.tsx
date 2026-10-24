@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ChangePasswordCard,
+  ChangePasswordForm,
   SignInCard,
   authErrorMessage,
   newPasswordProblem,
@@ -143,7 +143,7 @@ describe("changing a password", () => {
     });
     const closed = vi.fn();
     render(
-      <ChangePasswordCard
+      <ChangePasswordForm
         loginName="member"
         headers={() => ({ "X-CSRF-Token": "csrf-value" })}
         onClose={closed}

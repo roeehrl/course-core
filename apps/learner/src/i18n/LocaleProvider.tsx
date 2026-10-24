@@ -87,7 +87,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       source: state.source,
       available: [
         ...SUPPORTED_LOCALES,
-        ...(reportsMissing() || state.source === "override" ? PSEUDO_LOCALES : []),
+        // A `?locale=` link to a real language does not list the pseudo-locales; a link to one
+        // of them keeps them listed, so the switcher shows which one is in use.
+        ...(reportsMissing() || (PSEUDO_LOCALES as readonly string[]).includes(state.locale)
+          ? PSEUDO_LOCALES
+          : []),
       ],
       choose,
       adoptServer,

@@ -2,6 +2,7 @@
 // Add a namespace by creating src/i18n/messages/<locale>/<namespace>.json for every locale, then run --sync.
 import type { PartialCatalog } from "@course-core/i18n";
 import en_accommodationEditor from "./messages/en/accommodationEditor.json";
+import en_accountMenu from "./messages/en/accountMenu.json";
 import en_actionFeedback from "./messages/en/actionFeedback.json";
 import en_adminApp from "./messages/en/adminApp.json";
 import en_adminSectionView from "./messages/en/adminSectionView.json";
@@ -110,6 +111,7 @@ import en_visualMessages from "./messages/en/visualMessages.json";
 import en_webCrypto from "./messages/en/webCrypto.json";
 import en_workspaceLocaleSetting from "./messages/en/workspaceLocaleSetting.json";
 import he_accommodationEditor from "./messages/he/accommodationEditor.json";
+import he_accountMenu from "./messages/he/accountMenu.json";
 import he_actionFeedback from "./messages/he/actionFeedback.json";
 import he_adminApp from "./messages/he/adminApp.json";
 import he_adminSectionView from "./messages/he/adminSectionView.json";
@@ -220,6 +222,7 @@ import he_workspaceLocaleSetting from "./messages/he/workspaceLocaleSetting.json
 
 export const en = {
   accommodationEditor: en_accommodationEditor,
+  accountMenu: en_accountMenu,
   actionFeedback: en_actionFeedback,
   adminApp: en_adminApp,
   adminSectionView: en_adminSectionView,
@@ -330,6 +333,7 @@ export const en = {
 } as const;
 export const he: PartialCatalog<typeof en> = {
   accommodationEditor: he_accommodationEditor,
+  accountMenu: he_accountMenu,
   actionFeedback: he_actionFeedback,
   adminApp: he_adminApp,
   adminSectionView: he_adminSectionView,

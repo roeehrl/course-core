@@ -18,7 +18,17 @@ export function Overlay({ title, onClose, children }: OverlayProps) {
     if (root) root.inert = true;
     document.body.style.overflow = "hidden";
     ref.current?.focus();
+    // Escape is heard on the document: a button that becomes disabled while it works (Add a
+    // passkey, say) drops focus to the page body, outside the sheet.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing)
+        return;
+      event.preventDefault();
+      closeRef.current();
+    };
+    document.addEventListener("keydown", escape);
     return () => {
+      document.removeEventListener("keydown", escape);
       if (root) root.inert = !!wasInert;
       document.body.style.overflow = overflow;
       previous?.focus();
@@ -45,16 +55,18 @@ export function Overlay({ title, onClose, children }: OverlayProps) {
         aria-label={title}
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            closeRef.current();
-          }
           if (event.key === "Tab") {
+            // Hidden fields (a username kept for password managers) cannot take focus, so they
+            // are neither end of the cycle.
             const items = Array.from(
               ref.current?.querySelectorAll<HTMLElement>(
-                'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
+                'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
               ) ?? [],
-            ).filter((item) => item.getAttribute("aria-disabled") !== "true");
+            ).filter(
+              (item) =>
+                item.getAttribute("aria-disabled") !== "true" &&
+                !item.closest("[hidden]"),
+            );
             const first = items[0],
               last = items.at(-1);
             if (!first) {
