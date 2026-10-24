@@ -274,120 +274,123 @@ export function SignInCard({
   );
 }
 
-/** Requires the current password; the server signs out every other session. */
-export function ChangePasswordCard({
+/** Requires the current password; the server signs out every other session. The body of the
+ * "Change password" dialog: the dialog gives the title, this the form and its buttons. */
+export function ChangePasswordForm({
   loginName,
   headers,
   onClose,
+  onPendingChange,
 }: {
   loginName?: string | null;
   headers: () => HeadersInit;
   onClose: (changed: boolean) => void;
+  /** While the change is being saved the dialog does not close. */
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const t = useT();
   const id = useId();
   const [current, setCurrent] = useState(""),
     [next, setNext] = useState(""),
     [repeat, setRepeat] = useState("");
-  const [pending, setPending] = useState(false),
+  const [pending, setPendingState] = useState(false),
     [error, setError] = useState("");
+  const setPending = (value: boolean) => {
+    setPendingState(value);
+    onPendingChange?.(value);
+  };
   return (
-    <Card title={t("signIn.change.title")} className="change-password">
-      <form
-        className="stack"
-        aria-label={t("signIn.change.form")}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (pending) return;
-          const problem = newPasswordProblem(next, repeat, current, t);
-          if (problem) {
-            setError(problem);
-            return;
-          }
-          setPending(true);
-          setError("");
-          postJson(
-            "/auth/password",
-            { currentPassword: current, newPassword: next },
-            headers(),
-          )
-            .then(() => onClose(true))
-            .catch((caught) =>
-              setError(
-                authErrorMessage(
-                  caught instanceof AuthRequestError ? caught.code : undefined,
-                  t,
-                ),
+    <form
+      className="stack"
+      aria-label={t("signIn.change.form")}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (pending) return;
+        const problem = newPasswordProblem(next, repeat, current, t);
+        if (problem) {
+          setError(problem);
+          return;
+        }
+        setPending(true);
+        setError("");
+        postJson(
+          "/auth/password",
+          { currentPassword: current, newPassword: next },
+          headers(),
+        )
+          .then(() => onClose(true))
+          .catch((caught) =>
+            setError(
+              authErrorMessage(
+                caught instanceof AuthRequestError ? caught.code : undefined,
+                t,
               ),
-            )
-            .finally(() => setPending(false));
-        }}
+            ),
+          )
+          .finally(() => setPending(false));
+      }}
+    >
+      {loginName && (
+        <input
+          type="text"
+          name="username"
+          autoComplete="username"
+          value={loginName}
+          readOnly
+          hidden
+        />
+      )}
+      <Field label={t("signIn.change.current")} htmlFor={id + "-current"}>
+        <input
+          id={id + "-current"}
+          data-autofocus
+          type="password"
+          dir="ltr"
+          autoComplete="current-password"
+          required
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+          disabled={pending}
+        />
+      </Field>
+      <Field
+        label={t("signIn.newPassword")}
+        htmlFor={id + "-new"}
+        hint={t("signIn.change.hint", { min: PASSWORD_MIN_LENGTH })}
       >
-        {loginName && (
-          <input
-            type="text"
-            name="username"
-            autoComplete="username"
-            value={loginName}
-            readOnly
-            hidden
-          />
-        )}
-        <Field label={t("signIn.change.current")} htmlFor={id + "-current"}>
-          <input
-            id={id + "-current"}
-            type="password"
-            dir="ltr"
-            autoComplete="current-password"
-            required
-            value={current}
-            onChange={(event) => setCurrent(event.target.value)}
-            disabled={pending}
-          />
-        </Field>
-        <Field
-          label={t("signIn.newPassword")}
-          htmlFor={id + "-new"}
-          hint={t("signIn.change.hint", { min: PASSWORD_MIN_LENGTH })}
-        >
-          <input
-            id={id + "-new"}
-            type="password"
-            dir="ltr"
-            autoComplete="new-password"
-            required
-            minLength={PASSWORD_MIN_LENGTH}
-            value={next}
-            onChange={(event) => setNext(event.target.value)}
-            disabled={pending}
-          />
-        </Field>
-        <Field label={t("signIn.repeatPassword")} htmlFor={id + "-repeat"}>
-          <input
-            id={id + "-repeat"}
-            type="password"
-            dir="ltr"
-            autoComplete="new-password"
-            required
-            value={repeat}
-            onChange={(event) => setRepeat(event.target.value)}
-            disabled={pending}
-          />
-        </Field>
-        {error && <Notice tone="red">{error}</Notice>}
-        <div className="tag-row">
-          <Button type="submit" kind="primary" disabled={pending}>
-            {pending ? t("signIn.change.saving") : t("signIn.change.submit")}
-          </Button>
-          <Button
-            type="button"
-            onClick={() => onClose(false)}
-            disabled={pending}
-          >
-            {t("signIn.change.cancel")}
-          </Button>
-        </div>
-      </form>
-    </Card>
+        <input
+          id={id + "-new"}
+          type="password"
+          dir="ltr"
+          autoComplete="new-password"
+          required
+          minLength={PASSWORD_MIN_LENGTH}
+          value={next}
+          onChange={(event) => setNext(event.target.value)}
+          disabled={pending}
+        />
+      </Field>
+      <Field label={t("signIn.repeatPassword")} htmlFor={id + "-repeat"}>
+        <input
+          id={id + "-repeat"}
+          type="password"
+          dir="ltr"
+          autoComplete="new-password"
+          required
+          value={repeat}
+          onChange={(event) => setRepeat(event.target.value)}
+          disabled={pending}
+        />
+      </Field>
+      {error && <Notice tone="red">{error}</Notice>}
+      <div className="dialog-actions">
+        <Button type="submit" kind="primary" disabled={pending}>
+          {pending ? t("signIn.change.saving") : t("signIn.change.submit")}
+        </Button>
+        <Button type="button" onClick={() => onClose(false)} disabled={pending}>
+          {t("signIn.change.cancel")}
+        </Button>
+      </div>
+    </form>
   );
 }

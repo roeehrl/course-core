@@ -93,15 +93,20 @@ test("an owner signs in to administration with a password", async ({ page }, inf
   await form.getByLabel("Username", { exact: true }).fill(account.login);
   await form.getByLabel("Password", { exact: true }).fill(account.password);
   await form.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByText("Connected to your workspace · authenticated session")).toBeVisible();
-  await page.getByRole("button", { name: "Change password" }).click();
-  const change = page.getByRole("form", { name: "Change your password" });
+  // Account settings live in the account menu at the end of the header and open as dialogs.
+  const accountMenu = page.getByRole("button", { name: /^Your account:/ });
+  await accountMenu.click();
+  await page.getByRole("menuitem", { name: "Change password" }).click();
+  const dialog = page.getByRole("dialog", { name: "Change password" });
+  const change = dialog.getByRole("form", { name: "Change your password" });
   await expect(change.getByLabel("New password", { exact: true })).toHaveAttribute("autocomplete", "new-password");
   await change.getByLabel("Current password").fill(account.password);
   await change.getByLabel("New password", { exact: true }).fill("an owner's new passphrase");
   await change.getByLabel("Repeat new password").fill("an owner's new passphrase");
   await change.getByRole("button", { name: "Change password" }).click();
-  await expect(page.getByText("Your password was changed. Your other sessions were signed out.")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "Your password was changed. Your other sessions were signed out." })).toBeVisible();
+  await expect(accountMenu).toBeFocused();
   await noHorizontalScroll(page);
   await page.screenshot({ path: info.outputPath("admin-password.png"), fullPage: true });
 });

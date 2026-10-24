@@ -108,7 +108,8 @@ test("real cookie session, draft validation/review/publication and immutable rel
       (r: { version: string }) => r.version,
     ),
   ).toEqual(["1.0.0"]);
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("button", { name: /^Your account:/ }).click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Sign in to administration" }),
   ).toBeVisible();

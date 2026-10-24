@@ -2,6 +2,7 @@ import {
   useEffect,
   useId,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
@@ -10,6 +11,7 @@ import { createPortal } from "react-dom";
 import {
   AlertCircle,
   ArrowRight,
+  CircleCheck,
   LoaderCircle,
   LockKeyhole,
   X,
@@ -226,26 +228,65 @@ export function Dialog({
   const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  // The latest close handler and pending flag, for the native close event below.
+  const latest = useRef({ onClose, pending });
+  latest.current = { onClose, pending };
+  const unmounting = useRef(false);
   useEffect(() => {
+    unmounting.current = false;
     const before = document.activeElement as HTMLElement | null;
     const dialog = ref.current!;
+    // A modal dialog makes the rest of the page inert and sits in the top layer, so the page
+    // underneath neither moves nor takes focus.
     dialog.showModal();
+    dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      unmounting.current = true;
       dialog.close();
       document.body.style.overflow = overflow;
-      before?.focus();
+      // Focus goes back to the control that opened the dialog.
+      if (before?.isConnected) before.focus();
     };
   }, []);
   return createPortal(
     <dialog
       ref={ref}
       aria-labelledby={titleId}
+      aria-modal="true"
       className={`dialog ${className}`.trim()}
       onCancel={(event) => {
         event.preventDefault();
         if (!pending) onClose();
+      }}
+      onClose={() => {
+        // A browser can close a modal dialog without a cancel event (Chrome does on a repeated
+        // Escape). Keep React's state in step instead of leaving an invisible dialog open.
+        if (unmounting.current) return;
+        if (latest.current.pending) ref.current?.showModal();
+        else latest.current.onClose();
+      }}
+      onKeyDown={(event) => {
+        // Keep Tab inside the dialog in every browser, wrapping at either end. A control that
+        // uses Tab itself (and prevents its default) keeps it.
+        if (event.key !== "Tab" || event.defaultPrevented) return;
+        const items = Array.from(
+          ref.current!.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((item) => !item.hidden && item.getClientRects().length > 0);
+        const first = items[0],
+          last = items.at(-1);
+        if (!first || !last) return;
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || active === ref.current)) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }}
       onClick={(event) => {
         if (event.target === event.currentTarget && !pending) {
@@ -279,5 +320,68 @@ export function Dialog({
       {children}
     </dialog>,
     document.body,
+  );
+}
+
+export interface ToastMessage {
+  /** A new id shows the message again even when its text is the same. */
+  id: number;
+  tone: "green" | "red";
+  /** Translated when shown, so the message follows a language switch made while it shows. */
+  message: MessageKey;
+}
+/** How long a confirmation stays when the pointer and focus are elsewhere. */
+const TOAST_MS = 8000;
+/**
+ * A short message floating at the bottom of the window, announced as a status (an error as an
+ * alert). It never moves the page. A confirmation fades after a few seconds unless the pointer
+ * or focus is on it; an error stays until it is dismissed.
+ */
+export function ToastRegion({
+  toast,
+  onDismiss,
+}: {
+  toast: ToastMessage | null;
+  onDismiss: () => void;
+}) {
+  const t = useT();
+  const [held, setHeld] = useState(false);
+  const dismiss = useRef(onDismiss);
+  dismiss.current = onDismiss;
+  useEffect(() => {
+    if (!toast || toast.tone === "red" || held) return;
+    const timer = setTimeout(() => dismiss.current(), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [toast, held]);
+  useEffect(() => setHeld(false), [toast?.id]);
+  const body = toast && (
+    <div
+      className={`toast ${toast.tone}`}
+      onPointerEnter={() => setHeld(true)}
+      onPointerLeave={() => setHeld(false)}
+      onFocus={() => setHeld(true)}
+      onBlur={() => setHeld(false)}
+    >
+      {toast.tone === "green" ? (
+        <CircleCheck size={18} aria-hidden="true" />
+      ) : (
+        <AlertCircle size={18} aria-hidden="true" />
+      )}
+      <p>{t(toast.message)}</p>
+      <button
+        type="button"
+        className="toast-dismiss"
+        aria-label={t("ui.dismiss")}
+        onClick={onDismiss}
+      >
+        <X size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+  return (
+    <div className="toast-region">
+      <div role="status">{toast?.tone === "green" && body}</div>
+      <div role="alert">{toast?.tone === "red" && body}</div>
+    </div>
   );
 }

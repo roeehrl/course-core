@@ -73,3 +73,38 @@ it("closes on Escape and returns focus to its button, and on a click outside", (
   fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }));
   expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
+
+it("moves between its enabled buttons with the arrow keys, Home and End, wrapping at both ends", () => {
+  const { toggle } = renderMenu();
+  fireEvent.click(toggle);
+  const panel = screen.getByRole("group", { name: "Account" }).parentElement!;
+  const profile = screen.getByRole("button", { name: "My profile" });
+  profile.focus();
+  fireEvent.keyDown(profile, { key: "ArrowDown" });
+  expect(screen.getByRole("button", { name: "Learning record" })).toHaveFocus();
+  // The disabled item is skipped.
+  fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+  expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+  expect(profile).toHaveFocus();
+  fireEvent.keyDown(profile, { key: "ArrowUp" });
+  expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "Home" });
+  expect(profile).toHaveFocus();
+  fireEvent.keyDown(profile, { key: "End" });
+  expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus();
+  expect(panel).toBeVisible();
+});
+
+it("puts focus back on its button before running a chosen item, so a dialog it opens returns focus there", () => {
+  const { toggle, signOut } = renderMenu();
+  let focusedWhenRun: Element | null = null;
+  signOut.mockImplementation(() => {
+    focusedWhenRun = document.activeElement;
+  });
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  expect(signOut).toHaveBeenCalledOnce();
+  expect(focusedWhenRun).toBe(toggle);
+  expect(toggle).toHaveFocus();
+});

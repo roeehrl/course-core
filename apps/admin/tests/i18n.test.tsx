@@ -103,7 +103,13 @@ describe("admin locale", () => {
       expect(saved).toEqual([{ body: { locale: "he" }, csrf: "csrf-token" }]),
     );
     expect(document.documentElement).toHaveAttribute("dir", "rtl");
-    expect(await screen.findByRole("button", { name: "יציאה" })).toBeVisible();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^החשבון שלך: \W*Dana\W*$/ }),
+    );
+    expect(screen.getByRole("menuitem", { name: "יציאה" })).toBeVisible();
+    expect(
+      screen.getByRole("menuitemradio", { name: "עברית" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("translates API error codes and server role codes, with English for unknown roles", () => {

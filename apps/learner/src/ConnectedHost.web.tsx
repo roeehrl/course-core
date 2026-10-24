@@ -74,6 +74,8 @@ import { keepLessonPlace, PendingChangesNotice, usePendingChanges } from "./conn
 import type { PresenceKind, PresenceState } from "./connected/presence.web";
 import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
+import { Toast, type ToastMessage } from "./connected/Toast.web";
+import { Overlay } from "./components/Overlay";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { platformCapabilities, pointerMedia } from "./client/platformCapabilities";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
@@ -216,9 +218,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [account, setAccount] = useState<Account>(),
     [ready, setReady] = useState(false),
     [loginCodes, setLoginCodes] = useState(false),
-    [changingPassword, setChangingPassword] = useState(false),
-    [passkeys, setPasskeys] = useState(false),
-    [managingPasskeys, setManagingPasskeys] = useState(false);
+    // One account dialog at a time, over the page: it never pushes the lesson down.
+    [accountDialog, setAccountDialog] = useState<"password" | "passkeys" | null>(null),
+    [toast, setToast] = useState<ToastMessage | null>(null),
+    [passkeys, setPasskeys] = useState(false);
   const [pending, setPending] = useState(false),
     busy = useRef(false),
     [error, setError] = useState(""),
@@ -1069,8 +1072,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setPreview(undefined);
       setStartAttempts({});
       setCompanionOpen(false);
-      setChangingPassword(false);
-      setManagingPasskeys(false);
+      setAccountDialog(null);
+      setToast(null);
       setView("learn");
     });
   }
@@ -1161,10 +1164,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   label: t("connectedHost.menu.account"),
                   items: [
                     ...(account.hasPassword
-                      ? [{ label: t("connectedHost.menu.changePassword"), disabled: pending || changingPassword, onSelect: () => setChangingPassword(true) }]
+                      ? [{ label: t("connectedHost.menu.changePassword"), disabled: pending, onSelect: () => setAccountDialog("password") }]
                       : []),
                     ...(passkeysSupported()
-                      ? [{ label: t("connectedHost.menu.passkeys"), disabled: pending || managingPasskeys, onSelect: () => setManagingPasskeys(true) }]
+                      ? [{ label: t("connectedHost.menu.passkeys"), disabled: pending, onSelect: () => setAccountDialog("passkeys") }]
                       : []),
                     { label: t("connectedHost.menu.signOut"), disabled: pending, onSelect: signOut },
                   ],
@@ -1235,25 +1238,6 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               other={answerConflict}
               onKeepShown={() => drafts.resolve(answerKey, "shown")}
               onUseOther={() => drafts.resolve(answerKey, "other")}
-            />
-          )}
-          {account && changingPassword && (
-            <ChangePassword
-              request={api.request}
-              loginName={account.loginName}
-              onClose={(changed) => {
-                setChangingPassword(false);
-                if (changed)
-                  setNotice({ render: (t) => t("connectedHost.passwordChanged") });
-              }}
-            />
-          )}
-          {account && managingPasskeys && (
-            <PasskeyManager
-              request={api.request}
-              loginName={account.loginName}
-              hasPassword={account.hasPassword === true}
-              onClose={() => setManagingPasskeys(false)}
             />
           )}
           {!ready ? (
@@ -1660,6 +1644,34 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           </CompanionDock>
         )}
       </div>
+      {account && accountDialog === "password" && (
+        <Overlay title={t("connectedHost.menu.changePassword")} onClose={() => setAccountDialog(null)}>
+          <div className="connected-portal">
+            <ChangePassword
+              request={api.request}
+              loginName={account.loginName}
+              onClose={(changed) => {
+                setAccountDialog(null);
+                if (changed)
+                  setToast({ id: Date.now(), render: (t) => t("connectedHost.passwordChanged") });
+              }}
+            />
+          </div>
+        </Overlay>
+      )}
+      {account && accountDialog === "passkeys" && (
+        <Overlay title={t("connectedHost.menu.passkeys")} onClose={() => setAccountDialog(null)}>
+          <div className="connected-portal">
+            <PasskeyManager
+              request={api.request}
+              loginName={account.loginName}
+              hasPassword={account.hasPassword === true}
+              onClose={() => setAccountDialog(null)}
+            />
+          </div>
+        </Overlay>
+      )}
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }

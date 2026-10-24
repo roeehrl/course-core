@@ -6,14 +6,15 @@ import {
 } from "@course-core/i18n";
 import { useT } from "../i18n";
 import { fetchWorkspaceLocale, saveWorkspaceLocale } from "../i18n/localeApi";
-import { Button, Card, Field, Notice } from "./ui";
+import { Button, Field, Notice } from "./ui";
 
 export interface OwnedWorkspace {
   id: string;
   title: string;
 }
 
-/** Owner setting: the language a workspace's people see until they choose their own. */
+/** Owner setting: the language a workspace's people see until they choose their own. The body
+ * of the "Workspace language" dialog. Each choice is saved as soon as it is made. */
 export function WorkspaceLocaleSetting({
   workspaces,
   headers,
@@ -25,30 +26,34 @@ export function WorkspaceLocaleSetting({
 }) {
   const t = useT();
   return (
-    <Card title={t("workspaceLocaleSetting.title")} className="change-password">
+    <div className="stack">
       <p>{t("workspaceLocaleSetting.description")}</p>
-      {workspaces.map((workspace) => (
+      {workspaces.map((workspace, index) => (
         <WorkspaceRow
           key={workspace.id}
           workspace={workspace}
           headers={headers}
+          first={index === 0}
         />
       ))}
-      <div className="tag-row">
+      <div className="dialog-actions">
         <Button type="button" onClick={onClose}>
           {t("workspaceLocaleSetting.close")}
         </Button>
       </div>
-    </Card>
+    </div>
   );
 }
 
 function WorkspaceRow({
   workspace,
   headers,
+  first,
 }: {
   workspace: OwnedWorkspace;
   headers: () => HeadersInit;
+  /** The first choice takes focus when the dialog opens. */
+  first: boolean;
 }) {
   const t = useT();
   const id = useId();
@@ -75,6 +80,7 @@ function WorkspaceRow({
       >
         <select
           id={id}
+          data-autofocus={first || undefined}
           value={value ?? ""}
           disabled={value === undefined || status === "saving"}
           onChange={(event) => {

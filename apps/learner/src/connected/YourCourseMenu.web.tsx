@@ -15,8 +15,10 @@ export interface MenuGroup {
 /** The secondary "Your course" control: profile, record and settings live here,
  * away from the one primary learning action. It is a disclosure (a button that
  * shows a list of ordinary buttons), not an ARIA menu, so Tab, Enter and screen
- * reader browse modes all work as they do elsewhere on the page. Escape or a
- * click outside closes it and returns focus to its button. */
+ * reader browse modes all work as they do elsewhere on the page; the Up and Down
+ * arrows, Home and End also move between its buttons. Escape or a click outside
+ * closes it and returns focus to its button. Choosing an item closes it with focus
+ * on the button first, so a dialog the item opens gives focus back there. */
 export function YourCourseMenu({
   label,
   description,
@@ -76,7 +78,28 @@ export function YourCourseMenu({
       >
         {label} <span aria-hidden="true">{open ? "▴" : "▾"}</span>
       </button>
-      <div id={`${id}-panel`} className="connected-menu-panel" hidden={!open}>
+      <div
+        id={`${id}-panel`}
+        className="connected-menu-panel"
+        hidden={!open}
+        onKeyDown={(event) => {
+          const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+          if (!keys.includes(event.key)) return;
+          const buttons = Array.from(
+            event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+          );
+          if (!buttons.length) return;
+          event.preventDefault();
+          const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? buttons.length - 1
+                : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+          buttons[next]!.focus();
+        }}
+      >
         {description && (
           <p className="connected-menu-description">{description}</p>
         )}
@@ -98,6 +121,7 @@ export function YourCourseMenu({
                     aria-current={item.current ? "page" : undefined}
                     onClick={() => {
                       setOpen(false);
+                      toggle.current?.focus({ preventScroll: true });
                       item.onSelect();
                     }}
                   >

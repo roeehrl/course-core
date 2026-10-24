@@ -10,7 +10,7 @@ vi.mock("@simplewebauthn/browser", () => webauthn);
 
 import { SignInCard } from "../src/SignIn";
 import {
-  PasskeysCard,
+  PasskeysPanel,
   defaultPasskeyName,
   passkeyErrorMessage,
 } from "../src/Passkeys";
@@ -207,7 +207,7 @@ describe("managing passkeys", () => {
     });
     webauthn.startRegistration.mockResolvedValue({ id: "new", response: {} });
     render(
-      <PasskeysCard
+      <PasskeysPanel
         loginName="member"
         hasPassword
         headers={() => ({ "X-CSRF-Token": "csrf-value" })}
@@ -258,7 +258,7 @@ describe("managing passkeys", () => {
   it("says when the server's origin cannot host passkeys", async () => {
     stubFetch(() => json({ available: false, passkeys: [] }));
     render(
-      <PasskeysCard hasPassword headers={() => ({})} onClose={() => {}} />,
+      <PasskeysPanel hasPassword headers={() => ({})} onClose={() => {}} />,
     );
     expect(
       await screen.findByText(
@@ -270,7 +270,7 @@ describe("managing passkeys", () => {
 });
 
 describe("connected host", () => {
-  it("offers passkey sign-in when the server advertises it, and Passkeys next to Change password once signed in", async () => {
+  it("offers passkey sign-in when the server advertises it, and Passkeys next to Change password in the account menu once signed in", async () => {
     let signedIn = false;
     stubFetch((url) => {
       if (url === "/auth/session")
@@ -308,10 +308,16 @@ describe("connected host", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Sign in with passkey" }),
     );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Your account: Member" }),
+    );
     expect(
-      await screen.findByRole("button", { name: "Change password" }),
+      screen.getByRole("menuitem", { name: "Change password" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Passkeys" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Passkeys" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Passkeys" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(
       await screen.findByText("You have no passkeys yet."),
     ).toBeInTheDocument();

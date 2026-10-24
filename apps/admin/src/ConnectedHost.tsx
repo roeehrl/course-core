@@ -1,12 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
-import { isSupportedLocale, type AppLocale } from "@course-core/i18n";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Fingerprint, Globe, KeyRound, Languages, LogOut } from "lucide-react";
+import {
+  isSupportedLocale,
+  localeInfo,
+  type AppLocale,
+} from "@course-core/i18n";
 import { AdminApp } from "./AdminApp";
 import { createFetchAdminClient } from "./client/fetchClient";
 import { useRemote } from "./hooks/useAdmin";
-import { Button, Loading, Notice } from "./components/ui";
-import { ChangePasswordCard, SignInCard } from "./SignIn";
-import { PasskeysCard, passkeysSupported } from "./Passkeys";
+import {
+  Button,
+  Dialog,
+  Loading,
+  Notice,
+  ToastRegion,
+  type ToastMessage,
+} from "./components/ui";
+import { ChangePasswordForm, SignInCard } from "./SignIn";
+import { PasskeysPanel, passkeysSupported } from "./Passkeys";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
+import { AccountMenu, type AccountMenuGroup } from "./components/AccountMenu";
 import {
   WorkspaceLocaleSetting,
   type OwnedWorkspace,
@@ -82,12 +95,16 @@ export function ConnectedHost() {
     [],
   );
   const [pending, setPending] = useState(false),
-    [error, setError] = useState(""),
-    [changingPassword, setChangingPassword] = useState(false),
-    [managingPasskeys, setManagingPasskeys] = useState(false),
-    [managingLanguage, setManagingLanguage] = useState(false),
+    // One account dialog at a time: opening another replaces it.
+    [panel, setPanel] = useState<
+      "password" | "passkeys" | "workspaceLanguage" | null
+    >(null),
+    [saving, setSaving] = useState(false),
     [ownedWorkspaces, setOwnedWorkspaces] = useState<OwnedWorkspace[]>([]),
-    [notice, setNotice] = useState("");
+    [toast, setToast] = useState<ToastMessage | null>(null);
+  const toastId = useRef(0);
+  const say = (tone: ToastMessage["tone"], message: ToastMessage["message"]) =>
+    setToast({ id: ++toastId.current, tone, message });
   const userId = session.data?.user?.id;
   // After sign-in: apply the saved preference, or save the choice made on this device.
   useEffect(() => {
@@ -119,9 +136,31 @@ export function ConnectedHost() {
   const saveLocale = (locale: AppLocale) => {
     if (!userId || !isSupportedLocale(locale)) return;
     saveServerLocale(locale, csrfHeaders()).catch(() =>
-      setError(t("connectedHost.languageSaveFailed")),
+      say("red", "connectedHost.languageSaveFailed"),
     );
   };
+  const closePanel = () => {
+    setSaving(false);
+    setPanel(null);
+  };
+  async function signOut() {
+    setPending(true);
+    setToast(null);
+    try {
+      const response = await fetch("/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: csrfHeaders(),
+      });
+      if (!response.ok) throw new Error();
+      closePanel();
+      setGeneration((value) => value + 1);
+    } catch {
+      say("red", "connectedHost.signOutFailed");
+    } finally {
+      setPending(false);
+    }
+  }
   if (session.loading)
     return (
       <main className="startup">
@@ -147,109 +186,153 @@ export function ConnectedHost() {
         />
       </main>
     );
+  const open = (next: NonNullable<typeof panel>) => () => {
+    setToast(null);
+    setSaving(false);
+    setPanel(next);
+  };
+  const groups: AccountMenuGroup[] = [
+    {
+      id: "language",
+      label: t("localeSwitcher.label"),
+      icon: Languages,
+      items: localeControl.available.map((locale) => ({
+        kind: "radio" as const,
+        id: `language:${locale}`,
+        label: localeInfo(locale).nativeName,
+        lang: locale,
+        dir: localeInfo(locale).dir,
+        checked: locale === localeControl.locale,
+        onSelect: () => {
+          if (locale === localeControl.locale) return;
+          localeControl.choose(locale);
+          saveLocale(locale);
+        },
+      })),
+    },
+    {
+      id: "settings",
+      items: [
+        ...(ownedWorkspaces.length > 0
+          ? [
+              {
+                kind: "action" as const,
+                id: "workspaceLanguage",
+                label: t("connectedHost.workspaceLanguage"),
+                icon: Globe,
+                opensDialog: true,
+                disabled: pending,
+                onSelect: open("workspaceLanguage"),
+              },
+            ]
+          : []),
+        ...(user.hasPassword
+          ? [
+              {
+                kind: "action" as const,
+                id: "password",
+                label: t("connectedHost.changePassword"),
+                icon: KeyRound,
+                opensDialog: true,
+                disabled: pending,
+                onSelect: open("password"),
+              },
+            ]
+          : []),
+        ...(passkeysSupported()
+          ? [
+              {
+                kind: "action" as const,
+                id: "passkeys",
+                label: t("connectedHost.passkeys"),
+                icon: Fingerprint,
+                opensDialog: true,
+                disabled: pending,
+                onSelect: open("passkeys"),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: "session",
+      items: [
+        {
+          kind: "action",
+          id: "signOut",
+          label: t("connectedHost.signOut"),
+          icon: LogOut,
+          disabled: pending,
+          onSelect: () => void signOut(),
+        },
+      ],
+    },
+  ];
+  const eyebrow = t("connectedHost.accountEyebrow");
   return (
     <>
-      <div className="connection-bar">
-        <span>{t("connectedHost.connected")}</span>
-        <div className="tag-row">
-          <LocaleSwitcher onChosen={saveLocale} />
-          {ownedWorkspaces.length > 0 && (
-            <Button
-              kind="quiet"
-              disabled={pending || managingLanguage}
-              onClick={() => {
-                setNotice("");
-                setManagingLanguage(true);
-              }}
-            >
-              {t("connectedHost.workspaceLanguage")}
-            </Button>
-          )}
-          {user.hasPassword && (
-            <Button
-              kind="quiet"
-              disabled={pending || changingPassword}
-              onClick={() => {
-                setNotice("");
-                setChangingPassword(true);
-              }}
-            >
-              {t("connectedHost.changePassword")}
-            </Button>
-          )}
-          {passkeysSupported() && (
-            <Button
-              kind="quiet"
-              disabled={pending || managingPasskeys}
-              onClick={() => {
-                setNotice("");
-                setManagingPasskeys(true);
-              }}
-            >
-              {t("connectedHost.passkeys")}
-            </Button>
-          )}
-          <Button
-            kind="quiet"
-            disabled={pending}
-            onClick={async () => {
-              setPending(true);
-              try {
-                const response = await fetch("/auth/logout", {
-                  method: "POST",
-                  credentials: "include",
-                  headers: csrfHeaders(),
-                });
-                if (!response.ok) throw new Error();
-                setChangingPassword(false);
-                setManagingPasskeys(false);
-                setManagingLanguage(false);
-                setGeneration((value) => value + 1);
-              } catch {
-                setError(t("connectedHost.signOutFailed"));
-              } finally {
-                setPending(false);
-              }
-            }}
-          >
-            {t("connectedHost.signOut")}
-          </Button>
-        </div>
-        {error && <Notice tone="red">{error}</Notice>}
-        {notice && <Notice tone="green">{notice}</Notice>}
-      </div>
-      {changingPassword && (
-        <div className="change-password-wrap">
-          <ChangePasswordCard
+      <AdminApp
+        key={generation}
+        client={client}
+        account={
+          <AccountMenu
+            name={user.displayName}
+            detail={user.loginName}
+            groups={groups}
+          />
+        }
+      />
+      {panel === "password" && (
+        <Dialog
+          title={t("signIn.change.title")}
+          eyebrow={eyebrow}
+          className="account-dialog"
+          pending={saving}
+          onClose={closePanel}
+        >
+          <ChangePasswordForm
             loginName={user.loginName}
             headers={csrfHeaders}
+            onPendingChange={setSaving}
             onClose={(changed) => {
-              setChangingPassword(false);
-              if (changed) setNotice(t("connectedHost.passwordChanged"));
+              closePanel();
+              if (changed) say("green", "connectedHost.passwordChanged");
             }}
           />
-        </div>
+        </Dialog>
       )}
-      {managingLanguage && (
-        <div className="change-password-wrap">
+      {panel === "workspaceLanguage" && (
+        <Dialog
+          title={t("workspaceLocaleSetting.title")}
+          eyebrow={t("connectedHost.workspaceEyebrow")}
+          className="account-dialog"
+          onClose={closePanel}
+        >
           <WorkspaceLocaleSetting
             workspaces={ownedWorkspaces}
             headers={csrfHeaders}
-            onClose={() => setManagingLanguage(false)}
+            onClose={closePanel}
           />
-        </div>
+        </Dialog>
       )}
-      {managingPasskeys && (
-        <div className="change-password-wrap">
-          <PasskeysCard
+      {panel === "passkeys" && (
+        <Dialog
+          title={t("passkeys.title")}
+          eyebrow={eyebrow}
+          className="account-dialog"
+          pending={saving}
+          onClose={closePanel}
+        >
+          <PasskeysPanel
             loginName={user.loginName}
             hasPassword={user.hasPassword === true}
             headers={csrfHeaders}
-            onClose={() => setManagingPasskeys(false)}
+            onPendingChange={setSaving}
+            onClose={closePanel}
           />
-        </div>
+        </Dialog>
       )}
-      <AdminApp key={generation} client={client} />
+      <ToastRegion toast={toast} onDismiss={() => setToast(null)} />
     </>
   );
 }
