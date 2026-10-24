@@ -11,6 +11,15 @@ import {
   Stat,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  activeNeedingCheck,
+  type AiServicesPort,
+  type EvalStatus,
+  type QualityStatus,
+} from "../domain/aiServices";
+import { RoleChecks } from "../components/aiServices/CheckSection";
+import "../components/aiServices/aiServices.css";
 
 const queueKeys: Record<keyof CourseOverview["approvalQueue"], MessageKey> = {
   writtenAnswers: "overviewView.queue.writtenAnswers",
@@ -25,9 +34,12 @@ const queueKeys: Record<keyof CourseOverview["approvalQueue"], MessageKey> = {
 export function OverviewView({
   data,
   client,
+  onOpenAiServices,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
+  /** Opens the AI services page. */
+  onOpenAiServices?: () => void;
 }) {
   const t = useT();
   if (!client.overview)
@@ -38,7 +50,98 @@ export function OverviewView({
         </EmptyState>
       </Card>
     );
-  return <Overview port={client.overview} catalogId={data.course.id} />;
+  const aiServices =
+    client.mode === "connected" &&
+    data.permissions.includes("provider.configure") &&
+    data.course.workspaceId &&
+    client.aiServices
+      ? { port: client.aiServices, workspaceId: data.course.workspaceId }
+      : null;
+  return (
+    <>
+      {aiServices && (
+        <AiChecks
+          port={aiServices.port}
+          workspaceId={aiServices.workspaceId}
+          onOpen={onOpenAiServices}
+        />
+      )}
+      <Overview port={client.overview} catalogId={data.course.id} />
+    </>
+  );
+}
+
+/**
+ * AI jobs that are on but have no passing check or approval for the current checks (for example
+ * after an upgrade), each flagged with its own "Run check". They keep working; nothing here turns
+ * them off. Shown to people who can set up AI services; hidden when there is nothing to flag or
+ * the status can't be read (the AI services page says why).
+ */
+function AiChecks({
+  port,
+  workspaceId,
+  onOpen,
+}: {
+  port: AiServicesPort;
+  workspaceId: string;
+  onOpen?: (() => void) | undefined;
+}) {
+  const t = useT();
+  const [status, setStatus] = useState<{
+    evals: EvalStatus;
+    quality: QualityStatus;
+  } | null>(null);
+  // Whether anything was flagged while the page was open: the card then stays to say it's done.
+  const [flagged, setFlagged] = useState(false);
+  const live = useRef(true);
+  const load = useCallback(async () => {
+    try {
+      const evals = await port.evals(workspaceId);
+      const quality = await port.qualityStatus(workspaceId);
+      if (!live.current) return;
+      setStatus({ evals, quality });
+      if (activeNeedingCheck(evals).length) setFlagged(true);
+    } catch {
+      // Kept as it was: the AI services page explains a status it can't read.
+    }
+  }, [port, workspaceId]);
+  useEffect(() => {
+    live.current = true;
+    void load();
+    return () => {
+      live.current = false;
+    };
+  }, [load]);
+  const needing = activeNeedingCheck(status?.evals ?? null);
+  if (!status || !flagged) return null;
+  return (
+    <Card title={t("overviewView.aiChecks.title")}>
+      <div className="page-stack" data-testid="overview-ai-checks">
+        {needing.length ? (
+          <Notice tone="gold">
+            {t("overviewView.aiChecks.body", { count: needing.length })}
+          </Notice>
+        ) : (
+          <Notice tone="green">{t("overviewView.aiChecks.cleared")}</Notice>
+        )}
+        <RoleChecks
+          port={port}
+          workspaceId={workspaceId}
+          needing={needing}
+          quality={status.quality}
+          service=""
+          onChanged={load}
+        />
+        {onOpen && (
+          <div>
+            <button type="button" className="button" onClick={onOpen}>
+              {t("overviewView.aiChecks.open")}
+            </button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
 }
 
 function Overview({
