@@ -163,6 +163,22 @@ describe("companion conversation, event-driven", () => {
     expect(pending).toHaveBeenCalledTimes(2);
   });
 
+  it("reads a question not yet prepared into a job at the fallback pace, since a refusal at preparation records no event", async () => {
+    const stream = fakeStream();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const unprepared = vi.fn().mockResolvedValue([{ ...queued, job_id: null }]);
+    const client: ContextualCompanionClient = { load: unprepared, send: vi.fn() };
+    const { unmount } = renderHook(() => useCompanionConversation(client, "e", false, 1));
+    await vi.waitFor(() => expect(stream.opened).toHaveLength(1));
+    await act(async () => {});
+    expect(unprepared).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_FALLBACK_POLL_MS + 100));
+    expect(unprepared).toHaveBeenCalledTimes(2);
+    unmount();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it("keeps the shown messages and reports a failed read once, without re-rendering on each repeat", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 429 })));

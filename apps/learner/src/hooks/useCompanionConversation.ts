@@ -12,6 +12,10 @@ import {
 export const COMPANION_FALLBACK_POLL_MS = 5000;
 /** A slow safety read while a reply is due and the stream is up, in case an event was lost. */
 export const COMPANION_SAFETY_POLL_MS = 30000;
+/** While a question is not yet prepared into a job, a refusal at preparation (closed-course
+ * budget, access policy) records no event of its own, so it is read at the fallback pace. */
+const awaitingJob = (messages: readonly CompanionMessage[]) =>
+  messages.some((message) => message.role === "learner" && !message.job_id && companionHasPending([message]));
 type Drafts = Readonly<Record<string, CompanionDraft>>;
 type HeldDrafts = { id: string; drafts: Drafts; connected: boolean };
 const NO_DRAFTS: readonly CompanionDraft[] = [];
@@ -55,7 +59,7 @@ export function useCompanionConversation(
       setDrafts((old) => change(old?.id === enrollmentId ? old : { id: enrollmentId, drafts: {}, connected: true }));
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let pending = false;
+    let pending = false, unprepared = false;
     let streaming = false;
     // One read at a time; requests while one runs (a replayed burst of events) read once more after it.
     let running = false, again = false;
@@ -65,7 +69,7 @@ export function useCompanionConversation(
       clearTimeout(timer);
       if (controller.signal.aborted) return;
       const delay = streaming
-        ? pending ? COMPANION_SAFETY_POLL_MS : undefined
+        ? unprepared ? COMPANION_FALLBACK_POLL_MS : pending ? COMPANION_SAFETY_POLL_MS : undefined
         : openNow.current || pending ? COMPANION_FALLBACK_POLL_MS : undefined;
       if (delay !== undefined) timer = setTimeout(() => void load(), delay);
     };
@@ -80,6 +84,7 @@ export function useCompanionConversation(
         const messages = await client.load(enrollmentId!, controller.signal);
         if (controller.signal.aborted) return;
         pending = companionHasPending(messages);
+        unprepared = awaitingJob(messages);
         const text = JSON.stringify(messages);
         // An identical answer sets no state at all (even an updater that returns the old state
         // can cost a render). A change is applied as a transition, so a read never holds back
