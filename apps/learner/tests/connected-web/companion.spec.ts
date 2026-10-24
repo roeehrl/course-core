@@ -124,7 +124,7 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     page.getByText("Explain how to compare these values.", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText(/Queued|Waiting for service|Preparing a reply/),
+    page.getByText(/Queued|Waiting for service|Preparing a reply|Sent · a reply is being written/),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close companion" }).click();
   await chooseFromMenu(page, "Sign out");

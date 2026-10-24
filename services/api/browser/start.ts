@@ -1184,6 +1184,32 @@ app.post("/test/companion-draft", async (request) => {
   })();
   return { opened: true, jobId };
 });
+// A sent question whose job reached a given state, as the supervisor records it: held back by a
+// spending limit (budget_wait, reason budget_exhausted, the ceiling it hit), or cancelled after its
+// call was sent (an operation that succeeded). The learner's companion words each one. No provider
+// and no dispatcher are involved.
+app.post("/test/companion-job", async (request) => {
+  const body = (request.body ?? {}) as { question?: string; state?: string; ceiling?: string };
+  const state = body.state === "cancelled" ? "cancelled" : "budget_wait";
+  const ceiling = ["workspace", "enrollment", "daily", "artifact"].includes(String(body.ceiling)) ? String(body.ceiling) : "workspace";
+  const row = (await db.query<{ id: string; enrollment_id: string; workspace_id: string }>(
+    "SELECT m.id,m.enrollment_id,e.workspace_id FROM companion_messages m JOIN enrollments e ON e.id=m.enrollment_id WHERE m.content=$1 AND m.role='learner' ORDER BY m.created_at DESC LIMIT 1",
+    [String(body.question)])).rows[0];
+  if (!row) return { updated: false, reason: "question_not_found" };
+  const jobId = randomUUID();
+  const result = state === "budget_wait" ? { reason: "budget_exhausted", applicationReceiptId: null, ceiling } : { reason: "cancel_requested", applicationReceiptId: null };
+  // Only what the companion read needs: the job's identity, its state and one call that was sent.
+  const snapshot = state === "cancelled" ? { specification: { key: { jobId, enrollmentId: row.enrollment_id, workspaceId: row.workspace_id } }, state,
+    operations: [{ id: `${jobId}:generate`, status: "succeeded" }] } : null;
+  // A job with a runtime snapshot names the learning event it answers (supervisor_jobs_runtime_identity).
+  const requested = (await db.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
+    [row.enrollment_id, row.id])).rows[0]?.id ?? null;
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result,runtime_snapshot,input_event_id)
+    VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6,$7,$8)`, [jobId, row.enrollment_id, row.workspace_id, `browser-job-${jobId}`, state, JSON.stringify(result),
+    snapshot && requested ? JSON.stringify(snapshot) : null, requested]);
+  await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
+  return { updated: true, jobId };
+});
 app.post("/test/session", async () => {
   const userId = randomUUID();
   await db.query(
