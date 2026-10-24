@@ -551,7 +551,8 @@ export function InstallCourse({
                   value={
                     preview.sdk.status === "supported"
                       ? "supported"
-                      : preview.sdk.status === "unsupported"
+                      : preview.sdk.status === "unsupported" ||
+                          preview.sdk.status === "below_minimum"
                         ? "blocked"
                         : "warning"
                   }

@@ -1,12 +1,12 @@
 import type { Assessment, CourseManifest, EvaluatorDefinition, GateDecisionStatus, NextAction, Rubric, VersionedProgressionGate } from '@course-core/sdk';
 import { gateAssessmentIds, gateObjectiveIds, isVersionedGate, RECOGNITION_TYPES } from '@course-core/sdk';
 
-/** Either gate shape: the 0.4 legacy gate or the 0.5 versioned gate bound to a policy revision. */
+/** Either gate shape: the family-count gate without a version, or the versioned gate bound to a policy revision. */
 export type Gate = CourseManifest['gates'][number];
 export type RubricItem = Extract<Assessment, { type: 'rubric' }>;
 /** Item ID of the explain-for-review conversation of a gate that is judged in conversation. */
 export const CONVERSATION_ITEM_PREFIX = 'gate-conversation:';
-/** Version label recorded on decisions for unversioned 0.4 gates, which keep their 0.4 semantics. */
+/** Version label recorded on decisions for gates without a version (the family-count shape). */
 export const LEGACY_GATE_VERSION = 'legacy-0.4';
 export const RUBRIC_PRODUCTION_TYPES: ReadonlySet<string> = new Set(['counterexample', 'experiment_design', 'teach_back']);
 export const DETERMINISTIC_ITEM_TYPES: ReadonlySet<string> = new Set(['choice', 'numeric', 'prediction', 'trace']);
@@ -199,9 +199,10 @@ const producesAnswer = (item: Assessment | undefined) => item !== undefined && !
  * enrollment; a row counts when it is independent, correct, from this course version and from an
  * item the gate lists (or a reviewed, quoted conversation on the gate's current rubric version).
  * Recognition never establishes transfer, confidence is never an input, and an abstention is a
- * neutral signal. Unversioned 0.4 gates keep their family-count pass rule and gain the
- * false-mastery rules: when the gate offers any task beyond choosing among given answers, an
- * objective needs one such success, and a declared critical misconception still open blocks it.
+ * neutral signal. Gates without a version get the same false-mastery rules (there is no SDK 0.4
+ * compatibility path): every objective needs independent success in the required families,
+ * including one task beyond choosing among given answers (or a confirmed conversation), and a
+ * declared critical misconception still open blocks the gate.
  */
 export function evaluateGate(course: CourseManifest, gate: Gate, evidence: readonly GateEvidence[], digest: string, context: DecisionContext = {}): ComputedDecision {
   const items = new Set(gateItemIds(gate)), assessments = new Map(course.assessments.map(a => [a.id, a]));
@@ -215,8 +216,8 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
   const counted = evidence.filter(row => eligible(row) && row.independent && row.result.passed && row.mode !== 'practice' && row.mode !== 'retention')
     .sort((a, b) => time(a.created_at) - time(b.created_at) || a.id.localeCompare(b.id));
   const objectiveIds = gateObjectives(gate), required = gateFamilies(gate);
-  // 0.4 false-mastery rule: recognition alone cannot demonstrate an objective when the gate offers more.
-  const productionRequired = !versioned && (Boolean(rubric) || gateAssessmentIds(gate).some(id => producesAnswer(assessments.get(id))));
+  // Recognition alone never demonstrates an objective of a gate without a version (publication refuses one that offers nothing more).
+  const productionRequired = !versioned;
   const produced = (row: GateEvidence) => isConversation(row) || producesAnswer(assessments.get(row.assessment_id));
   const objectives: DecisionObjective[] = objectiveIds.map(id => {
     const rows = counted.filter(row => row.objective_id === id), families = sorted(rows.map(row => row.family_id));
@@ -262,8 +263,7 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
           : `Needs independent success in ${required} item families for ${describe([o.id])} (${o.families.length} so far).`;
       return { criterionId: `independent_families:${o.id}`, kind: 'independent_success', met: o.passed ? true : pendingOn(o.id) ? 'pending' as const : false, evidenceRefs: o.evidenceIds, reason, message };
     });
-    // 0.4 false-mastery rule: a declared critical misconception the learner showed must be ruled out
-    // by a later independent success. Gates without one keep exactly their 0.4 criteria.
+    // A declared critical misconception the learner showed must be ruled out by a later independent success.
     if (critical(objectiveIds).length) {
       const still = open(objectiveIds);
       criterionResults.push({ criterionId: 'no_critical_misconception', kind: 'no_critical_misconception', met: still.length === 0,
@@ -322,7 +322,8 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
   }
   const ready = versioned
     ? criterionResults.every(r => r.met === true) && unresolved.length === 0
-    : ((gate as Extract<Gate, { requireAllObjectives: boolean }>).requireAllObjectives ? objectives.every(o => o.passed) : objectives.some(o => o.passed)) && unresolved.length === 0;
+    // Every objective, whatever `requireAllObjectives` says: one demonstrated objective never stands for the others.
+    : objectives.every(o => o.passed) && unresolved.length === 0;
   const pendingCriterion = criterionResults.some(r => r.met === 'pending');
   const status: GateDecisionStatus = ready ? 'ready' : context.capReached ? 'closed_with_gaps' : pendingCriterion ? 'under_review' : struggles >= HELP_THRESHOLD ? 'needs_help' : 'needs_evidence';
   const missingObjectiveIds = sorted(objectiveIds.filter(o => !counted.some(row => row.objective_id === o)));
@@ -359,12 +360,12 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
     } else {
       const short = objectives.filter(o => !o.passed);
       for (const o of short) {
-        // A 0.4 objective with enough families but only recognition evidence needs a produced answer.
+        // An objective with enough families but only recognition evidence needs a produced answer.
         const needsProduction = productionRequired && o.families.length >= o.required;
         const id = freshItem(id => { const item = course.assessments.find(a => a.id === id); return Boolean(item && item.objectiveIds.includes(o.id) && (needsProduction ? producesAnswer(item) : !o.families.includes(item.familyId))); });
         if (id) addAttempt({ kind: 'attempt_check', label: `Answer a fresh independent check on ${describe([o.id])} (${o.families.length} of ${o.required} item families so far)`, targetId: id,
           message: { code: 'action.freshCheck', params: { objectives: [objectiveText(o.id)], count: o.families.length, required: o.required } } });
-        // A 0.4 gate judged in conversation: explaining is always offered, and counts once a quoted finding is confirmed.
+        // A gate without a version judged in conversation: explaining is always offered, and counts once a quoted finding is confirmed.
         if (rubric && !versioned && !o.families.includes(`conversation:${rubric.id}`)) addAttempt(explain(conversationItemId(gate.id)));
       }
     }

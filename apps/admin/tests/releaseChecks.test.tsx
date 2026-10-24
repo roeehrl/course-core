@@ -12,6 +12,8 @@ import { useWorkspace } from "../src/hooks/useAdmin";
 import { releaseSchema } from "../src/domain/contracts";
 import { demo } from "./helpers";
 import { createAdminTranslator } from "../src/i18n";
+import { releaseCheckText } from "../src/domain/releaseChecks";
+import { stripBidiControls } from "@course-core/i18n";
 
 const warning = {
   code: "SANDBOXED_WEB_ACTIVITIES",
@@ -132,4 +134,34 @@ it("words command outcomes from codes in both languages, keeps stored English, a
   expect(
     serverMessageSchema.safeParse({ code: "Release archived." }).success,
   ).toBe(false);
+});
+
+it("names the checkpoint that breaks an evidence rule, in English and Hebrew", () => {
+  const check = {
+    code: "GATE_RECOGNITION_ONLY",
+    passed: false,
+    params: { gate: "notice-gate" },
+  };
+  const en = releaseCheckText(createAdminTranslator("en"), check),
+    he = releaseCheckText(createAdminTranslator("he"), check);
+  expect(en.label).toBe("Checkpoint passed by choosing answers alone");
+  expect(en.detail).toMatch(
+    /^Checkpoint notice-gate offers only multiple-choice questions/,
+  );
+  expect(en.detail).toMatch(/cannot be published until then\.$/);
+  expect(he.label).toBe("נקודת בקרה שעוברים רק בבחירת תשובות");
+  expect(stripBidiControls(he.detail)).toContain("נקודת הבקרה notice-gate");
+  for (const code of [
+    "GATE_PARTIAL_OBJECTIVES",
+    "GATE_TRANSFER_MISSING",
+    "GATE_MISCONCEPTION_CHECK_MISSING",
+    "GATE_EVIDENCE_UNREACHABLE",
+  ]) {
+    const text = releaseCheckText(createAdminTranslator("he"), {
+      ...check,
+      code,
+    });
+    expect(text.label, code).not.toMatch(/GATE_|Check /);
+    expect(stripBidiControls(text.detail), code).toContain("notice-gate");
+  }
 });

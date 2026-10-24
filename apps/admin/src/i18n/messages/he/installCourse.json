@@ -124,6 +124,7 @@
   "supplied.approve": "{count, plural, one {מאשרים את הקובץ שהקורס מביא. Core מריץ אותו רק במערכת הבדיקה המבודדת או במסגרת הפעילות האטומה.} other {מאשרים את # הקבצים שהקורס מביא. Core מריץ אותם רק במערכת הבדיקה המבודדת או במסגרת הפעילות האטומה.}}",
   "problem.runtime": "השרת הזה לא יכול להריץ את הקורס כפי שהוגדר. יש להתקין את מה שהקורס צריך ולבדוק את החבילה שוב.",
   "problem.SDK_UNSUPPORTED": "נבנה עם SDK {sdkVersion}; ה-Core הזה תומך מ-{min} ועד {maxExclusive} (לא כולל). יש לבנות את הקורס מחדש עם SDK נתמך.",
+  "problem.SDK_BELOW_MINIMUM": "נבנה עם SDK {sdkVersion}; ה-Core הזה תומך בקורסים מ-SDK {minimum} ואילך. יש לבנות את הקורס מחדש עם SDK {minimum} או חדש יותר.",
   "problem.SDK_OLDER_THAN_CORE": "נבנה עם SDK {sdkVersion}, ישן מה-SDK של ה-Core הזה ({coreSdkVersion}). ה-Core בדק אותו עם ה-SDK שלו, והגיבוב של הקורס תואם.",
   "problem.CORE_VERSION_TOO_OLD": "נדרש Core {required}; ה-Core הזה הוא {current}. יש לעדכן קודם את ה-Core.",
   "problem.RELEASE_VERSION_CONFLICT": "גרסה {version} כבר קיימת כאן עם תוכן אחר. יש לתת לחבילה מספר גרסה חדש.",

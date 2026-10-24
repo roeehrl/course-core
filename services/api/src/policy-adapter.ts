@@ -9,6 +9,7 @@ import { coreObjectiveIds, episodes } from './learning.js';
 import type { Database } from './database.js';
 import { policyEpisodeIdFor, type Enrollment } from './repository.js';
 import { assessmentPolicySchema, DEFAULT_ASSESSMENT_POLICY } from './assessment-policy.js';
+import { belowMinimumSdk, MINIMUM_SUPPORTED_SDK } from './course-package.js';
 
 /** Host policy settings a release cannot author with SDK 0.5: the hard-deadline time zone,
  * DST disambiguation, extension approvals and offer limits, reserved core headroom, the
@@ -294,6 +295,10 @@ export function poolCoverage(policy: PolicyState, deferredWindow: (scopeId: stri
   });
 }
 export async function assertPublishable(client: Sql, releaseId: string, course: CourseManifest, now = new Date().toISOString()) {
+  // A release installed from a package compiled by an SDK older than Core supports is never published.
+  const sdk = (await client.query<{ sdk_version: string }>('SELECT sdk_version FROM course_release_packages WHERE release_id=$1', [releaseId])).rows[0]?.sdk_version;
+  if (sdk !== undefined && belowMinimumSdk(sdk))
+    throw new ApiError(409, 'PUBLISH_SDK_BELOW_MINIMUM', 'PUBLISH_SDK_BELOW_MINIMUM', { sdkVersion: sdk.slice(0, 128), minimum: MINIMUM_SUPPORTED_SDK });
   const check = await publicationPolicyCheck(client, releaseId, course, now);
   if (!check.feasibility.feasible) throw new ApiError(409, 'PUBLISH_INFEASIBLE', 'PUBLISH_INFEASIBLE',
     { issues: check.feasibility.issues, alternatives: check.feasibility.alternatives, masteryCriteria: 'unchanged' });

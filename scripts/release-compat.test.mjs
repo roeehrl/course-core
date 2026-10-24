@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { ROOT } from './modules.mjs';
-import { compareReleases, compareVersions, compatibilityMatrix, directorySource, forwardDifferences, nodeRange, packageAcceptance,
+import { compareReleases, compareVersions, compatibilityMatrix, directorySource, forwardDifferences, MINIMUM_SUPPORTED_SDK, nodeRange, packageAcceptance,
   previousReleaseTag, publishedReleaseTags, rollbackDifferences, supportedSdkRange } from './release-compat.mjs';
 
 const sdkUrl = version => `https://github.com/roeehrl/course-sdk/releases/download/v${version}/course-core-sdk-${version}.tgz`;
@@ -34,6 +34,11 @@ test('compatibility versions follow semantic version order and the API package r
   assert.equal(packageAcceptance('1.2.0', '1.9.0'), 'supported');
   assert.equal(packageAcceptance('1.2.0', '2.0.0'), 'refused');
   assert.equal(packageAcceptance('1.2.0', '1.1.0'), 'install_with_warning');
+  // No SDK 0.4 compatibility: packages below the minimum supported SDK 0.5.0 are refused under any pin.
+  assert.equal(packageAcceptance('0.5.0', '0.4.0'), 'refused');
+  assert.equal(packageAcceptance('0.6.0', '0.4.9'), 'refused');
+  assert.equal(MINIMUM_SUPPORTED_SDK, '0.5.0');
+  assert.ok((await readFile(new URL('../services/api/src/course-package.ts', import.meta.url), 'utf8')).includes("export const MINIMUM_SUPPORTED_SDK = '0.5.0';"), 'MINIMUM_SUPPORTED_SDK in the API changed');
   // The same rule as the API's package preview; keep both in step.
   const api = await readFile(new URL('../services/api/src/course-package-routes.ts', import.meta.url), 'utf8');
   assert.ok(api.includes("maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0`"), 'supportedSdkRange in the API changed');

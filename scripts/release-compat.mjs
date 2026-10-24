@@ -39,12 +39,16 @@ export function supportedSdkRange(version) {
   const [major, minor] = parseVersion(version);
   return { min: `${major}.${minor}.0`, maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0` };
 }
+/** The oldest SDK Core accepts packages from (MINIMUM_SUPPORTED_SDK in services/api/src/course-package.ts). */
+export const MINIMUM_SUPPORTED_SDK = '0.5.0';
 /** How the package preview treats a course package compiled by `packageSdk` (sdkPackageStatus
- * in the API): supported, installable with a warning (an older SDK of the same major), or
- * refused (a newer SDK than the range, or another major). */
+ * in the API): supported, installable with a warning (an older SDK of the same major, from
+ * MINIMUM_SUPPORTED_SDK on), or refused (below that minimum, a newer SDK than the range, or
+ * another major). */
 export function packageAcceptance(coreSdk, packageSdk) {
   const range = supportedSdkRange(coreSdk);
   if (compareVersions(packageSdk, range.maxExclusive) >= 0) return 'refused';
+  if (compareVersions(packageSdk, MINIMUM_SUPPORTED_SDK) < 0) return 'refused';
   if (compareVersions(packageSdk, range.min) >= 0) return 'supported';
   return parseVersion(packageSdk)[0] === parseVersion(coreSdk)[0] ? 'install_with_warning' : 'refused';
 }
