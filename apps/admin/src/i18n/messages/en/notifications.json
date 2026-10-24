@@ -23,6 +23,10 @@
   "kind.jobs_failed.body": "In {course}. The run inspector shows what went wrong and lets you retry.",
   "kind.budget_near_limit.title": "AI spending is at {percent}% of the limit",
   "kind.budget_near_limit.body": "When the limit is reached, AI work that costs money waits until the limit is raised. Change the limit on the AI services page.",
+  "kind.help_paused.workspace.title": "AI help is paused: the AI budget is used up",
+  "kind.help_paused.workspace.body": "In the last day {requests, plural, one {# request for AI help} other {# requests for AI help}} from {learners, plural, one {# learner} other {# learners}} waited. Learners are told that help is paused and that staff know. Raise the workspace limit on the AI services page; learners can then ask again.",
+  "kind.help_paused.learner.title": "{learners, plural, one {# learner reached their own AI limit} other {# learners reached their own AI limit}}",
+  "kind.help_paused.learner.body": "In the last day {requests, plural, one {# request for AI help} other {# requests for AI help}} waited. These learners are told that help is paused and that staff know. Raise the limit per learner on the AI services page, or the daily and per-lesson limits in AI supervision settings; they can then ask again.",
   "kind.backups_overdue.title": "Backups are overdue",
   "kind.backups_overdue.body": "The newest backup is {minutes} minutes old; the target is at most {target} minutes. Check the backup job on the Platform page.",
   "kind.unknown.title": "Something needs attention"

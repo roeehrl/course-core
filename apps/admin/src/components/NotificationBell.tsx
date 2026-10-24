@@ -276,6 +276,20 @@ export function useNotificationText(
         }),
         body: t("notifications.kind.budget_near_limit.body"),
       };
+    case "help_paused": {
+      // AI help held back by a spending limit: the workspace total, or learners' own limits.
+      const scope = p.scope === "learner" ? "learner" : "workspace";
+      const counts = { learners: num(p.learners), requests: num(p.requests) };
+      return scope === "learner"
+        ? {
+            title: t("notifications.kind.help_paused.learner.title", counts),
+            body: t("notifications.kind.help_paused.learner.body", counts),
+          }
+        : {
+            title: t("notifications.kind.help_paused.workspace.title"),
+            body: t("notifications.kind.help_paused.workspace.body", counts),
+          };
+    }
     case "backups_overdue":
       return {
         title: t("notifications.kind.backups_overdue.title"),
