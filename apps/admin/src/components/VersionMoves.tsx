@@ -13,6 +13,7 @@ import { useFormatters, useI18n, type MessageKey } from "../i18n";
 import { Badge, Button, Card, Field, Notice } from "./ui";
 
 type Lessons = LearnerImpact["progress"]["checkpointsAgain"];
+type Checkpoints = LearnerImpact["carryOver"]["carried"];
 const outcomeTone = { ready: "green", waits: "gold", refused: "red" } as const;
 const stateTone = {
   moved: "green",
@@ -54,6 +55,7 @@ export function VersionMoves({
   const [acknowledged, setAcknowledged] = useState(false);
   const [open, setOpen] = useState<MoveDetail>();
   const [undoReason, setUndoReason] = useState("");
+  const [forceReason, setForceReason] = useState("");
 
   const movable = (next: VersionMovesView) =>
     next.versions.filter((v) => v.learners > 0 && v.newer.length > 0);
@@ -169,6 +171,23 @@ export function VersionMoves({
       await load();
       onMoved?.();
     });
+  const force = (moveId: string, enrollmentId: string) =>
+    void run(async () => {
+      const result = await port.force(courseId, moveId, enrollmentId, {
+        reason: forceReason.trim(),
+      });
+      setOpen(result.move);
+      setForceReason("");
+      setNotice(
+        result.status === "withdrawn"
+          ? t("versionMoves.force.withdrawn", {
+              reason: moveCodeMessage(result.code, t),
+            })
+          : t(`versionMoves.force.${result.status}` as MessageKey),
+      );
+      await load();
+      onMoved?.();
+    });
   const cancel = (moveId: string) =>
     void run(async () => {
       const result = await port.cancel(courseId, moveId);
@@ -208,6 +227,11 @@ export function VersionMoves({
   const lostCredit = preview?.learners.filter(losesCredit).length ?? 0;
   const movableCount =
     preview?.learners.filter((l) => l.outcome !== "refused").length ?? 0;
+  const offeredCount =
+    preview?.learners.filter((l) => l.refusal === "MOVE_PERSONAL_CHANGES")
+      .length ?? 0;
+  const checkpointList = (items: Checkpoints) =>
+    lessonList({ count: items.count, items: items.items });
 
   return card(
     <>
@@ -377,16 +401,21 @@ export function VersionMoves({
             </p>
           )}
           <dl className="facts">
-            {(["ready", "waits", "refused", "losingCredit"] as const).map(
-              (key) => (
-                <div key={key}>
-                  <dt>
-                    {t(`versionMoves.preview.totals.${key}` as MessageKey)}
-                  </dt>
-                  <dd>{preview.totals[key]}</dd>
-                </div>
-              ),
-            )}
+            {(
+              [
+                "ready",
+                "waits",
+                "refused",
+                "losingCredit",
+                "carriedCheckpoints",
+                "offered",
+              ] as const
+            ).map((key) => (
+              <div key={key}>
+                <dt>{t(`versionMoves.preview.totals.${key}` as MessageKey)}</dt>
+                <dd>{preview.totals[key]}</dd>
+              </div>
+            ))}
           </dl>
           <p>
             <small>
@@ -406,6 +435,27 @@ export function VersionMoves({
                     )}
                   </Badge>
                 </div>
+                {learner.refusal === "MOVE_PERSONAL_CHANGES" && (
+                  <PersonalChangeLines
+                    lines={learner.personalChangeList}
+                    lessonList={lessonList}
+                  />
+                )}
+                {learner.carryOver.carried.count > 0 && (
+                  <p>
+                    {t("versionMoves.carry.carried", {
+                      lessons: checkpointList(learner.carryOver.carried),
+                    })}
+                  </p>
+                )}
+                {learner.carryOver.notCarried.items.map((item) => (
+                  <p key={item.gateId}>
+                    {t("versionMoves.carry.notCarried", {
+                      lesson: item.title,
+                      reason: moveCodeMessage(item.code, t),
+                    })}
+                  </p>
+                ))}
                 {learner.refusal ? (
                   <p>{moveCodeMessage(learner.refusal, t)}</p>
                 ) : (
@@ -486,7 +536,12 @@ export function VersionMoves({
               })}
             </small>
           </p>
-          {movableCount === 0 ? (
+          {offeredCount > 0 && (
+            <Notice tone="blue">
+              {t("versionMoves.confirm.offered", { count: offeredCount })}
+            </Notice>
+          )}
+          {movableCount + offeredCount === 0 ? (
             <Notice tone="gold">{t("versionMoves.confirm.nobody")}</Notice>
           ) : (
             <form onSubmit={confirm} className="form-grid">
@@ -525,7 +580,11 @@ export function VersionMoves({
                     (lostCredit > 0 && !acknowledged)
                   }
                 >
-                  {t("versionMoves.confirm.submit", { count: movableCount })}
+                  {movableCount > 0
+                    ? t("versionMoves.confirm.submit", { count: movableCount })
+                    : t("versionMoves.confirm.offerOnly", {
+                        count: offeredCount,
+                      })}
                 </Button>
                 <Button type="button" onClick={() => setPreview(undefined)}>
                   {t("versionMoves.confirm.discard")}
@@ -591,6 +650,9 @@ export function VersionMoves({
                   reason={undoReason}
                   onReason={setUndoReason}
                   onUndo={(ids) => undo(move.moveId, ids)}
+                  forceReason={forceReason}
+                  onForceReason={setForceReason}
+                  onForce={(enrollmentId) => force(move.moveId, enrollmentId)}
                   name={name}
                 />
               )}
@@ -602,6 +664,32 @@ export function VersionMoves({
   );
 }
 
+/** The personal changes a move would drop for one learner (lesson and kind). */
+function PersonalChangeLines({
+  lines,
+  lessonList,
+}: {
+  lines: LearnerImpact["personalChangeList"];
+  lessonList: (lessons: Lessons) => string;
+}) {
+  const { t } = useI18n();
+  return (
+    <p>
+      {lines.items.length
+        ? t("versionMoves.personal.list", {
+            lessons: lessonList({
+              count: lines.count,
+              items: lines.items.map((line) => ({
+                id: line.episodeId,
+                title: line.title,
+              })),
+            }),
+          })
+        : t("versionMoves.personal.unlisted")}
+    </p>
+  );
+}
+
 function MoveLearners({
   detail,
   canUndo,
@@ -609,6 +697,9 @@ function MoveLearners({
   reason,
   onReason,
   onUndo,
+  forceReason,
+  onForceReason,
+  onForce,
   name,
 }: {
   detail: MoveDetail;
@@ -617,6 +708,9 @@ function MoveLearners({
   reason: string;
   onReason: (value: string) => void;
   onUndo: (enrollmentIds?: string[]) => void;
+  forceReason: string;
+  onForceReason: (value: string) => void;
+  onForce: (enrollmentId: string) => void;
   name: (displayName: string | null) => string;
 }) {
   const { t } = useI18n();
@@ -634,6 +728,43 @@ function MoveLearners({
               </Badge>
             </div>
             {learner.code && <small>{moveCodeMessage(learner.code, t)}</small>}
+            {learner.offer && (
+              <p>
+                <small>
+                  {t(
+                    `versionMoves.offer.${learner.offer.state}` as MessageKey,
+                    {
+                      reason: learner.offer.reason ?? "",
+                      code: moveCodeMessage(learner.offer.code, t),
+                    },
+                  )}
+                </small>
+              </p>
+            )}
+            {canUndo && learner.offer?.forcible && (
+              <div className="form-grid">
+                <Field
+                  label={t("versionMoves.force.reason")}
+                  hint={t("versionMoves.force.hint")}
+                  htmlFor={`${id}-force-${learner.enrollmentId}`}
+                >
+                  <input
+                    id={`${id}-force-${learner.enrollmentId}`}
+                    value={forceReason}
+                    maxLength={1000}
+                    onChange={(event) => onForceReason(event.target.value)}
+                  />
+                </Field>
+                <Button
+                  type="button"
+                  kind="danger"
+                  disabled={pending || !forceReason.trim()}
+                  onClick={() => onForce(learner.enrollmentId)}
+                >
+                  {t("versionMoves.force.submit")}
+                </Button>
+              </div>
+            )}
             {learner.undo && !learner.undo.possible && (
               <small>
                 {t("versionMoves.history.undoNotPossible", {
