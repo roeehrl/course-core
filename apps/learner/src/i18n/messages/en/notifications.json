@@ -5,7 +5,6 @@
   "panel.empty": "No notifications.",
   "panel.loading": "Loading notifications…",
   "panel.markAll": "Mark all as read",
-  "panel.close": "Close notifications",
   "panel.open": "Open",
   "panel.new": "New",
   "panel.error": "Notifications could not be loaded. Try again in a moment.",

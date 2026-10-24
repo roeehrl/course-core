@@ -267,7 +267,10 @@ describe("platform readiness (Q11, T03)", () => {
         ...base,
         targets: {
           ...base.targets,
-          encryption: { latestEncrypted: false, status: "not_configured" as const },
+          encryption: {
+            latestEncrypted: false,
+            status: "not_configured" as const,
+          },
         },
       })),
     });
@@ -280,7 +283,9 @@ describe("platform readiness (Q11, T03)", () => {
     expect(
       await screen.findByText("The newest copy is not encrypted."),
     ).toBeVisible();
-    const note = screen.getByText(/Encryption is optional\. .*install age on the server/);
+    const note = screen.getByText(
+      /Encryption is optional\. .*install age on the server/,
+    );
     expect(note).toBeVisible();
     // An informational note, not a warning.
     expect(note.closest(".notice")).toBeNull();

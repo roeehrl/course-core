@@ -25,7 +25,8 @@ export function createDemoNotifications({
   latency?: number;
   now?: () => number;
 } = {}): NotificationsPort {
-  const at = (minutes: number) => new Date(now() - minutes * 60_000).toISOString();
+  const at = (minutes: number) =>
+    new Date(now() - minutes * 60_000).toISOString();
   const item = (
     id: string,
     kind: string,

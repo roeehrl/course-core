@@ -42,12 +42,18 @@ test("the staff bell shows failed runs and the budget, by role, and opens the ru
   const baseURL = info.project.use.baseURL!;
 
   const owner = await signIn(browser, baseURL, fixture.ownerCode, info);
-  const bell = owner.getByRole("button", { name: /^Notifications, \d+ unread$/ });
+  const bell = owner.getByRole("button", {
+    name: /^Notifications, \d+ unread$/,
+  });
   await expect(bell).toBeVisible();
   await bell.click();
   const panel = owner.getByRole("dialog", { name: "Needs attention" });
-  await expect(panel.getByText("1 AI run failed in the last day")).toBeVisible();
-  await expect(panel.getByText("AI spending is at 90% of the limit")).toBeVisible();
+  await expect(
+    panel.getByText("1 AI run failed in the last day"),
+  ).toBeVisible();
+  await expect(
+    panel.getByText("AI spending is at 90% of the limit"),
+  ).toBeVisible();
   expect(
     (await new AxeBuilder({ page: owner }).withTags(axeTags).analyze())
       .violations,
@@ -76,11 +82,18 @@ test("the staff bell shows failed runs and the budget, by role, and opens the ru
   ).toHaveCount(0);
 
   // An instructor inspects runs but does not manage the budget.
-  const instructor = await signIn(browser, baseURL, fixture.instructorCode, info);
+  const instructor = await signIn(
+    browser,
+    baseURL,
+    fixture.instructorCode,
+    info,
+  );
   await instructor
     .getByRole("button", { name: /^Notifications, \d+ unread$/ })
     .click();
   const theirs = instructor.getByRole("dialog", { name: "Needs attention" });
-  await expect(theirs.getByText("1 AI run failed in the last day")).toBeVisible();
+  await expect(
+    theirs.getByText("1 AI run failed in the last day"),
+  ).toBeVisible();
   await expect(theirs.getByText(/AI spending/)).toHaveCount(0);
 });
