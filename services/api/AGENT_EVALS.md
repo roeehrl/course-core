@@ -320,7 +320,15 @@ every role and changes the suite digest. After the upgrade:
   estimate when no draft is open and such roles exist. The owner override for an active
   role takes the revision digest the status reports. The admin AI services page offers
   both. `test/provider-quality-checks.integration.test.ts` rehearses the exact 0.1.50
-  shape.
+  shape;
+- `{ idempotencyKey, target: "active", role }` checks that one job only (409
+  `PROVIDER_QUALITY_CHECK_NOT_NEEDED` when it is not on or already has a pass or an
+  override; 400 for an unknown job). `GET` lists every such job in `activeRoles`, draft open
+  or not, each with what checking it alone runs and costs and why it cannot start now
+  (`blocked`, the same codes as the whole check). The AI services page and the course
+  overview (for people who can set up AI services) flag each job that needs a check with
+  its own "Run check" button; a job the suite does not cover is flagged as needing an
+  owner's approval. Flagged jobs keep working; nothing turns them off.
 
 The estimate counts a tool-loop conversation as several model rounds (its fixture's
 tool results plus the answer, at most the binding's round limit and Core's cap of

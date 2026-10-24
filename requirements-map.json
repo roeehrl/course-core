@@ -796,8 +796,11 @@
       "core:services/api/test/supervisor-tools.integration.test.ts::scopes history and timeline reads, rejects injected authority, and deduplicates simultaneous tool retries"
     ],
     "N07": [
+      "core:apps/admin/tests/aiServicesQualityCheck.test.tsx::flags each job that needs a check with its own Run check",
+      "core:apps/admin/tests/real/ai-checks-flag.real.spec.ts::the course overview flags a job that needs a check after an upgrade",
       "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes",
-      "core:services/api/test/provider-evals.integration.test.ts::every role is gated"
+      "core:services/api/test/provider-evals.integration.test.ts::every role is gated",
+      "core:services/api/test/provider-quality-checks.integration.test.ts::flags each job that is on and needs a check with its own check"
     ],
     "O01": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
