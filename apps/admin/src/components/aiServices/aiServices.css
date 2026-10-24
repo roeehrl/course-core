@@ -629,3 +629,33 @@
 .ai-advanced[open] .ai-chevron {
   transform: rotate(90deg);
 }
+.ai-role-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ai-role-check {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.ai-role-check p {
+  margin-block: 0;
+}
+.ai-role-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ai-role-check .ai-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
