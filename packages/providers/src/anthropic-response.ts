@@ -47,7 +47,8 @@ const messageSchema = z.object({
 });
 export interface AnthropicMessage { content: Block[]; cutShort?: true }
 
-/** Accept only a complete turn. A refusal is `BLOCKED`; a token cap, context overflow, pause or
+/** Accept only a complete turn (for a streamed reply: the final assembled message and its last
+ * `stop_reason`, so both call paths classify cut-off and refused replies the same way). A refusal is `BLOCKED`; a token cap, context overflow, pause or
  * any other stop is incomplete. Structured output that stopped early is never parsed. With
  * `allowCutShort` (tutoring text only), a stop at `max_tokens` is returned marked `cutShort`. */
 export function anthropicMessage(data: Record<string, unknown>, allowSearch: boolean, allowCutShort = false): AnthropicMessage {

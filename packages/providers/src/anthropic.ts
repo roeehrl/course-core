@@ -55,6 +55,23 @@ export function anthropicOutputSchema(schema: unknown): Record<string, unknown> 
   return walk(schema);
 }
 
+/** The Messages API request body: output limit (`max_tokens`, which includes thinking), effort,
+ * thinking type and format. Shared by every call path (plain and streamed), so thinking and
+ * limits are configured in one place. */
+export function messagesRequestBody(model: AnthropicResolvedModel, request: TextRequest, capability: Capability, format?: Record<string, unknown>) {
+  const config = model.providerConfig;
+  const outputConfig = { ...(config.effort ? { effort: config.effort } : {}),
+    ...(format === undefined ? {} : { format: { type: 'json_schema', schema: format } }) };
+  return {
+    model: model.remoteModel, max_tokens: request.maxOutputTokens,
+    ...(request.systemInstruction === undefined ? {} : { system: request.systemInstruction }),
+    messages: request.messages.map(message => ({ role: message.role, content: message.text })),
+    ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
+    ...(config.thinking ? { thinking: { type: config.thinking } } : {}),
+    ...(capability === 'research' && config.webSearch
+      ? { tools: [{ type: config.webSearch.toolType, name: 'web_search', max_uses: config.webSearch.maxUses }] } : {}),
+  };
+}
 export interface AnthropicProviderOptions extends TransportOptions { providerId: string; registry: ModelRegistry }
 export class AnthropicTransport extends JsonTransport {
   constructor(options: TransportOptions) { super(options, anthropicProtocol); }
@@ -92,18 +109,8 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
       + (format === undefined ? 0 : JSON.stringify(format).length);
     ensure(characters <= model.limits.maxInputCharacters && request.maxOutputTokens <= (model.limits.maxOutputTokens ?? 0));
     const usage = this.#usage(model, operation, request.accounting, characters, request.maxOutputTokens);
-    const outputConfig = { ...(config.effort ? { effort: config.effort } : {}),
-      ...(format === undefined ? {} : { format: { type: 'json_schema', schema: format } }) };
     try {
-      const data = await this.#transport.request('/v1/messages', 'POST', {
-        model: model.remoteModel, max_tokens: request.maxOutputTokens,
-        ...(request.systemInstruction === undefined ? {} : { system: request.systemInstruction }),
-        messages: request.messages.map(message => ({ role: message.role, content: message.text })),
-        ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
-        ...(config.thinking ? { thinking: { type: config.thinking } } : {}),
-        ...(capability === 'research' && config.webSearch
-          ? { tools: [{ type: config.webSearch.toolType, name: 'web_search', max_uses: config.webSearch.maxUses }] } : {}),
-      }, usage, config.maxResponseBytes, call);
+      const data = await this.#transport.request('/v1/messages', 'POST', messagesRequestBody(model, request, capability, format), usage, config.maxResponseBytes, call);
       return { output: decode(data), usage: structuredClone(usage) };
     } catch (error) {
       const safe = safeError(error);

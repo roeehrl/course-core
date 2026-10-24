@@ -7,7 +7,7 @@ import { callOptionsSchema, id, imageRequestSchema, textRequestSchema, videoRequ
   type CostEstimate, type MediaCapabilities, type MediaPrice, type TutoringOutput, MIN_CUT_SHORT_CHARACTERS, priceMediaUnits } from './contracts.js';
 import { googleVideoJobSchema, requireGoogleModel, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError, safeError } from './errors.js';
-import { candidate, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, tutoringText, validateOperationName } from './google-response.js';
+import { candidate, generationConfig, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, tutoringText, validateOperationName } from './google-response.js';
 import { abortable, abortScope, GoogleTransport, waitAbortable, type GoogleTransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -99,10 +99,7 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
       const data = await this.#transport.request(`/${config.apiVersion}/models/${model.remoteModel}:generateContent`, 'POST', {
         contents: request.messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.text }] })),
         ...(request.systemInstruction === undefined ? {} : { systemInstruction: { parts: [{ text: request.systemInstruction }] } }),
-        generationConfig: { candidateCount: 1, maxOutputTokens: request.maxOutputTokens,
-          ...(config.transport === 'generate_content' && config.thinking ? { thinkingConfig: 'level' in config.thinking
-            ? { thinkingLevel: config.thinking.level } : { thinkingBudget: config.thinking.budget } } : {}),
-          ...(format === undefined ? {} : { responseFormat: { text: { mimeType: 'application/json', schema: format } } }) },
+        generationConfig: generationConfig(config, request.maxOutputTokens, format),
         ...(capability === 'research' ? { tools: [{ googleSearch: {} }] } : {}),
       }, usage, config.maxResponseBytes, call);
       return decode(data);
