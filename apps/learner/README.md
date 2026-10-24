@@ -56,6 +56,10 @@ The profile editor and the study-days choice in delayed checks follow the saved 
 
 Server snapshots and receipts remain authoritative. The UI does not fabricate passed checks, update credits optimistically, or convert practice into independent credit. Browser state is user-editable and is not an authorization boundary.
 
+### Notifications
+
+`src/connected/Notifications.web.tsx` puts a bell beside the course menu once the learner is signed in. It lists the learner's own notifications (`GET /api/me/notifications`, at most 50 per page): the course was moved to a newer version, a newer version is offered, and the companion answered a question while the learner was away (no study session activity in the last two minutes). **Open** marks one read (`POST /api/me/notifications/read`) and opens that course, and the companion for an answer. The server keeps at most 200 per person, deletes read ones after 30 days and every one after 180, and deletes them with the enrollment or account on erasure. There is no email or push.
+
 ## Companion: real persisted messages, honest asynchronous state
 
 `src/client/companionClient.ts` exports `ContextualCompanionClient`, `CompanionContext`, `CompanionMessage`, and `CompanionReceipt`. The default client uses the implemented endpoints:
