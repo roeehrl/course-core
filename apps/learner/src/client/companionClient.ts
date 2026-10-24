@@ -477,6 +477,13 @@ export function companionCouldNotAnswer(message: CompanionMessage): boolean {
   return message.role === "learner" && message.job_state === "failed" &&
     (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
 }
+/** A question that ended without an answer the learner can use: Core refused the reply, or the
+ * question was cancelled or its reply stopped. It offers "Ask this question again", which puts
+ * its text back in the draft to send as a new question. */
+export function companionCanAskAgain(message: CompanionMessage, draft?: CompanionDraft): boolean {
+  if (message.role !== "learner" || message.content === "[deleted]") return false;
+  return companionCouldNotAnswer(message) || message.job_state === "cancelled" || draft?.state === "cancelled";
+}
 /** A pending question the learner may cancel or ask again: queued or held up, not once its reply
  * is under way (a draft opened, or the job is running or checking): that one offers Stop. */
 export function companionCanCancel(message: CompanionMessage, draft?: CompanionDraft): boolean {
@@ -501,4 +508,44 @@ export function companionHasPending(
         "dead_letter",
       ].includes(message.job_state ?? ""),
   );
+}
+
+/** TeX commands read as their symbol in a plain excerpt. */
+const TEX_SYMBOLS: Readonly<Record<string, string>> = {
+  cdot: "·", times: "×", div: "÷", le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", ne: "≠", approx: "≈",
+  to: "→", rightarrow: "→", leftarrow: "←", pm: "±", infty: "∞", partial: "∂", sum: "Σ", alpha: "α", beta: "β",
+  theta: "θ", lambda: "λ", mu: "μ", sigma: "σ", eta: "η", nabla: "∇", ldots: "…", dots: "…",
+};
+/**
+ * A short excerpt as plain text: the Markdown and TeX marks a reply or lesson text may carry are
+ * dropped (emphasis, code, headings, lists, links, tables, `$…$`), so "Context used" reads as
+ * words, not syntax. Plain text that happens to use `*` or `_` (`2*3*4`, `w_new`) is kept.
+ * Not a renderer: formatting is the stored reply's job.
+ */
+export function plainExcerpt(text: string): string {
+  return text
+    .replace(/```[^\n]*\n?/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
+    .replace(/^[ \t]{0,3}>[ \t]?/gm, "")
+    .replace(/^[ \t]*(?:[-*+]|\d{1,3}[.)])[ \t]+/gm, "")
+    .replace(/^[ \t]*\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)*\|?[ \t]*$/gm, "")
+    .replace(/^[ \t]*\|[ \t]*|[ \t]*\|[ \t]*$/gm, "")
+    .replace(/\s*\|\s*/g, " · ")
+    .replace(/(\*\*|__|~~)(?=\S)([^\n]+?)(?<=\S)\1/g, "$2")
+    .replace(/(^|[^\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])/g, "$1$2")
+    .replace(/(^|[^\w])_(?=\S)([^_\n]+?)(?<=\S)_(?!\w)/g, "$1$2")
+    .replace(/\$\$([^$]+)\$\$|\$(?=\S)([^$\n]+?)(?<=\S)\$(?!\d)/g, "$1$2")
+    .replace(/\\[()[\]]/g, "")
+    .replace(/\\(?:text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, "$1")
+    .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2")
+    .replace(/\\(?:left|right|big|Big|bigg|Bigg)(?=[^a-zA-Z])/g, "")
+    .replace(/\\([a-zA-Z]+)/g, (_, name: string) => TEX_SYMBOLS[name] ?? name)
+    .replace(/\\([_{}%&#$])/g, "$1")
+    .replace(/[{}]/g, "")
+    .replace(/^(?:\s*·\s*)+|(?:\s*·\s*)+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }

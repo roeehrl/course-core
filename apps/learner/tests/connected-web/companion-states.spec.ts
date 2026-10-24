@@ -13,7 +13,8 @@ import heDock from "../../src/i18n/messages/he/companionDock.json";
 // The companion's question states in the real app, over the real event stream, in English and
 // Hebrew: a queued question offers "Stop waiting"; the moment its reply's call is sent (the draft
 // opens) it offers Stop instead, within a second of the first draft text at the latest; a question
-// held by a spending limit says that help is paused, why, and that staff were told. The model is
+// held by a spending limit says that help is paused, why, and that staff were told; a reply that
+// arrives below the fold is brought into view; a stopped question can be asked again. The model is
 // scripted by the test host; no provider is called.
 const text = {
   en: { companion: enCompanion, job: enJob, host: enHost, preview: enPreview, dock: enDock },
@@ -100,6 +101,49 @@ for (const locale of ["en", "he"] as const) {
     await expect(page.getByRole("status").filter({ hasText: t.companion["state.paused"] })).toBeVisible();
     await expect(heldCard.getByRole("button", { name: t.companion.retry, exact: true })).toBeVisible();
     // The notice fits: no sideways scrolling at this size, in either direction.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test(`replies arrive in view in the panel or sheet, and a stopped question can be asked again (${locale})`, async ({ page, request }, info) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    const t = text[locale];
+    const token = (await (await request.post("/test/session")).json()).token;
+    await openCompanion(page, locale, token, !info.project.name.endsWith("desktop"));
+    const log = page.getByRole("log", { name: t.companion.log });
+    // The question sits at the bottom edge of what the learner sees, so its reply starts below the fold.
+    const toBottom = (q: string) => card(page, locale, q).evaluate((element) => element.scrollIntoView({ block: "end" }));
+
+    // A streaming draft is brought into view when its first text arrives, and kept there while it grows.
+    const streamed = `In view question ${locale} ${Date.now()}`;
+    await ask(page, locale, streamed);
+    await toBottom(streamed);
+    expect((await (await request.post("/test/companion-draft", { data: { question: streamed,
+      pieces: ["Picture both values on a number line. ", "The one farther left is smaller. ", "So compare positions."], end: "complete", gapMs: 300 } })).json()).opened).toBe(true);
+    const draft = page.getByLabel(t.companion["reply.region"], { exact: true });
+    await expect(draft).toContainText("Picture both values on a number line.");
+    await expect(draft).toBeInViewport({ ratio: 0.9 });
+    await expect(draft).toContainText("So compare positions.");
+    await expect(draft).toBeInViewport({ ratio: 0.9 });
+
+    // A stored reply that arrives (here without a draft) is brought into view too.
+    const answered = `Answered question ${locale} ${Date.now()}`, answer = `The stored reply for ${locale}: compare the positions on the line.`;
+    await ask(page, locale, answered);
+    await toBottom(answered);
+    expect((await (await request.post("/test/companion-job", { data: { question: answered, state: "applied", answer } })).json()).updated).toBe(true);
+    const reply = log.getByText(answer, { exact: true });
+    await expect(reply).toBeVisible({ timeout: 15_000 });
+    await expect(reply).toBeInViewport({ ratio: 0.9 });
+
+    // A question stopped after its call was sent offers Ask again, which puts its text back.
+    const stopped = `Stopped question ${locale} ${Date.now()}`;
+    await ask(page, locale, stopped);
+    expect((await (await request.post("/test/companion-job", { data: { question: stopped, state: "cancelled" } })).json()).updated).toBe(true);
+    const stoppedCard = card(page, locale, stopped);
+    await expect(stoppedCard.getByText(t.job["job.cancelledSent"], { exact: true })).toBeVisible({ timeout: 15_000 });
+    await stoppedCard.getByRole("button", { name: t.companion.askAgain, exact: true }).click();
+    await expect(page.getByRole("textbox", { name: t.companion["draft.label"], exact: true })).toHaveValue(stopped);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     expect(errors).toEqual([]);
   });

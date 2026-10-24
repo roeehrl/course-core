@@ -97,8 +97,8 @@ that is already over:
 | Saved, no call sent yet | "Queued · not sent yet" | Stop waiting for this answer, Cancel and ask again (costs nothing) |
 | Call sent (the draft opened, or the saved job runs) | "Sent · a reply is being written", then the draft | Stop this reply |
 | Written, being checked | "Preparing a reply · checking it before it is shown" | Stop this reply |
-| Cancelled before a call was sent | "Cancelled before it was sent · nothing was used" | Ask again |
-| Stopped after its call was sent | "Stopped after it was sent · what that call used still counts toward this course's AI use" | Ask again |
+| Cancelled before a call was sent | "Cancelled before it was sent · nothing was used" | Ask this question again (puts its text back in the box) |
+| Stopped after its call was sent | "Stopped after it was sent · what that call used still counts toward this course's AI use" | Ask this question again |
 | Held by a spending limit | "Help is paused" with the limit (the course's AI budget, the learner's own allowance, or today's) and that staff were told | Stop waiting, Cancel and ask again |
 
 The switch to Stop comes from the dispatch frame itself (and a read of the conversation it
@@ -110,6 +110,16 @@ shows within seconds. The conversation read reports `job_sent` (a call for the q
 started: reserved and sent, settled or still unknown) and, for a held question, `job_ceiling`
 (`workspace`, `enrollment`, `daily` or `artifact`). Cancelling keeps its meaning: a call already
 sent is settled from its receipt, never resent.
+
+A reply that arrives below the fold is brought into view in the panel and in the phone sheet, with
+the least movement: the draft when its first text arrives and while it grows (until it fills the
+view, when its start stays at the top to read), then the stored reply. Once the learner scrolls
+the panel (wheel, touch or a scrolling key) after asking, their place is kept; the first load of a
+conversation scrolls nothing, and reduced motion is honoured.
+
+A question cancelled or stopped before it was answered is not context for later answers ("Context
+used" does not list it), and "Context used" shows its excerpts as plain words, without Markdown or
+TeX marks.
 
 A question held by a spending limit also tells staff at once: the transaction that stops the job
 at the limit writes a `help_paused` notification for every staff member who can change limits

@@ -18,6 +18,9 @@ import {
   companionJobLabel,
   companionState,
   companionHasPending,
+  companionCanAskAgain,
+  plainExcerpt,
+  type CompanionContextUsed,
   applyDraftFrame,
   type CompanionDraft,
   type CompanionContext,
@@ -772,6 +775,83 @@ describe("streamed companion replies (T01)", () => {
     expect(screen.getByRole("button", { name: "עצירת התשובה" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "להפסיק לחכות לתשובה הזו" })).toBeNull();
     expect(screen.getByText("נשלחה · התשובה נכתבת עכשיו")).toBeVisible();
+  });
+});
+
+describe("live companion findings (0.1.57 re-test)", () => {
+  const draft = (extra: Partial<CompanionDraft> = {}): CompanionDraft => ({ jobId: "job", messageId: "m", text: "Compare them on a number line. ", state: "streaming", shown: true, ...extra });
+  const panel = (messages: CompanionMessage[], props: Partial<React.ComponentProps<typeof ConnectedCompanion>> = {}) => (
+    <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={messages} episodeTitles={{}} draft="" onDraftChange={vi.fn()}
+      onSend={vi.fn()} pending={false} loaded onCancelQuestion={vi.fn()} {...props} />
+  );
+  afterEach(() => { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; });
+  it("brings the streaming draft and then the stored reply into view, but not on first load or after the learner scrolled", () => {
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element) { scrolled.push(this.getAttribute("aria-label") ?? this.textContent ?? ""); });
+    const earlier: CompanionMessage[] = [
+      { ...message, id: "q0", job_state: "applied", job_id: "j0" },
+      { id: "a0", role: "assistant", content: "An earlier answer.", context: { episodeId: "intro" }, created_at: "2026-01-01", job_id: "j0" },
+    ];
+    const asked = { ...message, job_state: "running" };
+    const { rerender, container } = render(panel([...earlier, asked]));
+    // The first load scrolls nothing.
+    expect(scrolled).toEqual([]);
+    rerender(panel([...earlier, asked], { drafts: [draft()] }));
+    expect(scrolled).toEqual(["Reply being written, not yet checked"]);
+    // It follows the draft as it grows.
+    rerender(panel([...earlier, asked], { drafts: [draft({ text: "Compare them on a number line. The one farther left is smaller. " })] }));
+    expect(scrolled).toHaveLength(2);
+    // The stored reply that replaces it is brought into view too.
+    const answer: CompanionMessage = { id: "a1", role: "assistant", content: "The stored reply.", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job" };
+    rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer], { drafts: [draft({ state: "complete" })] }));
+    expect(scrolled.at(-1)).toContain("The stored reply.");
+    // After the learner scrolls the panel, a growing reply keeps their place.
+    const count = scrolled.length;
+    rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer, { ...message, id: "m2", job_state: "running", job_id: "job2" }],
+      { drafts: [draft({ state: "complete" }), draft({ jobId: "job2", messageId: "m2", text: "A new reply starts. " })] }));
+    expect(scrolled).toHaveLength(count + 1);
+    fireEvent.wheel(container.firstElementChild!);
+    rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer, { ...message, id: "m2", job_state: "running", job_id: "job2" }],
+      { drafts: [draft({ state: "complete" }), draft({ jobId: "job2", messageId: "m2", text: "A new reply starts. And it grows. " })] }));
+    expect(scrolled).toHaveLength(count + 1);
+  });
+  it("offers Ask again on a question that was stopped or cancelled, restoring its text", () => {
+    const onDraftChange = vi.fn();
+    const { rerender } = render(panel([{ ...message, job_state: "queued" }], { onDraftChange, drafts: [draft({ state: "cancelled", text: "" })] }));
+    expect(screen.getByText("You stopped this reply. Nothing of it was kept.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Ask this question again" }));
+    expect(onDraftChange).toHaveBeenCalledWith("Why does it change?");
+    rerender(panel([{ ...message, job_state: "cancelled", job_sent: true }], { onDraftChange }));
+    expect(screen.getByRole("button", { name: "Ask this question again" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
+    // Not on a question still waiting or answered, nor on a deleted one.
+    expect(companionCanAskAgain({ ...message, job_state: "queued" })).toBe(false);
+    expect(companionCanAskAgain({ ...message, job_state: "applied" })).toBe(false);
+    expect(companionCanAskAgain({ ...message, job_state: "cancelled", content: "[deleted]" })).toBe(false);
+  });
+  it("says in Hebrew that an unchecked draft may change or be removed, not that it may continue", () => {
+    render(<I18nProvider value={createLearnerTranslator("he")}>{panel([{ ...message, job_state: "running" }], { drafts: [draft()] })}</I18nProvider>);
+    expect(screen.getByText("בכתיבה · עדיין לא נבדקה, ולכן ייתכן שתשתנה או שתוסר")).toBeVisible();
+    expect(screen.queryByText(/להימשך/)).toBeNull();
+  });
+  it("shows context used as plain words, not Markdown or TeX", () => {
+    expect(plainExcerpt("* **Application state, not training:** Saving logs")).toBe("Application state, not training: Saving logs");
+    expect(plainExcerpt("### Step 0: Setup from *Checkpoint*")).toBe("Step 0: Setup from Checkpoint");
+    expect(plainExcerpt("loading parameters into $w$ and running $w=2$ to $w=2.6$")).toBe("loading parameters into w and running w=2 to w=2.6");
+    expect(plainExcerpt("$$\\frac{dL}{dw} = -6$$ and \\text{w\\_new} = 2 - 0.1 \\cdot 6")).toBe("dL/dw = -6 and w_new = 2 - 0.1 · 6");
+    expect(plainExcerpt("| Boundary | Weight |\n|---|---|\n| a | b |")).toBe("Boundary · Weight a · b");
+    expect(plainExcerpt("Use `prediction = w*x` or [the lesson](https://example.com)")).toBe("Use prediction = w*x or the lesson");
+    // Plain text that uses the same characters keeps them.
+    expect(plainExcerpt("2*3*4, w_new, snake_case and $5 or $6")).toBe("2*3*4, w_new, snake_case and $5 or $6");
+    expect(plainExcerpt("לא, זו אינה הסקה טהורה אלא **כוונון עדין (fine-tuning)**")).toBe("לא, זו אינה הסקה טהורה אלא כוונון עדין (fine-tuning)");
+    const used: CompanionContextUsed = { episodeId: "intro", blockId: null, answersMessageId: "m", contextRevision: 2, courseDigest: "digest", recentEventCursor: null,
+      history: [{ messageId: "a0", role: "assistant", excerpt: "**Fine-tuning** updates *weights* by $w - \\eta g$", clipped: false, excluded: false }],
+      summary: null, selection: null, media: null, simulation: null, evidenceCount: 0, assessmentMode: "none",
+      constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" } };
+    render(panel([{ ...message, job_state: "applied" }, { id: "a", role: "assistant", content: "Reply", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job", context_used: used }]));
+    fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
+    expect(screen.getByText(/Companion: “Fine-tuning updates weights by w - η g”/)).toBeVisible();
+    expect(screen.queryByText(/\*\*/)).toBeNull();
   });
 });
 

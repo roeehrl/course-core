@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 import type {
   CompanionContext,
   CompanionDraft,
@@ -7,13 +7,14 @@ import type {
   CompanionReceipt,
 } from "../client/companionClient";
 import {
+  companionCanAskAgain,
   companionCanCancel,
-  companionCouldNotAnswer,
   companionDraftFor,
   companionHeldByLimit,
   companionJobLabel,
   companionReplyStarted,
   companionState,
+  plainExcerpt,
 } from "../client/companionClient";
 import { useOnline } from "../hooks/useOnline";
 import { CourseApiError } from "../client/apiClient";
@@ -194,6 +195,8 @@ export function ConnectedCompanion({
     }
     const submitted = current.current.draft,
       scope = context.episodeId;
+    // The reply to this question is brought into view when it arrives (useReveal).
+    reveal.follow();
     setSendError("");
     setSent(undefined);
     try {
@@ -220,8 +223,9 @@ export function ConnectedCompanion({
     }
   }
   const stateLabel = t(`connectedCompanion.state.${state}` as MessageKey);
+  const reveal = useReveal(context.enrollmentId, messages, drafts, loaded);
   return (
-    <View style={{ gap: 18 }}>
+    <View ref={reveal.root} style={{ gap: 18 }}>
       <Badge label={t("connectedCompanion.badge")} tone="lilac" />
       <View accessibilityRole="none" style={{ gap: 4 }}>
         <Text
@@ -271,6 +275,7 @@ export function ConnectedCompanion({
           return (
           <React.Fragment key={message.id}>
           <View
+            ref={message.role === "assistant" ? reveal.node(`reply:${message.id}`) : undefined}
             style={[
               styles.card,
               {
@@ -351,7 +356,7 @@ export function ConnectedCompanion({
                 onPress={() => void stop(message.id)}
               />
             )}
-            {companionCouldNotAnswer(message) && message.content !== "[deleted]" && (
+            {companionCanAskAgain(message, replyDraft) && (
               // Asking again is a new question: it goes back into the draft to send as usual.
               <Button label={t("connectedCompanion.askAgain")} kind="quiet" onPress={() => onDraftChange(message.content)} />
             )}
@@ -387,7 +392,7 @@ export function ConnectedCompanion({
             )}
           </View>
           {message.role === "learner" && (
-            <DraftReply draft={replyDraft} connected={streamConnected} />
+            <DraftReply draft={replyDraft} connected={streamConnected} nodeRef={replyDraft ? reveal.node(`draft:${replyDraft.jobId}`) : undefined} />
           )}
           </React.Fragment>
           );
@@ -525,13 +530,83 @@ export function ConnectedCompanion({
   );
 }
 
+/** Keys a learner uses to scroll; typing in a field is not scrolling. */
+const SCROLL_KEYS = new Set(["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "]);
+/**
+ * Web: a reply arriving below the fold is brought into view, in the panel and in the phone sheet,
+ * with the least movement (`block: "nearest"`): the draft when its first text arrives and while it
+ * grows, until it fills the view and its start stays at the top to read; then the stored reply that
+ * replaces it, or one that arrives without a draft. Not after the learner scrolled the panel (wheel,
+ * touch or a scrolling key) since the question was sent or the reply started: their place is kept.
+ * The first load of a conversation scrolls nothing. Honours reduced motion. Native: no-op.
+ */
+function useReveal(enrollmentId: string, messages: readonly CompanionMessage[], drafts: readonly CompanionDraft[], loaded: boolean) {
+  const root = useRef<View>(null), nodes = useRef(new Map<string, View | null>()), refs = useRef(new Map<string, (node: View | null) => void>());
+  const moved = useRef(false), followed = useRef(""), known = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const element = root.current as unknown as HTMLElement | null;
+    if (Platform.OS !== "web" || typeof element?.addEventListener !== "function") return;
+    const away = () => { moved.current = true; };
+    const key = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (SCROLL_KEYS.has(event.key) && !target?.closest?.("input,textarea,select,[contenteditable=true]")) away();
+    };
+    element.addEventListener("wheel", away, { passive: true });
+    element.addEventListener("touchmove", away, { passive: true });
+    element.addEventListener("keydown", key);
+    return () => {
+      element.removeEventListener("wheel", away);
+      element.removeEventListener("touchmove", away);
+      element.removeEventListener("keydown", key);
+    };
+  }, []);
+  useEffect(() => { known.current = null; }, [enrollmentId]);
+  const show = (key: string) => {
+    const element = nodes.current.get(key) as unknown as HTMLElement | null | undefined;
+    if (Platform.OS !== "web" || moved.current || typeof element?.scrollIntoView !== "function") return;
+    const still = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: still ? "auto" : "smooth" });
+  };
+  const answered = (jobId: string) => messages.some((m) => m.role === "assistant" && m.job_id === jobId);
+  const live = drafts.find((draft) => (draft.state === "streaming" || draft.state === "complete") && draft.text && !answered(draft.jobId));
+  useEffect(() => {
+    if (!live) return;
+    // A new reply starting is followed even if the learner scrolled while waiting for it.
+    if (followed.current !== live.jobId) { followed.current = live.jobId; moved.current = false; }
+    show(`draft:${live.jobId}`);
+  }, [live?.jobId, live?.text.length]);
+  useEffect(() => {
+    if (!loaded) return;
+    const replies = messages.filter((m) => m.role === "assistant");
+    if (known.current === null) { known.current = new Set(replies.map((m) => m.id)); return; }
+    const fresh = replies.filter((m) => !known.current!.has(m.id));
+    for (const reply of fresh) known.current.add(reply.id);
+    if (fresh.length) show(`reply:${fresh.at(-1)!.id}`);
+  }, [messages, loaded]);
+  return {
+    root,
+    /** A stable callback ref that records one reply's node. */
+    node(key: string) {
+      let ref = refs.current.get(key);
+      if (!ref) {
+        ref = (node: View | null) => { if (node) nodes.current.set(key, node); else nodes.current.delete(key); };
+        refs.current.set(key, ref);
+        if (refs.current.size > 400) refs.current.delete(refs.current.keys().next().value!);
+      }
+      return ref;
+    },
+    /** The learner sent a question: its reply is followed from where they are now. */
+    follow() { moved.current = false; },
+  };
+}
+
 /**
  * A reply the companion is still writing. Plain text (no formatting until the checked reply
  * replaces it), clearly labelled as not yet checked. The text itself is not a live region: a
  * screen reader is not interrupted at every word. The status line above announces "replying"
  * once, and the checked reply is announced once when it enters the conversation log.
  */
-function DraftReply({ draft, connected }: { draft?: CompanionDraft; connected: boolean }) {
+function DraftReply({ draft, connected, nodeRef }: { draft?: CompanionDraft; connected: boolean; nodeRef?: (node: View | null) => void }) {
   const t = useT();
   if (!draft) return null;
   if (draft.state === "withdrawn" || draft.state === "cancelled") {
@@ -545,6 +620,7 @@ function DraftReply({ draft, connected }: { draft?: CompanionDraft; connected: b
   if (!draft.text) return null;
   return (
     <View
+      ref={nodeRef}
       aria-live="off"
       aria-busy={draft.state === "streaming"}
       accessibilityLabel={t("connectedCompanion.reply.region")}
@@ -592,23 +668,23 @@ function ContextUsed({
         <View style={{ gap: 8 }}>
           {question && (
             <Text style={styles.small}>
-              {t("connectedCompanion.context.answering", { question: clip(question) })}
+              {t("connectedCompanion.context.answering", { question: clip(plainExcerpt(question), question.length > 160) })}
             </Text>
           )}
           {used.selection && (
             <Text style={styles.small}>
               {!used.selection.lineStart
-                ? t("connectedCompanion.context.pointed", { kind: selectionLabel(used.selection.kind, t), excerpt: used.selection.excerpt })
+                ? t("connectedCompanion.context.pointed", { kind: selectionLabel(used.selection.kind, t), excerpt: plainExcerpt(used.selection.excerpt) })
                 : used.selection.lineEnd !== used.selection.lineStart
                   ? t("connectedCompanion.context.pointedLines", {
                       kind: selectionLabel(used.selection.kind, t),
-                      excerpt: used.selection.excerpt,
+                      excerpt: plainExcerpt(used.selection.excerpt),
                       start: used.selection.lineStart,
                       end: used.selection.lineEnd ?? "",
                     })
                   : t("connectedCompanion.context.pointedLine", {
                       kind: selectionLabel(used.selection.kind, t),
-                      excerpt: used.selection.excerpt,
+                      excerpt: plainExcerpt(used.selection.excerpt),
                       line: used.selection.lineStart,
                     })}
             </Text>
@@ -633,7 +709,7 @@ function ContextUsed({
               <Text style={styles.small}>
                 {t(row.excluded ? "connectedCompanion.context.rowExcluded" : "connectedCompanion.context.row", {
                   role: row.role === "learner" ? "learner" : "companion",
-                  excerpt: `${row.excerpt}${row.clipped || row.excerpt.length >= 160 ? "…" : ""}`,
+                  excerpt: `${plainExcerpt(row.excerpt)}${row.clipped || row.excerpt.length >= 160 ? "…" : ""}`,
                 })}
               </Text>
               {onExclude && row.role === "learner" && (
@@ -660,7 +736,7 @@ function ContextUsed({
               {used.summary.items.map((item) => (
                 <View key={item.messageId} style={{ gap: 4 }}>
                   <Text style={styles.small}>
-                    {t(item.excluded ? "connectedCompanion.context.itemExcluded" : "connectedCompanion.context.item", { excerpt: item.excerpt })}
+                    {t(item.excluded ? "connectedCompanion.context.itemExcluded" : "connectedCompanion.context.item", { excerpt: plainExcerpt(item.excerpt) })}
                   </Text>
                   {onExclude && (
                     <Button
