@@ -1,5 +1,6 @@
 {
   "example": "דוגמה",
   "codeRegion": "קוד {language}, אפשר לגלול",
-  "exampleRegion": "קוד לדוגמה, אפשר לגלול"
+  "exampleRegion": "קוד לדוגמה, אפשר לגלול",
+  "tableRegion": "טבלה, ניתנת לגלילה"
 }

@@ -1,5 +1,6 @@
 {
   "example": "Example",
   "codeRegion": "{language} code, scrollable",
-  "exampleRegion": "Example code, scrollable"
+  "exampleRegion": "Example code, scrollable",
+  "tableRegion": "Table, scrollable"
 }

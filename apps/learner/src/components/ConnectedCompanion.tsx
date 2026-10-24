@@ -630,7 +630,7 @@ function DraftReply({ draft, connected, nodeRef }: { draft?: CompanionDraft; con
       <Text style={styles.small}>
         {t(draft.state === "streaming" ? "connectedCompanion.reply.writing" : "connectedCompanion.reply.checking")}
       </Text>
-      <Text style={[styles.body, { writingDirection: "auto" } as object]}>{draft.text}</Text>
+      <MarkdownContent markdown={draft.text} streaming={draft.state === "streaming"} />
       {!connected && draft.state === "streaming" && (
         <Text style={styles.small}>{t("connectedCompanion.reply.reconnecting")}</Text>
       )}

@@ -36,6 +36,7 @@ import en_lessonSteps from "./messages/en/lessonSteps.json";
 import en_loadingLine from "./messages/en/loadingLine.json";
 import en_localeSwitcher from "./messages/en/localeSwitcher.json";
 import en_markdownContent from "./messages/en/markdownContent.json";
+import en_mathText from "./messages/en/mathText.json";
 import en_notifications from "./messages/en/notifications.json";
 import en_overlay from "./messages/en/overlay.json";
 import en_passkeys from "./messages/en/passkeys.json";
@@ -109,6 +110,7 @@ import he_lessonSteps from "./messages/he/lessonSteps.json";
 import he_loadingLine from "./messages/he/loadingLine.json";
 import he_localeSwitcher from "./messages/he/localeSwitcher.json";
 import he_markdownContent from "./messages/he/markdownContent.json";
+import he_mathText from "./messages/he/mathText.json";
 import he_notifications from "./messages/he/notifications.json";
 import he_overlay from "./messages/he/overlay.json";
 import he_passkeys from "./messages/he/passkeys.json";
@@ -184,6 +186,7 @@ export const en = {
   loadingLine: en_loadingLine,
   localeSwitcher: en_localeSwitcher,
   markdownContent: en_markdownContent,
+  mathText: en_mathText,
   notifications: en_notifications,
   overlay: en_overlay,
   passkeys: en_passkeys,
@@ -259,6 +262,7 @@ export const he: PartialCatalog<typeof en> = {
   loadingLine: he_loadingLine,
   localeSwitcher: he_localeSwitcher,
   markdownContent: he_markdownContent,
+  mathText: he_mathText,
   notifications: he_notifications,
   overlay: he_overlay,
   passkeys: he_passkeys,
