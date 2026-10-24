@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { effectiveDigestSql } from './carried-digest.js';
 import { canonicalJson } from '@course-core/sdk/compiler';
 import type { CourseManifest } from '@course-core/sdk';
 import type { LearnerCourse } from '@course-core/sdk/compiler';
@@ -63,7 +64,7 @@ export async function loadEnrollmentRecords(client: PoolClient, enrollment: Enro
   const release = await resolveEnrollmentCourse(client, enrollment, base);
   const progress = (await client.query<ProgressRow>('SELECT * FROM episode_progress WHERE enrollment_id=$1', [id])).rows;
   const evidence = (await client.query<EvidenceRow>(
-    `SELECT e.id,e.attempt_id,e.objective_id,e.independent,e.result,e.created_at,a.family_id,a.assessment_id,a.course_digest,a.mode
+    `SELECT e.id,e.attempt_id,e.objective_id,e.independent,e.result,e.created_at,a.family_id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode
      FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
      WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [id])).rows;
   return { enrollment, release, progress, evidence, signals: await attemptSignals(client, id) };
@@ -71,7 +72,7 @@ export async function loadEnrollmentRecords(client: PoolClient, enrollment: Enro
 /** Attempt outcomes for readiness status (help, review, misconception signals). Confidence is never read. */
 export async function attemptSignals(client: PoolClient, enrollmentId: string): Promise<AttemptSignal[]> {
   const rows = (await client.query<{ id: string; assessment_id: string; course_digest: string; mode: string; submitted_at: Date; result: Record<string, unknown> | null; decision: string | null; reviewed_at: Date | null; continued: boolean }>(
-    `SELECT a.id,a.assessment_id,a.course_digest,a.mode,a.submitted_at,a.result,v.decision,v.created_at AS reviewed_at,
+    `SELECT a.id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode,a.submitted_at,a.result,v.decision,v.created_at AS reviewed_at,
        EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS continued
      FROM attempts a LEFT JOIN rubric_reviews v ON v.attempt_id=a.id WHERE a.enrollment_id=$1 ORDER BY a.submitted_at,a.id`, [enrollmentId])).rows;
   return rows.map(row => {

@@ -11,6 +11,13 @@
  * POST /api/admin/courses/:courseId/version-moves/:moveId/confirm    {previewDigest, reason, acknowledgeLostCredit}.
  * POST /api/admin/courses/:courseId/version-moves/:moveId/undo       {reason, enrollmentIds?}: back where safe.
  * POST /api/admin/courses/:courseId/version-moves/:moveId/cancel     cancels the moves still waiting.
+ * POST /api/admin/courses/:courseId/version-moves/:moveId/learners/:enrollmentId/force  {reason}: moves a
+ *        learner refused for personal changes who did not accept the offer; their changes are archived.
+ *
+ * The learner's side of an offer (their own enrollment, an enrollment command: expectedRevision and
+ * idempotencyKey):
+ * POST /api/enrollments/:enrollmentId/version-offer/accept   {moveId}: moved now, or at the next safe boundary.
+ * POST /api/enrollments/:enrollmentId/version-offer/decline  {moveId}: stays on this version with their changes.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PoolClient } from 'pg';
@@ -21,7 +28,8 @@ import { requireCondition } from './errors.js';
 import { roleCan } from './course-access.js';
 import { catalogFor } from './admin-routes.js';
 import type { RuntimeExtension } from './publication.js';
-import { cancelWaiting, confirmMove, moveDetail, previewMove, undoMove, versionLearners, versionMovesView, withNames } from './course-version-moves.js';
+import { cancelWaiting, confirmMove, decideMoveOffer, forceMove, moveDetail, previewMove, undoMove, versionLearners, versionMovesView, withNames } from './course-version-moves.js';
+import { enrollmentCommand, type CommandInput } from './repository.js';
 
 type Auth = ReturnType<typeof authService>;
 const uuid = z.uuid();
@@ -97,6 +105,16 @@ export function registerCourseVersionMoveRoutes(app: FastifyInstance, db: Databa
       return { ...result, move: await moveDetail(client, result.moveId) };
     });
   });
+  app.post(`${base}/:moveId/learners/:enrollmentId/force`, async request => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async client => {
+      const catalog = await writer(client, actor, params(request).courseId!);
+      const input = parse(z.strictObject({ reason }), request.body);
+      await ownMove(client, catalog.id, params(request).moveId!);
+      const enrollmentId = parse(uuid, params(request).enrollmentId);
+      return forceMove(client, catalog, actor.id, { moveId: params(request).moveId!, enrollmentId, reason: input.reason }, installed);
+    });
+  });
   app.post(`${base}/:moveId/cancel`, async request => {
     const actor = await auth.authenticate(request);
     return transaction(db, async client => {
@@ -106,5 +124,14 @@ export function registerCourseVersionMoveRoutes(app: FastifyInstance, db: Databa
       const result = await cancelWaiting(client, catalog, actor.id, params(request).moveId!);
       return { ...result, move: await moveDetail(client, result.moveId) };
     });
+  });
+
+  const offerBody = z.strictObject({ moveId: uuid, expectedRevision: z.number().int().min(1), idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/) });
+  for (const action of ['accept', 'decline'] as const) app.post(`/api/enrollments/:enrollmentId/version-offer/${action}`, async request => {
+    const actor = await auth.authenticate(request);
+    const enrollmentId = parse(uuid, params(request).enrollmentId);
+    const input = parse(offerBody, request.body) as CommandInput & { moveId: string };
+    return enrollmentCommand(db, actor, enrollmentId, `course_version.offer.${action}`, input, (client, context) =>
+      decideMoveOffer(client, context.enrollment, actor.id, { moveId: input.moveId, accept: action === 'accept' }, installed));
   });
 }

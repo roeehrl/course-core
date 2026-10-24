@@ -36,7 +36,7 @@ export function changeProvenance(adapterIds: string[]): { provenance: "author_re
 export async function personalChanges(client: PoolClient, context: EnrollmentContext) {
   const rows = (
     await client.query(
-      `SELECT p.id,p.body,p.assignments,x.plan_revision,x.applied_at,r.reverted_at,r.plan_revision AS reverted_revision,v.report AS validation,
+      `SELECT p.id,p.course_release_id,p.body,p.assignments,x.plan_revision,x.applied_at,r.reverted_at,r.plan_revision AS reverted_revision,v.report AS validation,
          COALESCE((SELECT array_agg(DISTINCT f.adapter_id) FROM adaptation_proofs f WHERE f.proposal_id=p.id AND f.enrollment_id=p.enrollment_id),'{}') AS adapters
        FROM adaptation_applications x JOIN adaptation_proposals p ON p.id=x.proposal_id AND p.enrollment_id=x.enrollment_id
        LEFT JOIN adaptation_reverts r ON r.enrollment_id=x.enrollment_id AND r.proposal_id=x.proposal_id
@@ -63,6 +63,9 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
     const artifacts = (row.body?.artifacts ?? []) as { id: string; kind: string; sourceRefs?: string[]; assessment?: { id: string } }[];
     const { provenance, unverified } = changeProvenance(row.adapters as string[]);
     const reverted = Boolean(row.reverted_at);
+    // Made on an earlier course version: a version move archived it (personal_change_archives). It
+    // stays in the learner's history and export but is no longer delivered, hidden or undone.
+    const archived = row.course_release_id !== context.enrollment.course_release_id;
     const hasVariant = artifacts.some((a) => a.kind === "assessment_variant");
     return ((row.body?.operations ?? []) as { id: string; type: string; episodeId?: string; blockId?: string; artifactId: string }[]).map((op) => {
       const blockId = op.type === "replace_teaching" ? op.blockId! : op.id;
@@ -86,7 +89,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         // A reverted change is no longer delivered; its classification comes from its recorded decision.
         classification: requirement?.classification
           ?? ((row.assignments ?? []) as { operationId: string; classification?: string }[]).find((a) => a.operationId === op.id)?.classification ?? "unknown",
-        hideable: optional && !reverted,
+        hideable: optional && !reverted && !archived,
         hidden: hidden.has(`${episodeId}/${blockId}`),
         provenance,
         unverified,
@@ -100,8 +103,9 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         ...(row.validation ? { validation: { hostChecks: (row.validation.hostChecks ?? []).map((c: { id: string }) => c.id),
           courseChecks: (row.validation.courseChecks?.checks ?? []).length, boundary: row.validation.boundary } } : {}),
         reverted,
+        archived,
         revertedAt: reverted ? new Date(row.reverted_at).toISOString() : null,
-        revertable: !reverted && !hasVariant && op.type !== "suggest_profile_correction" && !blockedBy(row),
+        revertable: !reverted && !archived && !hasVariant && op.type !== "suggest_profile_correction" && !blockedBy(row),
       };
     });
   });

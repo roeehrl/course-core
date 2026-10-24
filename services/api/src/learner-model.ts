@@ -14,6 +14,7 @@ import type { EvidenceRow } from './learning.js';
 import { gateFamilies, gateItemIds, gateObjectives } from './gates.js';
 import { providerHypotheses } from './teaching-hypotheses.js';
 import { USABLE_MESSAGE } from './context-capsule.js';
+import { effectiveDigestSql } from './carried-digest.js';
 
 /**
  * Integration contract (parent registers this module before app.ready()):
@@ -256,7 +257,7 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
   const retention = new Map((await client.query<{ objective_id: string; due_at: Date | null; retained_at: Date | null; needs_review: boolean }>(
     'SELECT objective_id,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 AND objective_id=ANY($2::text[])', [context.enrollment.id, ids])).rows.map(r => [r.objective_id, r]));
   const practice = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT e.objective_id,count(DISTINCT e.attempt_id) AS n FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
-    WHERE e.enrollment_id=$1 AND e.objective_id=ANY($2::text[]) AND e.invalidated_at IS NULL AND a.course_digest=$3 GROUP BY e.objective_id`, [context.enrollment.id, ids, context.digest])).rows.map(r => [r.objective_id, Number(r.n)]));
+    WHERE e.enrollment_id=$1 AND e.objective_id=ANY($2::text[]) AND e.invalidated_at IS NULL AND ${effectiveDigestSql()}=$3 GROUP BY e.objective_id`, [context.enrollment.id, ids, context.digest])).rows.map(r => [r.objective_id, Number(r.n)]));
   // Open second-opinion appeals on a written answer, and the learner's own open evidence disputes.
   const disputes = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT objective_id,count(*) AS n FROM (
       SELECT e.objective_id,p.id FROM rubric_appeals p JOIN evidence e ON e.attempt_id=p.attempt_id AND e.enrollment_id=p.enrollment_id
@@ -275,13 +276,13 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
     // At most 101 distinct families per objective. Gates can require at most 100.
     // Omitted older families cannot turn an unmet threshold into a false pass.
     requireCondition(gateFamilies(gate) <= 100, 'UNSUPPORTED_GATE_LIMIT', 409);
-    const rows = (await client.query<EvidenceRow & { attempt_id: string; disputed: boolean; excluded: boolean; evaluator_ref: string; recorded_at: Date }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,a.course_digest,a.mode,
+    const rows = (await client.query<EvidenceRow & { attempt_id: string; disputed: boolean; excluded: boolean; evaluator_ref: string; recorded_at: Date }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode,
         e.evaluator_ref,e.created_at AS recorded_at,
         ${CONTROL_FLAGS}
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
       WHERE e.enrollment_id=$1 AND e.objective_id=$2 AND e.independent AND e.invalidated_at IS NULL
         AND e.result->'passed'='true'::jsonb AND a.result->'passed'='true'::jsonb
-        AND a.assistance='none' AND a.mode IN ('independent','placement') AND a.course_digest=$3 AND a.assessment_id=ANY($4::text[])
+        AND a.assistance='none' AND a.mode IN ('independent','placement') AND ${effectiveDigestSql()}=$3 AND a.assessment_id=ANY($4::text[])
       ORDER BY a.family_id,e.created_at,e.id LIMIT 101`, [context.enrollment.id, objectiveId, context.digest, gateItemIds(gate)])).rows;
     // Per-objective family threshold; a versioned gate's transfer and misconception rules are in its decision.
     const demonstrated = rows.length >= gateFamilies(gate);
