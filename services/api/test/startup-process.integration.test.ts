@@ -34,10 +34,10 @@ const startupLines = (stderr: string) => stderr.split('\n').filter(line => line.
 
 describe('API process startup', () => {
   it('a database that refuses connections fails at db_connect with one line and a non-zero exit', async () => {
-    const result = await start({ DATABASE_URL: 'postgres://nobody:canary-password@127.0.0.1:1/course_core_none', PORT: await freePort() });
+    const result = await start({ DATABASE_URL: 'postgres://course_ci:course_ci_test_only@127.0.0.1:1/course_core_test', PORT: await freePort() });
     expect(result.code).not.toBe(0);
     expect(startupLines(result.stderr)).toEqual([{ startup: 'failed', step: 'db_connect', code: 'ECONNREFUSED', hint: expect.any(String) }]);
-    expect(result.stderr).not.toContain('canary-password');
+    expect(result.stderr).not.toContain('course_ci_test_only');
   }, 70_000);
   it('an invalid setting fails at configuration and names it', async () => {
     const result = await start({ DATABASE_URL: testDatabase!.url, PORT: 'not-a-port' });
