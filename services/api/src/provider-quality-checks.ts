@@ -62,7 +62,8 @@ type Configuration = z.infer<typeof providerConfigurationSchema>;
 const idempotencyKey = z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/);
 const startSchema = z.union([
   z.strictObject({ idempotencyKey, draftId: z.string().uuid() }),
-  z.strictObject({ idempotencyKey, target: z.literal("active") }),
+  // `role` checks that one job of the active setup only (the page's "Run check" beside a flagged job).
+  z.strictObject({ idempotencyKey, target: z.literal("active"), role: z.enum(EVAL_ROLES as [EvalRole, ...EvalRole[]]).optional() }),
 ]);
 type Target = "draft" | "active";
 interface CheckRow {
@@ -146,9 +147,9 @@ export class ProviderQualityChecks {
   /**
    * What a check would run, cost and need; `blocked` says why it cannot start. `draft` checks the
    * open draft's changed jobs; `active` checks the active setup's covered jobs that lack a passing
-   * check or an owner approval for their current revision and the current suite.
+   * check or an owner approval for their current revision and the current suite (only `only`, when given).
    */
-  private async plan(client: Database | PoolClient, workspace: string, target: Target) {
+  private async plan(client: Database | PoolClient, workspace: string, target: Target, only?: EvalRole) {
     const suite = this.providers.evalSuite, old = await this.providers.version(client, workspace);
     const nothing = (code: string) => ({ target, draft: null, old, configuration: null, jobPolicy: null, runtime: null, roles: [], conversations: 0,
       reserve: { microUsd: 0, tokens: 0 }, blocked: { code } as { code: string; roles?: EvalRole[]; neededMicroUsd?: number; availableMicroUsd?: number },
@@ -171,7 +172,7 @@ export class ProviderQualityChecks {
       configuration = providerConfigurationSchema.parse(old.configuration);
       jobPolicy = jobPolicySchema.parse(old.job_policy);
       const unchecked = await uncheckedRoles(client, workspace, suite, configuration);
-      needed = EVAL_ROLES.filter((role) => unchecked.some((r) => r.role === role && r.covered));
+      needed = EVAL_ROLES.filter((role) => unchecked.some((r) => r.role === role && r.covered) && (!only || role === only));
       if (!needed.length) return nothing("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
       secrets = this.providers.activeSecrets(workspace, old);
     }
@@ -269,6 +270,16 @@ export class ProviderQualityChecks {
       const latest = (await client.query<CheckRow>(
         "SELECT * FROM provider_quality_checks WHERE workspace_id=$1 ORDER BY created_at DESC,id LIMIT 1", [workspace])).rows[0];
       const running = latest?.state === "running";
+      // Each job that is on and needs a check, with what checking it alone would run and cost and why
+      // it cannot start now: the page flags each one with its own "Run check", draft open or not.
+      const activeRoles = [];
+      const onNow = plan.target === "active" ? plan : await this.plan(client, workspace, "active");
+      for (const r of onNow.roles) {
+        const alone = await this.plan(client, workspace, "active", r.role);
+        activeRoles.push({ role: r.role, remoteModel: r.remoteModel, conversations: alone.conversations, priced: !r.paid || !!r.pricing,
+          estimateMicroUsd: alone.estimateMicroUsd, reserveMicroUsd: alone.reserve.microUsd,
+          blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : alone.blocked });
+      }
       return {
         target: offered ? plan.target : null,
         draftId: plan.draft?.id ?? null,
@@ -280,6 +291,7 @@ export class ProviderQualityChecks {
         typicalTokens: TYPICAL_TOKENS,
         blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : plan.blocked,
         latest: latest ? this.view(latest, await this.charged(client, latest.id)) : null,
+        activeRoles,
       };
     });
   }
@@ -294,13 +306,14 @@ export class ProviderQualityChecks {
     });
   }
 
-  /** Starts a check of the open draft (`draftId`) or of the active setup (`target: "active"`), for owners and
+  /** Starts a check of the open draft (`draftId`) or of the active setup (`target: "active"`, optionally one `role`), for owners and
    * administrators. Returns at once; the run continues on the server. */
   async start(actor: Actor, workspace: string, raw: unknown) {
     const parsed = startSchema.safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_QUALITY_CHECK_INVALID", 400);
-    const input = parsed.data, target: Target = "draftId" in input ? "draft" : "active";
-    const digest = sha256(JSON.stringify("draftId" in input ? { workspace, actor: actor.id, draftId: input.draftId } : { workspace, actor: actor.id, target }));
+    const input = parsed.data, target: Target = "draftId" in input ? "draft" : "active", only = "role" in input ? input.role : undefined;
+    const digest = sha256(JSON.stringify("draftId" in input ? { workspace, actor: actor.id, draftId: input.draftId }
+      : { workspace, actor: actor.id, target, ...(only ? { role: only } : {}) }));
     let launch: (() => void) | undefined;
     const result = await afterCommitTransaction(this.db, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["provider-quality-check:" + workspace]);
@@ -322,7 +335,7 @@ export class ProviderQualityChecks {
       // The workspace budget row is locked before the headroom decision, as every paid admission does.
       await client.query("INSERT INTO supervisor_workspace_budgets(workspace_id) VALUES($1) ON CONFLICT DO NOTHING", [workspace]);
       await client.query("SELECT 1 FROM supervisor_workspace_budgets WHERE workspace_id=$1 FOR UPDATE", [workspace]);
-      const locked = await this.plan(client, workspace, target);
+      const locked = await this.plan(client, workspace, target, only);
       if ("draftId" in input && (!locked.draft || locked.draft.id !== input.draftId)) throw new ApiError(404, "PROVIDER_DRAFT_NOT_FOUND");
       if (locked.blocked) {
         const { code, ...details } = locked.blocked;
