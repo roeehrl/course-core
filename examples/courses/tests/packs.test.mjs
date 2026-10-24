@@ -64,7 +64,7 @@ test('code fixtures ship beside the pack, match the declared integrity and agree
 });
 test('the Spanish role-play is a reviewed rubric item: good answers can be cited for every required criterion, weak ones cannot', () => {
   const report = validatePack(spanish);
-  assert.deepEqual(report.itemTypes, ['choice', 'rubric']);
+  assert.deepEqual(report.itemTypes, ['choice', 'rubric', 'trace']);
   assert.deepEqual(report.extensions, ['course-core-reviewed-rubric']);
   const rolePlays = spanish.assessments.filter(a => a.type === 'rubric');
   assert.equal(rolePlays.length, 4);
@@ -139,6 +139,7 @@ test('numeric teaching keys are independently recomputed from the stated inputs'
     ['nl-moves-endpoint-3', -6 - 2 + 5], ['nl-moves-endpoint-4', 2 + 3 - 8],
     ['nl-distance-gap-1', Math.abs(3 - (-5))], ['nl-distance-gap-2', Math.abs(-2 - (-8))],
     ['nl-distance-gap-3', Math.abs(6 - 1) + Math.abs(2 - 6)], ['nl-distance-gap-4', Math.abs(1 - (-3)) * 2],
+    ['pj-notice-record-1', 6], ['pj-notice-record-2', 7 - 5], ['pj-notice-record-3', 3 * 2], ['pj-notice-record-4', 9],
     ['pj-measure-difference-1', 11 - 8], ['pj-measure-difference-2', 14 - 12.5],
     ['pj-measure-difference-3', 90 / 10 - 9], ['pj-measure-difference-4', 8.5 - 7.5],
     ['pj-compare-summary-1', 10 - 6], ['pj-compare-summary-2', 6 - 3],

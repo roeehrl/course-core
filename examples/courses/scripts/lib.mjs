@@ -32,15 +32,20 @@ export async function codeFixtureFiles(course) {
   }
   return files;
 }
-const GRADED_HERE = new Set(['choice', 'numeric']);
+const GRADED_HERE = new Set(['choice', 'numeric', 'trace']);
 export const episodes = course => course.chapters.flatMap(chapter => chapter.episodes);
 export function correctAnswer(item) {
+  if (item.type === 'trace') return Object.fromEntries(item.grading.expected.map(key => [key.stepId, key.answer]));
   return item.type === 'numeric' ? item.grading.expected : item.grading.correctOptionId;
 }
 export function wrongAnswer(item) {
+  if (item.type === 'trace') return Object.fromEntries(item.steps.map(step => [step.id, 'no lo sé']));
   return item.type === 'numeric' ? item.grading.expected + 1000 : item.options.find(option => option.id !== item.grading.correctOptionId).id;
 }
+/** The pack's own key check, written independently of Core's grader (case_insensitive trace steps). */
 export function grade(item, answer) {
+  if (item.type === 'trace') return Boolean(answer) && typeof answer === 'object' && item.grading.match === 'case_insensitive'
+    && item.grading.expected.every(key => typeof answer[key.stepId] === 'string' && answer[key.stepId].trim().toLowerCase() === key.answer.trim().toLowerCase());
   return item.type === 'numeric'
     ? typeof answer === 'number' && Number.isFinite(answer) && Math.abs(answer - item.grading.expected) <= item.grading.absoluteTolerance
     : typeof answer === 'string' && answer === item.grading.correctOptionId;
@@ -99,13 +104,15 @@ export function validatePack(course) {
     wordCount += words;
     const gate = course.gates.find(gate => gate.id === episode.gateId);
     assert(gate && gate.requireAllObjectives && gate.minimumIndependentFamilies === 2);
+    // Recognition alone never passes a checkpoint: each offers a task where the learner produces the answer.
+    assert(gate.assessmentIds.some(id => known.get(id)?.type !== 'choice'), `${gate.id} offers only choice items`);
     assert.deepEqual(gate.objectiveIds, episode.objectiveIds);
     assert.equal(gate.assessmentIds.length, 8);
     for (const objective of episode.objectiveIds) {
       const familyCounts = new Map();
       for (const id of gate.assessmentIds) {
         const item = known.get(id); assert(item && item.objectiveIds.includes(objective));
-        assert(['choice', 'numeric', 'code', 'rubric'].includes(item.type));
+        assert(['choice', 'numeric', 'trace', 'code', 'rubric'].includes(item.type));
         familyCounts.set(item.familyId, (familyCounts.get(item.familyId) ?? 0) + 1);
         if (GRADED_HERE.has(item.type)) {
           assert(grade(item, correctAnswer(item)));

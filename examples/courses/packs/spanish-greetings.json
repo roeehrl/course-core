@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "spanish-greetings",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "title": "A first conversation in Spanish",
   "summary": "Choose useful greetings, exchange names and close a short conversation, then write your side of a short role-play that a teacher reviews against a rubric. English explanations; no pronunciation score or fluency claim.",
   "locale": "en",
@@ -200,29 +200,23 @@
   ],
   "assessments": [
     {
-      "type": "choice",
-      "prompt": "Which phrase is the time-specific morning greeting?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the Spanish greeting for the afternoon (two words).",
+      "steps": [
         {
-          "id": "a",
-          "text": "Buenas noches"
-        },
-        {
-          "id": "b",
-          "text": "Buenos días"
-        },
-        {
-          "id": "c",
-          "text": "Gracias"
-        },
-        {
-          "id": "d",
-          "text": "Adiós"
+          "id": "answer",
+          "prompt": "Afternoon greeting"
         }
       ],
       "grading": {
-        "correctOptionId": "b",
-        "explanation": "Buenos días is the morning greeting. The prompt asks for a time-specific expression."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Buenas tardes"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Buenas tardes greets someone in the afternoon."
       },
       "id": "sg-hello-meaning-1",
       "objectiveIds": [
@@ -262,29 +256,23 @@
       "familyId": "sg-hello-response"
     },
     {
-      "type": "choice",
-      "prompt": "What does Hola do at the beginning of a conversation?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the one-word general Spanish hello that fits any time of day.",
+      "steps": [
         {
-          "id": "a",
-          "text": "It opens with a general hello."
-        },
-        {
-          "id": "b",
-          "text": "It asks for a person's age."
-        },
-        {
-          "id": "c",
-          "text": "It thanks someone."
-        },
-        {
-          "id": "d",
-          "text": "It promises a meeting tomorrow."
+          "id": "answer",
+          "prompt": "General hello"
         }
       ],
       "grading": {
-        "correctOptionId": "a",
-        "explanation": "Hola is a general greeting rather than a question or a promise about another meeting."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Hola"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Hola is the general greeting for any time of day."
       },
       "id": "sg-hello-meaning-2",
       "objectiveIds": [
@@ -324,29 +312,23 @@
       "familyId": "sg-hello-response"
     },
     {
-      "type": "choice",
-      "prompt": "Someone arrives in the evening and says Buenas noches. What is its role in this scene?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the Spanish greeting for arriving in the evening (two words).",
+      "steps": [
         {
-          "id": "a",
-          "text": "A request for directions."
-        },
-        {
-          "id": "b",
-          "text": "A statement of their name."
-        },
-        {
-          "id": "c",
-          "text": "An apology for an error."
-        },
-        {
-          "id": "d",
-          "text": "A greeting on arrival."
+          "id": "answer",
+          "prompt": "Evening greeting"
         }
       ],
       "grading": {
-        "correctOptionId": "d",
-        "explanation": "The arrival context makes Buenas noches an evening greeting here."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Buenas noches"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Buenas noches greets someone on arrival in the evening."
       },
       "id": "sg-hello-meaning-3",
       "objectiveIds": [
@@ -386,29 +368,23 @@
       "familyId": "sg-hello-response"
     },
     {
-      "type": "choice",
-      "prompt": "Which distinction is accurate?",
-      "options": [
+      "type": "trace",
+      "prompt": "A classmate greets you with the general hello. Type the same general greeting back (one word).",
+      "steps": [
         {
-          "id": "a",
-          "text": "Hola can only be used at night."
-        },
-        {
-          "id": "b",
-          "text": "Buenos días is a farewell only."
-        },
-        {
-          "id": "c",
-          "text": "Hola is general; buenos días explicitly refers to the morning."
-        },
-        {
-          "id": "d",
-          "text": "Both phrases ask for a name."
+          "id": "answer",
+          "prompt": "Your greeting back"
         }
       ],
       "grading": {
-        "correctOptionId": "c",
-        "explanation": "Both can open a morning exchange, but only buenos días is time-specific."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Hola"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Returning Hola answers a general hello with the same general greeting."
       },
       "id": "sg-hello-meaning-4",
       "objectiveIds": [
@@ -448,29 +424,23 @@
       "familyId": "sg-hello-response"
     },
     {
-      "type": "choice",
-      "prompt": "What information does ¿Cómo te llamas? request?",
-      "options": [
+      "type": "trace",
+      "prompt": "Complete the introduction for the name Inés with the two Spanish words that mean my name is: ___ Inés.",
+      "steps": [
         {
-          "id": "a",
-          "text": "A location."
-        },
-        {
-          "id": "b",
-          "text": "A name."
-        },
-        {
-          "id": "c",
-          "text": "A time of day."
-        },
-        {
-          "id": "d",
-          "text": "A price."
+          "id": "answer",
+          "prompt": "The two missing words"
         }
       ],
       "grading": {
-        "correctOptionId": "b",
-        "explanation": "The question asks the person's name in the tú form."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Me llamo"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Me llamo introduces the speaker's name."
       },
       "id": "sg-names-intent-1",
       "objectiveIds": [
@@ -510,29 +480,23 @@
       "familyId": "sg-names-exchange"
     },
     {
-      "type": "choice",
-      "prompt": "What does Me llamo Iris do in an introduction?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the two Spanish words you say after exchanging names, meaning nice to meet you.",
+      "steps": [
         {
-          "id": "a",
-          "text": "It gives the speaker's name."
-        },
-        {
-          "id": "b",
-          "text": "It says goodbye."
-        },
-        {
-          "id": "c",
-          "text": "It asks for help."
-        },
-        {
-          "id": "d",
-          "text": "It says the speaker is tired."
+          "id": "answer",
+          "prompt": "Nice to meet you"
         }
       ],
       "grading": {
-        "correctOptionId": "a",
-        "explanation": "Me llamo followed by a name identifies what the speaker is called."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Mucho gusto"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Mucho gusto acknowledges meeting someone."
       },
       "id": "sg-names-intent-2",
       "objectiveIds": [
@@ -572,29 +536,23 @@
       "familyId": "sg-names-exchange"
     },
     {
-      "type": "choice",
-      "prompt": "Which phrase asks the addressed person's name using usted?",
-      "options": [
+      "type": "trace",
+      "prompt": "Introduce yourself as Sol in Spanish: type the two words for my name is, then the name.",
+      "steps": [
         {
-          "id": "a",
-          "text": "¿Cómo te llamas?"
-        },
-        {
-          "id": "b",
-          "text": "Hola"
-        },
-        {
-          "id": "c",
-          "text": "Mucho gusto"
-        },
-        {
-          "id": "d",
-          "text": "¿Cómo se llama usted?"
+          "id": "answer",
+          "prompt": "Your introduction"
         }
       ],
       "grading": {
-        "correctOptionId": "d",
-        "explanation": "The usted-form question is ¿Cómo se llama usted? The exercise specifies the form of address."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Me llamo Sol"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Me llamo followed by the name gives your name."
       },
       "id": "sg-names-intent-3",
       "objectiveIds": [
@@ -634,29 +592,23 @@
       "familyId": "sg-names-exchange"
     },
     {
-      "type": "choice",
-      "prompt": "After Me llamo Diego, what does ¿Y tú? invite in this informal exchange?",
-      "options": [
+      "type": "trace",
+      "prompt": "Someone says Me llamo Ana. Introduce yourself as Leo the same way.",
+      "steps": [
         {
-          "id": "a",
-          "text": "A weather report."
-        },
-        {
-          "id": "b",
-          "text": "A thank-you only."
-        },
-        {
-          "id": "c",
-          "text": "The other person's name."
-        },
-        {
-          "id": "d",
-          "text": "A farewell only."
+          "id": "answer",
+          "prompt": "Your introduction"
         }
       ],
       "grading": {
-        "correctOptionId": "c",
-        "explanation": "The preceding name statement supplies the context for And you?"
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Me llamo Leo"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Use the same pattern: Me llamo and then your name."
       },
       "id": "sg-names-intent-4",
       "objectiveIds": [
@@ -696,29 +648,23 @@
       "familyId": "sg-names-exchange"
     },
     {
-      "type": "choice",
-      "prompt": "Which phrase commonly acknowledges someone saying Gracias?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the usual two-word Spanish reply when someone says Gracias to you.",
+      "steps": [
         {
-          "id": "a",
-          "text": "Por favor"
-        },
-        {
-          "id": "b",
-          "text": "De nada"
-        },
-        {
-          "id": "c",
-          "text": "¿Y tú?"
-        },
-        {
-          "id": "d",
-          "text": "Buenos días"
+          "id": "answer",
+          "prompt": "Your reply"
         }
       ],
       "grading": {
-        "correctOptionId": "b",
-        "explanation": "De nada is a common response to thanks; it acknowledges the preceding Gracias."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "De nada"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "De nada is the usual reply to Gracias."
       },
       "id": "sg-courtesy-purpose-1",
       "objectiveIds": [
@@ -758,29 +704,23 @@
       "familyId": "sg-courtesy-situation"
     },
     {
-      "type": "choice",
-      "prompt": "Which phrase adds please to a request?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the two Spanish words that add please to a request.",
+      "steps": [
         {
-          "id": "a",
-          "text": "Por favor"
-        },
-        {
-          "id": "b",
-          "text": "Hasta mañana"
-        },
-        {
-          "id": "c",
-          "text": "Adiós"
-        },
-        {
-          "id": "d",
-          "text": "Me llamo"
+          "id": "answer",
+          "prompt": "Please"
         }
       ],
       "grading": {
-        "correctOptionId": "a",
-        "explanation": "Por favor accompanies a request. It is not the usual way to respond to thanks."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Por favor"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Por favor adds please to a request."
       },
       "id": "sg-courtesy-purpose-2",
       "objectiveIds": [
@@ -820,29 +760,23 @@
       "familyId": "sg-courtesy-situation"
     },
     {
-      "type": "choice",
-      "prompt": "Which farewell explicitly mentions tomorrow?",
-      "options": [
+      "type": "trace",
+      "prompt": "Type the one Spanish word for thank you.",
+      "steps": [
         {
-          "id": "a",
-          "text": "Mucho gusto"
-        },
-        {
-          "id": "b",
-          "text": "Hola"
-        },
-        {
-          "id": "c",
-          "text": "Gracias"
-        },
-        {
-          "id": "d",
-          "text": "Hasta mañana"
+          "id": "answer",
+          "prompt": "Thank you"
         }
       ],
       "grading": {
-        "correctOptionId": "d",
-        "explanation": "Mañana supplies the tomorrow meaning in this farewell."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "Gracias"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "Gracias means thank you."
       },
       "id": "sg-courtesy-purpose-3",
       "objectiveIds": [
@@ -882,29 +816,23 @@
       "familyId": "sg-courtesy-situation"
     },
     {
-      "type": "choice",
-      "prompt": "Which option is a general goodbye?",
-      "options": [
+      "type": "trace",
+      "prompt": "Someone thanks you for holding the door. Type your two-word Spanish reply.",
+      "steps": [
         {
-          "id": "a",
-          "text": "De nada"
-        },
-        {
-          "id": "b",
-          "text": "Por favor"
-        },
-        {
-          "id": "c",
-          "text": "Adiós"
-        },
-        {
-          "id": "d",
-          "text": "¿Cómo te llamas?"
+          "id": "answer",
+          "prompt": "Your reply"
         }
       ],
       "grading": {
-        "correctOptionId": "c",
-        "explanation": "Adiós is a general farewell; the other phrases have different conversational jobs."
+        "expected": [
+          {
+            "stepId": "answer",
+            "answer": "De nada"
+          }
+        ],
+        "match": "case_insensitive",
+        "explanation": "De nada answers someone who thanks you."
       },
       "id": "sg-courtesy-purpose-4",
       "objectiveIds": [
