@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFetchAdminClient } from "../src/client/fetchClient";
 import { AuditView } from "../src/views/AuditView";
@@ -172,6 +172,206 @@ describe("course overview", () => {
     expect(text()).toContain("שתי קריאות AI ב-7 הימים האחרונים");
     expect(screen.getByText("פעיל")).toBeVisible();
     expect(screen.getByText("1.2.0")).toHaveAttribute("dir", "ltr");
+  });
+});
+
+describe("AI jobs that need a check, on the course overview", () => {
+  const en = createAdminTranslator("en");
+  const evals = {
+    suite: {
+      id: "core-public",
+      version: "2",
+      digest: "f".repeat(64),
+      dialogues: 18,
+      coverage: [],
+    },
+    providerRevision: 2,
+    gatedAtActivation: true,
+    roles: [
+      {
+        role: "supervisor",
+        strategy: "core.supervisor.tool-loop",
+        revisionDigest: "a".repeat(64),
+        covered: true,
+        status: "stale",
+        grandfathered: true,
+        activatedBy: "unchanged",
+      },
+      {
+        role: "companion",
+        strategy: "core.companion.tutor",
+        revisionDigest: "b".repeat(64),
+        covered: true,
+        status: "passed",
+        grandfathered: false,
+        activatedBy: "passed",
+      },
+    ],
+    results: [],
+    overrides: [],
+  };
+  const quality = {
+    target: "active",
+    draftId: null,
+    roles: [],
+    conversations: 2,
+    estimateMicroUsd: 42000,
+    reserveMicroUsd: 200000,
+    blocked: null,
+    latest: null,
+    activeRoles: [
+      {
+        role: "supervisor",
+        remoteModel: "m",
+        conversations: 2,
+        priced: true,
+        estimateMicroUsd: 42000,
+        reserveMicroUsd: 200000,
+        blocked: null,
+      },
+    ],
+  };
+  const aiClient = (aiServices: object) =>
+    ({
+      mode: "connected",
+      overview: overviewClient.overview,
+      aiServices,
+    }) as unknown as AdminClient;
+
+  it("flags each unchecked job that is on, runs the check for that job only, and links to AI services", async () => {
+    const started = {
+      id: "00000000-0000-4000-8000-0000000000c1",
+      target: "active",
+      draftId: null,
+      state: "running",
+      reason: null,
+      roles: ["supervisor"],
+      total: 2,
+      completed: 0,
+      estimateMicroUsd: 42000,
+      reservedMicroUsd: 200000,
+      chargedMicroUsd: null,
+      outcome: [],
+      createdAt: null,
+      finishedAt: null,
+      deadlineAt: null,
+    };
+    const port = {
+      evals: vi.fn(async () => evals),
+      qualityStatus: vi.fn(async () => quality),
+      startQualityCheck: vi.fn(async () => started),
+      qualityCheck: vi.fn(async () => started),
+    };
+    const open = vi.fn();
+    render(
+      <OverviewView
+        data={workspace(["provider.configure"])}
+        client={aiClient(port)}
+        onOpenAiServices={open}
+      />,
+    );
+    const card = await screen.findByTestId("overview-ai-checks");
+    expect(
+      within(card).getByText(en.t("overviewView.aiChecks.body", { count: 1 })),
+    ).toBeVisible();
+    // Only the job that needs a check is flagged; the checked one is not.
+    expect(within(card).getAllByRole("listitem")).toHaveLength(1);
+    expect(
+      within(card).getByText(en.t("aiServices.check.flag.needsCheck")),
+    ).toBeVisible();
+    fireEvent.click(
+      within(card).getByRole("button", {
+        name: en.t("aiServices.check.flag.runFor", {
+          job: en.t("aiServices.role.supervisor.name"),
+        }),
+      }),
+    );
+    expect(port.startQualityCheck).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000001",
+      {
+        target: "active",
+        role: "supervisor",
+        idempotencyKey: expect.stringMatching(/^ai-services:/),
+      },
+    );
+    expect(await within(card).findByRole("progressbar")).toBeInTheDocument();
+    fireEvent.click(
+      within(card).getByRole("button", {
+        name: en.t("overviewView.aiChecks.open"),
+      }),
+    );
+    expect(open).toHaveBeenCalled();
+  });
+
+  it("shows nothing to people who can't set up AI services, when nothing needs a check, or when the status can't be read", async () => {
+    const port = {
+      evals: vi.fn(async () => evals),
+      qualityStatus: vi.fn(async () => quality),
+    };
+    const { unmount } = render(
+      <OverviewView data={workspace([])} client={aiClient(port)} />,
+    );
+    expect(await screen.findByText("Approval queue")).toBeVisible();
+    expect(screen.queryByTestId("overview-ai-checks")).toBeNull();
+    expect(port.evals).not.toHaveBeenCalled();
+    unmount();
+    const passed = {
+      ...evals,
+      roles: evals.roles.map((r) => ({ ...r, status: "passed" })),
+    };
+    const quiet = {
+      evals: vi.fn(async () => passed),
+      qualityStatus: vi.fn(async () => quality),
+    };
+    const second = render(
+      <OverviewView
+        data={workspace(["provider.configure"])}
+        client={aiClient(quiet)}
+      />,
+    );
+    expect(await screen.findByText("Approval queue")).toBeVisible();
+    await vi.waitFor(() => expect(quiet.qualityStatus).toHaveBeenCalled());
+    expect(screen.queryByTestId("overview-ai-checks")).toBeNull();
+    second.unmount();
+    const refused = {
+      evals: vi.fn(async () => Promise.reject(new Error("FORBIDDEN"))),
+      qualityStatus: vi.fn(),
+    };
+    render(
+      <OverviewView
+        data={workspace(["provider.configure"])}
+        client={aiClient(refused)}
+      />,
+    );
+    expect(await screen.findByText("Approval queue")).toBeVisible();
+    expect(screen.queryByTestId("overview-ai-checks")).toBeNull();
+  });
+
+  it("flags the job in Hebrew", async () => {
+    const he = createAdminTranslator("he");
+    const port = {
+      evals: vi.fn(async () => evals),
+      qualityStatus: vi.fn(async () => quality),
+    };
+    render(
+      <I18nProvider value={he}>
+        <OverviewView
+          data={workspace(["provider.configure"])}
+          client={aiClient(port)}
+        />
+      </I18nProvider>,
+    );
+    const card = await screen.findByTestId("overview-ai-checks");
+    expect(
+      within(card).getByText(he.t("aiServices.check.flag.needsCheck")),
+    ).toBeVisible();
+    expect(
+      within(card).getByRole("button", {
+        name: he.t("aiServices.check.flag.runFor", {
+          job: he.t("aiServices.role.supervisor.name"),
+        }),
+      }),
+    ).toBeVisible();
   });
 });
 

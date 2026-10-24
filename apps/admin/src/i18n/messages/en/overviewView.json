@@ -59,5 +59,9 @@
   "jobState.needs_input": "needs input",
   "jobState.follow_up_due": "follow up due",
   "health.uncheckedTitle": "AI ran with a setup nobody checked",
-  "health.uncheckedBody": "{count, plural, one {One AI call} other {# AI calls}} in the last 7 days used a setup with no passing quality check and no owner approval (for example after an update changed how a job asks its model). They still ran. Run the quality check or approve the setup on the AI services page."
+  "health.uncheckedBody": "{count, plural, one {One AI call} other {# AI calls}} in the last 7 days used a setup with no passing quality check and no owner approval (for example after an update changed how a job asks its model). They still ran. Run the quality check or approve the setup on the AI services page.",
+  "aiChecks.title": "AI jobs that need a quality check",
+  "aiChecks.body": "{count, plural, one {# AI job is on but hasn't passed the current quality checks, for example after an update.} two {# AI jobs are on but haven't passed the current quality checks, for example after an update.} other {# AI jobs are on but haven't passed the current quality checks, for example after an update.}} They keep working for learners. Run a check for each one here, or open AI services for details.",
+  "aiChecks.cleared": "Every AI job that is on has passed the current quality checks or has an owner's approval.",
+  "aiChecks.open": "Open AI services"
 }
