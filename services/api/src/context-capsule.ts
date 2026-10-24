@@ -145,13 +145,22 @@ export const USABLE_MESSAGE = `m.content NOT IN ('[erased]','[deleted]')
       AND NOT EXISTS (SELECT 1 FROM companion_context_exclusions x WHERE x.message_id=m.id AND x.enrollment_id=m.enrollment_id AND x.ended_at IS NULL)
       AND EXISTS (SELECT 1 FROM enrollments n WHERE n.id=m.enrollment_id AND n.status<>'erased')`;
 const REQUEST_EVENT = `(SELECT e.id FROM learning_events e WHERE e.enrollment_id=m.enrollment_id AND e.event_type='companion.requested' AND e.payload->>'messageId'=m.id::text LIMIT 1)`;
+/** SQL over `companion_messages m`: a learner question that was cancelled or stopped before it was
+ * answered (by the learner, or its job by the host). It was never part of the conversation the
+ * companion held, so later answers do not take it as context. */
+const UNANSWERED_CANCELLED = `(m.role='learner' AND NOT EXISTS (SELECT 1 FROM companion_messages a WHERE m.job_id IS NOT NULL AND a.enrollment_id=m.enrollment_id
+      AND a.job_id=m.job_id AND a.role='assistant')
+    AND (EXISTS (SELECT 1 FROM learning_events ce WHERE ce.enrollment_id=m.enrollment_id AND ce.event_type='companion.question.cancelled' AND ce.payload->>'messageId'=m.id::text)
+      OR EXISTS (SELECT 1 FROM supervisor_jobs j WHERE j.id=m.job_id AND j.enrollment_id=m.enrollment_id AND (j.state='cancelled' OR j.cancellation_requested))))`;
 
 /** Episode-scoped, bounded conversation retrieval with references. Messages the
- * learner excluded, erased or deleted, other lessons and other course versions
- * are never read; the current question is left out (it is the question). */
+ * learner excluded, erased or deleted, questions cancelled or stopped before an answer, other
+ * lessons and other course versions are never read; the current question is left out (it is the
+ * question). */
 export async function retrieveConversation(client: PoolClient, input: { enrollmentId: string; episodeId: string; courseDigest: string; currentMessageId?: string; before?: Date }) {
   const base = `FROM companion_messages m WHERE m.enrollment_id=$1 AND ${inLesson('$2', '$3')}
-      AND m.id<>COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') AND ($5::timestamptz IS NULL OR m.created_at<=$5) AND ${USABLE_MESSAGE}`;
+      AND m.id<>COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') AND ($5::timestamptz IS NULL OR m.created_at<=$5) AND ${USABLE_MESSAGE}
+      AND NOT ${UNANSWERED_CANCELLED}`;
   const args = [input.enrollmentId, input.episodeId, input.courseDigest, input.currentMessageId ?? null, input.before ?? null];
   const rows = (await client.query<{ id: string; role: 'learner' | 'assistant'; content: string; length: number; created_at: Date; event_id: string | null }>(
     `SELECT m.id,m.role,left(m.content,${RETRIEVAL_LIMITS.messageCharacters}) AS content,char_length(m.content) AS length,m.created_at,${REQUEST_EVENT} AS event_id

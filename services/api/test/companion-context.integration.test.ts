@@ -231,6 +231,37 @@ describe('bounded, episode-scoped retrieval with references', () => {
   });
 });
 
+describe('questions cancelled or stopped before an answer', () => {
+  it('are not context for later answers, whoever cancelled them; answered and waiting ones still are', async () => {
+    const f = await fresh();
+    const kept = (await ask(f, 'KEPT_QUESTION waits for its answer')).json();
+    const stopped = (await ask(f, 'STOPPED_BY_LEARNER question')).json();
+    const cancel = await app.inject({ method: 'POST', url: `/api/enrollments/${f.id}/companion/messages/${stopped.messageId}/cancel`, headers: f.headers,
+      payload: { expectedRevision: await revision(f.id), idempotencyKey: randomUUID() } });
+    expect(cancel.statusCode, cancel.body).toBe(200);
+    // A question whose job the host cancelled (a stale revision, a provider change) never got an answer either.
+    const hostCancelled = (await ask(f, 'CANCELLED_BY_HOST question')).json(), job = randomUUID();
+    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES ($1,$2,$3,$4,'companion','cancelled',1,'{}')`,
+      [job, f.id, workspaceId, `cancelled-${job}`]);
+    await db.query('UPDATE companion_messages SET job_id=$2 WHERE id=$1', [hostCancelled.messageId, job]);
+    // An answered question stays context even if its job was later flagged.
+    const answered = (await ask(f, 'ANSWERED_QUESTION')).json(), done = randomUUID();
+    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,cancellation_requested) VALUES ($1,$2,$3,$4,'companion','applied',1,'{}',true)`,
+      [done, f.id, workspaceId, `answered-${done}`]);
+    await db.query('UPDATE companion_messages SET job_id=$2 WHERE id=$1', [answered.messageId, done]);
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant','ANSWER_TEXT',$3,$4)",
+      [randomUUID(), f.id, JSON.stringify({ episodeId: 'min', courseDigest: digest }), done]);
+    const current = (await ask(f, 'The current question.')).json();
+    const retrieved = await transaction(db, client => retrieveConversation(client, { enrollmentId: f.id, episodeId: 'min', courseDigest: digest, currentMessageId: current.messageId }));
+    const text = JSON.stringify(retrieved);
+    expect(text).not.toContain('STOPPED_BY_LEARNER'); expect(text).not.toContain('CANCELLED_BY_HOST');
+    expect(text).toContain('KEPT_QUESTION'); expect(text).toContain('ANSWERED_QUESTION'); expect(text).toContain('ANSWER_TEXT');
+    expect(retrieved.refs.map(ref => ref.messageId)).toContain(kept.messageId);
+    // The question itself stays in the learner's conversation, read as cancelled.
+    expect((await conversation(f)).find(row => row.id === stopped.messageId)).toMatchObject({ job_state: 'cancelled' });
+  });
+});
+
 describe('selection anchors and media', () => {
   it('rejects stale or foreign anchors instead of guessing, and keeps valid ones exact', async () => {
     const f = await fresh();
