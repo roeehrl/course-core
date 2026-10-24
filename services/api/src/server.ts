@@ -77,6 +77,7 @@ import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import {registerProviderEvalRoutes} from './agent-evals/routes.js';
 import {ProviderEvaluations} from './agent-evals/gate.js';
 import {registerProviderCostRoutes} from './provider-costs.js';
+import {registerLearnerSpendRoutes} from './learner-spend.js';
 import {ProviderConnections,registerProviderConnectionRoutes} from './provider-connections.js';
 import {ProviderDrafts,registerProviderDraftRoutes} from './provider-drafts.js';
 import {ProviderQualityChecks,defaultQualityCheckOptions,registerProviderQualityCheckRoutes,type QualityCheckOptions} from './provider-quality-checks.js';
@@ -202,6 +203,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   }
   // Pricing and spend views read the workspace's own bound models; they never contact a provider.
   registerProviderCostRoutes(app,db,auth,async(workspaceId,client)=>await options.workspaceProviders?.resolve(workspaceId,client)??providers);
+  registerLearnerSpendRoutes(app,db,auth);
   app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok', application: 'course-core', instanceId: options.instanceId ?? null }; });
   app.get('/api/workspaces', async request => {
     const actor = await auth.authenticate(request);
