@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { counter, type ImageOutput, type ResearchOutput } from './contracts.js';
-import { type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
+import { type GoogleModelConfig, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError } from './errors.js';
 import { parse } from './validation.js';
 
@@ -15,7 +15,19 @@ const candidateSchema = z.object({
   safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional(),
 });
 /**
- * The single candidate of a finished response. A stop at the output limit (MAX_TOKENS) is
+ * The `generationConfig` of a text request: output limit, the model's thinking setting and the
+ * structured-output format. Shared by every generateContent call path (plain and streamed), so
+ * thinking and limits are configured in one place.
+ */
+export function generationConfig(config: GoogleModelConfig, maxOutputTokens: number, format?: unknown) {
+  return { candidateCount: 1, maxOutputTokens,
+    ...(config.transport === 'generate_content' && config.thinking ? { thinkingConfig: 'level' in config.thinking
+      ? { thinkingLevel: config.thinking.level } : { thinkingBudget: config.thinking.budget } } : {}),
+    ...(format === undefined ? {} : { responseFormat: { text: { mimeType: 'application/json', schema: format } } }) };
+}
+/**
+ * The single candidate of a finished response. Also the classifier for a streamed response:
+ * apply it to the final aggregated candidate (its last finishReason and all its parts). A stop at the output limit (MAX_TOKENS) is
  * refused as INCOMPLETE_OUTPUT unless `allowCutShort` is set, in which case the candidate is
  * returned with `cutShort: true` for the caller to judge (a cut-off thinking turn may carry no
  * visible part at all, which then stays incomplete).
