@@ -140,6 +140,17 @@ const request = {
 const result = await provider.tutor(request, { signal: abortController.signal });
 ```
 
+`tutorStream(request, options, onText)` is the same call with the answer streamed: Google
+`streamGenerateContent?alt=sse` and Anthropic Messages with `stream: true`. Each visible text
+piece goes to `onText` as it arrives; thinking is never passed on. The result, its receipt and
+its errors are those of `tutor`: the answer counts only when the stream finished normally (Google
+`STOP`, Anthropic `end_turn` then `message_stop`); a block in any chunk or a `refusal` stop is
+`BLOCKED`; an `error` event or a broken stream after it began is a failure with an unknown
+outcome and is never replayed. An explicit throttle before any event is retried like `tutor`.
+The whole stream is bounded by `maxResponseBytes` and the total timeout, the wait for each next
+chunk by the attempt timeout. `ProviderRouter.tutorStream` falls back to `tutor` for an adapter
+without streaming. Streamed text is unverified model output: hosts check it before showing it.
+
 Text history starts and ends with a user message and alternates `user`/`assistant`.
 System instructions are separate. Unknown fields, empty history, non-text content and
 oversized requests fail closed. Characters are JavaScript string code units, not token
