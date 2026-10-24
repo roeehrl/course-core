@@ -345,9 +345,17 @@ tokens (optionally a cached-input price), a per-request price and, for generated
 media, a price per output second, with an effective time and a source note
 (Providers > Model prices). Money is integer micro-USD throughout; only USD is
 accepted because the paid-work budgets are kept in micro-USD. Versions are
-append-only (`provider_model_prices`, migration 039): the version in force is the
-newest one whose effective time has passed. A new version cannot take effect
-before the one it replaces, and a withdrawal makes the model unpriced again.
+append-only (`provider_model_prices`, migration 039): the version in force at a
+moment is the one with the latest effective time not after it (at equal times, the
+higher version). A new version may start at any time from the start of the version
+in force now up to a year ahead, never earlier, so what priced past calls stays as
+it was. A version already scheduled for a later time still takes effect then: a
+price saved "from now" applies until that time. A new version at exactly the
+scheduled time replaces the scheduled one; saving the price in force before it
+again at that time removes the change (the admin page offers both, and the pricing
+view lists the later versions as `scheduled`). A refused start answers
+`PROVIDER_PRICING_EFFECTIVE_DATE_INVALID` with the earliest and latest allowed
+start. A withdrawal makes the model unpriced again.
 
 **Suggested prices.** `src/price-table.ts` is a dated table of standard text prices for known
 Google and Anthropic models, copied from the providers' official pricing pages (with announced

@@ -7,7 +7,7 @@ import type { Snapshot } from '@course-core/supervisor';
 import type { authService } from './auth.js';
 import { workspaceRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
-import { requireCondition } from './errors.js';
+import { ApiError, requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
 import type { AgentRole, ProviderRuntime } from './provider-runtime.js';
 import { telemetry } from './telemetry.js';
@@ -44,6 +44,9 @@ function versionView(row: PriceRow) {
 }
 const IN_FORCE = `SELECT * FROM provider_model_prices WHERE workspace_id=$1 AND model_id=$2 AND effective_from<=clock_timestamp()
   ORDER BY effective_from DESC,version DESC LIMIT 1`;
+/** The version that takes effect at each later effective time (the highest version at that time), soonest first. */
+const SCHEDULED = `SELECT * FROM (SELECT DISTINCT ON (effective_from) * FROM provider_model_prices
+  WHERE workspace_id=$1 AND model_id=$2 AND effective_from>clock_timestamp() ORDER BY effective_from,version DESC) s ORDER BY effective_from LIMIT 10`;
 /** The active price version in force now, or null when the model is unpriced or withdrawn. */
 export async function pricingInForce(client: Queryable, workspaceId: string, modelId: string): Promise<ModelPricing | null> {
   const row = (await client.query<PriceRow>(IN_FORCE, [workspaceId, modelId])).rows[0];
@@ -231,6 +234,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     const models = [];
     for (const modelId of ids) {
       const inForce = (await db.query<PriceRow>(IN_FORCE, [workspaceId, modelId])).rows[0];
+      const scheduled = (await db.query<PriceRow>(SCHEDULED, [workspaceId, modelId])).rows;
       const active = roles.filter(b => b.modelId === modelId).map(({ role, pricingKind }) => ({ role, pricingKind }));
       const bound = active.length ? active : draftRoles.filter(b => b.modelId === modelId).map(({ role, pricingKind }) => ({ role, pricingKind }));
       const rows = history.filter(r => r.model_id === modelId);
@@ -241,6 +245,8 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
           // that price such a call stays unpriced and keeps its full reservation.
           ...(b.role === 'research' ? { serverToolsUnpriced: !inForce || inForce.status !== 'active' || inForce.micro_usd_per_server_tool_request === null } : {}) })),
         history: rows.map(versionView),
+        // Later versions already saved: each applies from its own time unless replaced at that time.
+        scheduled: scheduled.map(versionView),
         // From the bundled price table: a suggestion to confirm, never a price in force.
         suggested: origins.has(modelId) ? suggestedPrice(origins.get(modelId)!.kind, origins.get(modelId)!.remoteModel, now) : null });
     }
@@ -285,9 +291,18 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
       requireCondition((latest?.version ?? 0) === input.expectedVersion, 'STALE_PROVIDER_PRICING_VERSION', 409);
       requireCondition(input.status === 'active' || (latest && latest.status === 'active'), 'PROVIDER_PRICING_INVALID', 400);
       const now = (await client.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
-      // Never earlier than the version it replaces: the order of versions is the order in force.
-      requireCondition((!latest || effectiveFrom >= latest.effective_from) && effectiveFrom.getTime() <= now.getTime() + 366 * DAY
-        && effectiveFrom.getTime() >= now.getTime() - 3660 * DAY, 'PROVIDER_PRICING_EFFECTIVE_DATE_INVALID', 400);
+      // A new version may start any time from the start of the version in force now (never
+      // earlier, so what priced calls before it stays as it was) up to a year ahead. A version
+      // already scheduled for a later time still takes effect then; a new version at exactly that
+      // time replaces it (the in-force order is effective time, then version). With nothing in
+      // force yet only the outer bounds apply.
+      const current = (await client.query<{ effective_from: Date }>(`SELECT effective_from FROM provider_model_prices WHERE workspace_id=$1 AND model_id=$2
+        AND effective_from<=$3 ORDER BY effective_from DESC,version DESC LIMIT 1`, [workspaceId, input.modelId, now])).rows[0];
+      const earliest = new Date(Math.max(current ? current.effective_from.getTime() : -Infinity, now.getTime() - 3660 * DAY));
+      const latestAllowed = new Date(now.getTime() + 366 * DAY);
+      if (effectiveFrom < earliest || effectiveFrom > latestAllowed)
+        throw new ApiError(400, 'PROVIDER_PRICING_EFFECTIVE_DATE_INVALID', 'PROVIDER_PRICING_EFFECTIVE_DATE_INVALID',
+          { earliest: current ? current.effective_from.toISOString() : null, latest: latestAllowed.toISOString() });
       const id = randomUUID(), version = (latest?.version ?? 0) + 1;
       await client.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
           cached_input_micro_usd_per_million,micro_usd_per_request,micro_usd_per_output_second,micro_usd_per_server_tool_request,effective_from,source_note,created_by)
