@@ -324,7 +324,11 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         <tbody>
           <tr>
             <th scope="row">{t("runInspectorPanels.budgets.learner")}</th>
-            <td>{pair(p.enrollmentBudget?.limit)}</td>
+            <td>
+              {p.enrollmentBudget?.limitSource === "unlimited"
+                ? t("runInspectorPanels.budgets.noLearnerLimit")
+                : pair(p.enrollmentBudget?.limit)}
+            </td>
             <td>{pair(p.enrollmentBudget?.used)}</td>
           </tr>
           <tr>

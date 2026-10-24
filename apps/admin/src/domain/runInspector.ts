@@ -75,7 +75,15 @@ export const policiesSchema = z.object({
     .max(16),
   charged: pair.nullable(),
   enrollmentBudget: z
-    .object({ limit: pair, used: pair, daily: pair, perArtifact: pair })
+    .object({
+      limit: pair,
+      used: pair,
+      daily: pair,
+      perArtifact: pair,
+      /** Where the learner's limit comes from; "unlimited" is "no limit per learner" by the
+       * owner's choice. Older servers omit it. */
+      limitSource: z.enum(["own", "default", "unlimited"]).optional(),
+    })
     .nullable(),
   workspaceBudget: z.object({ limit: pair, used: pair }).nullable(),
   providerConfiguration: text(200),

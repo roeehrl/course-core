@@ -428,7 +428,7 @@ describe("AI services page", () => {
     const allow = await screen.findByRole("button", {
       name: "Allow spending up to $25.00",
     });
-    const learner = screen.getByLabelText(t("spending.perLearner"));
+    const learner = screen.getByLabelText(t("spending.learnerAmount"));
     expect(learner).toHaveValue("2.00");
     fireEvent.change(learner, { target: { value: "30" } });
     fireEvent.click(allow);
@@ -462,7 +462,7 @@ describe("AI services page", () => {
       <AiServicesPage workspaceId={workspace} port={fakePort()} role="owner" />,
     );
     const learner = await withoutAct(() =>
-      firstSight(() => screen.queryByLabelText(t("spending.perLearner"))),
+      firstSight(() => screen.queryByLabelText(t("spending.learnerAmount"))),
     );
     // Edited in the same task the limits appeared in, before React's pending effects ran.
     await withoutAct(async () => {
@@ -987,7 +987,7 @@ describe("AI services forms while the page reloads", () => {
       setServiceKey: vi.fn().mockResolvedValue({}),
     });
     render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
-    const learner = await screen.findByLabelText(t("spending.perLearner"));
+    const learner = await screen.findByLabelText(t("spending.learnerAmount"));
     expect(learner).toHaveValue("2.00");
     fireEvent.change(learner, { target: { value: "3" } });
     await reloadBySavingAnotherSection(port);
@@ -1018,7 +1018,7 @@ describe("AI services forms while the page reloads", () => {
       setServiceKey: vi.fn().mockResolvedValue({}),
     });
     render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
-    const learner = await screen.findByLabelText(t("spending.perLearner"));
+    const learner = await screen.findByLabelText(t("spending.learnerAmount"));
     fireEvent.change(learner, { target: { value: "3" } });
     await reloadBySavingAnotherSection(port);
     fireEvent.click(
@@ -1069,3 +1069,190 @@ describe("AI services forms while the page reloads", () => {
     });
   });
 });
+
+describe("no limit per learner", () => {
+  const unlimited = () => ({
+    ...budgets("25000000", null),
+    defaultEnrollment: {
+      revision: 1,
+      mode: "unlimited" as const,
+      limit_micro_usd: null,
+      limit_tokens: null,
+    },
+  });
+  it("is a deliberate choice, not a problem, in the page status", () => {
+    const status = pageStatus({
+      connections: noConnections,
+      setup: setup(),
+      draft: null,
+      pricing: null,
+      budgets: unlimited(),
+    });
+    expect(status.sections.spending).toEqual({
+      tone: "ok",
+      pill: "noLearnerLimit",
+    });
+    expect(status.issues.map((i) => i.kind)).not.toContain("learnerLimit");
+    // Nothing chosen yet is still something to fix.
+    expect(
+      pageStatus({
+        connections: noConnections,
+        setup: setup(),
+        draft: null,
+        pricing: null,
+        budgets: budgets("25000000", null),
+      }).issues.map((i) => i.kind),
+    ).toContain("learnerLimit");
+  });
+
+  it("explains the choice, records consent and saves it as its own mode without amounts", async () => {
+    const port = fakePort({
+      budgets: vi.fn().mockResolvedValue(budgets("25000000", "2000000")),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const none = await screen.findByRole("radio", {
+      name: t("spending.learnerNoneOption"),
+    });
+    expect(screen.getByLabelText(t("spending.learnerAmount"))).toHaveValue(
+      "2.00",
+    );
+    fireEvent.click(none);
+    expect(screen.queryByLabelText(t("spending.learnerAmount"))).toBeNull();
+    expect(
+      screen.getByText(t("spending.learnerNoneMeans", { total: "$25.00" })),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(t("spending.consentNoLearnerLimit")),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Allow spending up to $25.00" }),
+    );
+    await waitFor(() => expect(port.saveBudget).toHaveBeenCalledTimes(1));
+    const request = port.saveBudget.mock.calls[0]![1];
+    expect(request).toMatchObject({
+      scope: "default_enrollment",
+      mode: "unlimited",
+      paidWorkApproved: true,
+      expectedRevision: 1,
+    });
+    expect(request).not.toHaveProperty("limits");
+    expect(
+      await screen.findByText(t("spending.savedNoLearnerLimit")),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a saved choice as chosen, with a neutral note in the status, and can go back to an amount", async () => {
+    const port = fakePort({ budgets: vi.fn().mockResolvedValue(unlimited()) });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    expect(
+      await screen.findByRole("radio", {
+        name: t("spending.learnerNoneOption"),
+      }),
+    ).toBeChecked();
+    expect(screen.getByText(t("pill.noLearnerLimit"))).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("radio", { name: t("spending.learnerLimitOption") }),
+    );
+    fireEvent.change(screen.getByLabelText(t("spending.learnerAmount")), {
+      target: { value: "3" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Allow spending up to $25.00" }),
+    );
+    await waitFor(() => expect(port.saveBudget).toHaveBeenCalledTimes(1));
+    expect(port.saveBudget.mock.calls[0]![1]).toMatchObject({
+      scope: "default_enrollment",
+      limits: { microUsd: 3_000_000 },
+      paidWorkApproved: true,
+    });
+  });
+
+  it("offers a suggested limit from learner spending through the same save", async () => {
+    const learnerSpend = vi.fn().mockResolvedValue(learnerSpendView());
+    const port = fakePort({
+      budgets: vi.fn().mockResolvedValue(unlimited()),
+      learnerSpend,
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    fireEvent.click(await screen.findByText(t("learnerSpend.title")));
+    const use = await screen.findByRole("button", {
+      name: t("learnerSpend.rec.use", { amount: "$3.00" }),
+    });
+    expect(learnerSpend).toHaveBeenCalledWith(
+      workspace,
+      expect.objectContaining({ page: 1, pageSize: 10 }),
+      expect.anything(),
+    );
+    fireEvent.click(use);
+    await waitFor(() => expect(port.saveBudget).toHaveBeenCalledTimes(1));
+    expect(port.saveBudget.mock.calls[0]![1]).toMatchObject({
+      scope: "default_enrollment",
+      expectedRevision: 1,
+      limits: { microUsd: 3_000_000 },
+      paidWorkApproved: true,
+    });
+    expect(
+      await screen.findByText(t("learnerSpend.rec.saved", { amount: "$3.00" })),
+    ).toBeInTheDocument();
+    expect(port.budgets).toHaveBeenCalledTimes(2);
+  });
+});
+
+/** A server answer for the learner spending view: enough data for a $3.00 suggestion. */
+function learnerSpendView() {
+  const sums = {
+    calls: 4,
+    reserved: "800000",
+    charged: "400000",
+    actual: "0",
+    reconciledCalls: 0,
+    reconciledCharged: "0",
+  };
+  return {
+    from: "2026-01-01T00:00:00.000Z",
+    to: "2026-02-01T00:00:00.000Z",
+    days: 31,
+    timeZone: "UTC",
+    currency: "USD",
+    learners: 5,
+    learnerDays: 20,
+    distributions: {
+      learnerDay: { p50: 300000, p90: 500000, max: 500000 },
+      activeHour: { p50: 300000, p90: 500000, max: 500000 },
+      learnerTotal: { p50: 1200000, p90: 1840000, max: 2000000 },
+    },
+    totals: { ...sums, calls: 20, charged: "6000000" },
+    byRole: [{ role: "companion", learners: 4, ...sums }],
+    byLesson: [{ episodeId: "min", learners: 4, ...sums }],
+    page: 1,
+    pageSize: 10,
+    totalLearners: 1,
+    rows: [
+      {
+        enrollmentId: "5e1d0000-0000-4000-8000-000000000001",
+        courseKey: "ordering",
+        activeDays: 4,
+        activeHours: 6,
+        perDay: { p50: 100000, p90: 100000, max: 100000 },
+        ...sums,
+        byRole: [{ role: "companion", ...sums }],
+        byLesson: [{ episodeId: null, ...sums }],
+        byDay: [{ day: "2026-01-05", charged: "100000", calls: 1 }],
+      },
+    ],
+    recommendation: {
+      status: "ready",
+      microUsd: 3000000,
+      dailyMicroUsd: 800000,
+      basis: {
+        learners: 5,
+        learnerDays: 20,
+        windowDays: 31,
+        margin: 1.5,
+        p90LearnerTotalMicroUsd: 1840000,
+        p90LearnerDayMicroUsd: 500000,
+        cappedAtWorkspaceTotal: false,
+      },
+    },
+  };
+}

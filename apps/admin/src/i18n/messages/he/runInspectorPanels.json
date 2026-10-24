@@ -43,6 +43,7 @@
   "budgets.limit": "מגבלה",
   "budgets.used": "נוצל (הערכה)",
   "budgets.learner": "ללומד/ת הזה/ו",
+  "budgets.noLearnerLimit": "ללא מגבלה לכל לומד/ת (הסך הכול של סביבת העבודה חל)",
   "budgets.learnerDaily": "ללומד/ת הזה/ו ליום",
   "budgets.perArtifact": "לכל תוצר",
   "budgets.workspace": "סביבת העבודה",

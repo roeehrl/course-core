@@ -241,6 +241,9 @@ export function AiServicesPage({
                 {status.on ? (
                   <p className="ai-status-detail">
                     {t("aiServices.status.onDetail")}
+                    {status.sections.spending.pill === "noLearnerLimit" && (
+                      <> {t("aiServices.status.noLearnerLimit")}</>
+                    )}
                   </p>
                 ) : (
                   <ul className="ai-issues">

@@ -2,6 +2,7 @@ import { serverMessageSchema } from "./serverMessages";
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
 import type { AiServicesPort } from "./aiServices";
+import type { LearnerSpendPort } from "./learnerSpend";
 import type { ProviderEvalPort } from "./providerEvals";
 import type { ProviderCostPort } from "./providerCosts";
 import type { ResearchAdminPort } from "./research";
@@ -429,6 +430,8 @@ export interface AdminClient {
   providerSetup?: ProviderSetupPort;
   /** The "AI services" page (connections, drafts, prices, limits). Connected servers only. */
   aiServices?: AiServicesPort;
+  /** What learners spend on AI, for staff who may view enrollments (also the demo). */
+  learnerSpend?: LearnerSpendPort;
   providerEvals?: ProviderEvalPort;
   /** Operator model pricing and reserved-versus-actual spend. Absent in demos. */
   providerCosts?: ProviderCostPort;

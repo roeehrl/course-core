@@ -343,6 +343,38 @@ describe("run inspector completion", () => {
     expect(screen.getByText("r3 at the run · r5 now")).toBeVisible();
   });
 
+  it("says when no per-learner limit applied, instead of showing a limit", async () => {
+    const unlimited = {
+      ...run,
+      policies: {
+        ...run.policies!,
+        enrollmentBudget: {
+          ...run.policies!.enrollmentBudget!,
+          limit: { microUsd: null, tokens: null },
+          limitSource: "unlimited" as const,
+        },
+      },
+    };
+    render(
+      <RunsView
+        data={workspace(["run.inspect"])}
+        client={
+          {
+            getRun: vi.fn(async () => unlimited),
+            runInspector: port(),
+          } as unknown as AdminClient
+        }
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Policies & budgets" }),
+    );
+    const budgets = screen.getByRole("table", { name: "Budgets now" });
+    expect(within(budgets).getAllByRole("row")[1]).toHaveTextContent(
+      "This learnerNo limit per learner (the workspace total applies)",
+    );
+  });
+
   it("withholds the payload without run.payload and reveals it only for a chosen reason", async () => {
     const inspector = port();
     const { unmount } = render(

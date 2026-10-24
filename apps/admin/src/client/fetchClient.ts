@@ -122,6 +122,7 @@ import {
   studyResultSchema,
 } from "../domain/studies";
 import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
+import { learnerSpendPath, learnerSpendSchema } from "../domain/learnerSpend";
 import {
   HypothesisReadError,
   hypothesisViewSchema,
@@ -1347,6 +1348,24 @@ export function createFetchAdminClient(
           serviceKeyReceiptSchema,
           "PUT",
           input,
+        ),
+      learnerSpend: (id, query, signal) =>
+        ai(
+          learnerSpendPath(id, query),
+          learnerSpendSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+    },
+    learnerSpend: {
+      learnerSpend: (id, query, signal) =>
+        ai(
+          learnerSpendPath(id, query),
+          learnerSpendSchema,
+          "GET",
+          undefined,
+          signal,
         ),
     },
     research: {
