@@ -1,0 +1,17 @@
+{
+  "bell.label": "Notifications",
+  "bell.labelUnread": "{count, plural, one {Notifications, # new} other {Notifications, # new}}",
+  "panel.title": "Notifications",
+  "panel.empty": "No notifications.",
+  "panel.loading": "Loading notifications…",
+  "panel.markAll": "Mark all as read",
+  "panel.close": "Close notifications",
+  "panel.open": "Open",
+  "panel.new": "New",
+  "panel.error": "Notifications could not be loaded. Try again in a moment.",
+  "panel.retry": "Try again",
+  "kind.course_updated": "Your course was updated from version {from} to version {to}.",
+  "kind.move_offer": "Your course has a new version ({to}). You can choose whether to move to it.",
+  "kind.reply_ready": "Your companion answered your question.",
+  "kind.unknown": "You have a new notification."
+}
