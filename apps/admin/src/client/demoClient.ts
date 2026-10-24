@@ -1,3 +1,4 @@
+import { createDemoLearnerSpend } from "./demoLearnerSpend";
 import { createDemoPolicyClient } from "./demoPolicyClient";
 import { createDemoAssessmentAttempts } from "./demoAssessmentAttempts";
 import { createDemoAssessments } from "./demoAssessments";
@@ -187,6 +188,7 @@ export function createDemoAdminClient({
       actorName: session.actor.name,
     }),
     media: createDemoMedia({ role, scenario, latency }),
+    learnerSpend: createDemoLearnerSpend({ scenario, latency }),
     versionMoves: createDemoVersionMoves({
       getWorkspace: get,
       setWorkspace: (id, next) => courses.set(id, next),

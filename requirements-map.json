@@ -316,7 +316,14 @@
       "core:services/api/test/strategy-runs.integration.test.ts::strategy until its exact revision is approved, never running"
     ],
     "B09": [
+      "core:apps/admin/tests/aiServices.test.tsx::explains the choice, records consent and saves it as its own mode without amounts",
+      "core:apps/admin/tests/learnerSpend.test.tsx::applies the suggestion with one click, unless it is already the limit",
+      "core:apps/admin/tests/real/ai-services.real.spec.ts::an owner chooses no limit per learner and sees what learners spend",
       "core:apps/admin/tests/real/supervision.real.spec.ts::sets a learner's daily limits",
+      "core:services/api/test/learner-spend.integration.test.ts::admits supervisor and media work up to the workspace total, then stops it there",
+      "core:services/api/test/learner-spend.integration.test.ts::aggregates per learner, day, active hour, lesson and job, and recommends from the 90th percentile",
+      "core:services/api/test/learner-spend.integration.test.ts::is not enough data with 4 learners, or with 5 learners and 19 learner-days",
+      "core:services/api/test/learner-spend.integration.test.ts::keeps own, daily and later per-learner limits",
       "core:services/api/test/paid-limits-media.integration.test.ts::supervisor spend leaves too little for a media job today",
       "core:services/api/test/paid-limits-media.integration.test.ts::the per-lesson limit counts the lesson's media",
       "core:services/api/test/teaching-loop.integration.test.ts::the daily limit stops paid work with its reason",
