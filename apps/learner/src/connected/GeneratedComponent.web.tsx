@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { startTransition, useEffect, useId, useRef, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import { practiceRunner, type RunResult } from "./pythonRunner";
 import { Button } from "../components/ui";
@@ -28,12 +28,14 @@ export function useGeneratedComponents(api: CourseApi, enrollmentId: string | un
   const [components, setComponents] = useState<Map<string, GeneratedComponent>>(new Map());
   useEffect(() => {
     if (!enrollmentId) return setComponents(new Map());
+    // A background reload after a revision: applied as a transition, so it never holds back the
+    // paint of what the learner just did (an answer's result, a started check).
     const controller = new AbortController();
     api
       .request<{ components: GeneratedComponent[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/components`, "GET", undefined, { signal: controller.signal })
-      .then((value) => !controller.signal.aborted && setComponents(new Map((value.components ?? []).map((c) => [`${c.episodeId}/${c.blockId}`, c]))))
+      .then((value) => !controller.signal.aborted && startTransition(() => setComponents(new Map((value.components ?? []).map((c) => [`${c.episodeId}/${c.blockId}`, c])))))
       // Without the list the lesson shows each component's text alternative only.
-      .catch((error) => !controller.signal.aborted && !isAbortError(error) && setComponents(new Map()));
+      .catch((error) => !controller.signal.aborted && !isAbortError(error) && startTransition(() => setComponents(new Map())));
     return () => controller.abort();
   }, [api, enrollmentId, revision]);
   return components;

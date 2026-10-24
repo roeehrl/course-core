@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { isAbortError, pageDepartureSignal } from "../client/apiClient";
 import { useT } from "../i18n";
 import {
@@ -53,26 +53,31 @@ export function useCompanionConversation(
         const messages = await client.load(enrollmentId!, controller.signal);
         if (controller.signal.aborted) return;
         pending = companionHasPending(messages);
-        setSaved({
-          client,
-          id: enrollmentId!,
-          messages,
-          failed: false,
-          loaded: true,
-        });
+        // Applied as a transition, so a reload never holds back the paint of what the learner just did.
+        startTransition(() =>
+          setSaved({
+            client,
+            id: enrollmentId!,
+            messages,
+            failed: false,
+            loaded: true,
+          }),
+        );
       } catch (error) {
         // Cancelled (by this effect or by leaving the page): nothing failed.
         if (controller.signal.aborted || isAbortError(error)) return;
-        setSaved((old) => ({
-          client,
-          id: enrollmentId!,
-          messages:
-            old?.client === client && old.id === enrollmentId
-              ? old.messages
-              : [],
-          failed: true,
-          loaded: true,
-        }));
+        startTransition(() =>
+          setSaved((old) => ({
+            client,
+            id: enrollmentId!,
+            messages:
+              old?.client === client && old.id === enrollmentId
+                ? old.messages
+                : [],
+            failed: true,
+            loaded: true,
+          })),
+        );
       }
       if (!controller.signal.aborted && (open || pending)) {
         clearTimeout(timer);

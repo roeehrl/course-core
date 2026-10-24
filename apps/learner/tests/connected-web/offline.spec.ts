@@ -139,6 +139,48 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
   expect(errors).toEqual([]);
 });
 
+test("an answer that is still being sent is not reported as waiting on this device", async ({ page }) => {
+  // Records every connection banner text the page ever shows, however briefly.
+  await page.addInitScript(() => {
+    const seen: string[] = ((window as unknown as { __banners: string[] }).__banners = []);
+    new MutationObserver(() => {
+      for (const banner of document.querySelectorAll(".connected-connection")) {
+        const text = banner.textContent ?? "";
+        if (!seen.includes(text)) seen.push(text);
+      }
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+  await openCheck(page);
+  const posts = answerPosts(page);
+  // Hold the answer at the server's door until the page has settled into its in-flight state.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let received!: () => void;
+  const arrived = new Promise<void>((resolve) => (received = resolve));
+  await page.route(
+    "**/answers",
+    async (route) => {
+      received();
+      await held;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  await check.click();
+  await arrived;
+  // The request is saved on the device before it is sent, so the page is now in exactly the
+  // state that used to show "Not recorded yet" for a request that had not failed at all.
+  await expect(page.getByRole("button", { name: "Saving…", exact: true }).first()).toBeVisible();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.getByRole("status").filter({ hasText: "Not recorded yet" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send saved request now" })).toHaveCount(0);
+  release();
+  await expect(page.getByText("Correct. 2 is below 5.")).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __banners: string[] }).__banners)).toEqual([]);
+  expect(posts.confirmed).toEqual([200]);
+});
+
 test("an answer draft survives closing the tab", async ({ page, context }) => {
   await openCheck(page);
   await page.close();

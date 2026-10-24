@@ -881,7 +881,12 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setPendingAction("");
     }
   }, [api, server?.enrollmentId]);
-  useEffect(checkPending, [checkPending, server?.revision, pending, error]);
+  // A request this page is still sending is not "waiting": its record is written before it is
+  // sent and removed when the server answers. Only a record left once nothing is in flight (a
+  // failed or interrupted send, or one from an earlier visit) is reported and offered again.
+  useEffect(() => {
+    if (!pending) checkPending();
+  }, [checkPending, server?.revision, pending, error]);
   /** Send a saved, unconfirmed request again with its original idempotency key;
    * the server records it at most once. */
   const resend = useRef<() => void>(() => {});
