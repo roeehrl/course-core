@@ -170,7 +170,7 @@ describe("course overview", () => {
     expect(screen.getByText("יומיים")).toBeVisible();
     expect(screen.getByText("ממתינות לתקציב")).toBeVisible();
     expect(text()).toContain("שתי קריאות AI ב-7 הימים האחרונים");
-    expect(screen.getByText("פעילות")).toBeVisible();
+    expect(screen.getByText("פעיל")).toBeVisible();
     expect(screen.getByText("1.2.0")).toHaveAttribute("dir", "ltr");
   });
 });
