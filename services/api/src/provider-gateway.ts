@@ -13,6 +13,7 @@ import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import { telemetry } from './telemetry.js';
+import { replyDrafts, type ReplyDrafts } from './reply-drafts.js';
 import { pricedStatus, pricingDecision } from './provider-costs.js';
 import { dispatchRevision } from './agent-evals/gate.js';
 import type { ConfigurationShape } from './agent-evals/revision.js';
@@ -22,7 +23,9 @@ import type {AdaptationRuntime} from "./adaptation-store.js";
 
 interface Options { adaptation?:AdaptationRuntime; serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders;
   /** The host's provider configuration file, when loaded: the configuration of the fallback runtime. */
-  hostConfiguration?: unknown }
+  hostConfiguration?: unknown;
+  /** Where streamed companion drafts go: the process's own by default; null turns streaming off. */
+  drafts?: ReplyDrafts | null }
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
 /** The recorded answer for a repeated request. A dispatch still running is uncertain. A finished
  * dispatch whose outcome was cleared by an erasure made before erasure kept the outcome's
@@ -113,6 +116,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       return { invoke: true as const };
     });
     if (!admitted.invoke) return admitted.outcome;
+    let draft: ReturnType<ReplyDrafts['open']> = null;
     let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
     let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
     // Which strategy answered and the revision it ran as, recorded on the dispatch (requirement B08).
@@ -165,7 +169,14 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         });
         const signal = AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs)));
         started = true;
-        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course);
+        // A companion answer streams to the learner as a draft while it arrives (reply-drafts.ts):
+        // only now, after admission, pricing, the reservation check and the last fence, and only
+        // the text the strategy receives. The final result below is still the only stored output.
+        const messageId = (operation.input.context as { messageId?: unknown }).messageId;
+        draft = body.role === 'companion' && typeof messageId === 'string' && options.drafts !== null
+          ? (options.drafts ?? replyDrafts()).open({ enrollmentId: body.job.enrollmentId, jobId: body.job.jobId, messageId }) : null;
+        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course,
+          draft ? draft.push : undefined);
         usage = generated.usage; candidate = generated.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
         const value = generated.content as Record<string, unknown>;
@@ -183,6 +194,8 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         cost = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
         generated.usage.cost = cost;
         if (!cost) pricingState = 'unpriced';
+        // The draft ends with the answer Core kept, or is withdrawn when Core refused it.
+        if (value.kind === 'output_refusal') draft?.withdraw('output_refused'); else draft?.complete();
         result = { status: 'succeeded', artifact, usage: { microUsd: cost ? cost.microUsd : body.checkpoint.allowance.microUsd, tokens },
           usageBasis: { microUsd: cost ? 'reported' : 'reserved_ceiling', tokens: knownTokens ? 'reported' : 'reserved_ceiling' } };
       }
@@ -197,6 +210,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
           ...(rejected.retryAfterMs !== null ? { retryAfterMs: Math.min(rejected.retryAfterMs, MAX_RETRY_AFTER_MS) } : {}) }
         : { status: 'uncertain' };
       failureCode = error instanceof ProviderError ? error.code : error instanceof ApiError ? error.code : 'PROVIDER_OPERATION_FAILED';
+      draft?.withdraw(error instanceof ProviderError && error.code === 'BLOCKED' ? 'provider_refused' : 'provider_failed');
       if (error instanceof ProviderError) usage = error.usage ?? null;
     } finally { if (acquired) active -= 1; }
     result = outcomeSchema.parse(result);

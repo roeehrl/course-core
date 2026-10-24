@@ -8,7 +8,9 @@ const TERMINAL = "('applied','cancelled','failed')";
 const MAX_JOBS_PER_DELIVERY = 64;
 const MAX_DELIVERY_ATTEMPTS = 8;
 
-export interface CancellationScope { workspaceId: string; enrollmentId?: string | undefined }
+export interface CancellationScope { workspaceId: string; enrollmentId?: string | undefined;
+  /** Only these jobs (a learner stopping one reply); omitted: every live job in scope. */
+  jobIds?: readonly string[] | undefined }
 export interface CancellationRequest {
   /** Non-terminal jobs in scope, including ones whose cancellation was already recorded. */
   live: number;
@@ -28,8 +30,8 @@ export async function requestSupervisorCancellation(client: PoolClient, scope: C
   const workspaceId = uuid.parse(scope.workspaceId), enrollmentId = scope.enrollmentId === undefined ? null : uuid.parse(scope.enrollmentId);
   const live = (await client.query<{ id: string; enrollment_id: string; generation: number | null; flagged: boolean }>(
     `SELECT id,enrollment_id,(runtime_snapshot->>'generation')::integer AS generation,cancellation_requested AS flagged FROM supervisor_jobs
-     WHERE workspace_id=$1 AND ($2::uuid IS NULL OR enrollment_id=$2) AND state NOT IN ${TERMINAL} ORDER BY enrollment_id,id FOR UPDATE`,
-    [workspaceId, enrollmentId])).rows;
+     WHERE workspace_id=$1 AND ($2::uuid IS NULL OR enrollment_id=$2) AND ($3::uuid[] IS NULL OR id=ANY($3::uuid[])) AND state NOT IN ${TERMINAL} ORDER BY enrollment_id,id FOR UPDATE`,
+    [workspaceId, enrollmentId, scope.jobIds ? scope.jobIds.map(id => uuid.parse(id)) : null])).rows;
   const fresh = live.filter(j => !j.flagged);
   if (fresh.length) await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=ANY($1::uuid[])', [fresh.map(j => j.id)]);
   // Signal every live job with a workflow, also ones flagged earlier: their signal may have been lost.

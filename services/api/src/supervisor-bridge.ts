@@ -3,6 +3,7 @@ import {researchCandidateSchema,type ResearchCandidate} from './research-contrac
 import { rubricRefusalSchema, rubricSuggestionSchema, type RubricRefusal, type RubricSuggestion } from './rubric-assist-contracts.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import type { DatabaseWake } from './database-wake.js';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import { envelopeScopeId, checkAction, type PolicyState } from '@course-core/policy';
@@ -46,6 +47,8 @@ export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 const PHASE: Partial<Record<string, 'analyze' | 'build' | 'evaluate'>> = { supervisor: 'analyze', research: 'analyze', reviewer: 'evaluate' };
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
+  /** Commit-time wake-ups for the dispatcher's long poll (`outbox.wait`); without it the poll answers at once. */
+  wake?: DatabaseWake;
   /** Explicit service authorization; omitted/empty denies every workspace. */
   workspaceIds?: readonly string[];
   jobPolicy?: {
@@ -950,6 +953,12 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
         return await bridge.transition(body.command);
       }
       if (body.method === 'outbox.claim') return await bridge.claimOutbox(body.ownerId, body.limit, body.leaseMs);
+      if (body.method === 'outbox.wait') {
+        if (!options.wake) return { woke: false, sequence: 0, listening: false };
+        const closed = new AbortController();
+        reply.raw.once('close', () => closed.abort());
+        return await options.wake.waitAfter('course_outbox', body.after, body.timeoutMs, closed.signal);
+      }
       if (body.method === 'control.claim') return await bridge.claimControls(body.ownerId, body.limit, body.leaseMs);
       if (body.method === 'reconcile') return await bridge.reconcile(body.limit);
       if (body.method === 'control.ack') return { accepted: await ackControlDelivery(db, options.workspaceIds ?? [], body.changeId, body.leaseToken, body.delivered) };

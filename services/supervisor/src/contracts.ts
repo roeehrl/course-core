@@ -160,7 +160,7 @@ export const controlDeliverySchema = z.strictObject({
 export const controlDeliveriesSchema = z.array(controlDeliverySchema).max(100);
 /** Why the host cancelled a job outside staff control: the enrollment's data is being erased, or
  * the workspace's provider configuration changed under it. */
-export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed', 'staff_cancelled']);
+export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed', 'staff_cancelled', 'learner_cancelled']);
 /** Temporal signal asking one job to stop now. Advisory like `supervisionControl`: the host has
  * already recorded the cancellation, and the job's next host step stops whether or not this arrives. */
 export const JOB_CANCELLATION_SIGNAL = 'jobCancellation';
@@ -280,7 +280,12 @@ export const rpcRequestSchema = z.discriminatedUnion('method', [
   z.strictObject({ method: z.literal('crosscourse.consent'), learnerId: uuid }),
   z.strictObject({ method: z.literal('crosscourse.plan'), learnerId: uuid, consentRevision: z.number().int().nonnegative() }),
   z.strictObject({ method: z.literal('crosscourse.observe'), workspaceId: uuid, enrollmentId: uuid }),
+  // Long poll: answers when new supervisor work was committed after `after` (the sequence a previous
+  // answer returned), or after `timeoutMs`. A wake-up only; claiming still decides what is due.
+  z.strictObject({ method: z.literal('outbox.wait'), after: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(), timeoutMs: z.number().int().min(100).max(30_000) }),
 ]);
+export const outboxWakeSchema = z.strictObject({ woke: z.boolean(), sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), listening: z.boolean() });
+export type OutboxWake = z.infer<typeof outboxWakeSchema>;
 export const reconciledSchema = z.strictObject({ settled: z.number().int().min(0).max(1000), resume: z.array(runRefSchema).max(100) });
 export const ackSchema = z.strictObject({ accepted: z.boolean() });
 export const preparedSchema = z.strictObject({ jobs: z.array(runRefSchema).max(16) });

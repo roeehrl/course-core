@@ -30,6 +30,7 @@ import type { PoolClient } from 'pg';
 import { appendEvent } from './events.js';
 import { registerClientEnvelope } from './event-envelope.js';
 import { EVENT_COLUMNS, registerEventStream, type EventStreamOptions } from './event-stream.js';
+import { DatabaseWake } from './database-wake.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
 import { audienceOf, eventPayloadFor, STAFF_EVENT_PAYLOAD_RULE } from './learner-privacy.js';
 import { episodes, requireAvailable } from './learning.js';
@@ -327,7 +328,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     const events = rows.map(row => ({ ...row, ...eventPayloadFor(audience, row.actor_kind, row.event_type, row.payload) }));
     return { events, nextCursor: rows.at(-1)?.sequence ?? after, ...(audience === 'staff' ? { withheld: [STAFF_EVENT_PAYLOAD_RULE] } : {}) };
   });
-  registerEventStream(app, db, auth, options.eventStream);
+  // Commit-time wake-ups shared by this server's event streams and the dispatcher's long poll.
+  const wake = DatabaseWake.forDatabase(db);
+  app.addHook('onClose', async () => wake.close());
+  registerEventStream(app, db, auth, { wake, ...options.eventStream });
   app.post(`${commandPath}/profile`, { schema: { params: enrollmentParams, body: commandSchema({ identityOnly: { type: 'boolean' }, profile: { type: 'object', additionalProperties: false, required: ['displayName', 'goal', 'pace'], properties: { displayName: { type: 'string', minLength: 1, maxLength: 100 }, goal: { type: 'string', maxLength: 2000 }, pace: { enum: ['gentle', 'steady', 'focused'] } } } }, ['profile']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input;
     return enrollmentCommand(db, actor, enrollmentId, 'profile', input, async (client, context) => {
@@ -446,7 +450,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     app.addHook('onClose', async () => clearInterval(timer));
   }
   if (options.supervisor) {
-    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
+    registerSupervisorBridge(app, db, { wake, ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
     registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{}),
       ...(options.providerConfiguration!==undefined?{hostConfiguration:options.providerConfiguration}:{})});
   }
