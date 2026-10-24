@@ -271,6 +271,18 @@ from v0.1.36.
 Notes for operators and workspace owners, newest first. They describe what changes for a
 running deployment; the candidate's own manifest remains the record of what was built.
 
+### Next release: version moves carry unchanged checkpoints and offer the move to learners with personal changes
+
+- A checkpoint a learner passed carries over a move to a newer version when its rules and every
+  item's item, answer key or rubric, and evaluator digests are byte-identical in both versions
+  and the attempts were graded on exactly those (migration 117). The preview says per learner
+  which checkpoints carry over and why the others do not. Attempts graded before grading
+  provenance was recorded (migration 097) do not carry over.
+- A learner with personal changes is still not moved by default; confirming the move now
+  offers it to them in the learner app, where they accept or decline. Owners and administrators
+  can move a learner who did not accept, with a reason. Their personal changes are archived
+  (kept in their history and export) and restored if the move is undone.
+
 ### Next release: SDK 0.4 courses are no longer supported
 
 Core is not in production, so it keeps no backward compatibility with SDK 0.4 courses
