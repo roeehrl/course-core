@@ -66,6 +66,7 @@ import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } f
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 import { withArtifactContent } from './artifact-store.js';
 import { staffMessage, type ReleaseCheckCode, type StaffMessage } from "./staff-messages.js";
+import { effectiveDigestSql } from "./carried-digest.js";
 
 type Sql = Database | PoolClient;
 type Auth = ReturnType<typeof authService>;
@@ -240,7 +241,7 @@ export async function enrollmentFor(
   ).rows;
   const evidence = (
     await client.query<EvidenceRow>(
-      `SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,a.course_digest,a.mode
+      `SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode
     FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`,
       [id],
     )

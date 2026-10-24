@@ -40,7 +40,7 @@ async function command(who: Session, id: string, action: string, data: object) {
   return call(who, "POST", `/api/enrollments/${id}/${action}`, { expectedRevision: snapshot.json().revision, idempotencyKey: randomUUID(), ...data });
 }
 async function ask(who: Session, id: string, assessmentId: string) {
-  const issued = await command(who, id, "challenges", { episodeId: "min", assessmentId, mode: "independent" });
+  const issued = await command(who, id, "challenges", { episodeId: assessmentId.startsWith("max") ? "max" : "min", assessmentId, mode: "independent" });
   expect(issued.statusCode, issued.body).toBe(200);
   return issued.json().challengeId as string;
 }
@@ -63,9 +63,11 @@ const preview = (who: Session, body: object) => call(who, "POST", `${base()}/pre
 const confirm = (who: Session, moveId: string, body: object) => call(who, "POST", `${base()}/${moveId}/confirm`, body);
 const releaseOf = async (id: string) => (await db.query("SELECT course_release_id FROM enrollments WHERE id=$1", [id])).rows[0].course_release_id as string;
 
-/** Version 2: the second lesson's text changed and a third lesson (with its own scope) added. */
+/** Version 2: the second lesson's text changed, a third lesson (with its own scope) added, and the
+ * first checkpoint's numeric item reworded (so that checkpoint does not carry over). */
 function second(): CourseManifest {
   const course = { ...fixture(), version: "2.0.0" };
+  course.assessments = course.assessments.map((a) => a.id === "min-b" ? { ...a, prompt: "What is the minimum of 4 and 9?" } : a);
   const [chapter] = course.chapters;
   chapter!.episodes = [chapter!.episodes[0]!,
     { ...chapter!.episodes[1]!, blocks: [{ id: "max-text", type: "text", markdown: "The maximum is no less than any other member, restated." }] },
@@ -130,7 +132,9 @@ describe("moving learners to a newer course version", () => {
     const learner = body.learners[0];
     expect(learner).toMatchObject({ enrollmentId: id, displayName: "Maya", outcome: "ready", refusal: null, wait: null, evidence: { records: 2 },
       progress: { creditedBefore: 1, creditedAfter: 0, kept: 0, checkpointsAgain: { count: 1, items: [{ id: "min", title: "Minimum" }] }, removed: { count: 0 } },
-      policy: { addedScopes: ["episode:range"] } });
+      policy: { addedScopes: ["episode:range"] },
+      // The checkpoint's numeric item was reworded in v2, so its pass does not carry over; the preview says why.
+      carryOver: { carried: { count: 0 }, notCarried: { count: 1, items: [{ id: "min", gateId: "min-gate", code: "ITEM_CHANGED", items: 2 }] } } });
     // Previewing changes nothing.
     expect(await releaseOf(id)).toBe(v1);
     // Confirming needs the exact preview, a reason and, because credit is lost, an acknowledgement.
@@ -149,7 +153,8 @@ describe("moving learners to a newer course version", () => {
     const state = (await call(who, "GET", `/api/enrollments/${id}`)).json();
     expect(state.lessons.map((l: { id: string; status: string }) => [l.id, l.status])).toEqual([["min", "available"], ["max", "locked"], ["range", "locked"]]);
     // The learner app is told the course was updated: versions only, no prose.
-    expect(state.courseVersionNotice).toEqual({ id: expect.any(String), fromVersion: "1.0.0", toVersion: "2.0.0", movedAt: expect.any(String) });
+    expect(state.courseVersionNotice).toEqual({ id: expect.any(String), fromVersion: "1.0.0", toVersion: "2.0.0", movedAt: expect.any(String),
+      carriedCheckpoints: 0, personalChanges: null, personalChangesArchived: 0 });
     // Existing scopes kept as they were; the new lesson got its own.
     const policy = (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [id])).rows[0].snapshot;
     expect(policy.scopes.map((s: { scopeId: string }) => s.scopeId)).toContain("episode:range");
@@ -271,3 +276,165 @@ describe("moving learners to a newer course version", () => {
     expect((await call(owner, "GET", `${base()}/learners?releaseId=nope`)).statusCode).toBe(400);
   });
 });
+
+/** Version 4: the first checkpoint exactly as in v1; the second checkpoint's numeric key loosened
+ * (an answer-key change); one optional lesson added. */
+function fourth(): CourseManifest {
+  const course = { ...fixture(), version: "4.0.0" };
+  course.assessments = course.assessments.map((a) => a.id === "max-b" ? { ...a, grading: { ...(a.grading as object), absoluteTolerance: 0.5 } } as typeof a : a);
+  course.chapters[0]!.episodes.push({ id: "range", title: "Range", objectiveIds: ["maximum"], blocks: [{ id: "range-text", type: "text", markdown: "Maximum minus minimum." }], requirement: "optional" } as never);
+  return course;
+}
+/** Gives a learner a personal change: a generated addition waiting for a safe boundary and, with
+ * `state`, an adaptation state of their own (synthetic: the learner app cannot load it). */
+async function personalize(id: string, state = false) {
+  const job = randomUUID();
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES($1,$2,$3,$4,'supervisor','applied',1,'{}')`,
+    [job, id, workspace, `moves-${job}`]);
+  await db.query("INSERT INTO adaptation_pending_changes(id,enrollment_id,workspace_id,job_id,episode_id,artifact_kind,selection,reason) VALUES($1,$2,$3,$4,'max','practice','{}','attempt_in_progress')",
+    [randomUUID(), id, workspace, job]);
+  if (state) await db.query("INSERT INTO adaptation_states(enrollment_id,workspace_id,base_digest,ledger_revision,plan_revision,plan_digest,snapshot) VALUES($1,$2,$3,0,0,$4,$5)",
+    [id, workspace, "a".repeat(64), "b".repeat(64), JSON.stringify({ marker: "personal" })]);
+}
+const waitingChanges = async (id: string) => (await db.query("SELECT count(*)::int AS n FROM adaptation_pending_changes WHERE enrollment_id=$1 AND status='waiting'", [id])).rows[0].n as number;
+const hasPersonalState = async (id: string) => Boolean((await db.query("SELECT 1 FROM adaptation_states WHERE enrollment_id=$1", [id])).rowCount);
+
+describe("owner decisions on version moves (2026-10-24)", () => {
+  let v4: string;
+  beforeAll(async () => {
+    const r = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, fourth());
+    expect(r.statusCode, r.body).toBe(200);
+    v4 = r.json().id;
+    expect((await call(owner, "POST", `/api/releases/${v4}/publish`)).statusCode).toBe(200);
+  });
+  const moveOne = async (id: string, to = v4, ack = true) => {
+    const body = (await preview(owner, { fromReleaseId: v1, toReleaseId: to, enrollmentId: id })).json();
+    const done = await confirm(owner, body.moveId, { previewDigest: body.previewDigest, reason: "Owner decisions test", acknowledgeLostCredit: ack });
+    expect(done.statusCode, done.body).toBe(200);
+    return { preview: body, detail: done.json() };
+  };
+
+  it("carries over a checkpoint whose item, answer key and evaluator are byte-identical, and not one whose key changed", async () => {
+    const { who, id } = await passedFirstLesson("Carries");
+    await answer(who, id, "max-a", 9);
+    // The second checkpoint passed too (its lesson not completed, so the enrollment stays active).
+    await answer(who, id, "max-b", -3);
+    // Grading recorded the provenance a carry-over compares.
+    const graded = (await db.query("SELECT count(*)::int AS n FROM attempts WHERE enrollment_id=$1 AND item_digest IS NOT NULL AND answer_key_digest IS NOT NULL AND evaluator_digest IS NOT NULL", [id])).rows[0].n;
+    expect(graded).toBe(4);
+    const { preview: body } = await moveOne(id);
+    const learner = body.learners[0];
+    expect(learner.carryOver.carried).toEqual({ count: 1, items: [{ id: "min", title: "Minimum", gateId: "min-gate", code: "CARRIED", items: 2 }] });
+    expect(learner.carryOver.notCarried).toEqual({ count: 1, items: [{ id: "max", title: "Maximum", gateId: "max-gate", code: "ANSWER_KEY_CHANGED", items: 2 }] });
+    expect(learner.progress).toMatchObject({ creditedBefore: 1, creditedAfter: 1, kept: 1, checkpointsAgain: { count: 0 } });
+    expect(body.totals.losingCredit).toBe(0);
+    expect(body.totals.carriedCheckpoints).toBe(1);
+    expect(await releaseOf(id)).toBe(v4);
+    // Attempts are not rewritten; the carry-over is recorded beside them, for the min checkpoint's attempts only.
+    expect((await db.query("SELECT DISTINCT course_digest FROM attempts WHERE enrollment_id=$1", [id])).rows).toHaveLength(1);
+    const carried = (await db.query("SELECT c.gate_id,a.assessment_id FROM carried_checkpoint_attempts c JOIN attempts a ON a.id=c.attempt_id WHERE c.enrollment_id=$1 ORDER BY 2", [id])).rows;
+    expect(carried).toEqual([{ gate_id: "min-gate", assessment_id: "min-a" }, { gate_id: "min-gate", assessment_id: "min-b" }]);
+    // The learner sees the first lesson still completed on v4, the second to pass again.
+    const state = (await call(who, "GET", `/api/enrollments/${id}`)).json();
+    expect(state.lessons.map((l: { id: string; status: string }) => [l.id, l.status])).toEqual([["min", "completed"], ["max", "available"], ["range", "locked"]]);
+    expect(state.courseVersionNotice).toMatchObject({ toVersion: "4.0.0", carriedCheckpoints: 1 });
+    // An undo puts everything back: carried attempts count on v1 only again.
+    const move = (await db.query("SELECT move_id FROM carried_checkpoint_attempts WHERE enrollment_id=$1 LIMIT 1", [id])).rows[0].move_id;
+    expect((await call(owner, "POST", `${base()}/${move}/undo`, { reason: "Back" })).json().undone).toEqual([id]);
+    expect((await db.query("SELECT count(*)::int AS n FROM carried_checkpoint_attempts WHERE enrollment_id=$1 AND undone_at IS NULL", [id])).rows[0].n).toBe(0);
+    expect((await call(who, "GET", `/api/enrollments/${id}`)).json().lessons.slice(0, 2).map((l: { status: string }) => l.status)).toEqual(["completed", "available"]);
+  });
+
+  it("does not carry a checkpoint over when the item changed, or when the attempt was graded without a provenance record", async () => {
+    // v2 rewords min-b: ITEM_CHANGED (checked in the preview test above). Here: same item, but the
+    // attempt carries no stored provenance (graded before M03).
+    const { id } = await passedFirstLesson("No record");
+    await db.query("ALTER TABLE attempts DISABLE TRIGGER USER");
+    try { await db.query("UPDATE attempts SET item_digest=NULL,answer_key_digest=NULL,evaluator_digest=NULL WHERE enrollment_id=$1", [id]); }
+    finally { await db.query("ALTER TABLE attempts ENABLE TRIGGER USER"); }
+    const body = (await preview(owner, { fromReleaseId: v1, toReleaseId: v4, enrollmentId: id })).json();
+    expect(body.learners[0].carryOver.carried.count).toBe(0);
+    expect(body.learners[0].carryOver.notCarried.items).toEqual([expect.objectContaining({ gateId: "min-gate", code: "GRADED_WITHOUT_RECORD" })]);
+    expect(body.learners[0].progress.checkpointsAgain.count).toBe(1);
+  });
+
+  it("refuses a learner with personal changes by default, offers them the move, and keeps their changes when they decline", async () => {
+    const { who, id } = await passedFirstLesson("Declines");
+    await personalize(id);
+    const { preview: body, detail } = await moveOne(id);
+    expect(body.learners[0]).toMatchObject({ outcome: "refused", refusal: "MOVE_PERSONAL_CHANGES", personalChanges: 1, dropsPersonalChanges: false });
+    expect(body.totals.offered).toBe(1);
+    expect(detail.learners[0]).toMatchObject({ state: "refused", code: "MOVE_PERSONAL_CHANGES", offer: { state: "offered", forcible: true } });
+    expect(await releaseOf(id)).toBe(v1);
+    const snapshot = (await call(who, "GET", `/api/enrollments/${id}`)).json();
+    expect(snapshot.courseVersionOffer).toMatchObject({ moveId: body.moveId, fromVersion: "1.0.0", toVersion: "4.0.0",
+      personalChanges: { count: 1, items: [{ episodeId: "max", title: "Maximum", kind: "waiting_practice" }] },
+      keeps: { lessons: 1, checkpointsCarried: 1, checkpointsAgain: 0 } });
+    // Another person cannot answer the learner's offer.
+    const stranger = await session("learner", "Stranger");
+    expect((await call(stranger, "POST", `/api/enrollments/${id}/version-offer/decline`, { moveId: body.moveId, expectedRevision: snapshot.revision, idempotencyKey: randomUUID() })).statusCode).toBe(404);
+    const declined = await command(who, id, "version-offer/decline", { moveId: body.moveId });
+    expect(declined.statusCode, declined.body).toBe(200);
+    expect(declined.json()).toEqual({ status: "declined", code: null });
+    expect(await waitingChanges(id)).toBe(1);
+    expect((await call(who, "GET", `/api/enrollments/${id}`)).json().courseVersionOffer).toBeNull();
+    expect((await command(who, id, "version-offer/accept", { moveId: body.moveId })).json().error).toBe("MOVE_OFFER_NOT_OPEN");
+    expect((await call(owner, "GET", `${base()}/${body.moveId}`)).json().learners[0].offer).toMatchObject({ state: "declined", forcible: true });
+  });
+
+  it("moves a learner who accepts at a safe boundary and archives their personal changes", async () => {
+    const { who, id } = await passedFirstLesson("Accepts");
+    await personalize(id);
+    const { preview: body } = await moveOne(id);
+    // Mid-question: the accepted move waits for the boundary.
+    const challengeId = await ask(who, id, "max-a");
+    const accepted = await command(who, id, "version-offer/accept", { moveId: body.moveId });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(accepted.json()).toEqual({ status: "waiting", code: "ATTEMPT_IN_PROGRESS" });
+    expect(await releaseOf(id)).toBe(v1);
+    expect(await waitingChanges(id)).toBe(1);
+    expect((await command(who, id, "answers", { challengeId, answer: 9 })).statusCode).toBe(200);
+    expect((await runWaitingMoves(db)).moved).toBeGreaterThanOrEqual(1);
+    expect(await releaseOf(id)).toBe(v4);
+    // The waiting change is declined, and the list the learner was shown is archived with the move.
+    expect(await waitingChanges(id)).toBe(0);
+    const archive = (await db.query("SELECT how,state,changes,pending_declined FROM personal_change_archives WHERE enrollment_id=$1", [id])).rows[0];
+    expect(archive).toMatchObject({ how: "accepted", state: null, pending_declined: 1, changes: [{ episodeId: "max", kind: "waiting_practice" }] });
+    const snapshot = (await call(who, "GET", `/api/enrollments/${id}`)).json();
+    expect(snapshot.courseVersionNotice).toMatchObject({ toVersion: "4.0.0", personalChanges: "accepted" });
+    // Still in the learner's own export.
+    const exported = await call(who, "GET", `/api/enrollments/${id}/export`);
+    if (exported.statusCode === 200) expect(JSON.stringify(exported.json())).toContain("archivedPersonalChanges");
+  });
+
+  it("lets an owner force the move with a reason (audited, changes archived, learner told), and an undo restores the changes", async () => {
+    const { who, id } = await passedFirstLesson("Forced");
+    await personalize(id, true);
+    const { preview: body } = await moveOne(id);
+    const force = (as: Session, payload: object) => call(as, "POST", `${base()}/${body.moveId}/learners/${id}/force`, payload);
+    expect((await force(owner, {})).statusCode).toBe(400);
+    expect((await force(owner, { reason: "   " })).statusCode).toBe(400);
+    expect((await force(instructor, { reason: "No" })).statusCode).toBe(403);
+    expect((await call(owner, "POST", `${base()}/${body.moveId}/learners/${randomUUID()}/force`, { reason: "Nobody" })).json().error).toBe("MOVE_OFFER_NOT_OPEN");
+    const forced = await force(owner, { reason: "The old version is being retired." });
+    expect(forced.statusCode, forced.body).toBe(200);
+    expect(forced.json()).toMatchObject({ status: "moved", move: { learners: [{ enrollmentId: id, state: "moved", dropsPersonalChanges: true,
+      offer: { state: "forced", reason: "The old version is being retired.", forcible: false } }] } });
+    expect(await releaseOf(id)).toBe(v4);
+    expect(await hasPersonalState(id)).toBe(false);
+    expect((await db.query("SELECT how FROM personal_change_archives WHERE enrollment_id=$1", [id])).rows).toEqual([{ how: "forced" }]);
+    // Forcing twice is refused.
+    expect((await force(owner, { reason: "Again" })).json().error).toBe("MOVE_OFFER_NOT_OPEN");
+    // Audited on the workspace (with the reason) and on the learner's record; the learner is told.
+    const events = (await db.query("SELECT event_type,actor_id,enrollment_id,payload FROM learning_events WHERE event_type='course_version.move_forced' AND payload->>'moveId'=$1", [body.moveId])).rows;
+    expect(events).toHaveLength(2);
+    expect(events.every((e) => e.actor_id === owner.userId && e.payload.reason === "The old version is being retired.")).toBe(true);
+    expect((await call(who, "GET", `/api/enrollments/${id}`)).json().courseVersionNotice).toMatchObject({ personalChanges: "forced" });
+    // Undo restores the archived adaptation state.
+    const undone = await call(owner, "POST", `${base()}/${body.moveId}/undo`, { reason: "Changed our mind." });
+    expect(undone.json().undone).toEqual([id]);
+    expect(await hasPersonalState(id)).toBe(true);
+    expect((await db.query("SELECT restored_at IS NOT NULL AS restored FROM personal_change_archives WHERE enrollment_id=$1", [id])).rows).toEqual([{ restored: true }]);
+  });
+});
+

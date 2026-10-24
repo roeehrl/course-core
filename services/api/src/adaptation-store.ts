@@ -332,6 +332,10 @@ async function loadState(client: PoolClient, enrollment: Enrollment, context: Ru
     require(row.base_digest === context.evidence.baseCourseDigest && row.snapshot.plan.revision === row.plan_revision && row.snapshot.plan.digest === row.plan_digest
       && row.snapshot.ledgerRevision === row.ledger_revision, 'ADAPTATION_STATE_INTEGRITY', 409); return row.snapshot;
   }
+  // Personal changes a course-version move archived keep their plan history on this enrollment, so a
+  // fresh plan would reuse its revisions: none starts until the archive is restored (an undo).
+  require(!(await client.query('SELECT 1 FROM personal_change_archives WHERE enrollment_id=$1 AND restored_at IS NULL LIMIT 1', [enrollment.id])).rowCount,
+    'PERSONAL_CHANGES_ARCHIVED', 409);
   const state = await createAdaptationState(context);
   await client.query('INSERT INTO adaptation_states(enrollment_id,workspace_id,base_digest,ledger_revision,plan_revision,plan_digest,snapshot) VALUES($1,$2,$3,0,0,$4,$5)',
     [enrollment.id, enrollment.workspace_id, state.baseCourseDigest, state.plan.digest, JSON.stringify(state)]); return state;
@@ -1424,8 +1428,8 @@ export async function pendingChanges(client: PoolClient, loaded: EnrollmentConte
 export async function liveComponents(client: PoolClient, loaded: EnrollmentContext) {
   const rows = (await client.query<{ episode_id: string; block_id: string; digest: string; body: Record<string, unknown> }>(
     `SELECT c.episode_id,c.block_id,c.digest,c.body FROM generated_components c JOIN adaptation_proposals p ON p.id=c.proposal_id AND p.enrollment_id=c.enrollment_id
-      WHERE c.enrollment_id=$1 AND p.status='applied' AND NOT EXISTS(SELECT 1 FROM adaptation_reverts r WHERE r.enrollment_id=c.enrollment_id AND r.proposal_id=c.proposal_id)
-      ORDER BY c.created_at LIMIT 64`, [loaded.enrollment.id])).rows;
+      WHERE c.enrollment_id=$1 AND p.status='applied' AND p.course_release_id=$2 AND NOT EXISTS(SELECT 1 FROM adaptation_reverts r WHERE r.enrollment_id=c.enrollment_id AND r.proposal_id=c.proposal_id)
+      ORDER BY c.created_at LIMIT 64`, [loaded.enrollment.id, loaded.enrollment.course_release_id])).rows;
   const shown = new Set(loaded.release.server_bundle.chapters.flatMap(c => c.episodes.flatMap(e => e.blocks.map(b => `${e.id}/${b.id}`))));
   return rows.filter(r => shown.has(`${r.episode_id}/${r.block_id}`) && r.body.source).map(r => {
     const { tests, ...component } = r.body;

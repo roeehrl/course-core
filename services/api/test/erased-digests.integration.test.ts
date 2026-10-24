@@ -310,6 +310,8 @@ describe("digest coverage", () => {
     // counts) and of what the move costs the learner (lesson ids and policy scope ids).
     "course_version_moves.preview_digest": "staff preview of a version move: ids, codes, lesson ids and counts",
     "course_version_move_entries.cost_digest": "lesson and policy scope ids a version move affects",
+    // Carried checkpoints (117): the two course versions an attempt counts on.
+    "carried_checkpoint_attempts.from_course_digest": "course version", "carried_checkpoint_attempts.course_digest": "course version",
     "attempt_regrades.item_digest": "course item", "attempt_regrades.answer_key_digest": "course answer key or rubric", "attempt_regrades.evaluator_digest": "evaluator build",
     // First-class records (109): course versions, and the digest of an app's capability report (versions, targets and codes).
     "decision_records.course_digest": "course version", "learning_step_instances.course_digest": "course version",

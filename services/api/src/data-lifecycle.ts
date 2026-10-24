@@ -194,6 +194,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
         .map((r) => learnerTeachingArtifact(r.artifact_id, r.body)),
       generatedComponents: (await client.query("SELECT episode_id,block_id,digest,created_at FROM generated_components WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       pendingPersonalChanges: (await client.query("SELECT id,episode_id,artifact_kind,reason,status,outcome_code,created_at,resolved_at FROM adaptation_pending_changes WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      // Personal changes a course-version move set aside (the list the learner was shown), and the
+      // offers to move that they accepted, declined or staff forced (with the staff reason).
+      archivedPersonalChanges: (await client.query("SELECT move_id,from_release_id,how,changes,pending_declined,archived_at,restored_at FROM personal_change_archives WHERE enrollment_id=$1 ORDER BY archived_at", id)).rows,
+      courseVersionOffers: (await client.query("SELECT move_id,state,code,force_reason,created_at,decided_at FROM course_version_move_offers WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,refusal_code,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       suggestedResources: (await client.query("SELECT objective_id,episode_id,attachment_id,created_at,ended_at,end_reason FROM research_resource_choices WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
@@ -315,6 +319,9 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
   // Generated changes still waiting for a safe boundary (migration 092): the candidate goes, the status stays.
   await run("pendingPersonalChanges", "UPDATE adaptation_pending_changes SET selection='{}'::jsonb WHERE enrollment_id=$1");
+  // Personal changes a version move archived (migration 117): the list and the adaptation state go.
+  await run("archivedPersonalChanges", "UPDATE personal_change_archives SET changes='[]'::jsonb,state=NULL WHERE enrollment_id=$1");
+  await run("courseVersionOfferReasons", "UPDATE course_version_move_offers SET force_reason='[erased]' WHERE enrollment_id=$1 AND force_reason IS NOT NULL");
   // Published generated components (migration 093): their model and tests go; identifiers stay.
   await run("generatedComponents", "UPDATE generated_components SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");

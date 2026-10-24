@@ -197,6 +197,11 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     // Moves to a newer course version (migration 111): ids, codes, lesson ids and counts only, kept.
     course_version_moves: { scope: "learner", state: "previewed", preview: { learners: [] } },
     course_version_move_entries: { state: "waiting", code: "ATTEMPT_IN_PROGRESS" },
+    // Owner decisions on moves (migration 117): carried checkpoints (ids and course versions), offers
+    // (states and codes, a staff reason erased), and archived personal changes (list and state erased).
+    carried_checkpoint_attempts: { gate_id: "min-gate", from_course_digest: hex("1"), course_digest: hex("2") },
+    course_version_move_offers: { state: "forced", force_reason: "Forced: " + secret, decided_at: new Date().toISOString() },
+    personal_change_archives: { how: "forced", changes: [{ episodeId: "min", title: "Title " + secret, kind: "replace_teaching" }], state: { snapshot: { note: said } } },
   };
 }
 
