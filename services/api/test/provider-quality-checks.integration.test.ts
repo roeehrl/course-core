@@ -591,7 +591,10 @@ describe("upgrade from a release where only the companion and the plan superviso
     const research = flagged.find((r) => r.role === "research")!;
     expect(research.conversations).toBe(dialoguesFor(suite, "research", "core.research.public-topic").length);
 
-    // "Run check" beside the research job checks the research job only.
+    // "Run check" beside the research job checks the research job only. It is held before its
+    // first conversation so the test sees it running.
+    let release!: () => void;
+    hold = new Promise<void>((resolve) => { release = resolve; });
     const idempotencyKey = key();
     const started = await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active", role: "research" });
     expect(started.statusCode, started.body).toBe(200);
@@ -603,6 +606,8 @@ describe("upgrade from a release where only the companion and the plan superviso
     // While it runs, every flagged job says a check is already running.
     const during = (await call(owner, "GET", checks(workspace))).json();
     expect(during.activeRoles.every((r: { blocked: { code: string } | null }) => r.blocked?.code === "PROVIDER_QUALITY_CHECK_RUNNING")).toBe(true);
+    hold = null;
+    release();
     const done = await finished(owner, workspace, started.json().id);
     expect(done.state, JSON.stringify(done.outcome)).toBe("passed");
     expect(done.outcome.map((o: { role: string }) => o.role)).toEqual(["research"]);
