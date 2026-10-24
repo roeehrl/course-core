@@ -96,6 +96,7 @@ export const sectionAnchor = (section: SectionId | "advanced") =>
 const PILL_KEYS: Record<SectionState["pill"], AiKey> = {
   working: "aiServices.pill.working",
   done: "aiServices.pill.done",
+  noLearnerLimit: "aiServices.pill.noLearnerLimit",
   notConnected: "aiServices.pill.notConnected",
   notTested: "aiServices.pill.notTested",
   modelNeeded: "aiServices.pill.modelNeeded",

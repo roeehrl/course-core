@@ -43,6 +43,7 @@
   "budgets.limit": "Limit",
   "budgets.used": "Used (estimated)",
   "budgets.learner": "This learner",
+  "budgets.noLearnerLimit": "No limit per learner (the workspace total applies)",
   "budgets.learnerDaily": "This learner per day",
   "budgets.perArtifact": "Per artifact",
   "budgets.workspace": "Workspace",

@@ -261,7 +261,7 @@ for (const locale of ["en", "he"] as Locale[]) {
 
     // Spending: the button is the consent and names the amount ($25 total, $2 per learner).
     const spending = page.locator("#ai-spending");
-    await expect(spending.getByLabel(t("spending.perLearner"))).toHaveValue(
+    await expect(spending.getByLabel(t("spending.learnerAmount"))).toHaveValue(
       "2.00",
     );
     await spending
@@ -477,3 +477,80 @@ for (const locale of ["en", "he"] as Locale[]) {
     ).toBeEditable();
   });
 }
+
+for (const locale of ["en", "he"] as Locale[])
+  test(`an owner chooses no limit per learner and sees what learners spend (${locale})`, async ({
+    page,
+    request,
+  }) => {
+    const x = text(locale),
+      { t, f, signIn } = x;
+    const fixture = await (
+      await request.post("/test/empty-workspace-fixture")
+    ).json();
+    await page.goto(`/admin/?locale=${locale}`);
+    await page.getByLabel(signIn("code")).fill(fixture.ownerCode);
+    await page
+      .getByRole("button", { name: signIn("useCode"), exact: true })
+      .click();
+    await page.getByRole("button", { name: f("ai.button") }).click();
+    const spending = page.locator("#ai-spending"),
+      status = page.locator(".ai-status-bar");
+    await spending
+      .getByRole("radio", { name: t("spending.learnerNoneOption") })
+      .check();
+    await expect(spending.getByLabel(t("spending.learnerAmount"))).toHaveCount(
+      0,
+    );
+    await expect(
+      spending.getByText(
+        t("spending.learnerNoneMeans", { total: x.money(25) }),
+      ),
+    ).toBeVisible();
+    await expect(
+      spending.getByText(t("spending.consentNoLearnerLimit")),
+    ).toBeVisible();
+    await spending
+      .getByRole("button", {
+        name: t("spending.allow", { amount: x.money(25) }),
+      })
+      .click();
+    await expect(
+      spending.getByText(t("spending.savedNoLearnerLimit")),
+    ).toBeVisible();
+    // A deliberate choice: spending is not listed as a problem.
+    await expect(
+      status.getByRole("link", { name: t("issue.learnerLimit") }),
+    ).toHaveCount(0);
+    await expect(
+      spending.locator(".ai-section-heading .ai-pill.ok"),
+    ).toHaveText(t("pill.noLearnerLimit"));
+    await accessible(page);
+
+    // Saved on the server: a fresh page shows the same choice.
+    await page.reload();
+    await expect(
+      page
+        .locator("#ai-spending")
+        .getByRole("radio", { name: t("spending.learnerNoneOption") }),
+    ).toBeChecked();
+
+    // No learner has spent anything yet: there is no suggestion, and the counts say why.
+    await page
+      .locator("#ai-spending")
+      .getByText(t("learnerSpend.title"), { exact: true })
+      .click();
+    const panel = page.locator(".ai-learner-spend");
+    await expect(
+      panel.getByText(
+        t("learnerSpend.rec.notEnough", {
+          learners: 0,
+          days: 0,
+          minLearners: 5,
+          minDays: 20,
+        }),
+      ),
+    ).toBeVisible();
+    await expect(panel.getByText(t("learnerSpend.empty"))).toBeVisible();
+    await accessible(page);
+  });

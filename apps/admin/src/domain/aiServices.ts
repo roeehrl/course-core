@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { LearnerSpendPort } from "./learnerSpend";
 import {
   providerSetupSchema,
   keyTestSchema,
@@ -154,6 +155,10 @@ export const budgetsSchema = z.object({
   workspace: ledger,
   defaultEnrollment: z.object({
     revision: z.number().int().nonnegative(),
+    /** "unset": nothing chosen (no paid work for learners without their own limit); "limit":
+     * the amounts below; "unlimited": no limit per learner, by the owner's choice. Older
+     * servers omit it (see `learnerLimitMode`). */
+    mode: z.enum(["unset", "limit", "unlimited"]).optional(),
     limit_micro_usd: amount.nullable(),
     limit_tokens: amount.nullable(),
   }),
@@ -161,12 +166,24 @@ export const budgetsSchema = z.object({
     .array(
       ledger.extend({
         enrollmentId: z.string(),
-        limitSource: z.enum(["default", "own"]),
+        limitSource: z.enum(["default", "own", "unlimited"]),
+        limit_micro_usd: amount.nullable(),
+        limit_tokens: amount.nullable(),
       }),
     )
     .max(100),
 });
 export type Budgets = z.infer<typeof budgetsSchema>;
+export type LearnerLimitMode = "unset" | "limit" | "unlimited";
+/** The workspace choice for learners without their own limit. */
+export function learnerLimitMode(budgets: Budgets | null | undefined) {
+  const value = budgets?.defaultEnrollment;
+  if (!value) return "unset" as const;
+  return (value.mode ??
+    (value.limit_micro_usd === null
+      ? "unset"
+      : "limit")) satisfies LearnerLimitMode;
+}
 export const budgetReceiptSchema = z.object({
   revision: z.number().int().positive(),
   scope: z.enum(["workspace", "enrollment", "default_enrollment"]),
@@ -404,10 +421,14 @@ export interface AiServicesPort {
       expectedRevision: number;
       idempotencyKey: string;
       scope: "workspace" | "default_enrollment";
-      limits: { microUsd: number; tokens?: number };
+      /** `default_enrollment` only: "unlimited" is "no limit per learner" and has no limits. */
+      mode?: "limit" | "unlimited";
+      limits?: { microUsd: number; tokens?: number };
       paidWorkApproved: boolean;
     },
   ): Promise<z.infer<typeof budgetReceiptSchema>>;
+  /** What learners spend, for choosing a per-learner limit. Older servers lack it. */
+  learnerSpend?: LearnerSpendPort["learnerSpend"];
   evals(workspace: string, signal?: AbortSignal): Promise<EvalStatus>;
   qualityStatus(
     workspace: string,
@@ -625,7 +646,7 @@ export function priceGroups(
 export type SectionId =
   "connections" | "models" | "prices" | "spending" | "check";
 export type SectionState =
-  | { tone: "ok"; pill: "working" | "done" }
+  | { tone: "ok"; pill: "working" | "done" | "noLearnerLimit" }
   | {
       tone: "warn";
       pill:
@@ -744,12 +765,16 @@ export function pageStatus(input: {
   } else prices = { tone: "ok", pill: "done" };
 
   const total = Number(input.budgets?.workspace.limit_micro_usd ?? 0),
-    perLearner = Number(input.budgets?.defaultEnrollment.limit_micro_usd ?? 0);
+    perLearner = Number(input.budgets?.defaultEnrollment.limit_micro_usd ?? 0),
+    mode = learnerLimitMode(input.budgets);
   let spending: SectionState;
   if (!total) {
     spending = { tone: "warn", pill: "spendingOff" };
     issues.push({ section: "spending", kind: "spending" });
-  } else if (!perLearner) {
+  } else if (mode === "unlimited")
+    // A deliberate choice, not a problem: the workspace total still caps spending.
+    spending = { tone: "ok", pill: "noLearnerLimit" };
+  else if (!perLearner) {
     spending = { tone: "warn", pill: "learnerLimitNeeded" };
     issues.push({ section: "spending", kind: "learnerLimit" });
   } else spending = { tone: "ok", pill: "done" };
