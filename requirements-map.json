@@ -1096,6 +1096,8 @@
       "core:services/api/test/visual-accessibility.test.ts"
     ],
     "T01": [
+      "core:apps/learner/tests/companionRenders.test.tsx::a companion answer re-renders the companion, not the lesson",
+      "core:apps/learner/tests/connected-web/companion-network.spec.ts::the open companion pane reads on events, keeps one stream across revisions, and does not poll",
       "core:services/api/browser/budgets.spec.ts::feedbackMs",
       "core:services/api/qualification/supervised-flow.ts::firstReplyPipelineMs",
       "core:services/api/test/release-transition-latency.integration.test.ts"
@@ -1180,6 +1182,7 @@
       "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes"
     ],
     "I01": [
+      "core:apps/learner/tests/connected-web/option-tap.spec.ts::tapping an answer option always selects it",
       "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane",
       "core:apps/learner/tests/windowClass.test.ts"
     ],
