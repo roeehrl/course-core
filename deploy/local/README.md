@@ -89,6 +89,32 @@ directory by name and confines every update source inside it. Automatic updates 
 course until an administrator turns them on; the API checks for due updates every five minutes
 (`COURSE_UPDATE_TICK_MS`).
 
+## Media tools for exact clips and the frame check (optional)
+
+Exact clips (and compositions) and the frame check in "Check before saving" run programs on
+this host: `ffmpeg`, `ffprobe` and an `rsvg-convert`-compatible rasterizer
+(`services/api/PROVIDER_SETUP.md`). The pilot builds the API environment only from
+`config.json`, so name them in the optional `mediaTools` key, each by absolute path:
+
+```json
+"mediaTools": { "ffmpeg": "/opt/homebrew/bin/ffmpeg", "ffprobe": "/opt/homebrew/bin/ffprobe", "rasterizer": "/opt/homebrew/bin/rsvg-convert" }
+```
+
+- `ffmpeg` is required once the key is present. With `ffmpeg` alone the frame check runs
+  (using an `ffprobe` beside it); exact clips also need `rasterizer`. `ffprobe` is only needed
+  when it is not next to `ffmpeg`.
+- Each path must be absolute and normalized, and name an existing file the pilot user can
+  execute (a symbolic link, such as Homebrew's, is fine). Otherwise `start` stops with
+  `invalid_media_tools`, `media_tool_missing` or `media_tool_not_executable` and a `hint`
+  naming the key, for example `mediaTools.rasterizer is not executable by the pilot user`.
+- Only the API receives them, as `CLIP_FFMPEG_PATH`, `CLIP_FFPROBE_PATH` and
+  `CLIP_RASTERIZER_PATH`; the workers and Temporal do not. Restart the pilot after editing.
+- Without the key both features stay off and the media page says they are not set up.
+
+Runtimes older than this option reject `mediaTools` as unknown configuration. Upgrade first,
+then add the key and restart; remove it before starting an older release by hand. See
+"Upgrading a pinned runtime" for the upgrade script.
+
 ## Sign-in settings and passwords
 
 People sign in with a username and password (see the root README, "Sign-in and
@@ -783,5 +809,11 @@ start the previous runtime by hand), `upgrade_failed_restore_from_backup` (the
 new runtime ran and the previous one did not come back; the reported backup is
 the recovery point if the new API already migrated the database),
 `upgrade_failed_new_runtime_not_stopped`, and `upgrade_failed_pilot_left_stopped`
-(the pilot was not running when the upgrade began, and stays stopped). Health is
+(the pilot was not running when the upgrade began, and stays stopped).
+
+Optional keys added by a newer release are rejected as unknown by older ones, so add them
+after upgrading: the upgrade script's rollback starts the previous runtime on the same
+`config.json`. When `config.json` has `mediaTools` and the previous runtime does not know
+that key, the script refuses before stopping anything with
+`media_tools_unsupported_by_previous_runtime`; remove the key, upgrade, then add it back. Health is
 process and API readiness, not learner, provider or deployment acceptance.

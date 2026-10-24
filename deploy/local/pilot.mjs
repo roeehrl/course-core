@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { BlockList } from 'node:net';
 import { constants } from 'node:fs';
-import { access, chmod, lstat, mkdir, realpath, rmdir, unlink } from 'node:fs/promises';
+import { access, chmod, lstat, mkdir, realpath, rmdir, stat, unlink } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -25,7 +25,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256','snapshots','courseSuppliedCodeFixtures'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256','snapshots','courseSuppliedCodeFixtures','mediaTools'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -91,6 +91,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   config.coursePackageDirectories = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
   config.backupAgeRecipients = backupAgeRecipientsConfiguration(config.backupAgeRecipients);
   config.snapshots = snapshotsConfiguration(config.snapshots);
+  config.mediaTools = await mediaToolsConfiguration(config.mediaTools);
   for (const directory of config.coursePackageDirectories) await existingDirectory(directory);
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
@@ -101,6 +102,32 @@ export async function loadConfiguration(rootInput, stateInput) {
   }
   await access(path.join(root, '.local/bin/temporal'), constants.X_OK); controlPath(state);
   return { root, state, config, ports };
+}
+/** `mediaTools` keys and the API variables the media pipeline reads (services/api clip-export.ts, media-pixels.ts). */
+export const MEDIA_TOOL_ENVIRONMENT = Object.freeze({ ffmpeg: 'CLIP_FFMPEG_PATH', ffprobe: 'CLIP_FFPROBE_PATH', rasterizer: 'CLIP_RASTERIZER_PATH' });
+/** Optional `mediaTools` key: host programs for exact clips and the frame check, each an
+ * absolute path to an existing executable file. `ffmpeg` is required once the key is present;
+ * `ffprobe` defaults (in the API) to an `ffprobe` beside ffmpeg; exact clips also need
+ * `rasterizer` (an rsvg-convert-compatible program). Only the API receives them. Absent: off. */
+export async function mediaToolsConfiguration(value) {
+  if (value === undefined) return null;
+  const keys = Object.keys(MEDIA_TOOL_ENVIRONMENT);
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.keys(value).every(key => keys.includes(key)))
+    refuse('invalid_media_tools', `mediaTools is an object with only ${keys.join(', ')}`);
+  if (typeof value.ffmpeg !== 'string') refuse('invalid_media_tools', 'mediaTools.ffmpeg is required: the absolute path to ffmpeg');
+  const tools = {};
+  for (const key of keys) {
+    if (value[key] === undefined) continue;
+    const file = value[key];
+    if (typeof file !== 'string' || file.length >= 4096 || /[\x00-\x1f]/.test(file) || !path.isAbsolute(file) || path.normalize(file) !== file)
+      refuse('invalid_media_tools', `mediaTools.${key} must be an absolute, normalized path`);
+    let info;
+    try { info = await stat(file); } catch { refuse('media_tool_missing', `mediaTools.${key} does not exist on this host`); }
+    if (!info.isFile()) refuse('media_tool_missing', `mediaTools.${key} is not a file`);
+    try { await access(file, constants.X_OK); } catch { refuse('media_tool_not_executable', `mediaTools.${key} is not executable by the pilot user`); }
+    tools[key] = file;
+  }
+  return tools;
 }
 /** Optional `snapshots` key: online snapshots taken while the pilot runs (backup.mjs snapshot),
  * which bound data loss to `intervalMinutes` (the 1 hour RPO needs 60 or less). `directory` is an
@@ -391,6 +418,7 @@ export function servicePlan(root, state, config, instanceId) {
   if(config.courseSuppliedCodeFixtures===true)api.COURSE_SUPPLIED_CODE_FIXTURES='on';
   api.ALLOW_INSECURE_ORIGINS=config.allowInsecureOrigins===true?'true':'false';
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
+  for (const [key, name] of Object.entries(MEDIA_TOOL_ENVIRONMENT)) if (config.mediaTools?.[key]) api[name] = config.mediaTools[key];
   Object.assign(api, telemetryEnvironment(config.telemetry));
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
     SUPERVISOR_TEMPORAL_TASK_QUEUE: config.temporalTaskQueue, SUPERVISOR_TEMPORAL_TLS: 'false', SUPERVISOR_HOST_URL: config.publicOrigin,

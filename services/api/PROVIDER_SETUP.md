@@ -304,6 +304,9 @@ They call no provider and cost nothing. Set both tools by absolute path:
 
     CLIP_RASTERIZER_PATH=/usr/bin/rsvg-convert CLIP_FFMPEG_PATH=/usr/bin/ffmpeg
 
+On the local pilot, set them with the `mediaTools` key of `config.json` instead
+(`deploy/local/README.md`, "Media tools").
+
 Without them exact clips and compositions are refused with `MEDIA_CLIP_TOOLCHAIN_MISSING`
 and the media page says what to set. The tools run without a shell, receive only `PATH`,
 are time- and size-bounded, run one at a time per process and work in a private temporary
