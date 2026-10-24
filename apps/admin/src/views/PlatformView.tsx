@@ -171,8 +171,8 @@ function Targets({ report }: { report: Readiness }) {
           </div>
         )}
       </dl>
-      {encryption?.status === "warning" && (
-        <Notice tone="gold">{t("platformView.targets.encryptionHelp")}</Notice>
+      {encryption?.latestEncrypted === false && (
+        <p className="info-note">{t("platformView.targets.encryptionHelp")}</p>
       )}
       {rpo.status !== "ok" && (
         <Notice tone={rpo.status === "failing" ? "red" : "gold"}>
@@ -381,7 +381,7 @@ function Run({ run }: { run: BackupRun | null }) {
         })
       )}{" "}
       {run.outcome === "succeeded" && (
-        <Badge tone={run.encrypted ? "green" : "gold"}>
+        <Badge tone={run.encrypted ? "green" : "neutral"}>
           {run.encrypted
             ? t("platformView.run.encrypted")
             : t("platformView.run.plain")}
