@@ -55,7 +55,9 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
     } catch (error) {
       if (!(error instanceof TemporalUnavailableError)) throw error;
       process.stderr.write(`${JSON.stringify(error.reason === 'stopped' ? { code: 'temporal_connect_stopped' }
-        : { code: 'temporal_unavailable', attempts: error.attempts, deadlineMs: c.temporal.connectDeadlineMs })}\n`);
+        // The same one-line shape as the API's startup failures (services/api/src/startup.ts).
+        : { startup: 'failed', step: 'temporal', code: 'temporal_unavailable', attempts: error.attempts, deadlineMs: c.temporal.connectDeadlineMs,
+          hint: 'Temporal did not accept a connection at SUPERVISOR_TEMPORAL_ADDRESS before SUPERVISOR_TEMPORAL_CONNECT_DEADLINE_MS. Start Temporal (or wait for it) and check the address and TLS settings.' })}\n`);
       return null;
     } finally { process.removeListener('SIGINT', onStop); process.removeListener('SIGTERM', onStop); }
   };

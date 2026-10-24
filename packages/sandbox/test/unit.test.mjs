@@ -39,3 +39,22 @@ test('execution arguments deny network, write access, privileges, swap growth an
   assert.throws(() => new DockerSandbox({ image: 'python:latest', storageDirectory: '/safe/test-directory' }));
   assert.throws(() => new DockerSandbox({ image: QUALIFIED_IMAGES.arm64, storageDirectory: '/safe/test-directory', concurrency: 20 }));
 });
+
+test('preflight names the failing Docker step with a fixed reason and never returns Docker output', async () => {
+  const { mkdtemp, writeFile, chmod, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const root = await mkdtemp(path.join(tmpdir(), 'sandbox-preflight-'));
+  const info = JSON.stringify({ OSType: 'linux', MemoryLimit: true, SwapLimit: true, CpuCfsQuota: true, PidsLimit: true, SecurityOptions: ['name=seccomp,profile=builtin'], Architecture: 'aarch64' });
+  const fake = async (name, body) => { const file = path.join(root, name); await writeFile(file, `#!/bin/sh\n${body}\n`); await chmod(file, 0o755); return file; };
+  const run = async (dockerBinary, timeoutMs) => new DockerSandbox({ image: QUALIFIED_IMAGES.arm64, storageDirectory: path.join(root, 'store'), dockerBinary }).preflight(timeoutMs);
+  try {
+    assert.deepEqual(await run(path.join(root, 'missing-docker')), { ok: false, step: 'docker_info', reason: 'docker_not_installed' });
+    assert.deepEqual(await run(await fake('down', 'echo "Cannot connect to the Docker daemon at unix:///secret" >&2; exit 1')), { ok: false, step: 'docker_info', reason: 'docker_unavailable' });
+    assert.deepEqual(await run(await fake('slow', 'sleep 5'), 200), { ok: false, step: 'docker_info', reason: 'docker_timeout' });
+    assert.deepEqual(await run(await fake('weak', `echo '${JSON.stringify({ OSType: 'linux' })}'`)), { ok: false, step: 'docker_info', reason: 'required_isolation_unavailable' });
+    assert.deepEqual(await run(await fake('noimage', `if [ "$1" = info ]; then echo '${info}'; else echo "No such image" >&2; exit 1; fi`)), { ok: false, step: 'sandbox_image_inspect', reason: 'image_missing' });
+    assert.deepEqual(await run(await fake('amd', `if [ "$1" = info ]; then echo '${info}'; else echo '[{"Os":"linux","Architecture":"amd64"}]'; fi`)), { ok: false, step: 'sandbox_image_inspect', reason: 'native_image_architecture_required' });
+    assert.deepEqual(await run(await fake('good', `if [ "$1" = info ]; then echo '${info}'; else echo '[{"Os":"linux","Architecture":"arm64"}]'; fi`)), { ok: true });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

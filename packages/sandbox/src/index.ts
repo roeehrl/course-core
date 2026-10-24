@@ -110,18 +110,33 @@ export class DockerSandbox {
     return this.runtimeReadiness();
   }
   private async runtimeReadiness(): Promise<{ ready: boolean; reason: string }> {
+    const checked = await this.preflight();
+    if (!checked.ok) return { ready: false, reason: checked.reason === 'required_isolation_unavailable' || checked.reason === 'native_image_architecture_required'
+      ? checked.reason : 'docker_or_pinned_image_unavailable' };
+    return { ready: !this.unhealthy, reason: this.unhealthy ? 'cleanup_required' : 'configured' };
+  }
+  /**
+   * The two Docker checks every run makes, reported step by step for startup diagnostics:
+   * `docker info` (the daemon answers and offers the required isolation) and `docker image
+   * inspect` (the pinned image is present for this machine's architecture). Reasons are fixed
+   * codes; Docker's own output is never returned. `timeoutMs` bounds each command.
+   */
+  async preflight(timeoutMs = 5000): Promise<{ ok: true } | { ok: false; step: 'docker_info' | 'sandbox_image_inspect'; reason: string }> {
     const exec = promisify(execFile);
-    try {
-      const result = await exec(this.config.dockerBinary, ['info', '--format', '{{json .}}'], { timeout: 5000, maxBuffer: 262144 });
-      const info = JSON.parse(result.stdout);
-      if (info.OSType !== 'linux' || !info.MemoryLimit || !info.SwapLimit || !info.CpuCfsQuota || !info.PidsLimit
-        || !Array.isArray(info.SecurityOptions) || !info.SecurityOptions.some((item: unknown) => typeof item === 'string' && item.startsWith('name=seccomp'))) return { ready: false, reason: 'required_isolation_unavailable' };
-      const inspected = await exec(this.config.dockerBinary, ['image', 'inspect', this.config.image], { timeout: 5000, maxBuffer: 65536 });
-      const image = JSON.parse(inspected.stdout)[0];
-      const architecture = ({ aarch64: 'arm64', x86_64: 'amd64', arm64: 'arm64', amd64: 'amd64' } as Record<string, string>)[info.Architecture];
-      if (!architecture || image.Os !== 'linux' || image.Architecture !== architecture) return { ready: false, reason: 'native_image_architecture_required' };
-      return { ready: !this.unhealthy, reason: this.unhealthy ? 'cleanup_required' : 'configured' };
-    } catch { return { ready: false, reason: 'docker_or_pinned_image_unavailable' }; }
+    const failed = (error: unknown) => (error as { killed?: boolean; signal?: string } | null)?.killed || (error as { signal?: string } | null)?.signal === 'SIGTERM' ? 'timeout'
+      : (error as { code?: unknown } | null)?.code === 'ENOENT' ? 'docker_not_installed' : 'unavailable';
+    let info: { OSType?: unknown; MemoryLimit?: unknown; SwapLimit?: unknown; CpuCfsQuota?: unknown; PidsLimit?: unknown; SecurityOptions?: unknown; Architecture?: unknown };
+    try { info = JSON.parse((await exec(this.config.dockerBinary, ['info', '--format', '{{json .}}'], { timeout: timeoutMs, maxBuffer: 262144 })).stdout); }
+    catch (error) { const why = failed(error); return { ok: false, step: 'docker_info', reason: why === 'unavailable' ? 'docker_unavailable' : why === 'timeout' ? 'docker_timeout' : why }; }
+    if (info.OSType !== 'linux' || !info.MemoryLimit || !info.SwapLimit || !info.CpuCfsQuota || !info.PidsLimit
+      || !Array.isArray(info.SecurityOptions) || !info.SecurityOptions.some((item: unknown) => typeof item === 'string' && item.startsWith('name=seccomp')))
+      return { ok: false, step: 'docker_info', reason: 'required_isolation_unavailable' };
+    let image: { Os?: unknown; Architecture?: unknown } | undefined;
+    try { image = JSON.parse((await exec(this.config.dockerBinary, ['image', 'inspect', this.config.image], { timeout: timeoutMs, maxBuffer: 65536 })).stdout)[0]; }
+    catch (error) { const why = failed(error); return { ok: false, step: 'sandbox_image_inspect', reason: why === 'timeout' ? 'image_inspect_timeout' : why === 'unavailable' ? 'image_missing' : why }; }
+    const architecture = ({ aarch64: 'arm64', x86_64: 'amd64', arm64: 'arm64', amd64: 'amd64' } as Record<string, string>)[String(info.Architecture)];
+    if (!architecture || image?.Os !== 'linux' || image.Architecture !== architecture) return { ok: false, step: 'sandbox_image_inspect', reason: 'native_image_architecture_required' };
+    return { ok: true };
   }
   async grade(input: Submission): Promise<GradeReport> {
     validateSubmission(input);
