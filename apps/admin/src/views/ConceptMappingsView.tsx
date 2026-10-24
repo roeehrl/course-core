@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { AdminClient } from "../domain/contracts";
 import {
@@ -10,6 +10,8 @@ import {
   type MappingPair,
 } from "../domain/conceptMappings";
 import { useRemote } from "../hooks/useAdmin";
+import { useEditableSnapshot } from "../hooks/useEditableSnapshot";
+import { ChangedElsewhere } from "../components/ChangedElsewhere";
 import {
   Badge,
   Button,
@@ -222,19 +224,39 @@ function PairEditor({
     (signal) => port.pair(first, second, signal),
     [port, first, second],
   );
-  const [mapping, setMapping] = useState<ConceptMapping | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
+  // The mapping this editor saved last, else the loaded one. The links show the saved mapping
+  // until edited, derived rather than copied in an effect: a copy still pending when the pair
+  // appears would run after a link added at that moment and drop it.
+  const [savedHere, setSavedHere] = useState<{
+    from: MappingPair;
+    mapping: ConceptMapping;
+  }>();
+  const loaded = pair.data,
+    mapping =
+      savedHere && savedHere.from === loaded
+        ? savedHere.mapping
+        : (loaded?.mapping ?? null);
+  const savedRows = useMemo(
+    () => toRows(mapping?.links ?? [], first),
+    [mapping, first],
+  );
+  // The saved version is its revision and links; row keys are made up per load.
+  const edit = useEditableSnapshot(
+    savedRows,
+    JSON.stringify([
+      mapping?.revision ?? 0,
+      mapping?.state ?? null,
+      toLinks(savedRows, first, second),
+    ]),
+  );
+  const rows = edit.value,
+    setRows = edit.set;
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   const keys = useRef(new Map<string, string>());
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (!pair.data) return;
-    setMapping(pair.data.mapping);
-    setRows(toRows(pair.data.mapping?.links ?? [], first));
-  }, [pair.data, first]);
   const names = useMemo(
     () => (pair.data ? sides(pair.data, first) : null),
     [pair.data, first],
@@ -261,8 +283,8 @@ function PairEditor({
     setMessage("");
     try {
       const saved = await action();
-      setMapping(saved);
-      setRows(toRows(saved.links, first));
+      if (pair.data) setSavedHere({ from: pair.data, mapping: saved });
+      edit.discard();
       setNote("");
       setMessage(done(saved));
       keys.current.clear();
@@ -273,6 +295,7 @@ function PairEditor({
     }
   }
   const save = () => {
+    if (edit.changedElsewhere) return;
     const links = toLinks(rows, first, second);
     const body = {
       releaseIds: [first, second] as [string, string],
@@ -476,8 +499,19 @@ function PairEditor({
         {error !== undefined && (
           <Notice tone="red">{conceptMappingErrorMessage(error, t)}</Notice>
         )}
+        {edit.changedElsewhere && (
+          <ChangedElsewhere
+            disabled={pending}
+            onShowSaved={edit.discard}
+            onKeep={edit.keep}
+          />
+        )}
         <div className="mapping-actions">
-          <Button kind="primary" disabled={pending || !complete} onClick={save}>
+          <Button
+            kind="primary"
+            disabled={pending || !complete || edit.changedElsewhere}
+            onClick={save}
+          >
             {mapping?.state === "retired"
               ? t("conceptMappingsView.restore")
               : t("conceptMappingsView.save")}
