@@ -161,8 +161,11 @@ test("opening the policy preview starts no clock; explicit Start enrolls once an
   await page
     .getByRole("button", { name: "← All courses", exact: true })
     .click();
+  // The started course is listed once, under "Your courses" (not again as available).
+  await expect(page.getByRole("button", { name: "Open course", exact: true })).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Resume course", exact: true })
+    .getByRole("article")
+    .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
   await expect(page.locator(".connected-policy-dates")).toHaveText(before!);
   expect(state.writes()).toBe(1);

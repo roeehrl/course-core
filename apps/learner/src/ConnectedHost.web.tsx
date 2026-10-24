@@ -81,6 +81,7 @@ import { platformCapabilities, pointerMedia } from "./client/platformCapabilitie
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import { courseContentAttributes } from "./domain/contentLanguage";
+import { library } from "./connected/library";
 import "./connected/connected.css";
 import { codeSubmissionError } from "./connected/code";
 import { answerFeedback } from "./connected/answerFeedback";
@@ -1077,6 +1078,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setView("learn");
     });
   }
+  /** One card per course (library.ts): the enrollment to continue and any newer version. */
+  const courses = useMemo(() => library(enrollments, catalog), [enrollments, catalog]);
+  function openEnrollment(enrollmentId: string) {
+    run(async () => {
+      await refresh(enrollmentId);
+      setEpisodeId(undefined);
+      setView("learn");
+    });
+  }
   function back() {
     if (view !== "learn") {
       setView("learn");
@@ -1276,32 +1286,66 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           ) : !server ? (
             <section className="connected-library">
               <h1>{t("connectedHost.library.title")}</h1>
-              {enrollments.map((enrollment) => (
-                <article className="connected-reading-card" key={enrollment.id}>
-                  <h2 {...courseContentAttributes()}>{enrollment.title}</h2>
-                  <p>
+              {courses.yours.map(({ key, enrollment, others, newer }) => (
+                <article className="connected-reading-card connected-course-card" key={key}>
+                  <div className="connected-course-card-head">
+                    <h2 {...courseContentAttributes()}>{enrollment.title}</h2>
+                    {newer && <span className="connected-course-new">{t("connectedHost.library.newer.badge")}</span>}
+                  </div>
+                  <p className="connected-muted">
                     {t("connectedHost.library.versionStatus", {
                       version: enrollment.version,
                       status: enrollmentStatus(enrollment.status),
                     })}
                   </p>
+                  {newer && (
+                    <div className="connected-course-newer">
+                      <p><strong>{t("connectedHost.library.newer.title", { version: newer.version })}</strong></p>
+                      <p>
+                        {enrollment.versionOffer
+                          ? t("connectedHost.library.newer.offer")
+                          : t("connectedHost.library.newer.waiting", { current: enrollment.version })}
+                      </p>
+                    </div>
+                  )}
                   {enrollment.status !== "erased" && <Button
                     label={t("connectedHost.library.continue")}
                     kind="primary"
                     disabled={pending}
-                    onPress={() =>
-                      run(async () => {
-                        await refresh(enrollment.id);
-                        setEpisodeId(undefined);
-                        setView("learn");
-                      })
-                    }
+                    onPress={() => openEnrollment(enrollment.id)}
                   />}
+                  {newer && !enrollment.versionOffer && (
+                    <Button
+                      label={t("connectedHost.library.newer.startFresh", { version: newer.version })}
+                      kind="quiet"
+                      disabled={pending}
+                      onPress={() => setPreview(newer)}
+                    />
+                  )}
+                  {others.length > 0 && (
+                    <div className="connected-course-others">
+                      <p className="connected-muted">{t("connectedHost.library.others")}</p>
+                      <ul>
+                        {others.map((other) => (
+                          <li key={other.id}>
+                            <span>
+                              {t("connectedHost.library.versionStatus", { version: other.version, status: enrollmentStatus(other.status) })}
+                            </span>
+                            {other.status !== "erased" && (
+                              <button type="button" className="connected-link-button" disabled={pending} onClick={() => openEnrollment(other.id)}>
+                                {t("connectedHost.library.openVersion", { version: other.version })}
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </article>
               ))}
-              <h2>{t("connectedHost.library.available")}</h2>
-              {catalog.length ? (
-                catalog.map((course) => (
+              {(courses.available.length > 0 || !courses.yours.length) && <h2>{t("connectedHost.library.available")}</h2>}
+              {courses.available.length ? (
+                courses.available.map((course) => (
                   <article className="connected-reading-card" key={course.id}>
                     <h2 {...courseContentAttributes()}>{course.title}</h2>
                     <p>{t("connectedHost.library.version", { version: course.version })}</p>
@@ -1315,35 +1359,18 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       </p>
                     ) : (
                     <Button
-                      label={
-                        enrollments.some(
-                          (enrollment) => enrollment.releaseId === course.id,
-                        )
-                          ? t("connectedHost.library.resume")
-                          : t("connectedHost.library.open")
-                      }
+                      label={t("connectedHost.library.open")}
                       disabled={pending}
-                      onPress={() => {
-                        const existing = enrollments.find(
-                          (enrollment) => enrollment.releaseId === course.id,
-                        );
-                        if (existing)
-                          run(async () => {
-                            await refresh(existing.id);
-                            setEpisodeId(undefined);
-                            setView("learn");
-                          });
-                        else setPreview(course);
-                      }}
+                      onPress={() => setPreview(course)}
                     />
                     )}
                   </article>
                 ))
-              ) : (
+              ) : !courses.yours.length ? (
                 <Notice>
                   {t("connectedHost.library.empty")}
                 </Notice>
-              )}
+              ) : null}
             </section>
           ) : view === "profile" ? (
             <section className="connected-reading-card">

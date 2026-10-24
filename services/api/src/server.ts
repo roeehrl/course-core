@@ -310,7 +310,12 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   app.get('/api/enrollments', async request => {
     const actor = await auth.authenticate(request);
-    return (await db.query(`SELECT e.id,e.status,e.revision,e.course_release_id AS "releaseId",c.learner_bundle->>'title' AS title,c.version,c.course_key FROM enrollments e
+    // versionOffer: the course team offered this enrollment a move to a newer version (the offer
+    // itself, with what it changes, is in the enrollment's snapshot); the home card says so.
+    return (await db.query(`SELECT e.id,e.status,e.revision,e.course_release_id AS "releaseId",c.learner_bundle->>'title' AS title,c.version,c.course_key,
+      EXISTS (SELECT 1 FROM course_version_move_offers o JOIN course_version_moves v ON v.id=o.move_id
+        WHERE o.enrollment_id=e.id AND o.state='offered' AND v.from_release_id=e.course_release_id AND v.state='confirmed') AS "versionOffer"
+      FROM enrollments e
       JOIN course_releases c ON c.id=e.course_release_id JOIN memberships m ON m.workspace_id=e.workspace_id AND m.user_id=e.user_id
       WHERE e.user_id=$1 ORDER BY e.started_at DESC`, [actor.id])).rows;
   });

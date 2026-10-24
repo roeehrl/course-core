@@ -11,6 +11,8 @@ export interface CatalogCourse {
   status: string;
   summary?: string;
   policy?: LearningPolicy;
+  /** The course this release is a version of. */
+  course_key?: string;
 }
 export interface Enrollment {
   id: string;
@@ -18,6 +20,10 @@ export interface Enrollment {
   title: string;
   version: string;
   status: string;
+  /** The course this enrollment's release is a version of. */
+  course_key?: string;
+  /** The course team offered this learner a move to a newer version, waiting for their choice. */
+  versionOffer?: boolean;
 }
 export interface PolicyQuota {
   scopeId: string;
