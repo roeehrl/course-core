@@ -40,11 +40,12 @@ export function SpendingSection(props: Props) {
     }),
     [savedTotal, savedLearner],
   );
-  const [form, setForm] = useState(initial);
-  const [touched, setTouched] = useState(false);
-  useEffect(() => {
-    if (!touched) setForm(initial);
-  }, [initial, touched]);
+  // Until the operator edits a limit the form shows the saved (or proposed) values. Deriving
+  // them, rather than copying them in an effect, keeps an edit typed the moment the section
+  // appears: a copy effect still pending then would run after the edit and overwrite it.
+  const [edited, setEdited] = useState<typeof initial | null>(null);
+  const form = edited ?? initial,
+    touched = edited !== null;
   const total = parseUsd(form.total, MAX),
     learner = parseUsd(form.learner, MAX);
   // Changed: there is something to save (the proposed limits count). Unsaved: the operator edited it.
@@ -124,7 +125,7 @@ export function SpendingSection(props: Props) {
         });
       }
       keys.settle();
-      setTouched(false);
+      setEdited(null);
       setMessage({
         tone: "ok",
         text: total
@@ -183,8 +184,11 @@ export function SpendingSection(props: Props) {
                   value={form.total}
                   disabled={saving}
                   onChange={(event) => {
-                    setTouched(true);
-                    setForm({ ...form, total: event.target.value });
+                    const total = event.target.value;
+                    setEdited((current) => ({
+                      ...(current ?? initial),
+                      total,
+                    }));
                   }}
                   {...described(totalId, !!savedTotal, totalError)}
                 />
@@ -205,8 +209,11 @@ export function SpendingSection(props: Props) {
                   value={form.learner}
                   disabled={saving}
                   onChange={(event) => {
-                    setTouched(true);
-                    setForm({ ...form, learner: event.target.value });
+                    const learner = event.target.value;
+                    setEdited((current) => ({
+                      ...(current ?? initial),
+                      learner,
+                    }));
                   }}
                   {...described(learnerId, true, learnerError)}
                 />

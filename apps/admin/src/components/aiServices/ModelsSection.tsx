@@ -146,11 +146,14 @@ export function ModelsSection(props: Props) {
     }
     return result;
   }, [draft, active, usable, lists]);
-  const [choices, setChoices] = useState(initial);
-  const [touched, setTouched] = useState(false);
-  useEffect(() => {
-    if (!touched) setChoices(initial);
-  }, [initial, touched]);
+  // Until the operator picks a model the form shows the saved choices or the suggestions,
+  // derived rather than copied in an effect: a copy effect still pending when the section
+  // appears would run after a pick made at that moment and overwrite it.
+  const [edited, setEdited] = useState<typeof initial | null>(null);
+  const choices = edited ?? initial,
+    touched = edited !== null;
+  const setChoices = (update: (current: typeof initial) => typeof initial) =>
+    setEdited((edit) => update(edit ?? initial));
   const [showAll, setShowAll] = useState(false);
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [message, setMessage] = useState<{
@@ -264,7 +267,7 @@ export function ModelsSection(props: Props) {
         });
       } else if (await activate(created))
         setMessage({ tone: "ok", text: t("aiServices.models.saved") });
-      setTouched(false);
+      setEdited(null);
       await reload();
     } catch (error) {
       const service = serviceName(t, usable[0]?.kind ?? "");
@@ -291,7 +294,7 @@ export function ModelsSection(props: Props) {
     setSaving(true);
     try {
       await port.discardDraft(workspaceId);
-      setTouched(false);
+      setEdited(null);
       setMessage({ tone: "ok", text: t("aiServices.models.discarded") });
       await reload();
     } catch (error) {
@@ -352,7 +355,6 @@ export function ModelsSection(props: Props) {
         value={encode(choice)}
         disabled={saving}
         onChange={(event) => {
-          setTouched(true);
           const [connectionId, remoteModel] =
             event.target.value.split("\u0000");
           setChoices((current) => ({
@@ -516,7 +518,6 @@ export function ModelsSection(props: Props) {
             })()}
             disabled={saving}
             onChange={(media) => {
-              setTouched(true);
               setChoices((current) => ({
                 ...current,
                 media: current.media ? { ...current.media, media } : null,
