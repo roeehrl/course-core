@@ -1126,9 +1126,9 @@ app.post("/test/study-session", async (request) => {
 app.post("/test/companion-draft", async (request) => {
   const body = (request.body ?? {}) as { question?: string; pieces?: string[]; end?: "complete" | "withdrawn"; gapMs?: number };
   const row = (await db.query<{ id: string; enrollment_id: string }>("SELECT id,enrollment_id FROM companion_messages WHERE content=$1 AND role='learner' ORDER BY created_at DESC LIMIT 1", [String(body.question)])).rows[0];
-  if (!row || !Array.isArray(body.pieces) || body.pieces.length > 20) return { opened: false };
+  if (!row || !Array.isArray(body.pieces) || body.pieces.length > 20) return { opened: false, reason: row ? "invalid_pieces" : "question_not_found" };
   const jobId = randomUUID(), writer = replyDrafts().open({ enrollmentId: row.enrollment_id, jobId, messageId: row.id });
-  if (!writer) return { opened: false };
+  if (!writer) return { opened: false, reason: "draft_refused" };
   void (async () => {
     for (const piece of body.pieces!) { await new Promise((resolve) => setTimeout(resolve, Math.min(body.gapMs ?? 150, 2000))); writer.push(String(piece)); }
     if (body.end === "withdrawn") writer.withdraw("provider_refused"); else if (body.end === "complete") writer.complete();
