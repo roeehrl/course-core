@@ -70,10 +70,9 @@ export function useCompanionConversation(
         if (controller.signal.aborted) return;
         pending = companionHasPending(messages);
         const text = JSON.stringify(messages);
-        // An identical answer sets no state at all: even an updater that returns the old
-        // state can cost a render.
-        // A change is applied as a transition, so a read never holds back the paint of what
-        // the learner just did.
+        // An identical answer sets no state at all (even an updater that returns the old state
+        // can cost a render). A change is applied as a transition, so a read never holds back
+        // the paint of what the learner just did.
         if (text !== shown || failedShown) {
           const changed = text !== shown;
           startTransition(() =>
