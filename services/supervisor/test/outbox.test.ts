@@ -188,3 +188,44 @@ test('cross-course wake-ups: each is signalled once, a failed one is released fo
   assert.equal(called, 0);
   await assert.rejects(deliverCrossCourseOnce(h, { async wake() { return 'delivered'; } }, { limit: 0 }), /invalid_cross_course_options/);
 });
+
+test('waitForWork: wakes at the host commit, hands on the sequence, falls back to the interval when the host has no long poll', async () => {
+  const { waitForWork } = await import('../src/outbox.js');
+  const calls: (number | null)[] = [];
+  let answers = [{ woke: false, sequence: 4, listening: true }, { woke: true, sequence: 5, listening: true }];
+  const host = { waitForWork: async (after: number | null) => { calls.push(after); return answers.shift()!; } } as unknown as import('../src/bridge.js').HostBridge;
+  const cursor: import('../src/outbox.js').WakeCursor = { sequence: null };
+  const started = Date.now();
+  assert.equal(await waitForWork(host, 5_000, new AbortController().signal, cursor), 'woke');
+  assert.ok(Date.now() - started < 1_000);
+  assert.deepEqual(calls, [null, 4]); assert.equal(cursor.sequence, 5);
+  // A sequence that moved while the dispatcher was busy counts as a wake-up, without waiting.
+  answers = [{ woke: false, sequence: 9, listening: true }];
+  assert.equal(await waitForWork(host, 5_000, new AbortController().signal, cursor), 'woke');
+  // Not listening (the host lost its database listener): the plain interval, no busy loop.
+  answers = [{ woke: false, sequence: 9, listening: false }];
+  const slept = Date.now();
+  assert.equal(await waitForWork(host, 150, new AbortController().signal, cursor), 'timeout');
+  assert.ok(Date.now() - slept >= 140);
+  // An older host refuses the method: remembered, and the dispatcher only sleeps from then on.
+  let refused = 0;
+  const old = { waitForWork: async () => { refused++; throw new BridgeError(400, 'SUPERVISOR_INVALID_REQUEST'); } } as unknown as import('../src/bridge.js').HostBridge;
+  const oldCursor = { sequence: null };
+  assert.equal(await waitForWork(old, 100, new AbortController().signal, oldCursor), 'timeout');
+  assert.equal(await waitForWork(old, 100, new AbortController().signal, oldCursor), 'timeout');
+  assert.equal(refused, 1);
+  // A stop ends the wait at once.
+  const stop = new AbortController(), stopping = Date.now();
+  setTimeout(() => stop.abort(), 50);
+  assert.equal(await waitForWork({} as import('../src/bridge.js').HostBridge, 10_000, stop.signal, { sequence: null }), 'timeout');
+  assert.ok(Date.now() - stopping < 1_000);
+});
+test('HttpHostBridge.waitForWork sends outbox.wait and outlives the host wait', async () => {
+  let sent: unknown;
+  const bridge = new HttpHostBridge('http://127.0.0.1:1', 'token', 10_000, async (_url, init) => {
+    sent = JSON.parse(String(init!.body));
+    return new Response(JSON.stringify({ woke: true, sequence: 3, listening: true }), { headers: { 'content-type': 'application/json' } });
+  });
+  assert.deepEqual(await bridge.waitForWork(null, 8_000), { woke: true, sequence: 3, listening: true });
+  assert.deepEqual(sent, { method: 'outbox.wait', after: null, timeoutMs: 8_000 });
+});

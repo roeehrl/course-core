@@ -83,6 +83,15 @@ it("an unavailable or failing broker never installs executable teaching capabili
       grade: async () => ({ status: "graded", passed: false }),
     } as unknown as DockerSandbox),
   ).rejects.toMatchObject({ code: "TEACHING_VERIFIER_QUALIFICATION_FAILED" });
+  // A slow or busy Docker is reported as such (retryable), never as a pass or a failed verifier.
+  for (const [status, code] of [["timeout", "TEACHING_VERIFIER_QUALIFICATION_TIMEOUT"], ["busy", "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE"],
+    ["unavailable", "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE"], ["output_limit", "TEACHING_VERIFIER_QUALIFICATION_FAILED"]] as const)
+    await expect(
+      isolatedTeachingVerifier(bytes, {
+        readiness: async () => ({ ready: true }),
+        grade: async () => ({ status, passed: false }),
+      } as unknown as DockerSandbox),
+    ).rejects.toMatchObject({ code });
   // The isolated reference is trusted only after executable qualification.
   // Unit-double success is not Docker/production acceptance.
   const extension = await isolatedTeachingVerifier(bytes, {
