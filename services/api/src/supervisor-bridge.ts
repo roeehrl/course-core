@@ -37,6 +37,7 @@ import { ACTION_EVENT, ALTERNATIVE_ACTIONS, DEFAULT_ACTION_POLICY, actionForEven
   resolveFollowUp, type ActionRow } from './teaching-actions.js';
 import { supervisionSettingsWithin } from './supervision-settings.js';
 import { automaticHypothesesEnabled } from './teaching-hypotheses.js';
+import { effectiveLearnerLimit } from './learner-limit.js';
 
 /** A staff retry of one ended supervisor run (scoped-corrections.ts): prepared into its own new run. */
 export const RETRY_EVENT = 'supervisor.run_retry_requested';
@@ -159,7 +160,7 @@ async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
   if (input.context.episodeId !== undefined) c.scopeEpisodeId = await scopeEpisode(client, c, input.context.episodeId);
   return { snapshot, cancelled: row.cancellation_requested, current: c, episodeId: input.context.episodeId ?? null };
 }
-interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string; default_enrollment_limit_micro_usd?: string | null; default_enrollment_limit_tokens?: string | null }
+interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string; default_enrollment_limit_mode?: string; default_enrollment_limit_micro_usd?: string | null; default_enrollment_limit_tokens?: string | null }
 /** Host-owned paid work outside the supervisor engine (media jobs) uses the same
  * enrollment/membership/release/policy locks and the same budget rows; there is
  * no second money path. Callers lock their own job row between the two calls. */
@@ -231,17 +232,15 @@ async function lockBudgetCeilings(client: PoolClient, ref: Pick<RunRef, 'workspa
   await client.query('INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ref.enrollmentId, ref.workspaceId]);
   const enrollment = (await client.query<LimitRow>('SELECT * FROM supervisor_enrollment_budgets WHERE enrollment_id=$1 AND workspace_id=$2 FOR UPDATE', [ref.enrollmentId, ref.workspaceId])).rows[0];
   requireCondition(enrollment, 'SUPERVISOR_SCOPE_MISMATCH', 409);
-  // A learner whose own limit was never set gets the workspace default limit for each learner
-  // (none set: 0, so nothing paid runs until staff choose a default or a limit for the learner).
-  const own = enrollment.limit_source === 'own';
-  const enrollmentLimit = {
-    microUsd: Number(own ? enrollment.limit_micro_usd : workspace.default_enrollment_limit_micro_usd ?? 0),
-    tokens: Number(own ? enrollment.limit_tokens : workspace.default_enrollment_limit_tokens ?? 0),
-  };
+  // A learner whose own limit was never set gets the workspace choice for each learner
+  // (learner-limit.ts): its amount; nothing chosen yet: 0, so nothing paid runs; or, by the
+  // owner's explicit choice, no per-learner ceiling (the workspace total below still applies).
+  const enrollmentLimit = effectiveLearnerLimit(enrollment, workspace);
   const remaining: { ceiling: BudgetCeiling; microUsd: number; tokens: number }[] = [
     { ceiling: 'workspace', microUsd: Number(workspace.limit_micro_usd) - Number(workspace.used_micro_usd), tokens: Number(workspace.limit_tokens) - Number(workspace.used_tokens) },
-    { ceiling: 'enrollment', microUsd: enrollmentLimit.microUsd - Number(enrollment.used_micro_usd), tokens: enrollmentLimit.tokens - Number(enrollment.used_tokens) },
   ];
+  if (enrollmentLimit)
+    remaining.push({ ceiling: 'enrollment', microUsd: enrollmentLimit.microUsd - Number(enrollment.used_micro_usd), tokens: enrollmentLimit.tokens - Number(enrollment.used_tokens) });
   let zone: string | undefined;
   const periodic = async (ceiling: 'daily' | 'artifact', usd: string | null, tokens: string | null) => {
     if (usd === null && tokens === null) return;

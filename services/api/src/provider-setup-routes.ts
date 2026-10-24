@@ -1,6 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import type { authService } from "./auth.js";
+import type { PoolClient } from "pg";
 import { transaction, type Database } from "./database.js";
+import { appendEvent } from "./events.js";
+import {
+  effectiveLearnerLimitSql,
+  learnerLimitSourceSql,
+  type DefaultLearnerLimitMode,
+} from "./learner-limit.js";
 import { requireCondition } from "./errors.js";
 import { WorkspaceProviders } from "./provider-setup.js";
 import { z } from "zod";
@@ -13,17 +20,48 @@ const budgetSchema = z
     enrollmentId: z.string().uuid().optional(),
     /** `default_enrollment` is the limit of every learner whose own limit was never set. */
     scope: z.enum(["workspace", "enrollment", "default_enrollment"]).optional(),
-    limits: z.strictObject({
-      microUsd: z.number().int().min(0).max(MAX_LIMIT),
-      tokens: z.number().int().min(0).max(MAX_LIMIT).optional(),
-    }),
+    /** `default_enrollment` only: "unlimited" is the explicit choice of no per-learner limit
+     * (learner-limit.ts) and carries no amounts; "limit" (the default) sets `limits`. */
+    mode: z.enum(["limit", "unlimited"]).optional(),
+    limits: z
+      .strictObject({
+        microUsd: z.number().int().min(0).max(MAX_LIMIT),
+        tokens: z.number().int().min(0).max(MAX_LIMIT).optional(),
+      })
+      .optional(),
     paidWorkApproved: z.boolean(),
   })
   .refine(
     (input) =>
       input.scope === undefined ||
       (input.scope === "enrollment") === (input.enrollmentId !== undefined),
+  )
+  .refine((input) =>
+    input.mode === "unlimited"
+      ? input.scope === "default_enrollment" && input.limits === undefined
+      : input.limits !== undefined,
   );
+/** A spending limit change in the workspace audit log (amounts, mode and consent only). */
+async function auditBudgetChange(
+  client: PoolClient,
+  workspaceId: string,
+  actorId: string,
+  idempotencyKey: string,
+  payload: Record<string, unknown>,
+) {
+  await appendEvent(client, {
+    workspaceId,
+    ...(typeof payload.enrollmentId === "string"
+      ? { enrollmentId: payload.enrollmentId }
+      : {}),
+    actorId,
+    actorKind: "staff",
+    type: "provider.budget_changed",
+    payload,
+    idempotencyKey: `provider-budget:${idempotencyKey}`,
+    supervise: false,
+  });
+}
 export function registerProviderSetupRoutes(
   app: FastifyInstance,
   db: Database,
@@ -94,7 +132,7 @@ export function registerProviderSetupRoutes(
       const row = (
         await db.query(
           `SELECT configuration_revision AS revision,limit_micro_usd::text,limit_tokens::text,used_micro_usd::text,used_tokens::text,
-             default_enrollment_revision,default_enrollment_limit_micro_usd::text,default_enrollment_limit_tokens::text
+             default_enrollment_revision,default_enrollment_limit_mode,default_enrollment_limit_micro_usd::text,default_enrollment_limit_tokens::text
            FROM supervisor_workspace_budgets WHERE workspace_id=$1`,
           [workspaceId],
         )
@@ -114,21 +152,26 @@ export function registerProviderSetupRoutes(
             used_micro_usd: "0",
             used_tokens: "0",
           };
+      // mode: "unset" (nothing chosen: learners without an own limit get no paid work), "limit"
+      // (the amounts below) or "unlimited" (no per-learner limit, by the owner's choice).
       const defaultEnrollment = {
         revision: row?.default_enrollment_revision ?? 0,
+        mode: (row?.default_enrollment_limit_mode ?? "unset") as DefaultLearnerLimitMode,
         limit_micro_usd: row?.default_enrollment_limit_micro_usd ?? null,
         limit_tokens: row?.default_enrollment_limit_tokens ?? null,
       };
-      // A learner without an own limit shows the workspace default, which is what applies.
+      // A learner without an own limit shows the workspace choice, which is what applies
+      // (limitSource "unlimited" with null amounts: no per-learner limit).
       const enrollments = (
         await db.query(
-          `SELECT e.id AS "enrollmentId",COALESCE(b.configuration_revision,0) AS revision,COALESCE(b.limit_source,'default') AS "limitSource",
-             (CASE WHEN b.limit_source='own' THEN b.limit_micro_usd ELSE COALESCE($2::bigint,0) END)::text AS limit_micro_usd,
-             (CASE WHEN b.limit_source='own' THEN b.limit_tokens ELSE COALESCE($3::bigint,0) END)::text AS limit_tokens,
+          `SELECT e.id AS "enrollmentId",COALESCE(b.configuration_revision,0) AS revision,
+             ${learnerLimitSourceSql()} AS "limitSource",
+             ${effectiveLearnerLimitSql("micro_usd")}::text AS limit_micro_usd,${effectiveLearnerLimitSql("tokens")}::text AS limit_tokens,
              COALESCE(b.used_micro_usd,0)::text AS used_micro_usd,COALESCE(b.used_tokens,0)::text AS used_tokens
            FROM enrollments e LEFT JOIN supervisor_enrollment_budgets b ON b.enrollment_id=e.id AND b.workspace_id=e.workspace_id
+             LEFT JOIN supervisor_workspace_budgets w ON w.workspace_id=e.workspace_id
            WHERE e.workspace_id=$1 ORDER BY e.started_at DESC,e.id LIMIT 100`,
-          [workspaceId, defaultEnrollment.limit_micro_usd, defaultEnrollment.limit_tokens],
+          [workspaceId],
         )
       ).rows;
       return {
@@ -149,20 +192,23 @@ export function registerProviderSetupRoutes(
         { workspaceId } = request.params as { workspaceId: string },
         parsed = budgetSchema.safeParse(request.body);
       requireCondition(parsed.success, "PROVIDER_BUDGET_INVALID", 400);
+      // "No limit per learner" is stored as its own mode, never as a missing amount.
+      const unlimited = parsed.data.mode === "unlimited",
+        given = parsed.data.limits ?? { microUsd: 0 };
       const input = {
           ...parsed.data,
           limits: {
-            microUsd: parsed.data.limits.microUsd,
-            tokens:
-              parsed.data.limits.tokens ??
-              (parsed.data.limits.microUsd === 0 ? 0 : MAX_LIMIT),
+            microUsd: given.microUsd,
+            tokens: given.tokens ?? (given.microUsd === 0 ? 0 : MAX_LIMIT),
           },
         },
         scope =
           input.scope ?? (input.enrollmentId ? "enrollment" : "workspace");
+      // Lifting the per-learner limit lets any learner spend up to the workspace total: it is
+      // paid work and needs the same consent as a positive amount.
       requireCondition(
         input.paidWorkApproved ||
-          (input.limits.microUsd === 0 && input.limits.tokens === 0),
+          (!unlimited && input.limits.microUsd === 0 && input.limits.tokens === 0),
         "PAID_WORK_CONSENT_REQUIRED",
         409,
       );
@@ -228,12 +274,15 @@ export function registerProviderSetupRoutes(
           );
           const revision = parent.default_enrollment_revision + 1;
           await client.query(
-            "UPDATE supervisor_workspace_budgets SET default_enrollment_limit_micro_usd=$2,default_enrollment_limit_tokens=$3,default_enrollment_revision=$4 WHERE workspace_id=$1",
-            [workspaceId, input.limits.microUsd, input.limits.tokens, revision],
+            "UPDATE supervisor_workspace_budgets SET default_enrollment_limit_mode=$2,default_enrollment_limit_micro_usd=$3,default_enrollment_limit_tokens=$4,default_enrollment_revision=$5 WHERE workspace_id=$1",
+            unlimited
+              ? [workspaceId, "unlimited", null, null, revision]
+              : [workspaceId, "limit", input.limits.microUsd, input.limits.tokens, revision],
           );
           const result = {
             revision,
-            limits: input.limits,
+            mode: unlimited ? ("unlimited" as const) : ("limit" as const),
+            limits: unlimited ? null : input.limits,
             scope,
             doesNotGrantMastery: true,
             consentRecorded: input.paidWorkApproved,
@@ -242,6 +291,13 @@ export function registerProviderSetupRoutes(
             "INSERT INTO provider_setup_receipts(workspace_id,idempotency_key,request_digest,result,actor_id,operation) VALUES($1,$2,$3,$4,$5,$6)",
             [workspaceId, input.idempotencyKey, requestDigest, JSON.stringify(result), actor.id, "budget"],
           );
+          await auditBudgetChange(client, workspaceId, actor.id, input.idempotencyKey, {
+            scope,
+            mode: result.mode,
+            previousMode: parent.default_enrollment_limit_mode,
+            limits: result.limits,
+            consentRecorded: input.paidWorkApproved,
+          });
           return result;
         }
         let target = parent;
@@ -303,6 +359,12 @@ export function registerProviderSetupRoutes(
             "budget",
           ],
         );
+        await auditBudgetChange(client, workspaceId, actor.id, input.idempotencyKey, {
+          scope,
+          ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
+          limits: input.limits,
+          consentRecorded: input.paidWorkApproved,
+        });
         return result;
       });
     },

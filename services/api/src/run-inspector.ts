@@ -13,6 +13,7 @@ import { rubricSuggestionSchema } from "./rubric-assist-contracts.js";
 import { RUN_PAYLOAD_RULE } from "./learner-privacy.js";
 import type { TeachingContext } from "./agent-strategies.js";
 import { withArtifactContent } from './artifact-store.js';
+import { effectiveLearnerLimitSql, learnerLimitSourceSql } from "./learner-limit.js";
 
 /**
  * Debug inspector views of one supervisor run that the metadata-only run view (admin-routes.ts
@@ -102,9 +103,10 @@ export async function runPolicies(client: Sql, job: RunRow) {
   const spend = (await client.query<{ micro_usd: string; tokens: string }>("SELECT micro_usd::text,tokens::text FROM supervisor_job_spend WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3",
     [job.id, job.enrollment_id, job.workspace_id])).rows[0];
   const enrollment = (await client.query<Record<string, string | null>>(
-    // A learner without an own limit has the workspace default limit for each learner.
-    `SELECT (CASE WHEN b.limit_source='own' THEN b.limit_micro_usd ELSE COALESCE(w.default_enrollment_limit_micro_usd,0) END)::text AS limit_micro_usd,
-       (CASE WHEN b.limit_source='own' THEN b.limit_tokens ELSE COALESCE(w.default_enrollment_limit_tokens,0) END)::text AS limit_tokens,
+    // A learner without an own limit has the workspace choice for each learner (learner-limit.ts);
+    // under "no limit per learner" both amounts are NULL.
+    `SELECT ${effectiveLearnerLimitSql("micro_usd")}::text AS limit_micro_usd,${effectiveLearnerLimitSql("tokens")}::text AS limit_tokens,
+       ${learnerLimitSourceSql()} AS limit_source,
        b.used_micro_usd::text,b.used_tokens::text,b.daily_limit_micro_usd::text,b.daily_limit_tokens::text,
        b.artifact_limit_micro_usd::text,b.artifact_limit_tokens::text
      FROM supervisor_enrollment_budgets b LEFT JOIN supervisor_workspace_budgets w ON w.workspace_id=b.workspace_id
@@ -130,7 +132,9 @@ export async function runPolicies(client: Sql, job: RunRow) {
     operations: (snapshot?.operations ?? []).map((o) => ({ id: o.id, attempt: o.attempt, status: o.status, reservation: o.reservation,
       usage: o.outcome?.status === "succeeded" ? o.outcome.usage : null, usageBasis: o.outcome?.status === "succeeded" ? (o.outcome.usageBasis ?? null) : null })),
     charged: spend ? { microUsd: Number(spend.micro_usd), tokens: Number(spend.tokens) } : null,
-    enrollmentBudget: enrollment ? { limit: pair(enrollment, "limit_"), used: pair(enrollment, "used_"), daily: pair(enrollment, "daily_limit_"), perArtifact: pair(enrollment, "artifact_limit_") } : null,
+    enrollmentBudget: enrollment ? { limit: pair(enrollment, "limit_"), used: pair(enrollment, "used_"), daily: pair(enrollment, "daily_limit_"), perArtifact: pair(enrollment, "artifact_limit_"),
+      /** own: set for this learner; default: the workspace amount; unlimited: no per-learner limit by the owner's choice. */
+      limitSource: enrollment.limit_source as "own" | "default" | "unlimited" } : null,
     workspaceBudget: workspace ? { limit: pair(workspace, "limit_"), used: pair(workspace, "used_") } : null,
     providerConfiguration: job.provider_revision === null ? "host fallback" : `workspace provider revision ${job.provider_revision}`,
     providerSource: job.provider_revision === null ? "host_file" as const : "workspace" as const,

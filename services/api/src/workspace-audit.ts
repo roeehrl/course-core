@@ -22,6 +22,8 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'supervision.settings_changed': keep,
   // A learner's daily and per-lesson AI spending limits (amounts only).
   'supervision.budget_changed': keep,
+  // An AI services spending limit: scope, amounts, the per-learner mode and the consent flag.
+  'provider.budget_changed': keep,
   // A staff decision on a change the supervisor may not make itself (codes and identifiers).
   'supervisor.authority_decided': keep,
   'course.published': keep,
