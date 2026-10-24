@@ -97,7 +97,7 @@
   "eventType.cross_course_suggestion_confirmed": "הצעה מקורס אחר אושרה",
   "eventType.enrollment_started": "ההרשמה התחילה",
   "eventType.episode_completed": "שיעור הושלם",
-  "eventType.episode_placed": "שיעור שדולג בזכות שיבוץ",
+  "eventType.episode_placed": "פטור בזכות השיבוץ לשיעור",
   "eventType.evidence_invalidated": "ראיה בוטלה",
   "eventType.evidence_review_acknowledged": "בדיקת ראיה אושרה",
   "eventType.extension_granted": "הארכה ניתנה",
