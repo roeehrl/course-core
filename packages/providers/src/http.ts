@@ -38,6 +38,8 @@ export function abortScope(parent: AbortSignal | undefined, timeoutMs: number) {
   if (parent?.aborted) forward(); else parent?.addEventListener('abort', forward, { once: true });
   const timer = setTimeout(() => { timeout = true; controller.abort(); }, timeoutMs);
   return { signal: controller.signal, error: () => new ProviderError(timeout ? 'TIMEOUT' : 'CANCELLED', { submission: 'unknown' }),
+    /** Ends this scope's own deadline; the parent still aborts it. */
+    extend: () => clearTimeout(timer),
     dispose: () => { clearTimeout(timer); parent?.removeEventListener('abort', forward); } };
 }
 
@@ -217,12 +219,17 @@ export class JsonTransport {
         const record = { attempt, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
         usage.attempts.push(record);
         let failure: ProviderError | undefined;
-        const scopeError = () => total.error();
+        // The response must begin within the attempt timeout; after that the stream may run until
+        // the total timeout, as long as each next chunk comes within the attempt timeout.
+        const attemptMs = Math.min(this.settings.attemptTimeoutMs, totalMs);
+        const scope = abortScope(total.signal, attemptMs);
+        const scopeError = () => total.signal.aborted ? total.error() : scope.error();
         try {
           const response = await abortable(() => this.#fetch(`${this.#protocol.origin}${path}`, {
             method: 'POST', headers: { ...this.#protocol.headers(key), 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-            body: encoded, signal: total.signal, redirect: 'error',
-          }), total.signal, scopeError);
+            body: encoded, signal: scope.signal, redirect: 'error',
+          }), scope.signal, scopeError);
+          scope.extend();
           record.status = response.status;
           if (!response.ok) {
             const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
@@ -231,7 +238,7 @@ export class JsonTransport {
               : (void response.body?.cancel().catch(() => {}), undefined);
             throw refined ?? classifyHttpError(response.status, retryAfterMs);
           }
-          try { await readEvents(response, maxBytes, Math.min(this.settings.attemptTimeoutMs, totalMs), total.signal, scopeError, sink); }
+          try { await readEvents(response, maxBytes, attemptMs, scope.signal, scopeError, sink); }
           finally { try { record.tokens = sink.tokens(); } catch { /* counters stay unknown */ } }
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
           this.emit(usage.operation, attempt, 'response', response.status, null, start);
@@ -244,7 +251,7 @@ export class JsonTransport {
             submission: sanitized.submission === 'rejected' && record.status !== null && record.status >= 400 ? 'rejected' : 'unknown' });
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : 'unknown' };
           this.emit(usage.operation, attempt, 'error', failure.status, failure.code, start);
-        }
+        } finally { scope.dispose(); }
         const retry = classifyRetry(failure, 'POST');
         if (!retry.automaticRetryAllowed || failure.submission !== 'rejected' || attempt >= this.settings.maxAttempts || total.signal.aborted) throw failure;
         const backoff = Math.min(this.settings.maxDelayMs, this.settings.baseDelayMs * 2 ** (attempt - 1));

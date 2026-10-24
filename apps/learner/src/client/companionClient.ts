@@ -82,7 +82,7 @@ export interface CompanionMessage {
   /** Learner messages: Core refused the reply it received (a code, never provider text). */
   refusal_reason?: string | null;
   /** Learner messages: the learner stopped the reply that was being prepared. */
-  cancel_requested?: boolean;
+  stopped?: boolean;
 }
 /** A reply the companion is still writing, streamed over the event stream (`companion-draft`).
  * Not yet checked by Core: shown as a draft and replaced by the stored reply once applied. */
@@ -365,7 +365,7 @@ export function companionJobLabel(
   t: Translate = englishTranslator().t,
 ): string | undefined {
   if (message.role !== "learner") return;
-  if (message.cancel_requested && message.job_state !== "applied")
+  if (message.stopped && message.job_state !== "applied")
     return t("companionClient.job.stopped");
   if (message.job_reason === "configuration_missing")
     return t("companionClient.job.configurationMissing");
@@ -412,7 +412,7 @@ export function companionHasPending(
   return messages.some(
     (message) =>
       message.role === "learner" &&
-      !message.cancel_requested &&
+      !message.stopped &&
       ![
         "applied",
         "refused",

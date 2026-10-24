@@ -14,6 +14,7 @@ import { composeProviders } from '../src/provider-composition.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
+import { streamedIfAsked } from './streamed-provider-fixture.js';
 
 // Gateway answers for ended jobs: after data erasure, and for a first request that arrives after the
 // job ended. Real PostgreSQL, the gateway and erasure HTTP routes, supervisor transitions and the
@@ -51,7 +52,7 @@ beforeAll(async () => {
     adapters: [{ id: 'google-test', kind: 'scripted-google', credentialEnv: 'COURSE_PROVIDER_TEST_API_KEY' }],
     roles: { companion: { modelId: 'gemini-test', maxInputCharacters: 12000, maxOutputTokens: 1000 } } },
   () => 'synthetic-key-only-in-test', {
-    'scripted-google': options => new GoogleProvider({ providerId: options.providerId, registry: options.registry, fetch: scriptedFetch,
+    'scripted-google': options => new GoogleProvider({ providerId: options.providerId, registry: options.registry, fetch: (async (url, init) => streamedIfAsked(String(url), init, await scriptedFetch(url, init))) as typeof fetch,
       getApiKey: () => { const value = options.getCredential(); if (!value) throw new ProviderError('MISSING_CREDENTIAL'); return value; },
       settings: { maxAttempts: 1, attemptTimeoutMs: 1500, totalTimeoutMs: 3000, baseDelayMs: 500, maxDelayMs: 1000 } }),
   });
