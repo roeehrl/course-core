@@ -2,6 +2,7 @@ import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { AiServicesPage } from "../components/aiServices/AiServicesPage";
 import { useAiText, type AiKey } from "../components/aiServices/shared";
+import { LearnerSpendPanel } from "../components/aiServices/LearnerSpendPanel";
 import "../components/aiServices/aiServices.css";
 
 /**
@@ -30,7 +31,24 @@ export function ProvidersView({
         role={data.role === "owner" ? "owner" : "admin"}
       />
     );
-  return <ReadOnlyAiServices data={data} demo={client.mode === "demo"} />;
+  // Staff who may view enrollments see what learners spend (the server checks enrollment.read;
+  // every role that may change enrollments may also view them).
+  const mayViewEnrollments = data.permissions.some(
+    (p) => p === "enrollment.read" || p === "enrollment.write",
+  );
+  return (
+    <>
+      <ReadOnlyAiServices data={data} demo={client.mode === "demo"} />
+      {client.learnerSpend && mayViewEnrollments && (
+        <div className="ai-page">
+          <LearnerSpendPanel
+            load={client.learnerSpend.learnerSpend}
+            workspaceId={data.course.workspaceId ?? "demo"}
+          />
+        </div>
+      )}
+    </>
+  );
 }
 
 const JOB_IDS: readonly string[] = [

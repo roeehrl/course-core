@@ -723,6 +723,14 @@ through parked `follow_up_due` jobs. Goal, grading and paid-ceiling changes wait
 level, permitted tool families and each learner's daily and per-lesson AI limits. See
 `services/api/SUPERVISION_LOOP.md`.
 
+On the admin AI services page the owner sets the workspace total and chooses, for learners
+without their own limit, either an amount for each learner or **No limit per learner** (the
+workspace total, and any daily, per-lesson or individual limit, still applies). **What learners
+spend** under Spending shows real use per learner, day, active hour, lesson and job (median,
+90th percentile, highest; learners by enrollment only) and, from 5 learners and 20
+learner-days, suggests a limit for each learner that one click saves with the same consent.
+See "Paid-work budgets" in `services/api/PROVIDER_SETUP.md`.
+
 ## Agent evaluations
 
 `npm run eval:agents` (in `services/api`) runs Core's public agent eval suite: curated
