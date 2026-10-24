@@ -168,6 +168,11 @@ import {
   readinessSchema,
 } from "../domain/platform";
 import {
+  NotificationsError,
+  notificationPageSchema,
+  notificationReadSchema,
+} from "../domain/notifications";
+import {
   RegradeError,
   regradeResultSchema,
   regradeViewSchema,
@@ -1994,6 +1999,30 @@ export function createFetchAdminClient(
           undefined,
           signal,
           (c) => new ReleaseEditingError(c),
+        ),
+    },
+    notifications: {
+      list: (workspaceId, options = {}) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/notifications${
+            options.before
+              ? `?before=${encodeURIComponent(options.before)}`
+              : ""
+          }`,
+          notificationPageSchema,
+          "GET",
+          undefined,
+          options.signal,
+          (c) => new NotificationsError(c),
+        ),
+      markRead: (workspaceId, ids) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/notifications/read`,
+          notificationReadSchema,
+          "POST",
+          ids ? { ids } : { all: true },
+          undefined,
+          (c) => new NotificationsError(c),
         ),
     },
     platform: {

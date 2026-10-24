@@ -34,6 +34,7 @@ import { PolicyView } from "./views/PolicyView";
 import { AllowancesView } from "./views/AllowancesView";
 import { ProvidersView } from "./views/ProvidersView";
 import { FirstRun } from "./components/FirstRun";
+import { NotificationBell } from "./components/NotificationBell";
 import { RunsView } from "./views/RunsView";
 import { ResearchView } from "./views/ResearchView";
 import { PeopleView } from "./views/PeopleView";
@@ -150,13 +151,19 @@ function AdminWorkspace({
     session.courses.find((course) => course.id === initialCourseId)?.id ??
       session.courses[0]!.id,
   );
+  // A notification on another course opens that course at the view it points to.
+  const [initialView, setInitialView] = useState<ViewId>("course");
   return (
     <CourseWorkspace
       key={`${session.actor.id}:${courseId}`}
       client={client}
       session={session}
       courseId={courseId}
-      onCourseChange={setCourseId}
+      initialView={initialView}
+      onCourseChange={(id, view) => {
+        setInitialView(view ?? "course");
+        setCourseId(id);
+      }}
       onOpenCourse={onOpenCourse}
     />
   );
@@ -165,20 +172,22 @@ function CourseWorkspace({
   client,
   session,
   courseId,
+  initialView,
   onCourseChange,
   onOpenCourse,
 }: {
   client: AdminClient;
   session: AdminSession;
   courseId: string;
-  onCourseChange: (id: string) => void;
+  initialView: ViewId;
+  onCourseChange: (id: string, view?: ViewId) => void;
   onOpenCourse: (id: string) => void;
 }) {
   const i18n = useI18n();
   const t = i18n.t;
   const actions = useWorkspace(client, courseId);
   const data = actions.workspace;
-  const [view, setView] = useState<ViewId>("course");
+  const [view, setView] = useState<ViewId>(initialView);
   const heading = useRef<HTMLHeadingElement>(null);
   // Sections the live release declares and the server lets this role open.
   const declared = useRemote(
@@ -214,6 +223,25 @@ function CourseWorkspace({
       })),
     ...sectionNav,
   ];
+  const workspaceId = data?.course.workspaceId;
+  const courseTitles = new Map(
+    session.courses.map((course) => [course.id, course.title]),
+  );
+  /** Opens the view a notification points to, on its course when that is another one. */
+  const openTarget = (target: { view: string; courseId: string | null }) => {
+    const known = navigation.find((item) => item.id === target.view);
+    const next = (known?.id ?? "overview") as ViewId;
+    if (
+      target.courseId &&
+      target.courseId !== courseId &&
+      courseTitles.has(target.courseId)
+    ) {
+      onCourseChange(target.courseId, next);
+      return;
+    }
+    actions.clear();
+    setView(next);
+  };
   const activeView =
     navigation.find((item) => item.id === view) ??
     navigation.find((item) => item.id === "course")!;
@@ -306,6 +334,14 @@ function CourseWorkspace({
             </select>
           </div>
           <div className="tag-row">
+            {client.notifications && workspaceId && (
+              <NotificationBell
+                port={client.notifications}
+                workspaceId={workspaceId}
+                courseTitles={courseTitles}
+                onOpen={openTarget}
+              />
+            )}
             <Badge tone={client.mode === "demo" ? "gold" : "blue"}>
               {client.mode === "demo"
                 ? t("adminApp.badge.demo")

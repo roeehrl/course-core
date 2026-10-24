@@ -1292,6 +1292,83 @@ app.post("/test/people-scope-fixture", async () => {
     scopedCode: await issueLoginCode(db, scopedId),
   };
 });
+// Test-only: a course with one recent failed AI run and the workspace AI budget at 90%, for the
+// staff notification center (an owner and an instructor).
+app.post("/test/notifications-fixture", async () => {
+  const workspaceId = randomUUID(),
+    ownerId = randomUUID(),
+    instructorId = randomUUID(),
+    learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `notify-${workspaceId}`,
+    "Notification workspace",
+  ]);
+  for (const [id, role, name] of [
+    [ownerId, "owner", "Bell owner"],
+    [instructorId, "instructor", "Bell instructor"],
+    [learnerId, "learner", "Bell learner"],
+  ] as const) {
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [id, `notify:${id}`, name],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspaceId, id, role],
+    );
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({
+      method: "POST",
+      url: "/auth/redeem",
+      headers: { origin },
+      payload: { token: await issueLoginCode(db, userId) },
+    });
+    return {
+      cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+      origin,
+      "x-csrf-token": r.json().csrfToken,
+    };
+  };
+  const owner = await login(ownerId),
+    learner = await login(learnerId);
+  const call = async (
+    url: string,
+    payload: unknown,
+    headers: Record<string, string>,
+  ) => {
+    const r = await app.inject({
+      method: "POST",
+      url,
+      headers,
+      payload: payload as object,
+    });
+    if (r.statusCode !== 200)
+      throw new Error(`Notifications fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (
+    await call(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)
+  ).id;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  const enrollmentId = (await call("/api/enrollments", { releaseId }, learner))
+    .id;
+  await db.query(
+    `INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification)
+     VALUES($1,$2,$3,$4,'companion','failed',1,'{}')`,
+    [randomUUID(), enrollmentId, workspaceId, `notify-${randomUUID()}`],
+  );
+  await db.query(
+    `INSERT INTO supervisor_workspace_budgets(workspace_id,limit_micro_usd,limit_tokens,used_micro_usd,used_tokens)
+     VALUES($1,1000000,0,900000,0)`,
+    [workspaceId],
+  );
+  return {
+    ownerCode: await issueLoginCode(db, ownerId),
+    instructorCode: await issueLoginCode(db, instructorId),
+  };
+});
 // Test-only: placement enabled by the owner through the settings route, and a learner who placed
 // out of the first episode through a real placement run.
 app.post("/test/placement-fixture", async () => {
