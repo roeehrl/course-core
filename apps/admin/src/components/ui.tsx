@@ -208,6 +208,25 @@ export function Stat({
     </div>
   );
 }
+/**
+ * Stops the page scrolling behind a modal without moving it: where the window shows a classic
+ * scrollbar, its space stays reserved while the scrollbar is hidden. Returns the undo.
+ */
+export function lockPageScroll() {
+  const root = document.documentElement,
+    body = document.body;
+  const before = {
+    overflow: body.style.overflow,
+    gutter: root.style.scrollbarGutter,
+  };
+  if (window.innerWidth - root.clientWidth > 0)
+    root.style.scrollbarGutter = "stable";
+  body.style.overflow = "hidden";
+  return () => {
+    body.style.overflow = before.overflow;
+    root.style.scrollbarGutter = before.gutter;
+  };
+}
 export function Dialog({
   title,
   titleDir,
@@ -240,12 +259,11 @@ export function Dialog({
     // underneath neither moves nor takes focus.
     dialog.showModal();
     dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     return () => {
       unmounting.current = true;
       dialog.close();
-      document.body.style.overflow = overflow;
+      unlock();
       // Focus goes back to the control that opened the dialog.
       if (before?.isConnected) before.focus();
     };
