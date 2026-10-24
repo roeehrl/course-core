@@ -1586,6 +1586,59 @@
 .connected-menu {
   position: relative;
 }
+.connected-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The learner's notifications (Notifications.web.tsx): a bell beside the course menu. */
+.connected-header .connected-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 8px 12px;
+}
+.connected-bell-count {
+  position: absolute;
+  top: -4px;
+  inset-inline-end: -4px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #b4412f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.connected-notifications-panel {
+  width: min(340px, calc(100vw - 32px));
+}
+.connected-notifications-panel h2.connected-menu-heading {
+  font-size: 11px;
+}
+.connected-notifications-panel li {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef3f1;
+}
+.connected-notifications-panel li p {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: #183237;
+}
+.connected-notifications-panel li small {
+  display: block;
+  color: #526a70;
+  font-size: 12px;
+}
+.connected-header .connected-notifications-panel li button {
+  width: auto;
+  padding-inline: 0;
+  color: #087b69;
+}
 .connected-header .connected-menu-toggle {
   border: 1px solid #dce6e2;
   background: #fff;
