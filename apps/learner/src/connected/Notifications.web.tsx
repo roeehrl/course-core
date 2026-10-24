@@ -104,11 +104,11 @@ export function LearnerNotifications({
   };
   const unread = page?.unread ?? 0;
   return (
-    <div className="connected-menu connected-notifications" ref={root}>
+    <div className="connected-notifications" ref={root}>
       <button
         ref={toggle}
         type="button"
-        className="connected-menu-toggle connected-bell"
+        className="connected-bell"
         aria-expanded={open}
         aria-controls={`${id}-panel`}
         aria-label={unread ? t("notifications.bell.labelUnread", { count: unread }) : t("notifications.bell.label")}
@@ -127,18 +127,18 @@ export function LearnerNotifications({
           </span>
         )}
       </button>
-      <div id={`${id}-panel`} className="connected-menu-panel connected-notifications-panel" hidden={!open}>
-        <h2 className="connected-menu-heading">{t("notifications.panel.title")}</h2>
+      <div id={`${id}-panel`} className="connected-notifications-panel" hidden={!open}>
+        <h2 className="connected-notifications-heading">{t("notifications.panel.title")}</h2>
         {failed && (
-          <p className="connected-menu-description" role="alert">
+          <p className="connected-notifications-note" role="alert">
             {t("notifications.panel.error")}{" "}
             <button type="button" onClick={() => void load()}>
               {t("notifications.panel.retry")}
             </button>
           </p>
         )}
-        {!page && !failed && <p className="connected-menu-description">{t("notifications.panel.loading")}</p>}
-        {page && page.items.length === 0 && <p className="connected-menu-description">{t("notifications.panel.empty")}</p>}
+        {!page && !failed && <p className="connected-notifications-note">{t("notifications.panel.loading")}</p>}
+        {page && page.items.length === 0 && <p className="connected-notifications-note">{t("notifications.panel.empty")}</p>}
         {page && page.items.length > 0 && (
           <ul>
             {page.items.map((item) => {

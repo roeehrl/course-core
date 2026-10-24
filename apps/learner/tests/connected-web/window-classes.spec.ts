@@ -139,8 +139,12 @@ test("the secondary Your course menu holds profile, record and account settings 
   const menu = page.locator(".connected-menu-toggle");
   await expect(menu).toHaveText(/Your course/);
   await expect(menu).toHaveAttribute("aria-expanded", "false");
-  // Settings are not scattered across the header: only the menu button is there.
-  await expect(page.locator(".connected-header button:visible")).toHaveCount(1);
+  // Settings are not scattered across the header: only the menu button and the notification bell
+  // are there.
+  await expect(page.locator(".connected-header button:visible")).toHaveCount(2);
+  const bell = (await page.locator(".connected-bell").boundingBox())!;
+  expect(bell.height).toBeGreaterThanOrEqual(44);
+  expect(bell.x).toBeGreaterThanOrEqual(0);
   const box = (await menu.boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(44);
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
