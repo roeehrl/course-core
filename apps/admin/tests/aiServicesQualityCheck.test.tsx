@@ -161,6 +161,7 @@ const status = (over: Partial<QualityStatus> = {}): QualityStatus => ({
   reserveMicroUsd: 1200000,
   blocked: null,
   latest: null,
+  activeRoles: [],
   ...over,
 });
 const suggestion = (changeFrom: string | null): SuggestedPrice => ({
@@ -766,6 +767,26 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       conversations: 11,
       estimateMicroUsd: 96000,
       reserveMicroUsd: 1100000,
+      activeRoles: [
+        {
+          role: "supervisor",
+          remoteModel: "gemini-3.8-flash",
+          conversations: 2,
+          priced: true,
+          estimateMicroUsd: 42000,
+          reserveMicroUsd: 200000,
+          blocked: null,
+        },
+        {
+          role: "companion",
+          remoteModel: "gemini-3.8-flash",
+          conversations: 9,
+          priced: true,
+          estimateMicroUsd: 54000,
+          reserveMicroUsd: 900000,
+          blocked: null,
+        },
+      ],
     });
   const upgraded = (overrides: Parameters<typeof fakePort>[0] = {}) =>
     fakePort({
@@ -797,9 +818,11 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       ["reviewer", "not_covered"],
     ] as const)
       expect(
-        within(region).getByText(t(`check.state.${state}`), { exact: false }),
+        within(region).getAllByText(t(`check.state.${state}`), {
+          exact: false,
+        }).length,
         job,
-      ).toBeInTheDocument();
+      ).toBeGreaterThan(0);
     expect(
       within(region).getByText(
         t("check.active.notCheckable", { jobs: t("role.reviewer.name") }),
@@ -830,6 +853,125 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       target: "active",
       idempotencyKey: expect.stringMatching(/^ai-services:/),
     });
+  });
+
+  it("flags each job that needs a check with its own Run check, which checks that job only", async () => {
+    const running = check({
+      target: "active",
+      draftId: null,
+      roles: ["supervisor"],
+      total: 2,
+      completed: 1,
+    });
+    const port = upgraded({
+      startQualityCheck: vi.fn().mockResolvedValue(running),
+      qualityCheck: vi.fn().mockResolvedValue({
+        ...running,
+        state: "passed",
+        completed: 2,
+        chargedMicroUsd: 30000,
+        outcome: [
+          { role: "supervisor", passed: true, dialogues: 2, failed: [] },
+        ],
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const flags = await within(region).findByRole("list", {
+      name: t("check.flag.list"),
+    });
+    // Two jobs need a check, one an owner's approval: each is flagged on its own.
+    expect(within(flags).getAllByText(t("check.flag.needsCheck"))).toHaveLength(
+      2,
+    );
+    expect(
+      within(flags).getByText(t("check.flag.needsApproval")),
+    ).toBeVisible();
+    expect(
+      within(flags).getByText(t("check.flag.approveInstead")),
+    ).toBeVisible();
+    expect(
+      within(flags).getByText(
+        t("check.flag.estimate", { count: 2, amount: usd(42000) }),
+      ),
+    ).toBeVisible();
+    // The job Core can't check has no Run check of its own.
+    expect(
+      within(flags).queryByRole("button", {
+        name: t("check.flag.runFor", { job: t("role.reviewer.name") }),
+      }),
+    ).toBeNull();
+    fireEvent.click(
+      within(flags).getByRole("button", {
+        name: t("check.flag.runFor", { job: t("role.supervisor.name") }),
+      }),
+    );
+    expect(port.startQualityCheck).toHaveBeenCalledWith(workspace, {
+      target: "active",
+      role: "supervisor",
+      idempotencyKey: expect.stringMatching(/^ai-services:/),
+    });
+    expect(
+      await within(flags).findByRole("progressbar", {
+        name: t("check.flag.progressLabel", {
+          job: t("role.supervisor.name"),
+        }),
+      }),
+    ).toBeInTheDocument();
+    // Nothing else can start while it runs.
+    expect(
+      within(flags).getByRole("button", {
+        name: t("check.flag.runFor", { job: t("role.companion.name") }),
+      }),
+    ).toBeDisabled();
+    expect(
+      await within(flags).findByText(
+        t("check.run.jobPassed", {
+          job: t("role.supervisor.name"),
+          count: 2,
+        }),
+        {},
+        { timeout: 4000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says why a flagged job's check can't start, in plain language", async () => {
+    const blocked = activeStatus();
+    blocked.activeRoles = blocked.activeRoles.map((r) => ({
+      ...r,
+      blocked:
+        r.role === "supervisor"
+          ? { code: "PROVIDER_QUALITY_CHECK_LIMIT_MISSING" }
+          : null,
+    }));
+    const port = upgraded({
+      qualityStatus: vi.fn().mockResolvedValue(blocked),
+      startQualityCheck: vi
+        .fn()
+        .mockRejectedValue(
+          new AiServicesError("PROVIDER_QUALITY_CHECK_RATE_LIMITED", 429),
+        ),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const flags = await within(region).findByRole("list", {
+      name: t("check.flag.list"),
+    });
+    expect(within(flags).getByText(t("check.run.limitMissing"))).toBeVisible();
+    expect(
+      within(flags).queryByRole("button", {
+        name: t("check.flag.runFor", { job: t("role.supervisor.name") }),
+      }),
+    ).toBeNull();
+    fireEvent.click(
+      within(flags).getByRole("button", {
+        name: t("check.flag.runFor", { job: t("role.companion.name") }),
+      }),
+    );
+    expect(
+      await within(flags).findByText(t("check.run.rateLimited")),
+    ).toBeVisible();
   });
 
   it("lets an owner approve the exact active revisions without a check", async () => {

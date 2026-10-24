@@ -1,9 +1,10 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   AiServicesError,
   activeNeedingCheck,
   activeRoles,
   type ActiveCheck,
+  type AiServicesPort,
   type Draft,
   type QualityCheck,
   type QualityStatus,
@@ -395,6 +396,15 @@ function ActiveNeedsCheck(
       <Message tone="warn">
         {t("aiServices.check.active.note", { count: needing.length })}
       </Message>
+      <RoleChecks
+        port={props.port}
+        workspaceId={props.workspaceId}
+        needing={needing}
+        quality={quality}
+        service={activeService(t, data)}
+        onChanged={props.reload}
+        onFinished={props.onFinished}
+      />
       {uncovered.length > 0 && (
         <p>
           {t("aiServices.check.active.notCheckable", {
@@ -406,8 +416,10 @@ function ActiveNeedsCheck(
         ? needing.length > uncovered.length && (
             <p className="ai-muted">{t("aiServices.check.active.draftOpen")}</p>
           )
-        : checkable && (
+        : checkable &&
+          needing.length - uncovered.length > 1 && (
             <>
+              <h4>{t("aiServices.check.flag.allTitle")}</h4>
               {quality.conversations > 0 && (
                 <p>
                   {t("aiServices.check.explain", {
@@ -427,6 +439,176 @@ function ActiveNeedsCheck(
     </div>
   );
 }
+/**
+ * Each job that is on and needs a check, flagged on its own with a "Run check" that checks that
+ * job only (its estimated cost first, then progress and the result). The job keeps working
+ * meanwhile; nothing here turns it off. A job Core's checks don't cover says an owner can approve
+ * it instead. Used on the AI services page and on the course overview.
+ */
+export function RoleChecks({
+  port,
+  workspaceId,
+  needing,
+  quality,
+  service,
+  onChanged,
+  onFinished,
+}: {
+  port: AiServicesPort;
+  workspaceId: string;
+  needing: ActiveCheck[];
+  quality: QualityStatus | null;
+  service: string;
+  onChanged: () => void | Promise<void>;
+  /** Told when a check started here ends: the page keeps showing its result once the job is no longer flagged. */
+  onFinished?: ((check: QualityCheck) => void) | undefined;
+}) {
+  const text = useAiText();
+  const { t } = text;
+  const keys = useRequestKeys();
+  const latest = quality?.latest ?? null;
+  const [check, setCheck] = useState<QualityCheck | null>(
+    latest?.target === "active" ? latest : null,
+  );
+  const [starting, setStarting] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ role: string; text: string }>();
+  // A check that finished while the page was open: its result stays shown after the reload.
+  const [done, setDone] = useState<QualityCheck | null>(null);
+  useEffect(() => {
+    if (latest?.target === "active") setCheck(latest);
+  }, [latest]);
+  const running = check?.state === "running";
+  const checkId = check?.id;
+  // The page's reload changes on every render; polling must not restart with it.
+  const changed = useRef(onChanged),
+    finished = useRef(onFinished);
+  changed.current = onChanged;
+  finished.current = onFinished;
+  useEffect(() => {
+    if (!running || !checkId) return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      port
+        .qualityCheck(workspaceId, checkId, controller.signal)
+        .then((next) => {
+          setCheck(next);
+          if (next.state !== "running") {
+            setDone(next);
+            finished.current?.(next);
+            void changed.current();
+          }
+        })
+        .catch(() => undefined);
+    }, POLL_MS);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [running, checkId, port, workspaceId]);
+  async function start(role: ActiveCheck["role"]) {
+    setMessage(undefined);
+    setStarting(role);
+    const request = { target: "active" as const, role };
+    try {
+      const started = await port.startQualityCheck(workspaceId, {
+        ...request,
+        idempotencyKey: keys.key(request),
+      });
+      keys.settle();
+      setCheck(started);
+    } catch (error) {
+      keys.settle(error);
+      setMessage({
+        role,
+        text:
+          error instanceof AiServicesError
+            ? blockedText(text, error.code, error.details)
+            : t("aiServices.err.generic"),
+      });
+    } finally {
+      setStarting(null);
+    }
+  }
+  return (
+    <ul className="ai-role-checks" aria-label={t("aiServices.check.flag.list")}>
+      {needing.map((r) => {
+        const job = jobName(t, r.role);
+        const plan = quality?.activeRoles.find((a) => a.role === r.role);
+        const mine = !!check && check.roles.includes(r.role);
+        return (
+          <li key={r.role} className="ai-role-check" data-role={r.role}>
+            <div className="ai-role-check-head">
+              <strong>{job}</strong>
+              <span
+                className={`ai-pill ${r.status === "failed" ? "bad" : "warn"}`}
+              >
+                {t(
+                  r.status === "not_covered"
+                    ? "aiServices.check.flag.needsApproval"
+                    : "aiServices.check.flag.needsCheck",
+                )}
+              </span>
+            </div>
+            <p className="ai-muted">
+              {t(`aiServices.check.state.${r.status}` as AiKey)}
+            </p>
+            {mine && running ? (
+              <div role="status" aria-live="polite" className="ai-run-progress">
+                <p>
+                  {t("aiServices.check.run.progress", {
+                    done: check.completed,
+                    total: check.total,
+                  })}
+                </p>
+                <progress
+                  max={check.total}
+                  value={check.completed}
+                  aria-label={t("aiServices.check.flag.progressLabel", { job })}
+                />
+                <p className="ai-muted">{t("aiServices.check.run.canLeave")}</p>
+              </div>
+            ) : r.status === "not_covered" ? (
+              <p>{t("aiServices.check.flag.approveInstead")}</p>
+            ) : !plan ? null : plan.blocked && !(running && mine) ? (
+              <Message tone="warn">
+                {blockedText(text, plan.blocked.code, plan.blocked)}
+              </Message>
+            ) : (
+              <div className="ai-actions ai-actions-start">
+                <span>
+                  {t("aiServices.check.flag.estimate", {
+                    amount: text.money(plan.estimateMicroUsd ?? 0),
+                    count: plan.conversations,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={starting !== null || running}
+                  aria-label={t("aiServices.check.flag.runFor", { job })}
+                  onClick={() => void start(r.role)}
+                >
+                  {starting === r.role
+                    ? t("aiServices.check.run.starting")
+                    : t("aiServices.check.flag.run")}
+                </button>
+              </div>
+            )}
+            {message?.role === r.role && (
+              <Message tone="error">{message.text}</Message>
+            )}
+          </li>
+        );
+      })}
+      {done && (
+        <li className="ai-role-check-result">
+          <CheckResult check={done} service={service} />
+        </li>
+      )}
+    </ul>
+  );
+}
+
 export function blockedText(
   text: AiText,
   code: string,
