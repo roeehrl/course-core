@@ -2371,6 +2371,184 @@ app.post("/test/pricing-fixture", async () => {
   );
   return { code: await issueLoginCode(db, adminId) };
 });
+// Test-only: a workspace after a Core upgrade. Its tutor is on, approved by the owner for an older
+// set of quality checks, so it now needs a check (it keeps working). The tutor's model is the
+// synthetic Gemini model above, with a synthetic key, a synthetic price and a spending limit.
+app.post("/test/upgraded-ai-fixture", async () => {
+  const workspaceId = randomUUID(),
+    adminId = randomUUID(),
+    ownerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `upgraded-${workspaceId}`,
+    "Upgraded workspace",
+  ]);
+  for (const [id, role, name] of [
+    [adminId, "admin", "Upgrade administrator"],
+    [ownerId, "owner", "Upgrade owner"],
+  ] as const) {
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [id, `upgraded:${id}`, name],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspaceId, id, role],
+    );
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({
+      method: "POST",
+      url: "/auth/redeem",
+      headers: { origin },
+      payload: { token: await issueLoginCode(db, userId) },
+    });
+    return {
+      cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+      origin,
+      "x-csrf-token": r.json().csrfToken,
+    };
+  };
+  const admin = await login(adminId),
+    owner = await login(ownerId);
+  const releaseId = (
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspaceId}/releases`,
+      headers: admin,
+      payload: fixture(),
+    })
+  ).json().id;
+  if (
+    (
+      await app.inject({
+        method: "POST",
+        url: `/api/releases/${releaseId}/publish`,
+        headers: admin,
+      })
+    ).statusCode !== 200
+  )
+    throw new Error("Upgrade fixture publication failed");
+  const catalogId = await ensureCatalog(db, releaseId);
+  const configuration = {
+    registry: {
+      revision: "upgraded-fixture",
+      models: [
+        {
+          id: "text-companion",
+          providerId: "google-main",
+          remoteModel: "public-text-model",
+          providerConfig: {
+            transport: "generate_content",
+            apiVersion: "v1beta",
+            maxResponseBytes: 1048576,
+          },
+          enabled: true,
+          capabilities: ["tutoring"],
+          tools: [],
+          limits: { maxInputCharacters: 30000, maxOutputTokens: 1000 },
+        },
+      ],
+    },
+    adapters: [
+      { id: "google-main", kind: "google", credentialEnv: "GOOGLE_API_KEY" },
+    ],
+    roles: {
+      companion: {
+        modelId: "text-companion",
+        maxInputCharacters: 12000,
+        maxOutputTokens: 1000,
+      },
+    },
+  };
+  // The key is stored the way the page stores it, with no job on yet (revision 1)...
+  const saved = await app.inject({
+    method: "POST",
+    url: `/api/admin/workspaces/${workspaceId}/provider-setup`,
+    headers: owner,
+    payload: {
+      expectedRevision: 0,
+      idempotencyKey: randomUUID(),
+      credentials: { GOOGLE_API_KEY: "synthetic-upgrade-key" },
+      jobPolicy: {
+        allowance: { microUsd: 100000, tokens: 1000000 },
+        durationMs: 300000,
+        timeoutMs: 60000,
+        maxAttempts: 3,
+      },
+      configuration: { ...configuration, roles: {} },
+    },
+  });
+  if (saved.statusCode !== 200)
+    throw new Error(`Upgrade fixture setup failed: ${saved.body}`);
+  // ...then put in the state an older Core left it: the tutor on, approved for older checks.
+  const revision = (await roleRevisions(configuration)).companion!,
+    overrideId = randomUUID(),
+    oldSuite = "b".repeat(64);
+  await db.query(
+    `INSERT INTO provider_eval_overrides(id,workspace_id,role,revision_digest,suite_id,suite_digest,reason,actor_id,idempotency_key,request_digest,created_at)
+      VALUES($1,$2,'companion',$3,'core-public',$4,'Owner approved the tutor before the upgrade.',$5,$6,$7,now()-interval '30 days')`,
+    [
+      overrideId,
+      workspaceId,
+      revision.digest,
+      oldSuite,
+      ownerId,
+      `upgrade:${randomUUID()}`,
+      "0".repeat(64),
+    ],
+  );
+  await db.query(
+    "UPDATE workspace_provider_versions SET configuration=$2,evaluation=$3 WHERE workspace_id=$1 AND revision=1",
+    [
+      workspaceId,
+      JSON.stringify(configuration),
+      JSON.stringify({
+        gate: "core.provider-eval-gate/1",
+        suiteId: "core-public",
+        suiteDigest: oldSuite,
+        roles: {
+          companion: {
+            revisionDigest: revision.digest,
+            strategy: revision.strategy,
+            decision: "override",
+            grandfathered: false,
+            overrideId,
+          },
+        },
+      }),
+    ],
+  );
+  await db.query(
+    `INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
+      effective_from,source_note,created_by) VALUES($1,$2,'text-companion',1,'active','USD',300000,2500000,clock_timestamp()-interval '1 day','Synthetic fixture price',$3)`,
+    [randomUUID(), workspaceId, adminId],
+  );
+  const budgets = (
+    await app.inject({
+      url: `/api/admin/workspaces/${workspaceId}/provider-setup/budgets`,
+      headers: owner,
+    })
+  ).json();
+  const limited = await app.inject({
+    method: "POST",
+    url: `/api/admin/workspaces/${workspaceId}/provider-setup/budgets`,
+    headers: owner,
+    payload: {
+      expectedRevision: budgets.workspace.revision,
+      idempotencyKey: randomUUID(),
+      limits: { microUsd: 50_000_000 },
+      paidWorkApproved: true,
+    },
+  });
+  if (limited.statusCode !== 200)
+    throw new Error(`Upgrade fixture limit failed: ${limited.body}`);
+  return {
+    catalogId,
+    adminCode: await issueLoginCode(db, adminId),
+    ownerCode: await issueLoginCode(db, ownerId),
+  };
+});
 // Test-only: a learner mid-lesson (reading, evidence, an open check, a written
 // answer awaiting review, a visual) plus an owner and an instructor.
 app.post("/test/learner-view-fixture", async () => {
