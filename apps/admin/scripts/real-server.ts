@@ -2293,7 +2293,11 @@ app.post("/test/media-run", async () => {
 });
 // Test-only: a workspace with one configured (never contacted) model, one operator price
 // version and two settled ledger rows, so pricing and spend views have real data.
-app.post("/test/pricing-fixture", async () => {
+// With { scheduled: true } the model also has a later price already saved (as a Core release that
+// prefilled a provider's announced change saves it), 60 days from now at midnight UTC.
+app.post("/test/pricing-fixture", async (request) => {
+  const scheduled =
+    (request.body as { scheduled?: boolean } | undefined)?.scheduled === true;
   const workspaceId = randomUUID(),
     adminId = randomUUID(),
     learnerId = randomUUID(),
@@ -2431,6 +2435,13 @@ app.post("/test/pricing-fixture", async () => {
       effective_from,source_note,created_by) VALUES($1,$2,'text-companion',1,'active','USD',300000,2500000,clock_timestamp()-interval '1 day','Synthetic fixture price',$3)`,
     [priceId, workspaceId, adminId],
   );
+  if (scheduled)
+    await db.query(
+      `INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
+        effective_from,source_note,created_by) VALUES($1,$2,'text-companion',2,'active','USD',400000,2800000,
+        date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'+interval '60 days','Synthetic announced change',$3)`,
+      [randomUUID(), workspaceId, adminId],
+    );
   await db.query(
     `INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,pricing_version_id,state,
       reserved_micro_usd,reserved_tokens,actual_micro_usd,charged_micro_usd,released_micro_usd,settled_at)
@@ -2446,7 +2457,7 @@ app.post("/test/pricing-fixture", async () => {
       `${randomUUID()}/generate`,
     ],
   );
-  return { code: await issueLoginCode(db, adminId) };
+  return { code: await issueLoginCode(db, adminId), workspaceId };
 });
 // Test-only: a workspace after a Core upgrade. Its tutor is on, approved by the owner for an older
 // set of quality checks, so it now needs a check (it keeps working). The tutor's model is the
