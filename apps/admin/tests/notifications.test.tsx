@@ -203,6 +203,85 @@ describe("staff notification bell", () => {
   });
 });
 
+describe("AI help paused by a spending limit", () => {
+  const paused = () => [
+    item({
+      kind: "help_paused",
+      params: { scope: "workspace", learners: 3, requests: 4 },
+      link: "/providers",
+    }),
+    item({
+      kind: "help_paused",
+      params: { scope: "learner", learners: 1, requests: 2 },
+      link: "/providers",
+    }),
+  ];
+  it("says which limit holds help back, how many learners wait, and where to change it", async () => {
+    const onOpen = vi.fn();
+    render(
+      <NotificationBell
+        port={fakePort(paused())}
+        workspaceId={WORKSPACE}
+        courseTitles={new Map()}
+        onOpen={onOpen}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Notifications, 2 unread" }),
+    );
+    const panel = screen.getByRole("dialog", { name: "Needs attention" });
+    expect(
+      within(panel).getByText("AI help is paused: the AI budget is used up"),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText(
+        /In the last day 4 requests for AI help from 3 learners waited\. Learners are told that help is paused and that staff know\. Raise the workspace limit/,
+      ),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText("1 learner reached their own AI limit"),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText(
+        /Raise the limit per learner on the AI services page/,
+      ),
+    ).toBeVisible();
+    fireEvent.click(
+      within(panel).getAllByRole("button", { name: "Go there" })[0]!,
+    );
+    await waitFor(() =>
+      expect(onOpen).toHaveBeenCalledWith({
+        view: "providers",
+        courseId: null,
+      }),
+    );
+  });
+  it("in Hebrew, without addressing a gender", async () => {
+    render(
+      <I18nProvider value={createAdminTranslator("he")}>
+        <NotificationBell
+          port={fakePort(paused())}
+          workspaceId={WORKSPACE}
+          courseTitles={new Map()}
+          onOpen={() => {}}
+        />
+      </I18nProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "התראות, 2 חדשות" }),
+    );
+    expect(
+      screen.getByText("העזרה של ה-AI מושהית: תקציב ה-AI נוצל במלואו"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/בקשות לעזרת AI שנעצרו ביממה האחרונה: 4, של 3 לומדים\./),
+    ).toBeVisible();
+    expect(
+      screen.getByText("לומד/ת אחד/ת הגיע/ה למגבלת ה-AI האישית"),
+    ).toBeVisible();
+  });
+});
+
 describe("notification links and the demo port", () => {
   it("opens only the admin views it knows", () => {
     expect(notificationTarget(`/courses/${COURSE}/runs`)).toEqual({
