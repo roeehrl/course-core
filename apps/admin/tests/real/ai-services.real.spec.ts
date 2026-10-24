@@ -529,6 +529,7 @@ for (const locale of ["en", "he"] as Locale[])
 
     // Saved on the server: a fresh page shows the same choice.
     await page.reload();
+    await page.getByRole("button", { name: f("ai.button") }).click();
     await expect(
       page
         .locator("#ai-spending")
