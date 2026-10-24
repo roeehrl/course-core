@@ -376,6 +376,11 @@ function Choice({
   const keyboardProps =
     Platform.OS === "web"
       ? {
+          // A locked option keeps tabindex -1, which a tap or click would still focus: it would
+          // show the focus border without being chosen. The press does nothing, so neither does focus.
+          onMouseDown: (event: React.MouseEvent<HTMLElement>) => {
+            if (disabled) event.preventDefault();
+          },
           onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
             if (event.key === " ") {
               event.preventDefault();
@@ -427,7 +432,7 @@ function Choice({
         gap: 14,
         alignItems: "center",
         borderWidth: 2,
-        borderColor: focused
+        borderColor: focused && !disabled
           ? colors.ink
           : selected
             ? colors.teal

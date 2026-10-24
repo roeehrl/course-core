@@ -237,6 +237,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [storageUnavailable, setStorageUnavailable] = useState(false),
     [now, setNow] = useState(Date.now());
   const [checkingAnswer, setCheckingAnswer] = useState(false);
+  // An answer (or "I don't know yet") is being saved: only then are the check's options locked.
+  // Any other request in flight (a companion message, marking a part read) leaves them usable,
+  // so a tap on an option always chooses it.
+  const [savingAnswer, setSavingAnswer] = useState(false);
   /** Optional confidence per open check. Never sent unless the learner chose a level. */
   const [confidence, setConfidence] = useState<Record<string, number | null>>({});
   const [block, setBlock] = useState<{
@@ -777,6 +781,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       }
     }
     setCheckingAnswer(true);
+    setSavingAnswer(true);
     try {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
@@ -784,13 +789,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t) });
     } finally {
       setCheckingAnswer(false);
+      setSavingAnswer(false);
     }
   }
   /** "I don't know yet": records no answer and no evidence; confidence stays optional. */
   async function abstain(item: Challenge) {
     const chosen = confidence[item.challengeId];
-    const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-    setNotice({ render: (t) => answerFeedback(result, false, t) });
+    setSavingAnswer(true);
+    try {
+      const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
+      setNotice({ render: (t) => answerFeedback(result, false, t) });
+    } finally {
+      setSavingAnswer(false);
+    }
   }
   function startCheck(assessmentId?: string) {
     return run(() => {
@@ -1470,6 +1481,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               now={now}
               answer={answer}
               checkingAnswer={checkingAnswer}
+              savingAnswer={savingAnswer}
               policyPanel={policyPanel}
               components={components}
               pendingChanges={

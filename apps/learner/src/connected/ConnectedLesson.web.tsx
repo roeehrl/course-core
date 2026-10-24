@@ -42,6 +42,8 @@ export interface ConnectedLessonProps {
   now: number;
   answer: string;
   checkingAnswer?: boolean;
+  /** An answer to the open check is being saved; its options are locked only then. Defaults to `pending`. */
+  savingAnswer?: boolean;
   policyPanel?: React.ReactNode;
   /** Reports when the learner starts and stops using an interactive part (E03 safe boundary). */
   onPresence?: (episodeId: string, blockId: string, kind: PresenceKind, state: PresenceState, leaving?: boolean) => void;
@@ -500,14 +502,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       key={challenge.challengeId}
                       question={challenge.question}
                       answer={props.answer}
-                      pending={pending}
+                      pending={props.savingAnswer ?? pending}
                       onChange={props.onAnswerChange}
                       practiceRuns={browserRunsAllowed(challenge.mode)}
                     />
                     <ConfidenceInput
                       question={challenge.question}
                       value={props.confidence ?? null}
-                      pending={pending}
+                      pending={props.savingAnswer ?? pending}
                       onChange={(value) => props.onConfidenceChange?.(value)}
                     />
                     <div className="connected-answer-actions">
