@@ -10,7 +10,7 @@ import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/
 import type { Client } from '@temporalio/client';
 import type { ProviderAdapter, TextRequest, UsageReceipt } from '@course-core/providers';
 import {
-  HttpHostBridge, HttpProviderGateway, dispatchOnce, workflowId,
+  HttpHostBridge, HttpProviderGateway, dispatchOnce, waitForWork, workflowId, type WakeCursor,
   type Activities, type HostBridge, type ProviderGateway, type RunRef, type Snapshot, type Summary, type WorkflowStarter,
 } from '@course-core/supervisor';
 import { createDatabase, type Database } from '../src/database.js';
@@ -28,6 +28,12 @@ import {qualifySupervisorTools,ToolsFlowFailure} from './supervisor-tools-flow.j
 // Errors/logs intentionally expose fixed checkpoint codes, never assertion values or raw HTTP bodies.
 /** Core's share of the 3 s first-reply target (T01) on this host, with an instant provider. */
 const FIRST_REPLY_PIPELINE_BUDGET_MS = 1500;
+/** T01 first token: from the learner's question to the first streamed text on their event stream. */
+const FIRST_TOKEN_BUDGET_MS = 3000;
+/** The stub streaming model's own time to its first token (a realistic 300–800 ms; QUALIFICATION_FIRST_TOKEN_MS). */
+const STUB_FIRST_TOKEN_MS = Number(process.env.QUALIFICATION_FIRST_TOKEN_MS ?? 600);
+const STREAM_MARKER = 'STREAMED_REPLY';
+const streamedPieces = ['Picture both values on a number line. ', 'The one farther left ', 'is the smaller value, ', 'and that is advisory teaching only.'];
 class GateFailure extends Error { constructor(readonly code: string) { super(code); } }
 function check(value: unknown, code: string): asserts value { if (!value) throw new GateFailure(code); }
 function equal(actual: unknown, expected: unknown, code: string) { check(isDeepStrictEqual(actual, expected), code); }
@@ -73,7 +79,7 @@ const observedUsage: UsageReceipt = {
 async function main() {
   const url = testUrl(), schema = `course_supervised_${randomUUID().replaceAll('-', '')}`;
   const serviceToken = `SERVICE_CANARY_${randomUUID()}`, providerSecret = `PROVIDER_CANARY_${randomUUID()}`;
-  const forbidden = new Set<string>([serviceToken, providerSecret, answer]), oracleCanaries = new Set<string>();
+  const forbidden = new Set<string>([serviceToken, providerSecret, answer, ...streamedPieces]), oracleCanaries = new Set<string>();
   const admin = createDatabase(url.toString());
   let db: Database | undefined, scratch: string | undefined, env: TestWorkflowEnvironment | undefined, fake: Server | undefined;
   const apps: Awaited<ReturnType<typeof createServer>>[] = [], workers: WorkerRun[] = [];
@@ -85,7 +91,8 @@ async function main() {
   const cleanupFailures: string[] = [];
   let decodedPayloads = 0, replayedHistories = 0, workerRestarts = 0, lostStartAcks = 0, lostSettleAcks = 0;
   let supervisorToolModelCalls = 0, supervisorToolWorkerRestarts = 0, supervisorApplyAckLoss = 0;
-  let firstReplyPipelineMs: number | null = null;
+  let streamedCalls = 0;
+  let firstReplyPipelineMs: number | null = null, firstTokenMs: number | null = null, streamedReplyMs: number | null = null;
   const pass = (name: string) => { passed.push(name); process.stdout.write(`${JSON.stringify({ gate: 'supervised-flow', check: name, status: 'passed' })}\n`); };
   try {
     const version = Number((await admin.query("SELECT current_setting('server_version_num') AS version")).rows[0].version);
@@ -122,17 +129,28 @@ async function main() {
     phase = 'fake_external_provider';
     fake = createHttpServer((req, res) => {
       void (async () => {
-        check(req.method === 'POST' && req.url === '/tutor' && req.headers.authorization === `Bearer ${providerSecret}`, 'fake_provider_auth');
+        check(req.method === 'POST' && (req.url === '/tutor' || req.url === '/tutor-stream') && req.headers.authorization === `Bearer ${providerSecret}`, 'fake_provider_auth');
         const parts: Buffer[] = []; let size = 0;
         for await (const raw of req) { const part = Buffer.from(raw); size += part.length; check(size <= 65_536, 'fake_provider_body_limit'); parts.push(part); }
         const request = JSON.parse(Buffer.concat(parts).toString('utf8')) as TextRequest;
         const context = JSON.parse(request.messages[0]!.text) as FakeCall['context'];
         check(typeof context.question === 'string', 'fake_provider_context_shape');
-        fakeCalls.push({ request, context });
+        // Streamed calls are counted apart, so the other phases' call counts stay as they were.
+        if (req.url === '/tutor') fakeCalls.push({ request, context }); else streamedCalls++;
         const block = activeBlock;
         if (block && context.question.includes(block.marker)) {
           pendingExternal.add(block.release); block.entered.resolve();
           await bounded(block.release.promise, 25_000, 'fake_provider_hold_timeout'); pendingExternal.delete(block.release);
+        }
+        if (req.url === '/tutor-stream') {
+          // A streaming model: its first token after STUB_FIRST_TOKEN_MS, then a piece every 80 ms.
+          res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+          for (let i = 0; i < streamedPieces.length; i++) {
+            await new Promise(resolve => setTimeout(resolve, i === 0 ? STUB_FIRST_TOKEN_MS : 80));
+            res.write(`${JSON.stringify({ text: streamedPieces[i] })}\n`);
+          }
+          res.end(`${JSON.stringify({ done: true, usage: observedUsage })}\n`);
+          return;
         }
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ output: { text: answer }, usage: observedUsage }));
       })().catch(() => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' }); res.end('{"error":"qualification_provider_failed"}'); });
@@ -140,20 +158,42 @@ async function main() {
     await new Promise<void>((resolve, reject) => { fake!.once('error', reject); fake!.listen(0, '127.0.0.1', resolve); });
     const fakeAddress = fake.address(); check(fakeAddress && typeof fakeAddress === 'object', 'fake_provider_bind');
     const fakeBase = `http://127.0.0.1:${fakeAddress.port}`;
+    const tutor = async (request: TextRequest, options?: { signal?: AbortSignal | undefined }) => {
+      const response = await fetch(`${fakeBase}/tutor`, { method: 'POST', redirect: 'error',
+        signal: options?.signal ?? AbortSignal.timeout(25_000), headers: { authorization: `Bearer ${providerSecret}`, 'content-type': 'application/json' }, body: JSON.stringify(request) });
+      check(response.ok, 'fake_provider_http_failure');
+      return await response.json() as { output: { text: string }; usage: UsageReceipt };
+    };
     const providers = composeProviders({
       registry: { revision: 'qualification-registry', models: [{ id: 'qualification-model', providerId: 'qualification-provider', remoteModel: 'synthetic-http-model',
         providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20_000, maxOutputTokens: 1000 } }] },
       adapters: [{ id: 'qualification-provider', kind: 'qualification-http', credentialEnv: 'COURSE_PROVIDER_QUALIFICATION_API_KEY' }],
       roles: { companion: { modelId: 'qualification-model', maxInputCharacters: 12_000, maxOutputTokens: 1000 } },
     }, () => providerSecret, { 'qualification-http': ({ providerId, getCredential }) => ({ providerId, validateModel() {},
-      ports: { tutoring: { async tutor(request, options) {
-        const response = await fetch(`${fakeBase}/tutor`, { method: 'POST', redirect: 'error',
+      ports: { tutoring: { tutor, async tutorStream(request, options, onText) {
+        // Only the streaming phase's question streams; every other phase keeps the plain call.
+        if (!request.messages[0]!.text.includes(STREAM_MARKER)) return tutor(request, options);
+        const response = await fetch(`${fakeBase}/tutor-stream`, { method: 'POST', redirect: 'error',
           signal: options?.signal ?? AbortSignal.timeout(25_000), headers: { authorization: `Bearer ${getCredential()}`, 'content-type': 'application/json' }, body: JSON.stringify(request) });
-        check(response.ok, 'fake_provider_http_failure');
-        return await response.json() as { output: { text: string }; usage: UsageReceipt };
+        check(response.ok && response.body, 'fake_provider_http_failure');
+        const reader = response.body.getReader(), decoder = new TextDecoder();
+        let buffered = '', text = '', usage: UsageReceipt | undefined;
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+          let cut: number;
+          while ((cut = buffered.indexOf('\n')) >= 0) {
+            const line = JSON.parse(buffered.slice(0, cut)) as { text?: string; done?: true; usage?: UsageReceipt }; buffered = buffered.slice(cut + 1);
+            if (line.text) { text += line.text; onText(line.text); }
+            if (line.done) usage = line.usage;
+          }
+        }
+        check(usage, 'fake_provider_stream_incomplete');
+        return { output: { text }, usage };
       } } },
     } satisfies ProviderAdapter) });
-    const workspaces = Object.fromEntries(['success', 'recovery', 'stale', 'configuration', 'budget', 'foreign'].map(name => [name, randomUUID()]));
+    const workspaces = Object.fromEntries(['success', 'streaming', 'recovery', 'stale', 'configuration', 'budget', 'foreign'].map(name => [name, randomUUID()]));
     const workspaceIds = Object.values(workspaces);
     const beforeVerify = async (ref: RunRef) => {
       const row = (await database.query<{ runtime_snapshot: Snapshot }>('SELECT runtime_snapshot FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3',
@@ -335,6 +375,62 @@ async function main() {
     check(again.snapshot.applicationReceiptId === applied.snapshot.applicationReceiptId && Number(fakeCalls.length) === 1, 'duplicate_reapplied_or_resubmitted');
     await stop(run1); pass('real_question_outbox_temporal_http_gateway_verification_reply');
 
+    phase = 'streamed_first_token';
+    // T01 first token, end to end and with nothing called by hand: the dispatcher's own loop
+    // (woken at commit, 2 s backstop poll), a Temporal worker, the HTTP gateway, a stub model that
+    // streams after STUB_FIRST_TOKEN_MS, and the learner's event stream. Measured from the moment
+    // the learner sends the question to the first streamed text arriving on their stream.
+    check(STUB_FIRST_TOKEN_MS >= 300 && STUB_FIRST_TOKEN_MS <= 800, 'stub_first_token_unrealistic');
+    const streaming = await makeCase('streaming', true, false); await fund(streaming);
+    const queueS = `qualification-streaming-${randomUUID()}`, runS = await startWorker(streaming, queueS), startS = starter(queueS);
+    const stopLoop = new AbortController(), cursor: WakeCursor = { sequence: null };
+    const loopBridge = new HttpHostBridge(streaming.base, serviceToken);
+    const loop = (async () => {
+      while (!stopLoop.signal.aborted) {
+        await dispatchOnce(loopBridge, startS, { limit: 100 }).catch(() => undefined);
+        await waitForWork(loopBridge, 2_000, stopLoop.signal, cursor);
+      }
+    })();
+    const followS = new AbortController();
+    const frames: { at: number; text: string; state: string; offset: number }[] = [];
+    const streamResponse = await fetch(new URL(`/api/enrollments/${streaming.enrollmentId}/events/stream`, streaming.base), {
+      headers: { cookie: streaming.session.cookie }, signal: followS.signal });
+    check(streamResponse.ok && streamResponse.body, 'learner_event_stream_unavailable');
+    const reading = (async () => {
+      const reader = streamResponse.body!.getReader(), decoder = new TextDecoder(); let text = '';
+      try {
+        for (;;) {
+          const { value, done } = await reader.read(); if (done) break;
+          text += decoder.decode(value, { stream: true });
+          let cut: number;
+          while ((cut = text.indexOf('\n\n')) >= 0) {
+            const block = text.slice(0, cut); text = text.slice(cut + 2);
+            if (/^event: companion-draft$/m.test(block)) frames.push({ at: performance.now(), ...JSON.parse(/^data: (.*)$/m.exec(block)![1]!) });
+          }
+        }
+      } catch { /* closed below */ }
+    })();
+    // Steady state: one idle dispatcher wait has passed and the commit listener is up.
+    await new Promise(resolve => setTimeout(resolve, 2_500));
+    const currentS = (await http(streaming.base, 'GET', `/api/enrollments/${streaming.enrollmentId}`, undefined, streaming.session)).data;
+    const askedAt = performance.now();
+    const askedS = await http(streaming.base, 'POST', `/api/enrollments/${streaming.enrollmentId}/companion`, { expectedRevision: currentS.revision,
+      idempotencyKey: randomUUID(), episodeId: 'min', content: `Which value is smaller? ${STREAM_MARKER}` }, streaming.session);
+    streaming.eventId = String(askedS.data.eventId); streaming.messageId = String(askedS.data.messageId);
+    await eventually(async () => frames.some(frame => frame.text.length > 0), 'streamed_first_token_missing', 10_000);
+    firstTokenMs = Math.round(frames.find(frame => frame.text.length > 0)!.at - askedAt);
+    check(firstTokenMs < FIRST_TOKEN_BUDGET_MS, 'first_token_over_budget');
+    await eventually(async () => frames.some(frame => frame.state === 'complete'), 'streamed_reply_not_completed', 15_000);
+    let rebuilt = '';
+    for (const frame of frames.filter(f => f.state === 'streaming')) rebuilt = rebuilt.slice(0, frame.offset) + frame.text;
+    check(rebuilt === streamedPieces.join(''), 'streamed_draft_differs_from_answer');
+    await eventually(async () => (await messages(streaming)).some(row => row.role === 'assistant' && row.content === streamedPieces.join('')), 'streamed_reply_not_applied', 20_000);
+    streamedReplyMs = Math.round(performance.now() - askedAt);
+    stopLoop.abort(); await loop; followS.abort(); await reading;
+    check(streamedCalls === 1, 'streamed_question_not_called_once');
+    await finishStarted(); await noCredit(streaming); await stop(runS);
+    pass('streamed_reply_first_token_under_3s');
+
     phase = 'restart_recovery';
     const recovery = await makeCase('recovery'); await fund(recovery);
     const lost = deferred<void>(); let dropped = false;
@@ -492,7 +588,7 @@ async function main() {
     process.exitCode = 1;
   } else process.stdout.write(`${JSON.stringify({ gate: 'supervised-flow', status: 'passed', checks: passed.length,
     storage: 'real-postgresql', orchestration: 'real-temporal', api: 'real-http', externalProvider: 'synthetic-loopback-http',
-    providerCalls: fakeCalls.length, supervisorToolModelCalls, firstReplyPipelineMs, workerRestarts:workerRestarts+supervisorToolWorkerRestarts, lostStartAcks, lostSettleAcks, supervisorApplyAckLoss, replayedHistories, decodedPayloads,
+    providerCalls: fakeCalls.length, supervisorToolModelCalls, firstReplyPipelineMs, firstTokenMs, stubFirstTokenMs: STUB_FIRST_TOKEN_MS, streamedReplyMs, streamedCalls, workerRestarts:workerRestarts+supervisorToolWorkerRestarts, lostStartAcks, lostSettleAcks, supervisorApplyAckLoss, replayedHistories, decodedPayloads,
     liveProviderVerified: false, earnedCredit: false, cleanup: 'completed' })}\n`);
 }
 await main().catch(() => {
