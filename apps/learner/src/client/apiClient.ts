@@ -53,6 +53,15 @@ export interface ClosedRecordNotice {
   reason: string | null;
   withdrawnAt: string;
 }
+/** The move offered to a learner with personal changes (course version moves). Lesson titles are course text. */
+export interface CourseVersionOffer {
+  moveId: string;
+  offeredAt: string;
+  fromVersion: string;
+  toVersion: string;
+  personalChanges: { count: number; items: { episodeId: string; title: string; kind: string }[] };
+  keeps: { lessons: number; checkpointsCarried: number; checkpointsAgain: number; removed: number };
+}
 export interface ServerSnapshot {
   enrollmentId: string;
   revision: number;
@@ -68,7 +77,19 @@ export interface ServerSnapshot {
    * not reopened; the closure report stays as it was recorded. */
   closedRecordNotices?: ClosedRecordNotice[];
   /** Staff recently moved this learner to the course version they are on now; null or absent otherwise. */
-  courseVersionNotice?: { id: string; fromVersion: string; toVersion: string; movedAt: string } | null;
+  courseVersionNotice?: {
+    id: string;
+    fromVersion: string;
+    toVersion: string;
+    movedAt: string;
+    /** Checkpoints passed on the earlier version that carried over unchanged. */
+    carriedCheckpoints?: number;
+    /** The move set the learner's personal changes aside: they accepted it, or staff moved them anyway. */
+    personalChanges?: "accepted" | "forced" | null;
+    personalChangesArchived?: number;
+  } | null;
+  /** A newer version the learner may move to by dropping their personal changes; null or absent otherwise. */
+  courseVersionOffer?: CourseVersionOffer | null;
   nextEpisodeId: string | null;
   course: LearnerCourse;
   inaccessibleEpisodeIds: string[];

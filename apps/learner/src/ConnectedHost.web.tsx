@@ -95,6 +95,7 @@ import { EnrollmentPreview } from "./components/EnrollmentPreview";
 import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
 import { CourseVersionNotice } from "./components/CourseVersionNotice.web";
+import { CourseVersionOffer } from "./components/CourseVersionOffer.web";
 import { ContinuationTrack } from "./components/ContinuationTrack";
 import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
 import { PasskeyManager, PasskeySignIn, passkeysSupported } from "./connected/Passkeys.web";
@@ -136,6 +137,10 @@ const RECORD_EVENTS = new Set([
   "visual.completed",
   "course_version.moved",
   "course_version.move_undone",
+  "course_version.move_offered",
+  "course_version.move_offer_accepted",
+  "course_version.move_offer_declined",
+  "course_version.move_forced",
 ]);
 const PANE_PREFERENCE = "course:learner-companion-pane";
 /** The learner's last explicit choice to show or hide the companion pane. A
@@ -1404,6 +1409,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               {!coursePageSettled && <ActivityIndicator accessibilityLabel={t("connectedHost.loading")} />}
               <div className="connected-course-page" hidden={!coursePageSettled} aria-busy={!coursePageSettled}>
               <CourseVersionNotice server={server} />
+              <CourseVersionOffer
+                server={server}
+                onDecide={(moveId, accept) =>
+                  command<{ status: "moved" | "waiting" | "declined" | "withdrawn" }>(
+                    accept ? "version-offer/accept" : "version-offer/decline",
+                    { moveId },
+                  )
+                }
+              />
               <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
               {policyPanel}
               <ClosureSummary server={server} />

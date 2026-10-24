@@ -74,5 +74,9 @@
   "record.event.visual_completed": "Illustration watched to the end",
   "record.event.course_version_moved": "Course moved to a newer version",
   "record.event.course_version_move_undone": "Course moved back to the earlier version",
-  "record.event.other": "Learning activity saved"
+  "record.event.other": "Learning activity saved",
+  "record.event.course_version_move_offered": "Offered a move to a newer version",
+  "record.event.course_version_move_offer_accepted": "Accepted the move to a newer version",
+  "record.event.course_version_move_offer_declined": "Declined the move to a newer version",
+  "record.event.course_version_move_forced": "Moved to a newer version by the course team"
 }

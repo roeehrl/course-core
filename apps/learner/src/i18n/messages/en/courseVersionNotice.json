@@ -4,5 +4,21 @@
   "kept": "Your answers and the lessons you completed stay in your learning record.",
   "checkpoints": "A checkpoint you passed on the earlier version may ask you to pass it again, and new lessons may have been added.",
   "deadlines": "Your deadlines and limits are unchanged.",
-  "dismiss": "Got it"
+  "dismiss": "Got it",
+  "carried": "{count, plural, one {# checkpoint you passed was unchanged, so your pass still counts.} other {# checkpoints you passed were unchanged, so your passes still count.}}",
+  "personal.accepted": "As you chose, your personal changes were set aside for the new version. They are archived, not deleted: you can still see them under your personal changes and in your data export.",
+  "personal.forced": "Your course team moved you even though you had personal changes. Those changes are archived, not deleted: you can still see them under your personal changes and in your data export.",
+  "offer.title": "Your course has a new version",
+  "offer.body": "Version {to} of your course is available (you are on {from}). Moving keeps your progress where it can, but drops your personal changes: {changes}. Move now?",
+  "offer.bodyUnlisted": "Version {to} of your course is available (you are on {from}). Moving keeps your progress where it can, but drops your personal changes. Move now?",
+  "offer.more": "{changes} and {count, plural, one {# more} other {# more}}",
+  "offer.keeps": "{lessons, plural, =0 {No completed lessons move with you yet.} one {# completed lesson stays completed.} other {# completed lessons stay completed.}} {again, plural, =0 {} one {You would pass # checkpoint again.} other {You would pass # checkpoints again.}}",
+  "offer.archived": "Your personal changes are archived, not deleted: you can still see them under your personal changes and in your data export.",
+  "offer.accept": "Move now",
+  "offer.decline": "Stay on this version",
+  "offer.moved": "Done: you are on the new version now.",
+  "offer.waiting": "You will be moved as soon as you finish what you are doing.",
+  "offer.declined": "You stay on this version, with your personal changes.",
+  "offer.withdrawn": "This offer no longer applies, so nothing changed. Your course team can help if you still want to move.",
+  "offer.failed": "That did not work. Try again in a moment."
 }

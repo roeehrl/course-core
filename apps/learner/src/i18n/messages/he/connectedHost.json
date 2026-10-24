@@ -74,5 +74,9 @@
   "record.event.visual_completed": "האיור נצפה עד הסוף",
   "record.event.course_version_moved": "הקורס הועבר לגרסה חדשה יותר",
   "record.event.course_version_move_undone": "הקורס הוחזר לגרסה הקודמת",
-  "record.event.other": "פעילות למידה נשמרה"
+  "record.event.other": "פעילות למידה נשמרה",
+  "record.event.course_version_move_offered": "התקבלה הצעה לעבור לגרסה חדשה יותר",
+  "record.event.course_version_move_offer_accepted": "ההצעה לעבור לגרסה חדשה יותר התקבלה",
+  "record.event.course_version_move_offer_declined": "ההצעה לעבור לגרסה חדשה יותר נדחתה",
+  "record.event.course_version_move_forced": "הועברת לגרסה חדשה יותר על ידי צוות הקורס"
 }
