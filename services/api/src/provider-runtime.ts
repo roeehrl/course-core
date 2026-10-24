@@ -87,11 +87,13 @@ export class ProviderRuntime {
     if (!selected) throw new ProviderError('INVALID_CONFIG');
     return selected.strategy.reservationBound(context, selected.binding);
   }
+  /** `onText` (companion only) receives the answer as it streams; see reply-drafts.ts. */
   async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>,
-    course: readonly RuntimeStrategy[] = []): Promise<RuntimeResult> {
+    course: readonly RuntimeStrategy[] = [], onText?: (text: string) => void): Promise<RuntimeResult> {
     if (this.availability(role).status !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
     const { binding, strategy } = this.strategy(role, course)!;
-    const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router), tools, beforeModelCall });
+    const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router), tools, beforeModelCall,
+      ...(role === 'companion' && onText ? { onText } : {}) });
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
   }
@@ -109,7 +111,7 @@ export class ProviderRuntime {
       captured = { operation, ...rest };
       throw new Captured();
     };
-    const router = { tutor: capture('tutor'), assess: capture('assess'), research: capture('research'), startImage: capture('startImage'), startVideo: capture('startVideo') } as unknown as ProviderRouter;
+    const router = { tutor: capture('tutor'), tutorStream: capture('tutor'), assess: capture('assess'), research: capture('research'), startImage: capture('startImage'), startVideo: capture('startVideo') } as unknown as ProviderRouter;
     try { await selected.strategy.run({ role, binding: selected.binding, context, accountingKey: 'assembled-request', signal: new AbortController().signal, router }); }
     catch (error) { if (!(error instanceof Captured)) return null; }
     return captured;
@@ -221,7 +223,7 @@ export class ProviderRuntime {
 /** Hard ceiling on what any strategy sends to a model in one request (design N06): instructions,
  * messages and prompts together, as UTF-8 bytes. Context minimization normally keeps far below it. */
 export const MAX_MODEL_CONTEXT_BYTES = 65_536;
-const CAPPED_CALLS = new Set(['tutor', 'assess', 'research', 'startImage', 'startVideo']);
+const CAPPED_CALLS = new Set(['tutor', 'tutorStream', 'assess', 'research', 'startImage', 'startVideo']);
 function requestBytes(request: { systemInstruction?: string | undefined; messages?: { text: string }[] | undefined; prompt?: string | undefined }) {
   const text = (request.systemInstruction ?? '') + (request.messages ?? []).map(m => m.text).join('') + (request.prompt ?? '');
   return new TextEncoder().encode(text).byteLength;

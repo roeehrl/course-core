@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import {
   ackSchema, cancellationDeliveriesSchema, controlDeliveriesSchema, leasesSchema, reconciledSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
-  crossCourseConsentSchema, crossCourseDeliveriesSchema, crossCourseObservedSchema, crossCoursePlanSchema,
+  crossCourseConsentSchema, crossCourseDeliveriesSchema, crossCourseObservedSchema, crossCoursePlanSchema, outboxWakeSchema, type OutboxWake,
   type CancellationDelivery, type Command, type ControlDelivery, type DeliveryCode, type Reconciled, type OutboxEvent, type RunRef, type Snapshot, type Transition,
   type CrossCourseConsent, type CrossCourseDelivery, type CrossCourseObserved, type CrossCoursePlan,
 } from './contracts.js';
@@ -36,6 +36,8 @@ export interface HostBridge {
   planCrossCourse(learnerId: string, consentRevision: number): Promise<CrossCoursePlan>;
   /** An enrollment coordinator's job ended: the learner to wake, or null when no opt-in covers the enrollment. */
   observeEnrollment(workspaceId: string, enrollmentId: string): Promise<CrossCourseObserved>;
+  /** Optional long poll that answers as soon as new work is committed (`outbox.wait`). */
+  waitForWork?(after: number | null, timeoutMs: number, signal?: AbortSignal): Promise<OutboxWake>;
 }
 export class BoundaryError extends Error {
   constructor(readonly code: 'bridge_unavailable' | 'bridge_rejected' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
@@ -102,13 +104,13 @@ export class HttpHostBridge implements HostBridge {
     this.endpoint = new URL('v1/supervisor/bridge', `${assertEndpoint(baseUrl).href.replace(/\/$/, '')}/`).href;
     if (!token) throw new BoundaryError('invalid_request');
   }
-  private async rpc<T>(body: z.infer<typeof rpcRequestSchema>, schema: z.ZodType<T>): Promise<T> {
+  private async rpc<T>(body: z.infer<typeof rpcRequestSchema>, schema: z.ZodType<T>, timeoutMs = this.timeoutMs, signal?: AbortSignal): Promise<T> {
     if (!rpcRequestSchema.safeParse(body).success) throw new BoundaryError('invalid_request');
     try {
       const headers: Record<string, string> = { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' };
       telemetry().inject(headers);
       const response = await this.request(this.endpoint, {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs), headers, body: JSON.stringify(body),
+        method: 'POST', redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs), headers, body: JSON.stringify(body),
       });
       if (!response.ok) throw new BridgeError(response.status, await hostErrorCode(response));
       return parseSafe(schema, await readJson(response));
@@ -157,5 +159,9 @@ export class HttpHostBridge implements HostBridge {
   }
   observeEnrollment(workspaceId: string, enrollmentId: string) {
     return this.rpc({ method: 'crosscourse.observe', workspaceId, enrollmentId }, crossCourseObservedSchema);
+  }
+  waitForWork(after: number | null, timeoutMs: number, signal?: AbortSignal) {
+    // The request outlives the host's wait by a margin; the host answers at its own timeout.
+    return this.rpc({ method: 'outbox.wait', after, timeoutMs }, outboxWakeSchema, timeoutMs + 5_000, signal);
   }
 }

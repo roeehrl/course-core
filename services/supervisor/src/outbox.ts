@@ -8,6 +8,40 @@ export interface WorkflowStarter {
   // Resolve only when Temporal accepted the start, or confirmed this workflow ID already exists.
   start(ref: RunRef, workflowId: string): Promise<void>;
 }
+/** Where the dispatcher's long poll is: the host's last wake sequence, and whether the host has
+ * no long poll (an older host, or an error): the dispatcher then simply sleeps its interval. */
+export interface WakeCursor { sequence: number | null; unsupported?: boolean }
+const LONG_POLL_SLICE_MS = 8_000;
+/**
+ * Waits up to `intervalMs` for new supervisor work: returns 'woke' as soon as the host reports a
+ * commit (an outbox row or a job cancellation), else 'timeout'. The interval is the backstop poll,
+ * so a lost wake-up only costs the old latency. Stops at once when `signal` aborts.
+ */
+export async function waitForWork(bridge: HostBridge, intervalMs: number, signal: AbortSignal, cursor: WakeCursor): Promise<'woke' | 'timeout'> {
+  const deadline = Date.now() + intervalMs;
+  while (!signal.aborted && !cursor.unsupported && bridge.waitForWork) {
+    const left = deadline - Date.now();
+    if (left < 100) return 'timeout';
+    try {
+      const answer = await bridge.waitForWork(cursor.sequence, Math.min(left, LONG_POLL_SLICE_MS), signal);
+      const changed = cursor.sequence !== null && answer.sequence !== cursor.sequence;
+      cursor.sequence = answer.sequence;
+      if (!answer.listening) break;
+      if (answer.woke || changed) return 'woke';
+    } catch (error) {
+      if (signal.aborted) return 'timeout';
+      // A host without the long poll refuses it; one that failed gets the plain sleep this time.
+      if (error instanceof BridgeError && error.rejected) cursor.unsupported = true;
+      break;
+    }
+  }
+  const left = deadline - Date.now();
+  if (left > 0 && !signal.aborted) await new Promise<void>(resolve => {
+    const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
+    const timer = setTimeout(finish, left); signal.addEventListener('abort', finish, { once: true });
+  });
+  return 'timeout';
+}
 export interface DispatchOptions { limit?: number; leaseMs?: number; maxAttempts?: number }
 export async function dispatchOnce(bridge: HostBridge, starter: WorkflowStarter, options: DispatchOptions = {}) {
   const limit = options.limit ?? 10;

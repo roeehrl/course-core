@@ -4,7 +4,7 @@ import { DefaultLogger, NativeConnection, Runtime, Worker } from '@temporalio/wo
 import { readConfig, type Config } from './config.js';
 import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
-import { deliverCancellationsOnce, deliverControlsOnce, deliverCrossCourseOnce, dispatchOnce, reconcileOnce } from './outbox.js';
+import { deliverCancellationsOnce, deliverControlsOnce, deliverCrossCourseOnce, dispatchOnce, reconcileOnce, waitForWork, type WakeCursor } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
 import { connectWithRetry, TemporalUnavailableError } from './temporal/connect.js';
 import { crossCourseSignaller, enrollmentStarter, temporalCancellationSignaller, temporalSignaller } from './temporal/client.js';
@@ -74,6 +74,7 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
     try {
       // Workflow starts carry the dispatcher's trace context (a no-op while telemetry is off).
       const client = new Client({ connection, namespace: c.temporal.namespace, interceptors: { workflow: [workflowTraceInterceptor()] } });
+      const wake: WakeCursor = { sequence: null };
       do {
         // Staff pause/stop/resume wake-ups. Their failure never blocks event dispatch.
         const controls = await deliverControlsOnce(bridge, temporalSignaller(client)).catch(() => null);
@@ -101,11 +102,9 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
           process.stderr.write('{"code":"dispatch_unavailable"}\n');
         }
         if (mode === 'dispatch-once' || stop.signal.aborted) break;
-        await new Promise<void>(resolve => {
-          const finish = () => { clearTimeout(timer); stop.signal.removeEventListener('abort', finish); resolve(); };
-          const timer = setTimeout(finish, intervalMs); stop.signal.addEventListener('abort', finish, { once: true });
-          if (stop.signal.aborted) finish();
-        });
+        // Wakes as soon as the host commits new work (a question, a cancellation); the interval is
+        // the backstop poll for everything else (retries that come due, controls, reconciliation).
+        await waitForWork(bridge, intervalMs, stop.signal, wake);
       } while (!stop.signal.aborted);
     } finally { process.removeListener('SIGINT', onStop); process.removeListener('SIGTERM', onStop); await connection.close(); }
     return 0;

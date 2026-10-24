@@ -20,6 +20,7 @@ import { eraseTeachingActions } from "./teaching-actions.js";
 import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { eraseCrossCourseWithin, exportCrossCourse } from "./cross-course.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
+import { replyDrafts } from "./reply-drafts.js";
 import { withArtifactContent } from './artifact-store.js';
 import { learnerTeachingArtifact } from "./learner-export.js";
 import { EVENT_EXPORT_FORMAT, eventExportQuery, exportLearningEvents } from './event-export.js';
@@ -265,6 +266,8 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
  * types and spend/extension accounting so audit totals stay coherent. */
 export async function eraseWithin(client: PoolClient, enrollment: { id: string; workspace_id: string }) {
   const enrollmentId = enrollment.id;
+  // Streamed reply drafts held in memory go at once; none may open for this enrollment again.
+  replyDrafts().forget(enrollmentId);
   // Paid work first, while the job snapshots it settles against still exist: no reservation of this
   // enrollment stays open once the bridge can no longer settle it.
   const paid = await finalizeErasedPaidWork(client, enrollment);
