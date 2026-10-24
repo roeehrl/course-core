@@ -18,7 +18,8 @@ test("a streaming reply shows as an unchecked draft and a refused one is withdra
   for (const [index, question, end] of [[0, `Streamed question ${Date.now()}`, "complete"], [1, `Refused question ${Date.now()}`, "withdrawn"]] as const) {
     await draft.fill(question);
     await page.getByRole("button", { name: "Send message", exact: true }).click();
-    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    // Read from the saved conversation: while it sends, the (read-only) box still holds the same text.
+    await expect(page.getByRole("log", { name: "Saved companion messages" }).getByText(question, { exact: true })).toBeVisible();
     // The question is saved by the time the host can find it; then the scripted model plays.
     await expect.poll(async () => (await (await request.post("/test/companion-draft", { data: { question,
       pieces: ["Picture both values on a number line. ", "The one farther left ", "is smaller."], end, gapMs: 250 } })).json()).reason ?? "opened").toBe("opened");
