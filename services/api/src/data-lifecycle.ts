@@ -299,6 +299,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("retentionAvailability", "DELETE FROM retention_availability WHERE enrollment_id=$1");
   // Which lesson parts the learner had open (migration 106): short-lived, deleted.
   await run("activityPresence", "DELETE FROM activity_presence WHERE enrollment_id=$1");
+  // In-app notifications about this enrollment (notifications.ts) go entirely.
+  await run("notifications", "DELETE FROM notifications WHERE enrollment_id=$1");
   // Study session times are activity metadata about the learner.
   await run("studySessions", "DELETE FROM learner_sessions WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");

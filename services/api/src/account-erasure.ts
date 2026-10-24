@@ -76,6 +76,8 @@ export function registerAccountErasureRoutes(app: FastifyInstance, db: Database,
       await run('passkeys', 'DELETE FROM passkey_credentials WHERE user_id=$1');
       await run('password', 'DELETE FROM password_credentials WHERE user_id=$1');
       await run('memberships', 'DELETE FROM memberships WHERE user_id=$1');
+      // Every in-app notification of the person, staff or learner (notifications.ts).
+      await run('notifications', 'DELETE FROM notifications WHERE user_id=$1');
       // What staff commands recorded about the person (login name, revocation reason, request
       // digests over their name), while the login name is still known (migration 069).
       const records = (await client.query<{ counts: Record<string, number | string> }>('SELECT erase_account_records($1) AS counts', [actor.id])).rows[0]!.counts;
