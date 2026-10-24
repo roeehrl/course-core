@@ -137,9 +137,7 @@ export function NotificationBell({
               <X size={18} aria-hidden="true" />
             </Button>
           </div>
-          <p className="notification-intro">
-            {t("notifications.panel.intro")}
-          </p>
+          <p className="notification-intro">{t("notifications.panel.intro")}</p>
           {failed && (
             <p className="notification-error" role="alert">
               {t("notifications.panel.error")}{" "}
@@ -211,7 +209,9 @@ function NotificationItem({
       <div>
         <strong>
           {!item.read && (
-            <span className="badge blue">{t("notifications.panel.unread")}</span>
+            <span className="badge blue">
+              {t("notifications.panel.unread")}
+            </span>
           )}{" "}
           <span dir="auto">{title}</span>
         </strong>

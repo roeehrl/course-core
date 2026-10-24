@@ -24,9 +24,15 @@ test("the bell counts what needs attention and opens the place to act", async ({
   const panel = page.getByRole("dialog", { name: "Needs attention" });
   await expect(panel).toBeVisible();
   await expect(panel.getByText("3 items wait for a decision")).toBeVisible();
-  await expect(panel.getByText("1 AI run failed in the last day")).toBeVisible();
-  await expect(panel.getByText("Learner tutor needs a quality check")).toBeVisible();
-  await expect(panel.getByText("AI spending is at 84% of the limit")).toBeVisible();
+  await expect(
+    panel.getByText("1 AI run failed in the last day"),
+  ).toBeVisible();
+  await expect(
+    panel.getByText("Learner tutor needs a quality check"),
+  ).toBeVisible();
+  await expect(
+    panel.getByText("AI spending is at 84% of the limit"),
+  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   const results = await new AxeBuilder({ page })
     .include(".notification-panel")
@@ -39,9 +45,7 @@ test("the bell counts what needs attention and opens the place to act", async ({
 
   await panel.getByRole("button", { name: "Go there" }).first().click();
   await expect(panel).toBeHidden();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-    "Overview",
-  );
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
   await expect(
     page.getByRole("button", { name: "Notifications, 3 unread" }),
   ).toBeVisible();
