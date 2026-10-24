@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { callOptionsSchema, imageRequestSchema, textRequestSchema, videoJobSchema, videoRequestSchema,
   type AssessmentRequest, type CallOptions, type ImageRequest, type ResearchProvider,
-  type StructuredAssessmentProvider, type TextRequest, type TutoringProvider, type VideoJob, type VideoRequest,
+  type StructuredAssessmentProvider, type TextRequest, type TextDeltaListener, type TutoringProvider, type VideoJob, type VideoRequest,
   type MediaPrice, type ProviderCallEnd, type ProviderCallObserver, type ProviderCallStart, type UsageReceipt, type DownloadOptions, MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';
 import { ensure, ProviderError } from './errors.js';
 import { ModelRegistry } from './registry.js';
@@ -40,6 +40,18 @@ export class ProviderRouter implements TutoringProvider, StructuredAssessmentPro
   async tutor(input: TextRequest, options: CallOptions = {}) {
     const request = parse(textRequestSchema, input), call = parse(callOptionsSchema, options);
     return this.#observed({ operation: 'tutor', modelId: request.modelId }, () => this.#registry.port(request.modelId, 'tutoring').tutor(request, call));
+  }
+  /** `tutor` with the answer streamed to `onText` when the model's adapter can stream; an adapter
+   * that cannot answers as `tutor` does and `onText` is never called. A listener that throws is
+   * ignored: it can neither fail nor replay a paid call. */
+  async tutorStream(input: TextRequest, options: CallOptions, onText: TextDeltaListener) {
+    const request = parse(textRequestSchema, input), call = parse(callOptionsSchema, options);
+    ensure(typeof onText === 'function', 'INVALID_INPUT');
+    const listener: TextDeltaListener = text => { try { onText(text); } catch { /* the caller's display only */ } };
+    return this.#observed({ operation: 'tutor', modelId: request.modelId }, () => {
+      const port = this.#registry.port(request.modelId, 'tutoring');
+      return port.tutorStream ? port.tutorStream(request, call, listener) : port.tutor(request, call);
+    });
   }
   async assess(input: AssessmentRequest, options: CallOptions = {}) {
     const request = parse(textRequestSchema.extend({ outputSchema: z.unknown() }), input), call = parse(callOptionsSchema, options);

@@ -38,6 +38,9 @@ export class ModelRegistry {
         const implementation = (port as unknown as Record<string, unknown>)[method];
         ensure(typeof implementation === 'function', 'INVALID_CONFIG'); methods[method] = implementation.bind(port);
       }
+      if (capability === 'tutoring' && 'tutorStream' in port && port.tutorStream !== undefined) {
+        ensure(typeof port.tutorStream === 'function', 'INVALID_CONFIG'); methods.tutorStream = port.tutorStream.bind(port);
+      }
       if (capability === 'video' && 'cancelVideo' in port) {
         ensure(typeof port.cancelVideo === 'function', 'INVALID_CONFIG'); methods.cancelVideo = port.cancelVideo.bind(port);
       }

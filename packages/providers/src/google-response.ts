@@ -3,6 +3,7 @@ import { counter, type ImageOutput, type ResearchOutput } from './contracts.js';
 import { type GoogleModelConfig, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError } from './errors.js';
 import { parse } from './validation.js';
+import { tokenUsage } from './http.js';
 
 const partSchema = z.strictObject({
   text: z.string().optional(), thought: z.boolean().optional(), thoughtSignature: z.string().optional(),
@@ -65,6 +66,56 @@ export function responseText(c: Candidate): string {
   return answer;
 }
 
+const chunkSchema = z.object({
+  promptFeedback: z.object({ blockReason: z.string().optional() }).optional(),
+  candidates: z.array(z.object({
+    index: counter.optional(), finishReason: z.string().optional(),
+    content: z.object({ role: z.literal('model').optional(), parts: z.array(partSchema).max(256).optional() }).optional(),
+    safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional(),
+  })).max(1).optional(),
+  usageMetadata: z.unknown().optional(),
+});
+const MAX_STREAM_CHUNKS = 4096;
+/**
+ * Reads streamGenerateContent chunks and assembles them into the one response `candidate`
+ * classifies, so a streamed reply is judged exactly like a whole one (blocks, MAX_TOKENS and
+ * `allowCutShort`, visible text). Visible (non-thought) text goes to `onText` as it arrives; it
+ * is unchecked until `response()` passes `candidate`. Consecutive text parts of the same kind are
+ * joined, so a long stream stays within the part bound. A stream that ends without a finish
+ * reason was cut off (`end` throws), and its usage is then unknown. Usage metadata is
+ * cumulative, so the last chunk that carries it is the attempt's usage.
+ */
+export function streamedCandidate(onText: (text: string) => void) {
+  let finish: string | undefined, usage: unknown, chunks = 0, blockReason: string | undefined, blocked = false;
+  const parts: z.infer<typeof partSchema>[] = [];
+  return {
+    event(_name: string, data: Record<string, unknown>) {
+      ensure(++chunks <= MAX_STREAM_CHUNKS, 'OUTPUT_TOO_LARGE');
+      const chunk = parse(chunkSchema, data, 'INVALID_RESPONSE');
+      if (chunk.promptFeedback?.blockReason) blockReason = chunk.promptFeedback.blockReason;
+      if (chunk.usageMetadata !== undefined) { tokenUsage(chunk.usageMetadata); usage = chunk.usageMetadata; }
+      const c = chunk.candidates?.[0];
+      if (!c) return;
+      ensure(finish === undefined && (c.index === undefined || c.index === 0), 'INVALID_RESPONSE');
+      if (c.safetyRatings?.some(r => r.blocked)) blocked = true;
+      for (const part of c.content?.parts ?? []) {
+        const last = parts.at(-1);
+        if (part.text !== undefined && last?.text !== undefined && !!last.thought === !!part.thought) last.text += part.text;
+        else { ensure(parts.length < 256, 'OUTPUT_TOO_LARGE'); parts.push(part.text === undefined ? part : { text: part.text, ...(part.thought ? { thought: true } : {}) }); }
+        if (!part.thought && part.text) onText(part.text);
+      }
+      if (c.finishReason && c.finishReason !== 'FINISH_REASON_UNSPECIFIED') finish = c.finishReason;
+    },
+    end() { if (blockReason === undefined || blockReason === 'BLOCK_REASON_UNSPECIFIED') ensure(finish !== undefined, 'INCOMPLETE_OUTPUT'); },
+    tokens: () => tokenUsage(usage),
+    /** The assembled response, for `candidate`. */
+    response(): Record<string, unknown> {
+      return { ...(blockReason === undefined ? {} : { promptFeedback: { blockReason } }),
+        candidates: finish === undefined ? [] : [{ finishReason: finish, content: { role: 'model', parts },
+          ...(blocked ? { safetyRatings: [{ blocked: true }] } : {}) }] };
+    },
+  };
+}
 export function httpsUrl(value: string): URL {
   ensure(value.length <= 8192 && !/[\u0000-\u0020\\]/.test(value), 'INVALID_RESPONSE');
   let url: URL;

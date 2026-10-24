@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { callOptionsSchema, id, imageRequestSchema, textRequestSchema, videoRequestSchema,
   type AccountingInput, type AssessmentRequest, type CallOptions, type Capability, type ImageJobProvider, type ImageOutput, type ImageRequest,
   type CapabilityPorts, type Json, type ModelConfig, type Operation, type ProviderAdapter, type ProviderResult, type ResearchOutput, type ResearchProvider, type StructuredAssessmentProvider,
-  type TextRequest, type TutoringProvider, type UsageReceipt, type VideoJob, type VideoJobProvider, type VideoRequest,
+  type TextDeltaListener, type TextRequest, type TutoringProvider, type UsageReceipt, type VideoJob, type VideoJobProvider, type VideoRequest,
   type DownloadOptions, type VideoAsset, MAX_VIDEO_DOWNLOAD_BYTES,
   type CostEstimate, type MediaCapabilities, type MediaPrice, type TutoringOutput, MIN_CUT_SHORT_CHARACTERS, priceMediaUnits } from './contracts.js';
 import { googleVideoJobSchema, requireGoogleModel, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError, safeError } from './errors.js';
-import { candidate, generationConfig, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, tutoringText, validateOperationName } from './google-response.js';
+import { candidate, generationConfig, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, streamedCandidate, tutoringText, validateOperationName } from './google-response.js';
 import { abortable, abortScope, GoogleTransport, waitAbortable, type GoogleTransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -107,6 +107,26 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
   }
   tutor(request: TextRequest, options: CallOptions = {}): Promise<ProviderResult<TutoringOutput>> {
     return this.#generate(request, 'tutoring', 'tutor', raw => tutoringText(candidate(raw, request.allowCutShort === true), MIN_CUT_SHORT_CHARACTERS), options);
+  }
+  /** `tutor` over streamGenerateContent with `alt=sse`: the same body (`generationConfig`, so the
+   * thinking setting and output limit apply), each chunk a GenerateContentResponse. Visible text
+   * goes to `onText` as it arrives; the chunks are then assembled and judged by `candidate` and
+   * `tutoringText` like a whole reply, including a reply cut short at the output limit. */
+  async tutorStream(input: TextRequest, options: CallOptions, onText: TextDeltaListener): Promise<ProviderResult<TutoringOutput>> {
+    const request = parse(textRequestSchema, input), call = parse(callOptionsSchema, options);
+    const model = this.#require(request.modelId, 'tutoring'), config = model.providerConfig;
+    const characters = request.messages.reduce((n, m) => n + m.text.length, request.systemInstruction?.length ?? 0);
+    ensure(characters <= model.limits.maxInputCharacters && request.maxOutputTokens <= (model.limits.maxOutputTokens ?? 0));
+    const usage = this.#usage(model, 'tutor', request.accounting, characters, request.maxOutputTokens);
+    return this.#run(usage, async () => {
+      const stream = streamedCandidate(onText);
+      await this.#transport.stream(`/${config.apiVersion}/models/${model.remoteModel}:streamGenerateContent?alt=sse`, {
+        contents: request.messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.text }] })),
+        ...(request.systemInstruction === undefined ? {} : { systemInstruction: { parts: [{ text: request.systemInstruction }] } }),
+        generationConfig: generationConfig(config, request.maxOutputTokens),
+      }, usage, config.maxResponseBytes, call, stream);
+      return tutoringText(candidate(stream.response(), request.allowCutShort === true), MIN_CUT_SHORT_CHARACTERS);
+    });
   }
   async assess(input: AssessmentRequest, options: CallOptions = {}): Promise<ProviderResult<Json>> {
     const request = parse(textRequestSchema.extend({ outputSchema: z.unknown() }), input);
