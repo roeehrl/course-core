@@ -67,7 +67,7 @@
   "record.event.assessment_answered": "נענתה בדיקה",
   "record.event.assessment_submitted": "נענתה בדיקה",
   "record.event.assessment_issued": "התחילה בדיקה",
-  "record.event.episode_placed": "שיעור שדולג בזכות שיבוץ",
+  "record.event.episode_placed": "פטור בזכות השיבוץ לשיעור",
   "record.event.episode_completed": "שיעור הושלם",
   "record.event.companion_requested": "הודעה למלווה נשמרה",
   "record.event.profile_updated": "פרופיל הלמידה עודכן",
