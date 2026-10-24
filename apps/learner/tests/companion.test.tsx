@@ -705,11 +705,11 @@ describe("streamed companion replies (T01)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledTimes(2));
     expect(cancel).toHaveBeenCalledWith("m");
-    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, cancel_requested: true }]} episodeTitles={{}} draft=""
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, stopped: true }]} episodeTitles={{}} draft=""
       onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelReply={cancel} />);
     expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
     expect(screen.getByText(/You stopped this reply · your question is saved/)).toBeVisible();
-    expect(companionHasPending([{ ...pending, cancel_requested: true }])).toBe(false);
+    expect(companionHasPending([{ ...pending, stopped: true }])).toBe(false);
   });
   it("the cancel command posts to the stop route and checks the receipt", async () => {
     const command = vi.fn().mockResolvedValue({ messageId: "m", cancelled: true, revision: 3 });

@@ -163,3 +163,10 @@ test('router: tutorStream streams through a streaming port, falls back to tutor 
   assert.equal(fallback.output.text, 'Whole.'); assert.deepEqual(calls, []);
   assert.throws(() => registry.registerAdapter({ providerId: 'other', validateModel() {}, ports: { tutoring: { tutor() {}, tutorStream: 'not a function' } } }), code('INVALID_CONFIG'));
 });
+
+test('stream: a response that never begins times out at the attempt bound, unknown and not replayed', async () => {
+  const h = harness([(_url, init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))]);
+  const started = Date.now();
+  await assert.rejects(h.client.tutorStream(request(), { timeoutMs: 60_000 }, () => {}), error => code('TIMEOUT')(error) && error.submission === 'unknown');
+  assert.ok(Date.now() - started < 1_000); assert.equal(h.calls.length, 1);
+});

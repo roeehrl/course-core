@@ -193,7 +193,7 @@ describe('streamed companion replies', () => {
     expect(delivery).toEqual([expect.objectContaining({ reason: 'learner_cancelled', jobs: [expect.objectContaining({ jobId: job.ref.jobId })] })]);
     // The question stays, marked as stopped; the conversation read shows it.
     const read = (await app.inject({ method: 'GET', url: `/api/enrollments/${job.enrollmentId}/companion`, headers: job.learner })).json();
-    expect(read.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ content: 'How do I compare the numbers?', cancel_requested: true });
+    expect(read.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ content: 'How do I compare the numbers?', stopped: true });
     // A question without a job, or an unknown one, cannot be stopped.
     const unknown = await app.inject({ method: 'POST', url: `/api/enrollments/${job.enrollmentId}/companion/messages/${randomUUID()}/cancel`, headers: job.learner,
       payload: { expectedRevision: revision + 1, idempotencyKey: randomUUID() } });

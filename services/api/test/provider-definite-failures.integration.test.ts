@@ -13,6 +13,7 @@ import { composeProviders } from '../src/provider-composition.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
+import { streamedIfAsked } from './streamed-provider-fixture.js';
 
 // Real PostgreSQL, gateway HTTP route, supervisor transitions, spend ledger and the real Google
 // REST adapter. Only the provider endpoint is scripted: each step is the HTTP answer one request gets.
@@ -54,7 +55,7 @@ beforeAll(async () => {
     roles: { companion: { modelId: 'gemini-test', maxInputCharacters: 12000, maxOutputTokens: 1000 } } },
   () => 'synthetic-key-only-in-test', {
     // The production Google settings (one attempt per durable operation) with a short attempt timeout.
-    'scripted-google': options => new GoogleProvider({ providerId: options.providerId, registry: options.registry, fetch: scriptedFetch,
+    'scripted-google': options => new GoogleProvider({ providerId: options.providerId, registry: options.registry, fetch: (async (url, init) => streamedIfAsked(String(url), init, await scriptedFetch(url, init))) as typeof fetch,
       getApiKey: () => { const value = options.getCredential(); if (!value) throw new ProviderError('MISSING_CREDENTIAL'); return value; },
       settings: { maxAttempts: 1, attemptTimeoutMs: 300, totalTimeoutMs: 1000, baseDelayMs: 500, maxDelayMs: 1000 } }),
   });

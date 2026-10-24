@@ -7,6 +7,7 @@ import { compileCourse } from "@course-core/sdk/compiler";
 import { createDatabase, transaction } from "../src/database.js";
 import { appendEvent } from "../src/events.js";
 import { composeProviders } from "../src/provider-composition.js";
+import { replyDrafts } from "../src/reply-drafts.js";
 import {
   configureSupervisorBudget,
   createPostgresSupervisorBridge,
@@ -1167,6 +1168,21 @@ app.post("/test/version-offer-session", async () => {
   const preview = await post(`/api/admin/courses/${courseId}/version-moves/preview`, { fromReleaseId: v1, toReleaseId: v2 });
   await post(`/api/admin/courses/${courseId}/version-moves/${preview.moveId}/confirm`, { previewDigest: preview.previewDigest, reason: "Version 2.0.0 for everyone." });
   return { token: await issueLoginCode(db, userId) };
+});
+// Streamed companion drafts (docs/streamed-replies.md) without a model: plays scripted pieces into
+// the process's reply drafts for one saved question, as the provider gateway would while a model
+// streams, so the learner app's draft view and its event stream are exercised in a real browser.
+app.post("/test/companion-draft", async (request) => {
+  const body = (request.body ?? {}) as { question?: string; pieces?: string[]; end?: "complete" | "withdrawn"; gapMs?: number };
+  const row = (await db.query<{ id: string; enrollment_id: string }>("SELECT id,enrollment_id FROM companion_messages WHERE content=$1 AND role='learner' ORDER BY created_at DESC LIMIT 1", [String(body.question)])).rows[0];
+  if (!row || !Array.isArray(body.pieces) || body.pieces.length > 20) return { opened: false };
+  const jobId = randomUUID(), writer = replyDrafts().open({ enrollmentId: row.enrollment_id, jobId, messageId: row.id });
+  if (!writer) return { opened: false };
+  void (async () => {
+    for (const piece of body.pieces!) { await new Promise((resolve) => setTimeout(resolve, Math.min(body.gapMs ?? 150, 2000))); writer.push(String(piece)); }
+    if (body.end === "withdrawn") writer.withdraw("provider_refused"); else if (body.end === "complete") writer.complete();
+  })();
+  return { opened: true, jobId };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();
