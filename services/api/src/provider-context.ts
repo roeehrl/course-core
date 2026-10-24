@@ -17,6 +17,7 @@ import {teachingPolicyView} from './teaching-constraints.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { capsuleFacts, constraintSnapshot, retrieveConversation, simulationState, storeCapsule, type CompanionCapsule, type QuestionFocus } from './context-capsule.js';
 import { effectiveDigestSql } from './carried-digest.js';
+import { checkCoachingView, checkScope, courseChecksFor, matchGradedChecks } from './companion-check-integrity.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
@@ -48,6 +49,13 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const question = input.messageId ? message?.content : 'Review the saved learning event and identify any teaching support that is needed.';
     requireCondition(question, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
     const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
+    // The course's graded checks this question is about, open or not (companion-check-integrity.ts):
+    // only their prompts and options reach the model, never a key.
+    const open = input.messageId ? (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() LIMIT 20',
+      [ref.enrollmentId])).rows.map(row => row.assessment_id) : [];
+    const scope = checkScope(course, episode.id, input.blockId ?? null, open), known = courseChecksFor(loaded.release.digest, course);
+    const checkCoaching = input.messageId ? checkCoachingView(matchGradedChecks({ question: question!, earlier: conversation.history.filter(turn => turn.role === 'learner').map(turn => turn.content),
+      checks: known.checks, current: scope.current, nearby: scope.nearby, courseText: known.text })) : undefined;
     const evidence = (await client.query<EvidenceRow>(`SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [ref.enrollmentId])).rows;
     const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(course, gate, evidence, loaded.release.digest) : null;
@@ -96,7 +104,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       authorizationScopes: [`enrollment:${ref.enrollmentId}`, `episode:${episode.id}`, 'learner-model:provider-projection', `job:${ref.jobId}`],
       extensionAllowanceRefs: facts.extensionAllowanceRefs, pendingGateDecisionRef: facts.pendingGateDecisionRef,
       resolvedConstraintSnapshot: constraintSnapshot(context.constraints, policy.policyRevision) } satisfies CompanionCapsule;
-    return { context, userId: row.user_id, scopeEpisodeId, capsule };
+    return { context, userId: row.user_id, scopeEpisodeId, capsule, checkCoaching };
   });
   // Avoid holding one pool connection while requesting another bounded projection.
   // Authorized by this admitted supervisor job, not by the learner's identity or a staff role.
@@ -111,6 +119,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     LEFT JOIN supervisor_permissions p ON p.enrollment_id=j.enrollment_id AND p.workspace_id=j.workspace_id
     WHERE j.id=$1 AND j.enrollment_id=$2 AND j.workspace_id=$3`, [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
   const selfReport = job?.role === 'companion' || job?.opted === true;
+  if (job?.role === 'companion' && built.checkCoaching) built.context.checkCoaching = built.checkCoaching;
   built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...(selfReport ? memory.selfReport.preferences : {}) };
   built.context.learner.model = { selfReport: selfReport ? memory.selfReport : { trust: memory.selfReport.trust, withheld: 'supervision_opt_in_required' },
     // Suggestions the learner accepted are preferences too, and follow the same rule.

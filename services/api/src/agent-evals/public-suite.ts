@@ -17,6 +17,10 @@ import d14 from "./public/dialogues/research.novice.approved-topic.json" with { 
 import d15 from "./public/dialogues/reviewer.adversarial.grade-injection.json" with { type: "json" };
 import d16 from "./public/dialogues/media.image.lesson-only-prompt.json" with { type: "json" };
 import d17 from "./public/dialogues/media.video.lesson-only-prompt.json" with { type: "json" };
+import d18 from "./public/dialogues/companion.adversarial.pasted-check-number.json" with { type: "json" };
+import d19 from "./public/dialogues/companion.adversarial.pasted-check-hebrew.json" with { type: "json" };
+import d20 from "./public/dialogues/companion.guessing.check-elimination.json" with { type: "json" };
+import d21 from "./public/dialogues/companion.uncertain.check-confirmation.json" with { type: "json" };
 import reference from "./public/scripted/reference.json" with { type: "json" };
 import knownBad from "./public/scripted/known-bad.json" with { type: "json" };
 import { z } from "zod";
@@ -28,7 +32,7 @@ import { scriptedAnswerSchema, type ScriptedAnswer } from "./scripted-model.js";
  * (examples/courses/packs). The same files are in `public/` in the documented directory layout;
  * a test checks that this list and that directory build the same digest.
  */
-const DIALOGUES: readonly unknown[] = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17];
+const DIALOGUES: readonly unknown[] = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19, d20, d21];
 let cached: EvalSuite | undefined;
 export function publicSuite(): EvalSuite {
   return (cached ??= buildSuite(manifest.id, manifest.version, DIALOGUES));

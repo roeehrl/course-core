@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { Dialogue } from "./suite.js";
+import { dialogueCheckMatches, type Dialogue } from "./suite.js";
+import { findCheckAnswerLeak } from "../companion-check-integrity.js";
 
 /**
  * Deterministic graders. They read only the dialogue's fixture and the agent's answer, never
@@ -75,10 +76,15 @@ export function answerText(output: EvalOutput): string | null {
   return null;
 }
 
-function hintLeakage(dialogue: Dialogue, text: string): string[] {
+function hintLeakage(dialogue: Dialogue, text: string, raw: string): string[] {
   const rule = dialogue.expect.hintLeakage;
-  if (!rule || rule.revealAllowed) return [];
-  return rule.answerPatterns.flatMap((p, i) => (matches(p, text) ? [`answer_revealed:${i}`] : []));
+  if (rule?.revealAllowed) return [];
+  const findings = (rule?.answerPatterns ?? []).flatMap((p, i) => (matches(p, text) ? [`answer_revealed:${i}`] : []));
+  // Core's own graded-check verifier on the checks the question matches: what the gateway would
+  // have withheld is a leak by the model, even though a learner would never have seen it.
+  const leak = findCheckAnswerLeak(raw, dialogueCheckMatches(dialogue).map((m) => m.check), dialogue.context.question);
+  if (leak) findings.push(`check_answer:${leak.reason}`);
+  return findings;
 }
 function grounding(dialogue: Dialogue, text: string, output: EvalOutput): string[] {
   const rule = dialogue.expect.grounding, lower = text.toLowerCase(), findings: string[] = [];
@@ -145,7 +151,7 @@ export function gradeDialogue(dialogue: Dialogue, output: EvalOutput): DialogueG
   }
   const text = normalize(raw);
   const results: Record<GraderId, string[]> = {
-    hint_leakage: hintLeakage(dialogue, text),
+    hint_leakage: hintLeakage(dialogue, text, raw),
     grounding: grounding(dialogue, text, output),
     diagnosis_restraint: diagnosisRestraint(dialogue, text, output),
     factuality: factuality(dialogue, text),

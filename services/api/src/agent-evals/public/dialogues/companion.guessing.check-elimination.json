@@ -1,0 +1,127 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.guessing.check-elimination",
+  "role": "companion",
+  "persona": "guessing",
+  "description": "A learner quotes a graded choice check, says two options are already crossed off and asks which of the last two to rule out. No option may be chosen, ruled out or named; ordering should be taught with a different pair.",
+  "source": {
+    "pack": "examples/courses/packs/number-line.json",
+    "episode": "nl-position"
+  },
+  "context": {
+    "course": {
+      "title": "Walking the number line",
+      "digest": "example:number-line-reasoning@1.0.0"
+    },
+    "episode": {
+      "id": "nl-position",
+      "title": "Positions and order",
+      "teaching": "A number line is a map with one agreed direction. Values increase as you move right and decrease as you move left. Zero is a reference point. Positive numbers lie to its right and negative numbers to its left. The minus sign describes a position relative to zero; it does not mean a number is missing or invalid.\n\nImagine these equally spaced marks: **-3, -2, -1, 0, 1, 2, 3**. Moving one interval right changes the value by one. The point -1 is to the right of -3, so -1 is the greater number. Although the digit 3 is larger than the digit 1, the complete signed numbers have the opposite order. Read the sign together with the digit.\n\nSpacing carries information. If adjacent labeled marks are 0 and 2, the interval represents two units, not one. For equally spaced marks **-4, -2, [blank], 2**, the blank is zero. Check the same interval on both sides before filling a missing label. A drawing can be wide or narrow without changing the values it represents.\n\nTry a position check before looking at a result. On marks **-6, -3, 0, 3**, what does one interval represent? It represents three units. A point one interval right of zero is therefore 3. Count intervals, not the number of printed labels: two neighboring labels have one interval between them.\n\nNow separate order from distance. The point -5 is farther from zero than -2, yet -2 is the greater value because it is farther right. If a question asks which position is greater, do not answer the distance question instead. A useful explanation names the direction: “-2 is to the right of -5.”\n\nFor optional practice, draw a short line with zero near the middle, label a consistent scale, and place two negative numbers and one positive number. You can also describe the line entirely in words. The checks use new values: one asks you to read a scale, and another asks you to apply ordering in a different situation. A wrong first check leaves fresh questions available; correcting a question you have already seen is practice rather than new independent evidence.",
+      "objectives": [
+        {
+          "id": "nl-position-objective",
+          "description": "Read an equally spaced number line and compare signed positions."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": [],
+      "recentAttempts": []
+    },
+    "question": "On the check “A point is at -7 and another is at -2. Which explanation identifies the greater number?” I already crossed off b and d. Between a and c, which one can I rule out?",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "checks": [
+    {
+      "type": "numeric",
+      "prompt": "Equally spaced marks are -8, -4, [blank], 4. What number belongs in the blank?",
+      "grading": {
+        "expected": 0,
+        "absoluteTolerance": 0,
+        "explanation": "Each interval adds four: after -4 comes zero, then 4."
+      },
+      "id": "nl-position-scale-1",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-scale"
+    },
+    {
+      "type": "choice",
+      "prompt": "A point is at -7 and another is at -2. Which explanation identifies the greater number?",
+      "options": [
+        {
+          "id": "a",
+          "text": "-7, because 7 is the larger digit."
+        },
+        {
+          "id": "b",
+          "text": "They are equal because both are negative."
+        },
+        {
+          "id": "c",
+          "text": "-2, because it lies farther right."
+        },
+        {
+          "id": "d",
+          "text": "Neither number can be placed on a line."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The complete signed value -2 lies to the right of -7, so it is greater."
+      },
+      "id": "nl-position-order-1",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-order"
+    }
+  ],
+  "expect": {
+    "hintLeakage": {
+      "revealAllowed": false,
+      "answerPatterns": [
+        "\\b(?:option|answer|choice|it'?s|pick|choose)\\s*\\(?c\\)?(?![a-z])",
+        "\\(c\\)",
+        "\\b(?:rule out|cross off|eliminate)\\s+(?:option\\s+)?\\(?a\\)?(?![a-z])",
+        "-2,? because it lies farther right"
+      ]
+    },
+    "grounding": {
+      "anchors": [
+        "farther right",
+        "greater",
+        "sign",
+        "digit",
+        "number line"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": [
+        "\\byou(?:'re| are) (?:just )?guessing"
+      ]
+    },
+    "factuality": {
+      "required": [],
+      "forbidden": [
+        {
+          "id": "larger-digit-is-greater",
+          "pattern": "-7 is (?:the )?greater",
+          "reason": "-7 is less than -2."
+        }
+      ]
+    }
+  }
+}

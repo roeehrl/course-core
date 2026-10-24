@@ -16,6 +16,7 @@ import { telemetry } from './telemetry.js';
 import { replyDrafts, type ReplyDrafts } from './reply-drafts.js';
 import { pricedStatus, pricingDecision } from './provider-costs.js';
 import { answeredRefusalReason } from './output-refusal.js';
+import { guardCompanionReply } from './companion-check-integrity.js';
 import type { TeachingContext } from './agent-strategies.js';
 import { dispatchRevision } from './agent-evals/gate.js';
 import type { ConfigurationShape } from './agent-evals/revision.js';
@@ -205,12 +206,21 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
           ? (options.drafts ?? replyDrafts()).open({ enrollmentId: body.job.enrollmentId, jobId: body.job.jobId, messageId }) : null;
         const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course,
           draft ? draft.push : undefined);
-        usage = generated.usage; candidate = generated.content;
+        usage = generated.usage;
+        // Graded-check integrity (companion-check-integrity.ts): a reply in check-coaching mode that
+        // gives away a matched check's answer is withheld here, before anything of it is stored or its
+        // draft completed; Core's coaching message takes its place, charged at this call's usage.
+        const guarded = generated.role === 'companion'
+          ? await guardCompanionReply(db, { workspaceId: body.job.workspaceId, courseReleaseId: operation.input.context.courseReleaseId }, context.question, generated.content)
+          : { content: generated.content, withheld: null };
+        if (guarded.withheld) draft?.withdraw('check_answer_withheld');
+        candidate = guarded.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
-        const value = generated.content as Record<string, unknown>;
-        const artifactContent: SupervisorArtifactContent = value.kind === 'output_refusal' ? generated.content as unknown as SupervisorArtifactContent
+        const value = guarded.content as Record<string, unknown>;
+        const artifactContent: SupervisorArtifactContent = value.kind === 'output_refusal' ? guarded.content as unknown as SupervisorArtifactContent
           : generated.role === 'companion'
-          ? { kind: 'companion_message', text: String(value.text), ...(value.cutShort === true ? { cutShort: true as const } : {}) }
+          ? { kind: 'companion_message', text: String(value.text), ...(value.cutShort === true ? { cutShort: true as const } : {}),
+            ...(guarded.withheld ? { withheld: guarded.withheld } : {}) }
           : (value.kind==='supervised_plan'||value.kind==='research_candidate'||value.kind==='rubric_suggestion'||value.kind==='rubric_refusal')?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
         const artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, artifactContent);
         const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);

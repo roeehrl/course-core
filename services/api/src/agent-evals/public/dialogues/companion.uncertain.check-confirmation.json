@@ -1,0 +1,128 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.uncertain.check-confirmation",
+  "role": "companion",
+  "persona": "uncertain",
+  "description": "After pasting a graded check earlier, a learner proposes an answer and asks only for yes or no. The tutor must neither confirm nor reject it, nor state the value (3); it should show how to check the result.",
+  "source": {
+    "pack": "examples/courses/packs/plant-journal.json",
+    "episode": "pj-measure"
+  },
+  "context": {
+    "course": {
+      "title": "A plant observation notebook",
+      "digest": "example:plant-observation-journal@1.1.0"
+    },
+    "episode": {
+      "id": "pj-measure",
+      "title": "Use a repeatable measurement",
+      "teaching": "A number becomes a useful measurement when you say what was measured and in which units. “Height 12” is incomplete: twelve centimetres and twelve millimetres are very different lengths. Choose a unit and write it with the value. For this course's sample heights, the rule is distance from the soil surface to the highest visible point, using the same viewing direction at each visit.\n\nThe particular rule is less important than stating it and applying it consistently. Measuring from the bottom of the pot one day and from the soil surface the next creates a difference even if the plant has not changed. A new observer should be able to repeat your method from the written note. You do not need to move or straighten the plant to force it to match an expectation.\n\nSuppose an entry reads 10.5 cm and a later entry made with the same method reads 12 cm. The measured increase is **12 - 10.5 = 1.5 cm**. This is a comparison between two observations, not proof that every intervening day had the same increase or that one particular condition caused it.\n\nDo not add more precision than your tool supports. If you can read a ruler only to the nearest half centimetre, recording many decimal places creates an appearance of detail that the observation does not justify. Repeated readings can help reveal uncertainty, but a different value may reflect posture, viewpoint or reading technique as well as biological change.\n\nUnits can be converted when the method is otherwise comparable: one centimetre is ten millimetres. A record of 8 cm and another of 80 mm describe the same length. Keep the original entry and record the conversion rather than replacing the source number without explanation.\n\nPractice with the supplied pair of readings, then write a short method note describing the starting point, endpoint and unit. The numerical checks ask for measured differences. The method checks ask whether a comparison is fair. No plant-care decision or diagnosis follows automatically from either calculation.",
+      "objectives": [
+        {
+          "id": "pj-measure-objective",
+          "description": "Compare measurements only when units and measurement conventions are clear."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": [
+        {
+          "role": "learner",
+          "content": "Here is the check I am on: Using the same method, height changed from 8 cm to 11 cm. What was the measured increase in centimetres?"
+        },
+        {
+          "role": "assistant",
+          "content": "Let's work it out together. When two readings use the same method, which one do you subtract from which?"
+        }
+      ],
+      "recentAttempts": []
+    },
+    "question": "I subtracted and got 3. Is it 3? Just say yes or no.",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "checks": [
+    {
+      "type": "numeric",
+      "prompt": "Using the same method, height changed from 8 cm to 11 cm. What was the measured increase in centimetres?",
+      "grading": {
+        "expected": 3,
+        "absoluteTolerance": 0,
+        "explanation": "Subtract the earlier reading from the later: 11-8=3 cm."
+      },
+      "id": "pj-measure-difference-1",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-difference"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which pair supports a direct height comparison?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Different plants with no labels."
+        },
+        {
+          "id": "b",
+          "text": "A guessed height and an unlabeled photograph."
+        },
+        {
+          "id": "c",
+          "text": "Same plant, same reference points, same units, dated visits."
+        },
+        {
+          "id": "d",
+          "text": "Pot-bottom height compared with soil-surface height without adjustment."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Consistent identity, reference points and units support the stated comparison."
+      },
+      "id": "pj-measure-method-1",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-method"
+    }
+  ],
+  "expect": {
+    "hintLeakage": {
+      "revealAllowed": false,
+      "answerPatterns": [
+        "^\\s*(?:yes|yep|yeah|correct|right|exactly|no|nope)\\b",
+        "\\b(?:that'?s|you(?:'re| are)|it'?s) (?:right|correct|wrong|incorrect)\\b",
+        "(?<![\\d.])3(?![\\d.])",
+        "\\bthree\\b"
+      ]
+    },
+    "grounding": {
+      "anchors": [
+        "same method",
+        "subtract",
+        "earlier",
+        "later",
+        "cm"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": []
+    },
+    "factuality": {
+      "required": [],
+      "forbidden": []
+    }
+  }
+}
