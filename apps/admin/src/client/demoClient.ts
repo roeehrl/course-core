@@ -3,6 +3,7 @@ import { createDemoPolicyClient } from "./demoPolicyClient";
 import { createDemoAssessmentAttempts } from "./demoAssessmentAttempts";
 import { createDemoAssessments } from "./demoAssessments";
 import { createDemoMedia } from "./demoMedia";
+import { createDemoNotifications } from "./demoNotifications";
 import { createDemoPlatform } from "./demoPlatform";
 import { createDemoPolicyLevels } from "./demoPolicyLevels";
 import {
@@ -197,6 +198,7 @@ export function createDemoAdminClient({
       translate,
     }),
     platform: createDemoPlatform({ role, scenario, latency }),
+    notifications: createDemoNotifications({ role, scenario, latency }),
     supervision: createDemoSupervision({
       role,
       scenario,

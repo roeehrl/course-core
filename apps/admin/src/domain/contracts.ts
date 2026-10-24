@@ -537,6 +537,8 @@ export interface AdminClient {
   /** Platform readiness, integrations, billed costs, audit export and policy history. Owners and
    * administrators only; absent in demos. */
   platform?: import("./platform").PlatformPort;
+  /** The staff notification center (the bell): what needs attention now, with read state. */
+  notifications?: import("./notifications").NotificationsPort;
   /** Install a course from a course-package file or public GitHub release. Absent in demos. */
   coursePackages?: CoursePackagePort;
   /** A course's update source, manual checks and automatic-update setting. Absent in demos. */
