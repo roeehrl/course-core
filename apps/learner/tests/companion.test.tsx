@@ -699,24 +699,26 @@ describe("streamed companion replies (T01)", () => {
   });
   it("lets the learner stop a reply being prepared, reports a failure, and offers no stop once it is answered or stopped", async () => {
     const cancel = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
-    const { rerender } = show({ onCancelReply: cancel });
+    const { rerender } = show({ onCancelQuestion: cancel });
     fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
     await waitFor(() => expect(screen.getByText(/could not be stopped/)).toBeVisible());
     fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledTimes(2));
     expect(cancel).toHaveBeenCalledWith("m");
-    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, stopped: true }]} episodeTitles={{}} draft=""
-      onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelReply={cancel} />);
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, job_state: "cancelled" }]} episodeTitles={{}} draft=""
+      onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={cancel} />);
     expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
-    expect(screen.getByText(/You stopped this reply · your question is saved/)).toBeVisible();
-    expect(companionHasPending([{ ...pending, stopped: true }])).toBe(false);
+    expect(screen.getByText(/Cancelled · your message is saved/)).toBeVisible();
+    expect(companionHasPending([{ ...pending, job_state: "cancelled" }])).toBe(false);
   });
-  it("the cancel command posts to the stop route and checks the receipt", async () => {
-    const command = vi.fn().mockResolvedValue({ messageId: "m", cancelled: true, revision: 3 });
-    const client = createCompanionClient({ command } as never);
-    await expect(client.cancelReply!(connectedSnapshot() as never, "m")).resolves.toMatchObject({ cancelled: true });
-    expect(command).toHaveBeenCalledWith(expect.anything(), "companion/messages/m/cancel", {});
-    command.mockResolvedValueOnce({ messageId: "other", cancelled: true, revision: 3 });
-    await expect(client.cancelReply!(connectedSnapshot() as never, "m")).rejects.toThrow();
+  it("offers one way to stop: cancel and retry while the question waits, Stop once the reply is being written", () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = show({ onCancelQuestion: cancel, messages: [{ ...pending, job_state: "queued" }] });
+    expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop waiting for this answer" })).toBeVisible();
+    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{}} draft=""
+      onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={cancel} />);
+    expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
   });
 });

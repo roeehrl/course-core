@@ -8,14 +8,20 @@
 const sse = (frames: string[]) => frames.join('');
 const frame = (data: unknown, event?: string) => `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
 
-/** A Google GenerateContentResponse as a two-chunk SSE stream: the text split in two, usage on the last chunk. */
-export function googleStream(response: { candidates: { content: { parts: { text: string }[] }; finishReason?: string }[]; usageMetadata?: unknown }) {
-  const candidate = response.candidates[0]!, text = candidate.content.parts.map(part => part.text).join(''), cut = Math.ceil(text.length / 2);
-  return sse([
-    frame({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text: text.slice(0, cut) }] } }] }),
-    frame({ candidates: [{ index: 0, finishReason: candidate.finishReason ?? 'STOP', content: { role: 'model', parts: [{ text: text.slice(cut) }] } }],
-      ...(response.usageMetadata ? { usageMetadata: response.usageMetadata } : {}) }),
-  ]);
+/** A Google GenerateContentResponse as an SSE stream: each part in its own chunk (thought parts
+ * stay thoughts), the visible text split in two, the finish reason and usage on the last chunk. */
+export function googleStream(response: { candidates: { content: { parts: { text: string; thought?: boolean }[] }; finishReason?: string }[]; usageMetadata?: unknown }) {
+  const candidate = response.candidates[0]!, parts: { text: string; thought?: boolean }[] = [];
+  for (const part of candidate.content.parts) {
+    if (part.thought) { parts.push(part); continue; }
+    const cut = Math.ceil(part.text.length / 2);
+    parts.push({ text: part.text.slice(0, cut) }, { text: part.text.slice(cut) });
+  }
+  if (!parts.length) parts.push({ text: '' });
+  return sse(parts.map((part, index) => index < parts.length - 1
+    ? frame({ candidates: [{ index: 0, content: { role: 'model', parts: [part] } }] })
+    : frame({ candidates: [{ index: 0, finishReason: candidate.finishReason ?? 'STOP', content: { role: 'model', parts: [part] } }],
+      ...(response.usageMetadata ? { usageMetadata: response.usageMetadata } : {}) })));
 }
 /** An Anthropic Message as its Messages API event stream. */
 export function anthropicStream(message: { content: { type: string; text?: string }[]; stop_reason: string | null; usage: Record<string, unknown> }) {

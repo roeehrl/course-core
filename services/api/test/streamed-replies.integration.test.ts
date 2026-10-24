@@ -154,18 +154,21 @@ describe('streamed companion replies', () => {
     await Promise.all([mine.close(), staff.close(), late.close()]);
   });
 
-  it('withdraws a draft the provider refuses mid-stream; nothing of it is kept', async () => {
+  it('withdraws a draft the provider refuses mid-stream; the refusal is settled at its usage and nothing of it is kept', async () => {
     const job = await prepare(), mine = follow(job.learner, job.enrollmentId);
     await mine.opened;
     const step = holdLast(['A first sentence was shown. ', 'then refused'], 'refuse');
     const call = invoke(job.request);
     await step.reached; await until(() => mine.frames.length > 0);
     step.release();
-    expect((await call).json().status).not.toBe('succeeded');
+    // A read response with a reported token total: a definite, settled refusal (B2), not an uncertain call.
+    expect((await call).json()).toMatchObject({ status: 'succeeded', usage: { tokens: 220 }, usageBasis: { tokens: 'reported' } });
     await until(() => mine.frames.at(-1)?.state === 'withdrawn');
     expect(mine.frames.at(-1)).toMatchObject({ reason: 'provider_refused', text: '', offset: 0 });
-    expect((await db.query('SELECT count(*) FROM supervisor_artifacts WHERE job_id=$1', [job.ref.jobId])).rows[0].count).toBe('0');
-    expect((await db.query("SELECT candidate FROM provider_dispatches WHERE operation_id=$1", [job.request.operationId])).rows[0].candidate).toBeNull();
+    expect((await db.query('SELECT content FROM supervisor_artifacts WHERE job_id=$1', [job.ref.jobId])).rows.map(r => r.content))
+      .toEqual([{ kind: 'output_refusal', role: 'companion', reason: 'provider_output_blocked' }]);
+    const receipt = (await db.query("SELECT state,failure_code,candidate FROM provider_dispatches WHERE operation_id=$1", [job.request.operationId])).rows[0];
+    expect(receipt).toMatchObject({ state: 'completed', failure_code: 'BLOCKED', candidate: null });
     await mine.close();
   });
 
@@ -183,7 +186,7 @@ describe('streamed companion replies', () => {
     const cancel = await app.inject({ method: 'POST', url: `/api/enrollments/${job.enrollmentId}/companion/messages/${job.messageId}/cancel`, headers: job.learner,
       payload: { expectedRevision: revision, idempotencyKey: randomUUID() } });
     expect(cancel.statusCode, cancel.body).toBe(200);
-    expect(cancel.json()).toMatchObject({ messageId: job.messageId, jobId: job.ref.jobId, cancelled: true });
+    expect(cancel.json()).toMatchObject({ messageId: job.messageId, cancelled: true, revision });
     await until(() => mine.frames.at(-1)?.state === 'cancelled');
     step.release(); await call;
     expect(mine.frames.filter(f => f.state === 'streaming').map(f => f.text)).toEqual(['Started explaining here. ']);
@@ -191,12 +194,19 @@ describe('streamed companion replies', () => {
     expect(flagged.cancellation_requested).toBe(true);
     const delivery = (await db.query('SELECT reason,jobs FROM supervisor_job_cancellations WHERE enrollment_id=$1', [job.enrollmentId])).rows;
     expect(delivery).toEqual([expect.objectContaining({ reason: 'learner_cancelled', jobs: [expect.objectContaining({ jobId: job.ref.jobId })] })]);
-    // The question stays, marked as stopped; the conversation read shows it.
+    // One route and one meaning (shared with "stop waiting"): the question stays and reads as
+    // cancelled, recorded as companion.question.cancelled.
     const read = (await app.inject({ method: 'GET', url: `/api/enrollments/${job.enrollmentId}/companion`, headers: job.learner })).json();
-    expect(read.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ content: 'How do I compare the numbers?', stopped: true });
-    // A question without a job, or an unknown one, cannot be stopped.
+    expect(read.messages.find((m: { id: string }) => m.id === job.messageId)).toMatchObject({ content: 'How do I compare the numbers?', job_state: 'cancelled' });
+    const events = (await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.question.cancelled'", [job.enrollmentId])).rows;
+    expect(events).toEqual([{ payload: expect.objectContaining({ messageId: job.messageId, jobCancelled: true }) }]);
+    // Stopping it again, or an unknown question, is refused.
+    const again = await app.inject({ method: 'POST', url: `/api/enrollments/${job.enrollmentId}/companion/messages/${job.messageId}/cancel`, headers: job.learner,
+      payload: { expectedRevision: revision, idempotencyKey: randomUUID() } });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toBe('MESSAGE_NOT_PENDING');
     const unknown = await app.inject({ method: 'POST', url: `/api/enrollments/${job.enrollmentId}/companion/messages/${randomUUID()}/cancel`, headers: job.learner,
-      payload: { expectedRevision: revision + 1, idempotencyKey: randomUUID() } });
+      payload: { expectedRevision: revision, idempotencyKey: randomUUID() } });
     expect(unknown.statusCode).toBe(404);
     await Promise.all([mine.close(), other.learner && Promise.resolve()]);
   });

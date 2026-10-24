@@ -170,3 +170,44 @@ test('stream: a response that never begins times out at the attempt bound, unkno
   await assert.rejects(h.client.tutorStream(request(), { timeoutMs: 60_000 }, () => {}), error => code('TIMEOUT')(error) && error.submission === 'unknown');
   assert.ok(Date.now() - started < 1_000); assert.equal(h.calls.length, 1);
 });
+
+// The streamed path is judged by the same helpers as a whole reply (#210): generationConfig /
+// messagesRequestBody build the body, candidate + tutoringText / anthropicMessage +
+// anthropicTutoring classify the assembled answer, and a refused answer keeps a read response
+// with its token total so the gateway can settle it at that usage.
+const LONG = 'A careful explanation that keeps going. '.repeat(8);
+test('Google stream: the thinking setting is sent, and a MAX_TOKENS reply is cut short only when allowed and long enough', async () => {
+  const config = (await import('./helpers.mjs')).config();
+  config.models[0].providerConfig.thinking = { level: 'low' };
+  const capped = () => sse([chunk(LONG.slice(0, 150)), { data: { candidates: [{ index: 0, content: { parts: [{ text: 'plan', thought: true }] } }] } },
+    chunk(LONG.slice(150), { finishReason: 'MAX_TOKENS' })]);
+  const allowed = harness([capped()], { config });
+  const result = await allowed.client.tutorStream(request({ allowCutShort: true }), {}, () => {});
+  assert.deepEqual(body(allowed.calls[0]).generationConfig, { candidateCount: 1, maxOutputTokens: 128, thinkingConfig: { thinkingLevel: 'low' } });
+  assert.equal(result.output.text, LONG); assert.equal(result.output.cutShort, true);
+  const refused = harness([capped()], { config });
+  await assert.rejects(refused.client.tutorStream(request(), {}, () => {}), error => code('INCOMPLETE_OUTPUT')(error)
+    && error.usage.attempts[0].outcome === 'response' && error.usage.attempts[0].tokens.total === 14);
+  const short = harness([sse([chunk('Too short', { finishReason: 'MAX_TOKENS' })])], { config });
+  await assert.rejects(short.client.tutorStream(request({ allowCutShort: true }), {}, () => {}), code('INCOMPLETE_OUTPUT'));
+});
+
+test('Google stream: a refusal keeps the read response and its token total for settlement', async () => {
+  const h = harness([sse([chunk('Partial '), { data: { candidates: [{ index: 0, finishReason: 'SAFETY' }],
+    usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 5, totalTokenCount: 16 } } }])]);
+  await assert.rejects(h.client.tutorStream(request(), {}, () => {}), error => code('BLOCKED')(error)
+    && error.usage.attempts.length === 1 && error.usage.attempts[0].outcome === 'response' && error.usage.attempts[0].tokens.total === 16);
+});
+
+test('Anthropic stream: a max_tokens reply is cut short only when allowed, and a refusal keeps its usage for settlement', async () => {
+  const capped = text => sse([start, block(0), delta(0, text), stopBlock(0), messageDelta('max_tokens', 128), messageStop]);
+  const allowed = anthropic([capped(LONG)]);
+  const result = await allowed.client.tutorStream(areq({ allowCutShort: true }), {}, () => {});
+  assert.equal(body(allowed.calls[0]).stream, true);
+  assert.deepEqual([result.output.text, result.output.cutShort], [LONG, true]);
+  const short = anthropic([capped('Too short')]);
+  await assert.rejects(short.client.tutorStream(areq({ allowCutShort: true }), {}, () => {}), code('INCOMPLETE_OUTPUT'));
+  const refused = anthropic([sse([start, block(0), delta(0, 'I will'), stopBlock(0), messageDelta('refusal', 7), messageStop])]);
+  await assert.rejects(refused.client.tutorStream(areq(), {}, () => {}), error => code('BLOCKED')(error)
+    && error.usage.attempts[0].outcome === 'response' && error.usage.attempts[0].tokens.total === 36);
+});
