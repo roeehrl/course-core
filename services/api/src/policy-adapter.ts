@@ -1,6 +1,6 @@
 import type { CourseManifest, LearningPolicy } from '@course-core/sdk';
 import { getEpisodeRequirement } from '@course-core/sdk';
-import { checkAction, checkFeasibility, createPolicyState, poolBalances, previewCalendarRule, resolveCalendarWindow, resolveConstraints,
+import { checkAction, checkFeasibility, createPolicyState, PolicyError, poolBalances, previewCalendarRule, readPolicyState, resolveCalendarWindow, resolveConstraints,
   type PolicyState, type ScopePolicy } from '@course-core/policy';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
@@ -305,10 +305,19 @@ export async function assertPublishable(client: Sql, releaseId: string, course: 
   return check;
 }
 
+/** The enrollment's stored policy state, read through the policy schema. A row written by an
+ * older version lacks fields added since (for example `refunds` and `exceptionalGrants`); the
+ * schema fills their defaults here, so callers never see a field the type promises missing. A
+ * stored state the schema rejects is a server fault, not a conflict the caller could resolve. */
 export async function loadPolicy(client: PoolClient, enrollmentId: string): Promise<PolicyState> {
-  const row = (await client.query<{ snapshot: PolicyState }>('SELECT snapshot FROM policy_states WHERE enrollment_id=$1', [enrollmentId])).rows[0];
+  const row = (await client.query<{ snapshot: unknown }>('SELECT snapshot FROM policy_states WHERE enrollment_id=$1', [enrollmentId])).rows[0];
   requireCondition(row, 'POLICY_STATE_MISSING', 500);
-  return row.snapshot;
+  try {
+    return readPolicyState(row.snapshot);
+  } catch (error) {
+    if (error instanceof PolicyError) throw new ApiError(500, 'POLICY_STATE_INVALID');
+    throw error;
+  }
 }
 
 export async function assertPolicyAction(client: PoolClient, enrollmentId: string, episodeId: string, kind: 'submit' | 'plan' | 'read', now: string) {

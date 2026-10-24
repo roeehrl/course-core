@@ -25,6 +25,11 @@ The checked-in lockfile pins runtime and development dependencies. Build output 
 - `createPolicyState` creates a **new** enrollment with a fixed core objective and
   concept registry, one connected scope tree, and persistent allowance pools. It
   is never a way to reload or revise an existing enrollment.
+- `readPolicyState(stored)` reloads a persisted state through the same schema and
+  invariants every operation applies. A state written before a field existed
+  (for example `refunds` or `exceptionalGrants`) gets that field's default, so a
+  host reading stored JSON never sees a field the `PolicyState` type promises
+  missing. A malformed state is rejected with `INVALID_INPUT`.
 - `resolveConstraints(state, scopeId)` returns the full ancestor intersection,
   earliest effective deadline, all binding deadlines, quotas with assigned and
   reserved usage, access policy, and policy/ledger revisions. Scope array order

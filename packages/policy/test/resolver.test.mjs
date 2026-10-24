@@ -126,3 +126,14 @@ test('batch checks validate state once and match single checks exactly, includin
   assert.throws(() => p.checkActions(s, [actions[0], { ...actions[0], kind: 'unknown' }]), errorCode('INVALID_INPUT'));
   assert.throws(() => p.checkActions({ ...s, scopes: [] }, actions), errorCode('INVALID_INPUT'));
 });
+
+test('a state stored by an older version is read with the defaults added since, and a malformed one is refused', () => {
+  const stored = JSON.parse(JSON.stringify(state()));
+  delete stored.refunds; delete stored.exceptionalGrants;
+  const read = p.readPolicyState(stored);
+  assert.deepEqual(read.refunds, []);
+  assert.deepEqual(read.exceptionalGrants, []);
+  assert.equal('refunds' in stored, false, 'the stored input is not modified');
+  assert.deepEqual(p.resolveConstraints(read, 'chapter'), p.resolveConstraints(stored, 'chapter'));
+  assert.throws(() => p.readPolicyState({ ...stored, refunds: 'not a list' }), errorCode('INVALID_INPUT'));
+});
