@@ -1,5 +1,10 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { parseUsd, usdInput, type SectionState } from "../../domain/aiServices";
+import {
+  learnerLimitMode,
+  parseUsd,
+  usdInput,
+  type SectionState,
+} from "../../domain/aiServices";
 import type { SpendView } from "../../domain/providerCosts";
 import type { SectionProps } from "./AiServicesPage";
 import {
@@ -17,6 +22,7 @@ import {
   useAiText,
   type FieldError,
 } from "./shared";
+import { LearnerSpendPanel } from "./LearnerSpendPanel";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 /** Proposed when nothing is set yet (the operator's decision): $25 in total, $2 per learner. */
@@ -32,13 +38,17 @@ export function SpendingSection(props: Props) {
   const budgets = data.budgets;
   const savedTotal = Number(budgets?.workspace.limit_micro_usd ?? 0),
     savedLearner = Number(budgets?.defaultEnrollment.limit_micro_usd ?? 0),
+    savedMode = learnerLimitMode(budgets),
     used = Number(budgets?.workspace.used_micro_usd ?? 0);
+  // "limit": each learner up to `learner`; "unlimited": no limit per learner (an explicit choice).
   const initial = useMemo(
     () => ({
       total: savedTotal ? usdInput(savedTotal) : DEFAULT_TOTAL,
       learner: savedLearner ? usdInput(savedLearner) : DEFAULT_PER_LEARNER,
+      mode: (savedMode === "unlimited" ? "unlimited" : "limit") as
+        "limit" | "unlimited",
     }),
-    [savedTotal, savedLearner],
+    [savedTotal, savedLearner, savedMode],
   );
   // Until the operator edits a limit the form shows the saved (or proposed) values. Deriving
   // them, rather than copying them in an effect, keeps an edit typed the moment the section
@@ -47,12 +57,13 @@ export function SpendingSection(props: Props) {
   const form = edited ?? initial,
     touched = edited !== null;
   const total = parseUsd(form.total, MAX),
-    learner = parseUsd(form.learner, MAX);
+    learner = parseUsd(form.learner, MAX),
+    unlimited = form.mode === "unlimited";
   // Changed: there is something to save (the proposed limits count). Unsaved: the operator edited it.
-  const changed =
-    total !== savedTotal ||
-    learner !== savedLearner ||
-    (budgets?.defaultEnrollment.limit_micro_usd ?? null) === null;
+  const learnerChanged = unlimited
+    ? savedMode !== "unlimited"
+    : savedMode !== "limit" || learner !== savedLearner;
+  const changed = total !== savedTotal || learnerChanged;
   const dirty = touched && changed;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
@@ -64,7 +75,8 @@ export function SpendingSection(props: Props) {
   const [saving, setSaving] = useState(false);
   const keys = useRequestKeys();
   const totalId = `${base}-total`,
-    learnerId = `${base}-learner`;
+    learnerId = `${base}-learner`,
+    modeName = `${base}-mode`;
   const kinds = [...new Set(data.connections.connections.map((c) => c.kind))];
   const policy = data.setup.jobPolicy;
   async function save() {
@@ -82,7 +94,9 @@ export function SpendingSection(props: Props) {
           used: text.money(used),
         }),
       });
-    if (learner === null)
+    if (unlimited) {
+      // No amount to check: the workspace total is the only ceiling.
+    } else if (learner === null)
       problems.push({
         field: learnerId,
         message: t("aiServices.spending.errAmount"),
@@ -93,7 +107,12 @@ export function SpendingSection(props: Props) {
         message: t("aiServices.spending.errLearnerMore"),
       });
     setErrors(problems);
-    if (problems.length || total === null || learner === null || !budgets)
+    if (
+      problems.length ||
+      total === null ||
+      (!unlimited && learner === null) ||
+      !budgets
+    )
       return;
     setSaving(true);
     try {
@@ -109,16 +128,21 @@ export function SpendingSection(props: Props) {
           idempotencyKey: keys.key(request),
         });
       }
-      if (
-        learner !== savedLearner ||
-        budgets.defaultEnrollment.limit_micro_usd === null
-      ) {
-        const request = {
-          expectedRevision: budgets.defaultEnrollment.revision,
-          scope: "default_enrollment" as const,
-          limits: { microUsd: learner },
-          paidWorkApproved: learner > 0,
-        };
+      if (learnerChanged) {
+        // No limit per learner lets any learner spend up to the total: it needs consent too.
+        const request = unlimited
+          ? {
+              expectedRevision: budgets.defaultEnrollment.revision,
+              scope: "default_enrollment" as const,
+              mode: "unlimited" as const,
+              paidWorkApproved: true,
+            }
+          : {
+              expectedRevision: budgets.defaultEnrollment.revision,
+              scope: "default_enrollment" as const,
+              limits: { microUsd: learner! },
+              paidWorkApproved: learner! > 0,
+            };
         await port.saveBudget(workspaceId, {
           ...request,
           idempotencyKey: keys.key(request),
@@ -128,9 +152,11 @@ export function SpendingSection(props: Props) {
       setEdited(null);
       setMessage({
         tone: "ok",
-        text: total
-          ? t("aiServices.spending.saved")
-          : t("aiServices.spending.savedOff"),
+        text: !total
+          ? t("aiServices.spending.savedOff")
+          : unlimited
+            ? t("aiServices.spending.savedNoLearnerLimit")
+            : t("aiServices.spending.saved"),
       });
       await reload();
     } catch (error) {
@@ -194,31 +220,77 @@ export function SpendingSection(props: Props) {
                 />
               </span>
             </Field>
-            <Field
-              id={learnerId}
-              label={t("aiServices.spending.perLearner")}
-              error={learnerError}
-              hint={t("aiServices.spending.perLearnerHint")}
-            >
-              <span className="ai-money" dir="ltr">
-                <span aria-hidden="true">$</span>
+            <fieldset className="ai-choice ai-learner-choice">
+              <legend>{t("aiServices.spending.perLearner")}</legend>
+              <label>
                 <input
-                  id={learnerId}
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={form.learner}
+                  type="radio"
+                  name={modeName}
+                  value="limit"
+                  checked={!unlimited}
                   disabled={saving}
-                  onChange={(event) => {
-                    const learner = event.target.value;
+                  onChange={() =>
                     setEdited((current) => ({
                       ...(current ?? initial),
-                      learner,
-                    }));
-                  }}
-                  {...described(learnerId, true, learnerError)}
+                      mode: "limit",
+                    }))
+                  }
                 />
-              </span>
-            </Field>
+                {t("aiServices.spending.learnerLimitOption")}
+              </label>
+              {!unlimited && (
+                <Field
+                  id={learnerId}
+                  label={t("aiServices.spending.learnerAmount")}
+                  error={learnerError}
+                  hint={t("aiServices.spending.perLearnerHint")}
+                >
+                  <span className="ai-money" dir="ltr">
+                    <span aria-hidden="true">$</span>
+                    <input
+                      id={learnerId}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={form.learner}
+                      disabled={saving}
+                      onChange={(event) => {
+                        const learner = event.target.value;
+                        setEdited((current) => ({
+                          ...(current ?? initial),
+                          learner,
+                        }));
+                      }}
+                      {...described(learnerId, true, learnerError)}
+                    />
+                  </span>
+                </Field>
+              )}
+              <label>
+                <input
+                  type="radio"
+                  name={modeName}
+                  value="unlimited"
+                  checked={unlimited}
+                  disabled={saving}
+                  onChange={() =>
+                    setEdited((current) => ({
+                      ...(current ?? initial),
+                      mode: "unlimited",
+                    }))
+                  }
+                />
+                {t("aiServices.spending.learnerNoneOption")}
+              </label>
+              {unlimited && (
+                <p className="ai-muted">
+                  {total
+                    ? t("aiServices.spending.learnerNoneMeans", {
+                        total: text.money(total),
+                      })
+                    : t("aiServices.spending.learnerNoneMeansGeneric")}
+                </p>
+              )}
+            </fieldset>
           </div>
           <p>
             <strong>{t("aiServices.spending.perRequest")}:</strong>{" "}
@@ -248,7 +320,11 @@ export function SpendingSection(props: Props) {
                 })
               : t("aiServices.spending.noteGeneric")}
           </p>
-          <p className="ai-muted">{t("aiServices.spending.consent")}</p>
+          <p className="ai-muted">
+            {unlimited
+              ? t("aiServices.spending.consentNoLearnerLimit")
+              : t("aiServices.spending.consent")}
+          </p>
           {message && <Message tone={message.tone}>{message.text}</Message>}
           <div className="ai-actions">
             <button
@@ -270,6 +346,34 @@ export function SpendingSection(props: Props) {
         </form>
       )}
       <SpendHistory port={port} workspaceId={workspaceId} />
+      {port.learnerSpend && budgets && (
+        <LearnerSpendPanel
+          load={port.learnerSpend}
+          workspaceId={workspaceId}
+          currentLimit={savedMode === "limit" ? savedLearner : null}
+          onUse={async (microUsd) => {
+            // The same save, consent and receipt as the form above.
+            const request = {
+              expectedRevision: budgets.defaultEnrollment.revision,
+              scope: "default_enrollment" as const,
+              limits: { microUsd },
+              paidWorkApproved: true,
+            };
+            try {
+              await port.saveBudget(workspaceId, {
+                ...request,
+                idempotencyKey: keys.key(request),
+              });
+              keys.settle();
+            } catch (error) {
+              keys.settle(error);
+              throw error;
+            }
+            setEdited(null);
+            await reload();
+          }}
+        />
+      )}
     </Section>
   );
 }
