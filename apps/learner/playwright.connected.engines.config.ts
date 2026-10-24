@@ -4,6 +4,8 @@ import base from "./playwright.connected.config";
 // against the same real API host and disposable database as the Chromium run.
 export default defineConfig({
   ...base,
+  // WebKit's first use on a machine is slow; pay it before the tests (see the file).
+  globalSetup: "../../services/api/browser/warm-webkit.ts",
   use: { ...base.use, channel: undefined },
   projects: [
     { name: "webkit-desktop", use: { browserName: "webkit", viewport: { width: 1440, height: 960 } } },

@@ -4,6 +4,8 @@ import base from './playwright.config.js';
 // Safari's WebKit (desktop, iPhone, iPad) and Firefox desktop.
 export default defineConfig({
   ...base,
+  // WebKit's first use on a machine is slow; pay it before the tests (see the file).
+  globalSetup: './browser/warm-webkit.ts',
   use: { ...base.use, channel: undefined },
   // Passkey journeys need Chromium's CDP virtual authenticator, and the renderer health check
   // Chromium's DevTools protocol; the Chromium run covers both.
