@@ -3,10 +3,10 @@ import { ConfigurationError, failureLine, Startup, StartupError, StepFailure, ST
 
 describe('API startup diagnostics', () => {
   it('prints one line naming the step, a fixed code and a hint, and never an error message', () => {
-    const secret = Object.assign(new Error('connect ECONNREFUSED postgres://user:secret-password@db:5432/x'), { code: 'ECONNREFUSED' });
+    const secret = Object.assign(new Error('connect ECONNREFUSED postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_test'), { code: 'ECONNREFUSED' });
     const line = JSON.parse(failureLine('db_connect', secret));
     expect(line).toEqual({ startup: 'failed', step: 'db_connect', code: 'ECONNREFUSED', hint: expect.stringContaining('PostgreSQL is not accepting connections') });
-    expect(JSON.stringify(line)).not.toContain('secret-password');
+    expect(JSON.stringify(line)).not.toContain('course_ci_test_only');
     // An error without a safe code is UNKNOWN with the step's general hint.
     expect(JSON.parse(failureLine('migrations', new Error('relation "x" already exists at /home/me')))).toMatchObject({ code: 'UNKNOWN', hint: expect.stringContaining('migration') });
     expect(JSON.parse(failureLine('port_bind', Object.assign(new Error('x'), { code: 'EADDRINUSE' }))).hint).toMatch(/Another process already listens/);
@@ -14,7 +14,7 @@ describe('API startup diagnostics', () => {
   });
   it('configuration problems carry our own fixed text, never a URL', () => {
     expect(JSON.parse(failureLine('configuration', new ConfigurationError('Invalid PORT.')))).toMatchObject({ code: 'INVALID_CONFIGURATION', detail: 'Invalid PORT.' });
-    expect(JSON.parse(failureLine('configuration', new ConfigurationError('ADDITIONAL_ORIGINS: bad https://user:pw@x')))).not.toHaveProperty('detail');
+    expect(JSON.parse(failureLine('configuration', new ConfigurationError('ADDITIONAL_ORIGINS: bad https://user:password@example.com')))).not.toHaveProperty('detail');
   });
   it('every step has a general hint', () => {
     for (const step of STARTUP_STEPS) expect(startupHint(step, 'NOT_A_CODE').length).toBeGreaterThan(20);
