@@ -46,7 +46,9 @@ export const googleVideoStateSchema = z.strictObject({
 });
 export const googleVideoJobSchema = videoJobSchema.extend({ providerState: googleVideoStateSchema });
 export const googleTransportSettingsSchema = transportSettingsSchema;
-export type GoogleModelConfig = z.infer<typeof googleModelConfigSchema>;
+/** Optional fields are absent, never `undefined`, so a configuration stays plain JSON. */
+type Present<T> = T extends unknown ? { [K in keyof T]: Exclude<T[K], undefined> } : never;
+export type GoogleModelConfig = Present<z.infer<typeof googleModelConfigSchema>>;
 export type GoogleVideoJob = z.infer<typeof googleVideoJobSchema>;
 export type GoogleVideoOutput = VideoOutput<GoogleVideoJob>;
 export type GoogleTransportSettings = z.infer<typeof googleTransportSettingsSchema>;
@@ -62,5 +64,6 @@ export function requireGoogleModel(model: ModelConfig): GoogleResolvedModel {
     : config.transport === 'image_interaction'
       ? model.capabilities.length === 1 && model.capabilities[0] === 'image' && model.tools.length === 0 && model.limits.maxOutputTokens !== undefined
       : !model.capabilities.includes('video') && model.limits.maxOutputTokens !== undefined, 'INVALID_CONFIG');
-  return { ...model, providerConfig: config };
+  // Zod omits an absent optional field, so the parsed value already has no undefined members.
+  return { ...model, providerConfig: config as GoogleModelConfig };
 }
