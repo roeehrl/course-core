@@ -406,7 +406,11 @@ function CourseWorkspace({
               {view === "media" && <MediaView data={data} client={client} />}
               {view === "runs" && <RunsView data={data} client={client} />}
               {view === "overview" && (
-                <OverviewView data={data} client={client} />
+                <OverviewView
+                  data={data}
+                  client={client}
+                  onOpenAiServices={() => setView("providers")}
+                />
               )}
               {view === "audit" && <AuditView data={data} client={client} />}
               {view === "placement" && (
