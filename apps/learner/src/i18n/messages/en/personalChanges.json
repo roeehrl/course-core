@@ -48,5 +48,6 @@
   "why.staff_remedial_episode": "Course staff added a lesson the course author wrote and reviewed for this situation.",
   "why.supervisor_remedial_episode": "After you agreed, a lesson the course author wrote and reviewed was added.",
   "why.supervisor_reviewed_explanation": "After you agreed, an explanation the course author wrote and reviewed was added.",
-  "why.supervisor_generated_teaching": "After you agreed, new teaching was written for you. The course's own checks verified its content before it was added."
+  "why.supervisor_generated_teaching": "After you agreed, new teaching was written for you. The course's own checks verified its content before it was added.",
+  "archived": "Set aside when your course moved to a newer version. It no longer appears in your lessons, but it is kept here and in your data export."
 }

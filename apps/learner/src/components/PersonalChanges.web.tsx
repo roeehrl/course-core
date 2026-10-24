@@ -23,6 +23,8 @@ interface Change {
   unverified?: boolean;
   sourceRefs?: { id: string; title: string; url: string | null }[];
   reverted?: boolean;
+  /** Set aside by a move to a newer course version (kept in history and export). */
+  archived?: boolean;
   revertedAt?: string | null;
   revertable?: boolean;
   transferChecks?: { objectiveId: string; status: "pending" | "passed" | "failed" | "expired" }[];
@@ -148,7 +150,9 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                     })}
                   </p>
                 )}
-                {item.reverted ? (
+                {item.archived ? (
+                  <p className="connected-muted">{t("personalChanges.archived")}</p>
+                ) : item.reverted ? (
                   <p className="connected-muted">
                     {item.revertedAt
                       ? t("personalChanges.revertedOn", { date: day(item.revertedAt) })
