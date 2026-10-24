@@ -11,7 +11,7 @@ import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
-import { pricingInForce } from '../src/provider-costs.js';
+import { pricingAt, pricingInForce } from '../src/provider-costs.js';
 import { fixture } from './fixture.js';
 
 // Real PostgreSQL, HTTP routes and supervisor transitions; only the model is a scripted adapter.
@@ -57,7 +57,8 @@ beforeAll(async () => {
     [releaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), author]);
   const providers = composeProviders({ registry: { revision: 'test-registry', models: [
     { id: 'model', providerId: 'test-provider', remoteModel: 'test/native/model', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } },
-    { id: 'spare-model', providerId: 'test-provider', remoteModel: 'test/native/spare', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } }] },
+    { id: 'spare-model', providerId: 'test-provider', remoteModel: 'test/native/spare', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } },
+    { id: 'scheduled-model', providerId: 'test-provider', remoteModel: 'test/native/scheduled', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } }] },
     adapters: [{ id: 'test-provider', kind: 'test', credentialEnv: 'COURSE_PROVIDER_TEST_API_KEY' }], roles: { companion: { modelId: 'model', maxInputCharacters: 12000, maxOutputTokens: 1000 } } },
     () => 'synthetic-key-only-in-test', { test: () => adapter });
   const supervisor = { serviceToken: token, workspaceIds: [workspaceId], jobPolicy: { allowance: { microUsd: ALLOWANCE, tokens: 100_000 } } };
@@ -164,7 +165,11 @@ describe('operator pricing, priced receipts and reconciliation', () => {
     // A scheduled change does not replace the version in force until its time.
     const scheduled = await post(price({ expectedVersion: 1, inputMicroUsdPerMillionTokens: 600_000, effectiveFrom: new Date(Date.now() + 86_400_000).toISOString() }));
     expect(scheduled.json()).toMatchObject({ version: 2, inForceNow: false });
-    expect((await post(price({ expectedVersion: 2, effectiveFrom: new Date(Date.now() - 3_600_000).toISOString() }))).statusCode).toBe(400);
+    // Never before the start of the price in force now: the error names the earliest and latest start.
+    const early = await post(price({ expectedVersion: 2, effectiveFrom: new Date(Date.now() - 3_600_000).toISOString() }));
+    expect(early.statusCode).toBe(400);
+    expect(early.json()).toEqual({ error: 'PROVIDER_PRICING_EFFECTIVE_DATE_INVALID',
+      details: { earliest: created.json().effectiveFrom, latest: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) } });
     const inForce = await pricingInForce(db, workspaceId, 'model');
     expect(inForce).toMatchObject({ versionId: created.json().id, inputMicroUsdPerMillionTokens: 300_000, cachedInputMicroUsdPerMillionTokens: 75_000 });
     const model = (await app.inject({ url: pricingPath(), headers: headers(owner) })).json().models.find((m: { modelId: string }) => m.modelId === 'model');
@@ -180,6 +185,48 @@ describe('operator pricing, priced receipts and reconciliation', () => {
     expect(await pricingInForce(db, workspaceId, 'spare-model')).toBeNull();
     // Versions are append-only rows.
     expect((await db.query('SELECT count(*)::int AS n FROM provider_model_prices WHERE workspace_id=$1', [workspaceId])).rows[0].n).toBe(4);
+  }, 60000);
+
+  it('changes the price in force now while a later price is scheduled, and replaces or keeps the scheduled one', async () => {
+    const post = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: pricingPath(), headers: headers(owner), payload });
+    const day = 86_400_000, start = new Date(Date.now() - day).toISOString(), later = new Date(Date.now() + 60 * day).toISOString();
+    const base = (extra: Record<string, unknown>) => price({ modelId: 'scheduled-model', ...extra });
+    // Nothing in force yet: only the outer bounds apply, so the error names no earliest start.
+    const ancient = await post(base({ effectiveFrom: new Date(Date.now() - 4000 * day).toISOString() }));
+    expect(ancient.statusCode).toBe(400);
+    expect(ancient.json().details).toEqual({ earliest: null, latest: expect.any(String) });
+    const first = await post(base({ effectiveFrom: start }));
+    expect(first.statusCode, first.body).toBe(200);
+    // The announced change, saved as a later version (as the admin page does with a table change).
+    const announced = await post(base({ expectedVersion: 1, inputMicroUsdPerMillionTokens: 400_000, outputMicroUsdPerMillionTokens: 2_800_000, effectiveFrom: later }));
+    expect(announced.json()).toMatchObject({ version: 2, inForceNow: false });
+    const viewModel = async () => (await app.inject({ url: pricingPath(), headers: headers(owner) })).json().models.find((m: { modelId: string }) => m.modelId === 'scheduled-model');
+    expect(await viewModel()).toMatchObject({ latestVersion: 2, inForce: { version: 1 }, scheduled: [{ version: 2, effectiveFrom: later, inputMicroUsdPerMillionTokens: 400_000 }] });
+    // A new price now is accepted although a later version exists: it is in force now, and the
+    // scheduled one still takes over on its date.
+    const now = await post(base({ expectedVersion: 2, inputMicroUsdPerMillionTokens: 350_000, effectiveFrom: new Date().toISOString() }));
+    expect(now.statusCode, now.body).toBe(200);
+    expect(now.json()).toMatchObject({ version: 3, inForceNow: true });
+    expect(await pricingInForce(db, workspaceId, 'scheduled-model')).toMatchObject({ versionId: now.json().id, inputMicroUsdPerMillionTokens: 350_000 });
+    expect(await pricingAt(db, workspaceId, 'scheduled-model', new Date(Date.parse(later) + day))).toMatchObject({ versionId: announced.json().id, inputMicroUsdPerMillionTokens: 400_000 });
+    // What priced calls before it stays: not before the start of the version in force now.
+    const before = await post(base({ expectedVersion: 3, effectiveFrom: start }));
+    expect(before.statusCode).toBe(400);
+    expect(before.json().details).toEqual({ earliest: now.json().effectiveFrom, latest: expect.any(String) });
+    // More than a year ahead is refused too, with the same facts.
+    const far = await post(base({ expectedVersion: 3, effectiveFrom: new Date(Date.now() + 400 * day).toISOString() }));
+    expect(far.statusCode).toBe(400);
+    expect(Date.parse(far.json().details.latest)).toBeLessThan(Date.now() + 367 * day);
+    // The scheduled price is replaced by a version at exactly its time.
+    const replaced = await post(base({ expectedVersion: 3, inputMicroUsdPerMillionTokens: 450_000, outputMicroUsdPerMillionTokens: 3_000_000, effectiveFrom: later }));
+    expect(replaced.json()).toMatchObject({ version: 4, inForceNow: false });
+    expect(await pricingAt(db, workspaceId, 'scheduled-model', new Date(Date.parse(later) + day))).toMatchObject({ versionId: replaced.json().id, inputMicroUsdPerMillionTokens: 450_000 });
+    expect((await viewModel()).scheduled).toEqual([expect.objectContaining({ version: 4, effectiveFrom: later })]);
+    expect(await pricingInForce(db, workspaceId, 'scheduled-model')).toMatchObject({ versionId: now.json().id });
+    // Keeping the current price after that date: the current prices again, at the same time.
+    const kept = await post(base({ expectedVersion: 4, inputMicroUsdPerMillionTokens: 350_000, effectiveFrom: later }));
+    expect(kept.statusCode, kept.body).toBe(200);
+    expect(await pricingAt(db, workspaceId, 'scheduled-model', new Date(Date.parse(later) + day))).toMatchObject({ versionId: kept.json().id, inputMicroUsdPerMillionTokens: 350_000 });
   }, 60000);
 
   it('prices a call from reported usage, reconciles, and releases the remainder exactly once', async () => {
