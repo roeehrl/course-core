@@ -76,6 +76,7 @@ test('nightly runs the OS/Node matrix and the scripted agent evals', () => {
   assert.ok(evals, 'agent-evals job');
   assert.ok(evals.includes('npm run eval:agents -- --report agent-eval-report.json'), 'reference model must pass');
   assert.ok(evals.includes('npm run eval:agents -- --model known-bad --expect-fail'), 'known-bad model must fail');
+  assert.ok(evals.includes('npm run eval:agents -- --model over-triggering --expect-fail'), 'over-triggering model must fail');
   assert.doesNotMatch(evals, /COURSE_AGENT_EVALS_LIVE|--live\b|--judge\b|secrets/);
 });
 

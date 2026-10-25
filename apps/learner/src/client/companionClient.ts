@@ -103,6 +103,9 @@ export interface CompanionDraft {
   reason?: string;
   /** Some text of this draft was shown (a withdrawal of nothing shown needs no notice). */
   shown: boolean;
+  /** The reply is about a graded check: Core checks all of it before anything is shown, so the
+   * stream brings no text and the question says the reply is being checked. */
+  checking?: true;
 }
 const DRAFT_STATES = new Set(["streaming", "complete", "withdrawn", "cancelled"]);
 /** The most text a draft may hold; matches the longest reply the server stores. */
@@ -116,7 +119,7 @@ export function applyDraftFrame(
   drafts: Readonly<Record<string, CompanionDraft>>,
   raw: unknown,
 ): Readonly<Record<string, CompanionDraft>> {
-  const frame = raw as Partial<{ jobId: unknown; messageId: unknown; offset: unknown; text: unknown; state: unknown; reason: unknown }> | null;
+  const frame = raw as Partial<{ jobId: unknown; messageId: unknown; offset: unknown; text: unknown; state: unknown; reason: unknown; checking: unknown }> | null;
   if (
     !frame || typeof frame.jobId !== "string" || typeof frame.messageId !== "string" ||
     !Number.isSafeInteger(frame.offset) || (frame.offset as number) < 0 || typeof frame.text !== "string" ||
@@ -137,6 +140,7 @@ export function applyDraftFrame(
       state: frame.state as CompanionDraft["state"],
       ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
       shown: Boolean(old?.shown || text),
+      ...(frame.checking === true || old?.checking ? { checking: true as const } : {}),
     },
   };
 }
@@ -382,10 +386,12 @@ export function companionState(
   if (input.awaitingChoice) return "waiting_for_you";
   // A reply is being written where the learner can see it (its call was sent; the first text may
   // not have arrived yet): one status, not one per word.
-  if (input.drafts?.some((draft) => draft.state === "streaming" &&
+  const live = input.drafts?.filter((draft) => draft.state === "streaming" &&
     !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId) &&
-    messages.some((m) => m.id === draft.messageId && companionHasPending([m]))))
-    return "replying";
+    messages.some((m) => m.id === draft.messageId && companionHasPending([m]))) ?? [];
+  // A reply about a graded check is written out of sight and checked before it is shown.
+  if (live.some((draft) => !draft.checking)) return "replying";
+  if (live.length) return "checking";
   const open = messages.filter(
     (message) => message.role === "learner" && companionHasPending([message]),
   );
@@ -428,6 +434,7 @@ export function companionJobLabel(
   if (companionCouldNotAnswer(message))
     return t("companionClient.job.couldNotAnswer");
   if (draft && companionHasPending([message])) {
+    if (draft.checking && (draft.state === "streaming" || draft.state === "complete")) return t("companionClient.job.checkingReply");
     if (draft.state === "streaming") return t("companionClient.job.writing");
     if (draft.state === "complete") return t("companionClient.job.checking");
     // Stopped by the learner: the call had been sent, so what it used is counted.

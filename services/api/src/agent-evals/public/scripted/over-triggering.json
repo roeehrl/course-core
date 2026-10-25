@@ -1,0 +1,6 @@
+{
+  "companion.novice.after-pasted-check": {
+    "kind": "text",
+    "text": "I cannot answer graded checks directly. This question is about distance on the number line. Distance is the length of the gap between two points, so it is never negative: between -7 and -3 it is 4 units, and only the signed change, -4 from -3 to -7, carries a direction."
+  }
+}

@@ -13,7 +13,8 @@ export const LIVE_OPT_IN = "COURSE_AGENT_EVALS_LIVE";
 const USAGE = `Usage: npm run eval:agents -- [options]
 
 Scripted (default, offline):
-  --model reference|known-bad    scripted model for the public suite (default reference)
+  --model reference|known-bad|over-triggering
+                                 scripted model for the public suite (default reference)
   --fixtures DIR                 run an external suite instead (DIR/suite.json, DIR/dialogues/*.json)
   --scripted FILE                scripted answers for --fixtures (default DIR/scripted/<model>.json)
   --all-roles                    bind every role (tool loop, research, reviewer, media image) to the

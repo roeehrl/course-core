@@ -16,7 +16,7 @@ import { checkCoachingView, fold, gradedCheck, gradedChecks, matchGradedChecks, 
 export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
 export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
 /** Bumped whenever a grader's behavior changes, so earlier results become stale. */
-export const GRADER_VERSION = "core.agent-eval-graders/3";
+export const GRADER_VERSION = "core.agent-eval-graders/4";
 export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
 /** Every Core strategy this format can drive, and the role it serves (requirement N07: every agent
  * role is evaluated). A strategy not listed here (a host pack's own) is not covered: activating a
@@ -76,6 +76,10 @@ export const dialogueSchema = z.strictObject({
   source: z.strictObject({ pack: shortText(200), episode: shortText(200) }),
   context: contextSchema,
   expect: z.strictObject({
+    /** Companion dialogues with `checks`: whether Core puts the turn in check-coaching mode
+     * (`coached`) or tutors it normally (`normal`: an ordinary question, even right after a pasted
+     * check, is answered without a refusal). Graded by `check_mode`. */
+    checkMode: z.enum(["coached", "normal"]).optional(),
     /** Absent: the dialogue has no answer to protect. */
     hintLeakage: z.strictObject({
       revealAllowed: z.boolean(),
@@ -124,7 +128,8 @@ export const dialogueSchema = z.strictObject({
   .refine((d) => d.strategy !== "core.research.public-topic" || (d.context.publicResearchTopic && d.context.publicResearchScope), "research_context_required")
   .refine((d) => d.strategy !== "core.reviewer.rubric-assist" || d.context.rubricReview, "rubric_review_required")
   .refine((d) => d.strategy !== "core.supervisor.tool-loop" || d.expect.tools, "tool_expectations_required")
-  .refine((d) => !d.checks || (d.role === "companion" && d.checks.every((c) => gradedCheck(c) !== null)), "checks_companion_only");
+  .refine((d) => !d.checks || (d.role === "companion" && d.checks.every((c) => gradedCheck(c) !== null)), "checks_companion_only")
+  .refine((d) => !d.expect.checkMode || d.checks, "check_mode_needs_checks");
 export type Dialogue = z.infer<typeof dialogueSchema>;
 /** The graded checks a dialogue's question matches, as Core matches them for a companion turn
  * (every listed check counts as this lesson's; the lesson text is the episode's). */

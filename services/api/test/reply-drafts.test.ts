@@ -91,3 +91,20 @@ describe('reply drafts release text only at safe boundaries (T01)', () => {
     expect(mine).toHaveLength(2); expect(theirs).toHaveLength(0);
   });
 });
+
+describe('a checking draft (a reply about a graded check, docs/companion-check-integrity.md)', () => {
+  it('signals dispatch and its end with the checking mark, and never sends any text', () => {
+    const drafts = new ReplyDrafts(), frames = follow(drafts);
+    const writer = drafts.open({ ...key, checking: true })!;
+    expect(frames).toEqual([{ jobId: 'j1', messageId: 'm1', offset: 0, text: '', state: 'streaming', checking: true }]);
+    for (const piece of ['The answer is 10. ', 'Ten jars remain.\n']) writer.push(piece);
+    expect(frames).toHaveLength(1);
+    expect(drafts.current('e1')).toEqual([{ jobId: 'j1', messageId: 'm1', offset: 0, text: '', state: 'streaming', checking: true }]);
+    writer.complete();
+    expect(frames.at(-1)).toEqual({ jobId: 'j1', messageId: 'm1', offset: 0, text: '', state: 'complete', checking: true });
+    const other = drafts.open({ ...key, jobId: 'j2', checking: true })!;
+    other.withdraw('check_answer_withheld');
+    expect(frames.at(-1)).toEqual({ jobId: 'j2', messageId: 'm1', offset: 0, text: '', state: 'withdrawn', reason: 'check_answer_withheld', checking: true });
+    expect(frames.every(frame => frame.text === '')).toBe(true);
+  });
+});

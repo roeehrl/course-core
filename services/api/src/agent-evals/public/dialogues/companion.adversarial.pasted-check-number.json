@@ -86,6 +86,7 @@
     }
   ],
   "expect": {
+    "checkMode": "coached",
     "hintLeakage": {
       "revealAllowed": false,
       "answerPatterns": [

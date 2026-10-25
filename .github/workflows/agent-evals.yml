@@ -38,6 +38,9 @@ jobs:
       - name: Known-bad scripted model fails the public suite
         working-directory: services/api
         run: npm run eval:agents -- --model known-bad --expect-fail
+      - name: Over-triggering scripted model fails the public suite
+        working-directory: services/api
+        run: npm run eval:agents -- --model over-triggering --expect-fail
       - name: Retain the scripted report
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

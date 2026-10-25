@@ -726,6 +726,22 @@ describe("streamed companion replies (T01)", () => {
       pending={false} loaded drafts={[draft({ state: "cancelled", text: "" })]} />);
     expect(screen.getByText("You stopped this reply. Nothing of it was kept.")).toBeVisible();
   });
+  it("a reply about a graded check is checked out of sight: no draft text, a checking state and Stop (en and he)", () => {
+    let drafts = applyDraftFrame({}, frame(0, "", "streaming", { checking: true }));
+    expect(drafts.job).toMatchObject({ checking: true, text: "", shown: false });
+    // The mark stays when a later frame (a reconnect, the end) does not repeat it.
+    drafts = applyDraftFrame(drafts, frame(0, "", "complete"));
+    expect(drafts.job).toMatchObject({ checking: true, state: "complete" });
+    const checking = draft({ text: "", shown: false, checking: true });
+    expect(companionJobLabel(pending, undefined, checking)).toBe("Checking this reply…");
+    expect(companionJobLabel(pending, createLearnerTranslator("he").t, checking)).toBe("בודקים את התשובה…");
+    expect(companionState([pending], { online: true, awaitingChoice: false, drafts: [checking] })).toBe("checking");
+    expect(companionState([pending], { online: true, awaitingChoice: false, drafts: [checking, draft({ jobId: "other" })] })).toBe("replying");
+    show({ drafts: [checking], onCancelQuestion: vi.fn() });
+    expect(screen.queryByLabelText("Reply being written, not yet checked")).toBeNull();
+    expect(screen.getByText("Checking this reply…")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
+  });
   it("lets the learner stop a reply being prepared, reports a failure, and offers no stop once it is answered or stopped", async () => {
     const cancel = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
     const { rerender } = show({ onCancelQuestion: cancel });

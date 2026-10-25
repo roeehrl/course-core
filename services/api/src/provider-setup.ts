@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { modelAssignmentsSchema } from "./google-model-setup.js";
 import { upgradeLegacyProviderConfiguration } from "./provider-defaults.js";
-import { roleReservation, SIZED_ROLES } from "./role-reservation.js";
+import { companionReservation, roleReservation, SIZED_ROLES } from "./role-reservation.js";
+import { judgeInputCharacters, judgeOutputTokens } from "./companion-check-judge.js";
 import { pricingInForce } from "./provider-costs.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -255,7 +256,15 @@ export class WorkspaceProviders {
     for (const role of SIZED_ROLES) {
       const binding = row.configuration.roles[role];
       if (!binding) continue;
-      const sized = roleReservation(binding, await pricingInForce(client, workspace, binding.modelId), jobPolicy.allowance);
+      const pricing = await pricingInForce(client, workspace, binding.modelId);
+      // The companion's reservation also holds one check-judge call (companion-check-judge.ts):
+      // its judge role is the binding's checkJudgeRole, else the reviewer, else the companion itself.
+      const judgeRole = role === "companion" ? binding.checkJudgeRole ?? (row.configuration.roles.reviewer ? "reviewer" : "companion") : null;
+      const judge = judgeRole ? row.configuration.roles[judgeRole] : undefined;
+      const sized = role === "companion"
+        ? companionReservation(binding, pricing, judge ? { limits: { maxInputCharacters: judgeInputCharacters(judge), maxOutputTokens: judgeOutputTokens(judge) },
+          pricing: judge.modelId === binding.modelId ? pricing : await pricingInForce(client, workspace, judge.modelId) } : null, jobPolicy.allowance)
+        : roleReservation(binding, pricing, jobPolicy.allowance);
       if (sized) roleAllowances[role] = sized;
     }
     return { revision: row.revision, jobPolicy, roleAllowances };

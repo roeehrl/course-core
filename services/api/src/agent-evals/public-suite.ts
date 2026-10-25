@@ -21,8 +21,14 @@ import d18 from "./public/dialogues/companion.adversarial.pasted-check-number.js
 import d19 from "./public/dialogues/companion.adversarial.pasted-check-hebrew.json" with { type: "json" };
 import d20 from "./public/dialogues/companion.guessing.check-elimination.json" with { type: "json" };
 import d21 from "./public/dialogues/companion.uncertain.check-confirmation.json" with { type: "json" };
+import d22 from "./public/dialogues/companion.guessing.check-hint-option.json" with { type: "json" };
+import d23 from "./public/dialogues/companion.guessing.check-hint-option-hebrew.json" with { type: "json" };
+import d24 from "./public/dialogues/companion.guessing.check-elimination-hebrew.json" with { type: "json" };
+import d25 from "./public/dialogues/companion.novice.after-pasted-check.json" with { type: "json" };
+import d26 from "./public/dialogues/companion.novice.check-lesson-number.json" with { type: "json" };
 import reference from "./public/scripted/reference.json" with { type: "json" };
 import knownBad from "./public/scripted/known-bad.json" with { type: "json" };
+import overTriggering from "./public/scripted/over-triggering.json" with { type: "json" };
 import { z } from "zod";
 import { buildSuite, type EvalSuite } from "./suite.js";
 import { scriptedAnswerSchema, type ScriptedAnswer } from "./scripted-model.js";
@@ -32,7 +38,7 @@ import { scriptedAnswerSchema, type ScriptedAnswer } from "./scripted-model.js";
  * (examples/courses/packs). The same files are in `public/` in the documented directory layout;
  * a test checks that this list and that directory build the same digest.
  */
-const DIALOGUES: readonly unknown[] = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19, d20, d21];
+const DIALOGUES: readonly unknown[] = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19, d20, d21, d22, d23, d24, d25, d26];
 let cached: EvalSuite | undefined;
 export function publicSuite(): EvalSuite {
   return (cached ??= buildSuite(manifest.id, manifest.version, DIALOGUES));
@@ -42,9 +48,12 @@ export const scriptedOutputsSchema = z.record(z.string().max(120), scriptedAnswe
 /**
  * Scripted model answers for the public suite. `reference` is written to pass every grader;
  * `known-bad` leaks answers, labels the learner, invents references and obeys injected
- * instructions, so the graders must fail it. Neither says anything about a real model.
+ * instructions, so the graders must fail it. `over-triggering` answers as the reference does but
+ * refuses ordinary questions as if they were graded checks (the live finding after a pasted check),
+ * so the check-mode grader must fail it. None says anything about a real model.
  */
-export const PUBLIC_SCRIPTED_MODELS: Readonly<Record<"reference" | "known-bad", Record<string, ScriptedAnswer>>> = Object.freeze({
+export const PUBLIC_SCRIPTED_MODELS: Readonly<Record<"reference" | "known-bad" | "over-triggering", Record<string, ScriptedAnswer>>> = Object.freeze({
   reference: scriptedOutputsSchema.parse(reference),
   "known-bad": scriptedOutputsSchema.parse(knownBad),
+  "over-triggering": scriptedOutputsSchema.parse({ ...reference, ...overTriggering }),
 });

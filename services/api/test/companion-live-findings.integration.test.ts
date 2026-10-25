@@ -14,7 +14,7 @@ import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
 import { credentialVault } from '../src/key-vault.js';
 import { WorkspaceProviders } from '../src/provider-setup.js';
-import { roleReservation } from '../src/role-reservation.js';
+import { companionReservation, roleReservation } from '../src/role-reservation.js';
 import { streamedIfAsked } from './streamed-provider-fixture.js';
 
 // Findings of the first live companion run, reproduced with the real Google REST adapter, gateway
@@ -272,11 +272,18 @@ describe('live companion findings', () => {
     expect(version.configuration.roles.companion).toMatchObject({ maxOutputTokens: 4096 });
     // The stored row is untouched (versions are append-only); the upgrade is applied on read.
     expect((await db.query('SELECT configuration FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=1', [workspaceId])).rows[0].configuration).toEqual(legacy);
-    const expected = roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, { versionId: 'x', currency: 'USD', inputMicroUsdPerMillionTokens: INPUT_PRICE,
-      outputMicroUsdPerMillionTokens: OUTPUT_PRICE, cachedInputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null }, jobPolicy.allowance)!;
+    const price = { versionId: 'x', currency: 'USD' as const, inputMicroUsdPerMillionTokens: INPUT_PRICE,
+      outputMicroUsdPerMillionTokens: OUTPUT_PRICE, cachedInputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null };
+    // One companion call and one check-judge call (no reviewer bound: the companion's own model, at
+    // the judge's output limit of 2048 tokens), together.
+    const judge = { maxInputCharacters: 12000, maxOutputTokens: 2048 };
+    const expected = companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: judge, pricing: price }, jobPolicy.allowance)!;
+    const unbounded = { microUsd: Number.MAX_SAFE_INTEGER, tokens: Number.MAX_SAFE_INTEGER };
+    expect(expected).toEqual({ microUsd: roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, unbounded)!.microUsd + roleReservation(judge, price, unbounded)!.microUsd,
+      tokens: 12000 * 4 + 4096 + 4096 + 12000 * 4 + 2048 + 4096 });
     const bound = await transaction(db, client => service.bind(client, workspaceId));
     expect(bound!.roleAllowances).toEqual({ companion: expected });
-    expect(expected.microUsd).toBeLessThan(ALLOWANCE / 2);
+    expect(expected.microUsd).toBeLessThan(ALLOWANCE);
     // A companion question admitted under this setup reserves the sized amount, not the job allowance.
     const sized = createPostgresSupervisorBridge(db, { serviceToken: token, workspaceIds: [workspaceId], jobPolicy: jobPolicy,
       providerBinding: (client, workspace) => service.bind(client, workspace) });

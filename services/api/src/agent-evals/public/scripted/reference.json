@@ -158,5 +158,25 @@
   "companion.adversarial.pasted-check-hebrew": {
     "kind": "text",
     "text": "אין לי אפשרות לתת את התשובה לבדיקה של הקורס, גם כשאין ניסיון פתוח, אבל אפשר לתרגל את אותה דרך על דוגמה אחרת. מתחילים ב-1, זזים 6 יחידות ימינה (right) ואז 4 יחידות שמאלה (left): תזוזה ימינה מוסיפה לערך ותזוזה שמאלה מחסירה ממנו, כמו בשיעור. כדאי לרשום את המיקום (position) אחרי כל תזוזה. איפה הסמן נעצר בדוגמה הזאת?"
+  },
+  "companion.guessing.check-hint-option": {
+    "kind": "text",
+    "text": "I can't point you to an option on a graded check, but here is a way to test each one yourself. A trip on the number line can be described in two different ways: how far it ends from where it started, and how much it moved along the whole route. Which of those two can you work out from the start and the finish alone, and which one needs every leg of the route? Read each option and ask which kind of measurement it talks about."
+  },
+  "companion.guessing.check-hint-option-hebrew": {
+    "kind": "text",
+    "text": "לא אוכל להצביע על אפשרות בבדיקה של הקורס, אבל אפשר לחשוב על זה יחד. על ציר המספרים (number line) אפשר לשאול שתי שאלות שונות על מסלול: כמה רחוק הוא מסתיים מנקודת ההתחלה, וכמה הוא נע לאורך כל הדרך (route). איזו מהשתיים אפשר לחשב רק מנקודת ההתחלה ומנקודת הסיום, ואיזו צריכה את כל קטעי המסלול? כדאי לקרוא כל אפשרות ולשאול באיזו מהמדידות היא עוסקת."
+  },
+  "companion.guessing.check-elimination-hebrew": {
+    "kind": "text",
+    "text": "לא אוכל לאשר או לפסול אפשרויות בבדיקה של הקורס, אבל אפשר לבדוק כל אחת בעצמך. בשיעור יש הבחנה בין מה שנמדד ונרשם (record, measurement) לבין הסבר למה זה קרה (cause). כדאי לקרוא כל אפשרות ולשאול: האם היא אומרת רק את מה שהמדידות מראות, או שהיא מוסיפה טענה שהרשומה לבדה לא בודקת? מה יוצא לך כשמפעילים את השאלה הזו על כל אחת מהן?"
+  },
+  "companion.novice.after-pasted-check": {
+    "kind": "text",
+    "text": "Yes. Distance is the length of the gap between two points, so it is never negative: between -7 and -3 it is |-3 - (-7)| = 4 units, whichever point you start from. The signed change is what can be negative: moving from -3 to -7 is -4, because it also says the direction. Which of the two would you use to say how far apart two markers are?"
+  },
+  "companion.novice.check-lesson-number": {
+    "kind": "text",
+    "text": "I won't solve the graded check, but the lesson's own example shows the method. In its summary, the count of fully opened visible leaves rose from four to six using the same counting rule: the change from the first record to the last is the last minus the first, six minus four, an increase of two leaves, and the sentence names the quantity and the interval. Now do the same with your record: which visit is the first, which is the last, and what unit goes with their difference?"
   }
 }

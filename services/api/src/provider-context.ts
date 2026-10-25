@@ -55,7 +55,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       [ref.enrollmentId])).rows.map(row => row.assessment_id) : [];
     const scope = checkScope(course, episode.id, input.blockId ?? null, open), known = courseChecksFor(loaded.release.digest, course);
     const checkCoaching = input.messageId ? checkCoachingView(matchGradedChecks({ question: question!, earlier: conversation.history.filter(turn => turn.role === 'learner').map(turn => turn.content),
-      checks: known.checks, current: scope.current, nearby: scope.nearby, courseText: known.text })) : undefined;
+      checks: known.checks, current: scope.current, nearby: scope.nearby, open: scope.open, courseText: known.text })) : undefined;
     const evidence = (await client.query<EvidenceRow>(`SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [ref.enrollmentId])).rows;
     const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(course, gate, evidence, loaded.release.digest) : null;

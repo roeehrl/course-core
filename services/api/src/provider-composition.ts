@@ -17,6 +17,9 @@ export const providerConfigurationSchema = z.strictObject({
     maxToolRounds:z.number().int().min(2).max(8).optional(),
     /** Companion only: 'concise' (the default when absent) or 'detailed' replies. */
     replyStyle: z.enum(['concise', 'detailed']).optional(),
+    /** Companion only: whose model judges replies in check-coaching mode (docs/companion-check-integrity.md);
+     * absent: the reviewer role when bound, else the companion's own model. */
+    checkJudgeRole: z.enum(['reviewer', 'supervisor', 'companion']).optional(),
     /** The longest wait from sending to the reply's first byte (provider-runtime.ts RESPONSE_BOUNDS):
      * a streamed reply's first chunk (default 20 s), a whole reply's finished response (default: none
      * below the 60 s call bound). Below the call bound. */
