@@ -210,6 +210,7 @@ describe("account erasure and people administration records", () => {
 });
 
 describe("migration 069 for records written before it", () => {
+  // Runs every migration from an empty schema, the same budget as the other such tests (database-template, catalogue, session-purge).
   it("drops stored workspace views and redacts accounts erased earlier, leaving other people alone", async () => {
     const before = await mkdtemp(join(tmpdir(), "course-core-068-"));
     const old = await createTestDatabase(schema + "_m", { migrated: false });
@@ -255,7 +256,7 @@ describe("migration 069 for records written before it", () => {
       await old.drop();
       await rm(before, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("deletes login throttle rows by the same digest passwords.ts computes", async () => {
     const user = randomUUID(), login = canary("throttle.login.");
