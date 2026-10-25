@@ -43,5 +43,8 @@
     "vite": "8.3.4",
     "vitest": "^5.0.4"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "browserslist": [
+    "defaults and supports css-dir-pseudo"
+  ]
 }
