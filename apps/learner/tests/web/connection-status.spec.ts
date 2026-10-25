@@ -152,7 +152,7 @@ async function expectFloating(page: Page) {
         "--connected-status-offset",
       ),
     ),
-  ).toBe(`${Math.ceil(box.height) + 8}px`);
+  ).toBe(`${Math.ceil(box.height) + 16}px`);
 }
 
 for (const locale of ["en", "he"] as const) {
