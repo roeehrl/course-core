@@ -23,6 +23,8 @@ export {
   createCompanionClient,
   companionJobLabel,
   companionCouldNotAnswer,
+  companionReplyStalled,
+  companionReplyUnavailable,
   type ContextualCompanionClient,
   type CompanionContext,
   type CompanionMessage,

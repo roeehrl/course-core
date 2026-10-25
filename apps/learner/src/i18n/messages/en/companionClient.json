@@ -12,6 +12,7 @@
   "job.checking": "Preparing a reply · checking it before it is shown",
   "job.processed": "Request processed",
   "job.unavailable": "Reply unavailable · your message is saved",
+  "job.stalled": "Reply unavailable · the AI service didn't answer in time · your question is saved and you can ask it again",
   "job.stillWorking": "Still working on your last question · your message is saved",
   "job.cancelled": "Cancelled before it was sent · nothing was used · your message is saved",
   "job.queued": "Queued · not sent yet",
