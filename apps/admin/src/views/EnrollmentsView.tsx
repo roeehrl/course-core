@@ -95,10 +95,11 @@ export function EnrollmentsView({
           <Field label={t("enrollmentsView.find")} htmlFor="learner-search">
             <div className="search-field">
               <Search size={17} aria-hidden="true" />
+              {/* No dir="auto": the field keeps the UI's direction so the room for the icon
+                  stays on its side; .search-field shows a typed name in its own direction. */}
               <input
                 id="learner-search"
                 type="search"
-                dir="auto"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("enrollmentsView.find.placeholder")}

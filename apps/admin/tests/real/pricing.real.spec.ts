@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { workspaceNav } from "../workspaceNav";
+import { fieldIconOverlaps, fieldsWithIcons } from "../fieldIcons";
 
 async function accessible(page: Page) {
   expect(
@@ -195,6 +197,7 @@ test("a price already scheduled for later: today's price still changes, and the 
   const input = dialog.getByLabel("Input, per 1M tokens", { exact: true });
   await expect(input).toHaveValue("0.40");
   await input.fill("0.45");
+  expect(await fieldIconOverlaps(dialog)).toEqual([]);
   await expect(dialog).toContainText(
     /Until .+ the current price stays\. From .+: \$0\.45 input and \$2\.80 output per 1M tokens\./,
   );
@@ -254,4 +257,57 @@ test("a price already scheduled for later: today's price still changes, and the 
     ),
   ).toBeLessThanOrEqual(1);
   await accessible(page);
+});
+
+test("the $ sign sits before each price and spending limit, clear of the amount, in English and Hebrew", async ({
+  page,
+}) => {
+  const fixture = await (
+    await page.request.post("/test/pricing-fixture")
+  ).json();
+  await page.goto("/admin/");
+  await page.getByLabel("One-time sign-in code").fill(fixture.code);
+  await page.getByRole("button", { name: "Use code", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  for (const locale of ["en", "he"] as const) {
+    const nav = JSON.parse(
+      readFileSync(
+        new URL(
+          `../../src/i18n/messages/${locale}/adminApp.json`,
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as Record<string, string>;
+    await page.goto(`/admin/?locale=${locale}`);
+    await expect(page.locator("html")).toHaveAttribute(
+      "dir",
+      locale === "he" ? "rtl" : "ltr",
+    );
+    await (
+      await workspaceNav(page)
+    )
+      .getByRole("button", { name: nav["nav.providers"], exact: true })
+      .click();
+    await expect(page.locator("#ai-prices .ai-money").first()).toBeVisible();
+    const fields = (await fieldsWithIcons(page.locator("main"))).filter(
+      (field) => field.icons.some((icon) => icon.icon.includes(">$<")),
+    );
+    expect(fields.length, locale).toBeGreaterThanOrEqual(2);
+    for (const field of fields) {
+      // Amounts are written left to right in both languages, the sign first.
+      expect(field.direction, field.field).toBe("ltr");
+      for (const icon of field.icons) {
+        expect(icon.overlapX, `${locale} ${field.field}`).toBeLessThanOrEqual(
+          0,
+        );
+        expect(icon.box.right, `${locale} ${field.field}`).toBeLessThanOrEqual(
+          field.outer.left,
+        );
+      }
+    }
+    expect(await fieldIconOverlaps(page.locator("main"), `${locale} `)).toEqual(
+      [],
+    );
+  }
 });
