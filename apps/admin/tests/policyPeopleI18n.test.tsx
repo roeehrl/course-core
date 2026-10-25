@@ -23,7 +23,7 @@ describe("people and placement messages", () => {
   it("map server codes to the active locale and fall back for unknown codes", () => {
     expect(
       peopleErrorMessage(new PeopleActionError("LOGIN_NAME_TAKEN"), he.t),
-    ).toBe("שם המשתמש הזה שייך למישהו אחר. יש לבחור שם אחר.");
+    ).toBe("שם המשתמש הזה כבר תפוס. יש לבחור שם אחר.");
     expect(peopleErrorMessage(new PeopleActionError("NOPE"), he.t)).toBe(
       "ניהול האנשים לא זמין כרגע. לא בוצע שינוי בחברויות.",
     );
