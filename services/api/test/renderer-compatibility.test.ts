@@ -45,10 +45,13 @@ const V050_IDENTITY = { version: '0.5.0', integrity: record.versions['0.5.0']!.i
 // 0.5.1: its recorded fingerprint and package identity.
 const V051 = { version: '0.5.1', integrity: record.versions['0.5.1']!.integrity };
 const V051_IDENTITY = { version: '0.5.1', integrity: record.versions['0.5.1']!.identity! };
-// 0.5.2, the installed build.
-const CURRENT = { version: '0.5.2', integrity: record.versions['0.5.2']!.integrity };
-const IDENTITY = { version: '0.5.2', integrity: record.versions['0.5.2']!.identity! };
-const V01_PRIORS = [PRIOR, V011, V011_IDENTITY], V02_PRIORS = [V020, V020_IDENTITY], V03_PRIORS = [V030, V030_IDENTITY], V04_PRIORS = [V040, V040_IDENTITY], V05_PRIORS = [V050, V050_IDENTITY, V051, V051_IDENTITY];
+// 0.5.2: its recorded fingerprint and package identity.
+const V052 = { version: '0.5.2', integrity: record.versions['0.5.2']!.integrity };
+const V052_IDENTITY = { version: '0.5.2', integrity: record.versions['0.5.2']!.identity! };
+// 0.5.3, the installed build.
+const CURRENT = { version: '0.5.3', integrity: record.versions['0.5.3']!.integrity };
+const IDENTITY = { version: '0.5.3', integrity: record.versions['0.5.3']!.identity! };
+const V01_PRIORS = [PRIOR, V011, V011_IDENTITY], V02_PRIORS = [V020, V020_IDENTITY], V03_PRIORS = [V030, V030_IDENTITY], V04_PRIORS = [V040, V040_IDENTITY], V05_PRIORS = [V050, V050_IDENTITY, V051, V051_IDENTITY, V052, V052_IDENTITY];
 const PRIORS = [...V01_PRIORS, ...V02_PRIORS, ...V03_PRIORS, ...V04_PRIORS, ...V05_PRIORS];
 /** Older than 0.5.0: refused the 0.5 primitives. */
 const PRE_V05_PRIORS = [...V01_PRIORS, ...V02_PRIORS, ...V03_PRIORS, ...V04_PRIORS];
@@ -92,22 +95,28 @@ function refused() {
     { label: 'prior integrity at an unknown version', version: '0.1.2', integrity: PRIOR.integrity },
     { label: 'mislabeled v0.1.32 build of 0.1.0', ...MISLABELED },
     { label: '0.1.0 paired with the 0.1.1 package identity', version: PRIOR.version, integrity: V011_IDENTITY.integrity },
-    { label: '0.1.0 paired with the 0.5.2 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
-    { label: '0.1.1 paired with the 0.5.2 fingerprint', version: V011.version, integrity: CURRENT.integrity },
-    { label: '0.5.2 paired with the 0.1.1 fingerprint', version: CURRENT.version, integrity: V011.integrity },
-    { label: '0.2.0 paired with the 0.5.2 fingerprint', version: V020.version, integrity: CURRENT.integrity },
-    { label: '0.5.2 paired with the 0.2.0 fingerprint', version: CURRENT.version, integrity: V020.integrity },
-    { label: '0.3.0 paired with the 0.5.2 fingerprint', version: V030.version, integrity: CURRENT.integrity },
-    { label: '0.5.2 paired with the 0.3.0 fingerprint', version: CURRENT.version, integrity: V030.integrity },
-    { label: '0.4.0 paired with the 0.5.2 fingerprint', version: V040.version, integrity: CURRENT.integrity },
-    { label: '0.5.2 paired with the 0.4.0 fingerprint', version: CURRENT.version, integrity: V040.integrity },
-    { label: '0.5.0 paired with the 0.5.2 fingerprint', version: V050.version, integrity: CURRENT.integrity },
-    { label: '0.5.2 paired with the 0.5.0 fingerprint', version: CURRENT.version, integrity: V050.integrity },
-    { label: '0.5.0 paired with the 0.5.2 package identity', version: V050.version, integrity: IDENTITY.integrity },
-    { label: '0.5.1 paired with the 0.5.2 fingerprint', version: V051.version, integrity: CURRENT.integrity },
-    { label: '0.5.2 paired with the 0.5.1 fingerprint', version: CURRENT.version, integrity: V051.integrity },
-    { label: '0.5.1 paired with the 0.5.2 package identity', version: V051.version, integrity: IDENTITY.integrity },
+    { label: '0.1.0 paired with the 0.5.3 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
+    { label: '0.1.1 paired with the 0.5.3 fingerprint', version: V011.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.1.1 fingerprint', version: CURRENT.version, integrity: V011.integrity },
+    { label: '0.2.0 paired with the 0.5.3 fingerprint', version: V020.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.2.0 fingerprint', version: CURRENT.version, integrity: V020.integrity },
+    { label: '0.3.0 paired with the 0.5.3 fingerprint', version: V030.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.3.0 fingerprint', version: CURRENT.version, integrity: V030.integrity },
+    { label: '0.4.0 paired with the 0.5.3 fingerprint', version: V040.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.4.0 fingerprint', version: CURRENT.version, integrity: V040.integrity },
+    { label: '0.5.0 paired with the 0.5.3 fingerprint', version: V050.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.5.0 fingerprint', version: CURRENT.version, integrity: V050.integrity },
+    { label: '0.5.0 paired with the 0.5.3 package identity', version: V050.version, integrity: IDENTITY.integrity },
+    { label: '0.5.1 paired with the 0.5.3 fingerprint', version: V051.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.5.1 fingerprint', version: CURRENT.version, integrity: V051.integrity },
+    { label: '0.5.1 paired with the 0.5.3 package identity', version: V051.version, integrity: IDENTITY.integrity },
+    { label: '0.5.2 paired with the 0.5.3 fingerprint', version: V052.version, integrity: CURRENT.integrity },
+    { label: '0.5.3 paired with the 0.5.2 fingerprint', version: CURRENT.version, integrity: V052.integrity },
+    { label: '0.5.2 paired with the 0.5.3 package identity', version: V052.version, integrity: IDENTITY.integrity },
+    { label: '0.5.3 paired with the 0.5.2 package identity', version: CURRENT.version, integrity: V052_IDENTITY.integrity },
+    { label: '0.5.1 paired with the 0.5.2 fingerprint', version: V051.version, integrity: V052.integrity },
     { label: '0.5.0 paired with the 0.5.1 fingerprint', version: V050.version, integrity: V051.integrity },
+    { label: 'tampered 0.5.2 package identity', version: V052.version, integrity: tamper(V052_IDENTITY.integrity) },
     { label: 'tampered 0.5.1 package identity', version: V051.version, integrity: tamper(V051_IDENTITY.integrity) },
     { label: 'tampered 0.5.0 package identity', version: V050.version, integrity: tamper(V050_IDENTITY.integrity) },
     { label: 'tampered 0.4.0 package identity', version: V040.version, integrity: tamper(V040_IDENTITY.integrity) },
@@ -119,12 +128,12 @@ function refused() {
 }
 
 describe('released visuals identities', () => {
-  it('the installed renderer is the recorded 0.5.2 release and advertises its recorded fingerprint', () => {
+  it('the installed renderer is the recorded 0.5.3 release and advertises its recorded fingerprint', () => {
     expect({ version: renderer.version, integrity: renderer.integrity }).toEqual(CURRENT);
     expect(record.versions[renderer.version]?.integrity).toBe(renderer.integrity);
   });
   it('the API computes the same package identity as the visuals digest script, and it is the recorded one', async () => {
-    const released = record.versions['0.5.2']!;
+    const released = record.versions['0.5.3']!;
     const installed = await visualsPackageIdentity(installedDist(), await installedManifest(), released.typeOnlyDependencies);
     expect(installed).toEqual({ identity: released.identity, files: released.files, headlessFiles: released.headlessFiles });
     expect(RECORDED_SVG_RELEASES.map(build => ({ ...build, typeOnlyDependencies: [...build.typeOnlyDependencies] }))).toEqual(
@@ -137,25 +146,27 @@ describe('released visuals identities', () => {
       const recorded = record.versions[build.version]!;
       expect(build.headless).toBe(recorded.headless);
       expect([recorded.integrity, recorded.identity]).toContain(build.integrity);
-      expect(build.features).toEqual(build.version === '0.5.0' || build.version === '0.5.1' ? V05_FEATURES : build.version === '0.4.0' ? V04_FEATURES : build.version === '0.3.0' ? V03_FEATURES : build.version === '0.2.0' ? V02_FEATURES : V01_FEATURES);
+      expect(build.features).toEqual(['0.5.0', '0.5.1', '0.5.2'].includes(build.version) ? V05_FEATURES : build.version === '0.4.0' ? V04_FEATURES : build.version === '0.3.0' ? V03_FEATURES : build.version === '0.2.0' ? V02_FEATURES : V01_FEATURES);
       for (const server of build.servedBy) {
         const [version, release] = Object.entries(record.versions).find(([, entry]) => entry.identity === server)!;
-        // Byte identity for 0.1.1 serving 0.1.0 and for 0.5.1 serving 0.5.0; otherwise behavioural parity
-        // (prior-parity.test.tsx, the 0.2.0 snapshots, and v05-parity.test.tsx for 0.5.2 serving 0.5.0 and 0.5.1).
-        if (version === '0.1.1' || (version === '0.5.1' && build.version === '0.5.0')) expect(release.headlessFiles).toEqual(recorded.headlessFiles);
-        else expect(['0.2.0', '0.3.0', '0.4.0', '0.5.0', '0.5.1', '0.5.2']).toContain(version);
-        if (version === '0.5.2') expect(release.headlessFiles).not.toEqual(recorded.headlessFiles);
+        // Byte identity for 0.1.1 serving 0.1.0, 0.5.1 serving 0.5.0 and 0.5.3 serving 0.5.2; otherwise
+        // behavioural parity (prior-parity.test.tsx, the 0.2.0 snapshots, and v05-parity.test.tsx for
+        // 0.5.2 and 0.5.3 serving 0.5.0 and 0.5.1).
+        const byteIdentical = version === '0.1.1' || (version === '0.5.1' && build.version === '0.5.0') || (version === '0.5.3' && build.version === '0.5.2');
+        if (byteIdentical) expect(release.headlessFiles).toEqual(recorded.headlessFiles);
+        else expect(['0.2.0', '0.3.0', '0.4.0', '0.5.0', '0.5.1', '0.5.2', '0.5.3']).toContain(version);
+        if (version === '0.5.2' || (version === '0.5.3' && !byteIdentical)) expect(release.headlessFiles).not.toEqual(recorded.headlessFiles);
       }
     }
   });
-  it('the adapter exposes exactly the reviewed 0.1.x to 0.5.1 declarations and the 0.5.2 package identity, and the list cannot be extended at runtime', () => {
+  it('the adapter exposes exactly the reviewed 0.1.x to 0.5.2 declarations and the 0.5.3 package identity, and the list cannot be extended at runtime', () => {
     expect(renderer.acceptedPriorBuilds).toEqual([...PRIORS, IDENTITY]);
     expect(Object.isFrozen(renderer.acceptedPriorBuilds)).toBe(true);
     expect(() => (renderer.acceptedPriorBuilds as BuildList).push({ version: '9.9.9', integrity: FORGED })).toThrow();
     expect(() => { (renderer.acceptedPriorBuilds![0] as { integrity: string }).integrity = FORGED; }).toThrow();
   });
   it('a reviewed entry applies only to a recorded release it names, and never to the installed build itself', () => {
-    const release = RECORDED_SVG_RELEASES[6]!, installed = { version: '0.5.2', integrity: CURRENT.integrity, release };
+    const release = RECORDED_SVG_RELEASES[7]!, installed = { version: '0.5.3', integrity: CURRENT.integrity, release };
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed)).toEqual(PRIORS);
     // Installed 0.2.0 served only the 0.1.x declarations.
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V020, release: RECORDED_SVG_RELEASES[1]! })).toEqual(V01_PRIORS);
@@ -164,9 +175,11 @@ describe('released visuals identities', () => {
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V050, release: RECORDED_SVG_RELEASES[4]! })).toEqual(PRE_V05_PRIORS);
     // Installed 0.5.1 served 0.5.0 (same headless bytes), not 0.5.1 itself.
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V051, release: RECORDED_SVG_RELEASES[5]! })).toEqual([...PRE_V05_PRIORS, V050, V050_IDENTITY]);
+    // Installed 0.5.2 served 0.5.0 and 0.5.1 (same frames), not 0.5.2 itself.
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V052, release: RECORDED_SVG_RELEASES[6]! })).toEqual([...PRE_V05_PRIORS, V050, V050_IDENTITY, V051, V051_IDENTITY]);
     // Installed 0.1.1 still serves only 0.1.0.
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V011, release: RECORDED_SVG_RELEASES[0]! })).toEqual([PRIOR]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.5.2', integrity: FORGED })).toEqual([]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.5.3', integrity: FORGED })).toEqual([]);
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, release: { ...release, identity: tamper(release.identity) } })).toEqual([]);
     expect(acceptedPriorBuilds([{ ...REVIEWED_PRIOR_SVG_BUILDS[0]!, servedBy: [tamper(release.identity)] }], installed)).toEqual([]);
     // An entry never applies to a build of its own version.
@@ -175,8 +188,9 @@ describe('released visuals identities', () => {
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.2.0' })).toEqual([...V01_PRIORS, ...V03_PRIORS, ...V04_PRIORS, ...V05_PRIORS]);
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.3.0' })).toEqual([...V01_PRIORS, ...V02_PRIORS, ...V04_PRIORS, ...V05_PRIORS]);
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.4.0' })).toEqual([...V01_PRIORS, ...V02_PRIORS, ...V03_PRIORS, ...V05_PRIORS]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.5.0' })).toEqual([...PRE_V05_PRIORS, V051, V051_IDENTITY]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.5.1' })).toEqual([...PRE_V05_PRIORS, V050, V050_IDENTITY]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.5.0' })).toEqual([...PRE_V05_PRIORS, V051, V051_IDENTITY, V052, V052_IDENTITY]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.5.1' })).toEqual([...PRE_V05_PRIORS, V050, V050_IDENTITY, V052, V052_IDENTITY]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.5.2' })).toEqual([...PRE_V05_PRIORS, V050, V050_IDENTITY, V051, V051_IDENTITY]);
   });
 });
 type BuildList = { version: string; integrity: string }[];
@@ -211,7 +225,7 @@ describe('publication and interactive context route through the shared check', (
     expect(interactive(PRIOR, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity } });
     expect(() => assertCourseRunnable(course({ version: renderer.version, integrity: renderer.integrity }).source, [renderer])).not.toThrow();
   });
-  it('0.1.1 through 0.5.2 and package-identity declarations all publish and resolve interactive context', () => {
+  it('0.1.1 through 0.5.3 and package-identity declarations all publish and resolve interactive context', () => {
     for (const declared of [V011, V011_IDENTITY, ...V02_PRIORS, ...V03_PRIORS, ...V04_PRIORS, ...V05_PRIORS, CURRENT, IDENTITY]) {
       expect(() => assertCourseRunnable(course(declared).source, [renderer])).not.toThrow();
       expect(interactive(declared, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: CURRENT.version, integrity: CURRENT.integrity } });
@@ -401,7 +415,7 @@ describe('renderer identity covers what can run', () => {
       ['zod pin', (_p, _d, m) => { m.dependencies.zod = '3.25.75'; }],
       ['react peer range', (_p, _d, m) => { m.peerDependencies.react = '^19.0.0'; }],
       ['export map target', (_p, _d, m) => { m.exports['./headless'].import = './dist/index.js'; }],
-      ['version', (_p, _d, m) => { m.version = '0.5.3'; }],
+      ['version', (_p, _d, m) => { m.version = '0.5.4'; }],
     ];
     for (const [label, change] of changes) {
       const changed = await variant(change);
@@ -411,8 +425,8 @@ describe('renderer identity covers what can run', () => {
       for (const declared of DECLARED) expect(accepts(changed, declared), label).toBe(false);
     }
   });
-  it('the same bytes under a bumped version are not 0.5.2 (why a version bump alone could not carry the pin change)', async () => {
-    const bumped = await variant((_p, _d, m) => { m.version = '0.5.3'; });
+  it('the same bytes under a bumped version are not 0.5.3 (why a version bump alone could not carry the pin change)', async () => {
+    const bumped = await variant((_p, _d, m) => { m.version = '0.5.4'; });
     expect(accepts(bumped, CURRENT)).toBe(false);
     expect(accepts(bumped, PRIOR)).toBe(false);
   });

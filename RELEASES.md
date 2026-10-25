@@ -123,6 +123,13 @@ apps word in English and Hebrew. Its headless code is therefore not byte-identic
 or 0.5.1 (as 0.5.1's was to 0.5.0). It serves 0.5.0 and 0.5.1 declarations with all of their
 features on behavioural parity instead: every frame, React markup and headless SVG of the demo
 scenes, the 0.5 primitives included, equals the 0.5.1 build's (`test/v05-parity.test.tsx`).
+
+Visuals 0.5.3 changes only the stylesheet: the player's labels set in tracked capitals for Latin
+script (the eyebrow, pane headings and the controls legend) keep normal letter-spacing and no case
+transform in Hebrew (`:lang(he)`), and `test/styles.test.ts` fails on a rule without that reset.
+Every other dist file, so its headless code, is byte-identical to 0.5.2: it serves 0.5.2
+declarations with all of their features, and 0.5.0 and 0.5.1 declarations on the same parity as
+0.5.2 (`test/released-digests.test.ts` checks that only `styles.css` changed).
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
