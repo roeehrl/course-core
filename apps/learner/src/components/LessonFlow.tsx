@@ -8,7 +8,7 @@ import type {
   Step,
 } from "../domain/types";
 import { useI18n } from "../i18n";
-import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles } from "./ui";
+import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles, Heading, textDirection, webDir } from "./ui";
 
 export function LessonFlow({
   lesson,
@@ -94,7 +94,9 @@ export function LessonFlow({
           </View>
         ))}
       </View>
-      <View style={{ gap: 14 }}>
+      {/* The step's own text in its own direction: its label, heading and body share one start
+          edge, in a Hebrew interface too. */}
+      <View {...webDir(textDirection(step.eyebrow, step.heading, step.body))} style={{ gap: 14 }}>
         <View style={styles.spread}>
           <Eyebrow>{step.eyebrow}</Eyebrow>
           <Badge
@@ -102,7 +104,7 @@ export function LessonFlow({
             tone={step.requirement === "optional" ? "lilac" : "mint"}
           />
         </View>
-        <Text
+        <Heading
           accessibilityRole="header"
           style={{
             color: colors.ink,
@@ -113,7 +115,7 @@ export function LessonFlow({
           }}
         >
           {step.heading}
-        </Text>
+        </Heading>
         <Text style={styles.body}>{step.body}</Text>
       </View>
       {step.kind === "reading" && step.diagram && (
