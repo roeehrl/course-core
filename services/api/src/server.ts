@@ -79,6 +79,7 @@ import {registerProviderEvalRoutes} from './agent-evals/routes.js';
 import {ProviderEvaluations} from './agent-evals/gate.js';
 import {registerProviderCostRoutes} from './provider-costs.js';
 import {registerLearnerSpendRoutes} from './learner-spend.js';
+import { registerProviderSpendResolutionRoutes } from './provider-spend-resolutions.js';
 import {ProviderConnections,registerProviderConnectionRoutes} from './provider-connections.js';
 import {ProviderDrafts,registerProviderDraftRoutes} from './provider-drafts.js';
 import {ProviderQualityChecks,defaultQualityCheckOptions,registerProviderQualityCheckRoutes,type QualityCheckOptions} from './provider-quality-checks.js';
@@ -206,6 +207,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   // Pricing and spend views read the workspace's own bound models; they never contact a provider.
   registerProviderCostRoutes(app,db,auth,async(workspaceId,client)=>await options.workspaceProviders?.resolve(workspaceId,client)??providers);
   registerLearnerSpendRoutes(app,db,auth);
+  registerProviderSpendResolutionRoutes(app, db, auth);
   app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok', application: 'course-core', instanceId: options.instanceId ?? null }; });
   app.get('/api/workspaces', async request => {
     const actor = await auth.authenticate(request);
@@ -460,7 +462,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   }
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { wake, ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
-    registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{}),
+    registerProviderGateway(app, db, providers, {wake,...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{}),
       ...(options.providerConfiguration!==undefined?{hostConfiguration:options.providerConfiguration}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {

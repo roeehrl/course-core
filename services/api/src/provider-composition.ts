@@ -17,6 +17,12 @@ export const providerConfigurationSchema = z.strictObject({
     maxToolRounds:z.number().int().min(2).max(8).optional(),
     /** Companion only: 'concise' (the default when absent) or 'detailed' replies. */
     replyStyle: z.enum(['concise', 'detailed']).optional(),
+    /** The longest wait from sending to the reply's first byte (provider-runtime.ts RESPONSE_BOUNDS):
+     * a streamed reply's first chunk (default 20 s), a whole reply's finished response (default: none
+     * below the 60 s call bound). Below the call bound. */
+    firstByteTimeoutMs: z.number().int().min(5_000).max(55_000).optional(),
+    /** Streamed replies: the longest wait between two chunks (default 20 s). Below the call bound. */
+    streamIdleTimeoutMs: z.number().int().min(5_000).max(55_000).optional(),
     mediaKind: z.enum(['image', 'video']).optional(), video: z.strictObject({ durationSeconds: z.number().int().min(1).max(20), aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: z.string().min(1).max(128) }).optional(),
     image: z.strictObject({ aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/).optional(), imageSize: z.string().regex(/^[0-9]{1,4}K?$/).optional() }).optional(),
     /** With a video model: a second, image model for pictures, so one workspace can make both. */

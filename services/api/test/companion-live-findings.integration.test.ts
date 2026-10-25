@@ -27,7 +27,7 @@ const ALLOWANCE = 100_000, MODEL = 'gemini-test';
 const INPUT_PRICE = 750_000, OUTPUT_PRICE = 3_750_000;
 const priced = (input: number, output: number) => Math.ceil((input * INPUT_PRICE + output * OUTPUT_PRICE) / 1_000_000);
 const LONG_REPLY = 'The weight goes up because gradient descent steps against the gradient: new w = 2 - 0.1 x (-6) = 2.6. '.repeat(3);
-type Step = { reply: string | null; finish: 'STOP' | 'MAX_TOKENS' | 'SAFETY'; thoughts: number; visible: number } | 'hang';
+type Step = { reply: string | null; finish: 'STOP' | 'MAX_TOKENS' | 'SAFETY'; thoughts: number; visible: number } | 'hang' | 'stall';
 const script: Step[] = [], requests: Record<string, unknown>[] = [], urls: string[] = [];
 let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge, operator: string, courseDigest: string;
 
@@ -40,6 +40,11 @@ const scriptedAnswer: typeof fetch = async (url, init) => {
   const step = script.shift();
   if (!step) throw new Error('Unexpected provider request');
   if (step === 'hang') return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }));
+  // The reply began (one chunk, no usage reported yet) and then stopped coming: uncertain, not retried.
+  if (step === 'stall') return new Response(new ReadableStream({ start(c) {
+    c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'The weight ' }] } }] })}\n\n`));
+    init?.signal?.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')), { once: true });
+  } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
   return json({ candidates: [{ index: 0, finishReason: step.finish, content: { role: 'model', parts: [{ text: 'private reasoning', thought: true },
     ...(step.reply === null ? [] : [{ text: step.reply }])] } }],
     usageMetadata: { promptTokenCount: 2002, candidatesTokenCount: step.visible, thoughtsTokenCount: step.thoughts, totalTokenCount: 2002 + step.visible + step.thoughts } });
@@ -176,9 +181,10 @@ describe('live companion findings', () => {
     expect((await transition({ type: 'verify', ref: job.ref })).json().snapshot).toMatchObject({ state: 'failed', reason: 'verification_rejected' });
   }, 60000);
 
-  it('a timeout after sending still stays uncertain with the reservation held', async () => {
-    const { job, outcome, settled } = await once('hang');
+  it('a reply that stops coming after it began, before any usage, stays uncertain with the reservation held', async () => {
+    const { job, claimed, outcome, settled } = await once('stall');
     expect(outcome).toEqual({ status: 'uncertain' });
+    expect(await dispatch(claimed.operation.id)).toMatchObject({ state: 'uncertain', failure_code: 'STREAM_STALLED' });
     expect(settled.snapshot).toMatchObject({ state: 'waiting', reason: 'provider_uncertain' });
     expect(await used(job.enrollmentId)).toBe(ALLOWANCE);
   }, 60000);
@@ -203,7 +209,7 @@ describe('live companion findings', () => {
     // uncertain, holding the full reservation: reproduce that row shape exactly, then reconcile.
     const stuck = [];
     for (const visible of [274, 49]) {
-      const { job, claimed, outcome, settled } = await once('hang');
+      const { job, claimed, outcome, settled } = await once('stall');
       expect(outcome).toEqual({ status: 'uncertain' });
       expect(settled.snapshot.state).toBe('waiting');
       const thoughts = visible === 274 ? 722 : 947;
@@ -216,10 +222,10 @@ describe('live companion findings', () => {
       stuck.push({ job, claimed, cost: priced(2380, visible + thoughts), tokens: 2380 + visible + thoughts });
     }
     // Rows that must stay uncertain: an attempt whose outcome is unknown, and a response without a total.
-    const unknown = await once('hang');
+    const unknown = await once('stall');
     await db.query(`UPDATE provider_dispatches SET failure_code='INCOMPLETE_OUTPUT',provider_usage=$2,model_id=$3 WHERE operation_id=$1`,
       [unknown.claimed.operation.id, JSON.stringify({ attempts: [{ attempt: 1, status: null, outcome: 'unknown', tokens: { total: null } }] }), MODEL]);
-    const untotalled = await once('hang');
+    const untotalled = await once('stall');
     await db.query(`UPDATE provider_dispatches SET failure_code='INCOMPLETE_OUTPUT',provider_usage=$2,model_id=$3 WHERE operation_id=$1`,
       [untotalled.claimed.operation.id, JSON.stringify({ attempts: [{ attempt: 1, status: 200, outcome: 'response', tokens: { total: null } }] }), MODEL]);
 

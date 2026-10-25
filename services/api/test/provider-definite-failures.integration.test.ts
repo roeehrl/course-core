@@ -19,7 +19,7 @@ import { streamedIfAsked } from './streamed-provider-fixture.js';
 // REST adapter. Only the provider endpoint is scripted: each step is the HTTP answer one request gets.
 const schema = `course_failures_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), releaseId = randomUUID(), token = randomUUID();
 const ALLOWANCE = 100_000;
-type Step = { status: number; headers?: Record<string, string> } | 'ok' | 'reset' | 'hang' | 'broken_body';
+type Step = { status: number; headers?: Record<string, string> } | 'ok' | 'reset' | 'hang' | 'stall' | 'refused' | 'broken_body';
 const script: Step[] = [];
 let sent = 0;
 let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
@@ -35,6 +35,13 @@ const scriptedFetch: typeof fetch = async (_url, init) => {
   // The request left the host; the connection then failed before any status arrived.
   if (step === 'reset') throw new TypeError('socket hang up');
   if (step === 'hang') return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }));
+  // The reply began (one chunk, no usage yet) and then stopped coming.
+  if (step === 'stall') return new Response(new ReadableStream({ start(c) {
+    c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'Compare ' }] } }] })}\n\n`));
+    init?.signal?.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')), { once: true });
+  } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  // The connection was refused before anything was written (Node's fetch reports the cause's code).
+  if (step === 'refused') throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
   if (step === 'broken_body') return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"candidates":[')); c.error(new Error('reset')); } }),
     { status: 200, headers: { 'content-type': 'application/json' } });
   return json({ error: { code: step.status, message: 'synthetic provider error', status: 'SYNTHETIC' } }, step.status, step.headers);
@@ -120,6 +127,40 @@ async function once(step: Step) {
 }
 
 describe('definite provider refusals release the reservation; ambiguous outcomes stay held', () => {
+  it('a connection that never opened sent nothing: released, retryable, and the next attempt may ask again', async () => {
+    const { job, claimed, outcome, settled } = await once('refused');
+    expect(outcome).toEqual({ status: 'not_started', retryable: true });
+    expect(settled.effect).toBe('retry');
+    expect(await used(job.enrollmentId)).toBe(0);
+    expect(await ledger(job.enrollmentId)).toEqual([{ attempt: 1, state: 'not_started', reserved: ALLOWANCE, charged: 0, actual: null, released: ALLOWANCE }]);
+    const row = await dispatch(claimed.operation!.id);
+    expect(row).toMatchObject({ state: 'not_started', failure_code: 'NETWORK_ERROR' });
+    expect(row.attempts.map((a: { outcome: string }) => a.outcome)).toEqual(['not_sent']);
+    // The second attempt is a new reservation and a new call, which answers.
+    const again = await claim(job);
+    expect(again.result.effect).toBe('invoke');
+    script.length = 0; script.push('ok');
+    expect((await invoke(again.request!)).status).toBe('succeeded');
+  }, 60000);
+
+  it('no reply at all after sending stays uncertain (held, never replayed as the same call); the question is asked once more as a new job', async () => {
+    const { job, claimed, outcome, settled } = await once('hang');
+    expect(outcome).toEqual({ status: 'uncertain' });
+    const row = await dispatch(claimed.operation!.id);
+    expect(row).toMatchObject({ state: 'uncertain', failure_code: 'NO_RESPONSE', cost_micro_usd: null });
+    expect(row.attempts).toMatchObject([{ status: null, outcome: 'unknown' }]);
+    // The stalled job ends; its call stays uncertain and keeps its reservation for the owner to settle.
+    expect(settled.snapshot).toMatchObject({ state: 'cancelled', reason: 'cancel_requested' });
+    expect(await used(job.enrollmentId)).toBe(ALLOWANCE);
+    expect(await ledger(job.enrollmentId)).toEqual([{ attempt: 1, state: 'uncertain', reserved: ALLOWANCE, charged: ALLOWANCE, actual: null, released: 0 }]);
+    const retry = (await db.query("SELECT id,actor_kind,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.retry_requested'", [job.enrollmentId])).rows;
+    expect(retry).toHaveLength(1);
+    expect(retry[0]).toMatchObject({ actor_kind: 'system', payload: { requestKind: 'question', episodeId: 'min', retryOfJobId: job.ref.jobId } });
+    const before = sent;
+    expect(await invoke(claimed.request!)).toEqual({ status: 'uncertain' });
+    expect(sent).toBe(before);
+  }, 60000);
+
   it.each([
     [400, 'UPSTREAM_REJECTED'], [401, 'AUTHENTICATION'], [402, 'UPSTREAM_REJECTED'], [403, 'PERMISSION_DENIED'], [404, 'NOT_FOUND'], [413, 'UPSTREAM_REJECTED'],
   ] as const)('HTTP %i is a permanent rejection: released, no cost, job fails without another call', async (status, code) => {
@@ -185,7 +226,7 @@ describe('definite provider refusals release the reservation; ambiguous outcomes
     ['HTTP 500', { status: 500 }, 'UPSTREAM_UNAVAILABLE'], ['HTTP 503', { status: 503, headers: { 'retry-after': '1' } }, 'UPSTREAM_UNAVAILABLE'],
     ['HTTP 504', { status: 504 }, 'UPSTREAM_UNAVAILABLE'], ['HTTP 529 overloaded', { status: 529 }, 'UPSTREAM_UNAVAILABLE'],
     ['HTTP 408', { status: 408 }, 'UPSTREAM_UNAVAILABLE'], ['HTTP 409', { status: 409 }, 'UPSTREAM_REJECTED'],
-    ['a connection reset after sending', 'reset', 'NETWORK_ERROR'], ['a timeout after sending', 'hang', 'TIMEOUT'],
+    ['a connection reset after sending', 'reset', 'NETWORK_ERROR'], ['a reply that stops coming after it began', 'stall', 'STREAM_STALLED'],
     ['a body cut off after HTTP 200', 'broken_body', null],
   ] as const)('%s stays uncertain: the reservation is held and the call is never replayed', async (_label, step, code) => {
     const { job, claimed, outcome, settled } = await once(step as Step);

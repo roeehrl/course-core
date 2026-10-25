@@ -496,6 +496,15 @@ pilot's companion (12,000 characters, 4,096 output tokens, $0.75 / $3.75 per mil
 about $0.031 instead of $0.10. Unused reservation is released when the call settles. Research
 (per-search billing) and media keep the job allowance, as does any role without token prices.
 
+## Response bounds
+
+A streamed reply (the companion) must start within 20 s of sending and never pause for more than
+20 s, below every call's 60 s bound; a whole reply keeps the 60 s bound. A role may set its own:
+`roles.<role>.firstByteTimeoutMs` (a streamed reply's first chunk; a whole reply's finished
+response) and `roles.<role>.streamIdleTimeoutMs`, each 5,000–55,000 ms. What a call that ends
+this way costs, Core's automatic second ask, and the owner's decision on a call whose cost stayed
+unknown: [docs/provider-stalls.md](../../docs/provider-stalls.md).
+
 ## Companion reply style
 
 The companion asks for concise, plain replies by default: a direct answer in a few sentences or
