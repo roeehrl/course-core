@@ -3,7 +3,7 @@ import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { YourDataPanelProps } from "./YourDataPanel";
 import { LoadingLine } from "./loadingLine.web";
 import { useReservedBlock } from "./reservedHeight";
-import { isSupportedLocale } from "@course-core/i18n";
+import { isolateLtr, isSupportedLocale } from "@course-core/i18n";
 import { englishTranslator, useI18n, type MessageKey } from "../i18n";
 
 interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
@@ -37,16 +37,18 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
     const key = `yourDataPanel.role.${role}` as MessageKey;
     return i18n.has(key) ? t(key) : role;
   };
-  const phrase = `ERASE ${enrollmentId.slice(0, 8)}`;
   const [busy, setBusy] = useState<"" | "export" | "erase">("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
   const [views, setViews] = useState<StaffAccess[] | "unavailable">();
-  // The confirmation phrase in the screen's language; the server accepts the phrase of the
-  // language the request names (and the English one). A pseudo-locale shows its own version of
-  // the phrase and sends the English one, since pseudo-locales never reach the server.
+  // The confirmation phrases in the screen's language (the enrollment's id as a left-to-right
+  // run); the server accepts the phrase of the language the request names (and the English one).
+  // A pseudo-locale shows its own version of the phrase and sends the English one, since
+  // pseudo-locales never reach the server.
+  const shortId = enrollmentId.slice(0, 8);
+  const phrase = t("yourDataPanel.erase.phrase", { id: i18n.dir === "rtl" ? isolateLtr(shortId) : shortId });
   const accountPhrase = t("yourDataPanel.account.phrase");
   const phraseLocale = isSupportedLocale(i18n.locale) ? i18n.locale : "en";
   const [accountConfirmation, setAccountConfirmation] = useState("");
@@ -94,7 +96,11 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       for (let attempt = 0; attempt < 8; attempt++) {
         try {
           await (api as CourseApi).request(`/api/enrollments/${encodeURIComponent(enrollmentId)}/erase`, "POST", {
-            confirmation: confirmation.trim(),
+            confirmation:
+              phraseLocale === i18n.locale
+                ? typedPhrase(confirmation)
+                : englishTranslator().t("yourDataPanel.erase.phrase", { id: shortId }),
+            locale: phraseLocale,
             reason: reason.trim(),
           });
           onErased();
@@ -172,13 +178,13 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           <label htmlFor={id + "-reason"}>{t("yourDataPanel.erase.reason")}</label>
           <textarea dir="auto" id={id + "-reason"} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
           <label htmlFor={id + "-confirm"}>
-            {i18n.rich("yourDataPanel.confirm", { phrase }, { strong: (children, key) => <strong key={key} dir="ltr">{children}</strong> })}
+            {i18n.rich("yourDataPanel.confirm", { phrase }, { strong: (children, key) => <strong key={key} dir="auto">{children}</strong> })}
           </label>
-          <input dir="ltr" id={id + "-confirm"} autoComplete="off" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
+          <input dir="auto" id={id + "-confirm"} autoComplete="off" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
           <button
             type="button"
             className="connected-button connected-danger"
-            disabled={Boolean(busy) || confirmation.trim() !== phrase || reason.trim().length < 10}
+            disabled={Boolean(busy) || typedPhrase(confirmation) !== typedPhrase(phrase) || reason.trim().length < 10}
             onClick={() => void erase()}
           >
             {busy === "erase" ? t("yourDataPanel.erase.erasing") : t("yourDataPanel.erase.button")}

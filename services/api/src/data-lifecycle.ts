@@ -24,6 +24,24 @@ import { replyDrafts } from "./reply-drafts.js";
 import { withArtifactContent } from './artifact-store.js';
 import { learnerTeachingArtifact } from "./learner-export.js";
 import { EVENT_EXPORT_FORMAT, eventExportQuery, exportLearningEvents } from './event-export.js';
+import { isSupportedLocale, stripBidiControls, type SupportedLocale } from "@course-core/i18n";
+import { requestLocale } from "./locale.js";
+
+/**
+ * The phrase a learner or an administrator types to erase one enrollment, in each UI language;
+ * `{id}` is the enrollment id's first 8 characters. The apps show the same phrase (admin
+ * `learnerDataCard.erase.phrase`, learner `yourDataPanel.erase.phrase`) with the id as a
+ * left-to-right run. The phrase of the request's language is accepted, and the English one always:
+ * the language the request names (`locale`, as the apps send it), else the request's UI locale.
+ */
+export const ENROLLMENT_ERASURE_PHRASES: Readonly<Record<SupportedLocale, string>> = {
+  en: "ERASE {id}",
+  he: "מחיקה {id}",
+};
+export const enrollmentErasurePhrase = (locale: SupportedLocale, enrollmentId: string) =>
+  ENROLLMENT_ERASURE_PHRASES[locale].replace("{id}", enrollmentId.slice(0, 8));
+/** A typed or pasted confirmation phrase as compared: without direction marks, composed, trimmed. */
+export const typedConfirmation = (value: string) => stripBidiControls(value).normalize("NFC").trim();
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -455,11 +473,14 @@ export function registerDataLifecycleRoutes(
     const actor = await auth.authenticate(request),
       { enrollmentId } = request.params as { enrollmentId: string },
       input = z
-        .strictObject({ confirmation: z.string().max(100), reason: z.string().trim().min(10).max(1000) })
+        .strictObject({ confirmation: z.string().max(100), reason: z.string().trim().min(10).max(1000), locale: z.string().max(35).optional() })
         .safeParse(request.body);
     requireCondition(input.success, "INVALID_INPUT", 400);
+    // The English phrase always; otherwise the phrase of the language the request names, else of its UI locale.
+    const typed = typedConfirmation(input.data.confirmation), named = input.data.locale;
     requireCondition(
-      input.data.confirmation === `ERASE ${enrollmentId.slice(0, 8)}`,
+      typed === enrollmentErasurePhrase("en", enrollmentId) ||
+        typed === enrollmentErasurePhrase(isSupportedLocale(named) ? named : (await requestLocale(db, request, actor.id)).locale, enrollmentId),
       "ERASURE_CONFIRMATION_REQUIRED",
       400,
     );

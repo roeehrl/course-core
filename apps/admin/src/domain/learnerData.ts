@@ -9,10 +9,13 @@ export const erasureSchema = z.object({
 });
 export interface LearnerDataPort {
   exportEnrollment(enrollmentId: string): Promise<unknown>;
+  /** `locale` names the language the confirmation phrase was shown in (the server accepts that
+   * language's phrase, and the English one). */
   erase(
     enrollmentId: string,
     confirmation: string,
     reason: string,
+    locale?: string,
   ): Promise<z.infer<typeof erasureSchema>>;
 }
 export class LearnerDataError extends Error {
