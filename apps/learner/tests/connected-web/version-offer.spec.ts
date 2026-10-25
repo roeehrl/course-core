@@ -15,8 +15,18 @@ test("a learner with personal changes is offered the new version, sees what it d
   const signIn = await request.post("/test/version-offer-session");
   expect(signIn.ok(), await signIn.text()).toBe(true);
   await page.goto(`/#signin=${(await signIn.json()).token}`);
-  await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Version offer ordering", exact: true }) })
-    .getByRole("button", { name: /Continue learning|Resume course|Open course/ }).first().click();
+  // Home: the course is listed once, on a card that says a newer version is waiting for a choice.
+  const card = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Version offer ordering", exact: true }) });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("New version");
+  await expect(card).toContainText("Version 1.0.0 · active");
+  await expect(card).toContainText("Version 2.0.0 of this course is available");
+  await expect(card).toContainText("Your course team invited you to move to it.");
+  await expect(card.getByRole("button", { name: /from the beginning/ })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Available in your workspace" })).toHaveCount(0);
+  await accessible(page);
+  await page.screenshot({ path: info.outputPath("version-offer-home.png") });
+  await card.getByRole("button", { name: "Continue learning →", exact: true }).click();
   const offer = page.getByRole("region", { name: "Your course has a new version" });
   await expect(offer).toBeVisible();
   await expect(offer).toContainText("Version 2.0.0 of your course is available (you are on 1.0.0).");
