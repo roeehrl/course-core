@@ -179,6 +179,7 @@ describe('resumable event stream', () => {
 });
 
 describe('erasure and migration coherence (S11)', () => {
+  // Runs every migration from an empty schema, the same budget as the other such tests (database-template, catalogue, session-purge).
   it('an enrollment erased before the envelope migration stays erased and unreadable after it', async () => {
     const directory = fileURLToPath(new URL('../migrations', import.meta.url));
     const older = await mkdtemp(join(tmpdir(), 'course-core-migrations-'));
@@ -221,5 +222,5 @@ describe('erasure and migration coherence (S11)', () => {
       await db.query(`DROP SCHEMA IF EXISTS ${legacySchema} CASCADE`);
       await rm(older, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

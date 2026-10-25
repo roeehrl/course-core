@@ -354,6 +354,7 @@ describe("trace link coverage", () => {
 });
 
 describe("migration 065 for enrollments erased before it", () => {
+  // Runs every migration from an empty schema, the same budget as the other such tests (database-template, catalogue, session-purge).
   it("tombstones their stored digests, links earlier admin receipts only when unambiguous, and leaves live enrollments alone", async () => {
     const before = await mkdtemp(join(tmpdir(), "course-core-064-"));
     const old = await createTestDatabase(schema + "_m", { migrated: false });
@@ -402,5 +403,5 @@ describe("migration 065 for enrollments erased before it", () => {
       await old.drop();
       await rm(before, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
