@@ -88,6 +88,20 @@ its call is out and aborts the provider request as soon as the cancellation is v
 
 Aborting closes the provider connection at once. The call is then settled by the table above.
 
+Erasing the learner's data cancels their jobs the same way, and erasure itself waits until those
+jobs have ended (`ERASURE_WAITING_FOR_SUPERVISION`). It then finishes each call from its gateway
+receipt as it stands under the operation's lock (`erasure-spend.ts`):
+
+- completed (an answer, or a stopped reply with its usage reported): settled at that usage;
+- sent and still in flight, or stopped with nothing usable back (uncertain): closed at its whole
+  reservation. It stays `uncertain` and charged but is no longer held. With the job's record
+  erased nothing can settle it again, so it is not listed for the owner's decision below;
+- a late answer changes nothing, and nothing of it is stored.
+
+A job can end before the gateway's next poll sees its cancellation, so erasure may find a sent
+call still in flight or already stopped. For a call with nothing back both give the same result;
+`test/erasure-paid-work.integration.test.ts` checks both orders.
+
 ## The owner settles a call whose cost stayed unknown
 
 An uncertain call keeps its whole reservation counted against the workspace and learner limits.
