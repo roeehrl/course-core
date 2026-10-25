@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import postcss, { type Declaration, type Rule } from "postcss";
 
-// Hebrew has no capitals, and letter-spacing pulls its words apart. A rule that sets a positive
-// letter-spacing or a text-transform (tracked capitals for Latin script) needs each of its
-// selectors again, with :lang(he), in a rule that sets letter-spacing: 0 and text-transform: none.
-// The same check runs on the admin and learner stylesheets (their tests/cssStructure.test.ts).
+// Hebrew has no capitals, and letter-spacing pulls its words apart. A rule that sets a
+// letter-spacing other than 0 (tracked capitals, or a display heading drawn tighter, for Latin
+// script) or a text-transform needs each of its selectors again, with :lang(he), in a rule that
+// sets letter-spacing: 0 and text-transform: none. Negative tracking counts too: Hebrew letters
+// set that close run into each other. The same check runs on the admin and learner stylesheets
+// (their tests/cssStructure.test.ts).
 function hebrewTrackingProblems(css: string, from: string): string[] {
   const root = postcss.parse(css, { from });
   const squash = (selector: string) => selector.replace(/\s+/g, " ").trim();
@@ -27,7 +29,7 @@ function hebrewTrackingProblems(css: string, from: string): string[] {
     const value = decl.value.trim();
     const latin =
       (decl.prop === "letter-spacing" &&
-        !/^(0(px|em|rem)?|normal|-.*)$/.test(value)) ||
+        !/^(0(px|em|rem)?|normal)$/.test(value)) ||
       (decl.prop === "text-transform" && value !== "none");
     if (!latin || decl.parent?.type !== "rule") return;
     for (const selector of (decl.parent as Rule).selectors) {
@@ -51,6 +53,7 @@ test("the shipped stylesheet keeps Hebrew labels untracked and uncapitalized", (
   // The labels the player sets in tracked capitals are among the checked rules.
   for (const selector of [
     ".ccv-eyebrow",
+    ".ccv-heading h2",
     ".ccv-pane h3",
     ".ccv-controls legend",
   ])
@@ -74,10 +77,11 @@ test("reports tracking or a case transform without a Hebrew reset", () => {
     'x.css:1: ".a" sets letter-spacing: 1.5px without a ".a:lang(he)" reset',
     'x.css:1: ".a" sets text-transform: uppercase without a ".a:lang(he)" reset',
     'x.css:2: ".b span" sets letter-spacing: 0.08em without a ".b span:lang(he)" reset',
+    'x.css:3: ".c" sets letter-spacing: -1px without a ".c:lang(he)" reset',
   ]);
   assert.deepEqual(
     hebrewTrackingProblems(
-      `${css}\n.a:lang(he),\n.b span:lang(he) { letter-spacing: 0; text-transform: none; }`,
+      `${css}\n.a:lang(he),\n.b span:lang(he),\n.c:lang(he) { letter-spacing: 0; text-transform: none; }`,
       "x.css",
     ),
     [],

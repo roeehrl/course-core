@@ -219,6 +219,20 @@ html:has(.connected-host) body {
 .connected-prose [dir] {
   max-width: 70ch;
 }
+/* Course text keeps its own direction (the course's language, else dir="auto"). A measured block
+   of it sits at its own start edge: margin-inline-end resolves against the block's own direction,
+   so an English lesson subtitle or paragraph in a Hebrew page starts on the left under its
+   English heading instead of hanging, left-aligned, from the right edge of a narrower box. */
+.connected-lesson-heading > p,
+.connected-prose {
+  margin-inline-end: auto;
+  text-align: start;
+}
+/* In the reading card's flex column an auto margin would also stop the stretch: keep the full
+   measure. */
+.connected-prose {
+  inline-size: 100%;
+}
 .connected-part-top {
   display: flex;
   justify-content: space-between;
@@ -447,8 +461,10 @@ html:has(.connected-host) body {
   letter-spacing: 1.4px;
   color: #526a70;
 }
+/* Each source title keeps its own direction, and so does its bullet: room on both sides keeps
+   the bullet of an English title in a Hebrew page (or the reverse) inside the card. */
 .connected-sources ul {
-  padding-inline-start: 18px;
+  padding-inline: 18px;
   margin: 7px 0 0;
   display: grid;
   gap: 6px;

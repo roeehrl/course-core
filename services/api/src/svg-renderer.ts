@@ -68,8 +68,8 @@ export const RECORDED_SVG_RELEASES: readonly RecordedSvgRelease[] = Object.freez
   }),
   Object.freeze({
     version: '0.5.3',
-    integrity: 'sha256-5bc6b13859eeded2692b75acd418a96a245930d67af47a4e479bd28d1463cfb3',
-    identity: 'sha256-c319f0e3ed45dcfa14ac75fa4e009987b005a702219825e638b86a0692b7dabb',
+    integrity: 'sha256-fd3083a38ce106c4173285bf1b22bd5106cb6b80eab6911db3f3815baca0ef43',
+    identity: 'sha256-0310a6712788b75d54a023c39e49ce3e99934e3a6f122c894af7b6a69f121004',
     typeOnlyDependencies: Object.freeze(['@course-core/sdk']),
   }),
 ]);

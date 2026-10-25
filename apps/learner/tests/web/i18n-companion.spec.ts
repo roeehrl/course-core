@@ -265,7 +265,7 @@ for (const width of [390, 1280]) {
     await openProfile(page, "he");
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
-    expect(await trackedHebrew(page.locator("body"))).toEqual([]);
+    expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
 
   });
 }
@@ -284,7 +284,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
-    expect(await trackedHebrew(page.locator("body"))).toEqual([]);
+    expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
   });
 }
 
@@ -301,7 +301,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
-    expect(await trackedHebrew(page.locator("body"))).toEqual([]);
+    expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
   });
 }
 

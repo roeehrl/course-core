@@ -126,7 +126,9 @@ scenes, the 0.5 primitives included, equals the 0.5.1 build's (`test/v05-parity.
 
 Visuals 0.5.3 changes only the stylesheet: the player's labels set in tracked capitals for Latin
 script (the eyebrow, pane headings and the controls legend) keep normal letter-spacing and no case
-transform in Hebrew (`:lang(he)`), and `test/styles.test.ts` fails on a rule without that reset.
+transform in Hebrew (`:lang(he)`), and so does the scene heading drawn a little tighter for Latin
+script; `test/styles.test.ts` fails on a rule with any letter-spacing other than 0, or a case
+transform, without that reset. (The heading reset joined 0.5.3 before any release carried it.)
 Every other dist file, so its headless code, is byte-identical to 0.5.2: it serves 0.5.2
 declarations with all of their features, and 0.5.0 and 0.5.1 declarations on the same parity as
 0.5.2 (`test/released-digests.test.ts` checks that only `styles.css` changed).

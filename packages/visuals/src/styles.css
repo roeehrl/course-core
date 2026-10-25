@@ -640,10 +640,12 @@
   cursor: pointer;
 }
 /* Hebrew has no capitals, and letter-spacing pulls its words apart: a label set in tracked
-   capitals for Latin script keeps normal spacing in Hebrew. Every rule in this stylesheet that
-   sets a positive letter-spacing or a text-transform has its selector here with :lang(he)
-   (test/styles.test.ts checks it). Negative tracking on display headings stays. */
+   capitals for Latin script keeps normal spacing in Hebrew, and so does the display heading
+   drawn a little tighter for Latin script (Hebrew letters set that close run into each other).
+   Every rule in this stylesheet that sets a letter-spacing other than 0 or a text-transform has
+   its selector here with :lang(he) (test/styles.test.ts checks it). */
 .ccv-eyebrow:lang(he),
+.ccv-heading h2:lang(he),
 .ccv-pane h3:lang(he),
 .ccv-controls legend:lang(he) {
   letter-spacing: 0;

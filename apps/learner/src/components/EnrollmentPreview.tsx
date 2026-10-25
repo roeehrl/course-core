@@ -9,7 +9,7 @@ import {
   quotaName,
 } from "../connected/policyPresentation";
 import { useI18n } from "../i18n";
-import { Badge, Button, Notice, styles } from "./ui";
+import { Badge, Button, Notice, styles, Heading } from "./ui";
 export interface EnrollmentPreviewProps {
   course: CatalogCourse;
   pending: boolean;
@@ -38,9 +38,9 @@ export function EnrollmentPreview({
         onPress={onBack}
       />
       <Badge label={t("enrollmentPreview.badge")} />
-      <Text accessibilityRole="header" style={styles.title}>
+      <Heading accessibilityRole="header" style={styles.title}>
         {course.title}
-      </Text>
+      </Heading>
       {course.summary && <Text style={styles.body}>{course.summary}</Text>}
       {!valid ? (
         <Notice error>

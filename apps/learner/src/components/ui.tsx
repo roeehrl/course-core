@@ -68,6 +68,7 @@ export const styles = StyleSheet.create({
     letterSpacing: 1.7,
     textTransform: "uppercase",
   },
+  normalTracking: { letterSpacing: 0 },
   card: {
     backgroundColor: colors.white,
     borderWidth: 1,
@@ -101,15 +102,33 @@ function plainText(children: React.ReactNode): string {
     .map((child) => (typeof child === "string" || typeof child === "number" ? String(child) : ""))
     .join("");
 }
+/** Text set as Hebrew: a Hebrew interface, or a label or heading in Hebrew (course text). */
+function useHebrew(children: React.ReactNode): boolean {
+  return useI18n().locale === "he" || HEBREW_LETTER.test(plainText(children));
+}
 /**
  * The small label above a heading. In Latin script it is set in tracked capitals. Hebrew has no
  * capitals and letter-spacing pulls its words apart, so a Hebrew interface, or a label in Hebrew
  * (course text), keeps normal spacing (docs/i18n.md).
  */
 export function Eyebrow({ style, children, ...props }: TextProps) {
-  const hebrew = useI18n().locale === "he" || HEBREW_LETTER.test(plainText(children));
+  const hebrew = useHebrew(children);
   return (
     <Text {...props} style={[styles.eyebrow, !hebrew && styles.latinCaps, style]}>
+      {children}
+    </Text>
+  );
+}
+/**
+ * A heading. Large Latin headings are drawn a little tighter (a negative `letterSpacing` in their
+ * style); Hebrew letters set that close run into each other, so in a Hebrew interface, or for a
+ * Hebrew heading, it keeps normal spacing. This is the React Native counterpart of the
+ * stylesheets' `:lang(he)` resets: on web these styles are inline, which no stylesheet out-ranks.
+ */
+export function Heading({ style, children, ...props }: TextProps) {
+  const hebrew = useHebrew(children);
+  return (
+    <Text {...props} style={[style, hebrew && styles.normalTracking]}>
       {children}
     </Text>
   );
@@ -307,8 +326,25 @@ export function Notice({
   );
 }
 /** Web-only direction attribute; native lays text out by its content. */
-const webDir = (dir: TextDir | undefined) => (Platform.OS === "web" && dir ? { dir } : {});
+export const webDir = (dir: TextDir | undefined) => (Platform.OS === "web" && dir ? { dir } : {});
 export type TextDir = "auto" | "ltr" | "rtl";
+const STRONG_RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
+const STRONG_LTR = /[A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff]/;
+/**
+ * The direction of a block of course text, from the first letter that has one (the demo course
+ * declares no language). A container of course text takes it on web, so a measured paragraph and
+ * a row of labels line up at the text's own start edge: English course text in a Hebrew interface
+ * reads from the left like its heading, instead of hanging from the right. Undefined without a
+ * letter; the browser then decides per paragraph.
+ */
+export function textDirection(...texts: (string | undefined)[]): TextDir | undefined {
+  for (const text of texts)
+    for (const character of text ?? "") {
+      if (STRONG_RTL.test(character)) return "rtl";
+      if (STRONG_LTR.test(character)) return "ltr";
+    }
+  return undefined;
+}
 /** A labelled text input. Free text keeps its own direction (`dir="auto"`); pass `dir="ltr"`
  * for codes, numbers and URLs. */
 export function Field({ label, dir = "auto", ...props }: TextInputProps & { label: string; dir?: TextDir }) {

@@ -7,7 +7,7 @@ import type {
   Lesson,
 } from "../domain/types";
 import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
-import { Badge, Button, colors, Eyebrow, styles } from "./ui";
+import { Badge, Button, colors, Eyebrow, styles, Heading, textDirection, webDir } from "./ui";
 import type { PolicyCoverage } from "../client/policyClient";
 
 /** What the roadmap shows for one lesson. Under review and optional detour are
@@ -102,20 +102,27 @@ export function CourseRoadmap({
     <View style={{ gap: 28 }} testID="course-roadmap">
       <View style={{ gap: 14 }}>
         <Eyebrow>{t("courseRoadmap.journey")}</Eyebrow>
-        <Text
-          accessibilityRole="header"
-          style={[local.hero, compact && { fontSize: 38, lineHeight: 44 }]}
+        {/* The course's own text in its own direction: the measured description starts where
+            its title and subtitle do, in a Hebrew interface too. */}
+        <View
+          {...webDir(textDirection(course.title, course.subtitle, course.description))}
+          style={{ gap: 14 }}
         >
-          {course.title}
-        </Text>
-        {course.subtitle ? (
-          <Text style={[styles.heading, { fontWeight: "400" }]}>
-            {course.subtitle}
+          <Heading
+            accessibilityRole="header"
+            style={[local.hero, compact && { fontSize: 38, lineHeight: 44 }]}
+          >
+            {course.title}
+          </Heading>
+          {course.subtitle ? (
+            <Text style={[styles.heading, { fontWeight: "400" }]}>
+              {course.subtitle}
+            </Text>
+          ) : null}
+          <Text style={[styles.body, { maxWidth: 600 }]}>
+            {course.description}
           </Text>
-        ) : null}
-        <Text style={[styles.body, { maxWidth: 600 }]}>
-          {course.description}
-        </Text>
+        </View>
         <View style={[styles.row, { marginTop: 5 }]}>
           <Text style={styles.small}>
             {t("courseRoadmap.lessons", { count: course.lessons.length })}
@@ -131,7 +138,10 @@ export function CourseRoadmap({
       {/* On a phone the next step stacks: its text, then a full-width button of normal height
           (side by side, the button stretched into a tall square). */}
       <View style={[local.resume, compact && { flexDirection: "column", flexWrap: "nowrap", alignItems: "stretch", padding: 20, gap: 16 }]}>
-        <View style={compact ? { gap: 6, alignSelf: "flex-start" } : { flex: 1, minWidth: 150, gap: 6 }}>
+        {/* Full width on a phone, so each line starts at its own edge of the card: a lesson title
+            in another language than the interface does not start in the middle of a column only as
+            wide as the longest line. */}
+        <View style={compact ? { gap: 6 } : { flex: 1, minWidth: 150, gap: 6 }}>
           <Eyebrow>
             {resume ? t("courseRoadmap.resume.eyebrow") : t("courseRoadmap.finished.eyebrow")}
           </Eyebrow>
@@ -188,9 +198,9 @@ export function CourseRoadmap({
           <View key={group.stage?.id ?? "unstaged"} style={{ gap: 14 }}>
             {group.stage && (
               <View style={{ gap: 4 }}>
-                <Text role="heading" aria-level={2} style={styles.title}>
+                <Heading role="heading" aria-level={2} style={styles.title}>
                   {group.stage.title}
-                </Text>
+                </Heading>
                 {group.stage.summary ? <Text style={styles.small}>{group.stage.summary}</Text> : null}
               </View>
             )}
@@ -324,9 +334,9 @@ export function CourseRoadmap({
               }
             />
           </View>
-          <Text accessibilityRole="header" style={styles.title}>
+          <Heading accessibilityRole="header" style={styles.title}>
             {selected.title}
-          </Text>
+          </Heading>
           <Text style={styles.body}>{selected.description}</Text>
           <Text style={styles.small}>
             {t("courseRoadmap.lessonSummary", {

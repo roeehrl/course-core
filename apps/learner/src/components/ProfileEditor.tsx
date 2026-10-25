@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { validateProfile } from "../domain/profile";
 import type { Profile } from "../domain/types";
 import { useT } from "../i18n";
-import { Badge, Button, ChoiceList, Field, Notice, styles } from "./ui";
+import { Badge, Button, ChoiceList, Field, Notice, styles, Heading } from "./ui";
 import { ChangedElsewhere } from "./ChangedElsewhere";
 import { useEditableSnapshot } from "../hooks/useEditableSnapshot";
 
@@ -43,9 +43,9 @@ export function ProfileEditor({
         label={demo ? t("profileEditor.badge.demo") : t("profileEditor.badge.yours")}
         tone="lilac"
       />
-      <Text accessibilityRole="header" style={styles.title}>
+      <Heading accessibilityRole="header" style={styles.title}>
         {identityOnly ? t("profileEditor.title.identity") : t("profileEditor.title.full")}
-      </Text>
+      </Heading>
       <Text style={styles.body}>
         {identityOnly ? t("profileEditor.intro.identity") : t("profileEditor.intro.full")}
       </Text>

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Text, View } from "react-native";
 import type { Course, MutationResult } from "../domain/types";
 import { useT } from "../i18n";
-import { Badge, Button, ChoiceList, Notice, styles } from "./ui";
+import { Badge, Button, ChoiceList, Notice, styles, Heading } from "./ui";
 
 export function PlacementEntry({
   placement,
@@ -27,9 +27,9 @@ export function PlacementEntry({
   return (
     <View style={{ gap: 22, paddingTop: 24 }}>
       <Badge label={t("placementEntry.badge")} tone="lilac" />
-      <Text accessibilityRole="header" style={styles.title}>
+      <Heading accessibilityRole="header" style={styles.title}>
         {placement.title}
-      </Text>
+      </Heading>
       <Text style={styles.body}>{placement.description}</Text>
       {demo && (
         <Notice>

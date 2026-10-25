@@ -588,7 +588,7 @@
       "provenance": "Moves every diagnostic into the error catalog: each VisualError, check failure and reference-check result carries a catalog key and parameters next to its unchanged English message, and the inspector shows errors through messages.describeError, so hosts can translate them. This changes the headless bytes (0.5.1 was byte-identical to 0.5.0; 0.5.2 is not), but not behaviour: test/v05-parity.test.tsx checks that every frame, React markup and headless SVG of the demo scenes, including the 0.5 primitives, equals what the 0.5.1 build produced. typeOnlyDependencies reviewed as for 0.1.1."
     },
     "0.5.3": {
-      "integrity": "sha256-5bc6b13859eeded2692b75acd418a96a245930d67af47a4e479bd28d1463cfb3",
+      "integrity": "sha256-fd3083a38ce106c4173285bf1b22bd5106cb6b80eab6911db3f3815baca0ef43",
       "headless": "sha256-3bc4314128979a65d3545ebf95015568468a9adaeea4feb006ca470f876d97d1",
       "legacyBasis": {
         "dependencies": {
@@ -600,7 +600,7 @@
           "react-dom": "^18.3.0 || ^19.0.0"
         }
       },
-      "identity": "sha256-c319f0e3ed45dcfa14ac75fa4e009987b005a702219825e638b86a0692b7dabb",
+      "identity": "sha256-0310a6712788b75d54a023c39e49ce3e99934e3a6f122c894af7b6a69f121004",
       "typeOnlyDependencies": ["@course-core/sdk"],
       "files": {
         "checks.d.ts": "25c35eb00eb95666539c71276f0d7035837256b74fa507fe4d54f1bd504543d6",
@@ -657,7 +657,7 @@
         "schema.js": "4423b414a46f41c54802d8469ef0b6160107b7c28df9e3c5c32c12d9da6d5dfd",
         "sdk.d.ts": "a288c09886aa9e71c7365da50e5357c41f85f7aba7dbda023b084e3aca1a71da",
         "sdk.js": "5d3a6290786466e2964ac226712f5a5ba1ac3bf03c63751a97697f8a40c04198",
-        "styles.css": "d2c0e12e88d1428d8d30f67b6ad48f1b7924d666b1f282e3754890adf1c04076",
+        "styles.css": "faaf2aeb9ba42c672980c888f5e1b59eabaf6b4bc28efdd0dc89d56e4c5d9201",
         "svg.d.ts": "1c0d8362c42f291b1f6bc06b7736a6fa1674efbb989e7bca8030e9f4c0111775",
         "svg.js": "cf83b3ce619532c401ff9fefca1d9870ab79e126cc19984a6fc49dff82f5d100",
         "types.d.ts": "490825ab881e8b393c1c21b84c10151e6de5b9558c492746dca3af4815e187fc",

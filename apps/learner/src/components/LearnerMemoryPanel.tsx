@@ -25,7 +25,7 @@ import {
   type MessageKey,
   type Translate,
 } from "../i18n";
-import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles } from "./ui";
+import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles, Heading } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
 import { DeclaredProfileFields } from "./DeclaredProfileFields";
 
@@ -434,9 +434,9 @@ function MemoryPanel({
           <Eyebrow>
             {t("learnerMemoryPanel.header.eyebrow")}
           </Eyebrow>
-          <Text accessibilityRole="header" style={styles.title}>
+          <Heading accessibilityRole="header" style={styles.title}>
             {t("learnerMemoryPanel.header.title")}
-          </Text>
+          </Heading>
           <Text style={styles.body}>{t("learnerMemoryPanel.header.body")}</Text>
         </View>
         <View style={local.badge}>
