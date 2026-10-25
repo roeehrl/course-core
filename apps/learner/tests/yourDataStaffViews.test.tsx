@@ -97,3 +97,54 @@ describe("erasing the whole account", () => {
       });
     });
 });
+
+describe("erasing one course's learning data", () => {
+  const shortId = enrollmentId.slice(0, 8);
+  const erasing = () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const api = {
+      request: vi.fn(async (path: string, _method?: string, body?: unknown) => {
+        calls.push({ path, body });
+        if (path.endsWith("/erase")) return { enrollmentId, status: "erased", counts: {}, replayed: false };
+        return { views: [], exports: [] };
+      }),
+    };
+    return { api, calls };
+  };
+  for (const [locale, phrase, reason, button] of [
+    ["he", `מחיקה ${shortId}`, "מה הסיבה למחיקה?", "מחיקה לצמיתות"],
+    ["en", `ERASE ${shortId}`, "Why are you erasing it?", "Erase permanently"],
+  ] as const)
+    it(`${locale}: asks for the phrase in the screen's language, the id left to right, and sends that language`, async () => {
+      const { api, calls } = erasing();
+      const onErased = vi.fn();
+      render(
+        <I18nProvider value={createLearnerTranslator(locale)}>
+          <YourDataPanel api={api as never} enrollmentId={enrollmentId} courseTitle="Ordering" onErased={onErased} />
+        </I18nProvider>,
+      );
+      const field = await screen.findByLabelText((label) => label.replace(/[⁦-⁩]/g, "").includes(phrase));
+      const strong = field.closest("div")!.querySelector(`label[for="${field.id}"] strong`)!;
+      expect(strong.textContent!.replace(/[⁦-⁩]/g, "")).toBe(phrase);
+      // The id is a left-to-right isolate inside a right-to-left phrase; the field follows what is typed.
+      if (locale === "he") expect(strong.textContent).toContain(`⁦${shortId}⁩`);
+      expect(field).toHaveAttribute("dir", "auto");
+      const erase = screen.getByRole("button", { name: button });
+      fireEvent.change(screen.getByLabelText(new RegExp(reason.replace("?", "\\?"))), { target: { value: "Leaving this course for good." } });
+      // The other language's phrase, or another enrollment's id, is not what this screen asks for.
+      fireEvent.change(field, { target: { value: locale === "he" ? `ERASE ${shortId}` : `מחיקה ${shortId}` } });
+      expect(erase).toBeDisabled();
+      fireEvent.change(field, { target: { value: phrase.replace(shortId, "ffffffff") } });
+      expect(erase).toBeDisabled();
+      // Pasted with the direction marks the label carries, it still counts.
+      fireEvent.change(field, { target: { value: strong.textContent! } });
+      expect(erase).toBeEnabled();
+      fireEvent.click(erase);
+      await waitFor(() => expect(onErased).toHaveBeenCalled());
+      expect(calls.find((c) => c.path === `/api/enrollments/${enrollmentId}/erase`)!.body).toEqual({
+        confirmation: phrase,
+        locale,
+        reason: "Leaving this course for good.",
+      });
+    });
+});

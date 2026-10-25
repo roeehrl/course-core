@@ -2388,12 +2388,12 @@ export function createFetchAdminClient(
           undefined,
           (c) => new LearnerDataError(c),
         ),
-      erase: (id, confirmation, reason) =>
+      erase: (id, confirmation, reason, locale) =>
         direct(
           `/enrollments/${encodeURIComponent(id)}/erase`,
           erasureSchema,
           "POST",
-          { confirmation, reason },
+          { confirmation, reason, ...(locale ? { locale } : {}) },
           undefined,
           (c) => new LearnerDataError(c),
         ),

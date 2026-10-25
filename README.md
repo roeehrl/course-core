@@ -1556,8 +1556,13 @@ tools act for the learner, not as staff. The learner app says so
 next to the profile, in the memory panel (whose own goal copy stays private)
 and under **Your data**.
 
-Erasure (`POST .../erase`, typed confirmation `ERASE <first 8 id characters>`
-and a reason) is irreversible. It first withdraws supervision consent and waits
+Erasure (`POST .../erase`, a typed confirmation phrase and a reason) is
+irreversible. The phrase is in the reader's language: `ERASE <first 8 id characters>` in English,
+`מחיקה <first 8 id characters>` in Hebrew, with the id shown left to right
+(`ENROLLMENT_ERASURE_PHRASES`, the same as the admin's `learnerDataCard.erase.phrase` and the
+learner app's `yourDataPanel.erase.phrase`). The server accepts the phrase of the language the
+request names (`locale`), else of the request's UI locale, and the English phrase in any language.
+Erasure first withdraws supervision consent and waits
 for running supervisor jobs to stop, then redacts personal content in one
 transaction: answers, results, conversations, learner-model history, personal
 teaching artifacts, supervisor inputs/outputs, receipts and event payloads.

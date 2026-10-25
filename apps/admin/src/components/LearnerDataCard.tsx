@@ -1,9 +1,18 @@
 import { useId, useState } from "react";
 import { Download, Eraser } from "lucide-react";
+import {
+  isolateLtr,
+  isSupportedLocale,
+  stripBidiControls,
+} from "@course-core/i18n";
 import type { AdminClient, Enrollment } from "../domain/contracts";
 import { learnerDataErrorMessage } from "../domain/learnerData";
-import { useT } from "../i18n";
+import { englishTranslator, useI18n } from "../i18n";
 import { Button, Card, Field, Notice } from "./ui";
+
+/** A typed (or pasted) confirmation as compared: without direction marks, composed, trimmed. */
+const typedPhrase = (value: string) =>
+  stripBidiControls(value).normalize("NFC").trim();
 
 /** Owner/admin data requests for one enrollment. Erasure is irreversible. */
 export function LearnerDataCard({
@@ -15,9 +24,18 @@ export function LearnerDataCard({
   enrollment: Enrollment;
   onErased: () => void;
 }) {
-  const t = useT();
+  const i18n = useI18n();
+  const t = i18n.t;
   const id = useId();
-  const phrase = `ERASE ${enrollment.id.slice(0, 8)}`;
+  // The confirmation phrase in the screen's language, with the id as a left-to-right run. The
+  // server accepts the phrase of the language the request names, and the English one. A
+  // pseudo-locale shows its own version of the phrase and sends the English one, since
+  // pseudo-locales never reach the server.
+  const shortId = enrollment.id.slice(0, 8);
+  const phrase = t("learnerDataCard.erase.phrase", {
+    id: i18n.dir === "rtl" ? isolateLtr(shortId) : shortId,
+  });
+  const phraseLocale = isSupportedLocale(i18n.locale) ? i18n.locale : "en";
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState<unknown>();
@@ -95,7 +113,6 @@ export function LearnerDataCard({
                 <input
                   id={id + "-confirm"}
                   autoComplete="off"
-                  dir="ltr"
                   value={confirmation}
                   onChange={(e) => setConfirmation(e.target.value)}
                 />
@@ -104,15 +121,23 @@ export function LearnerDataCard({
                 kind="danger"
                 disabled={
                   pending ||
-                  confirmation.trim() !== phrase ||
+                  typedPhrase(confirmation) !== typedPhrase(phrase) ||
                   reason.trim().length < 10
                 }
                 onClick={() =>
                   void act(async () => {
                     await port.erase(
                       enrollment.id,
-                      confirmation.trim(),
+                      phraseLocale === i18n.locale
+                        ? typedPhrase(confirmation)
+                        : englishTranslator().t(
+                            "learnerDataCard.erase.phrase",
+                            {
+                              id: shortId,
+                            },
+                          ),
                       reason.trim(),
+                      phraseLocale,
                     );
                     setMessage(t("learnerDataCard.erased.done"));
                     onErased();

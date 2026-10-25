@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createTranslator } from "@course-core/i18n";
+import { createTranslator, stripBidiControls } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
 import { sample as learnerViewSample } from "../learnerViewFixture";
 import adminApp from "../../src/i18n/messages/en/adminApp.json" with { type: "json" };
@@ -307,6 +307,84 @@ for (const locale of ["he", "en-XA"] as const) {
     }
   });
 }
+
+test("the Hebrew erasure phrase reads right to left with its id left to right, and is sent with its language", async ({
+  page,
+}) => {
+  const he = translators.he.t;
+  await openConnected(page, "he");
+  let sent: unknown;
+  await page.route("**/erase", async (route) => {
+    sent = route.request().postDataJSON();
+    const enrollmentId = /enrollments\/([^/]+)\/erase/.exec(
+      route.request().url(),
+    )![1];
+    await route.fulfill({
+      json: { enrollmentId, status: "erased", counts: {}, replayed: false },
+    });
+  });
+  await (await nav(page, "learners", "he")).click();
+  const data = card(page, "learnerDataCard.title", "he");
+  await data
+    .getByText(he("learnerDataCard.erase.summary"), { exact: true })
+    .click();
+  const label = data.locator("label", { hasText: "כדי לאשר" });
+  const text = (await label.textContent()) ?? "";
+  const shortId = /מחיקה (\S{8})/.exec(stripBidiControls(text))?.[1];
+  expect(shortId, text).toBeTruthy();
+  // The id is a left-to-right isolate inside the Hebrew phrase.
+  expect(text).toContain(`\u2066${shortId}\u2069`);
+  // As painted: the id's characters run left to right, and on its line the word מחיקה sits at
+  // the reading edge, to the right of the id.
+  const painted = await label.evaluate((element, id) => {
+    const node = [...element.childNodes].find((child) =>
+      child.textContent?.includes(id),
+    )!;
+    const box = (from: number) => {
+      const range = document.createRange();
+      range.setStart(node, from);
+      range.setEnd(node, from + 1);
+      return range.getBoundingClientRect();
+    };
+    const at = node.textContent!.indexOf(id),
+      word = node.textContent!.indexOf("מחיקה");
+    const first = box(at),
+      last = box(at + id.length - 1),
+      hebrew = box(word);
+    return {
+      first: first.left,
+      last: last.left,
+      lastRight: last.right,
+      word: hebrew.left,
+      sameLine: Math.abs(hebrew.top - first.top) < 2,
+    };
+  }, shortId!);
+  expect(painted.first).toBeLessThan(painted.last);
+  if (painted.sameLine)
+    expect(painted.word).toBeGreaterThanOrEqual(painted.lastRight);
+  const input = data.getByLabel(/כדי לאשר/);
+  await data
+    .getByLabel(he("learnerDataCard.erase.reason"))
+    .fill("Learner asked by email.");
+  const submit = data.getByRole("button", {
+    name: he("learnerDataCard.erase.submit"),
+  });
+  // The Hebrew screen asks for the Hebrew phrase.
+  await input.fill(`ERASE ${shortId}`);
+  await expect(submit).toBeDisabled();
+  await input.fill(`מחיקה ${shortId}`);
+  await expect(submit).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+  await submit.click();
+  await expect
+    .poll(() => sent)
+    .toEqual({
+      confirmation: `מחיקה ${shortId}`,
+      reason: "Learner asked by email.",
+      locale: "he",
+    });
+});
 
 for (const locale of ["he", "en-XA"] as const) {
   test(`release safety and course updates in ${locale}`, async ({ page }) => {

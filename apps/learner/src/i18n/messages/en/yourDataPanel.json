@@ -9,6 +9,7 @@
   "erase.summary": "Erase my learning data for {course}",
   "erase.body": "This permanently removes your answers, companion conversations, learner model and personal teaching for this course. Dates, event types and usage totals are kept without content so audit and budgets stay correct. You will not be able to continue this enrollment. It is removed from the live service at once; copies in backups made earlier remain until those backups are deleted under the operator's published retention period. Download your data first if you want a copy.",
   "erase.reason": "Why are you erasing it? (10+ characters, kept with the record)",
+  "erase.phrase": "ERASE {id}",
   "erase.erasing": "Erasing…",
   "erase.button": "Erase permanently",
   "erase.stopping": "Stopping your course supervisor before erasing…",

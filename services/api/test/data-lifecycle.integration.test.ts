@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
@@ -7,6 +8,7 @@ import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge, parkSupervisorJob } from "../src/supervisor-bridge.js";
+import { ENROLLMENT_ERASURE_PHRASES, enrollmentErasurePhrase } from "../src/data-lifecycle.js";
 
 const origin = "http://localhost:4385",
   schema = "lifecycle_" + randomUUID().replaceAll("-", "");
@@ -158,6 +160,38 @@ describe("learner data export and erasure", () => {
     } finally {
       client.release();
     }
+  });
+
+  it("accepts the erasure phrase of the request's language and the English one, on the learner and admin paths", async () => {
+    const id = enrollment.slice(0, 8), hebrew = `מחיקה ${id}`, reason = "Learner asked for their course data to be removed.";
+    // Both apps show the same phrases: admin learnerDataCard.erase.phrase, learner yourDataPanel.erase.phrase.
+    for (const locale of ["en", "he"] as const)
+      for (const [surface, file] of [["admin", "learnerDataCard"], ["learner", "yourDataPanel"]]) {
+        const catalog = JSON.parse(readFileSync(new URL(`../../../apps/${surface}/src/i18n/messages/${locale}/${file}.json`, import.meta.url), "utf8"));
+        expect(catalog["erase.phrase"], `${surface} ${locale}`).toBe(ENROLLMENT_ERASURE_PHRASES[locale]);
+      }
+    expect(enrollmentErasurePhrase("he", enrollment)).toBe(hebrew);
+    const post = (who: Session, body: Record<string, unknown>, headers: Record<string, string> = {}, prefix = "/api/enrollments") =>
+      app.inject({ method: "POST", url: `${prefix}/${enrollment}/erase`, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf, ...headers }, payload: { reason, ...body } });
+    const refused = async (body: Record<string, unknown>, headers?: Record<string, string>) =>
+      expect((await post(learner, body, headers)).json().error, JSON.stringify(body)).toBe("ERASURE_CONFIRMATION_REQUIRED");
+    // The Hebrew phrase is refused for an English request; the bare word and another id are refused in Hebrew.
+    await refused({ confirmation: hebrew, locale: "en" });
+    await refused({ confirmation: hebrew }, { "accept-language": "en-US,en;q=0.9" });
+    await refused({ confirmation: "מחיקה", locale: "he" });
+    await refused({ confirmation: `מחיקה ${randomUUID().slice(0, 8)}`, locale: "he" });
+    await refused({ confirmation: `ERASE ${randomUUID().slice(0, 8)}`, locale: "he" });
+    // A pseudo-locale is not a language the server knows: the request's own locale applies (English here).
+    await refused({ confirmation: hebrew, locale: "en-XA" }, { "accept-language": "en" });
+    expect(await canaryHits()).not.toEqual([]);
+    // An owner erases on the admin path with the Hebrew phrase; direction marks from a pasted label are ignored.
+    const staff = await post(owner, { confirmation: `\u2068מחיקה \u2066${id}\u2069\u2069 `, locale: "he" }, {}, "/api/admin/enrollments");
+    expect(staff.statusCode, staff.body).toBe(200);
+    expect(staff.json()).toMatchObject({ status: "erased", replayed: false });
+    expect(await canaryHits()).toEqual([]);
+    // Without a named language the request's UI locale applies (Accept-Language here); English is accepted in any language.
+    expect((await post(learner, { confirmation: hebrew }, { "accept-language": "he-IL,he;q=0.9,en;q=0.5" })).json()).toMatchObject({ status: "erased", replayed: true });
+    expect((await post(learner, { confirmation: `ERASE ${id}`, locale: "he" })).json()).toMatchObject({ status: "erased", replayed: true });
   });
 
   it("signals live supervisor jobs, ends parked ones without a provider call, and then erases", async () => {

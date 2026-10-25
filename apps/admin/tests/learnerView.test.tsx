@@ -505,15 +505,21 @@ describe("read-only learner view", () => {
     );
   });
 
-  it("asks for the erasure phrase left to right in the Hebrew data card", () => {
+  it("asks for the erasure phrase in Hebrew, with the id left to right, and names that language", async () => {
     window.history.replaceState(null, "", "/admin/?locale=he");
+    const erase = vi.fn(async () => ({
+      enrollmentId,
+      status: "erased" as const,
+      counts: {},
+      replayed: false,
+    }));
     try {
       render(
         <LocaleProvider>
           <LearnerDataCard
             client={
               {
-                learnerData: { exportEnrollment: vi.fn(), erase: vi.fn() },
+                learnerData: { exportEnrollment: vi.fn(), erase },
               } as unknown as AdminClient
             }
             enrollment={enrollment}
@@ -524,11 +530,91 @@ describe("read-only learner view", () => {
       expect(
         screen.getByRole("button", { name: "ייצוא נתוני הלומד/ת" }),
       ).toBeVisible();
-      const phrase = `ERASE ${enrollmentId.slice(0, 8)}`;
+      const shortId = enrollmentId.slice(0, 8);
+      const phrase = `מחיקה ${shortId}`;
       const input = screen.getByLabelText(
         (label) => stripBidiControls(label) === `כדי לאשר, יש להקליד ${phrase}`,
       );
-      expect(input).toHaveAttribute("dir", "ltr");
+      // The id is a left-to-right isolate inside the right-to-left phrase.
+      expect((input as HTMLInputElement).labels?.[0]?.textContent).toContain(
+        `\u2066${shortId}\u2069`,
+      );
+      // A phrase typed in the reader's direction: no forced left-to-right field.
+      expect(input).not.toHaveAttribute("dir");
+      await userEvent.click(screen.getByText("מחיקת נתוני הקורס של הלומד/ת"));
+      await userEvent.type(
+        screen.getByLabelText("סיבה (נשמרת עם רשומת המחיקה)"),
+        "Learner asked by email.",
+      );
+      const submit = screen.getByRole("button", { name: "מחיקה לצמיתות" });
+      // The English phrase is not what this screen asks for.
+      await userEvent.type(input, `ERASE ${shortId}`);
+      expect(submit).toBeDisabled();
+      await userEvent.clear(input);
+      // Pasted from the label, with its direction marks.
+      await userEvent.click(input);
+      await userEvent.paste(`\u2068מחיקה \u2066${shortId}\u2069\u2069`);
+      expect(submit).toBeEnabled();
+      await userEvent.click(submit);
+      expect(erase).toHaveBeenCalledWith(
+        enrollmentId,
+        phrase,
+        "Learner asked by email.",
+        "he",
+      );
+    } finally {
+      window.history.replaceState(null, "", "/");
+      document.documentElement.lang = "";
+      document.documentElement.dir = "";
+    }
+  });
+
+  it("sends the English phrase from a pseudo-locale, which the server never sees", async () => {
+    window.history.replaceState(null, "", "/admin/?locale=en-XA");
+    const erase = vi.fn(async () => ({
+      enrollmentId,
+      status: "erased" as const,
+      counts: {},
+      replayed: false,
+    }));
+    try {
+      render(
+        <LocaleProvider>
+          <LearnerDataCard
+            client={
+              {
+                learnerData: { exportEnrollment: vi.fn(), erase },
+              } as unknown as AdminClient
+            }
+            enrollment={enrollment}
+            onErased={() => {}}
+          />
+        </LocaleProvider>,
+      );
+      const pseudo = createAdminTranslator("en-XA").t;
+      const shortId = enrollmentId.slice(0, 8);
+      const shown = pseudo("learnerDataCard.erase.phrase", { id: shortId });
+      expect(shown).not.toBe(`ERASE ${shortId}`);
+      const input = screen.getByLabelText(
+        pseudo("learnerDataCard.erase.confirm", { phrase: shown }),
+      );
+      await userEvent.type(
+        screen.getByLabelText(pseudo("learnerDataCard.erase.reason")),
+        "Learner asked by email.",
+      );
+      await userEvent.click(input);
+      await userEvent.paste(shown);
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: pseudo("learnerDataCard.erase.submit"),
+        }),
+      );
+      expect(erase).toHaveBeenCalledWith(
+        enrollmentId,
+        `ERASE ${shortId}`,
+        "Learner asked by email.",
+        "en",
+      );
     } finally {
       window.history.replaceState(null, "", "/");
       document.documentElement.lang = "";

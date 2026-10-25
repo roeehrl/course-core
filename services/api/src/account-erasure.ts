@@ -6,7 +6,7 @@ import { transaction } from './database.js';
 import type { authService } from './auth.js';
 import { requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
-import { eraseWithin } from './data-lifecycle.js';
+import { eraseWithin, typedConfirmation } from './data-lifecycle.js';
 import { lockKeys, openSupervisorOperationKeys } from './erasure-spend.js';
 import { recordSpendEvents } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
@@ -24,8 +24,6 @@ export const ACCOUNT_ERASURE_PHRASES: Readonly<Record<SupportedLocale, string>> 
   he: 'מחיקת החשבון שלי',
 };
 export const ACCOUNT_ERASURE_CONFIRMATION = ACCOUNT_ERASURE_PHRASES.en;
-/** A typed or pasted phrase as compared: without direction marks, composed, trimmed. */
-const typedPhrase = (value: string) => value.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').normalize('NFC').trim();
 const TERMINAL = "('applied','cancelled','failed')";
 
 /**
@@ -51,7 +49,7 @@ export function registerAccountErasureRoutes(app: FastifyInstance, db: Database,
     requireCondition(input.success, 'INVALID_INPUT', 400);
     const named = input.data!.locale;
     const locale = isSupportedLocale(named) ? named : (await requestLocale(db, request, actor.id)).locale;
-    const typed = typedPhrase(input.data!.confirmation);
+    const typed = typedConfirmation(input.data!.confirmation);
     requireCondition(typed === ACCOUNT_ERASURE_PHRASES.en || typed === ACCOUNT_ERASURE_PHRASES[locale], 'ERASURE_CONFIRMATION_REQUIRED', 400);
     const pending = await transaction(db, async client => {
       await client.query('SELECT 1 FROM app_users WHERE id=$1 FOR UPDATE', [actor.id]);
