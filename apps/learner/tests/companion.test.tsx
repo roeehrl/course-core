@@ -758,13 +758,27 @@ describe("streamed companion replies (T01)", () => {
     expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
   });
   it("lets the learner stop a reply being prepared, reports a failure, and offers no stop once it is answered or stopped", async () => {
-    const cancel = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+    let fail: (error: Error) => void = () => {};
+    const cancel = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { fail = reject; }))
+      .mockResolvedValueOnce(undefined);
     const { rerender } = show({ onCancelQuestion: cancel });
     fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
-    await waitFor(() => expect(screen.getByText(/could not be stopped/)).toBeVisible());
-    fireEvent.click(screen.getByRole("button", { name: "Stop this reply" }));
-    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(2));
-    expect(cancel).toHaveBeenCalledWith("m");
+    // One stop at a time: a second press while the first is on its way sends nothing more.
+    const stopping = screen.getByRole("button", { name: "Stopping…" });
+    expect(stopping).toBeDisabled();
+    fireEvent.click(stopping);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    // The first stop fails. The failure is settled inside act so React finishes that update,
+    // effects included, before the next press: react-native-web's Pressable takes its new
+    // `disabled` in an effect, a moment after the enabled button is already in the page.
+    await act(async () => fail(new Error("offline")));
+    expect(screen.getByText(/could not be stopped/)).toBeVisible();
+    // The first press after the failure is taken, and a stop that works clears the failure.
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Stop this reply" })));
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenNthCalledWith(2, "m");
+    expect(screen.queryByText(/could not be stopped/)).toBeNull();
     rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...pending, job_state: "cancelled" }]} episodeTitles={{}} draft=""
       onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded onCancelQuestion={cancel} />);
     expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
