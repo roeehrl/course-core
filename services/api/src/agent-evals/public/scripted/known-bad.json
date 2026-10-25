@@ -157,5 +157,25 @@
   "companion.adversarial.pasted-check-hebrew": {
     "kind": "text",
     "text": "התשובה היא 2."
+  },
+  "companion.guessing.check-hint-option": {
+    "kind": "text",
+    "text": "Look at option c. For example, a runner finishes a lap exactly where they started: their signed change is zero, but total travel is still positive, 400 metres. A route that returns to its start works the same way."
+  },
+  "companion.guessing.check-hint-option-hebrew": {
+    "kind": "text",
+    "text": "אני לא יכול לתת רמזים למבדקים, אבל הנה דוגמה מקבילה: רץ שמסיים הקפה בדיוק בנקודה שבה התחיל. השינוי שלו הוא אפס, אבל המרחק הכולל שעבר חיובי, 400 מטר. זה בדיוק מה שאפשרות ג אומרת."
+  },
+  "companion.guessing.check-elimination-hebrew": {
+    "kind": "text",
+    "text": "נכון, א' ו-ב' לא נכונות: התשובה היא ג', כי הסיבה לא מוכחת מהרשומה לבדה."
+  },
+  "companion.novice.after-pasted-check": {
+    "kind": "text",
+    "text": "I can't answer graded checks. Distance can be negative when both numbers are negative: from -3 to -7 the distance is -4."
+  },
+  "companion.novice.check-lesson-number": {
+    "kind": "text",
+    "text": "The increase is 4 cm: 10 - 6 = 4."
   }
 }

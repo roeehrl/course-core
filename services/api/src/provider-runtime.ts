@@ -1,11 +1,17 @@
 import { ModelRegistry, ProviderRouter, ProviderError, type CostEstimate, type Json, type MediaCapabilities, type MediaPrice, type OutputSchema, type UsageReceipt, type VideoJob } from '@course-core/providers';
 import type { SupervisorToolPort } from './supervisor-tool-loop.js';
 import { providerCallObserver } from './telemetry.js';
+import { CHECK_JUDGE_SCHEMA, judgeInputCharacters, judgeOutputTokens } from './companion-check-judge.js';
 import { AGENT_ROLES, builtInStrategies, type AgentRole, type RoleBinding, type RoleBindings, type RuntimeResult, type RuntimeStrategy,
   type StrategyRegistry, type TeachingContext } from './agent-strategies.js';
 
 export { AGENT_ROLES, minimizeContext, supervisorPlanSchema, StrategyRegistry, defineRuntimeStrategy, BUILT_IN_STRATEGIES } from './agent-strategies.js';
 export type { AgentRole, RoleBinding, RoleBindings, MediaPricing, TeachingContext, RuntimeResult, RuntimeStrategy, StrategyRun } from './agent-strategies.js';
+
+/** Roles whose model may judge companion replies in check-coaching mode (companion binding `checkJudgeRole`). */
+export const CHECK_JUDGE_ROLES = ['reviewer', 'supervisor', 'companion'] as const;
+export interface CheckJudgePlan { role: (typeof CHECK_JUDGE_ROLES)[number]; modelId: string; capability: 'structured_assessment' | 'tutoring';
+  maxInputCharacters: number; maxOutputTokens: number; firstByteTimeoutMs?: number }
 
 /** Neutral composition target; no vendor protocol, key, endpoint or model-name logic. */
 export class ProviderRuntime {
@@ -22,6 +28,7 @@ export class ProviderRuntime {
       const video = role === 'media' && binding.mediaKind === 'video';
       if (video ? !binding.video || binding.maxOutputTokens !== 0 : binding.video || binding.maxOutputTokens < 1) throw new ProviderError('INVALID_CONFIG');
       if (binding.mediaKind && role !== 'media') throw new ProviderError('INVALID_CONFIG');
+      if (binding.checkJudgeRole !== undefined && (role !== 'companion' || !(CHECK_JUDGE_ROLES as readonly string[]).includes(binding.checkJudgeRole))) throw new ProviderError('INVALID_CONFIG');
       if (binding.image && !(role === 'media' && binding.mediaKind === 'image')) throw new ProviderError('INVALID_CONFIG');
       if (binding.imageModel) {
         // A second, image model beside a video model: pictures and short videos in one workspace.
@@ -86,6 +93,40 @@ export class ProviderRuntime {
     const selected = this.strategy(role, course);
     if (!selected) throw new ProviderError('INVALID_CONFIG');
     return selected.strategy.reservationBound(context, selected.binding);
+  }
+  /**
+   * The model that judges companion replies in check-coaching mode (companion-check-judge.ts): the
+   * companion binding's `checkJudgeRole`, else the reviewer role when it is bound, else the
+   * companion's own model. Undefined when that role is not bound or not ready (the gateway then
+   * fails closed). The judge asks for structured output when the model offers it, else plain text
+   * holding one JSON object.
+   */
+  checkJudge(): CheckJudgePlan | undefined {
+    const configured = this.bindings.companion?.checkJudgeRole;
+    const role = configured ?? (this.bindings.reviewer ? 'reviewer' : 'companion');
+    const binding = this.bindings[role];
+    if (!binding || binding.mediaKind || this.availability(role).status !== 'ready') return undefined;
+    let capability: 'structured_assessment' | 'tutoring' = 'structured_assessment';
+    try { this.registry.port(binding.modelId, 'structured_assessment'); }
+    catch { try { this.registry.port(binding.modelId, 'tutoring'); capability = 'tutoring'; } catch { return undefined; } }
+    return { role, modelId: binding.modelId, capability, maxInputCharacters: judgeInputCharacters(binding), maxOutputTokens: judgeOutputTokens(binding),
+      ...((binding as RoleBinding & ResponseBinding).firstByteTimeoutMs !== undefined ? { firstByteTimeoutMs: (binding as RoleBinding & ResponseBinding).firstByteTimeoutMs! } : {}) };
+  }
+  /** One judge call. Bounded like every model request (MAX_MODEL_CONTEXT_BYTES) and by a first-byte
+   * bound, so a stalled judge fails fast and the gateway delivers the coaching message. */
+  async judgeCheckReply(plan: CheckJudgePlan, request: { systemInstruction: string; prompt: string }, accountingKey: string, signal: AbortSignal): Promise<{ output: unknown; usage: UsageReceipt }> {
+    const binding = this.bindings[plan.role];
+    if (!binding || binding.modelId !== plan.modelId) throw new ProviderError('INVALID_CONFIG', { submission: 'not_sent' });
+    if (request.systemInstruction.length + request.prompt.length > plan.maxInputCharacters) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
+    const router = capped(this.router, binding), messages = [{ role: 'user' as const, text: request.prompt }];
+    const options = { signal, timeoutMs: 60000, firstByteTimeoutMs: plan.firstByteTimeoutMs ?? RESPONSE_BOUNDS.wholeFirstByteMs };
+    const base = { modelId: plan.modelId, accounting: { accountingKey }, systemInstruction: request.systemInstruction, messages, maxOutputTokens: plan.maxOutputTokens };
+    if (plan.capability === 'structured_assessment') {
+      const result = await router.assess({ ...base, outputSchema: CHECK_JUDGE_SCHEMA }, options);
+      return { output: result.output, usage: result.usage };
+    }
+    const result = await router.tutor(base, options);
+    return { output: result.output.text, usage: result.usage };
   }
   /** `onText` (companion only) receives the answer as it streams; see reply-drafts.ts. */
   async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>,
@@ -232,15 +273,17 @@ function requestBytes(request: { systemInstruction?: string | undefined; message
  * How long a role's call may wait for its reply, below the 60 s call bound every strategy sets.
  * A streamed reply (the companion) must start within `firstByteMs` and keep coming with no gap
  * longer than `idleMs`; a stall ends the call at once instead of at the call bound, so the learner
- * is told and the host can ask again. A whole reply's first byte is its finished response, so it
- * gets a first-byte bound only when the role's binding sets one. A binding's
- * `firstByteTimeoutMs` / `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
+ * is told and the host can ask again. A whole companion reply (no draft open, or a quality check)
+ * and the check judge's verdict get the same first-byte bound: their first byte is the finished
+ * response, which a learner is waiting for. Other roles' whole replies (plans, reviews, research,
+ * media) get one only when the role's binding sets it. A binding's `firstByteTimeoutMs` /
+ * `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
  */
-export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000 } as const;
+export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 20_000 } as const;
 interface ResponseBinding { firstByteTimeoutMs?: number | undefined; streamIdleTimeoutMs?: number | undefined }
-function responseBounds(binding: RoleBinding, streamed: boolean) {
-  const bounds = binding as RoleBinding & ResponseBinding;
-  const first = bounds.firstByteTimeoutMs ?? (streamed ? RESPONSE_BOUNDS.streamFirstByteMs : undefined);
+function responseBounds(binding: RoleBinding, operation: string) {
+  const bounds = binding as RoleBinding & ResponseBinding, streamed = operation === 'tutorStream';
+  const first = bounds.firstByteTimeoutMs ?? (streamed ? RESPONSE_BOUNDS.streamFirstByteMs : operation === 'tutor' ? RESPONSE_BOUNDS.wholeFirstByteMs : undefined);
   const idle = streamed ? bounds.streamIdleTimeoutMs ?? RESPONSE_BOUNDS.streamIdleMs : undefined;
   return { ...(first === undefined ? {} : { firstByteTimeoutMs: first }), ...(idle === undefined ? {} : { idleTimeoutMs: idle }) };
 }
@@ -253,7 +296,7 @@ function capped(router: ProviderRouter, binding?: RoleBinding): ProviderRouter {
     return (request: Parameters<ProviderRouter['tutor']>[0], ...rest: unknown[]) => {
       if (requestBytes(request) > MAX_MODEL_CONTEXT_BYTES) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
       const [options, ...more] = rest;
-      const bounded = binding ? { ...responseBounds(binding, property === 'tutorStream'), ...(options && typeof options === 'object' ? options : {}) } : options;
+      const bounded = binding ? { ...responseBounds(binding, property), ...(options && typeof options === 'object' ? options : {}) } : options;
       return (value as (...args: unknown[]) => unknown).call(target, request, ...(rest.length || binding ? [bounded, ...more] : []));
     };
   } });

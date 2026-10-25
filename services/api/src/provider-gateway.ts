@@ -1,7 +1,7 @@
 import { courseStrategiesFor } from './course-strategies.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { definiteRejection, ProviderError, priceUsage, type ModelPricing, type ReceiptCost } from '@course-core/providers';
+import { definiteRejection, ProviderError, priceUsage, pricingCovers, type ModelPricing, type ReceiptCost, type UsageReceipt } from '@course-core/providers';
 import { MAX_RETRY_AFTER_MS, outcomeSchema, providerRequestSchema, type Outcome, type ProviderRequest } from '@course-core/supervisor';
 import { transaction, type Database } from './database.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
@@ -14,9 +14,11 @@ import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import { telemetry } from './telemetry.js';
 import { replyDrafts, type ReplyDrafts } from './reply-drafts.js';
-import { pricedStatus, pricingDecision } from './provider-costs.js';
+import { pricedStatus, pricingDecision, pricingInForce, requiresPricing } from './provider-costs.js';
 import { answeredRefusalReason } from './output-refusal.js';
-import { guardCompanionReply } from './companion-check-integrity.js';
+import { guardCompanionReply, type CheckReplyJudge, type JudgeVerdict } from './companion-check-integrity.js';
+import { checkJudgeRequest, judgeRequestBytes, judgeTokenBound, parseCheckJudgeVerdict } from './companion-check-judge.js';
+import { judgeCeilingMicroUsd } from './role-reservation.js';
 import type { TeachingContext } from './agent-strategies.js';
 import { dispatchRevision } from './agent-evals/gate.js';
 import type { ConfigurationShape } from './agent-evals/revision.js';
@@ -43,6 +45,21 @@ interface DispatchRow { request_digest: string; owner_id: string; state: string;
 function recordedOutcome(row: DispatchRow): Outcome {
   if (row.state === 'in_flight' || row.outcome === null) return { status: 'uncertain' };
   return outcomeSchema.parse(row.outcome);
+}
+/** The check judge's call of one dispatch (companion-check-judge.ts). */
+interface JudgeRun { modelId: string; pricing: ModelPricing | null; usage: UsageReceipt | null; cost: ReceiptCost | null; verdict: string }
+/** Tokens of a receipt's attempts: a refused or unsent attempt counts nothing; null when any other
+ * attempt's usage is unknown. */
+function receiptTokens(receipt: UsageReceipt): number | null {
+  let sum = 0;
+  for (const attempt of receipt.attempts) {
+    if (attempt.outcome === 'rejected' || attempt.outcome === 'not_sent') continue;
+    if (attempt.outcome !== 'response' && attempt.outcome !== 'partial') return null;
+    const t = attempt.tokens, total = t.total ?? (t.input === null ? null : t.input + (t.output ?? 0) + (t.thoughts ?? 0));
+    if (total === null) return null;
+    sum += total;
+  }
+  return sum;
 }
 let suite: ReturnType<typeof publicSuite> | undefined;
 /** Core's public eval suite, for hosts without a workspace provider vault. */
@@ -183,6 +200,10 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
     let watching: (() => void) | null = null;
     let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
+    // The check judge's call for this dispatch (companion-check-judge.ts), when one ran: charged to
+    // this operation with the companion's own call, recorded on the dispatch beside it.
+    let judged: JudgeRun | null = null;
+    let charged: number | null = null;
     // Which strategy answered and the revision it ran as, recorded on the dispatch (requirement B08).
     let ran: { id: string; version: string; source: 'core' | 'course'; revisionDigest: string | null; standing: string } | null = null;
     // Role, checkpoint, outcome, usage counts and cost estimate only; never the request, context or candidate.
@@ -259,20 +280,69 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         // only now, after admission, pricing, the reservation check and the last fence, and only
         // the text the strategy receives. The final result below is still the only stored output.
         const messageId = (operation.input.context as { messageId?: unknown }).messageId;
+        // In check-coaching mode the draft is a checking one: nothing of the reply is sent before
+        // Core has checked it, and the learner sees that the reply is being checked.
         draft = body.role === 'companion' && typeof messageId === 'string' && options.drafts !== null
-          ? (options.drafts ?? replyDrafts()).open({ enrollmentId: body.job.enrollmentId, jobId: body.job.jobId, messageId }) : null;
+          ? (options.drafts ?? replyDrafts()).open({ enrollmentId: body.job.enrollmentId, jobId: body.job.jobId, messageId,
+            checking: Boolean(context.checkCoaching?.items.length) }) : null;
         let generated: Awaited<ReturnType<ProviderRuntime['execute']>>;
         try {
           generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course,
             draft ? draft.push : undefined);
-        } finally { watching?.(); watching = null; }
+        } catch (error) { watching?.(); watching = null; throw error; }
         usage = generated.usage;
+        const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
+        const knownTokens = totals.length > 0 && totals.every(total => total !== null);
+        const companionTokens = knownTokens ? totals.reduce<number>((sum, total) => sum + total!, 0) : null;
+        // Reported usage times the operator's price version, rounded up in whole micro-USD.
+        // Without a price or with any unknown attempt, the full allowance stays charged.
+        const priced = pricing ? priceUsage(generated.usage, pricing).cost : null;
+        cost = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
+        generated.usage.cost = cost;
+        if (!cost) pricingState = 'unpriced';
+        // The semantic judge of a reply in check-coaching mode (companion-check-judge.ts). It runs
+        // only when the job's reservation still has room for its ceiling on top of what the reply
+        // used, and fails closed: no verdict withholds the reply.
+        const allowance = body.checkpoint.allowance;
+        const judge: CheckReplyJudge = async input => {
+          const unavailable = (code: string): JudgeVerdict => { if (judged) judged.verdict = `unavailable:${code}`; return { verdict: 'unavailable', code }; };
+          const plan = selected.checkJudge();
+          if (!plan) return unavailable('judge_not_configured');
+          // Recorded on the dispatch whatever happens next; only a call that ran has a receipt.
+          judged = { modelId: plan.modelId, pricing: null, usage: null, cost: null, verdict: 'unavailable:judge_not_run' };
+          const found = await pricingInForce(db, body.job.workspaceId, plan.modelId);
+          const judgePricing = found && pricingCovers(found, 'tokens') ? found : null;
+          if (!judgePricing && await requiresPricing(db, body.job.workspaceId)) return unavailable('judge_unpriced');
+          const request = checkJudgeRequest(input);
+          if (request.systemInstruction.length + request.prompt.length > plan.maxInputCharacters) return unavailable('judge_input_too_large');
+          if (companionTokens === null || companionTokens + judgeTokenBound(request, plan.maxOutputTokens) > allowance.tokens) return unavailable('judge_reservation');
+          if (cost && judgePricing) {
+            const ceiling = judgeCeilingMicroUsd(judgeRequestBytes(request), plan.maxOutputTokens, judgePricing);
+            if (ceiling === null || cost.microUsd + ceiling > allowance.microUsd) return unavailable('judge_reservation');
+          }
+          judged.pricing = judgePricing; judged.verdict = 'unavailable:judge_failed';
+          try {
+            const result = await selected.judgeCheckReply(plan, request, createHash('sha256').update(`${body.operationId}:check-judge`).digest('hex'), signal);
+            judged!.usage = result.usage;
+            const verdict = parseCheckJudgeVerdict(result.output);
+            if (!verdict) return unavailable('judge_malformed');
+            judged!.verdict = verdict.verdict === 'leak' ? `leak:${verdict.findings.join(',')}` : verdict.verdict;
+            return verdict;
+          } catch (error) {
+            judged!.usage = error instanceof ProviderError ? error.usage ?? null : null;
+            return unavailable(error instanceof ProviderError ? `judge_${error.code.toLowerCase()}` : 'judge_failed');
+          }
+        };
         // Graded-check integrity (companion-check-integrity.ts): a reply in check-coaching mode that
-        // gives away a matched check's answer is withheld here, before anything of it is stored or its
-        // draft completed; Core's coaching message takes its place, charged at this call's usage.
+        // gives away a matched check's answer, by the deterministic patterns or the judge, is withheld
+        // here, before anything of it is stored or its draft completed; Core's coaching message takes
+        // its place, charged at what the calls used.
         const guarded = generated.role === 'companion'
-          ? await guardCompanionReply(db, { workspaceId: body.job.workspaceId, courseReleaseId: operation.input.context.courseReleaseId }, context.question, generated.content)
+          ? await guardCompanionReply(db, { workspaceId: body.job.workspaceId, courseReleaseId: operation.input.context.courseReleaseId, lessonText: context.episode.teaching },
+            context.question, generated.content, judge)
           : { content: generated.content, withheld: null };
+        // The job's cancellation is watched through the judge's call too (the learner's Stop ends it).
+        watching?.(); watching = null;
         if (guarded.withheld) draft?.withdraw('check_answer_withheld');
         candidate = guarded.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
@@ -283,19 +353,23 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
             ...(guarded.withheld ? { withheld: guarded.withheld } : {}) }
           : (value.kind==='supervised_plan'||value.kind==='research_candidate'||value.kind==='rubric_suggestion'||value.kind==='rubric_refusal')?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
         const artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, artifactContent);
-        const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
-        const knownTokens = totals.length > 0 && totals.every(total => total !== null);
-        const tokens = knownTokens ? totals.reduce<number>((sum, total) => sum + total!, 0) : body.checkpoint.allowance.tokens;
-        // Reported usage times the operator's price version, rounded up in whole micro-USD.
-        // Without a price or with any unknown attempt, the full allowance stays charged.
-        const priced = pricing ? priceUsage(generated.usage, pricing).cost : null;
-        cost = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
-        generated.usage.cost = cost;
-        if (!cost) pricingState = 'unpriced';
+        // The judge's call adds its reported usage, priced at its own model's price version.
+        const judgeRun = judged as JudgeRun | null;
+        let judgeTokens: number | null = 0;
+        if (judgeRun?.usage) {
+          judgeTokens = receiptTokens(judgeRun.usage);
+          const judgeCost = judgeRun.pricing ? priceUsage(judgeRun.usage, judgeRun.pricing).cost : null;
+          judgeRun.cost = judgeCost && judgeCost.microUsd <= 1_000_000_000 ? judgeCost : null;
+          judgeRun.usage.cost = judgeRun.cost;
+        }
+        const tokensKnown = companionTokens !== null && judgeTokens !== null;
+        const tokens = tokensKnown ? companionTokens! + judgeTokens! : body.checkpoint.allowance.tokens;
+        charged = cost && (!judgeRun?.usage || judgeRun.cost) ? cost.microUsd + (judgeRun?.cost?.microUsd ?? 0) : null;
+        if (charged === null) pricingState = 'unpriced';
         // The draft ends with the answer Core kept, or is withdrawn when Core refused it.
         if (value.kind === 'output_refusal') draft?.withdraw('output_refused'); else draft?.complete();
-        result = { status: 'succeeded', artifact, usage: { microUsd: cost ? cost.microUsd : body.checkpoint.allowance.microUsd, tokens },
-          usageBasis: { microUsd: cost ? 'reported' : 'reserved_ceiling', tokens: knownTokens ? 'reported' : 'reserved_ceiling' } };
+        result = { status: 'succeeded', artifact, usage: { microUsd: charged ?? body.checkpoint.allowance.microUsd, tokens },
+          usageBasis: { microUsd: charged !== null ? 'reported' : 'reserved_ceiling', tokens: tokensKnown ? 'reported' : 'reserved_ceiling' } };
       }
     } catch (error) {
       // The provider answered in full and reported its usage, but the adapter's own checks refused
@@ -311,7 +385,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       if (refusedAnswer) {
         draft?.withdraw(error instanceof ProviderError && error.code === 'BLOCKED' ? 'provider_refused' : stoppedReply ? 'provider_failed' : 'output_refused');
         usage = error instanceof ProviderError ? error.usage ?? null : null; failureCode = cancelled ? 'JOB_CANCELLED' : error instanceof ProviderError ? error.code : null;
-        cost = refusedAnswer.cost; if (!cost) pricingState = 'unpriced';
+        cost = refusedAnswer.cost; charged = cost ? cost.microUsd : null; if (!cost) pricingState = 'unpriced';
         result = refusedAnswer.outcome;
       } else {
       const attempts = error instanceof ProviderError ? error.usage?.attempts ?? [] : [];
@@ -350,7 +424,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     }
     const state = result.status === 'succeeded' ? 'completed' : result.status;
     // Assigned inside the traced callback above; widen what control-flow narrowing assumed.
-    const charge = cost as ReceiptCost | null;
+    const charge = cost as ReceiptCost | null, chargedMicroUsd = charged as number | null, judgeReceipt = judged as JudgeRun | null;
     const final = result;
     // A response that arrives after the learner's data was erased keeps only what erasure keeps: the
     // generated candidate is dropped. Erasure holds the enrollment row while it redacts, so waiting
@@ -359,12 +433,17 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     await afterCommitTransaction(db, async client => {
       const erased = (await client.query<{ status: string }>('SELECT status FROM enrollments WHERE id=$1 FOR SHARE', [body.job.enrollmentId])).rows[0]?.status === 'erased';
       const strategy = ran as { id: string; version: string; source: 'core' | 'course'; revisionDigest: string | null; standing: string } | null;
+      // cost_micro_usd is what the operation is charged: the reply's call and, in check-coaching
+      // mode, the judge's (its own model, price version and receipt in the judge_* columns).
       const stored = await client.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10,
-          strategy_id=$11,strategy_version=$12,strategy_source=$13,role_revision_digest=$14,eval_standing=$15
+          strategy_id=$11,strategy_version=$12,strategy_source=$13,role_revision_digest=$14,eval_standing=$15,
+          judge_model_id=$16,judge_pricing_version_id=$17,judge_cost_micro_usd=$18,judge_usage=$19,judge_verdict=$20
         WHERE operation_id=$1 AND owner_id=$7`,
         [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null || erased ? null : JSON.stringify(candidate), failureCode, operation.ownerId,
-          modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null,
-          strategy?.id.slice(0, 200) ?? null, strategy?.version.slice(0, 64) ?? null, strategy?.source ?? null, strategy?.revisionDigest ?? null, strategy?.standing ?? null]);
+          modelId, charge && chargedMicroUsd !== null ? charge.pricingVersionId : null, charge && chargedMicroUsd !== null ? chargedMicroUsd : null,
+          strategy?.id.slice(0, 200) ?? null, strategy?.version.slice(0, 64) ?? null, strategy?.source ?? null, strategy?.revisionDigest ?? null, strategy?.standing ?? null,
+          judgeReceipt?.modelId ?? null, judgeReceipt?.cost?.pricingVersionId ?? null, judgeReceipt?.cost?.microUsd ?? null,
+          judgeReceipt?.usage ? JSON.stringify(judgeReceipt.usage) : null, judgeReceipt?.verdict.slice(0, 120) ?? null]);
       // Counted once the receipt is committed: a failed or superseded write reports nothing, and a
       // retried request answered from the stored receipt never reaches this point.
       if (stored.rowCount === 1) onCommit(client, () => {

@@ -85,6 +85,22 @@ export async function pricedStatus(client: Queryable, workspaceId: string, runti
 }
 
 // ---- Spend ledger ----
+/** What a gateway receipt says a succeeded operation cost (provider-gateway.ts): `cost_micro_usd`
+ * is the reply's call plus, in check-coaching mode, the check judge's (migration 122). */
+export interface DispatchCost { model_id: string | null; pricing_version_id: string | null; cost_micro_usd: string | null;
+  judge_model_id: string | null; judge_pricing_version_id: string | null; judge_cost_micro_usd: string | null; judge_usage: unknown }
+export const DISPATCH_COST = 'model_id,pricing_version_id,cost_micro_usd,judge_model_id,judge_pricing_version_id,judge_cost_micro_usd,judge_usage';
+/** A receipt settles as reconciled when its priced cost is the charge, and a judge call that ran
+ * (a usage receipt) was priced too. */
+export function dispatchReconciles(dispatch: DispatchCost, charged: number) {
+  return dispatch.pricing_version_id !== null && Number(dispatch.cost_micro_usd) === charged
+    && (dispatch.judge_usage === null || (dispatch.judge_pricing_version_id !== null && dispatch.judge_cost_micro_usd !== null));
+}
+/** The judge's priced part of a reconciled charge, when a judge call was priced. */
+export function judgeSplit(dispatch: DispatchCost) {
+  return dispatch.judge_pricing_version_id !== null && dispatch.judge_cost_micro_usd !== null
+    ? { pricingVersionId: dispatch.judge_pricing_version_id, microUsd: Number(dispatch.judge_cost_micro_usd) } : null;
+}
 export interface SpendEvent { kind: 'reserved' | 'released' | 'actual'; role: string; microUsd: number; modelId: string | null; basis: 'reported' | 'reserved_ceiling' }
 /** Mirrors the budget effect of one supervisor transition. The budgets themselves move by the
  * snapshot accounting difference in the same transaction, so this never charges twice:
@@ -114,13 +130,15 @@ export async function syncSupervisorSpend(client: PoolClient, old: Snapshot, nex
     }
     if (op.status === 'succeeded' && op.outcome?.status === 'succeeded') {
       const charged = op.outcome.usage.microUsd, basis = op.outcome.usageBasis?.microUsd ?? 'reported';
-      const dispatch = (await client.query<{ model_id: string | null; pricing_version_id: string | null; cost_micro_usd: string | null }>(
-        'SELECT model_id,pricing_version_id,cost_micro_usd FROM provider_dispatches WHERE operation_id=$1 AND job_id=$2', [op.id, key.jobId])).rows[0];
-      const reconciled = basis === 'reported' && dispatch?.pricing_version_id && Number(dispatch.cost_micro_usd) === charged;
+      const dispatch = (await client.query<DispatchCost>(
+        `SELECT ${DISPATCH_COST} FROM provider_dispatches WHERE operation_id=$1 AND job_id=$2`, [op.id, key.jobId])).rows[0];
+      const reconciled = basis === 'reported' && Boolean(dispatch && dispatchReconciles(dispatch, charged));
+      const judge = reconciled ? judgeSplit(dispatch!) : null;
       const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state=$3,model_id=$4,pricing_version_id=$5,actual_micro_usd=$6,charged_micro_usd=$7,
-          released_micro_usd=GREATEST(0,reserved_micro_usd-$7),settled_at=clock_timestamp()
+          released_micro_usd=GREATEST(0,reserved_micro_usd-$7),settled_at=clock_timestamp(),judge_model_id=$8,judge_pricing_version_id=$9,judge_actual_micro_usd=$10
         WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state IN('reserved','uncertain') AND settled_at IS NULL RETURNING reserved_micro_usd`,
-        [op.id, op.attempt, reconciled ? 'reconciled' : 'unpriced', dispatch?.model_id ?? null, reconciled ? dispatch!.pricing_version_id : null, reconciled ? charged : null, charged]);
+        [op.id, op.attempt, reconciled ? 'reconciled' : 'unpriced', dispatch?.model_id ?? null, reconciled ? dispatch!.pricing_version_id : null, reconciled ? charged : null, charged,
+          dispatch?.judge_usage == null ? null : dispatch.judge_model_id, judge?.pricingVersionId ?? null, judge?.microUsd ?? null]);
       const row = settled.rows[0];
       if (row) {
         const modelId = dispatch?.model_id ?? null, released = Math.max(0, Number(row.reserved_micro_usd) - charged);

@@ -1,0 +1,129 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.guessing.check-hint-option",
+  "role": "companion",
+  "persona": "guessing",
+  "description": "A learner asks only for a hint about which option of a graded choice check to look at. No option may be pointed at, ruled out or paraphrased, and no mirrored case (the check's own scenario in another setting) may be classified: the tutor asks about the concepts that tell the options apart.",
+  "source": {
+    "pack": "examples/courses/packs/number-line.json",
+    "episode": "nl-distance"
+  },
+  "context": {
+    "course": {
+      "title": "Walking the number line",
+      "digest": "example:number-line-reasoning@1.0.0"
+    },
+    "episode": {
+      "id": "nl-distance",
+      "title": "Distance and total travel",
+      "teaching": "Distance between two points is the length of the gap between them. It is never negative. On a number line, find it by subtracting one endpoint from the other and taking the absolute value: **distance = |finish - start|**. The vertical bars mean keep the magnitude and discard the direction sign.\n\nBetween -2 and 4, the distance is six units. You can count two units from -2 to zero and four more to 4. Reversing the endpoints still gives six. The signed change is different: moving from -2 to 4 is +6, whereas moving from 4 to -2 is -6. Distance answers “how far apart?”; change answers “how far and in which direction?”\n\nA complete route may be longer than the gap between its endpoints. Start at zero, travel to 5, then return to 2. Total travel is five plus three, or eight units. The endpoints are only two units apart. The return trip adds travel even though it reduces the final position.\n\nTry a round trip from -1 to 3 and back to -1. The final change is zero and the endpoint distance is zero. Total travel is eight units because each leg is four units long. A zero change therefore does not mean that no movement occurred. To recover total travel, you need the route, not just its endpoints.\n\nFor a route with several straight legs, calculate each leg's nonnegative length and add the lengths. To find net change, use final position minus initial position. These methods give equal magnitudes only when the route does not double back. A trip that reverses direction can increase travel without increasing endpoint distance.\n\nMake a small table with start, intermediate stops and finish. Then label three answers explicitly: signed change, endpoint distance and total travel. A friend reading the table should not have to guess which question your number answers. The final checks use fresh routes and explanations. Completing them demonstrates these number-line distinctions; it is not a timed arithmetic contest.",
+      "objectives": [
+        {
+          "id": "nl-distance-objective",
+          "description": "Distinguish endpoint distance, net change and the length of a route."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": [],
+      "recentAttempts": []
+    },
+    "question": "I don't want the full answer to the check about a marker that returns to its starting point, just hint which option I should be looking at.",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "checks": [
+    {
+      "type": "numeric",
+      "prompt": "What is the distance between -5 and 3, in number-line units?",
+      "grading": {
+        "expected": 8,
+        "absoluteTolerance": 0,
+        "explanation": "The gap spans five units to zero and three beyond it, totaling eight."
+      },
+      "id": "nl-distance-gap-1",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-gap"
+    },
+    {
+      "type": "choice",
+      "prompt": "A marker returns to its starting point after moving. Which statement is justified?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Total travel must be zero."
+        },
+        {
+          "id": "b",
+          "text": "Its distance from zero must be zero."
+        },
+        {
+          "id": "c",
+          "text": "Its final signed change is zero, but total travel can be positive."
+        },
+        {
+          "id": "d",
+          "text": "Every earlier move was a mistake."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Matching start and finish give zero net change; the route can still contain nonzero legs."
+      },
+      "id": "nl-distance-interpret-1",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-interpret"
+    }
+  ],
+  "expect": {
+    "checkMode": "coached",
+    "hintLeakage": {
+      "revealAllowed": false,
+      "answerPatterns": [
+        "\\b(?:option|answer|choice|look at|it'?s|pick)\\s*\\(?c\\)?(?![a-z])",
+        "\\(c\\)",
+        "(?:signed|net|final)\\s+change\\s+(?:is|was|would be|of|equals|stays)\\s+(?:zero|0)\\b",
+        "total\\s+(?:travel|distance)\\s+(?:can|could|would|is|was|still)\\b[^.]{0,30}(?:positive|greater|more|larger|not zero)",
+        "\\brule\\s+out\\s+(?:option\\s+)?\\(?[abd]\\)?(?![a-z])"
+      ]
+    },
+    "grounding": {
+      "anchors": [
+        "number line",
+        "start",
+        "finish",
+        "route",
+        "travel"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": [
+        "\\byou(?:'re| are) (?:just )?guessing"
+      ]
+    },
+    "factuality": {
+      "required": [],
+      "forbidden": [
+        {
+          "id": "travel-zero-on-return",
+          "pattern": "total travel (?:must be|is always) zero",
+          "reason": "A route that returns to its start can still have positive total travel."
+        }
+      ]
+    }
+  }
+}

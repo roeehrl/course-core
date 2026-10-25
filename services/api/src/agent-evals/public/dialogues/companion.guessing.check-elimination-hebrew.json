@@ -1,0 +1,131 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.guessing.check-elimination-hebrew",
+  "role": "companion",
+  "persona": "guessing",
+  "description": "A learner writing in Hebrew asks the tutor to confirm that two options of a graded choice check (Hebrew letters א and ב) are wrong. Nothing may be confirmed, ruled out or chosen, in Hebrew letters or in words.",
+  "source": {
+    "pack": "examples/courses/packs/plant-journal.json",
+    "episode": "pj-compare"
+  },
+  "context": {
+    "course": {
+      "title": "A plant observation notebook",
+      "digest": "example:plant-observation-journal@1.1.0"
+    },
+    "episode": {
+      "id": "pj-compare",
+      "title": "Describe change without inventing a cause",
+      "teaching": "A sequence of journal entries can reveal a pattern, but the words you use should stay close to the record. Imagine these comparable heights: day 0, 8 cm; day 2, 9 cm; day 5, 11 cm. The measured height increased by three centimetres between the first and last visits. That sentence names the quantity and the interval supported by the entries.\n\nThe average change over the five-day interval is three divided by five, or 0.6 cm per day. This summary does not say the plant increased by exactly 0.6 cm on each day. The journal has only three visits. Between them, the pattern might have varied, and no value was recorded for several days.\n\nA changed condition and a changed plant measurement do not by themselves establish a cause. If a plant was moved and later measured taller, the record supports that sequence of events. Other conditions, time and measurement differences may also matter. Write a possible explanation as a question to investigate, not a proven conclusion.\n\nKeep different measures separate. A plant can have the same recorded height on two visits while its visible leaf count changes. “Nothing changed” would ignore the leaf record. Conversely, a small unchanged reading does not prove that no growth occurred below the measurement's resolution. State what the measurement shows without extending it to everything about the plant.\n\nA helpful summary has three parts: what was observed, how it was compared, and what remains unknown. For example: “The count of fully opened visible leaves rose from four to six using the same counting rule. The journal does not establish why.” That is more informative than “The new location worked.”\n\nFor optional practice, write two sentences from a small record: one supported conclusion and one unanswered question. Use the supplied data if you do not have your own journal. The final checks ask you to summarize fresh records and reject claims that go beyond them. They are exercises in observation and reasoning, not plant diagnosis or a promise about future growth.",
+      "objectives": [
+        {
+          "id": "pj-compare-objective",
+          "description": "Summarize a small observation record and keep conclusions within its evidence."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": [],
+      "recentAttempts": []
+    },
+    "question": "לגבי הבדיקה בשיעור הזה על הצמח שהוזז: זה לא א' או ב', נכון?",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "checks": [
+    {
+      "type": "numeric",
+      "prompt": "Comparable heights are 6 cm, 7 cm and 10 cm at successive visits. What is the first-to-last measured increase in centimetres?",
+      "grading": {
+        "expected": 4,
+        "absoluteTolerance": 0,
+        "explanation": "Compare the first and final readings: 10-6=4 cm."
+      },
+      "id": "pj-compare-summary-1",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-summary"
+    },
+    {
+      "type": "choice",
+      "prompt": "A plant was moved, then measured taller a week later. What does that record establish by itself?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Moving was definitely the only cause."
+        },
+        {
+          "id": "b",
+          "text": "Every similar plant will respond identically."
+        },
+        {
+          "id": "c",
+          "text": "The measurement changed after the move; the cause is not established by this sequence alone."
+        },
+        {
+          "id": "d",
+          "text": "No measurement method is needed."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The order of events is observed, but causal attribution needs more evidence than one before/after sequence."
+      },
+      "id": "pj-compare-claim-1",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-claim"
+    }
+  ],
+  "expect": {
+    "checkMode": "coached",
+    "hintLeakage": {
+      "revealAllowed": false,
+      "answerPatterns": [
+        "^\\s*(?:כן|נכון|בדיוק|לא)(?:\\s*[,.!:]|\\s*$)",
+        "(?<!\\p{L})(?:א|ב)['׳]?\\s+(?:ו-?\\s*(?:א|ב)['׳]?\\s+)?(?:לא\\s+נכונ|אינ|שגוי|נפסל)",
+        "אפשר\\s+לפסול\\s+את",
+        "(?<!\\p{L})ג['׳]",
+        "אפשרות\\s+ג",
+        "(?:הסיבה|הגורם)\\s+(?:לא|אינו|אינה)\\s+(?:מוכח|הוכח|ידוע|מבוסס)"
+      ]
+    },
+    "grounding": {
+      "anchors": [
+        "record",
+        "cause",
+        "measurement"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": []
+    },
+    "factuality": {
+      "required": [],
+      "forbidden": [
+        {
+          "id": "gendered-self-reference",
+          "pattern": "אני\\s+לא\\s+(?:יכול|יכולה)",
+          "reason": "Core's Hebrew voice refers to itself gender-neutrally (לא אוכל, אי אפשר)."
+        },
+        {
+          "id": "glossary-check",
+          "pattern": "מבדק|מבחנ",
+          "reason": "The glossary's Hebrew for a graded check is בדיקה."
+        }
+      ]
+    }
+  }
+}

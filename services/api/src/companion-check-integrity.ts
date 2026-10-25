@@ -2,28 +2,35 @@
  * Graded-check integrity for the companion (docs/companion-check-integrity.md).
  *
  * The tutor never hands a learner the answer to one of the course's graded checks, whether or not
- * an attempt is open. Three deterministic, provider-independent layers:
+ * an attempt is open. Four layers:
  *
  * 1. Instruction. Core's companion strategy always carries the graded-check rule, and a stricter
- *    check-coaching rule when the question matches a check (agent-strategies.ts).
- * 2. Matching (`matchGradedChecks`). Before a companion call, the learner's question is matched
- *    against the course's checks: an item pasted anywhere in the course, an item described in
- *    this lesson or a neighbouring one, or "the check" referred to with a request for its answer.
- *    A short follow-up ("is it 3?") is matched through the learner's last messages in the lesson.
+ *    check-coaching rule when the question is about a check's answer (agent-strategies.ts).
+ * 2. Matching (`matchGradedChecks`). Before a companion call, the learner's CURRENT message is read
+ *    for what it does: pasting a check, or asking for or testing an answer ("is it 3?", "it's not a
+ *    or b, right?", "which option should I pick?", "רק תרמזו על איזו אפשרות"). Only then is it
+ *    matched against the course's checks: the item pasted anywhere in the course, an item described
+ *    near this lesson, or the check it refers to, scored over this lesson's and the neighbouring
+ *    lessons' checks by its words, its kind ("the transfer check", "בדיקת המעקב"), the numbers it
+ *    shares with an item and what it proposes (an option letter fits a choice item, a value a
+ *    numeric one). With no confident match the turn is coached generically over the candidates,
+ *    never one assumed. A short follow-up about an answer ("is it 3?") inherits the check of the
+ *    learner's last messages; an ordinary question after a paste is tutored normally.
  *    A match puts the call in check-coaching mode: the model is told which items they are (prompt
- *    and options only, never a key) and the reply is not streamed as a draft.
- * 3. Verification (`findCheckAnswerLeak`). Before a reply in check-coaching mode is stored, the
- *    provider gateway checks it against the matched items' answer keys: a choice item's correct
- *    option by its text, or any option by letter, number or position (naming some options but not
- *    all chooses or rules out); a numeric or prediction value within its tolerance, in digits or
- *    words; a trace step's answer; and a yes/no verdict on an answer the learner proposed. On a hit
- *    the reply is withheld (never stored, any draft withdrawn) and a fixed coaching message is
- *    delivered instead, charged at the call's reported usage like any reply.
+ *    and options only, never a key) and the reply is held back from the learner until it is checked.
+ * 3. Deterministic verification (`findCheckAnswerLeak`), high-precision patterns only: a choice
+ *    item's correct option by its text, or some options by letter, number or position; a numeric
+ *    value within its tolerance, in digits or words, except a number the lesson itself uses that
+ *    the reply does not assert as the answer; a trace step's answer; and a yes/no verdict, only when
+ *    the learner proposed an answer.
+ * 4. A semantic judge (companion-check-judge.ts), a second model call through the workspace's
+ *    reviewer role (or the role the companion binding names): given the checks, their keys and the
+ *    draft, it answers whether the reply states, confirms, rules out or decides an equivalent case
+ *    of an answer. It fails closed. On a hit by either stage the reply is withheld (never stored or
+ *    shown) and a fixed coaching message is delivered instead, charged at what the calls used.
  *
- * Limits: the verifier catches explicit answers. A paraphrase that decides an item without naming
- * its option, value or wording is not detected here; the instruction and the eval cases
- * (agent-evals, `check_answer:*` findings) cover it. Rubric, code and production items have no
- * deterministic key, so only the instruction and the confirmation rule apply to them.
+ * Rubric, code and production items have no deterministic key, so only the instruction, the judge
+ * and the confirmation rule apply to them.
  */
 import type { PoolClient } from 'pg';
 import type { Database } from './database.js';
@@ -31,7 +38,10 @@ import type { Database } from './database.js';
 /** A deterministic answer key of a graded check. Host-only: never sent to a model. */
 export type CheckKey = { kind: 'option'; index: number } | { kind: 'number'; value: number; tolerance: number } | { kind: 'text'; value: string };
 export interface GradedCheck {
-  id: string; type: string; prompt: string;
+  id: string; type: string;
+  /** The SDK item role ('recognition', 'application', 'transfer', 'diagnostic_probe'), when declared. */
+  role?: string;
+  prompt: string;
   /** Option texts in the order the learner sees them (choice items). */
   options: string[];
   /** Step prompts (trace items). */
@@ -39,7 +49,9 @@ export interface GradedCheck {
   /** Empty for items graded by a rubric, code tests or a reviewer. */
   keys: CheckKey[];
 }
-export type CheckMatchKind = 'quoted' | 'described' | 'referenced' | 'earlier_message';
+/** `unresolved`: the learner asked about a check's answer but which check is not certain; the turn
+ * is coached generically and every candidate is verified. */
+export type CheckMatchKind = 'quoted' | 'described' | 'referenced' | 'earlier_message' | 'unresolved';
 export interface CheckMatch { check: GradedCheck; how: CheckMatchKind; score: number }
 /** What the model is told in check-coaching mode (TeachingContext.checkCoaching). No key, ever. */
 export interface CheckCoaching {
@@ -49,13 +61,20 @@ export interface CheckCoaching {
 export type CheckLeakReason = 'check_answer_stated' | 'check_option_named' | 'check_answer_confirmed';
 export interface CheckLeak { reason: CheckLeakReason; checkId: string }
 /** Why a reply was withheld, recorded on the stored message (codes only). `check_keys_unavailable`:
- * the matched checks could not be read back from the course release, so nothing could be verified. */
-export const WITHHELD_REASONS = ['check_answer_stated', 'check_option_named', 'check_answer_confirmed', 'check_keys_unavailable'] as const;
+ * the matched checks could not be read back from the course release, so nothing could be verified.
+ * `check_answer_judged`: the semantic judge found that the reply gives an answer away.
+ * `check_judge_unavailable`: the judge could not give a verdict (not configured, unpriced, no room
+ * in the reservation, failed or malformed), so the reply was not kept (fail closed). */
+export const WITHHELD_REASONS = ['check_answer_stated', 'check_option_named', 'check_answer_confirmed', 'check_keys_unavailable',
+  'check_answer_judged', 'check_judge_unavailable'] as const;
 export type WithheldReason = (typeof WITHHELD_REASONS)[number];
 
 const MAX_CHECKS = 2000;
 const MAX_MATCHES = 3;
-const COACHING_NOTE = 'The learner\'s message matches these graded checks of the course. Their answers are withheld from you on purpose: coach without giving, choosing, confirming or ruling out any answer.';
+/** Candidates of a turn whose check is not certain (all are coached and verified). */
+const MAX_CANDIDATES = 4;
+const COACHING_NOTE = 'The learner\'s message is about the answer to these graded checks of the course. Their answers are withheld from you on purpose: coach without giving, choosing, confirming or ruling out any answer.';
+const UNRESOLVED_NOTE = 'The learner is asking about the answer to one of this lesson\'s graded checks, but which one is not certain: these are the candidates. Their answers are withheld from you on purpose: do not give, choose, confirm or rule out an answer for any of them. Ask which check they mean when it matters, and coach on the ideas.';
 
 // ---------------------------------------------------------------------------
 // Course checks
@@ -108,7 +127,8 @@ export function gradedCheck(raw: unknown): GradedCheck | null {
       keys.push(value !== null ? { kind: 'number', value, tolerance: 1e-9 } : { kind: 'text', value: answer.slice(0, 500) });
     }
   }
-  return { id: item.id.slice(0, 200), type: item.type.slice(0, 40), prompt: item.prompt.slice(0, 4000), options: options.map(option => option.text), steps, keys };
+  return { id: item.id.slice(0, 200), type: item.type.slice(0, 40), ...(typeof item.role === 'string' ? { role: item.role.slice(0, 40) } : {}),
+    prompt: item.prompt.slice(0, 4000), options: options.map(option => option.text), steps, keys };
 }
 /** Every graded check of a course bundle (bounded). */
 export function gradedChecks(bundle: unknown): GradedCheck[] {
@@ -142,14 +162,21 @@ function lessonCheckIds(bundle: unknown, episode: BundleEpisode, blockId?: strin
   });
   return [...new Set([...fromBlocks, ...fromGate, ...fromObjectives])];
 }
-/** Which checks count as this lesson's (`current`, in reading order) and as nearby (this lesson,
- * the lessons just before and after it, and every item with an open attempt). */
+/** Which checks count as this lesson's (`current`, in reading order, items with an open attempt
+ * first), as nearby (this lesson, the lessons just before and after it, and every open item), and
+ * which have an open attempt (`open`). */
 export function checkScope(bundle: unknown, episodeId: string, blockId: string | null | undefined, openCheckIds: readonly string[] = []) {
   const episodes = episodesOf(bundle), index = episodes.findIndex(e => e.id === episodeId);
   const current = index >= 0 ? lessonCheckIds(bundle, episodes[index]!, blockId) : [];
   const nearby = new Set([...current, ...openCheckIds]);
   for (const neighbour of [episodes[index - 1], episodes[index + 1]]) if (index >= 0 && neighbour) for (const id of lessonCheckIds(bundle, neighbour)) nearby.add(id);
-  return { current: [...new Set([...openCheckIds, ...current])], nearby };
+  return { current: [...new Set([...openCheckIds, ...current])], nearby, open: [...new Set(openCheckIds)] };
+}
+/** One lesson's own text (its text blocks, as the companion's context carries them). */
+export function lessonText(bundle: unknown, episodeId: string): string {
+  const episode = episodesOf(bundle).find(e => e.id === episodeId);
+  const blocks = Array.isArray(episode?.blocks) ? episode.blocks : [];
+  return blocks.flatMap(block => { const b = record(block); return b?.type === 'text' && typeof b.markdown === 'string' ? [b.markdown] : []; }).join('\n\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +184,7 @@ export function checkScope(bundle: unknown, episodeId: string, blockId: string |
 // ---------------------------------------------------------------------------
 
 /** Points and cantillation, but not the maqaf (U+05BE), which reads as a hyphen. */
-const HEBREW_MARKS = /[֑-ׇֽֿׁׂׅׄ]/g;
+const HEBREW_MARKS = /[֑-ׇֽֿׁׂׅׄ]/g;
 /** Case, typography, Markdown and simple TeX folded away; line breaks kept. */
 export function fold(text: string) {
   return text.normalize('NFKC').toLowerCase().replace(HEBREW_MARKS, '')
@@ -201,63 +228,190 @@ function bag(text: string): Bag {
   for (let i = 0; i + 2 < tokens.length; i++) trigrams.add(`${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]}`);
   return { set: new Set(tokens), trigrams };
 }
-const shared = (a: Set<string>, b: Set<string>) => { let n = 0; for (const x of a) if (b.has(x)) n++; return n; };
+const shared = <T,>(a: Set<T>, b: Set<T>) => { let n = 0; for (const x of a) if (b.has(x)) n++; return n; };
 const hebrewLetters = (text: string) => (text.match(/[א-ת]/g) ?? []).length;
+const anyOf = (patterns: readonly RegExp[], text: string) => patterns.some(pattern => { pattern.lastIndex = 0; return pattern.test(text); });
+/** Digits written in a text (language-neutral: a Hebrew description of an English item shares them). */
+const digitsIn = (folded: string) => new Set((folded.match(/(?<![\p{L}\p{N}.])-?\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu) ?? []).map(Number));
+
+// ---------------------------------------------------------------------------
+// What the learner's message does (answer intent)
+// ---------------------------------------------------------------------------
+
+/**
+ * What one learner message does about an answer. `asks`: asks for an answer, or a hint to it
+ * ("which option should I pick", "just the number", "תרמזו על איזו אפשרות"). `tests`: proposes or
+ * eliminates an answer ("is it 3?", "it's not a or b, right?", "I think it's c", "אז זה 3?").
+ * `reference`: names a check ("the check", "בדיקת ההעברה"). `kind`: whether an option or a value
+ * is meant. Ordinary questions ("Is it correct that...", "Which option in a library freezes a
+ * layer?", "...right?") do none of these.
+ */
+export interface AnswerIntent { asks: boolean; tests: boolean; reference: boolean; kind: 'option' | 'value' | null; labels: number[]; values: number[] }
+
+const NUM = String.raw`-?\d+(?:\.\d+)?`;
+const SUBJECT_EN = String.raw`(?:it|that|this|the\s+(?:final\s+|correct\s+|right\s+)?(?:answer|result|value|solution|option|choice|one)|my\s+answer)`;
+/** Where a proposed value or option follows: "is it", "would the answer be", "it's", "the answer is". */
+const TEST_ANCHORS = [
+  new RegExp(String.raw`\b(?:is|was|would|could|should|will|must)\s+${SUBJECT_EN}\s+(?:be\s+|then\s+)?(?:option\s+|choice\s+|answer\s+|letter\s+)?`, 'gu'),
+  new RegExp(String.raw`\b${SUBJECT_EN}\s*(?:'s|is|=|would\s+be|will\s+be|must\s+be|should\s+be|has\s+to\s+be)\s+(?:then\s+|probably\s+|just\s+|definitely\s+|really\s+)?(?:option\s+|choice\s+|answer\s+|letter\s+)?`, 'gu'),
+  /(?<!\p{L})(?:אז\s+|כלומר\s+|בעצם\s+|ש)?(?:זה|זו|התשובה(?:\s+(?:היא|זה|זו))?|הערך(?:\s+הוא)?|התוצאה(?:\s+היא)?|יוצא(?:\s+לי)?|יצא(?:\s+לי)?)\s+(?:אפשרות\s+|תשובה\s+|מספר\s+)?/gu,
+];
+/** A proposal stated outright ("I think it's c", "my answer is 3", "בחרתי בג'"): no question mark needed. */
+const PROPOSAL_ANCHORS = [
+  /\b(?:i\s+(?:think|guess|believe|chose|picked|put|got|have|entered|answered|went\s+with|would\s+say|'d\s+say|would\s+go\s+with|'d\s+go\s+with)|my\s+(?:answer|guess|pick)\s+(?:is|was)|i'?m\s+going\s+with|i'?ll\s+(?:go\s+with|pick|choose))\s+(?:that\s+)?(?:it'?s\s+|it\s+is\s+|the\s+answer\s+is\s+)?(?:option\s+|choice\s+|answer\s+)?/gu,
+  /(?<!\p{L})(?:אני\s+חושב(?:ת|ים)?\s+ש(?:זה\s+|התשובה\s+(?:היא\s+)?)?|לדעתי\s+(?:זה\s+|התשובה\s+(?:היא\s+)?)?|קיבלתי\s+|בחרתי\s+(?:ב-?|את\s+)?|סימנתי\s+(?:את\s+)?|התשובה\s+שלי\s+(?:היא\s+)?)(?:אפשרות\s+)?/gu,
+];
+/** Verbs that take an option label ("pick c", "rule out a and b", "לפסול את א'"). */
+const LABEL_VERBS = [
+  /\b(?:pick|choose|select|go\s+with|mark|circle|tick|rule\s+out|eliminate|cross\s+off|cross\s+out|exclude|discard)\s+(?:option\s+|choice\s+|answer\s+)?/gu,
+  /(?<!\p{L})(?:לבחור|לסמן|לפסול|לשלול|לבטל|בוחר(?:ת|ים)?|פוסל(?:ת|ים)?|שולל(?:ת|ים)?)\s+(?:ב-?|את\s+|על\s+)?(?:אפשרות\s+|תשובה\s+)?/gu,
+];
+/** "option c", "answer b", "אפשרות ג'" in the learner's message. */
+const OPTION_LABEL_NOUN = /\b(?:option|choice|answer|letter)\s+(?=[(\["']?(?:[a-h]|[1-8])['׳]?[)\]"']?(?:$|[\s,.;:!?]))|(?<!\p{L})[והבלמשכ]{0,2}(?:אפשרות|אפשרויות|תשובה|חלופה)\s+(?=[(\["']?[א-ח]['׳]?[)\]"']?(?:$|[\s,.;:!?]))/gu;
+/** What may follow a proposed value for it to be a question about it: ", right?", "?", the end. */
+const CLOSES_PROPOSAL = /^\s*(?:[,;:]?\s*(?:right|correct|then|too|instead|maybe|perhaps|or\s+not|isn'?t\s+it|is\s+it|yes|true|נכון|כן|בטוח|לא)\s*)*(?:[?]|[.!]*\s*$)/u;
+/** Asking whether an answer is right without restating it ("is my answer right?", "צדקתי?"). */
+const VERDICT_ASKED = [
+  /\b(?:is|was)\s+(?:my|this|that|the)\s+(?:answer|solution|choice|pick|guess|result|option)\s+(?:right|correct|wrong|ok|okay|good)\b/u,
+  /\bdid\s+i\s+get\s+(?:it|the\s+(?:answer|check|question)|this\s+one|that\s+one)\s+(?:right|correct|wrong)\b/u,
+  /(?<!\p{L})(?:התשובה|הפתרון|הבחירה)\s+שלי\s+(?:נכונה|נכון|טובה|בסדר|שגויה)(?!\p{L})|(?<!\p{L})צדקתי(?!\p{L})/u,
+];
+const ASKS = [
+  /\b(?:tell|give|show|send|reveal)\s+(?:me\s+|us\s+)?(?:just\s+|only\s+)?(?:the|your)\s+(?:final\s+|correct\s+|right\s+|exact\s+)?(?:answer|solution|number|value|result|letter|option)\b/u,
+  /\bwhat(?:'s|\s+is|\s+was)\s+the\s+(?:final\s+|correct\s+|right\s+|exact\s+)?(?:answer|solution)\b/u,
+  /\b(?:just|only)\s+(?:the\s+)?(?:answer|number|letter|value|result)\b/u,
+  /\bwhich\s+(?:option|answer|choice|one|letter|statement)\s+(?:(?:should|do|would|shall|must|can|could)\s+(?:i|we)|(?:i|we)\s+(?:should|need\s+to|have\s+to|must|ought\s+to))\s+(?:pick|choose|select|go\s+with|mark|circle|tick|look\s+at|focus\s+on|consider|use|enter|submit)\b/u,
+  /\bwhich\s+(?:option|answer|choice|one|letter|statement|number|value)\s+(?:is|'s|would\s+be|seems|looks)\s+(?:the\s+)?(?:right|correct|best|true|supported|it|valid)\b/u,
+  /\b(?:hint|clue|nudge|point\s+me|steer\s+me|tip)\b[^.?!\n]{0,60}\b(?:which|what)\s+(?:option|answer|choice|one|letter|number|value)\b/u,
+  /\bwhat\s+(?:number|value|letter|option|answer)\s+(?:should|do|would|must)\s+(?:i|we)\s+(?:enter|put|write|type|pick|give|submit|choose)\b/u,
+  /\bwhich\s+(?:option|answer|choice|one)\s*\?/u,
+  /\b(?:answer|solve|do)\s+(?:the|this|that|it)\s+(?:(?:check|quiz|test|question|item|problem|exercise)\s+)?for\s+me\b/u,
+  /(?<!\p{L})(?:תגיד|תגידי|תגידו|תן|תני|תנו|תכתוב|תכתבי|תכתבו|תראה|תראי|תראו|להגיד|לתת|תאמר|תאמרי|תאמרו)\s+(?:לי\s+|לנו\s+)?(?:רק\s+)?(?:את\s+)?ה?(?:תשובה|פתרון|מספר|ערך|אפשרות|אות)(?!\p{L})/u,
+  /(?<!\p{L})מה\s+ה?(?:תשובה|פתרון)(?!\p{L})/u,
+  /(?<!\p{L})(?:רק|אך\s+ורק)\s+(?:את\s+)?ה?(?:תשובה|מספר|אות|ערך)(?!\p{L})/u,
+  /(?<!\p{L})[בעלמ]?(?:איזו|איזה|אילו)\s+ה?(?:אפשרות|תשובה|חלופה|אות|ערך|מספר)\s+(?:נכונה|נכון|הנכונה|הנכון|לבחור|כדאי|צריך|צריכה|לסמן|היא|הוא|זו|זה|מתאימה|מתאים|הכי)/u,
+  /(?<!\p{L})על\s+איזו\s+ה?(?:אפשרות|תשובה|חלופה)/u,
+  /(?<!\p{L})(?:איזו|איזה)\s+ה?(?:אפשרות|תשובה|חלופה)\s*\?/u,
+  /(?<!\p{L})(?:תרמוז|תרמזי|תרמזו|לרמוז|רמז|רמזים)(?!\p{L})[^.?!\n]{0,60}(?:אפשרו|תשוב|כיוון)/u,
+  /(?<!\p{L})(?:תענה|תעני|תענו|לענות)\s+רק\s+ב?(?:מספר|אות)/u,
+  /(?<!\p{L})(?:תפתור|תפתרי|תפתרו|לפתור)\s+(?:לי\s+)?(?:את\s+)?ה?(?:בדיקה|שאלה|תרגיל)/u,
+];
+const ASKS_OPTION = /\b(?:which|what)\s+(?:option|choice|letter|statement)\b|(?:hint|clue|point\s+me)[^.?!\n]{0,60}\bwhich\s+one\b|(?<!\p{L})(?:איזו|איזה|אילו)\s+ה?(?:אפשרות|חלופה|אות)|אפשרו/u;
+const ASKS_VALUE = /\b(?:what|which)\s+(?:number|value)\b|\b(?:just|only)\s+(?:the\s+)?(?:number|value)\b|(?<!\p{L})(?:רק\s+)?(?:את\s+)?ה?(?:מספר|ערך)(?!\p{L})/u;
+const CHECK_REFERENCE = [
+  /\b(?:checks?|quiz(?:zes)?|tests?|exams?|assessments?|graded|homework)\b/u,
+  /\b(?:the|this|that)\s+(?:question|item|problem|exercise)\b/u,
+  /(?<!\p{L})[והבלמשכ]{0,3}(?:בדיק|בוחן|מבחן|מבדק|מטל)|(?<!\p{L})[והבלמשכ]{0,2}(?:השאלה|התרגיל)\s+(?:הזו|הזאת|הזה|הבא|הבאה)/u,
+];
+/** A number or option list at the start of `rest`, optionally negated ("not a or b", "לא א'"). */
+function proposal(rest: string, optionNoun: boolean): { negated: boolean; labels: number[]; values: number[]; length: number } | null {
+  const neg = /^\s*(?:not|n't|neither|לא)\s+(?:option\s+|choice\s+|אפשרות\s+)?/u.exec(rest), at = neg ? neg[0].length : 0;
+  if (!optionNoun) {
+    const value = new RegExp(String.raw`^\s*(${NUM})(?![\p{L}\p{N}])`, 'u').exec(rest.slice(at));
+    if (value) return { negated: Boolean(neg), labels: [], values: [Number(value[1])], length: at + value[0].length };
+  }
+  const found: number[] = [];
+  let length = at;
+  for (let guard = 0; guard < 8; guard++) {
+    const spaces = /^\s*/.exec(rest.slice(length))![0].length;
+    const next = label(rest.slice(length + spaces), false);
+    if (!next || next.index === 'last') break;
+    found.push(next.index); length += spaces + next.length;
+    const separator = /^\s*(?:,|\/|&|\band\b|\bor\b|\bnor\b|או(?!\p{L})|ו-?(?=[א-ח](?!\p{L})))\s*/u.exec(rest.slice(length));
+    if (!separator) break;
+    length += separator[0].length;
+  }
+  return found.length ? { negated: Boolean(neg), labels: found, values: [], length } : null;
+}
+export function answerIntent(text: string): AnswerIntent {
+  const folded = fold(text).replace(/[ \t]+/g, ' ');
+  const labels = new Set<number>(), values = new Set<number>();
+  let tests = false;
+  const take = (found: ReturnType<typeof proposal>, closure: boolean, rest: string) => {
+    if (!found) return;
+    // A value is a proposal only when it ends the question ("is it 3?"); "is it 3 steps?" is not.
+    if (found.values.length && closure && !CLOSES_PROPOSAL.test(rest.slice(found.length))) return;
+    for (const value of found.values) values.add(value);
+    for (const index of found.labels) labels.add(index);
+    tests = true;
+  };
+  for (const pattern of TEST_ANCHORS) for (const match of folded.matchAll(pattern)) {
+    const rest = folded.slice(match.index + match[0].length);
+    take(proposal(rest, /(?:option|choice|letter|אפשרות)\s+$/u.test(match[0])), true, rest);
+  }
+  for (const pattern of PROPOSAL_ANCHORS) for (const match of folded.matchAll(pattern)) {
+    const rest = folded.slice(match.index + match[0].length);
+    take(proposal(rest, /(?:option|choice|אפשרות)\s+$/u.test(match[0])), false, rest);
+  }
+  for (const pattern of LABEL_VERBS) for (const match of folded.matchAll(pattern)) {
+    const rest = folded.slice(match.index + match[0].length), found = proposal(rest, true);
+    if (found) take(found, false, rest);
+  }
+  for (const match of folded.matchAll(OPTION_LABEL_NOUN)) {
+    const rest = folded.slice(match.index + match[0].length), found = proposal(rest, true);
+    if (found) take(found, false, rest);
+  }
+  // "...not a or b, right?" without an anchor before it.
+  for (const match of folded.matchAll(/(?<![\p{L}'])(?:not|לא)\s+(?=[(\["']?(?:[a-h]|[א-ח])['׳]?[)\]"']?\s*(?:,|\bor\b|\bnor\b|\band\b|או(?!\p{L})|ו-?[א-ח]))/gu)) {
+    const rest = folded.slice(match.index);
+    const found = proposal(rest, true);
+    if (found && found.labels.length >= 2) take(found, false, rest);
+  }
+  if (anyOf(VERDICT_ASKED, folded)) tests = true;
+  const asks = anyOf(ASKS, folded);
+  const reference = anyOf(CHECK_REFERENCE, folded);
+  const kind = labels.size || (asks && ASKS_OPTION.test(folded)) ? 'option' : values.size || (asks && ASKS_VALUE.test(folded)) ? 'value' : null;
+  return { asks, tests, reference, kind, labels: [...labels].sort((a, b) => a - b), values: [...values] };
+}
 
 // ---------------------------------------------------------------------------
 // Matching
 // ---------------------------------------------------------------------------
 
-const ANSWER_SEEKING = [
-  /\b(?:answers?|options?|choices?|pick|choose|select|correct|right one|which one|tell me|give me|solutions?|solve it|is it|is that|am i right|did i get|confirm|cross off|rule out|eliminate)\b/,
-  /\b(?:what|which)(?:'s| is)? (?:the )?(?:value|number|result)\b/,
-  /(?:תשוב|אפשרו|לבחור|בוחר|נכון|נכונה|פתרון|לפתור|תגיד|תגידי|תגידו|תאשר|לפסול|לשלול|מה הערך|מה המספר|איזה ערך|איזה מספר)/,
+/** Core's own words for kinds of check, in English and Hebrew: a Hebrew learner naming "בדיקת
+ * ההעברה" or "שאלת הבחירה" points at an English item of that type, SDK role or id word. */
+const idHas = (check: GradedCheck, word: string) => check.id.toLowerCase().split(/[^a-z]+/).some(part => part.startsWith(word));
+const KIND_WORDS: { pattern: RegExp; fits: (check: GradedCheck) => boolean }[] = [
+  { pattern: /\bmultiple[- ]choice\b|\bchoice\s+(?:check|question|item)\b|רב[- ]?ברירה|(?<!\p{L})[והבלמשכ]{0,3}(?:אמריקאית|בחירה)(?!\p{L})/u, fits: c => c.type === 'choice' },
+  { pattern: /\btrac(?:e|ing)\b|(?<!\p{L})[והבלמשכ]{0,3}מעקב(?!\p{L})/u, fits: c => c.type === 'trace' || idHas(c, 'trace') },
+  { pattern: /\bpredict(?:ion)?\b|(?<!\p{L})[והבלמשכ]{0,3}(?:חיזוי|ניבוי|תחזית)(?!\p{L})/u, fits: c => c.type === 'prediction' || idHas(c, 'predict') },
+  { pattern: /\bnumeric(?:al)?\b|(?<!\p{L})[והבלמשכ]{0,3}(?:מספרית|מספרי)(?!\p{L})/u, fits: c => c.type === 'numeric' },
+  { pattern: /\bcod(?:e|ing)\s+(?:check|question|task|exercise)\b|(?<!\p{L})[והבלמשכ]{0,3}קוד(?!\p{L})/u, fits: c => c.type === 'code' },
+  { pattern: /\b(?:essay|rubric|written)\b|(?<!\p{L})[והבלמשכ]{0,3}(?:חיבור|מחוון)(?!\p{L})/u, fits: c => c.type === 'rubric' },
+  { pattern: /\btransfer\b|(?<!\p{L})[והבלמשכ]{0,3}(?:העברה|העברת)(?!\p{L})/u, fits: c => c.role === 'transfer' || idHas(c, 'transfer') },
+  { pattern: /\brecognition\b|(?<!\p{L})[והבלמשכ]{0,3}זיהוי(?!\p{L})/u, fits: c => c.role === 'recognition' || idHas(c, 'recogn') },
+  { pattern: /\b(?:diagnostic|probe)\b|(?<!\p{L})[והבלמשכ]{0,3}אבחון(?!\p{L})/u, fits: c => c.role === 'diagnostic_probe' || idHas(c, 'probe') },
 ];
-const CHECK_REFERENCE = [
-  /\b(?:checks?|quiz(?:zes)?|tests?|exams?|assessments?|graded|exercises?|homework)\b/,
-  /\b(?:the|this|that) (?:question|item|problem)\b/,
-  /(?:בדיק|בוחן|מבחן|תרגיל|מטל|הערכה|השאלה)/,
-];
-const CONFIRMATION_ASKED = [
-  /\b(?:is it|is that|is the answer|so it'?s|am i (?:right|correct)|did i get|i think it'?s|i think the answer|i got|my answer is|is my answer|would it be|should it be|can i rule out|can i cross off)\b/,
-  /\b(?:right|correct)\s*\?/,
-  /(?:^|\s)[(\[]?(?:[a-h]|-?\d+(?:\.\d+)?)[)\]]?\s*\?/,
-  /(?:האם|נכון\s*\?|זה נכון|צדקתי|יצא לי|התשובה שלי|אני חושב|אני חושבת|לדעתי|זה יוצא)/,
-];
-const anyOf = (patterns: readonly RegExp[], text: string) => patterns.some(pattern => pattern.test(text));
 
-interface Scored { check: GradedCheck; shared: number; coverage: number; trigrams: number; options: number; distinctive: number }
+interface Scored { check: GradedCheck; shared: number; coverage: number; trigrams: number; options: number }
+interface CheckWords { prompt: Bag; options: Bag[]; distinctive: string[]; numbers: Set<number>; all: Set<string> }
 /** A check's own words, computed once per check object (checks are cached per release). */
-const checkWords = new WeakMap<GradedCheck, { prompt: Bag; options: Bag[]; distinctive: string[] }>();
-function wordsOfCheck(check: GradedCheck) {
+const checkWords = new WeakMap<GradedCheck, CheckWords>();
+function wordsOfCheck(check: GradedCheck): CheckWords {
   let words = checkWords.get(check);
   if (!words) {
-    const prompt = bag(`${check.prompt} ${check.steps.join(' ')}`);
-    words = { prompt, options: check.options.map(bag),
-      distinctive: [...new Set([...prompt.set, ...contentTokens(check.id.replace(/[-_]/g, ' '))])].filter(token => !GENERIC.has(token) && !/^\p{N}+$/u.test(token) && token.length > 2) };
+    const text = `${check.prompt} ${check.steps.join(' ')}`, prompt = bag(text), options = check.options.map(bag);
+    words = { prompt, options,
+      distinctive: [...new Set([...prompt.set, ...contentTokens(check.id.replace(/[-_]/g, ' '))])].filter(token => !GENERIC.has(token) && !/^\p{N}+$/u.test(token) && token.length > 2),
+      numbers: digitsIn(fold(text)), all: new Set([...prompt.set, ...options.flatMap(o => [...o.set])]) };
     checkWords.set(check, words);
   }
   return words;
 }
 function score(check: GradedCheck, message: Bag): Scored {
-  const { prompt, options: optionWords, distinctive: own } = wordsOfCheck(check);
+  const { prompt, options: optionWords } = wordsOfCheck(check);
   const sharedTokens = shared(prompt.set, message.set);
   // A short option ("Six units left.") counts only whole; a longer one by most of its words.
   const options = optionWords.filter(option => option.set.size > 0 && shared(option.set, message.set) / option.set.size >= (option.set.size <= 3 ? 1 : 0.6)).length;
-  const distinctive = own.filter(token => message.set.has(token)).length;
   return { check, shared: sharedTokens, coverage: prompt.set.size ? sharedTokens / prompt.set.size : 0,
-    trigrams: prompt.trigrams.size >= 2 ? shared(prompt.trigrams, message.trigrams) / prompt.trigrams.size : 0, options, distinctive };
+    trigrams: prompt.trigrams.size >= 2 ? shared(prompt.trigrams, message.trigrams) / prompt.trigrams.size : 0, options };
 }
-const quoted = (s: Scored) => (s.coverage >= 0.6 && s.shared >= 3) || s.trigrams >= 0.5 || (s.check.options.length >= 2 && s.options >= 2 && (s.shared >= 1 || !s.check.prompt.trim()));
+/** A pasted check reproduces its wording: most of its word sequences, or most of its words with
+ * some of its sequences (a topical question that shares a short item's words is not a paste), or
+ * two of its options. */
+const quoted = (s: Scored) => s.trigrams >= 0.5 || (s.coverage >= 0.6 && s.shared >= 3 && (s.trigrams >= 0.2 || wordsOfCheck(s.check).prompt.trigrams.size < 2))
+  || (s.check.options.length >= 2 && s.options >= 2 && (s.shared >= 1 || !s.check.prompt.trim()));
 const described = (s: Scored) => s.coverage >= 0.35 && s.shared >= 3;
-
-/** One message against the checks: pasted anywhere; described with an answer request nearby, or
- * anywhere when it also names a check ("the answer for the garden check: how many tulips..."). */
-function matchMessage(text: string, checks: readonly GradedCheck[], nearby: ReadonlySet<string>, intent: { asks: boolean; anywhere: boolean }): { scored: Scored; how: 'quoted' | 'described' }[] {
-  const message = bag(text);
-  return checks.map(check => score(check, message)).flatMap((s): { scored: Scored; how: 'quoted' | 'described' }[] => quoted(s) ? [{ scored: s, how: 'quoted' }]
-    : intent.asks && (intent.anywhere || nearby.has(s.check.id)) && described(s) ? [{ scored: s, how: 'described' }] : []);
-}
 
 const sentencesOf = (folded: string) => folded.split(/(?<=[.!?;])\s+|\n+/).map(sentence => sentence.replace(/\s+/g, ' ').trim()).filter(Boolean);
 const COURSE_TEXT_LIMIT = 4_000_000;
@@ -289,69 +443,121 @@ function ownSentences(question: string, lessonText?: string) {
   const all = sentencesOf(fold(question));
   return lessonText ? all.filter(sentence => sentence.length < 25 || !lessonText.includes(sentence)) : all;
 }
+type Row = { scored: Scored; how: 'quoted' | 'described' };
 /** A pasted check is the item: checks that only share its vocabulary are left out. Without a
  * paste, the described checks closest to the best one. */
-function strongest(rows: { scored: Scored; how: 'quoted' | 'described' }[]) {
+function strongest(rows: Row[]) {
   const pasted = rows.filter(row => row.how === 'quoted');
   if (pasted.length) return pasted;
   const best = Math.max(...rows.map(row => row.scored.coverage));
   return rows.filter(row => row.scored.coverage >= best * 0.75);
 }
+const ranked = (rows: Row[], how?: CheckMatchKind): CheckMatch[] => rows
+  .sort((a, b) => b.scored.coverage + b.scored.trigrams - (a.scored.coverage + a.scored.trigrams) || b.scored.shared - a.scored.shared)
+  .slice(0, MAX_MATCHES).map(row => ({ check: row.scored.check, how: how ?? row.how, score: Math.round((row.scored.coverage + row.scored.trigrams) * 1000) / 1000 }));
+
+interface Scope { checks: readonly GradedCheck[]; current: readonly string[]; nearby: ReadonlySet<string>; open: readonly string[] }
 /**
- * The graded checks a learner's message is about (at most three, strongest first), or none.
- * `current` lists this lesson's checks in reading order (checks with an open attempt first);
- * `nearby` adds the neighbouring lessons'. `earlier` are the learner's own earlier messages in this
- * lesson, oldest first.
+ * The check a message refers to ("the transfer check", "it's not a or b", "איזו אפשרות"), scored
+ * over this lesson's and the neighbouring lessons' checks: its distinctive words and the item's
+ * id words, Core's kind words in English or Hebrew, two or more numbers shared with the item, and
+ * whether what it proposes fits the item (an option letter needs options, a value a numeric key).
+ * An open attempt and this lesson break ties. With no evidence at all, or more than two equally
+ * good items, it is unresolved: every candidate is coached and verified, none assumed.
+ */
+function referenced(intent: AnswerIntent, folded: string, message: Bag, scope: Scope): { matches: CheckMatch[]; weak: boolean } {
+  const byId = new Map(scope.checks.map(check => [check.id, check]));
+  const pool = [...new Set([...scope.current, ...scope.nearby])].flatMap(id => { const check = byId.get(id); return check ? [check] : []; });
+  if (!pool.length) return { matches: [], weak: true };
+  const kinds = KIND_WORDS.filter(kind => kind.pattern.test(folded)), numbers = digitsIn(folded);
+  const highest = intent.labels.length ? Math.max(...intent.labels) : -1;
+  const rows = pool.flatMap(check => {
+    // An option letter never names an item without that many options.
+    if (intent.labels.length && check.options.length <= highest) return [];
+    const words = wordsOfCheck(check);
+    const distinctive = words.distinctive.filter(token => message.set.has(token)).length + (kinds.some(kind => kind.fits(check)) ? 1 : 0)
+      + (shared(words.numbers, numbers) >= 2 ? 1 : 0);
+    const typed = intent.kind === 'option' ? check.options.length >= 2
+      : intent.kind === 'value' ? check.keys.some(key => key.kind === 'number') || check.type === 'numeric' || check.type === 'prediction' : false;
+    const open = scope.open.includes(check.id), lesson = scope.current.includes(check.id);
+    return [{ check, distinctive, evidence: distinctive > 0 || typed || open, score: 4 * distinctive + 2 * Number(typed) + 2 * Number(open) + Number(lesson), lesson }];
+  });
+  const evidenced = rows.filter(row => row.evidence);
+  if (evidenced.length) {
+    const best = Math.max(...evidenced.map(row => row.score)), top = evidenced.filter(row => row.score === best);
+    // Only what the message itself says about the item (its words, kind or numbers, or an open
+    // attempt) is strong; a fit by option letters or a value alone yields to an earlier message.
+    const weak = top.every(row => row.distinctive === 0 && !scope.open.includes(row.check.id));
+    if (top.length <= 2) return { matches: top.map(row => ({ check: row.check, how: 'referenced' as const, score: row.score })), weak };
+    return { matches: top.slice(0, MAX_CANDIDATES).map(row => ({ check: row.check, how: 'unresolved' as const, score: row.score })), weak: true };
+  }
+  const lesson = rows.filter(row => row.lesson);
+  return { matches: (lesson.length ? lesson : rows).slice(0, MAX_CANDIDATES).map(row => ({ check: row.check, how: 'unresolved' as const, score: 0 })), weak: true };
+}
+/** Whether a matched item can be what an intent proposes: option letters need that many options. */
+const fits = (intent: AnswerIntent, check: GradedCheck) => !intent.labels.length || check.options.length > Math.max(...intent.labels);
+/** One message on its own: a pasted check (anywhere in the course), then, when the message asks for
+ * or tests an answer, a check it describes (nearby, or anywhere when it also names a check) or
+ * refers to. `earlier`: an earlier message of the learner, where a description alone counts. */
+function matchOne(text: string, scope: Scope, courseText: string | undefined, earlier: boolean): { matches: CheckMatch[]; weak: boolean } {
+  const own = ownSentences(text, courseText), folded = own.join('\n'), message = bag(folded);
+  const scored = scope.checks.map(check => score(check, message));
+  const pasted = scored.filter(quoted).map((s): Row => ({ scored: s, how: 'quoted' }));
+  if (pasted.length) return { matches: ranked(pasted), weak: false };
+  const intent = answerIntent(folded), directed = intent.asks || intent.tests;
+  if (!directed && !earlier) return { matches: [], weak: true };
+  const anywhere = directed && intent.reference;
+  const describedRows = scored.filter(s => (anywhere || scope.nearby.has(s.check.id)) && described(s)).map((s): Row => ({ scored: s, how: 'described' }));
+  if (describedRows.length) return { matches: ranked(strongest(describedRows)), weak: false };
+  if (directed && (intent.reference || intent.labels.length)) return referenced(intent, folded, message, scope);
+  return { matches: [], weak: true };
+}
+/** Words a short follow-up about an answer may use without having a topic of its own. */
+const FOLLOW_UP_WORDS = new Set(['tell', 'giv', 'hint', 'look', 'sure', 'think', 'guess', 'mean', 'wait', 'actually', 'mayb', 'instead', 'should', 'rul', 'cross', 'eliminat',
+  'confirm', 'wrong', 'one', 'letter', 'pleas', 'okay', 'ok', 'realli', 'still', 'again', 'thank', 'thanks', 'enter', 'put', 'writ', 'typ', 'submit', 'need', 'want', 'full',
+  'whol', 'point', 'focu', 'go', 'then', 'now', 'sorry', 'hmm', 'yes', 'yeah', 'true', 'fals', 'instead', 'other', 'els', 'same', 'agre', 'sur', 'know']);
+/**
+ * The graded checks a learner's message is about (at most three, strongest first; up to four
+ * candidates when unresolved), or none. Check mode starts only from what the CURRENT message does:
+ * it pastes a check, or asks for or tests an answer of one. `current` lists this lesson's checks in
+ * reading order (checks with an open attempt first); `nearby` adds the neighbouring lessons';
+ * `open` the items with an open attempt. `earlier` are the learner's own earlier messages in this
+ * lesson, oldest first: a follow-up that asks for or tests an answer without a topic of its own
+ * ("is it 3?", "so it's c, right?", "what's the answer then?") inherits their check; any other
+ * question after a paste is tutored normally.
  */
 export function matchGradedChecks(input: { question: string; earlier?: readonly string[]; checks: readonly GradedCheck[]; current: readonly string[]; nearby: ReadonlySet<string>;
+  open?: readonly string[];
   /** The course's own lesson text (courseText): text copied from a lesson is neither a check nor
    * the learner asking for an answer. */
   courseText?: string }): CheckMatch[] {
-  const own = ownSentences(input.question, input.courseText), folded = own.join('\n');
-  const seeking = anyOf(ANSWER_SEEKING, folded), reference = anyOf(CHECK_REFERENCE, folded);
-  // "Which option should I pick for the check?" asks and names the check in one sentence or the next.
-  const asksAboutCheck = own.some((sentence, i) => anyOf(ANSWER_SEEKING, sentence)
-    && [own[i - 1], sentence, own[i + 1]].some(near => near !== undefined && anyOf(CHECK_REFERENCE, near)));
-  const ranked = (rows: { scored: Scored; how: CheckMatchKind }[]) => rows
-    .sort((a, b) => b.scored.coverage + b.scored.trigrams - (a.scored.coverage + a.scored.trigrams) || b.scored.shared - a.scored.shared)
-    .slice(0, MAX_MATCHES).map(row => ({ check: row.scored.check, how: row.how, score: Math.round((row.scored.coverage + row.scored.trigrams) * 1000) / 1000 }));
-  // A pasted check is the item; a check that only shares vocabulary with it is not added.
-  const direct = matchMessage(own.join('\n'), input.checks, input.nearby, { asks: seeking || reference, anywhere: asksAboutCheck });
-  if (direct.length) return ranked(strongest(direct));
-  // "Which option should I pick for the check?": this lesson's check the words point at, else the next one.
-  if (asksAboutCheck) {
-    const byId = new Map(input.checks.map(check => [check.id, check]));
-    const lesson = input.current.flatMap(id => { const check = byId.get(id); return check ? [check] : []; });
-    if (lesson.length) {
-      const message = bag(folded), wantsOption = /\b(?:option|choice|pick|choose|select)\b|אפשרו|לבחור/.test(folded), wantsValue = /\b(?:value|number|result|calculate|compute)\b|ערך|מספר|לחשב/.test(folded);
-      const rows = lesson.map(check => {
-        const kind = (wantsOption && check.type === 'choice') || (wantsValue && check.keys.some(k => k.kind === 'number')) ? 1 : 0;
-        return { check, value: score(check, message).distinctive * 2 + kind };
-      });
-      const best = Math.max(...rows.map(row => row.value));
-      const chosen = best > 0 ? rows.filter(row => row.value === best).slice(0, 2) : rows.slice(0, 1);
-      return chosen.map(row => ({ check: row.check, how: 'referenced' as const, score: row.value }));
-    }
+  const scope: Scope = { checks: input.checks, current: input.current, nearby: input.nearby, open: input.open ?? [] };
+  const direct = matchOne(input.question, scope, input.courseText, false);
+  if (direct.matches.length && !direct.weak) return direct.matches;
+  const own = ownSentences(input.question, input.courseText).join('\n'), intent = answerIntent(own);
+  if (input.question.length > 300 || !(intent.asks || intent.tests)) return direct.matches;
+  for (const earlier of [...(input.earlier ?? [])].slice(-3).reverse()) {
+    const found = matchOne(earlier, scope, input.courseText, true).matches.filter(m => fits(intent, m.check));
+    if (!found.length) continue;
+    // A follow-up with a topic of its own ("is it 3 because the optimizer reads the log?") is a new question.
+    const words = new Set(found.flatMap(m => [...wordsOfCheck(m.check).all]));
+    const topic = contentTokens(own).filter(token => !GENERIC.has(token) && !FOLLOW_UP_WORDS.has(token) && !/^\p{N}/u.test(token) && token.length > 1 && !words.has(token));
+    if (topic.length > 4) return direct.matches;
+    return found.map(m => ({ ...m, how: m.how === 'unresolved' ? 'unresolved' as const : 'earlier_message' as const }));
   }
-  // A short follow-up ("so is it 3?") about a check the learner pasted or described just before.
-  if (input.question.length <= 300 && (seeking || reference || anyOf(CONFIRMATION_ASKED, folded))) {
-    for (const earlier of [...(input.earlier ?? [])].slice(-3).reverse()) {
-      const found = matchMessage(ownSentences(earlier, input.courseText).join('\n'), input.checks, input.nearby, { asks: true, anywhere: false });
-      if (found.length) return ranked(strongest(found).map(row => ({ ...row, how: 'earlier_message' as const })));
-    }
-  }
-  return [];
+  return direct.matches;
 }
 
 /** The model-facing view of the matched checks: prompts and options, never a key. */
 export function checkCoachingView(matches: readonly CheckMatch[]): CheckCoaching | undefined {
   if (!matches.length) return undefined;
-  return { note: COACHING_NOTE, items: matches.map(({ check, how }) => ({ checkId: check.id, type: check.type, prompt: check.prompt.slice(0, 400),
-    ...(check.options.length ? { options: check.options.map(text => text.slice(0, 160)) } : {}), match: how })) };
+  return { note: matches.some(match => match.how === 'unresolved') ? UNRESOLVED_NOTE : COACHING_NOTE,
+    items: matches.map(({ check, how }) => ({ checkId: check.id, type: check.type, prompt: check.prompt.slice(0, 400),
+      ...(check.options.length ? { options: check.options.map(text => text.slice(0, 160)) } : {}), match: how })) };
 }
 
 // ---------------------------------------------------------------------------
-// Verification
+// Verification (deterministic, high precision)
 // ---------------------------------------------------------------------------
 
 const EN_NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
@@ -379,7 +585,63 @@ export function statedNumbers(folded: string): number[] {
   for (const [word, value] of HE_NUMBER_WORDS) if (new RegExp(`(?<![\\p{L}])[והבלמשכ]{0,2}${word}(?![\\p{L}])`, 'u').test(folded)) values.push(value);
   return values;
 }
+/** The value a number token at the start of `rest` stands for (digits, "minus 3", a number word), or null. */
+function numberAt(rest: string): number | null {
+  const digits = /^(-\s?)?(\d+(?:\.\d+)?)(?![\p{L}\p{N}_]|\.\d)/u.exec(rest);
+  if (digits) return (digits[1] ? -1 : 1) * Number(digits[2]);
+  const minus = /^(?:minus|negative|מינוס)\s+(\d+(?:\.\d+)?)/u.exec(rest);
+  if (minus) return -Number(minus[1]);
+  const word = /^[והבלמשכ]{0,2}(\p{L}+)/u.exec(rest)?.[1];
+  if (!word) return null;
+  const en = EN_NUMBER_WORDS.indexOf(word);
+  if (en >= 0 && en !== 1) return en;
+  return HE_NUMBER_WORDS.find(([w]) => w === word)?.[1] ?? null;
+}
+/** What a check's question asks for: its single-letter variables ("What is the current value of
+ * w?") and the noun it asks about ("What is the measured increase...?" -> increase, "How many
+ * leaves...?" -> leaves), as a reply would name them when it states the answer. */
+function askedVariables(check: GradedCheck): string[] {
+  const questions = sentencesOf(fold(`${check.prompt}\n${check.steps.join('\n')}`)).filter(sentence => /\?$|^(?:what|which|how|find|compute|calculate|מה|כמה|איזה|מצאו|חשבו)\b/u.test(sentence));
+  const found = new Set<string>();
+  for (const sentence of questions) {
+    for (const match of sentence.matchAll(/(?:value\s+of|ערך\s+(?:של\s+)?|is|does|of)\s+([a-z][a-z0-9]?)(?![\p{L}\p{N}])/gu)) if (!STOP.has(match[1]!)) found.add(match[1]!);
+    for (const match of sentence.matchAll(/(?<![\p{L}\p{N}'])([b-hj-z])(?![\p{L}\p{N}'])/gu)) found.add(match[1]!);
+    const noun = /^(?:what|which)\s+(?:is|was|are|were)\s+(?:the|its|their)\s+([a-z][a-z -]{0,60}?)\s*(?:\b(?:in|of|for|on|after|between|from|at|when|if)\b|\?|,|$)/u.exec(sentence)
+      ?? /^(?:what|which)\s+([a-z]+)\b/u.exec(sentence) ?? /^how\s+(?:many|much)\s+([a-z]+)\b/u.exec(sentence);
+    const head = noun?.[1]?.trim().split(/[\s-]+/).at(-1);
+    if (head && head.length > 2 && !STOP.has(head)) found.add(head);
+  }
+  return [...found].slice(0, 8);
+}
+/** An arithmetic result over the check's own numbers ("10 - 6 = 4"): the check worked through. */
+function workedResults(folded: string, check: GradedCheck): number[] {
+  const own = wordsOfCheck(check).numbers, values: number[] = [];
+  for (const match of folded.matchAll(/((?:-?\d+(?:\.\d+)?\s*[-+*/×÷x]\s*)+-?\d+(?:\.\d+)?)\s*=\s*(-?\d+(?:\.\d+)?)(?![\d.])/gu)) {
+    const operands = (match[1]!.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+    if (operands.filter(value => own.has(value)).length >= 2) values.push(Number(match[2]));
+  }
+  return values;
+}
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Numbers a reply asserts as an answer: the reply (or its first line) is the number, or it follows
+ * "the answer is", "it's", "= ", or one of the variables the check asks about ("w stays 3"). */
+export function assertedNumbers(folded: string, check?: GradedCheck): number[] {
+  const values: number[] = [];
+  const whole = /^\s*(-?\d+(?:\.\d+)?)\s*[.!]?\s*(?:\n|$)/u.exec(folded);
+  if (whole) values.push(Number(whole[1]));
+  const variables = check ? askedVariables(check).map(escape) : [];
+  const subjects = [String.raw`(?:the\s+)?(?:final\s+|correct\s+|right\s+)?(?:answer|result|solution)`, 'it', 'that', ...variables.map(v => `(?<![\\p{L}\\p{N}_])${v}`)].join('|');
+  const anchors = [
+    new RegExp(String.raw`(?:${subjects})\s*(?:'s|is|was|=|equals|is\s+equal\s+to|would\s+be|will\s+be|must\s+be|stays(?:\s+at)?|remains(?:\s+at)?|is\s+still|still|becomes|ends\s+up(?:\s+at|\s+as|\s+being)?|comes\s+to|gives|:)\s*(?:still\s+|exactly\s+|just\s+|only\s+|at\s+)?`, 'gu'),
+    new RegExp(String.raw`(?<!\p{L})(?:התשובה|התוצאה|הפתרון|${variables.length ? `${variables.join('|')}` : '(?!)'})\s*(?:היא|הוא|יהיה|תהיה|נשאר(?:ת|ים)?|עדיין|שווה(?:\s+ל-?)?|=|יוצא|יצא|:)\s*(?:עדיין\s+|בדיוק\s+|רק\s+)?`, 'gu'),
+  ];
+  for (const anchor of anchors) for (const match of folded.matchAll(anchor)) {
+    const value = numberAt(folded.slice(match.index + match[0].length));
+    if (value !== null) values.push(value);
+  }
+  if (check) values.push(...workedResults(folded, check));
+  return values;
+}
 function phraseIn(folded: string, phrase: string) {
   const value = phrase.trim().replace(/[.!?;:,]+$/, '').replace(/\s+/g, ' ');
   return value.length >= 2 && new RegExp(`(?<![\\p{L}\\p{N}])${escape(value)}(?![\\p{L}\\p{N}])`, 'u').test(folded.replace(/\s+/g, ' '));
@@ -389,7 +651,8 @@ function wordsOf(option: string, text: string, least: number) {
   const words = new Set(contentTokens(option));
   return words.size < least ? 0 : shared(words, new Set(contentTokens(text))) / words.size;
 }
-/** The correct option's own wording: verbatim, or most of its words in one sentence. */
+/** The correct option's own wording: verbatim, or most of its words in one sentence. A translation
+ * or paraphrase of it is the judge's to find (companion-check-judge.ts). */
 function optionStated(folded: string, option: string) {
   const text = fold(option).trim().replace(/[.!?;:,]+$/, '').replace(/\s+/g, ' ');
   if (text.length >= 12 && folded.replace(/\s+/g, ' ').includes(text)) return true;
@@ -451,9 +714,11 @@ const ORDINAL_NOUN_HE = /(?<!\p{L})[והבלמשכ]{0,2}(?:אפשרות|תשוב
 /** A label right after "pick", "it's (not)", "rule out", "היא", "לבחור ב-", "לפסול את"... */
 const VERB_LABEL = /(?:\b(?:pick|choose|select|go with|mark|circle|rule out|eliminate|cross off|cross out|exclude|it'?s|it is|isn'?t|is|be)(?:\s+not)?|(?<!\p{L})(?:היא|הוא|זו|זה|לבחור|בחרו|בחר|בחרי|לסמן|לפסול|לשלול|פוסלים|שוללים)(?:\s+לא)?)\s+(?:ב-?|את\s+)?(?=[(\["']?(?:[a-h]|[א-ח])['׳]?[)\]"']?(?:$|[\s,.;:!?]))/gu;
 /** "(c)", a line opening "c)" or "c.", and "ג'": also how a reply enumerates its own steps, so these
- * count only when the reply speaks of options or the label is followed by that option's words. */
+ * count only when the reply speaks of options or the label is followed by that option's words, and
+ * never right after a noun that enumerates something else ("stage a'", "שלב א'", "step (b)"). */
 const MARKED_LABELS = [/(?:^|[\s,;:/])(?=[(\[](?:[a-h]|[א-ח])[)\]](?:$|[\s,.;:!?]))/gmu, /^[ \t>•-]*(?=(?:[a-h]|[א-ח])[.)]\s)/gmu,
   /(?:^|[\s(,;:])(?=[א-ח]['׳](?:$|[\s,.;:!?)]))/gmu];
+const ENUMERATING_NOUN = /(?:\b(?:stage|step|part|phase|layer|case|example|row|column|point|model|scenario|figure|panel|version|group|team|plant|pot|route|line)s?|(?<!\p{L})[והבלמשכ]{0,2}(?:שלב|שלבים|חלק|מקרה|שכבה|דוגמה|שורה|עמודה|נקודה|מודל|תרחיש|גרסה|קבוצה|צוות|מסלול|קו|עציץ))\s*$/u;
 /** Which options (by index) a reply names by letter, number or position. */
 export function namedOptions(reply: string, options: readonly string[]): Set<number> {
   const folded = fold(reply), named = new Set<number>(), count = options.length;
@@ -464,6 +729,7 @@ export function namedOptions(reply: string, options: readonly string[]): Set<num
   for (const pattern of MARKED_LABELS) for (const match of folded.matchAll(pattern)) {
     const at = match.index + match[0].length, found = label(folded.slice(at), false);
     if (!found || found.index === 'last') continue;
+    if (ENUMERATING_NOUN.test(folded.slice(Math.max(0, at - 24), at))) continue;
     const following = folded.slice(at + found.length, at + found.length + 200).split('\n')[0]!;
     if (speaksOfOptions || (options[found.index] !== undefined && wordsOf(options[found.index]!, following, 1) >= 0.5)) add(found.index);
   }
@@ -482,8 +748,8 @@ export function namedOptions(reply: string, options: readonly string[]): Set<num
 /** A verdict word opening the reply on its own ("Yes,", "No.", "כן,", "לא!"); "No problem" and
  * "לא אבחר" are not verdicts. */
 const VERDICT_OPENING = [
-  /^\s*(?:(?:yes|yeah|yep|yup|correct|right|exactly|indeed|absolutely|definitely|precisely|no|nope|incorrect|wrong|close)(?=\s*(?:[,.!:;\u2013\u2014-]|$))|not quite\b|not exactly\b)/,
-  /^\s*(?:כן|נכון|בדיוק|אכן|צודק|צודקת|צדקת|ממש לא|לא בדיוק|לא נכון|לא|טעות|כמעט)(?=\s*(?:[,.!:;\u2013\u2014-]|$))/u,
+  /^\s*(?:(?:yes|yeah|yep|yup|correct|right|exactly|indeed|absolutely|definitely|precisely|no|nope|incorrect|wrong|close)(?=\s*(?:[,.!:;–—-]|$))|not quite\b|not exactly\b)/,
+  /^\s*(?:כן|נכון|בדיוק|אכן|צודק|צודקת|צדקת|ממש לא|לא בדיוק|לא נכון|לא|טעות|כמעט)(?=\s*(?:[,.!:;–—-]|$))/u,
 ];
 const VERDICT_ANYWHERE = [
   /\b(?:that'?s|that is|it'?s|it is|you(?:'re| are)|you were)\s+(?:absolutely\s+|exactly\s+|not\s+)?(?:right|correct|wrong|incorrect)\b/,
@@ -494,15 +760,27 @@ const VERDICT_ANYWHERE = [
 ];
 function verdict(folded: string) { return anyOf(VERDICT_OPENING, folded) || anyOf(VERDICT_ANYWHERE, folded); }
 
+/** What the verifier knows about the turn besides the reply: the lesson's own text, whose numbers
+ * a reply may repeat (the lesson's own example) unless it asserts one as the answer. */
+export interface LeakScope { lessonText?: string; lessonNumbers?: readonly number[] }
+/** The numbers a lesson's text uses (bounded), as the verifier scopes them. */
+export function lessonNumbers(text: string): number[] { return [...new Set(statedNumbers(fold(text)))].slice(0, 400); }
 /**
- * Whether a reply gives away the answer of one of the matched checks, and how. `question` is the
- * learner's message: a yes/no verdict counts only when they asked whether an answer is right.
+ * Whether a reply gives away the answer of one of the matched checks, and how. High-precision
+ * patterns only; a paraphrase is the judge's. `question` is the learner's message: a yes/no verdict
+ * counts only when it proposed or eliminated an answer ("is it 3?", "it's not a, right?"), never
+ * for an ordinary "...right?". A number the lesson itself uses counts only when the reply asserts
+ * it as the answer ("the answer is 3", "w stays 3", or the reply is the number).
  */
-export function findCheckAnswerLeak(reply: string, checks: readonly GradedCheck[], question = ''): CheckLeak | null {
-  const folded = fold(reply), numbers = statedNumbers(folded), confirming = anyOf(CONFIRMATION_ASKED, fold(question));
+export function findCheckAnswerLeak(reply: string, checks: readonly GradedCheck[], question = '', scope: LeakScope = {}): CheckLeak | null {
+  const folded = fold(reply), numbers = statedNumbers(folded), confirming = answerIntent(question).tests;
+  const lesson = scope.lessonNumbers ?? (scope.lessonText ? lessonNumbers(scope.lessonText) : []);
   for (const check of checks) {
     for (const key of check.keys) {
-      if (key.kind === 'number' && numbers.some(value => Math.abs(value - key.value) <= key.tolerance)) return { reason: 'check_answer_stated', checkId: check.id };
+      if (key.kind === 'number') {
+        const near = (value: number) => Math.abs(value - key.value) <= key.tolerance;
+        if (numbers.some(near) && (!lesson.some(near) || assertedNumbers(folded, check).some(near))) return { reason: 'check_answer_stated', checkId: check.id };
+      }
       if (key.kind === 'text' && phraseIn(folded, fold(key.value))) return { reason: 'check_answer_stated', checkId: check.id };
       if (key.kind === 'option' && check.options[key.index] !== undefined && optionStated(folded, check.options[key.index]!)) return { reason: 'check_answer_stated', checkId: check.id };
     }
@@ -556,34 +834,50 @@ export async function releaseChecks(db: Sql, workspaceId: string, courseReleaseI
   const wanted = new Set(ids);
   return gradedChecks({ assessments: row?.assessments }).filter(check => wanted.has(check.id));
 }
+/** The semantic judge's verdict on one reply (companion-check-judge.ts). */
+export type JudgeVerdict = { verdict: 'kept' } | { verdict: 'leak'; findings: string[] } | { verdict: 'unavailable'; code: string };
+/** Runs the judge for a reply in check-coaching mode; it never throws (a failure is `unavailable`). */
+export type CheckReplyJudge = (input: { checks: readonly GradedCheck[]; reply: string; question: string }) => Promise<JudgeVerdict>;
 /** The companion strategy's output in check-coaching mode (agent-strategies.ts). */
-interface CoachedReply { kind: 'companion_text'; text: string; episodeId?: string; cutShort?: true; checkCoaching: { checkIds: string[] } }
+interface CoachedReply { kind: 'companion_text'; text: string; episodeId?: string; cutShort?: true;
+  checkCoaching: { checkIds: string[]; lessonNumbers?: number[]; withheld?: WithheldReason } }
 const coachedIds = (content: unknown): string[] | null => {
   const ids = record(record(content)?.checkCoaching)?.checkIds;
   return Array.isArray(ids) && ids.length && ids.every(id => typeof id === 'string') ? ids as string[] : null;
 };
 /**
- * The gateway's check before a companion reply is stored or its draft completed. A reply in
- * check-coaching mode that gives away a matched check's answer is replaced by the coaching message
- * (`withheld` names why); every other output is returned unchanged. When the matched checks cannot
- * be read back, nothing can be verified and the reply is withheld as well.
+ * The gateway's check before a companion reply is stored or its (hidden) draft completed. A reply
+ * in check-coaching mode is checked by the deterministic patterns (scoped to the lesson's own
+ * numbers), then, when they find nothing, by the semantic judge. A reply that gives an answer away,
+ * or that could not be judged (fail closed), is replaced by the coaching message (`withheld` names
+ * why); every other output is returned unchanged, with the lesson numbers the check used recorded
+ * on its check-coaching mark so the companion verifier repeats the same check. When the matched
+ * checks cannot be read back, nothing can be verified and the reply is withheld as well.
  */
-export async function guardCompanionReply(db: Sql, scope: { workspaceId: string; courseReleaseId: string }, question: string, content: unknown):
-  Promise<{ content: unknown; withheld: WithheldReason | null }> {
+export async function guardCompanionReply(db: Sql, scope: { workspaceId: string; courseReleaseId: string; lessonText?: string }, question: string, content: unknown,
+  judge: CheckReplyJudge): Promise<{ content: unknown; withheld: WithheldReason | null; judged: JudgeVerdict | null }> {
   const ids = coachedIds(content), value = record(content);
-  if (!ids || value?.kind !== 'companion_text' || typeof value.text !== 'string') return { content, withheld: null };
+  if (!ids || value?.kind !== 'companion_text' || typeof value.text !== 'string') return { content, withheld: null, judged: null };
   const checks = await releaseChecks(db, scope.workspaceId, scope.courseReleaseId, ids);
-  const leak = checks.length === new Set(ids).size ? findCheckAnswerLeak(value.text, checks, question) : null;
-  const withheld: WithheldReason | null = checks.length < new Set(ids).size ? 'check_keys_unavailable' : leak?.reason ?? null;
-  if (!withheld) return { content, withheld: null };
-  const reply: CoachedReply & { checkCoaching: { checkIds: string[]; withheld: WithheldReason } } = { kind: 'companion_text', text: checkCoachingMessage(question, checks),
-    ...(typeof value.episodeId === 'string' ? { episodeId: value.episodeId } : {}), checkCoaching: { checkIds: ids, withheld } };
-  return { content: reply, withheld };
+  const numbers = scope.lessonText ? lessonNumbers(scope.lessonText) : [];
+  const complete = checks.length === new Set(ids).size;
+  const leak = complete ? findCheckAnswerLeak(value.text, checks, question, { lessonNumbers: numbers }) : null;
+  let judged: JudgeVerdict | null = null;
+  if (complete && !leak) judged = await judge({ checks, reply: value.text, question });
+  const withheld: WithheldReason | null = !complete ? 'check_keys_unavailable' : leak ? leak.reason
+    : judged?.verdict === 'leak' ? 'check_answer_judged' : judged?.verdict === 'unavailable' ? 'check_judge_unavailable' : null;
+  const mark = { checkIds: ids, ...(numbers.length ? { lessonNumbers: numbers } : {}) };
+  if (!withheld) return { content: { ...value, checkCoaching: mark }, withheld: null, judged };
+  const reply: CoachedReply = { kind: 'companion_text', text: checkCoachingMessage(question, checks),
+    ...(typeof value.episodeId === 'string' ? { episodeId: value.episodeId } : {}), checkCoaching: { ...mark, withheld } };
+  return { content: reply, withheld, judged };
 }
 /**
  * The companion verifier's re-check of a stored reply (companion-verifier.ts): when the job's
- * dispatch ran in check-coaching mode, the reply must not give away a matched check's answer. A
- * reply Core already put in place of a withheld one (`withheld`) is its own coaching text.
+ * dispatch ran in check-coaching mode, the reply must not give away a matched check's answer by the
+ * deterministic patterns, scoped as the gateway scoped them. A reply Core already put in place of a
+ * withheld one (`withheld`) is its own coaching text. The semantic judge ran in the gateway; a
+ * reply that reached storage some other way still meets the deterministic check here.
  */
 export async function storedReplyKeepsChecks(db: Sql, ref: { jobId: string; enrollmentId: string; workspaceId: string }, text: string): Promise<boolean> {
   const dispatch = (await db.query<{ candidate: unknown }>("SELECT candidate FROM provider_dispatches WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND state='completed' ORDER BY finished_at DESC NULLS LAST LIMIT 1",
@@ -596,5 +890,7 @@ export async function storedReplyKeepsChecks(db: Sql, ref: { jobId: string; enro
   const checks = await releaseChecks(db, ref.workspaceId, input.context.courseReleaseId, ids);
   if (checks.length < new Set(ids).size) return false;
   const question = (await db.query<{ content: string }>("SELECT content FROM companion_messages WHERE job_id=$1 AND enrollment_id=$2 AND role='learner' LIMIT 1", [ref.jobId, ref.enrollmentId])).rows[0]?.content ?? '';
-  return !findCheckAnswerLeak(text, checks, question);
+  const recorded = record(record(dispatch?.candidate)?.checkCoaching)?.lessonNumbers;
+  const numbers = Array.isArray(recorded) ? recorded.filter(finite).slice(0, 400) : [];
+  return !findCheckAnswerLeak(text, checks, question, { lessonNumbers: numbers });
 }

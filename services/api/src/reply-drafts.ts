@@ -31,10 +31,12 @@ export type DraftState = 'streaming' | 'complete' | 'withdrawn' | 'cancelled';
 /** Why a draft was withdrawn; codes only, translated by the app. `check_answer_withheld`: the reply
  * gave away a graded check's answer (companion-check-integrity.ts); Core's coaching message follows. */
 export type DraftReason = 'output_too_large' | 'provider_refused' | 'provider_failed' | 'output_refused' | 'check_answer_withheld';
-/** One frame for the learner's stream: `text` replaces whatever the client holds from `offset` on. */
-export interface DraftFrame { jobId: string; messageId: string; offset: number; text: string; state: DraftState; reason?: DraftReason }
+/** One frame for the learner's stream: `text` replaces whatever the client holds from `offset` on.
+ * `checking`: the reply is in check-coaching mode (companion-check-integrity.ts): it streams into a
+ * hidden buffer and no text of it is ever sent; the app says the reply is being checked. */
+export interface DraftFrame { jobId: string; messageId: string; offset: number; text: string; state: DraftState; reason?: DraftReason; checking?: true }
 interface Draft {
-  enrollmentId: string; jobId: string; messageId: string;
+  enrollmentId: string; jobId: string; messageId: string; checking: boolean;
   released: string; pending: string; state: DraftState; reason?: DraftReason;
   openedAt: number; endedAt: number | null;
 }
@@ -79,7 +81,7 @@ export class ReplyDrafts {
     if (reason) draft.reason = reason;
     // A withdrawn or stopped draft keeps no text: a reconnecting client gets only the notice.
     if (state !== 'complete') { draft.released = ''; draft.pending = ''; }
-    this.emit(draft, { jobId: draft.jobId, messageId: draft.messageId, offset: 0, text: draft.released, state, ...(reason ? { reason } : {}) });
+    this.emit(draft, { jobId: draft.jobId, messageId: draft.messageId, offset: 0, text: draft.released, state, ...(reason ? { reason } : {}), ...(draft.checking ? { checking: true as const } : {}) });
   }
   private release(draft: Draft, all: boolean) {
     const cut = all ? draft.pending.length : releasable(draft.pending);
@@ -103,17 +105,23 @@ export class ReplyDrafts {
    * call may be sent, so an empty `streaming` frame goes out at once. The learner's app then shows
    * the question as sent (a reply is being written) and offers Stop, without waiting for a read of
    * the conversation or for the first sentence.
+   *
+   * `checking`: a reply in check-coaching mode. Its frames carry `checking` and never any text:
+   * the provider's text stays in the gateway until Core has checked the whole reply, and the
+   * stored reply (or Core's coaching message) follows the draft's end.
    */
-  open(key: { enrollmentId: string; jobId: string; messageId: string }) {
+  open(key: { enrollmentId: string; jobId: string; messageId: string; checking?: boolean }) {
     this.sweep();
     if (this.forgotten.has(key.enrollmentId) || this.drafts.size >= MAX_DRAFTS) return null;
-    const draft: Draft = { ...key, released: '', pending: '', state: 'streaming', openedAt: this.now(), endedAt: null };
+    const draft: Draft = { enrollmentId: key.enrollmentId, jobId: key.jobId, messageId: key.messageId, checking: key.checking === true,
+      released: '', pending: '', state: 'streaming', openedAt: this.now(), endedAt: null };
     this.drafts.set(key.jobId, draft);
-    this.emit(draft, { jobId: draft.jobId, messageId: draft.messageId, offset: 0, text: '', state: 'streaming' });
+    this.emit(draft, { jobId: draft.jobId, messageId: draft.messageId, offset: 0, text: '', state: 'streaming', ...(draft.checking ? { checking: true as const } : {}) });
     return {
-      /** Provider text as it arrives. Ignored once the draft ended (stopped, withdrawn, erased). */
+      /** Provider text as it arrives. Ignored once the draft ended (stopped, withdrawn, erased),
+       * and always for a checking draft (nothing of it is sent before it is checked). */
       push: (text: string) => {
-        if (draft.state !== 'streaming' || this.drafts.get(draft.jobId) !== draft) return;
+        if (draft.checking || draft.state !== 'streaming' || this.drafts.get(draft.jobId) !== draft) return;
         // The pending bound: more waiting text than a stored reply may hold is already refused.
         if (draft.released.length + draft.pending.length + text.length > COMPANION_REPLY_MAX_CHARACTERS + HARD_RELEASE_CHARACTERS) { this.end(draft, 'withdrawn', 'output_too_large'); return; }
         draft.pending += text;
@@ -143,7 +151,8 @@ export class ReplyDrafts {
   current(enrollmentId: string): DraftFrame[] {
     this.sweep();
     return [...this.drafts.values()].filter(d => d.enrollmentId === enrollmentId)
-      .map(d => ({ jobId: d.jobId, messageId: d.messageId, offset: 0, text: d.released, state: d.state, ...(d.reason ? { reason: d.reason } : {}) }));
+      .map(d => ({ jobId: d.jobId, messageId: d.messageId, offset: 0, text: d.released, state: d.state, ...(d.reason ? { reason: d.reason } : {}),
+        ...(d.checking ? { checking: true as const } : {}) }));
   }
   /** Follows the enrollment's drafts; null when it already has its bound of followers. */
   subscribe(enrollmentId: string, listener: Listener): (() => void) | null {

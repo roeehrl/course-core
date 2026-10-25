@@ -1126,6 +1126,7 @@
       "core:services/api/browser/budgets.spec.ts::feedbackMs",
       "core:services/api/qualification/supervised-flow.ts::firstReplyPipelineMs",
       "core:services/api/qualification/supervised-flow.ts::streamed_reply_first_token_under_3s",
+      "core:services/api/test/companion-check-judge.integration.test.ts::streamed out of sight, never shown or stored",
       "core:services/api/test/release-transition-latency.integration.test.ts",
       "core:services/api/test/streamed-replies.integration.test.ts::answers at the commit of new work, not after its timeout",
       "core:services/api/test/streamed-replies.integration.test.ts::pushes released text to the learner while the model answers, never to staff, and the receipt still settles the call"
@@ -1207,6 +1208,7 @@
     "J04": [
       "core:services/api/test/agent-evals.test.ts::runs an external held-out suite directory",
       "core:services/api/test/agent-evals.test.ts::the known-bad model fails",
+      "core:services/api/test/agent-evals.test.ts::the over-triggering model fails",
       "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes"
     ],
     "I01": [

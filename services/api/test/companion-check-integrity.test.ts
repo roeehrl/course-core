@@ -42,7 +42,7 @@ const byId = (id: string) => checks.find(check => check.id === id)!;
 const scope = checkScope(bundle, 'e1', 'e1-text-2');
 const match = (question: string, earlier: string[] = [], open: string[] = []) => {
   const s = open.length ? checkScope(bundle, 'e1', 'e1-text-2', open) : scope;
-  return matchGradedChecks({ question, earlier, checks, current: s.current, nearby: s.nearby }).map(m => `${m.check.id}:${m.how}`);
+  return matchGradedChecks({ question, earlier, checks, current: s.current, nearby: s.nearby, open: s.open }).map(m => `${m.check.id}:${m.how}`);
 };
 const leak = (reply: string, ids: string[], question = '') => findCheckAnswerLeak(reply, ids.map(byId), question);
 
@@ -208,7 +208,7 @@ describe('the companion strategy in check-coaching mode', () => {
       roles: { companion: { modelId: 'm', maxInputCharacters: 12000, maxOutputTokens: 500 } } }, () => 'synthetic-key', { custom: () => adapter });
     return { configured, seen };
   }
-  it('every reply carries the graded-check rule; a matched question adds check coaching, sends no key and shows no draft', async () => {
+  it('every reply carries the graded-check rule; a matched question adds check coaching, sends no key and streams into a hidden buffer', async () => {
     const { configured, seen } = runtime(), drafts: string[] = [];
     const plain = await configured.execute('companion', context(false), 'op-plain', new AbortController().signal, undefined, undefined, [], text => drafts.push(text));
     expect(seen[0]).toMatchObject({ streamed: true });
@@ -218,9 +218,10 @@ describe('the companion strategy in check-coaching mode', () => {
     expect(drafts).toEqual(['Try 5 boxes of 2 jars.']);
     drafts.length = 0;
     const coached = await configured.execute('companion', context(true), 'op-coached', new AbortController().signal, undefined, undefined, [], text => drafts.push(text));
-    expect(seen[1]).toMatchObject({ streamed: false });
+    // Streamed, so the first-byte and idle bounds apply, but nothing reaches the host's listener.
+    expect(seen[1]).toMatchObject({ streamed: true });
     expect(drafts).toEqual([]);
-    expect(seen[1]!.request.systemInstruction).toContain('Check coaching: the learner\'s message matches the graded checks listed in checkCoaching.');
+    expect(seen[1]!.request.systemInstruction).toContain('Check coaching: the learner\'s message is about the answer to the graded checks listed in checkCoaching.');
     const sent = JSON.parse(seen[1]!.request.messages[0]!.text);
     expect(sent.checkCoaching.items).toEqual([expect.objectContaining({ checkId: 'e1-shelf', prompt: SHELF })]);
     expect(seen[1]!.request.messages[0]!.text).not.toContain('4 x 3 - 2.');

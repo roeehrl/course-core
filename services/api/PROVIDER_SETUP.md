@@ -496,10 +496,23 @@ pilot's companion (12,000 characters, 4,096 output tokens, $0.75 / $3.75 per mil
 about $0.031 instead of $0.10. Unused reservation is released when the call settles. Research
 (per-search billing) and media keep the job allowance, as does any role without token prices.
 
+The companion's reservation also holds one call of its **check judge**
+([docs/companion-check-integrity.md](../../docs/companion-check-integrity.md)): the model that
+judges a reply about a graded check before it is kept, at its own price and at most 16,000 input
+characters and 2,048 output tokens. The judge is `roles.companion.checkJudgeRole` (`reviewer`,
+`supervisor` or `companion`), else the reviewer role when it is bound, else the companion's own
+model. For the pilot's companion judged by its own model that adds about $0.022 to the reservation
+(about $0.053 in all); a turn that does not call the judge releases it. A judge that is unpriced
+(in a workspace that requires prices), not ready, or without room in the reservation is not
+called, and the reply is replaced by Core's coaching message (fail closed).
+
 ## Response bounds
 
 A streamed reply (the companion) must start within 20 s of sending and never pause for more than
-20 s, below every call's 60 s bound; a whole reply keeps the 60 s bound. A role may set its own:
+20 s, below every call's 60 s bound. A reply about a graded check streams too, into a hidden
+buffer, under the same bounds. A whole companion reply (no draft open, quality checks) and the
+check judge's verdict must arrive within 20 s as well, since a learner is waiting for them; other
+roles' whole replies keep the 60 s bound. A role may set its own:
 `roles.<role>.firstByteTimeoutMs` (a streamed reply's first chunk; a whole reply's finished
 response) and `roles.<role>.streamIdleTimeoutMs`, each 5,000–55,000 ms. What a call that ends
 this way costs, Core's automatic second ask, and the owner's decision on a call whose cost stayed

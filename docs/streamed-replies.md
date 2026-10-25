@@ -40,11 +40,15 @@ Core's companion verifier. Of these, only the size bound can be checked on a gro
 - **Only possible on the whole answer:** the final finish reason (an Anthropic `refusal` or a
   token cap arrives in the last events), Core's own output refusals and the verifier.
 
-A question that matches one of the course's graded checks is the exception: its reply is not
-streamed at all, because Core's graded-check verifier can only judge the whole reply. The learner
-sees it once the gateway has checked it; a reply that gave a check's answer away is withheld, its
-(empty) draft is withdrawn with reason `check_answer_withheld`, and Core's coaching message is
-stored instead ([companion-check-integrity.md](companion-check-integrity.md)).
+A question about the answer to one of the course's graded checks is the exception: its reply
+streams into a hidden buffer in the gateway, so the first-byte and idle bounds still end a stalled
+call at once, but no text of it is relayed, because Core's graded-check verifier and judge can only
+judge the whole reply. Its draft is a *checking* draft: every frame carries `checking: true` and an
+empty text, and the learner's app says "Checking this reply…" ("בודקים את התשובה…") and offers
+Stop. The learner sees the reply once the gateway has checked it; a reply that gave a check's answer
+away (or could not be judged) is withheld, its draft is withdrawn with reason
+`check_answer_withheld`, and Core's coaching message is stored instead
+([companion-check-integrity.md](companion-check-integrity.md)).
 
 Because those last checks cannot be made incrementally, **the design choice is: show text only at
 safe boundaries, label it as not yet checked, and withdraw it when a whole-answer check refuses

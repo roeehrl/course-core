@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { priceMediaUnits, subscriptionAdapter, type ProviderAdapter, type TextRequest, type UsageReceipt, type VideoJob, type VideoRequest } from '@course-core/providers';
 import { composeProviders, unconfiguredProviders } from '../src/provider-composition.js';
-import { minimizeContext, type TeachingContext } from '../src/provider-runtime.js';
+import { minimizeContext, RESPONSE_BOUNDS, type TeachingContext } from '../src/provider-runtime.js';
 import { contextHeadroom } from '../src/agent-strategies.js';
 import {teachingPolicyView} from '../src/teaching-constraints.js';
 import {initialPolicy} from '../src/policy-adapter.js';
@@ -223,17 +223,45 @@ describe('response bounds of a role call (live finding B-2)', () => {
   const companion = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 1000 };
   const supervisor = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 1000 };
 
-  it('a streamed reply must start within 20 s and never pause longer than 20 s, below the 60 s call bound; a whole reply keeps the call bound', async () => {
+  it('a streamed reply must start within 20 s and never pause longer than 20 s, below the 60 s call bound; a whole companion reply and the check judge get the same first-byte bound', async () => {
     const { runtime, calls } = bounded({ companion, supervisor });
     await runtime.execute('companion', context(), 'k1', new AbortController().signal, undefined, undefined, [], () => {});
     await runtime.execute('companion', context(), 'k2', new AbortController().signal);
     await runtime.execute('supervisor', context(), 'k3', new AbortController().signal);
+    // A reply in check-coaching mode streams too (into a hidden buffer), under the same bounds.
+    const coached: TeachingContext = { ...context(), checkCoaching: { note: 'n', items: [{ checkId: 'c', type: 'numeric', prompt: 'p', match: 'quoted' }] } };
+    const seen: string[] = [];
+    await runtime.execute('companion', coached, 'k4', new AbortController().signal, undefined, undefined, [], text => seen.push(text));
+    expect(seen).toEqual([]);
+    // No reviewer bound: the companion's own model judges (structured output when it has it).
+    const plan = runtime.checkJudge()!;
+    expect(plan).toMatchObject({ role: 'companion', modelId: 'portable:custom', capability: 'structured_assessment', maxOutputTokens: 1000 });
+    // This stub answers every assessment with a plan, which the judge's schema refuses (usage kept).
+    await expect(runtime.judgeCheckReply(plan, { systemInstruction: 'judge', prompt: '{}' }, 'k5', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     expect(calls.map(c => [c.operation, c.options.timeoutMs, c.options.firstByteTimeoutMs, c.options.idleTimeoutMs])).toEqual([
       ['tutorStream', 60000, 20000, 20000],
-      // A whole reply's first byte is its finished response: no first-byte bound unless the role sets one.
-      ['tutor', 60000, undefined, undefined],
+      // A whole reply's first byte is its finished response, which a learner is waiting for.
+      ['tutor', 60000, 20000, undefined],
+      // Other roles' whole replies (plans) get one only when the role sets it.
       ['assess', 60000, undefined, undefined],
+      ['tutorStream', 60000, 20000, 20000],
+      ['assess', 60000, 20000, undefined],
     ]);
+    expect(RESPONSE_BOUNDS).toEqual({ streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 20_000 });
+  });
+
+  it('the check judge is the companion\'s checkJudgeRole, else the reviewer, else the companion; a judge that does not fit is refused before sending', async () => {
+    const reviewer = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 4000 };
+    expect(bounded({ companion, reviewer }).runtime.checkJudge()).toMatchObject({ role: 'reviewer', maxOutputTokens: 2048, maxInputCharacters: 16000 });
+    expect(bounded({ companion: { ...companion, checkJudgeRole: 'supervisor' }, supervisor, reviewer }).runtime.checkJudge()).toMatchObject({ role: 'supervisor' });
+    // A configured judge role that is not bound: no judge (the gateway fails closed).
+    expect(bounded({ companion: { ...companion, checkJudgeRole: 'reviewer' } }).runtime.checkJudge()).toBeUndefined();
+    expect(() => bounded({ companion, supervisor: { ...supervisor, checkJudgeRole: 'reviewer' } })).toThrow();
+    expect(() => bounded({ companion: { ...companion, checkJudgeRole: 'media' } })).toThrow();
+    const { runtime, calls } = bounded({ companion, reviewer });
+    const plan = runtime.checkJudge()!;
+    await expect(runtime.judgeCheckReply(plan, { systemInstruction: 'judge', prompt: 'x'.repeat(16001) }, 'k', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(calls).toEqual([]);
   });
 
   it('a role binding sets its own bounds, within the call bound', async () => {

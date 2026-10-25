@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 import { outcomeSchema, snapshotSchema, type ProviderRequest, type Snapshot } from '@course-core/supervisor';
 import { telemetry } from '@course-core/supervisor/telemetry';
 import { digestJson } from './repository.js';
-import type { SpendEvent } from './provider-costs.js';
+import { DISPATCH_COST, dispatchReconciles, judgeSplit, type DispatchCost, type SpendEvent } from './provider-costs.js';
 import { lockPaidWorkBudgets } from './supervisor-bridge.js';
 
 /**
@@ -42,7 +42,7 @@ interface LedgerRow {
   id: string; source: 'supervisor' | 'media'; source_ref: string; attempt: number; role: string; model_id: string | null;
   reserved_micro_usd: string; reserved_tokens: string;
 }
-interface DispatchRow { owner_id: string; state: string; sent_at: Date | null; outcome: unknown; model_id: string | null; pricing_version_id: string | null; cost_micro_usd: string | null }
+interface DispatchRow extends DispatchCost { owner_id: string; state: string; sent_at: Date | null; outcome: unknown }
 interface MediaRow { id: string; state: string; last_from: string | null }
 type Operation = Snapshot['operations'][number];
 
@@ -106,10 +106,11 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
     const reserved = Number(row.reserved_micro_usd), reservedTokens = Number(row.reserved_tokens);
     if (!outcome || outcome.usage.microUsd > reserved || outcome.usage.tokens > reservedTokens) return close(row);
     const charged = outcome.usage.microUsd, basis = outcome.usageBasis?.microUsd ?? 'reported';
-    const reconciled = basis === 'reported' && dispatch.pricing_version_id !== null && Number(dispatch.cost_micro_usd) === charged;
+    const reconciled = basis === 'reported' && dispatchReconciles(dispatch, charged), judge = reconciled ? judgeSplit(dispatch) : null;
     const done = await client.query(`UPDATE provider_spend_ledger SET state=$2,model_id=$3,pricing_version_id=$4,actual_micro_usd=$5,charged_micro_usd=$6,
-        released_micro_usd=GREATEST(0,reserved_micro_usd-$6),settled_at=clock_timestamp() WHERE id=$1 AND ${OPEN}`,
-      [row.id, reconciled ? 'reconciled' : 'unpriced', dispatch.model_id, reconciled ? dispatch.pricing_version_id : null, reconciled ? charged : null, charged]);
+        released_micro_usd=GREATEST(0,reserved_micro_usd-$6),settled_at=clock_timestamp(),judge_model_id=$7,judge_pricing_version_id=$8,judge_actual_micro_usd=$9 WHERE id=$1 AND ${OPEN}`,
+      [row.id, reconciled ? 'reconciled' : 'unpriced', dispatch.model_id, reconciled ? dispatch.pricing_version_id : null, reconciled ? charged : null, charged,
+        dispatch.judge_usage === null ? null : dispatch.judge_model_id, judge?.pricingVersionId ?? null, judge?.microUsd ?? null]);
     if (!done.rowCount) return;
     if (reconciled) result.events.push({ kind: 'actual', role: row.role, microUsd: charged, modelId: dispatch.model_id, basis: 'reported' });
     await refund({ ...row, model_id: dispatch.model_id }, reserved - charged, reservedTokens - outcome.usage.tokens, job);
@@ -132,7 +133,7 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
     // Re-entrant: normally already held from before the enrollment lock.
     await lockKeys(client, [`provider:${operation.id}`]);
     const dispatch = (await client.query<DispatchRow>(
-      'SELECT owner_id,state,sent_at,outcome,model_id,pricing_version_id,cost_micro_usd FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE', [operation.id])).rows[0];
+      `SELECT owner_id,state,sent_at,outcome,${DISPATCH_COST} FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE`, [operation.id])).rows[0];
     if (!dispatch) {
       // The gateway never admitted this attempt, and with the snapshot gone it never can. Record that
       // as the operation's certified refusal, keyed to the exact request the worker would send, so a

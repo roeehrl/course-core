@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { upgradeLegacyProviderConfiguration } from '../src/provider-defaults.js';
-import { roleReservation } from '../src/role-reservation.js';
+import { companionReservation, judgeCeilingMicroUsd, roleReservation } from '../src/role-reservation.js';
 import { roleRevisions } from '../src/agent-evals/revision.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { configurationTokenBounds } from '../src/provider-setup.js';
@@ -86,6 +86,20 @@ describe('role reservations are sized from the role limits and the price in forc
     const loop = roleReservation({ maxInputCharacters: 30000, maxOutputTokens: 8192, maxToolRounds: 4 }, { ...price, microUsdPerRequest: 10 }, { microUsd: 1_000_000, tokens: 1_000_000 })!;
     expect(loop.microUsd).toBe(Math.ceil(4 * ((30000 + 1024) * 750_000 + 8192 * 3_750_000) * 1.25 / 1_000_000) + 40);
     expect(roleReservation({ maxInputCharacters: 30000, maxOutputTokens: 8192, maxToolRounds: 4 }, price, policy)).toEqual({ microUsd: 100_000, tokens: 500_000 });
+  });
+  it('the companion also reserves one check-judge call at the judge\'s limits and price, never above the job allowance', () => {
+    const judgePrice = { ...price, versionId: 'j', inputMicroUsdPerMillionTokens: 250_000, outputMicroUsdPerMillionTokens: 1_250_000 };
+    const unbounded = { microUsd: Number.MAX_SAFE_INTEGER, tokens: Number.MAX_SAFE_INTEGER };
+    const own = roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, unbounded)!, judge = roleReservation({ maxInputCharacters: 16000, maxOutputTokens: 2048 }, judgePrice, unbounded)!;
+    expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: judgePrice }, policy))
+      .toEqual({ microUsd: own.microUsd + judge.microUsd, tokens: Math.min(policy.tokens, own.tokens + judge.tokens) });
+    // An unpriced judge adds nothing here (the gateway then fails it closed); the job allowance caps the sum.
+    expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: null }, policy)).toEqual(own);
+    expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: judgePrice }, { microUsd: 30_000, tokens: 50_000 }))
+      .toEqual({ microUsd: 30_000, tokens: 50_000 });
+    expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, null, null, policy)).toBeNull();
+    // The gateway's room check for one judge request: its bytes bound its input tokens.
+    expect(judgeCeilingMicroUsd(3000, 2048, judgePrice)).toBe(Math.ceil(((3000 + 1024) * 250_000 + 2048 * 1_250_000) * 1.25 / 1_000_000));
   });
   it('without token prices the policy allowance stays in force', () => {
     expect(roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, null, policy)).toBeNull();

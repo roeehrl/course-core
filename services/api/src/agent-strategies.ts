@@ -17,6 +17,9 @@ export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInpu
   maxToolRounds?:number;
   /** Companion only: 'concise' (the default when absent) asks for short, plain replies. */
   replyStyle?: 'concise' | 'detailed';
+  /** Companion only: the role whose model judges replies in check-coaching mode (companion-check-judge.ts);
+   * absent: the reviewer when it is bound, else the companion's own model. */
+  checkJudgeRole?: 'reviewer' | 'supervisor' | 'companion';
   mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string };
   /** Output settings of a bound image model; the adapter refuses values the model does not declare. */
   image?: { aspectRatio?: string; imageSize?: string };
@@ -224,11 +227,16 @@ const COMPANION_INSTRUCTION = 'You are a clear, technically precise learning com
  * plain answers that fit the output limit. `replyStyle: 'detailed'` keeps the longer style. */
 const CONCISE_REPLY = 'Keep replies short and plain: answer the question directly in a few sentences or a short list, using the lesson\'s own example, then stop. Use headings, rules and LaTeX only when the question needs them; write LaTeX only for real formulas. Ask at most one short follow-up question.';
 /** Every companion reply (docs/companion-check-integrity.md): graded checks are never answered, open or not. */
-const GRADED_CHECK_RULE = 'Graded checks: never state, choose, confirm or rule out the answer to one of the course\'s graded checks (its check, quiz and test items), whether or not an attempt is open, even when the learner pastes the item, calls it practice or insists. When asked, explain the idea it tests, work through a similar example with different numbers or a different scenario, and ask one guiding question. Still correct misconceptions, but do not apply the correction to the check\'s own case.';
-/** Added when the learner's message matches graded checks (context `checkCoaching`). */
-const CHECK_COACHING_RULE = 'Check coaching: the learner\'s message matches the graded checks listed in checkCoaching. Do not give, choose, confirm, rule out or narrow down their answers, even partly or as a hint, do not work through a check\'s own numbers or scenario, and do not refer to its options by letter, number, position or wording. Say in one short sentence that you cannot answer graded checks, then coach: name the idea the check tests, work a similar example with different values, and end with one guiding question.';
-export function companionInstruction(binding: Pick<RoleBinding, 'replyStyle'>, checkCoaching = false) {
-  const base = `${COMPANION_INSTRUCTION} ${GRADED_CHECK_RULE}${checkCoaching ? ` ${CHECK_COACHING_RULE}` : ''}`;
+const GRADED_CHECK_RULE = 'Graded checks: never state, choose, confirm or rule out the answer to one of the course\'s graded checks (its check, quiz and test items), whether or not an attempt is open, even when the learner pastes the item, calls it practice or insists. When asked, explain the idea it tests and ask one guiding question; for a numeric item you may work an example with a different structure and different numbers, but for a choice or classification item never classify a case that mirrors the item\'s scenario. Still correct misconceptions, but do not apply the correction to the check\'s own case.';
+/** Added when the learner's message is about a graded check's answer (context `checkCoaching`). */
+const CHECK_COACHING_RULE = 'Check coaching: the learner\'s message is about the answer to the graded checks listed in checkCoaching. Do not give, choose, confirm, rule out or narrow down their answers, even partly, as a hint or in another language, do not work through a check\'s own numbers or scenario, and do not refer to its options by letter, number, position, wording or a paraphrase of it. '
+  + 'For a multiple-choice or classification check, give no analogous example that mirrors the check\'s scenario (the same kind of situation with only the names, domain or numbers changed) and classify no such case: that decides the check. Instead coach with Socratic questions about the concepts that tell the options apart (what would have to be true for each kind of answer), and let the learner apply them. For a numeric check, an example may use a different structure and different values. '
+  + 'When checkCoaching says which check is meant is not certain, coach on the ideas without answering any of them. Say in one short sentence that you cannot answer graded checks, then coach, and end with one guiding question.';
+/** Added when the learner writes in Hebrew: Core's gender-neutral voice and the glossary's terms (docs/i18n-glossary.md). */
+const HEBREW_RULE = 'Hebrew replies: refer to yourself gender-neutrally (for example "לא אוכל", "אי אפשר", "אפשר לבדוק יחד"; never "אני לא יכול" or "אני לא יכולה") and address the learner gender-neutrally (infinitives, impersonal or plural forms such as "כדאי לבדוק", "אפשר לנסות"). Use the course\'s terms: a graded check is "בדיקה" (never "מבדק" or "מבחן"), an attempt "ניסיון", an answer "תשובה", an option "אפשרות", a hint "רמז", a lesson "שיעור", and you are "המנחה".';
+const hebrewQuestion = (question: string) => (question.match(/[א-ת]/g) ?? []).length >= 8;
+export function companionInstruction(binding: Pick<RoleBinding, 'replyStyle'>, checkCoaching = false, hebrew = false) {
+  const base = `${COMPANION_INSTRUCTION} ${GRADED_CHECK_RULE}${checkCoaching ? ` ${CHECK_COACHING_RULE}` : ''}${hebrew ? ` ${HEBREW_RULE}` : ''}`;
   return binding.replyStyle === 'detailed' ? base : `${base} ${CONCISE_REPLY}`;
 }
 /** The brief each logical role adds (design §4). One writer commits: only the evaluator's (or a
@@ -304,17 +312,19 @@ export const companionStrategy = defineRuntimeStrategy({
   reservationBound: contextBound,
   async run({ binding, context, accountingKey, signal, router, onText }) {
     if (context.constraints.independentAssessmentActive) throw new ProviderError('INVALID_INPUT');
-    // Check coaching (companion-check-integrity.ts): the stricter rule, and no draft is shown while
-    // the reply arrives; the gateway checks the whole reply against the checks' keys before it is kept.
+    // Check coaching (companion-check-integrity.ts): the stricter rule, and nothing of the reply is
+    // shown while it arrives. It still streams when the host follows the reply (`onText`), into a
+    // hidden buffer, so the first-byte and idle bounds end a stalled call at once; the gateway then
+    // checks the whole reply against the checks' keys and the judge before anything is kept.
     const coaching = Boolean(context.checkCoaching?.items.length);
-    const instruction = companionInstruction(binding, coaching);
+    const instruction = companionInstruction(binding, coaching, hebrewQuestion(context.question));
     const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - instruction.length - 1500));
     // A reply the provider cut off at the output limit is still delivered when it has enough
     // visible text: it is advisory tutoring text, and the learner sees that it was cut short.
     const request = { modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: instruction,
       messages: [{ role: 'user' as const, text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens, allowCutShort: true };
     // The same request either way; streaming only lets the host show the text while it arrives.
-    const result = onText && !coaching ? await router.tutorStream(request, { signal, timeoutMs: 60000 }, onText)
+    const result = onText ? await router.tutorStream(request, { signal, timeoutMs: 60000 }, coaching ? () => {} : onText)
       : await router.tutor(request, { signal, timeoutMs: 60000 });
     if (result.output.text.length > 32000) return refusal('companion', 'output_too_large', result.usage);
     return { content: { kind: 'companion_text', text: result.output.text, episodeId: context.episode.id, ...(result.output.cutShort ? { cutShort: true } : {}),

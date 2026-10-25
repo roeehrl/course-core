@@ -18,6 +18,7 @@
   "job.queued": "Queued · not sent yet",
   "state.replying": "Writing a reply · it is checked before it is kept",
   "job.writing": "Sent · a reply is being written",
+  "job.checkingReply": "Checking this reply…",
   "job.cancelledSent": "Stopped after it was sent · what that call used still counts toward this course's AI use · your message is saved",
   "job.pausedWorkspace": "Help is paused · this course's AI budget is used up, so your companion and your AI tutor can't answer for now. Course staff have been told. Your question is saved; you can ask it again when help is back.",
   "job.pausedLearner": "Help is paused · you've used the AI help set aside for you in this course, so your companion and your AI tutor can't answer for now. Course staff have been told. Your question is saved; you can ask it again when help is back.",
