@@ -46,6 +46,18 @@ async function shot(page: Page, name: string) {
   }
 }
 
+/**
+ * Whether the open menu offers this item. Passkeys are offered only where the browser has
+ * WebAuthn, which Playwright's WebKit on Linux lacks: there the item must be missing for that
+ * reason.
+ */
+async function offered(page: Page, item: Locator) {
+  if (await item.count()) return true;
+  expect(await page.evaluate(() => typeof window.PublicKeyCredential)).toBe(
+    "undefined",
+  );
+  return false;
+}
 /** Wholly on screen and inside the dialog, and the point a tap lands on is the control. */
 async function expectReachable(page: Page, dialog: Locator, control: Locator) {
   const view = page.viewportSize()!;
@@ -100,7 +112,13 @@ for (const locale of ["en", "he"] as const)
       const name = `${locale}-${size.width}x${size.height}`;
       for (const [index, { item, kept, end }] of text.dialogs.entries()) {
         await button.click();
-        await page.getByRole("menuitem", { name: item, exact: true }).click();
+        const entry = page.getByRole("menuitem", { name: item, exact: true });
+        await expect(page.getByRole("menu")).toBeVisible();
+        if (!(await offered(page, entry))) {
+          await page.keyboard.press("Escape");
+          continue;
+        }
+        await entry.click();
         const dialog = page.getByRole("dialog", { name: item });
         await expect(dialog).toBeVisible();
         // Measured where the sheet comes to rest, after it slides in.

@@ -43,6 +43,18 @@ async function shot(page: Page, name: string) {
   }
 }
 
+/**
+ * Whether the menu offers this item. Passkeys are offered only where the browser has WebAuthn,
+ * which Playwright's WebKit on Linux lacks: there the item must be missing for that reason.
+ */
+async function offered(page: Page, label: string) {
+  // The closed menu's items are hidden: count them anyway.
+  const item = page.locator(".connected-menu-panel").getByRole("button", { name: label, exact: true, includeHidden: true });
+  if (await item.count()) return true;
+  expect(await page.evaluate(() => typeof window.PublicKeyCredential)).toBe("undefined");
+  return false;
+}
+
 /** Wholly on screen, and the point a tap lands on is the control itself. */
 async function expectReachable(page: Page, control: Locator) {
   const view = page.viewportSize()!;
@@ -79,6 +91,7 @@ for (const locale of ["en", "he"] as const)
       await page.setViewportSize(size);
       const name = `${locale}-${size.width}x${size.height}`;
       for (const title of [text.password, text.passkeys]) {
+        if (!(await offered(page, title))) continue;
         await choose(page, title);
         const dialog = page.getByRole("dialog", { name: title });
         await expect(dialog).toBeVisible();
