@@ -1336,6 +1336,127 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     ).toBeInTheDocument();
   });
 
+  // A check's result shows once, in its place: a job's own check with that job, the check of all
+  // of them at once under "Run the quality check". A job's result used to show a second time
+  // under "Run the quality check", with "Run the check again", as if every job had been checked.
+  const failedFor = (roles: ("companion" | "supervisor")[]) =>
+    check({
+      id: "00000000-0000-4000-8000-0000000000c9",
+      target: "active",
+      draftId: null,
+      state: "failed",
+      roles,
+      total: 11,
+      completed: 11,
+      chargedMicroUsd: 10000,
+      finishedAt: new Date().toISOString(),
+      outcome: roles.map((role) => ({
+        role,
+        passed: role !== "companion",
+        dialogues: role === "companion" ? 9 : 2,
+        failed:
+          role === "companion"
+            ? [{ dialogueId: "d1", graders: ["hint_leakage"] }]
+            : [],
+      })),
+    });
+  const companionFailed = t("check.run.jobFailed", {
+    job: t("role.companion.name"),
+    failed: 1,
+    count: 9,
+  });
+  const runSection = (region: HTMLElement) =>
+    within(region)
+      .getByRole("heading", { name: t("check.run.title") })
+      .closest(".ai-run") as HTMLElement;
+
+  it("shows a job's own check result once, with that job", async () => {
+    const port = upgraded({
+      qualityStatus: vi.fn().mockResolvedValue({
+        ...activeStatus(),
+        latest: failedFor(["companion"]),
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const flags = await within(region).findByRole("list", {
+      name: t("check.flag.list"),
+    });
+    expect(await within(region).findAllByText(companionFailed)).toHaveLength(1);
+    const row = flags.querySelector<HTMLElement>('li[data-role="companion"]')!;
+    expect(within(row).getByText(companionFailed)).toBeVisible();
+    expect(within(row).getByText(t("check.run.failed"))).toBeVisible();
+    // "Run the quality check" (all jobs) shows no result and offers the first run, not a re-run.
+    const all = runSection(region);
+    expect(within(all).queryByText(t("check.run.failed"))).toBeNull();
+    expect(
+      within(all).getByRole("button", { name: t("check.run.button") }),
+    ).toBeVisible();
+    expect(
+      within(all).queryByRole("button", { name: t("check.run.again") }),
+    ).toBeNull();
+    expect(within(region).getAllByText(t("check.run.failed"))).toHaveLength(1);
+  });
+
+  it("shows the result of the check of all jobs at once once, under Run the quality check", async () => {
+    const port = upgraded({
+      qualityStatus: vi.fn().mockResolvedValue({
+        ...activeStatus(),
+        latest: failedFor(["companion", "supervisor"]),
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    await within(region).findByRole("list", { name: t("check.flag.list") });
+    const all = runSection(region);
+    expect(await within(all).findByText(companionFailed)).toBeVisible();
+    expect(
+      within(all).getByRole("button", { name: t("check.run.again") }),
+    ).toBeVisible();
+    expect(within(region).getAllByText(companionFailed)).toHaveLength(1);
+    expect(within(region).getAllByText(t("check.run.failed"))).toHaveLength(1);
+  });
+
+  it("shows a job's check that finishes while the page is open once, in that job's row", async () => {
+    const running = check({
+      target: "active",
+      draftId: null,
+      roles: ["companion"],
+      total: 9,
+      completed: 1,
+    });
+    const finished = failedFor(["companion"]);
+    const statusNow = vi.fn().mockResolvedValue(activeStatus());
+    const port = upgraded({
+      qualityStatus: statusNow,
+      startQualityCheck: vi.fn().mockResolvedValue(running),
+      qualityCheck: vi.fn().mockImplementation(async () => {
+        // The page reloads its status once the check ends: it now names this check as the latest.
+        statusNow.mockResolvedValue({ ...activeStatus(), latest: finished });
+        return finished;
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const flags = await within(region).findByRole("list", {
+      name: t("check.flag.list"),
+    });
+    fireEvent.click(
+      within(flags).getByRole("button", {
+        name: t("check.flag.runFor", { job: t("role.companion.name") }),
+      }),
+    );
+    const row = flags.querySelector<HTMLElement>('li[data-role="companion"]')!;
+    expect(
+      await within(row).findByText(companionFailed, {}, { timeout: 4000 }),
+    ).toBeVisible();
+    await waitFor(() => expect(statusNow.mock.calls.length).toBeGreaterThan(1));
+    expect(within(region).getAllByText(companionFailed)).toHaveLength(1);
+    expect(
+      within(runSection(region)).queryByText(t("check.run.failed")),
+    ).toBeNull();
+  });
+
   it("says why a flagged job's check can't start, in plain language", async () => {
     const blocked = activeStatus();
     blocked.activeRoles = blocked.activeRoles.map((r) => ({

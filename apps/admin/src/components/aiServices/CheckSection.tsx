@@ -47,6 +47,13 @@ const RULES = [
 ] as const;
 /** What a check checks: the open draft, or the jobs that are on now. */
 type CheckTarget = { kind: "draft"; draft: Draft } | { kind: "active" };
+/**
+ * A check of one job that is on (its own "Run check"), as opposed to the check of all of them at
+ * once. Its result belongs with that job, never under "Run the quality check".
+ */
+export function isJobCheck(check: QualityCheck) {
+  return check.target === "active" && check.roles.length === 1;
+}
 
 /**
  * The quality-check gate, on the page: which models wait for a check, running the check on the
@@ -390,6 +397,8 @@ function ActiveNeedsCheck(
   const uncovered = needing.filter((r) => r.status === "not_covered");
   const quality = data.quality;
   const checkable = !data.draft && quality?.target === "active";
+  // "Check all of them at once" shows the result of that check itself.
+  const allAtOnce = checkable && needing.length - uncovered.length > 1;
   return (
     <div className="ai-sub ai-active-check">
       <Message tone="warn">
@@ -403,6 +412,7 @@ function ActiveNeedsCheck(
         service={activeService(t, data)}
         onChanged={props.reload}
         onFinished={props.onFinished}
+        allAtOnceShown={!!allAtOnce}
       />
       {uncovered.length > 0 && (
         <p>
@@ -415,8 +425,7 @@ function ActiveNeedsCheck(
         ? needing.length > uncovered.length && (
             <p className="ai-muted">{t("aiServices.check.active.draftOpen")}</p>
           )
-        : checkable &&
-          needing.length - uncovered.length > 1 && (
+        : allAtOnce && (
             <>
               <h4>{t("aiServices.check.flag.allTitle")}</h4>
               {quality.conversations > 0 && (
@@ -452,6 +461,7 @@ export function RoleChecks({
   service,
   onChanged,
   onFinished,
+  allAtOnceShown = false,
 }: {
   port: AiServicesPort;
   workspaceId: string;
@@ -461,6 +471,8 @@ export function RoleChecks({
   onChanged: () => void | Promise<void>;
   /** Told when a check started here ends: the page keeps showing its result once the job is no longer flagged. */
   onFinished?: ((check: QualityCheck) => void) | undefined;
+  /** "Check all of them at once" is on the page and shows that check's result itself. */
+  allAtOnceShown?: boolean;
 }) {
   const text = useAiText();
   const { t } = text;
@@ -478,6 +490,16 @@ export function RoleChecks({
   }, [latest]);
   const running = check?.state === "running";
   const checkId = check?.id;
+  // Each result shows once. A job's own check shows in that job's row while the job is still
+  // flagged, and after the list once it passed (and left the list). The check of all jobs at
+  // once shows under "Run the quality check" when that is on the page, else after the list.
+  const ended = done ?? (check && !running ? check : null);
+  const jobResult = ended && isJobCheck(ended) ? ended : null;
+  const listed = (role: string) => needing.some((r) => r.role === role);
+  const after =
+    done && (isJobCheck(done) ? !listed(done.roles[0]!) : !allAtOnceShown)
+      ? done
+      : null;
   // The page's reload changes on every render; polling must not restart with it.
   const changed = useRef(onChanged),
     finished = useRef(onFinished);
@@ -593,15 +615,20 @@ export function RoleChecks({
                 </button>
               </div>
             )}
+            {jobResult?.roles[0] === r.role && !(mine && running) && (
+              <div className="ai-role-check-own">
+                <CheckResult check={jobResult} service={service} />
+              </div>
+            )}
             {message?.role === r.role && (
               <Message tone="error">{message.text}</Message>
             )}
           </li>
         );
       })}
-      {done && (
+      {after && (
         <li className="ai-role-check-result">
-          <CheckResult check={done} service={service} />
+          <CheckResult check={after} service={service} />
         </li>
       )}
     </ul>
@@ -672,7 +699,10 @@ function errorReason(text: AiText, reason: string | null, service: string) {
   }
 }
 
-/** The check when it is of this target: the open draft (`draftId`) or, with null, the jobs that are on. */
+/**
+ * The check when it is of this target: the open draft (`draftId`) or, with null, all the jobs
+ * that are on. A check of one job alone is shown with that job (RoleChecks), not here.
+ */
 function checkFor(
   value: QualityCheck | null | undefined,
   draftId: string | null,
@@ -680,7 +710,7 @@ function checkFor(
   if (!value) return null;
   const mine =
     draftId === null
-      ? value.target === "active"
+      ? value.target === "active" && !isJobCheck(value)
       : value.target !== "active" && value.draftId === draftId;
   return mine ? value : null;
 }
