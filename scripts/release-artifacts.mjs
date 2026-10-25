@@ -192,13 +192,15 @@ export function validateReleaseIdentity({tag,version,commit,head,ref,workflowSha
   ensure(ref===`refs/tags/${tag}`,'Dispatch the workflow from the requested tag, not a branch');
   ensure(repository===REPOSITORY,'Release identity must belong to the public core repository');
 }
-/** Steps that run only `if: failure()` (diagnostic uploads). They are the only
- * steps allowed to be skipped in a passing job; any other skipped step means a
- * required check did not run. scripts/release-artifacts.test.mjs pins this list
- * against every conditional step in .github/workflows/ci.yml. */
+/** Steps that run only `if: failure()` (diagnostic uploads), and the browser cache save,
+ * which runs only when the restore found no exact entry. Neither is a check, so they are
+ * the only steps allowed to be skipped in a passing job; any other skipped step means a
+ * required check did not run. scripts/release-artifacts.test.mjs pins both lists against
+ * every conditional step in .github/workflows/ci.yml. */
 export const FAILURE_ONLY_CI_STEPS = Object.freeze(['Retain disposable-database browser failure diagnostics','Retain public-demo browser failure diagnostics']);
+export const CACHE_SAVE_CI_STEPS = Object.freeze(['Save the browser and system package cache for later runs']);
 export function ciStepPassed(step) {
-  return step?.conclusion==='success'||(step?.conclusion==='skipped'&&FAILURE_ONLY_CI_STEPS.includes(step.name));
+  return step?.conclusion==='success'||(step?.conclusion==='skipped'&&(FAILURE_ONLY_CI_STEPS.includes(step.name)||CACHE_SAVE_CI_STEPS.includes(step.name)));
 }
 export function validateCiEvidence(identity, run, jobs, attempt) {
   ensure(run.head_sha===identity.commit&&run.repository?.full_name===REPOSITORY&&run.event==='workflow_dispatch','CI run is for another source or event');

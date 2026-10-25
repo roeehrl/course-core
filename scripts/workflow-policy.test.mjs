@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { APT_ARCHIVE_CACHE } from './browser-cache.mjs';
 
 const directory = new URL('../.github/workflows/', import.meta.url);
 const workflows = Object.fromEntries(await Promise.all((await readdir(directory)).filter(name => /\.ya?ml$/.test(name)).sort()
@@ -17,15 +18,71 @@ function jobs(text) {
   return result;
 }
 const header = text => text.slice(0, text.indexOf('\njobs:\n'));
+/** A job body's steps, each from its `- ` line to the next. */
+const steps = body => body.includes('\n    steps:\n') ? body.slice(body.indexOf('\n    steps:\n') + 1).split(/\n(?= {6}- )/).slice(1) : [];
+const jobMinutes = body => Number(/^ {4}timeout-minutes: (\d+)$/m.exec(body)?.[1]);
+/** A step's budget: a number, or the browser install's hit-dependent `restored && N || M` (its larger value). */
+const HIT_BUDGET = /^ {8}timeout-minutes: \$\{\{ steps\.browser-cache-restore\.outputs\.cache-hit != '' && (\d+) \|\| (\d+) \}\}$/m;
+const stepMinutes = step => { const hit = HIT_BUDGET.exec(step); return hit ? Math.max(Number(hit[1]), Number(hit[2])) : Number(/^ {8}timeout-minutes: (\d+)$/m.exec(step)?.[1]); };
 
 test('every action is an official actions/* action pinned to a full commit SHA', () => {
   assert.ok(Object.keys(workflows).length >= 3);
   for (const [name, text] of Object.entries(workflows)) {
     for (const [, ref] of text.matchAll(/^\s*(?:-\s+)?uses:\s*(\S+)/gm)) {
       if (ref.startsWith('./.github/workflows/')) continue;
-      assert.match(ref, /^actions\/[a-z0-9-]+@[a-f0-9]{40}$/, `${name}: ${ref}`);
+      // An official action's own sub-action (actions/cache/restore) is pinned the same way.
+      assert.match(ref, /^actions\/[a-z0-9-]+(?:\/[a-z0-9-]+)?@[a-f0-9]{40}$/, `${name}: ${ref}`);
     }
   }
+});
+
+test('caches hold only Playwright browsers and Ubuntu packages checked against the signed apt index', () => {
+  const browserPaths = ['~/.cache/ms-playwright', "${{ matrix.app == 'visuals' && 'packages/visuals/node_modules/.cache/ms-playwright' || '~/.cache/ms-playwright' }}"];
+  const cachePaths = step => /\n {8}with:\n(?: {10}.*\n)*? {10}path: \|\n((?: {12}.*\n)+)/.exec(`${step}\n`)?.[1].trim().split(/\n\s*/);
+  let cachedJobs = 0;
+  for (const [name, text] of Object.entries(workflows)) {
+    // No combined actions/cache step: its implicit post-job save would run after the tests.
+    assert.doesNotMatch(text, /uses: actions\/cache@/, name);
+    // Dependency installs stay locked and fresh: setup-node never restores an npm cache.
+    for (const step of Object.values(jobs(text)).flatMap(steps).filter(step => step.includes('uses: actions/setup-node@')))
+      assert.match(step, /^ {10}package-manager-cache: false$/m, name);
+    for (const [job, body] of Object.entries(jobs(text))) {
+      const list = steps(body), index = pattern => list.findIndex(step => pattern.test(step));
+      const restores = list.filter(step => step.includes('uses: actions/cache/restore@')), saves = list.filter(step => step.includes('uses: actions/cache/save@'));
+      const installsPackages = index(/--with-deps|apt-get install/) >= 0;
+      if (name === 'ci.yml' && /--with-deps/.test(body)) assert.equal(restores.length, 1, `${job}: browser installs use the cache`);
+      if (!restores.length && !saves.length) continue;
+      cachedJobs++;
+      assert.ok(name === 'ci.yml', `${name} ${job}: release and nightly jobs do not use caches`);
+      assert.equal(restores.length, 1, job);
+      assert.equal(saves.length, 1, job);
+      const [restore, save] = [restores[0], saves[0]];
+      const paths = cachePaths(restore);
+      assert.deepEqual(cachePaths(save), paths, `${job}: restore and save the same paths`);
+      assert.equal(paths.length, 2, job);
+      assert.ok(browserPaths.includes(paths[0]), `${job}: ${paths[0]}`);
+      assert.equal(paths[1], APT_ARCHIVE_CACHE, job);
+      for (const step of [restore, save]) assert.match(step, /^ {10}key: \$\{\{ steps\.browser-cache\.outputs\.key \}\}$/m, job);
+      assert.match(restore, /^ {10}restore-keys: \$\{\{ steps\.browser-cache\.outputs\.restore-keys \}\}$/m, job);
+      assert.match(restore, /^ {10}SEGMENT_DOWNLOAD_TIMEOUT_MINS: '\d'$/m, `${job}: a slow cache download falls back to a miss`);
+      assert.match(save, /^ {8}if: steps\.browser-cache-restore\.outputs\.cache-hit != 'true'$/m, job);
+      assert.ok(installsPackages, job);
+      // Restored packages reach apt only through apt-restore's checksum check, before any install;
+      // apt-collect runs after every install, and the save after both.
+      const keyAt = index(/node scripts\/browser-cache\.mjs key /), restoreAt = list.indexOf(restore), saveAt = list.indexOf(save);
+      const checkAt = index(/browser-cache\.mjs apt-restore/), collectAt = index(/browser-cache\.mjs apt-collect/);
+      assert.ok(keyAt >= 0 && keyAt < restoreAt, `${job}: the key is computed before the restore`);
+      assert.match(list[keyAt], /^ {8}id: browser-cache$/m, job);
+      assert.match(restore, /^ {8}id: browser-cache-restore$/m, job);
+      assert.ok(restoreAt < checkAt && checkAt <= index(/--with-deps|apt-get install/), `${job}: apt-restore runs before apt installs anything`);
+      const lastInstall = list.findLastIndex(step => /--with-deps|apt-get install/.test(step));
+      const firstInstallIn = step => step.search(/--with-deps|apt-get install/), lastInstallIn = step => Math.max(step.lastIndexOf('--with-deps'), step.lastIndexOf('apt-get install'));
+      if (firstInstallIn(list[checkAt]) >= 0) assert.ok(list[checkAt].indexOf('apt-restore') < firstInstallIn(list[checkAt]), `${job}: apt-restore precedes the install in its step`);
+      assert.ok(lastInstall <= collectAt && collectAt < saveAt, `${job}: apt-collect follows every install and precedes the save`);
+      assert.ok(list[collectAt].lastIndexOf('apt-collect') > lastInstallIn(list[collectAt]), `${job}: apt-collect follows the install in its step`);
+    }
+  }
+  assert.ok(cachedJobs >= 4, 'every browser job caches its downloads');
 });
 
 test('OIDC and attestation write access exist only on the release candidate job', () => {
@@ -119,6 +176,30 @@ test('every job has a timeout, and the required API check gates every API job', 
     // R02: migrations are rehearsed against the previous release on every change, not only at release.
     'release-compat.mjs rehearse --candidate "$GITHUB_SHA"'])
     assert.equal(apiJobs.filter(job => ci[job].includes(command)).length, 1, command);
+});
+
+test('browser jobs budget setup and tests in separate steps under a job limit', () => {
+  // A step budget can only stop a step early; one at or above the job's limit means nothing.
+  for (const [name, text] of Object.entries(workflows))
+    for (const [job, body] of Object.entries(jobs(text)))
+      for (const step of steps(body)) if (/^ {8}timeout-minutes:/m.test(step)) assert.ok(stepMinutes(step) < jobMinutes(body), `${name} ${job}: ${step.split('\n')[0]}`);
+  const ci = jobs(workflows['ci.yml']);
+  const setup = /orchestrate\.mjs install |sandbox:pull|--with-deps|apt-get install|uses: actions\/cache\//;
+  const suite = /--forbid-only|npm run check:api\n|orchestrate\.mjs check "\$TARGET"/;
+  for (const job of ['api-core', 'api-engines', 'api-connected', 'web']) {
+    const list = steps(ci[job]);
+    assert.ok(list.some(step => /--with-deps/.test(step)), job);
+    for (const step of list.filter(step => setup.test(step) || suite.test(step))) {
+      // Downloads never share a budget with a test suite, so a slow mirror cannot use up a suite's time.
+      assert.ok(!(setup.test(step) && suite.test(step)), `${job}: setup and tests in one step: ${step.split('\n')[0]}`);
+      assert.ok(stepMinutes(step) > 0, `${job}: ${step.split('\n')[0]} needs its own timeout-minutes`);
+    }
+    // Installing from a restored entry gets a tight budget; only a full miss, which downloads every package, gets more.
+    for (const step of list.filter(step => /--with-deps/.test(step))) {
+      const [, restored, miss] = HIT_BUDGET.exec(step) ?? [];
+      assert.ok(Number(restored) > 0 && Number(restored) < Number(miss), `${job}: ${step.split('\n')[0]} budget depends on the cache restore`);
+    }
+  }
 });
 
 test('PR and release CI fail on test-level skips: every test command is skip-checked', () => {
