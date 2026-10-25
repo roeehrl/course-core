@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { trackedHebrew } from "../hebrewText";
 import { connectedSnapshot } from "../connectedFixtures";
+import { windowClass } from "../../src/domain/windowClass";
 
 /* The connected host, lesson, passkeys and demo app in Hebrew and under the
  * en-XA pseudo-locale: direction, phone and desktop widths, axe, and no chrome
@@ -82,9 +83,14 @@ async function connectedFixture(page: Page, user: Record<string, unknown> = {}) 
   });
   return snapshot;
 }
-/** Where the first character of an element's text is painted: the start of a left-to-right line. */
-function firstCharacterLeft(locator: Locator) {
-  return locator.evaluate((element) => {
+/**
+ * Runs in the page. For each element: the left edge of its content box, and where the first
+ * character of its text is painted (the start of a left-to-right line).
+ */
+function edgesOf(target: Element | Element[]) {
+  return (Array.isArray(target) ? target : [target]).map((element) => {
+    const style = getComputedStyle(element);
+    const content = element.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const at = (node.textContent ?? "").search(/[^\s\u2066-\u2069]/);
@@ -92,17 +98,28 @@ function firstCharacterLeft(locator: Locator) {
       const range = document.createRange();
       range.setStart(node, at);
       range.setEnd(node, at + 1);
-      return range.getBoundingClientRect().left;
+      return { content, text: range.getBoundingClientRect().left };
     }
-    return Number.NaN;
+    return { content, text: Number.NaN };
   });
 }
+/** Where the first character of an element's text is painted: the start of a left-to-right line. */
+async function firstCharacterLeft(locator: Locator) {
+  const [edges] = await locator.evaluate(edgesOf);
+  return edges!.text;
+}
 /** The left edge of an element's content box. */
-function contentLeft(locator: Locator) {
-  return locator.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return element.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
-  });
+async function contentLeft(locator: Locator) {
+  const [edges] = await locator.evaluate(edgesOf);
+  return edges!.content;
+}
+/**
+ * The edges of every element the locator matches, in document order, read in one evaluation. Two
+ * separate reads can fall either side of a re-render that moves both elements (the host lays the
+ * page out again a frame after a resize), so edges that are compared are read together.
+ */
+function edgesTogether(locator: Locator) {
+  return locator.evaluateAll(edgesOf);
 }
 async function openLesson(page: Page, continueLabel: RegExp) {
   await page.getByRole("button", { name: continueLabel }).first().click();
@@ -142,17 +159,24 @@ test("an English course's lesson text starts at its own edge in the Hebrew host,
   await expect(subtitle).toHaveText("Explain a changing pattern.");
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 900 });
+    // The host takes the layout for a new width a frame after the resize, when the companion pane
+    // comes or goes and the lesson column moves with it. Measure that layout, not the one before.
+    await expect(page.locator(".connected-host")).toHaveAttribute("data-window-class", windowClass(width));
     // The subtitle reads left to right from the same edge as the English title above it.
     await expect(subtitle).toHaveCSS("direction", "ltr");
     await expect(subtitle).toHaveCSS("text-align", "start");
-    expect(Math.abs((await firstCharacterLeft(subtitle)) - (await firstCharacterLeft(title))), `subtitle at ${width}px`).toBeLessThanOrEqual(1);
+    const [titleLeft, subtitleLeft] = (await edgesTogether(title.or(subtitle))).map((edges) => edges.text);
+    expect(Math.abs(subtitleLeft! - titleLeft!), `subtitle at ${width}px`).toBeLessThanOrEqual(1);
     // So does the lesson prose: it starts at the card's left edge, not inside a box hung from the right.
     await expect(prose).toHaveCSS("direction", "ltr");
-    expect(Math.abs((await firstCharacterLeft(prose)) - (await contentLeft(card))), `prose at ${width}px`).toBeLessThanOrEqual(1);
+    const [cardEdges, proseEdges] = await edgesTogether(card.or(prose));
+    expect(Math.abs(proseEdges!.text - cardEdges!.content), `prose at ${width}px`).toBeLessThanOrEqual(1);
     // A source title's bullet stays inside the list's box, so inside the card.
-    const listLeft = await sources.evaluate((list) => list.getBoundingClientRect().left);
-    for (const item of await sources.locator("li").all())
-      expect((await item.evaluate((li) => li.getBoundingClientRect().left)) - listLeft, `source bullet at ${width}px`).toBeGreaterThanOrEqual(12);
+    const bullets = await sources.evaluate((list) =>
+      Array.from(list.querySelectorAll("li"), (item) => item.getBoundingClientRect().left - list.getBoundingClientRect().left),
+    );
+    expect(bullets, `source bullets at ${width}px`).not.toEqual([]);
+    for (const offset of bullets) expect(offset, `source bullet at ${width}px`).toBeGreaterThanOrEqual(12);
   }
   expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
 });
