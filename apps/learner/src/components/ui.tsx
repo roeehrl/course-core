@@ -115,6 +115,9 @@ export function Eyebrow({ style, children, ...props }: TextProps) {
   );
 }
 
+/** A disabled button's colours: its label keeps at least 4.5:1 on the fill, on white and on the
+ * app's paper, mint and lilac backgrounds (tests/disabledContrast.test.ts). */
+export const DISABLED = { fill: "#DFE9E5", onFill: "#3F5A55", line: "#E4EBE8", text: "#56706B" } as const;
 export function Button({
   label,
   onPress,
@@ -168,23 +171,25 @@ export function Button({
       onBlur={() => setFocused(false)}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
+      // A disabled button reads as inactive (flat, muted colours) while its label keeps a contrast
+      // of at least 4.5:1; fading the whole button left white on pale teal at about 2:1.
       style={({ pressed }) => [
         {
           ...buttonBox,
           backgroundColor:
             kind === "primary"
-              ? colors.teal
+              ? disabled ? DISABLED.fill : colors.teal
               : kind === "quiet"
                 ? "transparent"
                 : colors.white,
           borderColor: focused
             ? colors.ink
             : kind === "primary"
-              ? colors.teal
+              ? disabled ? DISABLED.fill : colors.teal
               : kind === "quiet"
                 ? "transparent"
-                : colors.line,
-          opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+                : disabled ? DISABLED.line : colors.line,
+          opacity: !disabled && pressed ? 0.8 : 1,
         },
         hovered &&
           !disabled &&
@@ -195,7 +200,7 @@ export function Button({
       <Text
         style={[
           buttonLabel,
-          { color: kind === "primary" ? colors.white : colors.teal },
+          { color: disabled ? (kind === "primary" ? DISABLED.onFill : DISABLED.text) : kind === "primary" ? colors.white : colors.teal },
         ]}
       >
         {label}

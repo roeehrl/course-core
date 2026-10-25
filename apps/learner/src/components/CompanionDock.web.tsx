@@ -58,17 +58,27 @@ export function CompanionDock({
     );
     const inert = backgrounds.map((node) => node.inert),
       overflow = document.body.style.overflow;
+    // Where the lesson is (the window, or the learning pane on a phone): opening or closing the
+    // sheet never moves it (as the account dialogs, Overlay.web.tsx).
+    const pane = document.querySelector<HTMLElement>(".connected-main");
+    const place = { left: window.scrollX, top: window.scrollY, pane: pane?.scrollTop ?? 0 };
     backgrounds.forEach((node) => {
       node.inert = true;
     });
     document.body.style.overflow = "hidden";
     if (!panel.current?.contains(document.activeElement))
-      panel.current?.focus();
+      panel.current?.focus({ preventScroll: true });
     return () => {
       backgrounds.forEach((node, i) => {
         node.inert = inert[i] ?? false;
       });
       document.body.style.overflow = overflow;
+      const keep = () => {
+        if (Math.round(window.scrollX) !== Math.round(place.left) || Math.round(window.scrollY) !== Math.round(place.top))
+          window.scrollTo({ left: place.left, top: place.top, behavior: "instant" });
+        if (pane?.isConnected && Math.round(pane.scrollTop) !== Math.round(place.pane)) pane.scrollTop = place.pane;
+      };
+      keep();
       queueMicrotask(() => {
         if (!last.current.wide && !last.current.open) {
           const target =
@@ -81,6 +91,7 @@ export function CompanionDock({
                 );
           target?.focus({ preventScroll: true });
         }
+        keep();
       });
     };
   }, [modal]);

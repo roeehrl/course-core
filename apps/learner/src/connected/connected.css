@@ -34,9 +34,15 @@ html:has(.connected-host) body {
   font: inherit;
   cursor: pointer;
 }
+/* A disabled button reads as inactive (muted colours, no pointer) while its label keeps a contrast
+ * of at least 4.5:1, which fading the whole button did not (tests/disabledContrast.test.ts). */
 .connected-host :where(button:disabled) {
   cursor: default;
-  opacity: 0.55;
+  color: #56706b;
+}
+.connected-navigation button:disabled,
+.connected-link-button:disabled {
+  color: #56706b;
 }
 .connected-host :where(button, input, textarea, select, summary, a):focus-visible {
   outline: 3px solid #183237;
@@ -817,8 +823,11 @@ html:has(.connected-host) body {
   border-color: #087b69;
   color: white;
 }
-.connected-practice-actions button:disabled {
-  opacity: 0.55;
+.connected-practice-actions button:disabled,
+.connected-practice-actions button.connected-practice-run:disabled {
+  background: #dfe9e5;
+  border-color: #dfe9e5;
+  color: #3f5a55;
   cursor: not-allowed;
 }
 .connected-practice-status {
@@ -1003,8 +1012,8 @@ html:has(.connected-host) body {
   flex-wrap: wrap;
   gap: 8px;
 }
-.connected-offer-actions button:disabled {
-  opacity: 0.5;
+.connected-offer-actions .connected-link-button:disabled {
+  color: #56706b;
 }
 @media (max-width: 599px) {
   .connected-offer-comparison {
@@ -1541,7 +1550,8 @@ html:has(.connected-host.is-compact) body {
 .connected-gate-action:hover:not(:disabled) { background: #e8f6ed; }
 .connected-gate-action.primary:hover:not(:disabled) { background: #066a5a; }
 .connected-gate-action:focus-visible { outline: 3px solid #183237; outline-offset: 2px; }
-.connected-gate-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.connected-gate-action:disabled { border-color: #e4ebe8; color: #56706b; cursor: not-allowed; }
+.connected-gate-action.primary:disabled { background: #dfe9e5; border-color: #dfe9e5; color: #3f5a55; }
 .connected-gate-wait { margin: 0 !important; font-size: 14px !important; color: #7050a4 !important; }
 .connected-gate-review-form { display: grid; gap: 8px; min-width: 0; }
 .connected-gate-review-form label { font-size: 14px; font-weight: 600; color: #183237; }
@@ -2601,8 +2611,11 @@ html:has(.connected-host:not(.is-compact)) {
   background: transparent;
   color: #1f5f5b;
 }
-.cross-course-actions button:disabled {
-  opacity: 0.6;
+.cross-course-actions button:disabled,
+.cross-course-actions button.quiet:disabled {
+  background: #dfe9e5;
+  border-color: #dfe9e5;
+  color: #3f5a55;
   cursor: default;
 }
 .cross-course-hidden {
