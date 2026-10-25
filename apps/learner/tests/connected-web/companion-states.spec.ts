@@ -142,6 +142,8 @@ for (const locale of ["en", "he"] as const) {
     expect((await (await request.post("/test/companion-job", { data: { question: stopped, state: "cancelled" } })).json()).updated).toBe(true);
     const stoppedCard = card(page, locale, stopped);
     await expect(stoppedCard.getByText(t.job["job.cancelledSent"], { exact: true })).toBeVisible({ timeout: 15_000 });
+    // Nothing still says a reply is on its way (live 0.1.58: the notice stayed after Stop).
+    await expect(page.getByText(t.companion["sent.waiting"], { exact: true })).toHaveCount(0);
     await stoppedCard.getByRole("button", { name: t.companion.askAgain, exact: true }).click();
     await expect(page.getByRole("textbox", { name: t.companion["draft.label"], exact: true })).toHaveValue(stopped);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);

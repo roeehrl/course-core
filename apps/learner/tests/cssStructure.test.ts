@@ -48,9 +48,12 @@ function cssStructureProblems(css: string, from: string): string[] {
   return problems;
 }
 
-// Hebrew has no capitals, and letter-spacing pulls its words apart. A rule that sets a positive
-// letter-spacing or a text-transform (tracked capitals for Latin script) needs each of its
-// selectors again, with :lang(he), in a rule that sets letter-spacing: 0 and text-transform: none.
+// Hebrew has no capitals, and letter-spacing pulls its words apart. A rule that sets a
+// letter-spacing other than 0 or a text-transform (tracked capitals, or large headings drawn
+// tighter, for Latin script) needs each of its selectors again, with :lang(he), in a rule that sets
+// letter-spacing: 0 and text-transform: none. Negative tracking counts too (0.1.58 qualification:
+// Hebrew headings were drawn at -1.2px and -0.35px). A selector that itself names a language
+// (:lang(en) for the Latin product name) needs no reset.
 function hebrewTrackingProblems(css: string, from: string): string[] {
   const root = postcss.parse(css, { from });
   const squash = (selector: string) => selector.replace(/\s+/g, " ").trim();
@@ -71,7 +74,7 @@ function hebrewTrackingProblems(css: string, from: string): string[] {
     const value = decl.value.trim();
     const latin =
       (decl.prop === "letter-spacing" &&
-        !/^(0(px|em|rem)?|normal|-.*)$/.test(value)) ||
+        !/^(0(px|em|rem)?|normal)$/.test(value)) ||
       (decl.prop === "text-transform" && value !== "none");
     if (!latin || decl.parent?.type !== "rule") return;
     for (const selector of (decl.parent as Rule).selectors) {
@@ -225,16 +228,18 @@ describe("learner stylesheet structure", () => {
       ".a { letter-spacing: 1.5px; text-transform: uppercase; }",
       ".b span { letter-spacing: 0.08em; }",
       ".c { letter-spacing: -1px; text-transform: none; }",
+      ".d :lang(en) { letter-spacing: -0.7px; }",
       ".a:lang(he) { letter-spacing: 0; }",
     ].join("\n");
     expect(hebrewTrackingProblems(css, "x.css")).toEqual([
       'x.css:1: ".a" sets letter-spacing: 1.5px without a ".a:lang(he)" reset',
       'x.css:1: ".a" sets text-transform: uppercase without a ".a:lang(he)" reset',
       'x.css:2: ".b span" sets letter-spacing: 0.08em without a ".b span:lang(he)" reset',
+      'x.css:3: ".c" sets letter-spacing: -1px without a ".c:lang(he)" reset',
     ]);
     expect(
       hebrewTrackingProblems(
-        `${css}\n.a:lang(he),\n.b span:lang(he) { letter-spacing: 0; text-transform: none; }`,
+        `${css}\n.a:lang(he),\n.b span:lang(he),\n.c:lang(he) { letter-spacing: 0; text-transform: none; }`,
         "x.css",
       ),
     ).toEqual([]);

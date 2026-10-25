@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { CompanionDockProps } from "./CompanionDock";
 import { useT } from "../i18n";
 
@@ -12,6 +13,7 @@ export function CompanionDock({
   onOpenChange,
   collapsed = false,
   onCollapsedChange,
+  triggerSlot = null,
   children,
 }: CompanionDockProps) {
   const t = useT();
@@ -90,27 +92,33 @@ export function CompanionDock({
     } else onOpenChange(false);
   }
   const showTrigger = wide ? collapsed : !open;
+  const inHeader = wide && triggerSlot !== null;
+  const button = (
+    <button
+      ref={trigger}
+      hidden={!showTrigger}
+      className={`connected-companion-trigger ${wide ? "is-pane-toggle" : ""} ${inHeader ? "is-in-header" : ""}`}
+      type="button"
+      aria-haspopup={wide ? undefined : "dialog"}
+      aria-expanded={false}
+      aria-controls="connected-companion"
+      data-usability="detour"
+      onClick={(event) => {
+        returnFocus.current = event.currentTarget;
+        if (wide) {
+          moveFocus.current = "panel";
+          collapse.current?.(false);
+        } else onOpenChange(true);
+      }}
+    >
+      <span aria-hidden="true">✧</span> {t("companionDock.open")}
+    </button>
+  );
   return (
     <>
-      <button
-        ref={trigger}
-        hidden={!showTrigger}
-        className={`connected-companion-trigger ${wide ? "is-pane-toggle" : ""}`}
-        type="button"
-        aria-haspopup={wide ? undefined : "dialog"}
-        aria-expanded={false}
-        aria-controls="connected-companion"
-        data-usability="detour"
-        onClick={(event) => {
-          returnFocus.current = event.currentTarget;
-          if (wide) {
-            moveFocus.current = "panel";
-            collapse.current?.(false);
-          } else onOpenChange(true);
-        }}
-      >
-        <span aria-hidden="true">✧</span> {t("companionDock.open")}
-      </button>
+      {/* Beside the lesson the button sits in the header (never over the lesson); on a phone it
+          has its own row under the lesson. */}
+      {inHeader ? createPortal(button, triggerSlot) : button}
       {modal && (
         <div
           className="connected-drawer-backdrop"

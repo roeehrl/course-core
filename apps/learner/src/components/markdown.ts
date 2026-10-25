@@ -440,20 +440,47 @@ export function textDirection(text: string): "rtl" | "ltr" | undefined {
 }
 /** Whether text mixes right-to-left letters into it, so Latin runs need isolating. */
 export const hasRightToLeft = (text: string) => RTL.test(text);
-/** Splits text into runs of Latin words (with the digits and joiners between them) and the rest,
- * so a Latin run inside Hebrew keeps its own order: "(fine-tuning)" never wraps as "(-fine". */
+const LATIN = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/;
+/** An operation between numbers ("2+2=4", "0.1·6"): a formula even without a letter. */
+const FORMULA = /\d\s*[=+\-*/^<>×÷·≤≥≠]\s*[\d(]/;
+const PAIRS: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}", "“": "”", "‘": "’", "«": "»", '"': '"' };
+const CLOSERS = new Map(Object.entries(PAIRS).map(([open, close]) => [close, open]));
+/** Words with more than two of them, or an operator: a phrase or formula of its own, whose closing
+ * punctuation ("…value of w?") is its own, not the sentence around it. */
+const phrase = (run: string) => /\S\s+\S+\s+\S/.test(run) || /[\w)]\s*[=*^<>+×÷]\s*[\w(]/.test(run);
+/**
+ * Splits text into runs to isolate left to right and the rest, so text in a left-to-right script
+ * inside Hebrew keeps its own order: a term ("(fine-tuning)" never wraps as "(-fine"), a pasted
+ * English sentence or formula ("For prediction=w*x, use w=3, x=2", which read
+ * "2=x ,3=use w ,x*w=For prediction" in the live 0.1.58 test), or a calculation ("2+2=4"). A run is
+ * a stretch without right-to-left letters that has a Latin, Greek or Cyrillic letter or an
+ * operation between numbers. What only joins it to the sentence stays outside: spaces, a maqaf
+ * after a Hebrew prefix ("ב-forward"), separating commas and colons, a bracket or quotation mark
+ * it does not close, and the full stop of a Hebrew sentence that ends on a single term.
+ */
 export function latinRuns(text: string): { text: string; latin: boolean }[] {
   const out: { text: string; latin: boolean }[] = [];
-  const pattern = /[A-Za-z][A-Za-z0-9_'’.\-/+#]*(?:[  ]+[A-Za-z0-9][A-Za-z0-9_'’.\-/+#]*)*/g;
   let last = 0;
-  for (const match of text.matchAll(pattern)) {
-    let run = match[0];
-    // Trailing joiners belong to the surrounding sentence ("forward." keeps its period outside).
-    run = run.replace(/[.\-/'’]+$/, "");
-    if (!run) continue;
-    if (match.index! > last) out.push({ text: text.slice(last, match.index), latin: false });
+  for (const match of text.matchAll(/[^\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF\n]+/g)) {
+    const span = match[0];
+    if (!LATIN.test(span) && !FORMULA.test(span)) continue;
+    let start = 0, end = span.length;
+    for (let changed = true; changed && start < end; ) {
+      changed = false;
+      while (start < end && /[\s,;:.!?\-–—·/]/.test(span[start]!)) { start++; changed = true; }
+      while (end > start && /[\s,;:\-–—·]/.test(span[end - 1]!)) { end--; changed = true; }
+      const run = span.slice(start, end), first = run[0]!, final = run.at(-1)!;
+      // A closing mark at the start, or an opening one at the end, encloses nothing of the run.
+      if ((CLOSERS.has(first) && first !== '"') || (PAIRS[first] && !run.slice(1).includes(PAIRS[first]!))) { start++; changed = true; continue; }
+      if ((PAIRS[final] && final !== '"') || (CLOSERS.has(final) && !run.slice(0, -1).includes(CLOSERS.get(final)!))) { end--; changed = true; continue; }
+      if (/[.!?…]/.test(final) && !(LATIN.test(run) && phrase(run))) { end--; changed = true; }
+    }
+    const run = span.slice(start, end);
+    if (!run || (!LATIN.test(run) && !FORMULA.test(run))) continue;
+    const index = match.index! + start;
+    if (index > last) out.push({ text: text.slice(last, index), latin: false });
     out.push({ text: run, latin: true });
-    last = match.index! + run.length;
+    last = index + run.length;
   }
   if (last < text.length) out.push({ text: text.slice(last), latin: false });
   return out;

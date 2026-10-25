@@ -5,9 +5,11 @@ import { connectedSnapshot } from "../connectedFixtures";
 /**
  * The connection status (offline, a saved request not yet recorded, a slow server) used to be
  * inserted at the top of the learning column, pushing the course down while the learner read.
- * It now floats at the bottom of the window as a snackbar: nothing on the page moves when it
- * appears or goes. The "Your course" menu marks the view on screen without English words, so it
- * reads the same in Hebrew.
+ * It now sits at the bottom of the window: nothing on the page moves when it appears or goes.
+ * On a phone it is a card the learning pane ends above; beside the companion pane it is a band
+ * across the window's end (tests/connected-web/layout-room.spec.ts checks that it never covers
+ * the lesson's buttons). The "Your course" menu marks the view on screen without English words,
+ * so it reads the same in Hebrew.
  */
 const TEXT = {
   en: {
@@ -141,7 +143,12 @@ async function expectFloating(page: Page) {
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
   expect(box.y).toBeGreaterThan(header.y + header.height);
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 0.5);
+  if (!(await page.locator(".connected-host.is-compact").count())) {
+    // Beside the companion pane: a band across the whole window.
+    expect(box.x).toBeLessThanOrEqual(0.5);
+    expect(box.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  }
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(viewport.width);

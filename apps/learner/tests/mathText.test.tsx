@@ -106,6 +106,21 @@ describe("math on the web page", () => {
     expect(container.textContent).not.toContain("\\_");
   });
 
+  it("keeps a short inline formula whole, splits only a long one, and in Hebrew prose only one too long for a line", () => {
+    // Live 0.1.58 (Hebrew phone): "h =" ended one line and "w₁ · x" began the next.
+    const pieces = (markdown: string, locale: "en" | "he" = "en") => {
+      const { unmount } = render(<I18nProvider value={locale === "he" ? he : createLearnerTranslator("en")}><MarkdownContent markdown={markdown} /></I18nProvider>);
+      const counts = screen.getAllByRole("math").map((math) => math.querySelectorAll("math").length);
+      unmount();
+      return counts;
+    };
+    expect(pieces("Take $h = w_1 \\cdot x$ here.")).toEqual([1]);
+    expect(pieces("נניח $h = w_1 \\cdot x$ ואז $\\text{prediction} = w_2 \\cdot h$.", "he")).toEqual([1, 1]);
+    const long = "w_{\\text{new}} = w - \\eta \\cdot g = 2 - 0.1 \\cdot (-6) = 2.6";
+    expect(pieces(`So $${long}$ follows.`)[0]).toBeGreaterThan(1);
+    expect(pieces(`לכן $${long}$ כאן.`, "he")).toEqual([1]);
+  });
+
   it("labels math in the interface language and marks it with that language", () => {
     render(
       <I18nProvider value={he}>

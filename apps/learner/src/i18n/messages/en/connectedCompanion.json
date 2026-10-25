@@ -16,7 +16,7 @@
   "state.waiting_for_you": "Waiting for your choice",
   "state.building": "Building a reply",
   "state.checking": "Checking the reply before it is shown",
-  "state.still_working": "Still working on your last question · you can keep reading and asking",
+  "state.still_working": "A reply is taking longer than usual · you can keep reading and asking",
   "state.queued": "Your question is queued",
   "state.unavailable": "Companion service unavailable · your question is saved",
   "state.available": "Available",
@@ -108,7 +108,5 @@
   "reply.writing": "Writing · not checked yet, so it may change or be withdrawn",
   "reply.checking": "Written · checking it before it is kept",
   "reply.reconnecting": "Connection lost · the reply continues when you are back online",
-  "reply.withdrawn": "This reply was withdrawn because it did not pass the checks. Nothing of it was kept · you can ask again.",
-  "reply.stopped": "You stopped this reply. Nothing of it was kept.",
   "state.paused": "Help is paused · your question is saved"
 }

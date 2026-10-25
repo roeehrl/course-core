@@ -31,7 +31,8 @@ test("a streaming reply shows as an unchecked draft and a refused one is withdra
       await expect(region).toContainText("Picture both values on a number line. The one farther left is smaller.");
       await expect(region).toContainText("checking it before it is kept");
     } else {
-      await expect(page.getByText(/This reply was withdrawn because it did not pass the checks/)).toBeVisible();
+      // Said once, by the question's label: why it was not shown.
+      await expect(page.getByText("Reply not shown · it did not pass the checks, so nothing of it was kept", { exact: true })).toBeVisible();
       // Only the first (completed) draft is left; the withdrawn one kept no text.
       await expect(drafts).toHaveCount(1);
     }

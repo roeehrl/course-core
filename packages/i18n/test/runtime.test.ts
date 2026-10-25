@@ -34,6 +34,10 @@ const en = {
     place: '{n, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}',
     help: 'Read the <link>guide</link> before {action}.',
     quoted: "It''s '{literal}' and don't",
+    answering: 'Answering: “{question}”',
+    pair: 'Wrote "{a} {b}"',
+    inZone: '{date} · {zone}',
+    courseDue: 'Course due: {date}',
     onlyEnglish: 'Only in English',
   },
 } as const;
@@ -48,6 +52,10 @@ const he = {
     place: 'מקום {n}',
     help: 'כדאי לקרוא את <link>המדריך</link> לפני {action}.',
     quoted: "צ'אט '{literal}'",
+    answering: 'תשובה לשאלה: "{question}"',
+    pair: 'כתוב "{a} {b}"',
+    inZone: '{date} · {zone}',
+    courseDue: 'מועד אחרון לקורס: {date}',
     $pending: ['onlyEnglish'],
   },
 };
@@ -67,6 +75,30 @@ test('interpolates arguments and isolates string arguments only in right-to-left
   assert.equal(translator('en').t('shell.greeting', { name: 'Dana' }), 'Hello, Dana!');
   assert.equal(translator('he').t('shell.greeting', { name: 'Dana' }), 'שלום, ⁨Dana⁩!');
   assert.equal(stripBidiControls(translator('he').t('shell.greeting', { name: 'Dana' })), 'שלום, Dana!');
+});
+
+test('quotation marks around an isolated argument go inside its isolate, in its own direction', () => {
+  const he = translator('he').t;
+  // Left-to-right text quoted in a right-to-left sentence: the marks stay at its start and end.
+  assert.equal(he('shell.answering', { question: 'Find the step size' }), 'תשובה לשאלה: ⁨"Find the step size"⁩');
+  assert.equal(he('shell.answering', { question: 'למה כל צעד?' }), 'תשובה לשאלה: ⁨"למה כל צעד?"⁩');
+  assert.equal(stripBidiControls(he('shell.answering', { question: 'Find' })), 'תשובה לשאלה: "Find"');
+  // Marks that do not enclose exactly one argument are left where they are.
+  assert.equal(he('shell.pair', { a: 'x', b: 'y' }), 'כתוב "⁨x⁩ ⁨y⁩"');
+  // Left-to-right locales do not isolate arguments.
+  assert.equal(translator('en').t('shell.answering', { question: 'Find' }), 'Answering: “Find”');
+});
+
+test('an argument composed only of isolated parts is isolated in the direction of its message', () => {
+  const he = translator('he').t;
+  const date = he('shell.inZone', { date: '8 בנוב׳ 2026, 07:41', zone: 'UTC' });
+  assert.equal(date, '⁨8 בנוב׳ 2026, 07:41⁩ · ⁨UTC⁩');
+  // First-strong (FSI) would skip both parts and lay "date · UTC" out left to right, so "UTC" came
+  // first when read from the right; the message's own direction keeps date, then zone.
+  assert.equal(he('shell.courseDue', { date }), 'מועד אחרון לקורס: ⁧⁨8 בנוב׳ 2026, 07:41⁩ · ⁨UTC⁩⁩');
+  // Text with a letter of its own, or with no isolates at all, keeps first-strong isolation.
+  assert.equal(he('shell.courseDue', { date: 'Nov 8 · ⁨UTC⁩' }), 'מועד אחרון לקורס: ⁨Nov 8 · ⁨UTC⁩⁩');
+  assert.equal(he('shell.courseDue', { date: '1 / 2' }), 'מועד אחרון לקורס: ⁨1 / 2⁩');
 });
 
 test('English plurals use one/other and exact matches', () => {

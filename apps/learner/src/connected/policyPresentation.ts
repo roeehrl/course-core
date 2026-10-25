@@ -12,12 +12,16 @@ export function policyTimeZone(policy: LearningPolicy | undefined): string {
     return "UTC";
   }
 }
-/** A policy instant in the policy's time zone, in the UI locale (pass `useI18n()`). */
+/** Zone names that are UTC itself: the offset ("GMT+0") would only repeat the zone's name. */
+const UTC_ZONES = new Set(["UTC", "Etc/UTC", "Etc/UCT", "UCT", "Etc/Universal", "Universal", "Etc/Zulu", "Zulu"]);
+/** A policy instant in the policy's time zone, in the UI locale (pass `useI18n()`): "Nov 8, 2026,
+ * 7:41 AM · UTC", or with the offset for any other zone ("… 9:41 AM GMT+2 · Asia/Jerusalem"). */
 export function policyDate(value: string | null, zone = "UTC", i18n: PolicyFormatter = englishTranslator()): string {
   if (value === null) return i18n.t("policyPresentation.date.none");
   if (!Number.isFinite(Date.parse(value))) return i18n.t("policyPresentation.date.unavailable");
   try {
-    const date = i18n.dateTime(value, { timeZone: zone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "shortOffset" });
+    const date = i18n.dateTime(value, { timeZone: zone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      ...(UTC_ZONES.has(zone) ? {} : { timeZoneName: "shortOffset" as const }) });
     return i18n.t("policyPresentation.date.inZone", { date, zone });
   } catch {
     return zone === "UTC"

@@ -1,7 +1,7 @@
 {
   "date.none": "לא נקבע מועד אחרון בלוח השנה",
   "date.unavailable": "התאריך לא זמין",
-  "date.inZone": "{date} · {zone}",
+  "date.inZone": "{date}\u00a0·\u00a0{zone}",
   "scope.course": "קורס",
   "scope.chapter": "פרק: {title}",
   "scope.lesson": "שיעור: {title}",

@@ -1,20 +1,27 @@
-import React from "react";
+import React, { useRef } from "react";
 import { useI18n } from "../i18n";
-import { mathSpoken, parseTex, type MathNode } from "./mathText";
+import { mathSpoken, mathText, parseTex, type MathNode } from "./mathText";
+import { useSidewaysOverflow } from "./useSidewaysOverflow.web";
 
 /** A formula drawn as MathML elements built from the parsed tree: real fractions, roots and
  * scripts, never injected markup. Screen readers hear the spoken form in the learner's language
  * (the label, marked with that language); the drawing itself is hidden from them so it is not
  * read twice. Formulas are always left to right, isolated from right-to-left prose around them. */
-export function MathFormula({ tex, display, trailing }: { tex: string; display: boolean; trailing?: string }) {
+export function MathFormula({ tex, display, trailing, rtl = false }: { tex: string; display: boolean; trailing?: string; rtl?: boolean }) {
   const i18n = useI18n();
   const tree = parseTex(tex);
   const label = mathSpoken(tree, i18n.t);
+  const frame = useRef<HTMLSpanElement>(null);
+  const overflowing = useSidewaysOverflow(frame, display);
   // MathML does not wrap lines inside a formula. A long inline formula is drawn as pieces that
-  // end after a top-level relation or operation ("w = 2 − 0.1 × 6 ="), so it wraps there.
-  const pieces = display ? [tree] : breakable(tree);
-  return (
+  // end after a top-level relation or operation ("w = 2 − 0.1 × 6 ="), so it wraps there. A short
+  // one stays whole: "h =" never ends a line before "w₁ · x". Inside right-to-left text a split
+  // left-to-right formula would read in the wrong order across lines, so there only a formula too
+  // long for a line is split.
+  const pieces = display || mathText(tree).length <= (rtl ? WRAP_RTL : WRAP_LTR) ? [tree] : breakable(tree);
+  const formula = (
     <span
+      ref={frame}
       role="math"
       aria-label={label}
       lang={i18n.lang}
@@ -22,7 +29,7 @@ export function MathFormula({ tex, display, trailing }: { tex: string; display: 
       data-math-display={display ? "block" : "inline"}
       // A wide display formula scrolls sideways on a phone; keyboard users can focus it to scroll.
       tabIndex={display ? 0 : undefined}
-      className={`math-formula ${display ? "is-display" : ""}`}
+      className={`math-formula ${display ? "is-display" : ""} ${display && overflowing ? "is-overflowing" : ""}`}
       style={{ ...(display ? displayStyle : inlineStyle), ...fontStyle(display) }}
     >
       {pieces.map((piece, index) => {
@@ -37,7 +44,18 @@ export function MathFormula({ tex, display, trailing }: { tex: string; display: 
       })}
     </span>
   );
+  if (!display) return formula;
+  // A display formula wider than its space scrolls sideways, with a visible scrollbar and a line
+  // saying so.
+  return (
+    <span className="markdown-wide">
+      {formula}
+      {overflowing && <span className="markdown-scroll-hint" data-toward="right" aria-hidden="true">{i18n.t("markdownContent.scrollHint")}</span>}
+    </span>
+  );
 }
+/** Visible characters up to which an inline formula is never split (left to right, right to left). */
+const WRAP_LTR = 24, WRAP_RTL = 40;
 
 /** Where an inline formula may wrap: after each top-level relation or binary operation. */
 function breakable(tree: MathNode): MathNode[] {

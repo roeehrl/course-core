@@ -85,16 +85,31 @@ describe("Markdown reading", () => {
   });
 
   it("finds Latin runs to isolate inside Hebrew", () => {
+    // A bracketed term is isolated with its brackets, which it closes.
     expect(latinRuns("אלא כוונון עדין (fine-tuning), והחלק")).toEqual([
-      { text: "אלא כוונון עדין (", latin: false },
-      { text: "fine-tuning", latin: true },
-      { text: "), והחלק", latin: false },
+      { text: "אלא כוונון עדין ", latin: false },
+      { text: "(fine-tuning)", latin: true },
+      { text: ", והחלק", latin: false },
     ]);
     expect(latinRuns("עובר ב-forward pass.")).toEqual([
       { text: "עובר ב-", latin: false },
       { text: "forward pass", latin: true },
       { text: ".", latin: false },
     ]);
+    // A pasted English formula and sentence stay one run (live 0.1.58: it read
+    // "2=x ,3=use w ,x*w=For prediction"), with its own question mark; the Hebrew colon and full
+    // stop stay with the Hebrew.
+    const pasted = "השאלה היא: For prediction=w*x, use w=3, x=2, target=4 and L=(prediction-target)^2/2. What is the current value of w? תענה רק במספר.";
+    expect(latinRuns(pasted).filter((run) => run.latin).map((run) => run.text)).toEqual([
+      "For prediction=w*x, use w=3, x=2, target=4 and L=(prediction-target)^2/2. What is the current value of w?",
+    ]);
+    expect(latinRuns(pasted).map((run) => run.text).join("")).toBe(pasted);
+    // A calculation without letters, quoted course text, and terms after a Hebrew prefix.
+    expect(latinRuns("כמה זה 2+2=4?").filter((run) => run.latin).map((run) => run.text)).toEqual(["2+2=4"]);
+    expect(latinRuns("על “Find a minimum” (עד עכשיו 0)").filter((run) => run.latin).map((run) => run.text)).toEqual(["“Find a minimum”"]);
+    expect(latinRuns("w=3 ו-x=2, וגם C++.").filter((run) => run.latin).map((run) => run.text)).toEqual(["w=3", "x=2", "C++"]);
+    // Plain numbers between Hebrew words are not runs.
+    expect(latinRuns("0 מתוך 2 משפחות").filter((run) => run.latin)).toEqual([]);
     expect(textDirection("  (2) לא")).toBe("rtl");
     expect(textDirection("No, לא")).toBe("ltr");
   });
@@ -127,7 +142,7 @@ describe("Markdown on the page", () => {
   it("isolates Latin runs and formulas inside Hebrew, and leaves English prose alone", () => {
     const { container, unmount } = render(<MarkdownContent markdown={"לא, זו אינה הסקה אלא **כוונון עדין (fine-tuning)**, והחלק עובר ב-forward."} />);
     const isolated = [...container.querySelectorAll('[dir="ltr"]')].map((node) => node.textContent);
-    expect(isolated).toEqual(["fine-tuning", "forward"]);
+    expect(isolated).toEqual(["(fine-tuning)", "forward"]);
     unmount();
     const english = render(<MarkdownContent markdown={"Plain (fine-tuning) English."} />);
     expect(english.container.querySelectorAll('[dir="ltr"]')).toHaveLength(0);

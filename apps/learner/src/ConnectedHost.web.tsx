@@ -180,6 +180,22 @@ function browserStore(): BrowserStore | undefined {
 /** Panels above the roadmap that must finish their first read before the course page shows. */
 const COURSE_PAGE_PANELS = ["study", "policy", "placement", "retention"] as const;
 
+/**
+ * Keeps `--connected-header-height` on the host at the header's drawn height, for what sits below
+ * the sticky header: the companion pane starts under it and is no taller than the window below it.
+ */
+function useHeaderHeight(hostRef: React.RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const host = hostRef.current, header = host?.querySelector<HTMLElement>(".connected-header");
+    if (!host || !header) return;
+    const update = () => host.style.setProperty("--connected-header-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    update();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+    observer?.observe(header);
+    return () => observer?.disconnect();
+  }, [hostRef]);
+}
+
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const t = useT();
   const i18n = useI18n();
@@ -214,6 +230,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   }, []);
   const paneShown = wide && !paneCollapsed;
   const hostRef = useRef<HTMLDivElement>(null);
+  // Beside the lesson, the button that shows the companion pane lives in the header, where it
+  // never covers lesson text (a floating button did, mid-page, on tablets).
+  const [companionSlot, setCompanionSlot] = useState<HTMLDivElement | null>(null);
+  useHeaderHeight(hostRef);
   // In the compact layout the lesson scrolls in its own pane; otherwise in the window.
   useKeyboardInset(hostRef, () => (wide ? null : document.querySelector(".connected-main")));
   const [account, setAccount] = useState<Account>(),
@@ -1109,6 +1129,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           </div>
           {account && (
             <div className="connected-header-actions">
+            <div ref={setCompanionSlot} className="connected-header-companion" />
             <LearnerNotifications
               request={api.request}
               onOpen={(target) =>
@@ -1599,6 +1620,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             onOpenChange={setCompanionOpen}
             collapsed={paneCollapsed}
             onCollapsedChange={setPaneCollapsed}
+            triggerSlot={wide ? companionSlot : null}
           >
             {companionConflict && drafts.version(draftKey) && (
               <DraftConflict

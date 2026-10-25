@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useRef } from "react";
+import { useSidewaysOverflow } from "./useSidewaysOverflow.web";
 import { useT } from "../i18n";
 import { colors } from "./ui";
 import { plainText, textDirection, type Align, type Inline } from "./markdown";
@@ -20,13 +21,19 @@ export function MarkdownTable({
 }) {
   const t = useT();
   const dir = textDirection([...header, ...rows.flat()].map(plainText).join(" "));
+  const frame = useRef<HTMLDivElement>(null);
+  // Wider than its space (the narrow companion pane): a visible scrollbar and a line saying so,
+  // not only a faint fade at the edge.
+  const overflowing = useSidewaysOverflow(frame);
   return (
+    <div className="markdown-wide">
     <div
+      ref={frame}
       role="region"
       aria-label={t("markdownContent.tableRegion")}
       tabIndex={0}
       dir={dir}
-      className="markdown-table"
+      className={`markdown-table ${overflowing ? "is-overflowing" : ""}`}
       style={{ overflowX: "auto", maxWidth: "100%", border: `1px solid ${colors.line}`, borderRadius: 12 }}
     >
       <table style={{ borderCollapse: "collapse", minWidth: "100%", fontSize: 14, lineHeight: "21px", color: colors.ink }}>
@@ -58,6 +65,9 @@ export function MarkdownTable({
           ))}
         </tbody>
       </table>
+    </div>
+    {/* The arrow points to the hidden side: the end of the table's own direction. */}
+    {overflowing && <p className="markdown-scroll-hint" data-toward={dir === "rtl" ? "left" : "right"} aria-hidden="true">{t("markdownContent.scrollHint")}</p>}
     </div>
   );
 }

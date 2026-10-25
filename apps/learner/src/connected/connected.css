@@ -64,6 +64,11 @@ html:has(.connected-host) body {
   font-size: 21px;
   letter-spacing: -0.7px;
   white-space: nowrap;
+  /* In a narrow window with long labels, the brand gives way (it is cut with an ellipsis) so the
+   * header's buttons keep their room and the page never scrolls sideways. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .connected-brand span {
   color: #087b69;
@@ -293,8 +298,9 @@ html:has(.connected-host) body {
   flex-wrap: wrap;
 }
 .connected-companion-dock {
+  --dock-pad: 22px;
   min-width: 0;
-  padding: 22px;
+  padding: var(--dock-pad);
   border: 1px solid #dce6e2;
   background: #fff;
   border-radius: 20px;
@@ -321,12 +327,20 @@ html:has(.connected-host) body {
 .connected-companion-dock[hidden] {
   display: none !important;
 }
+/* The companion's title and its close button stay at the top of the pane or sheet while a long
+ * conversation scrolls under them. */
 .connected-dock-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 20px;
+  position: sticky;
+  /* Flush with the pane's top edge: a sticky box stops at the scroll container's padding edge. */
+  top: calc(-1 * var(--dock-pad));
+  z-index: 2;
+  margin: calc(-1 * var(--dock-pad)) calc(-1 * var(--dock-pad)) 8px;
+  padding: var(--dock-pad) var(--dock-pad) 12px;
+  background: #fff;
 }
 .connected-dock-title h2 {
   display: flex;
@@ -1633,7 +1647,7 @@ html:has(.connected-host.is-compact) body {
   grid-template-columns: minmax(0, 1fr) clamp(240px, 36vw, 300px);
 }
 .connected-host.window-medium .connected-companion-dock.is-panel {
-  padding: 16px;
+  --dock-pad: 16px;
 }
 .connected-dock-title button {
   min-width: 44px;
@@ -1648,6 +1662,7 @@ html:has(.connected-host.is-compact) body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 /* The learner's notifications (Notifications.web.tsx): a bell beside the course menu. */
 .connected-notifications {
@@ -1959,11 +1974,32 @@ html:has(.connected-host.is-compact) body {
     82px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px)
   );
 }
+/* Phones: while the status shows, the learning pane ends above it (its height plus the gap), so
+ * the status never covers the lesson or its buttons at any scroll position; the pane's content
+ * stays where it is, and a pane scrolled to its end stays at its end (connectivity.web.tsx). */
 .connected-host.is-compact .connected-main {
-  padding-bottom: calc(16px + var(--connected-status-offset, 0px));
+  margin-bottom: var(--connected-status-offset, 0px);
 }
-.connected-host:not(.is-compact) .connected-main {
-  padding-bottom: var(--connected-status-offset, 0px);
+/* Beside the companion pane (tablets and desktops) the page itself scrolls, so the status is a
+ * band across the window's end, opaque like the header: the window's visible part ends above it.
+ * The learning column gains its height at its end, so all of it can be scrolled clear of the band,
+ * and focus scrolled into view stops above it (scroll-padding-bottom below). */
+.connected-host:not(.is-compact) .connected-connection {
+  inset-inline: 0;
+  inset-block-end: 0;
+  width: auto;
+  border-width: 2px 0 0;
+  border-radius: 0;
+  box-shadow: 0 -8px 24px #18323714;
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom));
+  /* The text lines up with the learning column's start (the layout is 1344px wide at most). */
+  padding-inline: max(32px, calc((100vw - 1344px) / 2 + 32px));
+}
+.connected-host.window-medium:not(.is-compact) .connected-connection {
+  padding-inline: 20px;
+}
+.connected-host:not(.is-compact) .connected-connection p {
+  flex: 1 1 320px;
 }
 .connected-connection.is-offline {
   border-style: dashed;
@@ -2147,9 +2183,48 @@ html:has(.connected-host:not(.is-compact)) {
 html:has(.connected-host:not(.is-compact)) body {
   overflow: visible;
 }
+/* The companion pane sticks 20px below the header at its measured height
+ * (--connected-header-height, set by ConnectedHost), and is never taller than the window below the
+ * header (less the connection status while it shows), so its title and close button stay in view.
+ * Its sticky range is the layout's row: the page's room at its end belongs to the learning column,
+ * not to the layout's padding, so near the end of the page the row's end never pushes the pane up
+ * under the header (the 0.1.58 qualification saw it 50 to 75 px under it). */
 .connected-host:not(.is-compact) .connected-companion-dock.is-panel {
-  top: 94px;
-  max-height: calc(100dvh - 114px);
+  top: calc(var(--connected-header-height, 75px) + 20px);
+  max-height: calc(
+    100dvh - var(--connected-header-height, 75px) - 40px -
+      var(--connected-status-offset, 0px)
+  );
+}
+.connected-host:not(.is-compact) .connected-layout {
+  padding-bottom: 0;
+}
+.connected-host:not(.is-compact) .connected-main {
+  padding-bottom: calc(
+    48px + env(safe-area-inset-bottom) + var(--connected-status-offset, 0px)
+  );
+}
+/* Beside the lesson the show-companion button is in the header (CompanionDock.web.tsx), never
+ * floating over the lesson. */
+.connected-header-companion {
+  display: contents;
+}
+.connected-header .connected-companion-trigger.is-in-header {
+  position: static;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid #dce6e2;
+  border-radius: 999px;
+  background: #fff;
+  color: #183237;
+  box-shadow: none;
+  font-size: 13px;
+  white-space: nowrap;
+  gap: 8px;
+}
+.connected-header .connected-companion-trigger.is-in-header span {
+  font-size: 16px;
+  color: #7050a4;
 }
 /* Keyboard focus scrolled into view stops above the sticky answer actions (and the connection
  * status under them while it shows). */
@@ -2580,6 +2655,27 @@ html:has(.connected-host:not(.is-compact)) {
   letter-spacing: 0;
   text-transform: none;
 }
+/* Large headings are drawn a little tighter in Latin script. Hebrew letters set that close run
+   into each other, so Hebrew keeps normal spacing here too: every rule with a negative
+   letter-spacing has its :lang(he) reset (tests/cssStructure.test.ts), and so do the headings the
+   React Native components draw (CourseRoadmap, ui.tsx styles.title), whose atomic classes this
+   out-ranks. The product name stays Latin and keeps its tracking. Course text in another declared
+   language (lang="en") keeps its own. */
+.connected-brand:lang(he),
+.connected-lesson-heading h1:lang(he),
+.connected-reading-card h2:lang(he),
+.connected-check h2:lang(he),
+.connected-dock-title h2:lang(he),
+.connected-signin h1:lang(he),
+.connected-library h1:lang(he),
+.connected-activity h2:lang(he),
+.connected-host :is(h1, h2, h3, h4):lang(he) {
+  letter-spacing: 0;
+  text-transform: none;
+}
+.connected-brand :lang(en) {
+  letter-spacing: -0.7px;
+}
 .connected-locale-switcher {
   display: flex;
   align-items: center;
@@ -2922,9 +3018,66 @@ html:has(.connected-host:not(.is-compact)) {
   background:
     linear-gradient(to right, #fff 30%, rgb(255 255 255 / 0)) left center / 28px 100% no-repeat local,
     linear-gradient(to left, #fff 30%, rgb(255 255 255 / 0)) right center / 28px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, rgb(24 50 55 / 0.2), rgb(24 50 55 / 0)) left center / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, rgb(24 50 55 / 0.2), rgb(24 50 55 / 0)) right center / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 0 50%, rgb(24 50 55 / 0.35), rgb(24 50 55 / 0)) left center / 16px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(24 50 55 / 0.35), rgb(24 50 55 / 0)) right center / 16px 100% no-repeat scroll,
     #fff;
+}
+/* A table or display formula wider than its space (the companion pane is narrow) scrolls
+ * sideways. Then it shows a scrollbar that does not fade out and a line saying it scrolls, not
+ * only a shadow at its edge (MarkdownTable.web.tsx, MathFormula.web.tsx). */
+.markdown-wide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar,
+.math-formula.is-overflowing::-webkit-scrollbar {
+  height: 8px;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar-track,
+.math-formula.is-overflowing::-webkit-scrollbar-track {
+  background: #edf2ef;
+  border-radius: 4px;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar-thumb,
+.math-formula.is-overflowing::-webkit-scrollbar-thumb {
+  background: #7d9893;
+  border-radius: 4px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .markdown-table.is-overflowing,
+  .math-formula.is-overflowing {
+    scrollbar-color: #7d9893 #edf2ef;
+  }
+}
+.markdown-scroll-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #526a70;
+}
+/* An arrow toward the hidden side: the end of the table's or formula's own direction, which can
+ * differ from the reply's (an English table in a Hebrew reply hides its end on the right). */
+.markdown-scroll-hint::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-style: solid;
+  border-color: #526a70;
+  border-width: 0 2px 2px 0;
+}
+.markdown-scroll-hint[data-toward="right"]::after {
+  transform: rotate(-45deg);
+}
+.markdown-scroll-hint[data-toward="left"]::after {
+  transform: rotate(135deg);
 }
 .markdown-table:focus-visible {
   outline: 3px solid #183237;

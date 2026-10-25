@@ -10,8 +10,8 @@ import {
   companionCanAskAgain,
   companionCanCancel,
   companionDraftFor,
+  companionHasPending,
   companionHeldByLimit,
-  companionReplyUnavailable,
   companionJobLabel,
   companionReplyStarted,
   companionState,
@@ -224,6 +224,7 @@ export function ConnectedCompanion({
     }
   }
   const stateLabel = t(`connectedCompanion.state.${state}` as MessageKey);
+  const sentNotice = sentNoticeKey(sent, messages, drafts);
   const reveal = useReveal(context.enrollmentId, messages, drafts, loaded);
   return (
     <View ref={reveal.root} style={{ gap: 18 }}>
@@ -393,26 +394,14 @@ export function ConnectedCompanion({
             )}
           </View>
           {message.role === "learner" && (
-            <DraftReply draft={replyDraft} connected={streamConnected} nodeRef={replyDraft ? reveal.node(`draft:${replyDraft.jobId}`) : undefined} />
+            <DraftReply draft={companionHasPending([message]) ? replyDraft : undefined} connected={streamConnected}
+              nodeRef={replyDraft ? reveal.node(`draft:${replyDraft.jobId}`) : undefined} />
           )}
           </React.Fragment>
           );
         })}
       </View>
-      {/* Once the question's reply is unavailable its card says so; "waiting" would no longer be true. */}
-      {sent && !messages.some((row) => row.id === sent && companionReplyUnavailable(row)) && (
-        <Notice>
-          {messages.some(
-            (message) =>
-              message.role === "assistant" &&
-              message.job_id &&
-              message.job_id ===
-                messages.find((row) => row.id === sent)?.job_id,
-          )
-            ? t("connectedCompanion.sent.replied")
-            : t("connectedCompanion.sent.waiting")}
-        </Notice>
-      )}
+      {sentNotice && <Notice>{t(sentNotice)}</Notice>}
       {sendError && <Notice error>{sendError}</Notice>}
       {stopError && <Notice error>{stopError}</Notice>}
       {correctionError && <Notice error>{correctionError}</Notice>}
@@ -532,19 +521,76 @@ export function ConnectedCompanion({
   );
 }
 
+/**
+ * The confirmation under the conversation after the learner sent a question, or none. "Waiting for
+ * the companion service to reply" is said only while that is true: while the question is queued,
+ * sent or being written or checked. Once it is answered the notice says so; any other end (stopped,
+ * cancelled, stalled, withheld, refused, failed) or a pause by a spending limit is said by the
+ * question's own card, so the notice goes rather than keep promising a reply.
+ */
+export function sentNoticeKey(
+  sent: string | undefined,
+  messages: readonly CompanionMessage[],
+  drafts: readonly CompanionDraft[] = [],
+): "connectedCompanion.sent.waiting" | "connectedCompanion.sent.replied" | undefined {
+  if (!sent) return;
+  const question = messages.find((row) => row.id === sent);
+  // Saved, not yet read back with the conversation.
+  if (!question) return "connectedCompanion.sent.waiting";
+  if (question.content === "[deleted]") return;
+  if (question.job_id && messages.some((row) => row.role === "assistant" && row.job_id === question.job_id))
+    return "connectedCompanion.sent.replied";
+  const draft = companionDraftFor(question, messages, drafts);
+  if (draft && (draft.state === "withdrawn" || draft.state === "cancelled")) return;
+  if (!companionHasPending([question]) || companionHeldByLimit(question)) return;
+  return "connectedCompanion.sent.waiting";
+}
+
 /** Keys a learner uses to scroll; typing in a field is not scrolling. */
 const SCROLL_KEYS = new Set(["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "]);
 /**
- * Web: a reply arriving below the fold is brought into view, in the panel and in the phone sheet,
- * with the least movement (`block: "nearest"`): the draft when its first text arrives and while it
- * grows, until it fills the view and its start stays at the top to read; then the stored reply that
- * replaces it, or one that arrives without a draft. Not after the learner scrolled the panel (wheel,
- * touch or a scrolling key) since the question was sent or the reply started: their place is kept.
- * The first load of a conversation scrolls nothing. Honours reduced motion. Native: no-op.
+ * The companion pane's or sheet's own scrolling box around `element` (the nearest ancestor that
+ * scrolls vertically), never the page: bringing a reply into view must not move the lesson under
+ * the reader (the live 0.1.58 test saw the window scroll 0 → 577 px while a reply streamed).
+ */
+export function panelScroller(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return node;
+  }
+  return null;
+}
+/** Scrolls `scroller` the least that shows `element` (below its sticky title, if it has one):
+ * the start of an element taller than the view stays at its top, to be read from there. */
+export function revealIn(scroller: HTMLElement, element: HTMLElement, behavior: ScrollBehavior) {
+  const title = scroller.querySelector<HTMLElement>(".connected-dock-title");
+  const view = scroller.getBoundingClientRect(), box = element.getBoundingClientRect();
+  const top = view.top + scroller.clientTop + (title ? title.getBoundingClientRect().height : 0);
+  const bottom = view.top + scroller.clientTop + scroller.clientHeight;
+  const delta = box.top < top ? box.top - top : box.bottom > bottom ? Math.min(box.bottom - bottom, box.top - top) : 0;
+  if (Math.abs(delta) < 1) return;
+  if (typeof scroller.scrollBy === "function") scroller.scrollBy({ top: delta, behavior });
+  else scroller.scrollTop += delta;
+}
+/**
+ * Web: the conversation opens at its latest messages and the message box (on the first load and
+ * whenever the pane or sheet is shown again), not at the oldest of a long conversation. A reply
+ * arriving below the fold is brought into view in the pane or sheet, with the least movement: the
+ * draft when its first text arrives and while it grows, until it fills the view and its start stays
+ * at the top to read; then the stored reply that replaces it, or one that arrives without a draft.
+ * Only the pane's own scrolling box moves, never the page. Not after the learner scrolled the
+ * panel (wheel, touch or a scrolling key) since the question was sent or the reply started: their
+ * place is kept. Honours reduced motion. Native: no-op.
  */
 function useReveal(enrollmentId: string, messages: readonly CompanionMessage[], drafts: readonly CompanionDraft[], loaded: boolean) {
   const root = useRef<View>(null), nodes = useRef(new Map<string, View | null>()), refs = useRef(new Map<string, (node: View | null) => void>());
   const moved = useRef(false), followed = useRef(""), known = useRef<Set<string> | null>(null);
+  const toLatest = () => {
+    const element = root.current as unknown as HTMLElement | null;
+    if (Platform.OS !== "web" || typeof element?.addEventListener !== "function") return;
+    const scroller = panelScroller(element);
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  };
   useEffect(() => {
     const element = root.current as unknown as HTMLElement | null;
     if (Platform.OS !== "web" || typeof element?.addEventListener !== "function") return;
@@ -556,18 +602,30 @@ function useReveal(enrollmentId: string, messages: readonly CompanionMessage[], 
     element.addEventListener("wheel", away, { passive: true });
     element.addEventListener("touchmove", away, { passive: true });
     element.addEventListener("keydown", key);
+    // Shown again (the pane or sheet was hidden, which also forgets its scroll position): open at
+    // the latest messages.
+    let shown = false;
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+      const visible = element.getClientRects().length > 0;
+      if (visible && !shown) toLatest();
+      shown = visible;
+    }) : null;
+    observer?.observe(element);
     return () => {
       element.removeEventListener("wheel", away);
       element.removeEventListener("touchmove", away);
       element.removeEventListener("keydown", key);
+      observer?.disconnect();
     };
   }, []);
   useEffect(() => { known.current = null; }, [enrollmentId]);
   const show = (key: string) => {
     const element = nodes.current.get(key) as unknown as HTMLElement | null | undefined;
-    if (Platform.OS !== "web" || moved.current || typeof element?.scrollIntoView !== "function") return;
+    if (Platform.OS !== "web" || moved.current || typeof element?.getBoundingClientRect !== "function") return;
+    const scroller = panelScroller(element);
+    if (!scroller) return;
     const still = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: still ? "auto" : "smooth" });
+    revealIn(scroller, element, still ? "auto" : "smooth");
   };
   const answered = (jobId: string) => messages.some((m) => m.role === "assistant" && m.job_id === jobId);
   const live = drafts.find((draft) => (draft.state === "streaming" || draft.state === "complete") && draft.text && !answered(draft.jobId));
@@ -580,7 +638,8 @@ function useReveal(enrollmentId: string, messages: readonly CompanionMessage[], 
   useEffect(() => {
     if (!loaded) return;
     const replies = messages.filter((m) => m.role === "assistant");
-    if (known.current === null) { known.current = new Set(replies.map((m) => m.id)); return; }
+    // The first load opens at the latest messages; nothing in it is "new".
+    if (known.current === null) { known.current = new Set(replies.map((m) => m.id)); toLatest(); return; }
     const fresh = replies.filter((m) => !known.current!.has(m.id));
     for (const reply of fresh) known.current.add(reply.id);
     if (fresh.length) show(`reply:${fresh.at(-1)!.id}`);
@@ -610,16 +669,9 @@ function useReveal(enrollmentId: string, messages: readonly CompanionMessage[], 
  */
 function DraftReply({ draft, connected, nodeRef }: { draft?: CompanionDraft; connected: boolean; nodeRef?: (node: View | null) => void }) {
   const t = useT();
-  if (!draft) return null;
-  if (draft.state === "withdrawn" || draft.state === "cancelled") {
-    if (draft.state === "withdrawn" && !draft.shown) return null;
-    return (
-      <Text style={styles.small} aria-live="off">
-        {t(draft.state === "cancelled" ? "connectedCompanion.reply.stopped" : "connectedCompanion.reply.withdrawn")}
-      </Text>
-    );
-  }
-  if (!draft.text) return null;
+  // A withdrawn or stopped draft keeps no text, and the question's own label says what happened
+  // (companionJobLabel): one statement per outcome, never a second, contradicting one here.
+  if (!draft || draft.state === "withdrawn" || draft.state === "cancelled" || !draft.text) return null;
   return (
     <View
       ref={nodeRef}

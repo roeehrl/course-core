@@ -13,6 +13,9 @@ export interface CompanionDockProps {
   /** Beside the lesson the pane can be collapsed to give the lesson the width. */
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
+  /** Web: beside the lesson, the element (in the header) the show-companion button is drawn in,
+   * so it never floats over the lesson. Without one it floats at the window's end. */
+  triggerSlot?: HTMLElement | null;
   children: React.ReactNode;
 }
 /** Portable presentation fallback; native connected auth/media are still deferred. */

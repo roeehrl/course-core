@@ -80,8 +80,8 @@ describe("pure helpers take the translator", () => {
   it("formats policy dates, scopes and allowances for the locale", () => {
     const snapshot = connectedSnapshot();
     expect(policyDate(null, "UTC", he)).toBe("לא נקבע מועד אחרון בלוח השנה");
-    expect(stripBidiControls(policyDate("2026-10-21T09:00:00Z", "UTC", he))).toMatch(/2026.* · UTC$/);
-    expect(policyDate("2026-10-21T09:00:00Z", "UTC")).toMatch(/^Oct 21, 2026.* · UTC$/);
+    expect(stripBidiControls(policyDate("2026-10-21T09:00:00Z", "UTC", he))).toMatch(/2026.*\s·\sUTC$/);
+    expect(policyDate("2026-10-21T09:00:00Z", "UTC")).toMatch(/^Oct 21, 2026.*\s·\sUTC$/);
     expect(scopeLabel("course", snapshot.course, he.t)).toBe("קורס");
     expect(quotaName("additionalEpisodes", he.t)).toBe("שיעורים נוספים");
     expect(QUOTA_METRICS.map((metric) => quotaName(metric))).toContain("Extra lessons");

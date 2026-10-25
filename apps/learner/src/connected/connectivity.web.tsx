@@ -90,24 +90,37 @@ function scrollerOf(element: Element): Element {
   return document.scrollingElement ?? document.documentElement;
 }
 
+/** The learning pane on a phone, and the page: what the status's room changes the end of. */
+function scrollers(): Element[] {
+  const pane = document.querySelector(".connected-main");
+  return [...(pane ? [pane] : []), document.scrollingElement ?? document.documentElement];
+}
+const atEnd = (scroller: Element) =>
+  scroller.scrollHeight > scroller.clientHeight + 1 && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2;
+
 /**
  * Sets the status's room, keeping the answer actions clear of the question: a sticky answer bar
  * that the extra room would lift over the content above it scrolls that content up with it
- * instead, so the options stay fully visible and tappable above the bar.
+ * instead, so the options stay fully visible and tappable above the bar. A pane or page the
+ * learner had scrolled to its end stays at its end, so its last buttons (the lesson's next step)
+ * rise above the status instead of disappearing behind or under it.
  */
 function makeRoom(root: HTMLElement, value: string) {
   const bars = Array.from(document.querySelectorAll(ANSWER_ACTIONS));
   const before = bars.map((bar) => bar.getBoundingClientRect().top);
+  const ended = scrollers().filter(atEnd);
   root.style.setProperty(STATUS_OFFSET, value);
   bars.forEach((bar, index) => {
     const lifted = before[index]! - bar.getBoundingClientRect().top;
     if (lifted > 0.5) scrollerOf(bar).scrollBy({ top: lifted, behavior: "instant" });
   });
+  for (const scroller of ended) scroller.scrollTo({ top: scroller.scrollHeight, behavior: "instant" });
 }
 
 /** The connection status and the state of a request that is saved on this
- * device but not yet confirmed by the server. It floats at the bottom of the
- * window (see connected.css) and never moves the page. */
+ * device but not yet confirmed by the server. It sits at the bottom of the
+ * window (see connected.css), takes room there instead of covering the lesson,
+ * and never moves the page. */
 export function ConnectionStatus({
   online,
   pendingAction,

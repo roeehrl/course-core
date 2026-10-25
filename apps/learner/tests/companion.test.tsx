@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
-import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
+import { ConnectedCompanion, lessonLabel, panelScroller, sentNoticeKey } from "../src/components/ConnectedCompanion";
 import { stripBidiControls } from "@course-core/i18n";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";
@@ -19,6 +19,7 @@ import {
   companionState,
   companionHasPending,
   companionCanAskAgain,
+  companionCouldNotAnswer,
   plainExcerpt,
   type CompanionContextUsed,
   applyDraftFrame,
@@ -161,29 +162,37 @@ describe("persisted companion integration", () => {
     expect(current).toContain("\u2068Notice change\u2069");
     expect(stripBidiControls(current)).toBe("Notice change (השיעור הזה)");
   });
-  it("shows a refused question as unanswered and stops waiting for it", () => {
+  it("shows a refused question as not sent and stops waiting for it", () => {
     expect(companionJobLabel({ ...message, job_state: "refused" })).toBe(
-      "Reply unavailable · your message is saved",
+      "Not sent · this question could not be passed on to the AI service · nothing was used · you can ask it again",
     );
     expect(companionHasPending([{ ...message, job_state: "refused" }])).toBe(false);
     expect(companionHasPending([{ ...message, job_state: null }])).toBe(true);
   });
-  it("says the companion couldn't answer a question whose reply Core refused, and puts it back in the draft to ask again", async () => {
+  it("says a reply Core refused was not shown, and puts the question back in the draft to ask again", async () => {
     const refused = { ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "output_too_large" };
-    expect(companionJobLabel(refused)).toBe("The companion couldn't answer this question · your message is saved");
+    expect(companionJobLabel(refused)).toBe("Reply not shown · it did not pass the checks, so nothing of it was kept · you can ask your question again");
     expect(companionHasPending([refused])).toBe(false);
     // Other failures keep the general label; like a stalled call (no reply came, nothing can settle
     // it any more) they read as unavailable and can be asked again (live finding U2).
-    expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "deadline_exceeded" })).toBe("Reply unavailable · your message is saved");
+    expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "deadline_exceeded" })).toBe("Reply unavailable · it could not be prepared · you can ask your question again");
     const stalled = { ...message, id: "stalled", content: "Which option is right?", job_state: "waiting", job_reason: "provider_uncertain", job_stalled: true };
-    expect(companionJobLabel(stalled)).toBe("Reply unavailable · the AI service didn't answer in time · your question is saved and you can ask it again");
+    expect(companionJobLabel(stalled)).toBe("Reply unavailable · the AI service didn't answer in time · you can ask your question again");
     expect(companionHasPending([stalled])).toBe(false);
     // Waiting without that mark (a receipt may still settle it) is still in progress.
     expect(companionHasPending([{ ...stalled, job_stalled: false }])).toBe(true);
-    expect(companionJobLabel({ ...stalled, job_stalled: null })).toBe("Still working on your last question · your message is saved");
-    // A reply that stopped coming part way (settled at its reported usage) also reads as stalled.
-    expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "provider_stream_stalled" }))
-      .toBe("Reply unavailable · the AI service didn't answer in time · your question is saved and you can ask it again");
+    expect(companionJobLabel({ ...stalled, job_stalled: null })).toBe("Taking longer than usual · your question is saved");
+    // A reply that stopped coming part way (settled at its reported usage) reads as stalled part way,
+    // never as refused by the checks.
+    const partWay = { ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "provider_stream_stalled" };
+    expect(companionJobLabel(partWay))
+      .toBe("Reply unavailable · the AI service stopped part way through, so nothing of the reply was kept · you can ask your question again");
+    expect(companionCouldNotAnswer(partWay)).toBe(false);
+    expect(companionCanAskAgain(partWay)).toBe(true);
+    // Core closed the call because the learner stopped it: stopped, not refused.
+    const closed = { ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "provider_stream_stopped" };
+    expect(companionJobLabel(closed)).toMatch(/^Stopped after it was sent · nothing of the reply was kept/);
+    expect(companionCouldNotAnswer(closed)).toBe(false);
     const change = vi.fn();
     render(
       <ConnectedCompanion
@@ -198,7 +207,7 @@ describe("persisted companion integration", () => {
         onCancelQuestion={vi.fn()}
       />,
     );
-    expect(screen.getByText(/The companion couldn't answer this question/)).toBeVisible();
+    expect(screen.getByText(/^Reply not shown · it did not pass the checks/)).toBeVisible();
     expect(screen.getByText(/the AI service didn't answer in time/)).toBeVisible();
     // No controls for a reply that will never come.
     expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
@@ -511,8 +520,8 @@ describe("persisted companion integration", () => {
     );
     expect(screen.getByText("Because the step subtracts a negative.")).toBeVisible();
     expect(screen.getByText(/This reply was cut short/)).toBeVisible();
-    expect(screen.getByText("Companion: Still working on your last question · you can keep reading and asking")).toBeVisible();
-    expect(screen.getByText("Still working on your last question · your message is saved")).toBeVisible();
+    expect(screen.getByText("Companion: A reply is taking longer than usual · you can keep reading and asking")).toBeVisible();
+    expect(screen.getByText("Taking longer than usual · your question is saved")).toBeVisible();
     expect(screen.queryByText(/Companion service unavailable/)).not.toBeInTheDocument();
     // Only the waiting question offers cancel and retry; an answered one does not.
     expect(screen.getAllByRole("button", { name: "Stop waiting for this answer" })).toHaveLength(1);
@@ -525,11 +534,11 @@ describe("persisted companion integration", () => {
   });
   it("labels waiting, cancelled and building questions in Hebrew too, and hides cancel while a reply is being built", () => {
     const { t } = createLearnerTranslator("he");
-    expect(companionJobLabel({ ...message, job_state: "waiting" }, t)).toBe("עדיין עובדים על השאלה האחרונה שלך · ההודעה שלך נשמרה");
+    expect(companionJobLabel({ ...message, job_state: "waiting" }, t)).toBe("מתעכבת יותר מהרגיל · השאלה שלך נשמרה");
     expect(companionJobLabel({ ...message, job_state: "cancelled" })).toBe("Cancelled before it was sent · nothing was used · your message is saved");
     expect(companionJobLabel({ ...message, job_state: "cancelled", job_sent: true }))
-      .toBe("Stopped after it was sent · what that call used still counts toward this course's AI use · your message is saved");
-    expect(companionJobLabel({ ...message, job_state: "cancelled", job_sent: true }, t)).toBe("נעצרה אחרי שנשלחה · מה שכבר נוצל בבקשה הזו נספר בשימוש של הקורס ב-AI · ההודעה שלך נשמרה");
+      .toBe("Stopped after it was sent · nothing of the reply was kept · what the call used until then counts toward this course's AI use");
+    expect(companionJobLabel({ ...message, job_state: "cancelled", job_sent: true }, t)).toBe("נעצרה אחרי שנשלחה · שום חלק מהתשובה לא נשמר · מה שהבקשה ניצלה עד אז נספר בשימוש של הקורס ב-AI");
     expect(companionJobLabel({ ...message, job_state: "running" }, t)).toBe("נשלחה · התשובה נכתבת עכשיו");
     expect(companionJobLabel({ ...message, job_state: "queued" }, t)).toBe("בתור · עוד לא נשלחה");
     expect(companionHasPending([{ ...message, job_state: "cancelled" }])).toBe(false);
@@ -716,15 +725,21 @@ describe("streamed companion replies (T01)", () => {
     expect(screen.queryByLabelText("Reply being written, not yet checked")).toBeNull();
     expect(screen.getByText("Stored and checked reply.")).toBeVisible();
   });
-  it("a withdrawn draft says so only when text had been shown; a stopped one says it was stopped", () => {
-    const { rerender } = show({ drafts: [draft({ state: "withdrawn", text: "", shown: true })] });
-    expect(screen.getByText(/withdrawn because it did not pass the checks/)).toBeVisible();
-    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{}} draft="" onDraftChange={vi.fn()} onSend={vi.fn()}
-      pending={false} loaded drafts={[draft({ state: "withdrawn", text: "", shown: false })]} />);
-    expect(screen.queryByText(/withdrawn because/)).toBeNull();
-    rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{}} draft="" onDraftChange={vi.fn()} onSend={vi.fn()}
-      pending={false} loaded drafts={[draft({ state: "cancelled", text: "" })]} />);
-    expect(screen.getByText("You stopped this reply. Nothing of it was kept.")).toBeVisible();
+  it("a withdrawn or stopped draft is said once, by the question's label, and why", () => {
+    const again = (drafts: CompanionDraft[]) => rerender(<ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[pending]} episodeTitles={{}}
+      draft="" onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded drafts={drafts} />);
+    const { rerender, container } = show({ drafts: [draft({ state: "withdrawn", text: "", shown: true, reason: "output_refused" })] });
+    expect(screen.getByText("Reply not shown · it did not pass the checks, so nothing of it was kept")).toBeVisible();
+    again([draft({ state: "withdrawn", text: "", shown: true, reason: "check_answer_withheld" })]);
+    expect(screen.getByText(/^Reply withheld · it gave away the answer to one of the course's checks/)).toBeVisible();
+    expect(screen.queryByText(/did not pass the checks/)).toBeNull();
+    again([draft({ state: "withdrawn", text: "", shown: true, reason: "provider_failed" })]);
+    expect(screen.getByText("The reply stopped part way through · nothing of it was kept")).toBeVisible();
+    expect(screen.queryByText(/did not pass the checks/)).toBeNull();
+    again([draft({ state: "cancelled", text: "" })]);
+    expect(screen.getByText(/^Stopped after it was sent · nothing of the reply was kept/)).toBeVisible();
+    // Never a second sentence under the card.
+    expect(container.textContent).not.toMatch(/withdrawn because|You stopped this reply/);
   });
   it("a reply about a graded check is checked out of sight: no draft text, a checking state and Stop (en and he)", () => {
     let drafts = applyDraftFrame({}, frame(0, "", "streaming", { checking: true }));
@@ -789,11 +804,11 @@ describe("streamed companion replies (T01)", () => {
     // A question without its job id yet (read before preparation) is matched by message.
     again([draft()], [{ ...queued, job_id: null }]);
     expect(screen.getByRole("button", { name: "Stop this reply" })).toBeVisible();
-    // Stopped: the draft says so and the label is honest that the sent call counts.
+    // Stopped: the label says so, and is honest that the sent call counts.
     again([draft({ state: "cancelled", text: "" })]);
     expect(screen.queryByRole("button", { name: "Stop this reply" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
-    expect(screen.getByText(/Stopped after it was sent · what that call used still counts/)).toBeVisible();
+    expect(screen.getByText(/Stopped after it was sent · nothing of the reply was kept · what the call used until then counts/)).toBeVisible();
     expect(companionState([queued], { online: true, awaitingChoice: false, drafts: [draft({ text: "" })] })).toBe("replying");
   });
   it("shows the same switch in Hebrew", () => {
@@ -817,40 +832,84 @@ describe("live companion findings (0.1.57 re-test)", () => {
       onSend={vi.fn()} pending={false} loaded onCancelQuestion={vi.fn()} {...props} />
   );
   afterEach(() => { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; });
-  it("brings the streaming draft and then the stored reply into view, but not on first load or after the learner scrolled", () => {
-    const scrolled: string[] = [];
-    Element.prototype.scrollIntoView = vi.fn(function (this: Element) { scrolled.push(this.getAttribute("aria-label") ?? this.textContent ?? ""); });
-    const earlier: CompanionMessage[] = [
-      { ...message, id: "q0", job_state: "applied", job_id: "j0" },
-      { id: "a0", role: "assistant", content: "An earlier answer.", context: { episodeId: "intro" }, created_at: "2026-01-01", job_id: "j0" },
-    ];
-    const asked = { ...message, job_state: "running" };
-    const { rerender, container } = render(panel([...earlier, asked]));
-    // The first load scrolls nothing.
-    expect(scrolled).toEqual([]);
-    rerender(panel([...earlier, asked], { drafts: [draft()] }));
-    expect(scrolled).toEqual(["Reply being written, not yet checked"]);
-    // It follows the draft as it grows.
-    rerender(panel([...earlier, asked], { drafts: [draft({ text: "Compare them on a number line. The one farther left is smaller. " })] }));
-    expect(scrolled).toHaveLength(2);
-    // The stored reply that replaces it is brought into view too.
-    const answer: CompanionMessage = { id: "a1", role: "assistant", content: "The stored reply.", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job" };
-    rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer], { drafts: [draft({ state: "complete" })] }));
-    expect(scrolled.at(-1)).toContain("The stored reply.");
-    // After the learner scrolls the panel, a growing reply keeps their place.
-    const count = scrolled.length;
-    rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer, { ...message, id: "m2", job_state: "running", job_id: "job2" }],
-      { drafts: [draft({ state: "complete" }), draft({ jobId: "job2", messageId: "m2", text: "A new reply starts. " })] }));
-    expect(scrolled).toHaveLength(count + 1);
-    fireEvent.wheel(container.firstElementChild!);
-    rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer, { ...message, id: "m2", job_state: "running", job_id: "job2" }],
-      { drafts: [draft({ state: "complete" }), draft({ jobId: "job2", messageId: "m2", text: "A new reply starts. And it grows. " })] }));
-    expect(scrolled).toHaveLength(count + 1);
+  /** The companion pane's own scrolling box (500px tall) around the panel, in jsdom: every node
+   * below the first 500px reports itself at 900px, below the view, and scrolls are recorded. */
+  function scrollingPane() {
+    const pane = document.createElement("div");
+    pane.style.overflowY = "auto";
+    Object.defineProperty(pane, "clientHeight", { value: 500, configurable: true });
+    Object.defineProperty(pane, "scrollHeight", { value: 4000, configurable: true });
+    const scrolls: { by?: number; to?: number; element?: string }[] = [];
+    pane.scrollBy = vi.fn(function (options?: ScrollToOptions | number) { scrolls.push({ by: (options as ScrollToOptions).top }); }) as typeof pane.scrollBy;
+    let top = 0;
+    Object.defineProperty(pane, "scrollTop", { get: () => top, set: (value: number) => { top = value; scrolls.push({ to: value }); }, configurable: true });
+    const rect = (y: number, height: number) => ({ top: y, bottom: y + height, left: 0, right: 300, width: 300, height, x: 0, y, toJSON: () => ({}) });
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this === pane) return rect(0, 500) as DOMRect;
+      const label = this.getAttribute("aria-label") ?? "";
+      return (label.startsWith("Reply being written") || /stored reply/.test(this.textContent ?? "") ? rect(900, 120) : rect(100, 40)) as DOMRect;
+    };
+    document.body.append(pane);
+    return { pane, scrolls, restore: () => { Element.prototype.getBoundingClientRect = original; pane.remove(); } };
+  }
+  it("opens at the latest messages and brings a reply into view by scrolling only its pane, never the page", () => {
+    const { pane, scrolls, restore } = scrollingPane();
+    const page = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const into = vi.fn();
+    Element.prototype.scrollIntoView = into;
+    try {
+      const earlier: CompanionMessage[] = [
+        { ...message, id: "q0", job_state: "applied", job_id: "j0" },
+        { id: "a0", role: "assistant", content: "An earlier answer.", context: { episodeId: "intro" }, created_at: "2026-01-01", job_id: "j0" },
+      ];
+      const asked = { ...message, job_state: "running" };
+      const { rerender } = render(panel([...earlier, asked]), { container: pane });
+      // The first load opens at the end of the conversation (its latest messages and the message
+      // box), not at its oldest message.
+      expect(scrolls).toContainEqual({ to: 4000 });
+      scrolls.length = 0;
+      rerender(panel([...earlier, asked], { drafts: [draft()] }));
+      // The draft, below the view, is brought into it by the least scroll of the pane.
+      expect(scrolls).toEqual([{ by: 520 }]);
+      // It follows the draft as it grows.
+      rerender(panel([...earlier, asked], { drafts: [draft({ text: "Compare them on a number line. The one farther left is smaller. " })] }));
+      expect(scrolls).toHaveLength(2);
+      // The stored reply that replaces it is brought into view too.
+      const answer: CompanionMessage = { id: "a1", role: "assistant", content: "The stored reply.", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job" };
+      rerender(panel([...earlier, { ...asked, job_state: "applied" }, answer], { drafts: [draft({ state: "complete" })] }));
+      expect(scrolls).toHaveLength(3);
+      // After the learner scrolls the panel, a growing reply keeps their place.
+      const later = [...earlier, { ...asked, job_state: "applied" }, answer, { ...message, id: "m2", job_state: "running", job_id: "job2" }];
+      rerender(panel(later, { drafts: [draft({ state: "complete" }), draft({ jobId: "job2", messageId: "m2", text: "A new reply starts. " })] }));
+      expect(scrolls).toHaveLength(4);
+      fireEvent.wheel(pane.firstElementChild!);
+      rerender(panel(later, { drafts: [draft({ state: "complete" }), draft({ jobId: "job2", messageId: "m2", text: "A new reply starts. And it grows. " })] }));
+      expect(scrolls).toHaveLength(4);
+      // Nothing scrolled the page or asked the browser to scroll every box up to the window.
+      expect(page).not.toHaveBeenCalled();
+      expect(into).not.toHaveBeenCalled();
+    } finally {
+      restore();
+      page.mockRestore();
+    }
+  });
+  it("finds the pane's own scrolling box, never the page, and scrolls it the least", () => {
+    const outer = document.createElement("div"), inner = document.createElement("div"), item = document.createElement("p");
+    inner.style.overflowY = "auto";
+    inner.append(item);
+    outer.append(inner);
+    document.body.append(outer);
+    expect(panelScroller(item)).toBe(inner);
+    inner.style.overflowY = "visible";
+    // No scrolling box of its own: nothing is scrolled (not the document).
+    expect(panelScroller(item)).toBeNull();
+    outer.remove();
   });
   it("offers Ask again on a question that was stopped or cancelled, restoring its text", () => {
     const onDraftChange = vi.fn();
     const { rerender } = render(panel([{ ...message, job_state: "queued" }], { onDraftChange, drafts: [draft({ state: "cancelled", text: "" })] }));
-    expect(screen.getByText("You stopped this reply. Nothing of it was kept.")).toBeVisible();
+    expect(screen.getByText(/^Stopped after it was sent · nothing of the reply was kept/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Ask this question again" }));
     expect(onDraftChange).toHaveBeenCalledWith("Why does it change?");
     rerender(panel([{ ...message, job_state: "cancelled", job_sent: true }], { onDraftChange }));
@@ -900,8 +959,12 @@ describe("help paused by a spending limit", () => {
   it("says plainly that help is paused at the course's AI budget and that staff were told, and keeps cancel and ask again", () => {
     show([held("workspace")]);
     expect(screen.getByText("Companion: Help is paused · your question is saved")).toBeVisible();
-    expect(screen.getByText(/Help is paused · this course's AI budget is used up, so your companion and your AI tutor can't answer for now\. Course staff have been told\./)).toBeVisible();
-    expect(screen.queryByText(/Still working on your last question/)).toBeNull();
+    expect(screen.getByText(/Help is paused · this course's AI budget is used up, so the companion can't answer for now\. Course staff have been told\./)).toBeVisible();
+    // One helper is named, the companion; never a second one (0.1.58 qualification).
+    for (const ceiling of ["workspace", "enrollment", "daily", "artifact"]) expect(companionJobLabel(held(ceiling))).not.toMatch(/tutor/i);
+    expect(screen.queryByText(/Taking longer than usual/)).toBeNull();
+    // Paused is not "waiting for a reply": the notice after sending does not say so.
+    expect(screen.queryByText(/Waiting for the companion service/)).toBeNull();
     expect(screen.getByRole("button", { name: "Stop waiting for this answer" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Cancel and ask again" })).toBeVisible();
     expect(companionState([held("workspace")], { online: true, awaitingChoice: false })).toBe("paused");
@@ -911,13 +974,13 @@ describe("help paused by a spending limit", () => {
     expect(companionJobLabel(held("daily"))).toMatch(/^Help is paused for today · you've used today's AI help in this course\..*ask it again tomorrow\.$/);
     expect(companionJobLabel(held("artifact"))).toMatch(/today's AI help for this lesson/);
     // Without a named limit (an older server, or a held call) it stays the general message.
-    expect(companionJobLabel({ ...message, job_state: "budget_wait" })).toBe("Still working on your last question · your message is saved");
-    expect(companionJobLabel({ ...message, job_state: "waiting", job_ceiling: "workspace" })).toBe("Still working on your last question · your message is saved");
+    expect(companionJobLabel({ ...message, job_state: "budget_wait" })).toBe("Taking longer than usual · your question is saved");
+    expect(companionJobLabel({ ...message, job_state: "waiting", job_ceiling: "workspace" })).toBe("Taking longer than usual · your question is saved");
   });
   it("in Hebrew names one helper, המנחה, and uses no gendered address", () => {
     show([held("workspace")], "he");
     expect(screen.getByRole("status", { name: /^מצב המנחה: .?העזרה מושהית · השאלה שלך נשמרה.?$/ })).toBeVisible();
-    expect(screen.getByText(/תקציב ה-AI של הקורס נוצל במלואו, ולכן מנחה ה-AI לא יכול לענות כרגע\. צוות הקורס קיבל הודעה\./)).toBeVisible();
+    expect(screen.getByText(/תקציב ה-AI של הקורס נוצל במלואו, ולכן אין תשובות מהמנחה כרגע\. צוות הקורס קיבל הודעה\./)).toBeVisible();
     // The learner's own messages are headed "השאלה שלך", the replies "המנחה".
     expect(screen.getAllByText("השאלה שלך").length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toMatch(/מלווה|המפקח|את\/ה/);
@@ -925,6 +988,140 @@ describe("help paused by a spending limit", () => {
     expect(companionJobLabel(held("enrollment"), t)).toContain("ניצלת את כל עזרת ה-AI שהוקצתה לך בקורס");
     expect(companionJobLabel(held("daily"), t)).toContain("ואפשר לשאול אותה שוב מחר");
     for (const ceiling of ["workspace", "enrollment", "daily", "artifact"])
-      expect(companionJobLabel(held(ceiling), t)).not.toMatch(/מלווה|המפקח|את\/ה|תוכל|תוכלי/);
+      expect(companionJobLabel(held(ceiling), t)).not.toMatch(/מלווה|המפקח|את\/ה|תוכל|תוכלי|יכול|מנחה ה-AI/);
+  });
+});
+
+/*
+ * The 0.1.58 qualification found a reply that stalled part way reading both "Reply unavailable ·
+ * the AI service didn't answer in time" and "withdrawn because it did not pass the checks", and the
+ * "Waiting for the companion service to reply" notice staying after Stop and after a cancelled
+ * question. Each outcome now has one statement, the question's label; the notice after sending
+ * only waits while a reply can still come.
+ */
+describe("one statement per companion outcome", () => {
+  const draft = (extra: Partial<CompanionDraft> = {}): CompanionDraft => ({ jobId: "job", messageId: "m", text: "", state: "streaming", shown: true, ...extra });
+  const q = (extra: Partial<CompanionMessage> = {}): CompanionMessage => ({ ...message, ...extra });
+  const answer: CompanionMessage = { id: "a", role: "assistant", content: "Stored reply.", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job" };
+  // Every outcome the learner can meet: the saved question, the stream's draft, and what it reads.
+  const matrix: [string, CompanionMessage, CompanionDraft | undefined, string, string][] = [
+    ["queued", q({ job_state: "queued" }), undefined, "Queued · not sent yet", "בתור · עוד לא נשלחה"],
+    ["sent, being written", q({ job_state: "queued" }), draft(), "Sent · a reply is being written", "נשלחה · התשובה נכתבת עכשיו"],
+    ["written, being checked", q({ job_state: "running" }), draft({ state: "complete", text: "Done." }), "Reply written · checking it before it is shown", "התשובה נכתבה · בודקים אותה לפני שהיא מוצגת"],
+    ["delayed", q({ job_state: "waiting", job_reason: "provider_uncertain" }), undefined, "Taking longer than usual · your question is saved", "מתעכבת יותר מהרגיל · השאלה שלך נשמרה"],
+    ["answered", q({ job_state: "applied" }), undefined, "Answered", "נענתה"],
+    ["stalled, no reply at all", q({ job_state: "waiting", job_reason: "provider_uncertain", job_stalled: true }), undefined,
+      "Reply unavailable · the AI service didn't answer in time · you can ask your question again", "התשובה לא זמינה · שירות ה-AI לא ענה בזמן · אפשר לשאול את השאלה שוב"],
+    ["stalled part way, while the outcome is saved", q({ job_state: "running" }), draft({ state: "withdrawn", reason: "provider_failed" }),
+      "The reply stopped part way through · nothing of it was kept", "התשובה נקטעה באמצע · שום חלק ממנה לא נשמר"],
+    ["stalled part way, saved", q({ job_state: "failed", job_reason: "verification_rejected", refusal_reason: "provider_stream_stalled" }),
+      draft({ state: "withdrawn", reason: "provider_failed" }),
+      "Reply unavailable · the AI service stopped part way through, so nothing of the reply was kept · you can ask your question again",
+      "התשובה לא זמינה · שירות ה-AI הפסיק לענות באמצע, ולכן שום חלק מהתשובה לא נשמר · אפשר לשאול את השאלה שוב"],
+    ["withheld (gave away a check's answer)", q({ job_state: "running" }), draft({ state: "withdrawn", reason: "check_answer_withheld" }),
+      "Reply withheld · it gave away the answer to one of the course's checks · a hint without the answer follows",
+      "התשובה עוכבה · היא חשפה את התשובה לאחת הבדיקות של הקורס · בהמשך יגיע רמז בלי התשובה"],
+    ["refused by the checks", q({ job_state: "failed", job_reason: "verification_rejected", refusal_reason: "output_too_large" }),
+      draft({ state: "withdrawn", reason: "output_too_large" }),
+      "Reply not shown · it did not pass the checks, so nothing of it was kept · you can ask your question again",
+      "התשובה לא הוצגה · היא לא עברה את הבדיקות, ולכן שום חלק ממנה לא נשמר · אפשר לשאול את השאלה שוב"],
+    ["stopped by the learner", q({ job_state: "running" }), draft({ state: "cancelled" }),
+      "Stopped after it was sent · nothing of the reply was kept · what the call used until then counts toward this course's AI use",
+      "נעצרה אחרי שנשלחה · שום חלק מהתשובה לא נשמר · מה שהבקשה ניצלה עד אז נספר בשימוש של הקורס ב-AI"],
+    ["stopped, saved", q({ job_state: "cancelled" }), draft({ state: "cancelled" }),
+      "Stopped after it was sent · nothing of the reply was kept · what the call used until then counts toward this course's AI use",
+      "נעצרה אחרי שנשלחה · שום חלק מהתשובה לא נשמר · מה שהבקשה ניצלה עד אז נספר בשימוש של הקורס ב-AI"],
+    ["cancelled before it was sent", q({ job_state: "cancelled" }), undefined,
+      "Cancelled before it was sent · nothing was used · your message is saved", "בוטלה לפני שנשלחה · לא נוצל דבר · ההודעה שלך נשמרה"],
+    ["failed", q({ job_state: "failed", job_reason: "deadline_exceeded" }), undefined,
+      "Reply unavailable · it could not be prepared · you can ask your question again", "התשובה לא זמינה · לא הצלחנו להכין אותה · אפשר לשאול את השאלה שוב"],
+    ["never prepared", q({ job_state: "refused", job_id: null }), undefined,
+      "Not sent · this question could not be passed on to the AI service · nothing was used · you can ask it again",
+      "לא נשלחה · לא ניתן היה להעביר את השאלה לשירות ה-AI · לא נוצל דבר · אפשר לשאול אותה שוב"],
+  ];
+  it.each(matrix)("%s: one label in English and Hebrew, and nothing else says what happened", (_name, question, streamed, english, hebrew) => {
+    const he = createLearnerTranslator("he");
+    expect(companionJobLabel(question, undefined, streamed)).toBe(english);
+    expect(stripBidiControls(companionJobLabel(question, he.t, streamed)!)).toBe(hebrew);
+    // Gender-neutral: the tutor is המנחה and no verb or adjective takes a gender from it.
+    expect(hebrew).not.toMatch(/מלווה|המפקח|הצליח|יכול|זמין|ממתין|מכין|בודק /);
+    const messages = question.job_state === "applied" ? [question, answer] : [question];
+    const { container, unmount } = render(
+      <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={messages} episodeTitles={{}} draft="" onDraftChange={vi.fn()}
+        onSend={vi.fn()} pending={false} loaded onCancelQuestion={vi.fn()} drafts={streamed ? [streamed] : []} />,
+    );
+    const text = container.textContent!;
+    expect(text.split(english).length - 1).toBe(1);
+    // No second, older wording of an end beside it.
+    for (const other of [/did not pass the checks/, /didn't answer in time/, /stopped part way/, /Stopped after it was sent/, /withheld/, /Waiting for the companion service/])
+      if (!other.test(english)) expect(text).not.toMatch(other);
+    unmount();
+  });
+  it("does not say a reply is being built once its draft was withdrawn or stopped", () => {
+    const running = q({ job_state: "running" });
+    expect(companionState([running], { online: true, awaitingChoice: false })).toBe("building");
+    for (const state of ["withdrawn", "cancelled"] as const)
+      expect(companionState([running], { online: true, awaitingChoice: false, drafts: [draft({ state, reason: "provider_failed" })] })).toBe("available");
+  });
+  it("puts the stalled, stopped, refused and failed questions back in the draft to ask again, and not the waiting ones", () => {
+    for (const [name, question, streamed] of matrix) {
+      const ends = /stalled, no|stalled part way, saved|refused|stopped|cancelled|failed|never prepared/.test(name);
+      expect([name, companionCanAskAgain(question, streamed)]).toEqual([name, ends]);
+    }
+  });
+  it("keeps the notice after sending only while a reply can still come", () => {
+    const key = (question: CompanionMessage | undefined, streamed?: CompanionDraft, extra: CompanionMessage[] = []) =>
+      sentNoticeKey("m", question ? [question, ...extra] : extra, streamed ? [streamed] : []);
+    expect(sentNoticeKey(undefined, [q()])).toBeUndefined();
+    // Saved but not read back yet, queued, sent, being written or checked: waiting is true.
+    expect(key(undefined)).toBe("connectedCompanion.sent.waiting");
+    expect(key(q({ job_state: "queued" }))).toBe("connectedCompanion.sent.waiting");
+    expect(key(q({ job_state: "queued" }), draft())).toBe("connectedCompanion.sent.waiting");
+    expect(key(q({ job_state: "verifying" }))).toBe("connectedCompanion.sent.waiting");
+    expect(key(q({ job_state: "applied" }), undefined, [answer])).toBe("connectedCompanion.sent.replied");
+    // Every other end, and a pause by a spending limit, is said by the card alone.
+    for (const [question, streamed] of [
+      [q({ job_state: "running" }), draft({ state: "cancelled" })],
+      [q({ job_state: "cancelled" }), undefined],
+      [q({ job_state: "cancelled", job_sent: true }), undefined],
+      [q({ job_state: "running" }), draft({ state: "withdrawn", reason: "provider_failed" })],
+      [q({ job_state: "waiting", job_stalled: true }), undefined],
+      [q({ job_state: "failed", refusal_reason: "output_too_large" }), undefined],
+      [q({ job_state: "refused" }), undefined],
+      [q({ job_state: "budget_wait", job_reason: "budget_exhausted", job_ceiling: "workspace" }), undefined],
+      [q({ content: "[deleted]", job_state: "cancelled" }), undefined],
+    ] as [CompanionMessage, CompanionDraft | undefined][])
+      expect([question.job_state, streamed?.state, key(question, streamed)]).toEqual([question.job_state, streamed?.state, undefined]);
+  });
+  it("clears 'Waiting for the companion service' after Stop and after a cancelled queued question, in English and Hebrew", async () => {
+    for (const locale of ["en", "he"] as const) {
+      const i18n = createLearnerTranslator(locale);
+      const waiting = stripBidiControls(i18n.t("connectedCompanion.sent.waiting"));
+      const send = vi.fn().mockResolvedValue(receipt);
+      const panel = (messages: CompanionMessage[], drafts: CompanionDraft[] = [], draftText = "") => (
+        <I18nProvider value={i18n}>
+          <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={messages} episodeTitles={{}} draft={draftText} onDraftChange={vi.fn()}
+            onSend={send} pending={false} loaded onCancelQuestion={vi.fn()} drafts={drafts} />
+        </I18nProvider>
+      );
+      const { rerender, unmount } = render(panel([], [], "Why does it change?"));
+      fireEvent.click(screen.getByRole("button", { name: i18n.t("connectedCompanion.send.send") }));
+      await waitFor(() => expect(screen.getByText(waiting)).toBeVisible());
+      rerender(panel([q({ job_state: "queued" })]));
+      expect(screen.getByText(waiting)).toBeVisible();
+      rerender(panel([q({ job_state: "queued" })], [draft({ text: "Compare them. " })]));
+      expect(screen.getByText(waiting)).toBeVisible();
+      // Stop: the draft ends, then the saved job reads cancelled. Neither still waits.
+      rerender(panel([q({ job_state: "queued" })], [draft({ state: "cancelled" })]));
+      expect(screen.queryByText(waiting)).toBeNull();
+      rerender(panel([q({ job_state: "cancelled", job_sent: true })], [draft({ state: "cancelled" })]));
+      expect(screen.queryByText(waiting)).toBeNull();
+      expect(screen.getByText(stripBidiControls(i18n.t("companionClient.job.cancelledSent")))).toBeVisible();
+      // A queued question cancelled before it was sent.
+      rerender(panel([q({ job_state: "cancelled" })]));
+      expect(screen.queryByText(waiting)).toBeNull();
+      expect(screen.getByText(stripBidiControls(i18n.t("companionClient.job.cancelled")))).toBeVisible();
+      unmount();
+    }
   });
 });
