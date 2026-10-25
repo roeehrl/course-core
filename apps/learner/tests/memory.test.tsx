@@ -25,6 +25,7 @@ import { LearnerMemoryPanel } from "../src/components/LearnerMemoryPanel";
 import { stripBidiControls } from "@course-core/i18n";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { connectedSnapshot } from "./connectedFixtures";
+import { pressWhenReady } from "./pressWhenReady";
 
 const account = { id: "learner-account", displayName: "Learner" };
 const scope: MemoryScope = {
@@ -324,7 +325,7 @@ describe("learner-owned memory panel through HTTP", () => {
       name: (name) =>
         stripBidiControls(name) === `הצגת ההפניות לראיות של ${title}`,
     });
-    fireEvent.click(show);
+    await pressWhenReady(show);
     const reference = screen.getByText(
       (text) => stripBidiControls(text) === "ראיה: evidence-1",
     );
@@ -390,11 +391,9 @@ describe("learner-owned memory panel through HTTP", () => {
         screen.getByRole("button", { name: `Add claim: ${title}` }),
       ).toBeEnabled(),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: `Add claim: ${title}` }),
-    );
+    await pressWhenReady(screen.getByRole("button", { name: `Add claim: ${title}` }));
     await waitFor(() => expect(save()).toBeEnabled());
-    fireEvent.click(save());
+    await pressWhenReady(save());
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Add a short statement",
     );
@@ -417,7 +416,7 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(h.posts()).toHaveLength(0);
     fireEvent.change(languages, { target: { value: "he, en" } });
     fireEvent.change(minutes, { target: { value: "90" } });
-    fireEvent.click(screen.getByRole("radio", { name: "Some experience" }));
+    await pressWhenReady(screen.getByRole("radio", { name: "Some experience" }));
     fireEvent.click(screen.getByRole("radio", { name: "Deep, with the details" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Captions on videos" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Plain language" }));
@@ -427,7 +426,7 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(JSON.parse(String(h.posts()[0]![1]!.body)).profile.preferences).toMatchObject({
       languages: ["he", "en"], experience: "some", depth: "deep", weeklyMinutes: 90, accessibility: ["captions", "plain_language"] });
     // Where each piece of evidence came from (C06).
-    fireEvent.click(screen.getByRole("button", { name: `Show evidence references for ${title}` }));
+    await pressWhenReady(screen.getByRole("button", { name: `Show evidence references for ${title}` }));
     expect(screen.getAllByText(/Decided by an automatic check · recorded/).length).toBeGreaterThan(0);
   });
 
@@ -442,7 +441,7 @@ describe("learner-owned memory panel through HTTP", () => {
         screen.getByRole("button", { name: "Correct suggestion" }),
       ).not.toBeDisabled(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Correct suggestion" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Correct suggestion" }));
     const editor = screen.getByRole("radiogroup", {
       name: "Corrected suggestion",
     });
@@ -465,7 +464,7 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(
       within(preferences).getByRole("radio", { name: "Worked examples" }),
     ).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Dispute suggestion" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Dispute suggestion" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm dispute" }));
     await screen.findByText("Disputed · excluded from AI context");
     expect(
@@ -525,15 +524,11 @@ describe("learner-owned memory panel through HTTP", () => {
     await screen.findByText(/Your memory or progress changed elsewhere/);
     expect(goal()).toHaveValue("My unsaved goal");
     expect(save()).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Refresh & keep draft" }),
-    );
+    await pressWhenReady(screen.getByRole("button", { name: "Refresh & keep draft" }));
     await screen.findByText(/Saved version refreshed/);
     expect(goal()).toHaveValue("My unsaved goal");
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Show latest saved profile for comparison",
-      }),
+    await pressWhenReady(
+      screen.getByRole("button", { name: "Show latest saved profile for comparison" }),
     );
     expect(screen.getByText("Goal: Changed on another device")).toBeVisible();
     expect(h.posts()).toHaveLength(1);
@@ -563,9 +558,7 @@ describe("learner-owned memory panel through HTTP", () => {
     h.model.suggestions.items[0]!.status = "accepted";
     fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
     await screen.findByText(/Your memory or progress changed elsewhere/);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Refresh & keep draft" }),
-    );
+    await pressWhenReady(screen.getByRole("button", { name: "Refresh & keep draft" }));
     await screen.findByText(/The saved review changed/);
     expect(
       screen.getByRole("textbox", { name: "Review note (optional)" }),
@@ -579,7 +572,7 @@ describe("learner-owned memory panel through HTTP", () => {
     // releases its action guard. A user must get an enabled action before the
     // second submission; clicking a disabled button intentionally does nothing.
     await waitFor(()=>expect(screen.getByRole("button",{name:"Save correction"})).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Save correction" }));
     await screen.findByText("Corrected by you");
     await waitFor(() =>
       expect(
@@ -616,9 +609,7 @@ describe("learner-owned memory panel through HTTP", () => {
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
     await waitFor(()=>expect(screen.getByRole("button",{name:"Retry unconfirmed change"})).toBeEnabled());
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry unconfirmed change" }),
-    );
+    await pressWhenReady(screen.getByRole("button", { name: "Retry unconfirmed change" }));
     await screen.findByText("Change saved. Assessment evidence is unchanged.");
     expect(h.posts()).toHaveLength(2);
     expect(h.posts()[1]![1]!.body).toBe(h.posts()[0]![1]!.body);
@@ -663,9 +654,7 @@ describe("learner-owned memory panel through HTTP", () => {
         },
       ],
     };
-    fireEvent.click(
-      screen.getByRole("button", { name: "Search earlier history" }),
-    );
+    await pressWhenReady(screen.getByRole("button", { name: "Search earlier history" }));
     await screen.findByText("My 50% & pattern question");
     request = new URL(
       String(h.fetcher.mock.calls.at(-1)![0]),
@@ -817,9 +806,7 @@ describe("learner-owned memory panel through HTTP", () => {
     );
     await screen.findByText("Suggestion corrected");
     expect(screen.getByText("This represents me better.")).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Show change details 20" }),
-    );
+    await pressWhenReady(screen.getByRole("button", { name: "Show change details 20" }));
     expect(screen.getByText("Event: review-event")).toBeVisible();
     expect(screen.getByText("Suggested explanation: Concise")).toBeVisible();
   });
@@ -839,7 +826,7 @@ describe("learner-owned memory panel through HTTP", () => {
       screen.queryByText("More independent evidence needed"),
     ).not.toBeInTheDocument();
     h.failure = () => response({ error: "ENROLLMENT_NOT_FOUND" }, 404);
-    fireEvent.click(screen.getByRole("button", { name: "Check access again" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Check access again" }));
     await screen.findByText(/It may have been removed/);
     expect(screen.queryByText(/PRIVATE_DRAFT_CANARY/)).not.toBeInTheDocument();
   });

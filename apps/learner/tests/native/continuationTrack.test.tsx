@@ -8,6 +8,7 @@ import type { ContinuationView } from "../../src/client/policyClient";
 import { connectedSnapshot } from "../connectedFixtures";
 import { LocaleProvider } from "../../src/i18n/LocaleProvider";
 import { LocaleSwitcher } from "../../src/components/LocaleSwitcher";
+import { pressWhenReady } from "../pressWhenReady";
 
 /** G15 on native: the same opt-in continuation track as the web view, on native controls. */
 const view = (over: Partial<ContinuationView> = {}): ContinuationView => ({
@@ -41,7 +42,7 @@ describe("native continuation track (G15)", () => {
     expect(screen.getByText(/stays closed/)).toBeTruthy();
     expect(screen.getByText(/Explain a changing pattern\./)).toBeTruthy();
     expect(disabled("Start reviewing")).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Start reviewing" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Start reviewing" }));
     expect(a.command).not.toHaveBeenCalled();
     const consent = screen.getByRole("checkbox");
     expect(consent).toHaveAttribute("aria-checked", "false");
@@ -60,7 +61,7 @@ describe("native continuation track (G15)", () => {
     const a = api(view({ track: active }));
     a.command.mockRejectedValueOnce(new CourseApiError("CONTINUATION_NOT_ACTIVE", 409));
     render(<ContinuationTrack api={a as never} server={connectedSnapshot()} onChanged={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Stop reviewing" }));
+    await pressWhenReady(await screen.findByRole("button", { name: "Stop reviewing" }));
     expect(a.command).toHaveBeenCalledWith(expect.anything(), "continuation/stop", {});
     expect(await screen.findByRole("alert")).toHaveTextContent("Reviewing after the course is already stopped.");
     await waitFor(() => expect(a.request).toHaveBeenCalledTimes(2));
@@ -71,7 +72,7 @@ describe("native continuation track (G15)", () => {
     a.command.mockRejectedValueOnce(new CourseApiError("SOMETHING_NEW", 500));
     render(<ContinuationTrack api={a as never} server={connectedSnapshot()} onChanged={vi.fn()} />);
     expect(await screen.findByText(/You stopped reviewing on/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox"));
+    await pressWhenReady(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Start reviewing again" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).not.toContain("SOMETHING_NEW");

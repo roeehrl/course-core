@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createFrameBroker, type BrokerReply } from "../src/connected/activityBroker";
 import { parseLaunch, type ActivityClient, type ActivityRun } from "../src/client/activityClient";
 import { ActivityBlock, ACTIVITY_FRAME_SANDBOX, activityTarget } from "../src/connected/ActivityBlock.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 const instanceId = "11111111-1111-4111-8111-111111111111";
 const run = (overrides: Partial<ActivityRun> = {}): ActivityRun => ({
@@ -96,10 +97,10 @@ describe("activity block", () => {
     render(<ActivityBlock client={client(run(), call)} enrollmentId="e" episodeId="min" blockId="min-activity" done={false} onChanged={onChanged} />);
     expect(await screen.findByRole("heading", { name: "Explore the minimum" })).toBeTruthy();
     expect(screen.getByText("Pick the smaller value with the number field.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Submit my value" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Submit my value" }));
     expect(await screen.findByText("Answer every part first (2 left).")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Smaller value (0 to 10)"), { target: { value: "4" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "I checked both" }));
+    await pressWhenReady(screen.getByRole("checkbox", { name: "I checked both" }));
     fireEvent.click(screen.getByRole("button", { name: "Submit my value" }));
     expect(await screen.findByText("Checked: done. 4 is the smaller value.")).toBeTruthy();
     expect(onChanged).toHaveBeenCalledTimes(1);

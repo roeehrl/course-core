@@ -4,6 +4,7 @@ import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { VisualBlock, type VisualContextChange } from "../src/components/VisualBlock.web";
 import { fromVisualExperience, VisualRuntime } from "@course-core/visuals/headless";
 import { visualContextFixture } from "./visualContext.fixture";
+import { pressWhenReady } from "./pressWhenReady";
 
 const source = { episodeId: "lesson-one", blockId: "diagram-one", episodeTitle: "Lesson one" };
 const ready = (events: VisualContextChange[]) => {
@@ -19,7 +20,7 @@ describe("actual visual context callbacks", () => {
     expect(ready(events)).toEqual({ schemaVersion: 1, sceneVersion: 1, episodeId: source.episodeId, blockId: source.blockId, visualId: experience.id, rendererId: experience.rendererId, sceneFingerprint: new VisualRuntime(fromVisualExperience(experience)).exportReplay().sceneFingerprint, state: { amount: 2, enabled: true, mode: "linear" }, timeMs: 0, layout: "expanded", reducedMotion: false });
     expect(screen.getByText(/Current illustration · Lesson one · A measured change/)).toBeVisible();
     fireEvent.change(screen.getByRole("slider", { name: "Amount" }), { target: { value: "4" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show result" }));
+    await pressWhenReady(screen.getByRole("checkbox", { name: "Show result" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Rule" }), { target: { value: "square" } });
     fireEvent.change(screen.getByRole("slider", { name: "Timeline" }), { target: { value: "500" } });
     expect(ready(events).state).toEqual({ amount: 4, enabled: false, mode: "square" });
@@ -73,7 +74,7 @@ describe("actual visual context callbacks", () => {
     for (const value of [end, "0", end, "100", end]) fireEvent.change(timeline, { target: { value } });
     await waitFor(() => expect(completions).toHaveLength(1));
     expect(completions[0]).toEqual({ episodeId: source.episodeId, blockId: source.blockId, visualId: experience.id, sceneFingerprint: new VisualRuntime(scene).exportReplay().sceneFingerprint });
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Reset" }));
     fireEvent.change(timeline, { target: { value: end } });
     // A new host callback identity does not re-arm completion either.
     rerender(<VisualBlock experience={experience} source={source} onComplete={(c) => completions.push(c)} />);

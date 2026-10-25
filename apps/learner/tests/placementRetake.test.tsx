@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { PlacementRun } from "../src/components/PlacementRun.web";
 import { CourseApiError } from "../src/client/apiClient";
+import { pressWhenReady } from "./pressWhenReady";
 
 const finished = (extra: Record<string, unknown>) => ({
   available: true, maxItems: 4, studied: false, state: "finished",
@@ -20,7 +21,7 @@ it("offers Retake placement only when the server allows a retest now", async () 
   const command = vi.fn(async () => ({}));
   renderWith(finished({ runNumber: 1, maxRuns: 3, retest: { allowed: true, availableAt: "2026-01-01T00:00:00.000Z" } }), command);
   expect(await screen.findByText(/attempt 2 of 3\. It uses only questions you have not seen/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Retake placement" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Retake placement" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("placement/start", {}));
 });
 
@@ -48,6 +49,6 @@ it("explains a cooldown or run-limit refusal and keeps the result", async () => 
     throw new CourseApiError("PLACEMENT_RETEST_COOLDOWN", 409, { availableAt: "2030-01-01T09:00:00.000Z" });
   });
   renderWith(finished({ runNumber: 1, maxRuns: 3, retest: { allowed: true, availableAt: null } }), command);
-  fireEvent.click(await screen.findByRole("button", { name: "Retake placement" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Retake placement" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(/Placement can be retaken from .*2030.*Your result above still stands/);
 });

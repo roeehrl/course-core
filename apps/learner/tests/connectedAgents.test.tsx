@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { ConnectedAgentsPanel } from "../src/components/ConnectedAgentsPanel.web";
 import { CourseApiError } from "../src/client/apiClient";
+import { pressWhenReady } from "./pressWhenReady";
 
 const enrollmentId = "00000000-0000-4000-8000-000000000001";
 const base = `/api/enrollments/${enrollmentId}/agent-grants`;
@@ -23,7 +24,7 @@ describe("connected agents", () => {
     });
     render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
     expect(await screen.findByText("No agents are connected.")).toBeVisible();
-    fireEvent.click(screen.getByText("Connect an agent"));
+    await pressWhenReady(screen.getByText("Connect an agent"));
     const button = screen.getByRole("button", { name: "Connect agent" });
     expect(button).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Name for this agent"), { target: { value: " Desk assistant " } });
@@ -36,7 +37,7 @@ describe("connected agents", () => {
     expect(screen.getByText(/It is shown only once/)).toBeVisible();
     const list = await screen.findByRole("list", { name: "Agents connected now" });
     expect(within(list).getByText("Desk assistant")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "I saved it" }));
+    await pressWhenReady(screen.getByRole("button", { name: "I saved it" }));
     expect(screen.queryByLabelText("Access key")).toBeNull();
   });
 
@@ -47,7 +48,7 @@ describe("connected agents", () => {
       return { grants: [grant(revoked ? { state: "revoked", revokedAt: "2026-10-15T10:00:00.000Z" } : {})], recentCalls: [] };
     });
     render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Disconnect Desk assistant" }));
+    await pressWhenReady(await screen.findByRole("button", { name: "Disconnect Desk assistant" }));
     expect(await screen.findByText("Earlier: Desk assistant (disconnected)")).toBeVisible();
     expect(screen.getByText("No agents are connected.")).toBeVisible();
   });
@@ -58,7 +59,7 @@ describe("connected agents", () => {
       return { grants: [], recentCalls: [] };
     });
     const { unmount } = render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
-    fireEvent.click(await screen.findByText("Connect an agent"));
+    await pressWhenReady(await screen.findByText("Connect an agent"));
     fireEvent.change(screen.getByLabelText("Name for this agent"), { target: { value: "One more" } });
     fireEvent.click(screen.getByRole("button", { name: "Connect agent" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Disconnect one first/);
@@ -71,7 +72,7 @@ describe("connected agents", () => {
     const request = vi.fn(async (_url: string, method = "GET") =>
       method === "POST" ? { token, grant: grant() } : { grants: [], recentCalls: [] });
     const connect = async () => {
-      fireEvent.click(await screen.findByText("Connect an agent"));
+      await pressWhenReady(await screen.findByText("Connect an agent"));
       fireEvent.change(screen.getByLabelText("Name for this agent"), { target: { value: "Desk assistant" } });
       fireEvent.click(screen.getByRole("button", { name: "Connect agent" }));
       return screen.findByLabelText("Access key");
@@ -80,7 +81,7 @@ describe("connected agents", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const { unmount } = render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
     await connect();
-    fireEvent.click(screen.getByRole("button", { name: "Copy key" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Copy key" }));
     expect(await screen.findByRole("button", { name: "Copied" })).toBeVisible();
     expect(writeText).toHaveBeenCalledWith(token);
     unmount();
@@ -89,7 +90,7 @@ describe("connected agents", () => {
     try {
       render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
       const key = (await connect()) as HTMLInputElement;
-      fireEvent.click(screen.getByRole("button", { name: "Copy key" }));
+      await pressWhenReady(screen.getByRole("button", { name: "Copy key" }));
       expect(await screen.findByRole("alert")).toHaveTextContent(/can.t copy for you on this connection/);
       expect(screen.getByRole("button", { name: "Copy key" })).toBeVisible();
       expect(document.activeElement).toBe(key);

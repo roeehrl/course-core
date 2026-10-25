@@ -13,6 +13,7 @@ import {
 import { CourseApiError } from "../src/client/apiClient";
 import { connectedSnapshot } from "./connectedFixtures";
 import { policyFixture } from "./policyFixtures";
+import { pressWhenReady } from "./pressWhenReady";
 
 /** G03 binding explanation, G09 minute/lesson extension offers and G15 the continuation track. */
 const panelProps = (data = policyFixture()) => ({
@@ -112,7 +113,7 @@ describe("reviewing after the course (G15)", () => {
     expect(screen.getByText("Explain a changing pattern.")).toBeVisible();
     const start = screen.getByRole("button", { name: "Start reviewing" });
     expect(start).toBeDisabled();
-    fireEvent.click(start);
+    await pressWhenReady(start);
     expect(a.command).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(start);

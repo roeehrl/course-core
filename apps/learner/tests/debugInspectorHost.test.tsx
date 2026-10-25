@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ConnectedHost } from "../src/ConnectedHost.web";
 import { connectedSnapshot } from "./connectedFixtures";
 import type { ContextualCompanionClient } from "../src/client/companionClient";
+import { pressWhenReady } from "./pressWhenReady";
 
 afterEach(() => vi.unstubAllGlobals());
 const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
@@ -25,9 +26,9 @@ async function openLesson(access: unknown) {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost companionClient={client} />);
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", { name: "Everyday patterns" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", { name: "Notice the change" });
   await waitFor(() => expect(asked).toHaveLength(1));
   return snapshot;
@@ -40,7 +41,7 @@ it("never shows the inspector entry to a learner the server did not authorize", 
 
 it("shows the entry beside the lesson for an authorized owner and frames the inspector at the current part", async () => {
   const snapshot = await openLesson({ available: true, role: "owner", permissions: ["learner.view", "run.inspect"], path: "/admin/inspector", receipt: "learner.viewed_by_staff" });
-  fireEvent.click(await screen.findByRole("button", { name: "Debug inspector" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Debug inspector" }));
   const frame = await screen.findByTitle("Debug inspector for this lesson");
   expect(frame.getAttribute("src")).toBe(`/admin/inspector?enrollment=${snapshot.enrollmentId}&episode=intro&block=reading&locale=en`);
 });

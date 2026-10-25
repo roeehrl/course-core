@@ -10,6 +10,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ConnectedHost } from "../src/ConnectedHost.web";
 import { connectedSnapshot } from "./connectedFixtures";
 import type { ContextualCompanionClient } from "../src/client/companionClient";
+import { pressWhenReady } from "./pressWhenReady";
 afterEach(() => vi.unstubAllGlobals());
 it("does not duplicate an acknowledged message when refreshing progress fails", async () => {
   const snapshot = connectedSnapshot();
@@ -61,18 +62,18 @@ it("does not duplicate an acknowledged message when refreshing progress fails", 
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost companionClient={client} />);
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", {
     name: "Everyday patterns",
   });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", {
     name: "Notice the change",
   });
   const trigger = screen.queryByRole("button", {
     name: "Companion",
   });
-  if (trigger) fireEvent.click(trigger);
+  if (trigger) await pressWhenReady(trigger);
   fireEvent.change(
     screen.getByRole("textbox", { name: "Message to your companion" }),
     { target: { value: "Save this once" } },
@@ -127,12 +128,12 @@ it("keeps lesson saves disabled until a placement decline is confirmed", async (
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost />);
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Start from the beginning" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Start from the beginning" }));
   await waitFor(() => expect(posts).toEqual([`/api/enrollments/${snapshot.enrollmentId}/placement/decline`]));
   // Navigation stays available, but the lesson must not start a second saved
   // request while the decline is unconfirmed (it would be refused as uncertain).
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", { name: "Notice the change" });
   const markRead = screen.getByRole("button", { name: "Mark this part read" });
   expect(markRead).toBeDisabled();
@@ -208,10 +209,10 @@ it("a slower, older progress refresh never replaces the check the learner is typ
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost />);
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Start from the beginning" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Start from the beginning" }));
   await waitFor(() => expect(lateStarted).toBe(true));
-  fireEvent.click(await screen.findByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", { name: "Notice the change" });
   const enabled = (name: string) =>
     waitFor(() => {
@@ -219,8 +220,8 @@ it("a slower, older progress refresh never replaces the check the learner is typ
       expect(button).toBeEnabled();
       return button;
     });
-  fireEvent.click(await enabled("Mark this part read"));
-  fireEvent.click(await enabled("Start the next check →"));
+  await pressWhenReady(await enabled("Mark this part read"));
+  await pressWhenReady(await enabled("Start the next check →"));
   const box = await screen.findByRole("textbox", { name: "Your numeric answer" });
   await waitFor(() => expect(box).not.toHaveAttribute("readonly"));
   fireEvent.change(box, { target: { value: "4" } });

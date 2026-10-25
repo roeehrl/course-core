@@ -33,6 +33,7 @@ import { useCompanionConversation } from "../src/hooks/useCompanionConversation"
 import { createConnectedDraftStore } from "../src/connected/drafts";
 import { connectedSnapshot } from "./connectedFixtures";
 import { companionFocus, selectedLines } from "../src/client/companionFocus";
+import { pressWhenReady } from "./pressWhenReady";
 const context: CompanionContext = {
   enrollmentId: "e",
   courseDigest: "digest",
@@ -478,12 +479,12 @@ describe("persisted companion integration", () => {
     expect(screen.getByText(/Context version 4/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Don’t use this message again" }));
     await waitFor(() => expect(exclude).toHaveBeenCalledWith("old", true));
-    fireEvent.click(screen.getByRole("button", { name: "Use this question again" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Use this question again" }));
     await waitFor(() => expect(exclude).toHaveBeenCalledWith("older", false));
     // A focus chosen in this lesson is shown and removable.
     act(() => companionFocus.setSelection({ kind: "code", excerpt: "return x", lineStart: 3, lineEnd: 4, codeSnapshotHash: "a".repeat(64) }));
     expect(screen.getByText("Your code, lines 3–4")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Remove selection" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Remove selection" }));
     expect(companionFocus.get().selection).toBeUndefined();
   });
 
@@ -528,7 +529,7 @@ describe("persisted companion integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel and ask again" }));
     await waitFor(() => expect(cancelQuestion).toHaveBeenCalledWith("w"));
     await waitFor(() => expect(draft).toHaveBeenCalledWith("Frozen layers?"));
-    fireEvent.click(screen.getByRole("button", { name: "Stop waiting for this answer" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Stop waiting for this answer" }));
     await waitFor(() => expect(cancelQuestion).toHaveBeenCalledTimes(2));
     expect(draft).toHaveBeenCalledTimes(1);
   });

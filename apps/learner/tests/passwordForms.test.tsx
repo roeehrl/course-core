@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CourseApiError } from "../src/client/apiClient";
 import { ChangePassword, PasswordSignIn, newPasswordProblem } from "../src/connected/PasswordForms.web";
 import { ConnectedHost } from "../src/ConnectedHost.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 afterEach(() => vi.unstubAllGlobals());
 type Request = <T>(url: string, method?: string, payload?: unknown) => Promise<T>;
@@ -37,12 +38,12 @@ describe("learner password sign-in", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The username or password is incorrect.");
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "temporary-pass" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Sign in" }));
     const next = await screen.findByLabelText("New password");
     expect(next).toHaveAttribute("autocomplete", "new-password");
     fireEvent.change(next, { target: { value: "a learner passphrase" } });
     fireEvent.change(screen.getByLabelText("Repeat new password"), { target: { value: "a learner passphrase" } });
-    fireEvent.click(screen.getByRole("button", { name: "Set password and sign in" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Set password and sign in" }));
     await waitFor(() => expect(signedIn).toHaveBeenCalledOnce());
     expect(calls[2]).toEqual({ login: "learner.one", password: "temporary-pass", newPassword: "a learner passphrase" });
   });

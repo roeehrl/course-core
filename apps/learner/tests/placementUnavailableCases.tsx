@@ -2,6 +2,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { PlacementRunProps } from "../src/components/PlacementRun";
+import { pressWhenReady } from "./pressWhenReady";
 
 const offered = { available: true, maxItems: 3, studied: false, state: "offered", run: null };
 const UNAVAILABLE = "Placement is unavailable right now. You can start learning normally, or try again.";
@@ -22,7 +23,7 @@ export function unavailableCases(PlacementRun: (props: PlacementRunProps) => Rea
     });
     expect(await screen.findByRole("alert")).toHaveTextContent(UNAVAILABLE);
     fail = false;
-    fireEvent.click(screen.getByRole("button", { name: "Try placement again" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Try placement again" }));
     expect(await screen.findByRole("heading", { name: "Already know some of this?" })).toBeTruthy();
     expect(screen.queryByText(UNAVAILABLE)).toBeNull();
     expect(api.request).toHaveBeenCalledTimes(2);
@@ -33,7 +34,7 @@ export function unavailableCases(PlacementRun: (props: PlacementRunProps) => Rea
       throw new Error("offline");
     });
     await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: "Try placement again" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Try placement again" }));
     await waitFor(() => expect(api.request).toHaveBeenCalledTimes(2));
     // Web buttons use `disabled`; native (react-native-web) ones use aria-disabled.
     await waitFor(() => {

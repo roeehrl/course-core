@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RetentionPanel } from "../src/components/RetentionPanel.web";
 import type { RetentionPanelProps } from "../src/components/RetentionPanel";
+import { pressWhenReady } from "./pressWhenReady";
 
 const apiOf = (body: unknown) => ({ request: vi.fn(async () => body) }) as unknown as RetentionPanelProps["api"];
 const view = (availability: { weekdays: number[]; timeZone: string } | null) => ({
@@ -29,12 +30,12 @@ describe("delayed checks panel (F06)", () => {
     expect(await screen.findByText("Checks can fall due on any day.")).toBeVisible();
     const button = screen.getByRole("button", { name: "Save study days" });
     expect(button).toBeDisabled();
-    for (const day of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]) fireEvent.click(screen.getByRole("checkbox", { name: day }));
+    for (const day of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]) await pressWhenReady(screen.getByRole("checkbox", { name: day }));
     expect(button).toBeEnabled();
     fireEvent.click(button);
     await waitFor(() => expect(save).toHaveBeenCalledWith([6], expect.any(String)));
     expect(await screen.findByText(/Study days saved/)).toBeVisible();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Saturday" }));
+    await pressWhenReady(screen.getByRole("checkbox", { name: "Saturday" }));
     expect(screen.getByText("Pick at least one day.")).toBeVisible();
     expect(button).toBeDisabled();
     for (const day of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]) fireEvent.click(screen.getByRole("checkbox", { name: day }));
@@ -44,7 +45,7 @@ describe("delayed checks panel (F06)", () => {
   it("says so when saving fails", async () => {
     const api = apiOf(view(null));
     render(<RetentionPanel api={api} enrollmentId="e1" revision={1} onStart={vi.fn()} onSaveAvailability={vi.fn(async () => { throw new Error("offline"); })} />);
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Sunday" }));
+    await pressWhenReady(await screen.findByRole("checkbox", { name: "Sunday" }));
     fireEvent.click(screen.getByRole("button", { name: "Save study days" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Your study days could not be saved. Nothing changed; try again.");
   });
@@ -52,7 +53,7 @@ describe("delayed checks panel (F06)", () => {
     const api = apiOf(view({ weekdays: [1, 3], timeZone: "Asia/Jerusalem" }));
     const props = { api, enrollmentId: "e1", onStart: vi.fn(), onSaveAvailability: vi.fn() };
     const { rerender } = render(<RetentionPanel {...props} revision={1} />);
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Sunday" }));
+    await pressWhenReady(await screen.findByRole("checkbox", { name: "Sunday" }));
     // Answering anything moves the enrollment's revision, which reloads the panel.
     rerender(<RetentionPanel {...props} revision={2} />);
     await waitFor(() => expect(api.request).toHaveBeenCalledTimes(2));
@@ -69,12 +70,12 @@ describe("delayed checks panel (F06)", () => {
     const api = { request } as unknown as RetentionPanelProps["api"];
     const props = { api, enrollmentId: "e1", onStart: vi.fn(), onSaveAvailability: vi.fn() };
     const { rerender } = render(<RetentionPanel {...props} revision={1} />);
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Sunday" }));
+    await pressWhenReady(await screen.findByRole("checkbox", { name: "Sunday" }));
     rerender(<RetentionPanel {...props} revision={2} />);
     expect(await screen.findByText("This was changed elsewhere")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Sunday" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Save study days" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Show the saved version" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Show the saved version" }));
     expect(screen.getByRole("checkbox", { name: "Tuesday" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Sunday" })).not.toBeChecked();
     expect(screen.queryByText("This was changed elsewhere")).toBeNull();

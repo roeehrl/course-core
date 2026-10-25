@@ -2,6 +2,7 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { PlacementRun } from "../src/components/PlacementRun.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 const finished = (stopReason: string, pending: { objectiveId: string; description: string }[]) => ({
   available: true, maxItems: 4, studied: false, state: "finished",
@@ -39,7 +40,7 @@ it("lets a judged placement answer be appealed through the same review command a
   const api = { request: vi.fn(async (url: string) => (url.endsWith("/reviews") ? reviews() : view)) };
   const command = vi.fn(async () => { appealed = true; return {}; });
   render(<PlacementRun api={api as never} command={command as never} enrollmentId="e1" firstEpisodeId="min" onFinished={() => {}} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Ask for a second opinion" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Ask for a second opinion" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Why should another reviewer look again?" }), { target: { value: "I stated the invariant in my second sentence." } });
   fireEvent.click(screen.getByRole("button", { name: "Request a second opinion" }));
   await waitFor(() => expect(command).toHaveBeenCalledWith("reviews/a1/appeal", { reason: "I stated the invariant in my second sentence." }));
