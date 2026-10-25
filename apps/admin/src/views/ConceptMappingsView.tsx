@@ -483,7 +483,6 @@ function PairEditor({
         >
           <textarea
             id={`${id}-note`}
-            dir="auto"
             value={note}
             maxLength={500}
             rows={2}

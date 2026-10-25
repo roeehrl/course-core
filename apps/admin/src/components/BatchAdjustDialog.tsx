@@ -273,7 +273,6 @@ export function BatchAdjustDialog({
               >
                 <input
                   id="batch-reason"
-                  dir="auto"
                   maxLength={300}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}

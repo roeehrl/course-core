@@ -159,7 +159,6 @@ function StatementForm({
       >
         <input
           id={`${id}-source`}
-          dir="auto"
           value={form.sourceNote}
           required
           minLength={3}

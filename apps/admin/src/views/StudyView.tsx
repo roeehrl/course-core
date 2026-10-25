@@ -650,7 +650,6 @@ function StudyForm({
         <Field label={t("studyView.form.title")} htmlFor={`${id}-title`}>
           <input
             id={`${id}-title`}
-            dir="auto"
             value={title}
             minLength={3}
             maxLength={120}
@@ -665,7 +664,6 @@ function StudyForm({
         >
           <textarea
             id={`${id}-purpose`}
-            dir="auto"
             rows={4}
             value={purpose}
             minLength={20}
@@ -703,7 +701,6 @@ function StudyForm({
               >
                 <input
                   id={`${id}-arm-${i}`}
-                  dir="auto"
                   value={entry.arm.label}
                   maxLength={60}
                   disabled={!entry.on}

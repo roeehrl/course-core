@@ -608,7 +608,6 @@ function PolicyWorkspace({
                     >
                       <input
                         id={`reject-${offer.terms.offerId}`}
-                        dir="auto"
                         maxLength={1000}
                         value={rejectReason}
                         onChange={(e) => setRejectReason(e.target.value)}

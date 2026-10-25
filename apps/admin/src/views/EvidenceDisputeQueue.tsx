@@ -250,7 +250,6 @@ function DisputeCard({
         >
           <textarea
             id={`${id}-note`}
-            dir="auto"
             rows={3}
             maxLength={EVIDENCE_DISPUTE_NOTE_MAX}
             value={note}

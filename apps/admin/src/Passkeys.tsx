@@ -342,7 +342,6 @@ export function PasskeysPanel({
               id={id + "-name"}
               required
               maxLength={100}
-              dir="auto"
               value={name}
               onChange={(event) => setName(event.target.value)}
               disabled={pending}

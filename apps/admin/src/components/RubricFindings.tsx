@@ -95,7 +95,6 @@ export function RubricFindings({
                   rows={2}
                   maxLength={800}
                   value={f.quote}
-                  dir="auto"
                   disabled={disabled}
                   onChange={(e) => update(c.id, { quote: e.target.value })}
                 />

@@ -482,7 +482,6 @@ export function PricesSection(props: Props) {
               >
                 <input
                   id={fieldId(group, "source")}
-                  dir="auto"
                   maxLength={500}
                   value={forms[group.key]?.source ?? ""}
                   disabled={saving}

@@ -240,7 +240,6 @@ export function AccommodationEditor({
           >
             <input
               id="accommodation-reason"
-              dir="auto"
               maxLength={300}
               value={reason}
               onChange={(e) => setReason(e.target.value)}

@@ -191,7 +191,6 @@ export function PolicyMigrationEditor({
           >
             <textarea
               id="migration-reason"
-              dir="auto"
               maxLength={1000}
               value={reason}
               onChange={(e) => {

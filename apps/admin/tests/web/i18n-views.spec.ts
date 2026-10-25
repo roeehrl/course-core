@@ -298,7 +298,7 @@ async function expectAccessible(page: Page) {
  * Under en-XA every translated message is wrapped in ⟦…⟧ and its Latin letters are accented.
  * Returns the visible text in the main region that has plain Latin letters outside any ⟦…⟧
  * frame: hardcoded text. Data is exempt where the view marks it as data (dir="ltr"/"auto",
- * bdi, code, pre, select options), and so are formatted dates, which pseudo-locales format as
+ * bdi, code, pre, select options, the text in a field), and so are formatted dates, which pseudo-locales format as
  * English.
  */
 async function untranslated(page: Page, allowed: readonly string[] = []) {
@@ -320,7 +320,7 @@ async function untranslated(page: Page, allowed: readonly string[] = []) {
       if (!/[A-Za-z]/.test(outside.replace(date, ""))) continue;
       // Only markers inside main count: <html> itself carries lang and dir.
       const data = element.closest(
-        '[dir="ltr"], [dir="auto"], bdi, code, pre, option, [lang="en"], .sr-only',
+        '[dir="ltr"], [dir="auto"], bdi, code, pre, option, textarea, [lang="en"], .sr-only',
       );
       if (data && main.contains(data)) continue;
       if (!element.checkVisibility()) continue;

@@ -1024,7 +1024,6 @@ function AddSourceDialog({
           >
             <textarea
               id={id + "-fallback"}
-              dir="auto"
               rows={4}
               maxLength={10000}
               value={fallback}
@@ -1168,7 +1167,6 @@ function ReviewDialog({
           <textarea
             ref={first}
             id={id + "-rationale"}
-            dir="auto"
             rows={3}
             minLength={20}
             maxLength={2000}
@@ -1186,7 +1184,6 @@ function ReviewDialog({
             >
               <textarea
                 id={`${id}-quote-${index}`}
-                dir="auto"
                 rows={2}
                 maxLength={800}
                 value={q.quote}
@@ -1205,7 +1202,6 @@ function ReviewDialog({
             >
               <textarea
                 id={`${id}-relevance-${index}`}
-                dir="auto"
                 rows={2}
                 maxLength={1000}
                 value={q.relevance}
@@ -1300,7 +1296,6 @@ function ReviewDialog({
         >
           <input
             id={id + "-reference"}
-            dir="auto"
             maxLength={1000}
             required
             value={reference}
@@ -1489,7 +1484,6 @@ function RevokeDialog({
         >
           <textarea
             id={id + "-reason"}
-            dir="auto"
             rows={3}
             minLength={10}
             maxLength={1000}

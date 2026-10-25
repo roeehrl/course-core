@@ -200,7 +200,6 @@ export function DraftEditorBody({
       <Field label={t("draftEditor.notes.label")} htmlFor="draft-notes">
         <textarea
           id="draft-notes"
-          dir="auto"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           maxLength={1200}

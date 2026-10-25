@@ -673,7 +673,6 @@ function KeyEditor({
                   id={`${id}-unit`}
                   value={unit}
                   onChange={(e) => setUnit(e.target.value)}
-                  dir="auto"
                 />
               </Field>
             </>
@@ -692,7 +691,6 @@ function KeyEditor({
                   onChange={(e) =>
                     setSteps({ ...steps, [s.id]: e.target.value })
                   }
-                  dir="auto"
                 />
               </Field>
             ))}
@@ -706,7 +704,6 @@ function KeyEditor({
               rows={2}
               value={explanation}
               onChange={(e) => setExplanation(e.target.value)}
-              dir="auto"
             />
           </Field>
           {checked && impact && <ImpactList impact={impact.result} />}
@@ -926,7 +923,6 @@ function FixturesEditor({
                 id={`${id}-fx-${s.id}`}
                 value={steps[s.id] ?? ""}
                 onChange={(e) => setSteps({ ...steps, [s.id]: e.target.value })}
-                dir="auto"
               />
             </Field>
           ))
@@ -954,7 +950,6 @@ function FixturesEditor({
                 id={`${id}-unit`}
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                dir="auto"
               />
             </Field>
           </>
@@ -983,7 +978,6 @@ function FixturesEditor({
             value={label}
             maxLength={200}
             onChange={(e) => setLabel(e.target.value)}
-            dir="auto"
           />
         </Field>
         <div className="wide stack">
@@ -1114,7 +1108,6 @@ function CriteriaEditor({
               id={`${id}-${c.id}`}
               rows={2}
               value={c.description}
-              dir="auto"
               onChange={(e) =>
                 setRows(
                   rows.map((r) =>

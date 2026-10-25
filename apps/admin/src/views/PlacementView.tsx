@@ -742,7 +742,6 @@ function ExemptionCard({
           >
             <textarea
               id={`${id}-reason`}
-              dir="auto"
               rows={2}
               maxLength={2000}
               value={reason}

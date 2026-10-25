@@ -4,6 +4,7 @@ import { accent } from "@course-core/i18n";
 import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
 import { fieldIconOverlaps } from "../fieldIcons";
 import { trackedHebrew } from "../hebrewText";
+import { emptyFieldsAgainstPage } from "../fieldText";
 
 /**
  * Every admin view against the real API, in Hebrew (right to left, axe, no overflow) and under
@@ -32,7 +33,8 @@ async function overflow(page: Page) {
 }
 
 /** Visible text in main with plain Latin letters outside any ⟦…⟧ frame, except data
- * (dir="ltr"/"auto", bdi, code, pre, option, lang="en") and English-formatted dates. */
+ * (dir="ltr"/"auto", bdi, code, pre, option, a field's own text, lang="en") and English-formatted
+ * dates. */
 async function untranslated(page: Page) {
   return page.evaluate(() => {
     const found: string[] = [];
@@ -51,7 +53,7 @@ async function untranslated(page: Page) {
       const element = node.parentElement!;
       if (!/[A-Za-z]/.test(outside.replace(date, ""))) continue;
       const data = element.closest(
-        '[dir="ltr"], [dir="auto"], bdi, code, pre, option, [lang="en"], .sr-only',
+        '[dir="ltr"], [dir="auto"], bdi, code, pre, option, textarea, [lang="en"], .sr-only',
       );
       if (data && main.contains(data)) continue;
       if (!element.checkVisibility()) continue;
@@ -92,6 +94,10 @@ test("every admin view on the real API renders in Hebrew, right to left, accessi
       ...(await fieldIconOverlaps(page.locator("main"), `${name}: `)),
       ...(await trackedHebrew(page.locator("body"))).map(
         (line) => `${name}: ${line}`,
+      ),
+      // Empty free-text fields start at the right: no dir="auto" left-to-right fields.
+      ...(await emptyFieldsAgainstPage(page.locator("main"))).map(
+        (field) => `${name}: ${field}`,
       ),
     );
     const violations = (

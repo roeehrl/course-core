@@ -397,7 +397,6 @@ function SettingInput({
         <input
           id={id}
           type="text"
-          dir="auto"
           value={String(value)}
           maxLength={setting.maxLength}
           disabled={!setting.canEdit}

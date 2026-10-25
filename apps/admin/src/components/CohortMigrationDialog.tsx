@@ -204,7 +204,6 @@ export function CohortMigrationDialog({
           >
             <input
               id="cohort-reason"
-              dir="auto"
               maxLength={1000}
               value={reason}
               onChange={(e) => setReason(e.target.value)}

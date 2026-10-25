@@ -463,7 +463,6 @@ function AddConnection({
       >
         <input
           id={`${base}-name`}
-          dir="auto"
           maxLength={80}
           value={name}
           disabled={saving}

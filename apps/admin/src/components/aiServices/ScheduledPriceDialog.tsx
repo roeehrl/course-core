@@ -210,7 +210,6 @@ export function ScheduledPriceDialog({
         >
           <input
             id={idOf("source")}
-            dir="auto"
             maxLength={500}
             value={form.source}
             disabled={pending}

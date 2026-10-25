@@ -158,7 +158,6 @@ export function SignInCard({
             id={id + "-login"}
             name="username"
             autoComplete="username"
-            dir="auto"
             autoCapitalize="none"
             spellCheck={false}
             required

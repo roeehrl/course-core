@@ -721,7 +721,6 @@ function RequestDialog({
         <Field label={t("mediaView.request.clipTitle")} htmlFor={id + "-title"}>
           <input
             id={id + "-title"}
-            dir="auto"
             value={title}
             maxLength={200}
             onChange={(e) => setTitle(e.target.value)}
@@ -734,7 +733,6 @@ function RequestDialog({
         >
           <textarea
             id={id + "-objective"}
-            dir="auto"
             value={objective}
             maxLength={2000}
             onChange={(e) => setObjective(e.target.value)}
@@ -827,7 +825,6 @@ function RequestDialog({
         >
           <textarea
             id={id + "-script"}
-            dir="auto"
             value={script}
             maxLength={mode === "image" ? 4000 : 8000}
             onChange={(e) => setScript(e.target.value)}
@@ -1352,7 +1349,6 @@ function ReviewForm({
               >
                 <textarea
                   id={id + "-transcript"}
-                  dir="auto"
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
                 />
@@ -1374,7 +1370,6 @@ function ReviewForm({
           >
             <textarea
               id={id + "-description"}
-              dir="auto"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -1388,7 +1383,6 @@ function ReviewForm({
       >
         <textarea
           id={id + "-rationale"}
-          dir="auto"
           value={rationale}
           onChange={(e) => setRationale(e.target.value)}
         />
@@ -1577,7 +1571,6 @@ function RevokeForm({
       >
         <textarea
           id={id + "-reason"}
-          dir="auto"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />

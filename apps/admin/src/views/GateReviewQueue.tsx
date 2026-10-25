@@ -258,7 +258,6 @@ function GateReviewCard({
         >
           <textarea
             id={`${id}-note`}
-            dir="auto"
             rows={3}
             maxLength={2000}
             value={note}

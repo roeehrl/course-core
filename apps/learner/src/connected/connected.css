@@ -21,20 +21,24 @@ html:has(.connected-host) body {
 .connected-host * {
   box-sizing: border-box;
 }
-.connected-host button,
-.connected-host summary,
-.connected-host a {
+/* Element defaults for the whole app. The element part sits inside :where(), so each rule has
+ * only the host class's specificity (0,1,0; the focus ring adds its :focus-visible) and every
+ * component rule wins over it: before, the button rule (0,1,1) silently replaced the font of
+ * .connected-primary, .connected-link-button or .connected-toast-dismiss. Rules meant to
+ * override components (the disclosure chevron's room, reduced motion, forced colours) stay as
+ * they are. tests/cssStructure.test.ts checks this. */
+.connected-host :where(button, summary, a) {
   touch-action: manipulation;
 }
-.connected-host button {
+.connected-host :where(button) {
   font: inherit;
   cursor: pointer;
 }
-.connected-host button:disabled {
+.connected-host :where(button:disabled) {
   cursor: default;
   opacity: 0.55;
 }
-.connected-host :is(button, input, textarea, select, summary, a):focus-visible {
+.connected-host :where(button, input, textarea, select, summary, a):focus-visible {
   outline: 3px solid #183237;
   outline-offset: 4px;
 }
