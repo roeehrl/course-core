@@ -261,6 +261,51 @@ test('glossary: a forbidden synonym in a rule\'s locale and surfaces fails, with
   }
 });
 
+test('glossary: a rule with an English-source condition judges only the messages whose English decides the role', () => {
+  const learnerMessages = 'apps/learner/src/i18n/messages';
+  const root = fixture({
+    'scripts/i18n-glossary.json': {
+      rules: [
+        { id: 'supervisor-is-not-the-tutor', locale: 'he', surfaces: ['admin'], whenSource: '\\bsupervis', unlessSource: '\\b(?:companion|tutor)s?\\b',
+          forbidden: ['מנחה', 'מנחי', 'מנחות'], use: 'המפקח', why: 'in admin the supervisor is המפקח' },
+        { id: 'tutor-is-not-the-supervisor', locale: 'he', surfaces: ['admin'], whenSource: '\\b(?:companion|tutor)s?\\b', unlessSource: '\\bsupervis',
+          forbidden: ['מפקח'], use: 'המנחה', why: 'the tutor is המנחה' },
+      ],
+      exceptions: [{ rule: 'supervisor-is-not-the-tutor', message: 'admin:jobs.quoted', reason: 'quotes the learner-facing name of the tutor next to the supervisor' }],
+    },
+    [`${messages}/en/jobs.json`]: {
+      stopping: 'Stopping the supervisors…', one: 'The Supervisor paused', run: 'Supervision run', declined: 'Sent to the supervisor',
+      both: 'The companion and the supervisor', tutorOnly: 'The companion answered', staff: 'Supervisor', quoted: 'Supervisor notes',
+      neither: 'A note', wrongWay: 'The AI tutor is off', missing: 'Supervisor',
+    },
+    [`${messages}/he/jobs.json`]: {
+      stopping: 'עוצרים את המנחים…', one: 'המנחה הושהה', run: 'הרצת מנחי ה-AI', declined: 'נשלח למנחה',
+      both: 'המנחה והמפקח', tutorOnly: 'המנחה ענה', staff: 'המפקח', quoted: 'הערות המפקח על "המנחה"',
+      neither: 'הערה של המנחה', wrongWay: 'המפקחים כבויים', onlyHebrew: 'המנחה', $pending: [],
+    },
+    // The learner app names one helper, so the same words there are not judged by these rules.
+    [`${learnerMessages}/en/dock.json`]: { supervisor: 'Your supervisor made this' },
+    [`${learnerMessages}/he/dock.json`]: { supervisor: 'המנחה הכין את זה' },
+  });
+  try {
+    const { errors } = checkGlossary(root);
+    const text = errors.join('\n');
+    // Plural and declined forms where the English names only the supervisor.
+    assert.match(text, /he\/jobs\.json: "stopping" says "המנחים" where the English says "Stopping the supervisors…"; use המפקח/);
+    assert.match(text, /"one" says "המנחה" where the English says "The Supervisor paused"/);
+    assert.match(text, /"run" says "מנחי" where the English says "Supervision run"/);
+    assert.match(text, /"declined" says "למנחה"/);
+    // And the other way round: a supervisor word where the English names only the tutor.
+    assert.match(text, /"wrongWay" says "המפקחים" where the English says "The AI tutor is off"; use המנחה: the tutor is המנחה \(rule "tutor-is-not-the-supervisor"/);
+    // Undecidable or right: both roles named, the right term, no role in the English, no English at all, the learner app.
+    for (const key of ['both', 'tutorOnly', 'staff', 'quoted', 'neither', 'onlyHebrew', 'missing']) assert.doesNotMatch(text, new RegExp(`"${key}"`));
+    assert.doesNotMatch(text, /dock\.json/);
+    assert.equal(errors.length, 5);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('glossary: the configuration is validated, and the CLI fails on a forbidden synonym', async () => {
   const bad = fixture({
     'scripts/i18n-glossary.json': {
@@ -269,6 +314,10 @@ test('glossary: the configuration is validated, and the CLI fails on a forbidden
         { id: 'Bad Id', locale: 'he', forbidden: ['x'], use: 'y', why: 'z' },
         { id: 'scoped', locale: 'he', surfaces: ['visuals'], forbidden: ['x'], use: 'y', why: 'z' },
         { id: 'ok', locale: 'he', forbidden: ['x'], use: 'y', why: 'z' },
+        { id: 'bad-pattern', locale: 'he', whenSource: '(supervis', forbidden: ['x'], use: 'y', why: 'z' },
+        { id: 'unless-alone', locale: 'he', unlessSource: 'tutor', forbidden: ['x'], use: 'y', why: 'z' },
+        { id: 'source-locale', locale: 'en', whenSource: 'tutor', forbidden: ['x'], use: 'y', why: 'z' },
+        { id: 'empty-pattern', locale: 'he', whenSource: '', forbidden: ['x'], use: 'y', why: 'z' },
       ],
       exceptions: [
         { rule: 'missing', message: 'admin:a.b', reason: 'a reason that is long enough' },
@@ -283,6 +332,10 @@ test('glossary: the configuration is validated, and the CLI fails on a forbidden
     assert.match(text, /rule "tutor" needs a non-empty "forbidden" list/);
     assert.match(text, /rule "Bad Id" needs a unique lower-case id/);
     assert.match(text, /rule "scoped" "surfaces" must list some of admin, learner/);
+    assert.match(text, /rule "bad-pattern" "whenSource" is not a regular expression/);
+    assert.match(text, /rule "unless-alone" "unlessSource" needs a "whenSource"/);
+    assert.match(text, /rule "source-locale" a "whenSource" rule cannot check the source locale en/);
+    assert.match(text, /rule "empty-pattern" "whenSource" must be a non-empty regular expression/);
     assert.match(text, /exception "admin:a\.b" names unknown rule "missing"/);
     assert.match(text, /exception "a\.b" must name the message as <surface>:<namespace>\.<key>/);
     assert.match(text, /exception "admin:a\.b" needs a reason/);
@@ -323,5 +376,11 @@ test('glossary: the repository keeps the tutor rules, and its catalogs pass them
   assert.deepEqual(byId.get('tutor')?.surfaces, ['admin', 'learner']);
   assert.deepEqual(byId.get('supervisor-in-learner-app')?.surfaces, ['learner']);
   assert.ok(byId.get('supervisor-in-learner-app')?.forbidden.includes('מפקח'));
+  // In admin the English source decides which role a word names, plural and declined forms included.
+  assert.deepEqual(byId.get('supervisor-is-not-the-tutor')?.surfaces, ['admin']);
+  for (const word of ['מנחה', 'מנחי', 'מנחות']) assert.ok(byId.get('supervisor-is-not-the-tutor')?.forbidden.includes(word));
+  assert.ok(byId.get('supervisor-is-not-the-tutor')?.source.when.test('Stopping the supervisors'));
+  assert.ok(byId.get('supervisor-is-not-the-tutor')?.source.unless.test('The AI companion'));
+  assert.deepEqual(byId.get('tutor-is-not-the-supervisor')?.surfaces, ['admin']);
   assert.deepEqual(checkGlossary().errors, []);
 });

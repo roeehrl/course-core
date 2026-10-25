@@ -1,5 +1,5 @@
 {
-  "$comment": "Glossary lint for the message catalogs (docs/i18n-glossary.md, docs/i18n.md). node scripts/i18n-check.mjs fails when a message in a rule's locale and surfaces contains one of its forbidden words (a plain substring, so Hebrew prefixes such as ה, ל, מ and ש are covered). A genuine exception names the rule and the message as <surface>:<namespace>.<key> and says why; an exception that matches nothing fails too.",
+  "$comment": "Glossary lint for the message catalogs (docs/i18n-glossary.md, docs/i18n.md). node scripts/i18n-check.mjs fails when a message in a rule's locale and surfaces contains one of its forbidden words (a plain substring, so Hebrew prefixes such as ה, ל, מ and ש are covered). A genuine exception names the rule and the message as <surface>:<namespace>.<key> and says why; an exception that matches nothing fails too. A rule with \"whenSource\" (and optionally \"unlessSource\"), case-insensitive regular expressions, checks only the messages whose English source matches \"whenSource\" and not \"unlessSource\": the English decides which role a word names, so forms that are right elsewhere (the tutor's מנחה) fail where it names the other role.",
   "rules": [
     {
       "id": "tutor",
@@ -15,6 +15,26 @@
       "forbidden": ["מפקח"],
       "use": "המנחה",
       "why": "המפקח is the staff-side supervisor and appears only in admin; learners see one helper, המנחה (owner decision 16)"
+    },
+    {
+      "id": "supervisor-is-not-the-tutor",
+      "locale": "he",
+      "surfaces": ["admin"],
+      "whenSource": "\\bsupervis",
+      "unlessSource": "\\b(?:companion|tutor)s?\\b",
+      "forbidden": ["מנחה", "מנחי", "מנחות"],
+      "use": "המפקח (plural המפקחים); supervision is פיקוח",
+      "why": "in admin המנחה is the learner-facing tutor and המפקח the staff-side supervisor (owner decisions 7 and 16). Where the English names a supervisor or supervision and no companion or tutor, a מנחה form can only mean the supervisor, so every declined form fails: מנחה, המנחה, למנחה, מנחים, המנחים, מנחי, מנחות"
+    },
+    {
+      "id": "tutor-is-not-the-supervisor",
+      "locale": "he",
+      "surfaces": ["admin"],
+      "whenSource": "\\b(?:companion|tutor)s?\\b",
+      "unlessSource": "\\bsupervis",
+      "forbidden": ["מפקח"],
+      "use": "המנחה (plural המנחים; מנחה הלומדים as the admin job name)",
+      "why": "the same two roles the other way round: where the English names the companion or tutor and no supervisor or supervision, a מפקח form (המפקח, למפקח, המפקחים, מפקחי) names the wrong role (owner decisions 7 and 16)"
     },
     {
       "id": "placed-out",
