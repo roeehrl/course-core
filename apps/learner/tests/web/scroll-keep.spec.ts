@@ -54,6 +54,15 @@ async function tap(page: Page, locator: Locator) {
   const box = (await locator.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
+/**
+ * Whether the menu offers this item. Passkeys are offered only where the browser has WebAuthn,
+ * which Playwright's WebKit on Linux lacks: there the item must be missing for that reason.
+ */
+async function offered(page: Page, item: Locator) {
+  if (await item.count()) return true;
+  expect(await page.evaluate(() => typeof window.PublicKeyCredential)).toBe("undefined");
+  return false;
+}
 /** Where the window and the learning pane are scrolled to. */
 const place = (page: Page) =>
   page.evaluate(() => ({
@@ -124,6 +133,8 @@ for (const locale of ["en", "he"] as const) {
     await expectStill(page, at, "menu closed");
 
     for (const [index, title] of text.dialogs.entries()) {
+      // The closed menu's items are hidden: count them anyway.
+      if (!(await offered(page, panel.getByRole("button", { name: title, exact: true, includeHidden: true })))) continue;
       for (const how of ["escape", "close", "footer"] as const) {
         await tap(page, toggle);
         await tap(page, panel.getByRole("button", { name: title, exact: true }));
