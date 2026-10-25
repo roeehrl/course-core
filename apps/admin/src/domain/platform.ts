@@ -63,6 +63,9 @@ export const readinessSchema = z.object({
       facts: z.object({
         ready: z.boolean().nullable(),
         reason: z.string().max(64).nullable(),
+        /** Code answers not run because Docker was too slow to start the sandbox (not counted). */
+        slowStarts: optionalCount,
+        lastSlowStartSeconds: optionalCount,
       }),
     }),
     z.object({

@@ -16,7 +16,7 @@ const fixtureSchema = z.strictObject({ schemaVersion: z.literal(1), id: z.string
 });
 /** `message` is Core's own coded feedback; an extension evaluator may instead send its own `explanation`. */
 export interface CodeGrade { passed: boolean; explanation?: string; message?: AnswerMessage; evaluator: string;
-  execution: { status: string; sourceDigest: string; durationMs: number; passedCases: number; totalCases: number; outputBytes?:number; batchesCompleted?:number; runtime: { protocol: 'python-json-v1'; image: string } } }
+  execution: { status: string; sourceDigest: string; durationMs: number; executionMs?: number; setupMs?: number; passedCases: number; totalCases: number; outputBytes?:number; batchesCompleted?:number; runtime: { protocol: 'python-json-v1'; image: string } } }
 
 /** Partition conservative reference envelopes without omitting/reordering a case.
  * The broker enforces the SAME whole-attempt output/time/admission budget across
@@ -50,11 +50,15 @@ export async function codeEvaluator(bytes: Buffer, sandbox: CodeSandbox): Promis
     requireCondition(typeof source === 'string' && source.trim().length > 0 && Buffer.byteLength(source) <= 64000, 'INVALID_CODE_SUBMISSION');
     const cases = structuredClone(fixtureCases), report = await sandbox.grade({ source, cases, batchCaseCounts: codeFixtureBatchPlan(cases) });
     if (['busy', 'unavailable', 'cleanup_failed'].includes(report.status)) throw new ApiError(503, 'CODE_EVALUATOR_UNAVAILABLE');
+    // Docker took longer than the sandbox's own setup bound to create or start the container, so the
+    // code did not run (or did not finish running). Nothing is graded or recorded: the answer route
+    // rolls back, the attempt does not count, and the learner sends the same request again.
+    if (report.status === 'setup_timeout') throw new ApiError(503, 'CODE_SANDBOX_SETUP_SLOW');
     const passedCases = report.cases.filter(row => row.passed).length;
     return { passed: report.passed, message: report.passed ? answerMessage('code_all_matched', { total: cases.length })
       : report.status === 'graded' ? answerMessage('code_some_matched', { passed: passedCases, total: cases.length })
         : answerMessage('code_limit', { limit: report.status === 'timeout' ? 'time' : report.status === 'output_limit' ? 'output' : 'execution' }),
-      evaluator: `${config.id}@${config.version}:${integrity}:${report.runtime.image}`, execution: { status: report.status, sourceDigest: report.sourceDigest, durationMs: report.durationMs, passedCases, totalCases: cases.length, outputBytes:report.outputBytes,batchesCompleted:report.batchesCompleted,runtime: report.runtime } };
+      evaluator: `${config.id}@${config.version}:${integrity}:${report.runtime.image}`, execution: { status: report.status, sourceDigest: report.sourceDigest, durationMs: report.durationMs, executionMs: report.executionMs, setupMs: report.setupMs, passedCases, totalCases: cases.length, outputBytes:report.outputBytes,batchesCompleted:report.batchesCompleted,runtime: report.runtime } };
   };
   return { id: config.id, version: config.version, integrity, platforms: ['web'], capabilities: ['assessment.evaluate'], codeReady: ready.ready,
     validateCodeAssessment(assessment) {

@@ -63,7 +63,8 @@ const simple = { source: 'def solve(x): return x * 2', cases: [{ id: 'one', inpu
 for (const mode of ['create_malformed', 'create_failed_ack', 'cleanup_ambiguous', 'create_delayed_ack']) {
   test(`real Docker ${mode} quarantines the broker across instances instead of admitting another container`, async () => {
     const fault = await driver(mode), directory = path.join(fault.folder, 'storage');
-    const runner = new DockerSandbox({ image, storageDirectory: directory, dockerBinary: fault.file, timeoutMs: mode === 'create_delayed_ack' ? 5000 : 10000 });
+    // The delayed acknowledgement (6 s) outlasts a 5-second setup bound: a create still unacknowledged at the bound is uncertain.
+    const runner = new DockerSandbox({ image, storageDirectory: directory, dockerBinary: fault.file, timeoutMs: 10000, ...(mode === 'create_delayed_ack' ? { setupTimeoutMs: 5000 } : {}) });
     const result = await runner.grade(simple);
     assert.equal(result.status, 'cleanup_failed'); assert.equal(result.passed, false);
     assert((await readFile(path.join(directory, 'broker.lock'), 'utf8')).includes('course-sandbox-'));

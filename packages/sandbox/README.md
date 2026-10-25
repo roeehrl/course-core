@@ -23,10 +23,33 @@ preflight subprocesses before admission is counted. Source and reference cases a
 copied before asynchronous work; a caller cannot change a running grade's oracle
 or source while retaining its original source digest.
 
+## Two clocks: the learner's time limit and sandbox setup
+
+`timeoutMs` (default 5 s, at most 15 s) limits the learner's code only. Its clock starts when the
+runner prints its ready line (`RUNNER_READY_LINE`), which `runner.py` writes before it loads the
+submission, so learner code can neither end setup early nor print that line first. The clock
+stops when the container's process ends. A run past it is `timeout`.
+
+Everything else in a submission is setup: admission, the Docker checks, `docker create`, and
+`docker start` until the ready line arrives, plus cleanup between batches. On a cold or loaded
+host these steps can take several times longer than usual, so they have their own bound,
+`setupTimeoutMs` (default 60 s, 1–300 s). Setup past it is `setup_timeout`: the code did not run,
+or did not finish because of the sandbox, which says nothing about it. The API answers 503
+`CODE_SANDBOX_SETUP_SLOW`; no attempt is recorded and the learner sends the same request again. A
+container that was created is removed, so the broker stays ready. A create still unacknowledged
+at the bound is uncertain, as any unacknowledged create is, and quarantines the broker. A start
+that ends, or prints anything else, before the ready line is `unavailable`.
+
+Reports carry `executionMs` (what the limit applies to), `setupMs` and `durationMs` (wall
+time). `setupDiagnostics()` counts this broker's setup timeouts since it started, for the
+platform page. Container exit after the learner's process ends is still on the execution
+clock: everything after the ready line can be produced by learner code, so the process end is
+the first trustworthy boundary.
+
 A trusted caller may pass `batchCaseCounts` covering every case exactly once, with
 at most eight nonempty batches. Batches run serially with the same captured source,
-reference data and shared admission lock. There is one deadline and one combined
-stdout/stderr budget for the entire submission; neither resets at a batch boundary.
+reference data and shared admission lock. There is one execution deadline, one setup bound
+and one combined stdout/stderr budget for the entire submission; none resets at a batch boundary.
 Every batch must finish and every case must match for a pass. Earlier successes
 cannot become partial mastery if a later batch fails, times out or is cancelled.
 Cleanup must be confirmed before the next container is created. Uncertain creation
@@ -58,7 +81,9 @@ npm run test:docker
 `test:docker` fails if Docker or the image is unavailable. It exercises actual
 computation, wrong results and fake pass output, filesystem/environment/network
 separation, CPU timeout, output flooding, memory allocation, cancellation and
-cross-instance admission. Private course fixtures, practical learning validity,
+cross-instance admission, and a delayed real `docker create`/`docker start` (setup that outlasts
+the time limit, a learner run past it after a slow start, and a start past the setup bound). The
+unit suite checks the same clocks against a scripted Docker CLI without running any container. Private course fixtures, practical learning validity,
 API/evidence integration and production sandbox qualification are separate gates.
 
 The hardening suite additionally uses trusted transport-fault drivers around real

@@ -276,12 +276,14 @@ Owners and administrators of a workspace have two more admin pages.
 - **Platform** (`GET /api/admin/workspaces/:id/platform-readiness`): the database
   (PostgreSQL version, latency, migrations applied against the ones this build
   ships), the Temporal worker (when it last reached this API, waiting and held-back
-  events), the grading sandbox, telemetry export (spans sent and dropped), versions
+  events), the grading sandbox (ready, and code answers it did not run because Docker started
+  it too slowly: a warning for an hour after the latest), telemetry export (spans sent and dropped), versions
   (Core, SDK, Node, course file format), and backups. The recovery targets are
   checked from the backup tool's reports (`platform_backup_reports`, migration 100;
   see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup,
   RTO 60 minutes from the latest restore drill, drills at most 7 days old. Each
-  failing part says what to do. Worker contact is kept in memory per API process.
+  failing part says what to do. Worker contact and slow sandbox starts are kept in memory per
+  API process.
 - **Host inventory** (`GET /api/admin/workspaces/:id/host-inventory`, owners and
   admins; on the Platform page): what this Core has installed, in the SDK's
   `HostInventory` shape (`hostInventoryFormat: 1`): the Core version, the SDK it

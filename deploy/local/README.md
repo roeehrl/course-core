@@ -425,7 +425,9 @@ What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
   `gen_ai.client.token.usage`, `course.provider.operations`,
   `course.provider.cost.estimate` (the application's reserved-ceiling allowance in
   micro-USD, not a provider invoice), `course.supervisor.run.outcomes`,
-  `course.supervisor.checkpoint.outcomes`, `course.sandbox.job.duration`, and:
+  `course.supervisor.checkpoint.outcomes`, `course.sandbox.job.duration`,
+  `course.sandbox.setup.duration` (the part of a grading job spent creating and starting the
+  container, outside the learner's time limit; `setup_timeout` when it ran past its bound), and:
   - `course.supervisor.event.lag`: seconds from a learning event being recorded to
     the host preparing it for the supervisor, by role and disposition (`prepared`,
     `coalesced`, `policy_denied`, `refused` and so on). Only the first preparation of

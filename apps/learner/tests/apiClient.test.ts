@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  apiErrorMessage,
   createCourseApi,
   CourseApiError,
   type ServerSnapshot,
 } from "../src/client/apiClient";
+import { createLearnerTranslator } from "../src/i18n";
 
 const snapshot = {
   enrollmentId: "enrollment-a",
@@ -244,6 +246,32 @@ it("preserves code exactly and the retry key when the sandbox service is unavail
   expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string).answer).toBe(
     source,
   );
+  expect(api.hasPending(snapshot.enrollmentId)).toBe(false);
+});
+
+it("keeps the saved code and its retry key when the sandbox was too slow to start, and says the try did not count", async () => {
+  const pending = storage(),
+    source = "def solve(values):\n    return min(values)\n";
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(json({ error: "CODE_SANDBOX_SETUP_SLOW" }, 503))
+    .mockResolvedValueOnce(json({ result: { passed: true, independent: true } }));
+  const api = createCourseApi({ fetch: fetcher, pending, accountId: "slow" });
+  const refused = await api
+    .command(snapshot, "answers", { challengeId: "code", answer: source })
+    .catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(CourseApiError);
+  expect((refused as CourseApiError).code).toBe("CODE_SANDBOX_SETUP_SLOW");
+  expect((refused as CourseApiError).message).toBe(
+    "The code runner took too long to start, so your code was not run. This does not count as an attempt. Your draft is saved: send it again in a moment.",
+  );
+  expect(apiErrorMessage("CODE_SANDBOX_SETUP_SLOW", createLearnerTranslator("he").t)).toBe(
+    "הפעלת מריץ הקוד נמשכה יותר מדי זמן, ולכן הקוד שלך לא הורץ. זה לא נחשב כניסיון. הטיוטה שלך נשמרה, ואפשר לשלוח אותה שוב בעוד רגע.",
+  );
+  expect(api.hasPending(snapshot.enrollmentId)).toBe(true);
+  await api.command(snapshot, "answers", { challengeId: "code", answer: source });
+  // The same request, with the same idempotency key, is what reaches the server again.
+  expect(fetcher.mock.calls[1]![1]!.body).toBe(fetcher.mock.calls[0]![1]!.body);
   expect(api.hasPending(snapshot.enrollmentId)).toBe(false);
 });
 

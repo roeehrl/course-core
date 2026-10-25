@@ -202,7 +202,11 @@ function CheckCard({ check }: { check: ReadinessCheck }) {
           tone={check.status === "failing" ? "red" : "gold"}
           title={t("platformView.whatToDo")}
         >
-          {t(`platformView.fix.${check.id}` as MessageKey)}
+          {t(
+            check.id === "sandbox" && check.status === "warning"
+              ? "platformView.fix.sandboxSlow"
+              : (`platformView.fix.${check.id}` as MessageKey),
+          )}
         </Notice>
       )}
     </Card>
@@ -289,6 +293,20 @@ function Facts({ check }: { check: ReadinessCheck }) {
           {check.facts.reason && (
             <Fact label={t("platformView.fact.reason")}>
               {ltr(check.facts.reason)}
+            </Fact>
+          )}
+          {check.facts.slowStarts !== null && (
+            <Fact label={t("platformView.fact.slowStarts")}>
+              {check.facts.slowStarts}
+            </Fact>
+          )}
+          {check.facts.slowStarts !== null && (
+            <Fact label={t("platformView.fact.lastSlowStart")}>
+              {check.facts.lastSlowStartSeconds === null
+                ? t("platformView.never")
+                : t("platformView.secondsAgo", {
+                    seconds: check.facts.lastSlowStartSeconds,
+                  })}
             </Fact>
           )}
         </dl>

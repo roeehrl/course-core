@@ -68,7 +68,12 @@ const readiness = (
     {
       id: "sandbox",
       status: "not_configured",
-      facts: { ready: null, reason: null },
+      facts: {
+        ready: null,
+        reason: null,
+        slowStarts: null,
+        lastSlowStartSeconds: null,
+      },
     },
     {
       id: "collector",
@@ -326,6 +331,62 @@ describe("platform readiness (Q11, T03)", () => {
     );
     expect(await screen.findByText("האם הפלטפורמה מוכנה?")).toBeVisible();
     expect(screen.getByText("יעדי שחזור")).toBeVisible();
+  });
+
+  it("marks a sandbox that recently started too slowly and says those answers did not count", async () => {
+    const slow = (): Readiness => {
+      const base = readiness();
+      base.checks[2] = {
+        id: "sandbox",
+        status: "warning",
+        facts: {
+          ready: true,
+          reason: null,
+          slowStarts: 2,
+          lastSlowStartSeconds: 90,
+        },
+      };
+      return base;
+    };
+    const { unmount } = render(
+      <PlatformView
+        data={workspace("owner")}
+        client={
+          {
+            platform: port({ readiness: vi.fn(async () => slow()) }),
+          } as unknown as AdminClient
+        }
+      />,
+    );
+    const card = (
+      await screen.findByRole("heading", { name: "Code grading sandbox" })
+    ).closest("section")!;
+    expect(within(card).getByText("Needs attention")).toBeVisible();
+    expect(
+      within(card).getByText("Code answers not run: slow start"),
+    ).toBeVisible();
+    expect(within(card).getByText("2")).toBeVisible();
+    expect(within(card).getByText("90 seconds ago")).toBeVisible();
+    expect(within(card).getByText(/those tries did not count/)).toBeVisible();
+    expect(within(card).queryByText(/Start Docker and check/)).toBeNull();
+    unmount();
+    render(
+      <I18nProvider value={createAdminTranslator("he")}>
+        <PlatformView
+          data={workspace("owner")}
+          client={
+            {
+              platform: port({ readiness: vi.fn(async () => slow()) }),
+            } as unknown as AdminClient
+          }
+        />
+      </I18nProvider>,
+    );
+    const hebrew = (
+      await screen.findByRole("heading", { name: "סביבה מבודדת לבדיקת קוד" })
+    ).closest("section")!;
+    expect(within(hebrew).getByText(/והניסיונות האלה לא נספרו/)).toBeVisible();
+    expect(within(hebrew).getByText("לפני 90 שניות")).toBeVisible();
   });
 });
 
