@@ -67,13 +67,13 @@ async function tap(page: Page, locator: Locator) {
 }
 /**
  * Whether the open menu offers this item. Passkeys are offered only where the browser has
- * WebAuthn, which Playwright's WebKit on Linux lacks: there the item must be missing for that
- * reason.
+ * WebAuthn (a PublicKeyCredential function), which Playwright's WebKit on Linux lacks: there
+ * the item must be missing for that reason.
  */
 async function offered(page: Page, item: Locator) {
   if (await item.count()) return true;
-  expect(await page.evaluate(() => typeof window.PublicKeyCredential)).toBe(
-    "undefined",
+  expect(await page.evaluate(() => typeof window.PublicKeyCredential)).not.toBe(
+    "function",
   );
   return false;
 }
