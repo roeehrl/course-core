@@ -10,12 +10,27 @@ import { eraseWithin } from './data-lifecycle.js';
 import { lockKeys, openSupervisorOperationKeys } from './erasure-spend.js';
 import { recordSpendEvents } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
+import { isSupportedLocale, type SupportedLocale } from '@course-core/i18n';
+import { requestLocale } from './locale.js';
 
-export const ACCOUNT_ERASURE_CONFIRMATION = 'ERASE MY ACCOUNT';
+/**
+ * The phrase a learner types to erase their account, in each UI language (the learner app shows
+ * the same phrase, `yourDataPanel.account.phrase`). The phrase of the request's language is
+ * accepted, and the English one always: the language the request names (`locale`, as the app
+ * sends it), else the request's UI locale (saved preference, Accept-Language, workspace default).
+ */
+export const ACCOUNT_ERASURE_PHRASES: Readonly<Record<SupportedLocale, string>> = {
+  en: 'ERASE MY ACCOUNT',
+  he: 'מחיקת החשבון שלי',
+};
+export const ACCOUNT_ERASURE_CONFIRMATION = ACCOUNT_ERASURE_PHRASES.en;
+/** A typed or pasted phrase as compared: without direction marks, composed, trimmed. */
+const typedPhrase = (value: string) => value.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').normalize('NFC').trim();
 const TERMINAL = "('applied','cancelled','failed')";
 
 /**
- * POST /api/account/erase {confirmation:'ERASE MY ACCOUNT', reason}: the learner
+ * POST /api/account/erase {confirmation, reason, locale?}: with the confirmation phrase of the
+ * request's language (ACCOUNT_ERASURE_PHRASES; 'ERASE MY ACCOUNT' in English), the learner
  * erases every enrollment they have and then their account. The same two steps
  * as one enrollment's erasure (data-lifecycle.ts): first supervision is
  * withdrawn and running jobs are asked to stop (409 ERASURE_WAITING_FOR_SUPERVISION
@@ -29,12 +44,15 @@ const TERMINAL = "('applied','cancelled','failed')";
  * so no workspace loses its owner. Replays return the record.
  */
 export function registerAccountErasureRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
-  const body = z.strictObject({ confirmation: z.string().max(100), reason: z.string().trim().min(10).max(1000) });
+  const body = z.strictObject({ confirmation: z.string().max(100), reason: z.string().trim().min(10).max(1000), locale: z.string().max(35).optional() });
   app.post('/api/account/erase', { bodyLimit: 8192 }, async (request, reply) => {
     const actor = await auth.authenticate(request);
     const input = body.safeParse(request.body);
     requireCondition(input.success, 'INVALID_INPUT', 400);
-    requireCondition(input.data!.confirmation === ACCOUNT_ERASURE_CONFIRMATION, 'ERASURE_CONFIRMATION_REQUIRED', 400);
+    const named = input.data!.locale;
+    const locale = isSupportedLocale(named) ? named : (await requestLocale(db, request, actor.id)).locale;
+    const typed = typedPhrase(input.data!.confirmation);
+    requireCondition(typed === ACCOUNT_ERASURE_PHRASES.en || typed === ACCOUNT_ERASURE_PHRASES[locale], 'ERASURE_CONFIRMATION_REQUIRED', 400);
     const pending = await transaction(db, async client => {
       await client.query('SELECT 1 FROM app_users WHERE id=$1 FOR UPDATE', [actor.id]);
       const staff = await client.query("SELECT 1 FROM memberships WHERE user_id=$1 AND role<>'learner' LIMIT 1", [actor.id]);

@@ -1610,8 +1610,11 @@ receipts stored before.
   - the capsule of the answer to it is cleared, and other answers' capsules drop it from their references and summary;
   - learner-model suggestions that cite it get a `proposal.source_revoked` change. They leave provider context and cannot be accepted again (`PROPOSAL_SOURCE_REVOKED`).
 
-**The whole account.** `POST /api/account/erase` with the typed confirmation
-`ERASE MY ACCOUNT` and a reason (migration 055):
+**The whole account.** `POST /api/account/erase` with the typed confirmation phrase and a
+reason (migration 055). The phrase is in the learner's language: `ERASE MY ACCOUNT` in English,
+`מחיקת החשבון שלי` in Hebrew (`ACCOUNT_ERASURE_PHRASES`, the same as the learner app's
+`yourDataPanel.account.phrase`). The server accepts the phrase of the language the request names
+(`locale`), else of the request's UI locale, and the English phrase in any language:
 - Every enrollment of the learner is erased with the same two steps as above: supervision is stopped first, then one transaction does all the redaction and settles paid work.
 - The account then loses its name, sign-in identity, last sign-in time, password, passkeys, sign-in codes, sessions (every device is signed out; the revoked session rows are deleted by the session purge 7 days later) and workspace memberships. Its id stays as an anonymous identifier so audit rows that name it remain valid.
 - What staff people-administration commands recorded about the account goes too (`erase_account_records`, migration 069, which also applied it to accounts erased earlier): the login name and a revocation's reason leave the receipts and their `people.*` events (marked `accountErased`), the receipts' request digests, which hash the invited display and login name, become the tombstone `erased`, and password-login throttle rows keyed by a digest of the login name are deleted. A replay of such a command is refused (410 `ACCOUNT_ERASED`).

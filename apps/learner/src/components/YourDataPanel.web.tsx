@@ -3,7 +3,8 @@ import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { YourDataPanelProps } from "./YourDataPanel";
 import { LoadingLine } from "./loadingLine.web";
 import { useReservedBlock } from "./reservedHeight";
-import { useI18n, type MessageKey } from "../i18n";
+import { isSupportedLocale } from "@course-core/i18n";
+import { englishTranslator, useI18n, type MessageKey } from "../i18n";
 
 interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
 interface StaffExport { id: string; exportedAt: string; exporterName: string; exporterRole: string }
@@ -22,6 +23,9 @@ function staffAccess(result: { views?: unknown; exports?: unknown } | undefined)
   return [...views, ...exports].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
 }
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** A typed (or pasted) confirmation as compared: without direction marks, composed, trimmed. */
+const typedPhrase = (value: string) =>
+  value.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").normalize("NFC").trim();
 /** Learner-owned export and erasure. Erasure is irreversible and typed-confirmed;
  * it first stops supervision and waits for running work before redacting. */
 export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: YourDataPanelProps) {
@@ -40,8 +44,11 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
   const [views, setViews] = useState<StaffAccess[] | "unavailable">();
-  // i18n-ignore: fixed confirmation phrase the server checks verbatim, typed in Latin letters
-  const ACCOUNT_PHRASE = "ERASE MY ACCOUNT";
+  // The confirmation phrase in the screen's language; the server accepts the phrase of the
+  // language the request names (and the English one). A pseudo-locale shows its own version of
+  // the phrase and sends the English one, since pseudo-locales never reach the server.
+  const accountPhrase = t("yourDataPanel.account.phrase");
+  const phraseLocale = isSupportedLocale(i18n.locale) ? i18n.locale : "en";
   const [accountConfirmation, setAccountConfirmation] = useState("");
   const [accountReason, setAccountReason] = useState("");
   // The access list loads after the panel; keep its last settled height, or the
@@ -120,7 +127,14 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
     try {
       for (let attempt = 0; attempt < 8; attempt++) {
         try {
-          await (api as CourseApi).request("/api/account/erase", "POST", { confirmation: accountConfirmation.trim(), reason: accountReason.trim() });
+          await (api as CourseApi).request("/api/account/erase", "POST", {
+            confirmation:
+              phraseLocale === i18n.locale
+                ? typedPhrase(accountConfirmation)
+                : englishTranslator().t("yourDataPanel.account.phrase"),
+            locale: phraseLocale,
+            reason: accountReason.trim(),
+          });
           setStatus(t("yourDataPanel.account.erased"));
           window.location.replace("/");
           return;
@@ -178,13 +192,13 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           <label htmlFor={id + "-account-reason"}>{t("yourDataPanel.account.reason")}</label>
           <textarea dir="auto" id={id + "-account-reason"} rows={2} maxLength={1000} value={accountReason} onChange={(e) => setAccountReason(e.target.value)} />
           <label htmlFor={id + "-account-confirm"}>
-            {i18n.rich("yourDataPanel.confirm", { phrase: ACCOUNT_PHRASE }, { strong: (children, key) => <strong key={key} dir="ltr">{children}</strong> })}
+            {i18n.rich("yourDataPanel.confirm", { phrase: accountPhrase }, { strong: (children, key) => <strong key={key} dir="auto">{children}</strong> })}
           </label>
-          <input dir="ltr" id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
+          <input dir="auto" id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
           <button
             type="button"
             className="connected-button connected-danger"
-            disabled={Boolean(busy) || accountConfirmation.trim() !== ACCOUNT_PHRASE || accountReason.trim().length < 10}
+            disabled={Boolean(busy) || typedPhrase(accountConfirmation) !== typedPhrase(accountPhrase) || accountReason.trim().length < 10}
             onClick={() => void eraseAccount()}
           >
             {busy === "erase" ? t("yourDataPanel.erase.erasing") : t("yourDataPanel.account.button")}

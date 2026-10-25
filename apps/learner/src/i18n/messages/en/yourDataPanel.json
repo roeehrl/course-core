@@ -19,6 +19,7 @@
   "account.summary": "Erase my whole account",
   "account.body": "This erases your learning data in every course you are enrolled in, then your account: your name, sign-in name, password, passkeys and sessions, and your access to every workspace. Anything derived from your data, such as suggestions and saved companion context, goes with it. It cannot be undone, and you will be signed out on every device. Backups made earlier keep a copy until the operator's retention period ends.",
   "account.reason": "Why are you erasing your account? (10+ characters, kept with the record)",
+  "account.phrase": "ERASE MY ACCOUNT",
   "account.button": "Erase my account permanently",
   "account.erased": "Your account and all your course data were erased. You are signed out.",
   "account.stopping": "Stopping your course supervisors before erasing…",

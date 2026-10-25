@@ -10,6 +10,8 @@ import { createLearnerModelProposalPort } from '../src/learner-model.js';
 import { retrieveConversation } from '../src/context-capsule.js';
 import { hashPassword, storePassword } from '../src/passwords.js';
 import { fixture } from './fixture.js';
+import { ACCOUNT_ERASURE_PHRASES } from '../src/account-erasure.js';
+import { readFileSync } from 'node:fs';
 
 const origin = 'http://localhost:4310', schema = `course_account_erasure_${randomUUID().replaceAll('-', '')}`;
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, testDatabase: TestDatabase | undefined;
@@ -188,6 +190,36 @@ describe('account erasure', () => {
     const relogin = await app.inject({ method: 'POST', url: '/auth/redeem', headers: { origin }, payload: { token: await issueLoginCode(db, learner.user) } });
     if (relogin.statusCode === 200) expect((await app.inject({ url: '/api/enrollments', headers: { cookie: relogin.cookies.map(c => `${c.name}=${c.value}`).join('; ') } })).json()).toEqual([]);
     expect((await db.query('SELECT enrollment_ids FROM account_erasures WHERE user_id=$1', [learner.user])).rows).toHaveLength(1);
+  });
+
+  it("accepts the confirmation phrase of the request's language, and the English one", async () => {
+    const reason = 'Synthetic account erasure.';
+    const erase = (s: Session, body: Record<string, unknown>, headers: Record<string, string> = {}) =>
+      app.inject({ method: 'POST', url: '/api/account/erase', headers: { ...s.headers, ...headers }, payload: body });
+    const hebrew = ACCOUNT_ERASURE_PHRASES.he;
+    // The learner app shows the same phrases (learner catalog yourDataPanel.account.phrase).
+    for (const locale of ['en', 'he'] as const) {
+      const catalog = JSON.parse(readFileSync(new URL(`../../../apps/learner/src/i18n/messages/${locale}/yourDataPanel.json`, import.meta.url), 'utf8'));
+      expect(catalog['account.phrase']).toBe(ACCOUNT_ERASURE_PHRASES[locale]);
+    }
+    const first = await member(); await enroll(first);
+    // The Hebrew phrase is refused for an English request, and a phrase of no language at all.
+    expect((await erase(first, { confirmation: hebrew, reason, locale: 'en' })).json().error).toBe('ERASURE_CONFIRMATION_REQUIRED');
+    expect((await erase(first, { confirmation: hebrew, reason }, { 'accept-language': 'en-US,en;q=0.9' })).json().error).toBe('ERASURE_CONFIRMATION_REQUIRED');
+    expect((await erase(first, { confirmation: 'מחיקה', reason, locale: 'he' })).json().error).toBe('ERASURE_CONFIRMATION_REQUIRED');
+    // A pseudo-locale is not a language the server knows: the request's own locale applies (English here).
+    expect((await erase(first, { confirmation: hebrew, reason, locale: 'en-XA' }, { 'accept-language': 'en' })).json().error).toBe('ERASURE_CONFIRMATION_REQUIRED');
+    // The language the request names: Hebrew, typed (or pasted with direction marks) as shown.
+    const named = await erase(first, { confirmation: `\u2068${hebrew}\u2069 `, reason, locale: 'he' });
+    expect(named.statusCode, named.body).toBe(200);
+    expect(named.json()).toMatchObject({ status: 'erased' });
+    // Without a named language, the request's UI locale applies (Accept-Language here).
+    const second = await member(); await enroll(second);
+    const negotiated = await erase(second, { confirmation: hebrew, reason }, { 'accept-language': 'he-IL,he;q=0.9,en;q=0.5' });
+    expect(negotiated.statusCode, negotiated.body).toBe(200);
+    // The English phrase stays accepted in any language.
+    const third = await member(); await enroll(third);
+    expect((await erase(third, { confirmation: ACCOUNT_ERASURE_PHRASES.en, reason, locale: 'he' })).statusCode).toBe(200);
   });
 
   it('refuses staff accounts and other workspaces are untouched', async () => {

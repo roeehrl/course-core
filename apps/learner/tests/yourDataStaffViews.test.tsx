@@ -1,7 +1,8 @@
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { YourDataPanel } from "../src/components/YourDataPanel.web";
+import { I18nProvider, createLearnerTranslator } from "../src/i18n";
 
 const enrollmentId = "00000000-0000-4000-8000-000000000001";
 describe("staff access to the learner's record", () => {
@@ -51,4 +52,48 @@ describe("staff access to the learner's record", () => {
     render(<YourDataPanel api={failing as never} enrollmentId={enrollmentId} courseTitle="Ordering" onErased={vi.fn()} />);
     expect(await screen.findByText("This list could not be loaded right now.")).toBeVisible();
   });
+});
+
+describe("erasing the whole account", () => {
+  const erasing = () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const api = {
+      request: vi.fn(async (path: string, _method?: string, body?: unknown) => {
+        calls.push({ path, body });
+        // Refused here, so the test page is not navigated away after a success.
+        if (path === "/api/account/erase") throw new Error("not in this test");
+        return { views: [], exports: [] };
+      }),
+    };
+    return { api, calls };
+  };
+  for (const [locale, phrase, reason, button] of [
+    ["he", "מחיקת החשבון שלי", "מה הסיבה למחיקת החשבון?", "מחיקת החשבון שלי לצמיתות"],
+    ["en", "ERASE MY ACCOUNT", "Why are you erasing your account?", "Erase my account permanently"],
+  ] as const)
+    it(`${locale}: asks for the phrase in the screen's language and sends it with that language`, async () => {
+      const { api, calls } = erasing();
+      render(
+        <I18nProvider value={createLearnerTranslator(locale)}>
+          <YourDataPanel api={api as never} enrollmentId={enrollmentId} courseTitle="Ordering" onErased={vi.fn()} />
+        </I18nProvider>,
+      );
+      const field = await screen.findByLabelText(new RegExp(phrase));
+      // The label shows the phrase to type in this language (Hebrew no longer asks for English).
+      expect(field.closest("div")!.querySelector(`label[for="${field.id}"] strong`)!.textContent!.replace(/[⁦-⁩]/g, "")).toBe(phrase);
+      const erase = screen.getByRole("button", { name: button });
+      fireEvent.change(screen.getByLabelText(new RegExp(reason.replace("?", "\\?"))), { target: { value: "Leaving every course on this service." } });
+      fireEvent.change(field, { target: { value: "ERASE" } });
+      expect(erase).toBeDisabled();
+      // Pasted with the direction marks the label carries, it still counts.
+      fireEvent.change(field, { target: { value: `⁨${phrase}⁩` } });
+      expect(erase).toBeEnabled();
+      fireEvent.click(erase);
+      await waitFor(() => expect(calls.some((c) => c.path === "/api/account/erase")).toBe(true));
+      expect(calls.find((c) => c.path === "/api/account/erase")!.body).toEqual({
+        confirmation: phrase,
+        locale,
+        reason: "Leaving every course on this service.",
+      });
+    });
 });
