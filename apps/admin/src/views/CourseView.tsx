@@ -625,13 +625,15 @@ function CourseForm({
           disabled={pending}
         />
       </Field>
-      <Button kind="primary" type="submit" disabled={pending}>
-        {pending
-          ? t("courseView.saving")
-          : kind === "details"
-            ? t("courseView.form.saveDetails")
-            : t("courseView.form.createDraft")}
-      </Button>
+      <div className="dialog-footer">
+        <Button kind="primary" type="submit" disabled={pending}>
+          {pending
+            ? t("courseView.saving")
+            : kind === "details"
+              ? t("courseView.form.saveDetails")
+              : t("courseView.form.createDraft")}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -701,9 +703,11 @@ function PublishConfirmation({
         />
         {t("courseView.confirmLabel", { version })}
       </label>
-      <Button kind="primary" type="submit" disabled={!ready || pending}>
-        {pending ? t("courseView.recording") : t("courseView.confirm")}
-      </Button>
+      <div className="dialog-footer">
+        <Button kind="primary" type="submit" disabled={!ready || pending}>
+          {pending ? t("courseView.recording") : t("courseView.confirm")}
+        </Button>
+      </div>
     </form>
   );
 }

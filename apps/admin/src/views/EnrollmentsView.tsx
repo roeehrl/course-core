@@ -561,13 +561,15 @@ function ProfileForm({
           </option>
         </select>
       </Field>
-      <Button kind="primary" type="submit" disabled={pending}>
-        {pending
-          ? t("enrollmentsView.form.saving")
-          : enrollment
-            ? t("enrollmentsView.form.save")
-            : t("enrollmentsView.create")}
-      </Button>
+      <div className="dialog-footer">
+        <Button kind="primary" type="submit" disabled={pending}>
+          {pending
+            ? t("enrollmentsView.form.saving")
+            : enrollment
+              ? t("enrollmentsView.form.save")
+              : t("enrollmentsView.create")}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -620,11 +622,13 @@ function EvidenceReview({
           disabled={pending}
         />
       </Field>
-      <Button kind="primary" type="submit" disabled={pending}>
-        {pending
-          ? t("enrollmentsView.review.recording")
-          : t("enrollmentsView.review.record")}
-      </Button>
+      <div className="dialog-footer">
+        <Button kind="primary" type="submit" disabled={pending}>
+          {pending
+            ? t("enrollmentsView.review.recording")
+            : t("enrollmentsView.review.record")}
+        </Button>
+      </div>
     </form>
   );
 }

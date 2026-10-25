@@ -230,7 +230,7 @@ function Editor({
             </Notice>
           )}
           <CheckResult manifest={manifest} check={check} />
-          <div className="button-row">
+          <div className="button-row dialog-footer">
             <Button
               type="button"
               disabled={locked || check.checking || problems.length > 0}
