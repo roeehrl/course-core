@@ -60,8 +60,26 @@ async function shot(page: Page, info: TestInfo, name: string) {
  * A tap or click where the control is on screen. Playwright's own click first scrolls the
  * control "into view", which for a control in the sticky app bar (inside the page's scroll
  * padding) scrolls the page itself; a person's tap does not.
+ *
+ * The tap waits until the control has come to rest: a person taps a button where they see it
+ * stop. On phones the account dialogs slide up 40px as they open (account-sheet-in), so a
+ * control measured on the sheet's first frame is 40px below where it ends up. A tap aimed
+ * there presses the close button while it is still low and lets go on the sheet itself once it
+ * has risen, so nothing is clicked and the dialog stays open.
  */
 async function tap(page: Page, locator: Locator) {
+  await locator.evaluate((element) =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => {
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          return !!target && target.contains(element);
+        })
+        // A cancelled animation (its element closed) rejects: the control is not moving then.
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
   const box = (await locator.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
@@ -116,6 +134,11 @@ async function open(page: Page, locale: "en" | "he") {
   );
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(page.locator(".notification-bell")).toBeVisible();
+  // The page's other sections answer after its heading shows, and each changes the height of
+  // the page above the place the test scrolls to. The browser then keeps what is on screen in
+  // place (scroll anchoring) by moving the window, so the test scrolls only once all have
+  // answered.
+  await page.waitForLoadState("networkidle");
 }
 
 async function closeAndCheck(
