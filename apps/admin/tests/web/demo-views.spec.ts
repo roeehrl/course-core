@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
+import { fieldIconOverlaps } from "../fieldIcons";
 
 /** Every view of the public demo, in English and Hebrew. The demo client stands in for the
  * answer keys, allowances, media, supervision, platform and integrations ports with fictional
@@ -74,6 +75,10 @@ for (const locale of ["en", "he"] as const)
         );
       }
       await expectNoHorizontalOverflow(page);
+      // No icon or sign drawn in a field (search, "$") covers the field's text.
+      expect(
+        await fieldIconOverlaps(page.locator("main"), `${name}: `),
+      ).toEqual([]);
       expect(
         (
           await new AxeBuilder({ page })

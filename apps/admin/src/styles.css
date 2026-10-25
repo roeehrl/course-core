@@ -785,17 +785,28 @@ button svg {
   font-size: 12px;
   font-weight: 650;
 }
+/* A search field draws its icon inside the input, at the start of the UI's reading direction.
+   The input keeps the UI's direction, so its logical start padding is always on the icon's side:
+   the placeholder, typed text and the browser's clear button never run under the icon. Typed
+   text still takes its own direction from its first letter (`unicode-bidi: plaintext`, as
+   dir="auto" does), without dir="auto" flipping the input, and the padding, to the far side when
+   a name in the other script is typed. The input rule must outrank the text-field rule
+   (input:not([type="checkbox"]):not([type="radio"])) and come after it: that rule's `padding`
+   shorthand otherwise puts the text back under the icon. */
 .search-field {
   position: relative;
 }
-.search-field svg {
+.search-field > svg {
   position: absolute;
   inset-inline-start: 12px;
-  top: 14px;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
   color: var(--muted);
+  pointer-events: none;
 }
-.search-field input {
-  padding-inline-start: 36px;
+.search-field > input[type="search"] {
+  padding-inline-start: 40px;
+  unicode-bidi: plaintext;
 }
 .selector-list {
   display: flex;

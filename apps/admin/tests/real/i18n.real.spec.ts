@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
 import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
+import { fieldIconOverlaps } from "../fieldIcons";
 
 /**
  * Every admin view against the real API, in Hebrew (right to left, axe, no overflow) and under
@@ -86,6 +87,9 @@ test("every admin view on the real API renders in Hebrew, right to left, accessi
     const wide = await overflow(page);
     if (wide > 0)
       problems.push(`${name}: ${wide}px overflow (${info.project.name})`);
+    problems.push(
+      ...(await fieldIconOverlaps(page.locator("main"), `${name}: `)),
+    );
     const violations = (
       await new AxeBuilder({ page })
         .include("main")
@@ -111,6 +115,9 @@ test("every admin view on the real API leaves no untranslated text under en-XA",
     const wide = await overflow(page);
     if (wide > 0)
       problems.push(`${name}: ${wide}px overflow (${info.project.name})`);
+    problems.push(
+      ...(await fieldIconOverlaps(page.locator("main"), `${name}: `)),
+    );
   });
   expect(problems).toEqual([]);
 });
