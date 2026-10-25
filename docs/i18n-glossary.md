@@ -35,6 +35,22 @@ A genuine exception names the rule and the message (`admin:policySettingsCard.wi
 with a reason; an exception that no longer matches anything fails, so the list stays current.
 When the owner changes a term, update the table below and the rules together.
 
+Some words are right in one role and wrong in another: המנחה is the tutor and must not name the
+supervisor. A rule can then read the message's English source (`whenSource`, `unlessSource`) and
+judge only the messages where the English decides the role:
+
+- **Admin, `supervisor-is-not-the-tutor`.** Where the English names a supervisor or supervision
+  and no companion or tutor, any form of מנחה fails: מנחה, המנחה, למנחה, מנחים, המנחים, מנחי,
+  מנחות. Use המפקח (plural המפקחים) or פיקוח.
+- **Admin, `tutor-is-not-the-supervisor`.** Where the English names the companion or tutor and no
+  supervisor, any form of מפקח fails.
+- **Where it cannot be decided.** A message whose English names both roles ("the companion and
+  the supervisor") may use either word, so neither rule judges it. In the learner app the English
+  does not decide either: learners see one helper, so "your supervisor made this for you" is
+  rightly המנחה, while a message about stopping supervision work names the work instead
+  (ההנחיה האישית של ה-AI). Whether a learner message names the helper or its work is an
+  editorial choice, so the learner app only forbids המפקח (`supervisor-in-learner-app`).
+
 ## Terms
 
 | English | Hebrew | Notes |
@@ -64,7 +80,7 @@ When the owner changes a term, update the table below and the rules together.
 | grade / grader | ציון / מערכת הבדיקה | |
 | regrade | בדיקה מחדש | |
 | appeal / dispute | ערעור | evidence dispute → ערעור על ראיה |
-| companion / tutor (the learner-facing AI tutor) | המנחה | owner-approved 2026-10-24; plural המנחים. Construct forms: מנחה ה-AI where the AI nature matters, מנחה הלומדים for the companion job in admin (AI services). Learners see one helper: the companion and the supervisor are both המנחה ("המנחה לא משתמש בתוצאה הזו", never "המלווה והמנחה"); personal AI supervision → ההנחיה האישית של ה-AI. Never מלווה |
+| companion / tutor (the learner-facing AI tutor) | המנחה | owner-approved 2026-10-24; plural המנחים. Construct forms: מנחה ה-AI where the AI nature matters, מנחה הלומדים for the companion job in admin (AI services). Learners see one helper: the companion and the supervisor are both המנחה ("המנחה לא משתמש בתוצאה הזו", never "המלווה והמנחה"); personal AI supervision → ההנחיה האישית של ה-AI, also where a learner message is about supervision work rather than the helper ("עוצרים את ההנחיה האישית של ה-AI בקורס לפני המחיקה…", never "עוצרים את המנחים"). Never מלווה |
 | you (the learner's own messages in the conversation with the tutor) | השאלה שלך | heading of the learner's own message and of their lines in "context used"; never the slash form את/ה |
 | supervisor (AI agent, staff-facing) | המפקח | admin only, next to פיקוח AI; learners never see המפקח |
 | supervision | פיקוח | AI supervision → פיקוח AI |

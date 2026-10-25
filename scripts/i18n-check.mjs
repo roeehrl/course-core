@@ -416,6 +416,17 @@ export async function checkCatalogs(ts, name, root = ROOT) {
 
 /** Forbidden synonyms per locale and surface (docs/i18n-glossary.md), with documented exceptions. */
 export const GLOSSARY_FILE = 'scripts/i18n-glossary.json';
+/** The source catalogs (DEFAULT_LOCALE) that `whenSource`/`unlessSource` read. */
+const SOURCE_LOCALE = 'en';
+/** A rule's source condition as a case-insensitive Unicode pattern, or a reason it is not one. */
+function sourcePattern(value) {
+  if (!nonEmpty(value)) return { error: 'must be a non-empty regular expression' };
+  try {
+    return { pattern: new RegExp(value, 'iu') };
+  } catch (error) {
+    return { error: `is not a regular expression (${error.message})` };
+  }
+}
 const RULE_ID = /^[a-z][a-z0-9-]*$/;
 const LOCALE_TAG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
 const MESSAGE_ID = /^([a-z][A-Za-z0-9]*):([a-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)$/;
@@ -445,8 +456,18 @@ export function readGlossary(root = ROOT) {
     if (!nonEmpty(rule?.use) || !nonEmpty(rule?.why)) problems.push('needs "use" (the glossary term) and "why"');
     if (rule?.surfaces !== undefined && (!Array.isArray(rule.surfaces) || !rule.surfaces.length || rule.surfaces.some((name) => !catalogSurfaces.includes(name))))
       problems.push(`"surfaces" must list some of ${catalogSurfaces.join(', ')}`);
+    // Context from the message's English source: the rule applies only where it decides the meaning.
+    const source = {};
+    for (const [field, name] of [['whenSource', 'when'], ['unlessSource', 'unless']]) {
+      if (rule?.[field] === undefined) continue;
+      const parsed = sourcePattern(rule[field]);
+      if (parsed.error) problems.push(`"${field}" ${parsed.error}`);
+      else source[name] = parsed.pattern;
+    }
+    if (rule?.unlessSource !== undefined && rule?.whenSource === undefined) problems.push('"unlessSource" needs a "whenSource"');
+    if (rule?.locale === SOURCE_LOCALE && rule?.whenSource !== undefined) problems.push(`a "whenSource" rule cannot check the source locale ${SOURCE_LOCALE}`);
     if (problems.length) errors.push(`${where} ${problems.join('; ')}`);
-    else rules.push({ ...rule, surfaces: rule.surfaces ?? catalogSurfaces });
+    else rules.push({ ...rule, surfaces: rule.surfaces ?? catalogSurfaces, ...(source.when ? { source } : {}) });
     if (rule?.id) ids.add(rule.id);
   }
   if (!Array.isArray(document?.rules)) errors.push(`${GLOSSARY_FILE}: "rules" must be a list`);
@@ -488,8 +509,19 @@ export function checkGlossary(root = ROOT, glossary = readGlossary(root)) {
           continue; // reported by checkCatalogs
         }
         const namespace = file.slice(0, -5);
+        let english = {};
+        if (rule.source)
+          try {
+            english = JSON.parse(readFileSync(path.join(root, surface.directory, surface.catalog, SOURCE_LOCALE, file), 'utf8')) ?? {};
+          } catch {
+            english = {}; // reported by checkCatalogs
+          }
         for (const [key, message] of Object.entries(messages ?? {})) {
           if (key === '$pending' || typeof message !== 'string') continue;
+          if (rule.source) {
+            const text = typeof english[key] === 'string' ? english[key] : '';
+            if (!rule.source.when.test(text) || rule.source.unless?.test(text)) continue;
+          }
           const word = rule.forbidden.find((candidate) => message.includes(candidate));
           if (!word) continue;
           const exception = glossary.exceptions.find((item) => item.rule === rule.id && item.message === `${name}:${namespace}.${key}`);
@@ -498,7 +530,7 @@ export function checkGlossary(root = ROOT, glossary = readGlossary(root)) {
             continue;
           }
           errors.push(
-            `${surface.directory}/${surface.catalog}/${rule.locale}/${file}: "${key}" says "${wordAt(message, message.indexOf(word), word.length)}"; use ${rule.use}: ${rule.why} (rule "${rule.id}" in ${GLOSSARY_FILE}, docs/i18n-glossary.md)`,
+            `${surface.directory}/${surface.catalog}/${rule.locale}/${file}: "${key}" says "${wordAt(message, message.indexOf(word), word.length)}"${rule.source ? ` where the English says "${english[key].length > 100 ? `${english[key].slice(0, 99)}…` : english[key]}"` : ''}; use ${rule.use}: ${rule.why} (rule "${rule.id}" in ${GLOSSARY_FILE}, docs/i18n-glossary.md)`,
           );
         }
       }
