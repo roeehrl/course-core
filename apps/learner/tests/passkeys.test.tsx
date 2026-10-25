@@ -11,6 +11,7 @@ vi.mock("@simplewebauthn/browser", () => webauthn);
 
 import { CourseApiError } from "../src/client/apiClient";
 import { PasskeyManager, PasskeySignIn, defaultPasskeyName, passkeyErrorMessage } from "../src/connected/Passkeys.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 type Request = <T>(url: string, method?: string, payload?: unknown) => Promise<T>;
 beforeEach(() => {
@@ -51,7 +52,7 @@ describe("learner passkey sign-in", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("That passkey was not accepted.");
     refuse = false;
     webauthn.startAuthentication.mockRejectedValue(Object.assign(new Error("x"), { name: "NotAllowedError" }));
-    fireEvent.click(screen.getByRole("button", { name: "Sign in with passkey" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Sign in with passkey" }));
     expect(await screen.findByText("The passkey request was cancelled or timed out.")).toBeInTheDocument();
     expect(signedIn).not.toHaveBeenCalled();
     expect(passkeyErrorMessage(new CourseApiError("PASSWORD_CHANGE_REQUIRED", 409))).toBe("Choose a new password to continue.");
@@ -85,15 +86,15 @@ describe("learner passkey management", () => {
     render(<PasskeyManager request={request} loginName="learner" hasPassword onClose={() => {}} />);
     expect(await screen.findByText("You have no passkeys yet.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Passkey name"), { target: { value: "My phone" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Add a passkey" }));
     const password = await screen.findByLabelText("Current password");
     expect(screen.getByRole("alert")).toHaveTextContent("Enter your current password to add a passkey.");
     fireEvent.change(password, { target: { value: "my passphrase here" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Add a passkey" }));
     expect(await screen.findByText("My phone")).toBeInTheDocument();
     expect(calls).toContainEqual(["/auth/passkeys/registration/options", "POST", { currentPassword: "my passphrase here" }]);
     expect(calls).toContainEqual(["/auth/passkeys/registration/verify", "POST", { challengeId: "r", name: "My phone", response: { id: "new" } }]);
-    fireEvent.click(screen.getByRole("button", { name: "Remove passkey My phone" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Remove passkey My phone" }));
     expect(await screen.findByText("You have no passkeys yet.")).toBeInTheDocument();
     expect(calls).toContainEqual(["/auth/passkeys/p-1", "DELETE", undefined]);
   });

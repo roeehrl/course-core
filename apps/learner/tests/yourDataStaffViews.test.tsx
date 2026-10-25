@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { YourDataPanel } from "../src/components/YourDataPanel.web";
 import { I18nProvider, createLearnerTranslator } from "../src/i18n";
+import { pressWhenReady } from "./pressWhenReady";
 
 const enrollmentId = "00000000-0000-4000-8000-000000000001";
 describe("staff access to the learner's record", () => {
@@ -88,7 +89,7 @@ describe("erasing the whole account", () => {
       // Pasted with the direction marks the label carries, it still counts.
       fireEvent.change(field, { target: { value: `⁨${phrase}⁩` } });
       expect(erase).toBeEnabled();
-      fireEvent.click(erase);
+      await pressWhenReady(erase);
       await waitFor(() => expect(calls.some((c) => c.path === "/api/account/erase")).toBe(true));
       expect(calls.find((c) => c.path === "/api/account/erase")!.body).toEqual({
         confirmation: phrase,
@@ -139,7 +140,7 @@ describe("erasing one course's learning data", () => {
       // Pasted with the direction marks the label carries, it still counts.
       fireEvent.change(field, { target: { value: strong.textContent! } });
       expect(erase).toBeEnabled();
-      fireEvent.click(erase);
+      await pressWhenReady(erase);
       await waitFor(() => expect(onErased).toHaveBeenCalled());
       expect(calls.find((c) => c.path === `/api/enrollments/${enrollmentId}/erase`)!.body).toEqual({
         confirmation: phrase,

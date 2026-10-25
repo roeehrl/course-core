@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { parseResources, parseGeneratedMedia, createResourcesClient } from "../src/client/resourcesClient";
 import { installFakeYouTube } from "./youtubeFake";
 import { EpisodeResources } from "../src/components/EpisodeResources.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 const video = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -66,7 +67,7 @@ describe("optional reviewed episode resources", () => {
     expect(calls.sort()).toEqual(["/api/enrollments/e-1/media?episodeId=min", "/api/enrollments/e-1/resources?episodeId=min"]);
     expect(container.querySelector("details")?.open).toBe(false);
     expect(container.querySelector("iframe")).toBeNull();
-    fireEvent.click(screen.getByText("2 reviewed resources for this episode"));
+    await pressWhenReady(screen.getByText("2 reviewed resources for this episode"));
     expect(screen.getByText(/does not count toward progress/)).toBeInTheDocument();
     expect(screen.getByText("Each comparison keeps the smaller value")).toBeInTheDocument();
     expect(screen.getByText(video.youtube.fallback.text)).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe("optional reviewed episode resources", () => {
       request: (async (url: string) => (url.includes("/media?") ? { media: [], optional: true, grantsCredit: false } : body([video]))) as never,
     });
     render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
-    fireEvent.click(await screen.findByText("1 reviewed resource for this episode"));
+    await pressWhenReady(await screen.findByText("1 reviewed resource for this episode"));
     fireEvent.click(screen.getByRole("button", { name: /Load video player/ }));
     expect(await screen.findByText(/does not allow it to play on other sites/)).toBeVisible();
     expect(screen.getByRole("link", { name: /open the video on YouTube/ })).toHaveAttribute("href", video.url);
@@ -99,7 +100,7 @@ describe("optional reviewed episode resources", () => {
       request: (async (url: string) => (url.includes("/media?") ? { media: [], optional: true, grantsCredit: false } : body([video]))) as never,
     });
     render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
-    fireEvent.click(await screen.findByText("1 reviewed resource for this episode"));
+    await pressWhenReady(await screen.findByText("1 reviewed resource for this episode"));
     fireEvent.click(screen.getByRole("button", { name: /Load video player/ }));
     expect(await screen.findByText(/This video can’t play here/)).toBeVisible();
     expect(screen.getByText(/Your place in the lesson is kept, and nothing is marked as missed/)).toBeVisible();
@@ -120,7 +121,7 @@ describe("optional reviewed episode resources", () => {
       request: (async (url: string) => (url.includes("/media?") ? { media: [], optional: true, grantsCredit: false } : body([reviewed, page]))) as never,
     });
     const { container } = render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
-    fireEvent.click(await screen.findByText("2 reviewed resources for this episode"));
+    await pressWhenReady(await screen.findByText("2 reviewed resources for this episode"));
     expect(screen.getAllByText(/Suggested for you/)).toHaveLength(1);
     expect(screen.getByText(/1:15–1:02:05/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /Load video player/ }));
@@ -139,7 +140,7 @@ describe("optional reviewed episode resources", () => {
       request: (async (url: string) => (url.includes("/media?") ? { media: [picture], optional: true, grantsCredit: false } : body([]))) as never,
     });
     render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
-    fireEvent.click(await screen.findByText("1 reviewed resource for this episode"));
+    await pressWhenReady(await screen.findByText("1 reviewed resource for this episode"));
     const img = await screen.findByAltText(picture.visualDescription);
     expect(img.getAttribute("src")).toBe(`/api/enrollments/e-1/media/${picture.id}/asset`);
     expect(document.querySelector("video")).toBeNull();
@@ -158,7 +159,7 @@ describe("optional reviewed episode resources", () => {
       request: (async (url: string) => (url.includes("/media?") ? { media: [clip], optional: true, grantsCredit: false } : body([]))) as never,
     });
     const { container } = render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
-    fireEvent.click(await screen.findByText("1 reviewed resource for this episode"));
+    await pressWhenReady(await screen.findByText("1 reviewed resource for this episode"));
     expect(screen.getByText(/Course-made video/)).toBeVisible();
     expect(screen.getByText(clip.transcript)).toBeVisible();
     expect(screen.getByText(clip.visualDescription)).toBeVisible();

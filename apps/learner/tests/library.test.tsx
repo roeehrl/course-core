@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConnectedHost } from "../src/ConnectedHost.web";
 import { compareVersions, library } from "../src/connected/library";
 import type { CatalogCourse, Enrollment } from "../src/client/policyClient";
+import { pressWhenReady } from "./pressWhenReady";
 
 // Synthetic course names and versions only.
 const enrollment = (overrides: Partial<Enrollment>): Enrollment => ({
@@ -80,7 +81,7 @@ describe("the home page", () => {
     expect(within(card).getByText(/You are on version 0\.1\.4 and can keep learning there/)).toBeVisible();
     expect(within(card).getByRole("button", { name: "Continue learning →" })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Available in your workspace" })).toBeNull();
-    fireEvent.click(within(card).getByRole("button", { name: "Start version 0.1.5 from the beginning instead" }));
+    await pressWhenReady(within(card).getByRole("button", { name: "Start version 0.1.5 from the beginning instead" }));
     expect(await screen.findByRole("button", { name: "Start course" })).toBeVisible();
   });
 

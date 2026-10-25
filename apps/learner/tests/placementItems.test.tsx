@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlacementRun } from "../src/components/PlacementRun.web";
 import { numericPayload } from "../src/connected/AssessmentInput.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 const inProgress = {
   available: true, maxItems: 4, studied: false, state: "in_progress",
@@ -17,7 +18,7 @@ function renderItem(question: Record<string, unknown>) {
   return { command };
 }
 async function open() {
-  fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Next question" }));
   await screen.findByText(question => question.includes("How long") || question.includes("Trace"));
 }
 

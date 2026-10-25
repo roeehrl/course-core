@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // The native project resolves the app's own modules, never their `.web` variants.
 import { PlacementRun } from "../../src/components/PlacementRun";
 import { CourseApiError } from "../../src/client/apiClient";
+import { pressWhenReady } from "../pressWhenReady";
 
 type View = Record<string, unknown> & { state: string; run: Record<string, unknown> | null };
 const proposal = (extra: Record<string, unknown> = {}) => ({
@@ -35,7 +36,7 @@ function setup(question: Record<string, unknown> | null, initial: View = inProgr
 const answers = (command: ReturnType<typeof setup>["command"]) => command.mock.calls.filter(([action]) => action === "answers");
 /** Opens the next item and waits until the panel has settled: native buttons ignore presses while busy. */
 async function openItem(prompt: RegExp) {
-  fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Next question" }));
   await screen.findByText(prompt);
   await waitFor(() => expect(screen.getByRole("button", { name: "Stop and see my result" })).not.toHaveAttribute("aria-disabled", "true"));
 }
@@ -163,7 +164,7 @@ describe("native placement run states", () => {
     const { command, onFinished } = setup({ id: "q", type: "choice", prompt: "First item.", options: [{ id: "a", text: "A" }] }, offered);
     expect(await screen.findByRole("heading", { name: "Already know some of this?" })).toBeTruthy();
     expect(screen.getByText(/Answer up to 3 short questions without help/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Start from the beginning" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Start from the beginning" }));
     await waitFor(() => expect(command).toHaveBeenCalledWith("placement/decline", {}));
     await waitFor(() => expect(onFinished).toHaveBeenCalled());
   });
@@ -187,9 +188,9 @@ describe("native placement run states", () => {
       return {};
     });
     render(<PlacementRun api={api as never} command={command as never} enrollmentId="e1" firstEpisodeId="min" onFinished={() => {}} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Resume my question" }));
+    await pressWhenReady(await screen.findByRole("button", { name: "Resume my question" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Your numeric answer (cm)" }), { target: { value: "3" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save answer" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Save answer" }));
     await waitFor(() => expect(command).toHaveBeenCalledWith("answers", { challengeId: "c9", answer: 3 }));
   });
 
@@ -222,7 +223,7 @@ describe("native placement run states", () => {
     expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Finds a minimum.");
     expect(screen.getByText("Waiting for evaluation, not marked wrong: Explains the scan.")).toBeTruthy();
     expect(screen.getByText(/attempt 2 of 2\. It uses only questions you have not seen/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Start at “Sorting”" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Start at “Sorting”" }));
     await waitFor(() => expect(command).toHaveBeenCalledWith("placement/accept", { startEpisodeId: "sort" }));
     await waitFor(() => expect(onFinished).toHaveBeenCalled());
   });
@@ -259,7 +260,7 @@ describe("native placement run states", () => {
     expect(screen.getByText("You have used all 2 placement attempts this course allows.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Start at/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Retake placement" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Start from the beginning" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Start from the beginning" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Placement is only offered before you start studying.");
     expect(command).toHaveBeenCalledWith("placement/accept", { startEpisodeId: "min" });
   });

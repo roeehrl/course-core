@@ -18,6 +18,7 @@ import {
 } from "../src/connected/pythonRunner";
 import { sha256HexOfBytes } from "../src/client/webCrypto";
 import { PracticeRunner, resultMessage, type PracticeRunnerHandle } from "../src/components/PracticeRunner.web";
+import { pressWhenReady } from "./pressWhenReady";
 
 const limits = { timeoutMs: 5000, outputBytes: 64, memoryBytes: 256 * 1024 * 1024, sourceBytes: 64_000 };
 function config(): RunnerConfig {
@@ -228,7 +229,7 @@ describe("practice runner panel", () => {
     render(<PracticeRunner language="python" source={"print('hello')"} loadRunner={async () => handle} />);
     const run = await screen.findByRole("button", { name: "Run in browser" });
     expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
-    fireEvent.click(run);
+    await pressWhenReady(run);
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Finished in 0.4 s."));
     const log = screen.getByRole("log", { name: "Practice run output" });
     expect(log).toHaveTextContent("hello");
@@ -237,7 +238,7 @@ describe("practice runner panel", () => {
     expect(handle.calls).toEqual([{ code: "print('hello')", input: null }]);
     // A practice run never talks to the course server.
     expect(network).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Reset Python" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Reset Python" }));
     expect(handle.reset).toHaveBeenCalled();
     expect(screen.getByRole("log")).toHaveTextContent("Output appears here.");
   });
@@ -246,12 +247,12 @@ describe("practice runner panel", () => {
     render(<PracticeRunner language="python" source={"def solve(x):\n    return x"} loadRunner={async () => handle} />);
     const field = await screen.findByLabelText("Sample input for solve (JSON, optional)");
     fireEvent.change(field, { target: { value: "[1, 2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run in browser" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Run in browser" }));
     expect(await screen.findByText("The sample input is not valid JSON. Example: [3, 1, 2]")).toBeInTheDocument();
     expect(field).toHaveAttribute("aria-invalid", "true");
     expect(handle.run).not.toHaveBeenCalled();
     fireEvent.change(field, { target: { value: "[1, 2]" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run in browser" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Run in browser" }));
     await waitFor(() => expect(handle.calls).toEqual([{ code: "def solve(x):\n    return x", input: "[1, 2]" }]));
   });
   it("stops a run, and stops it when the exercise goes away", async () => {
@@ -259,10 +260,10 @@ describe("practice runner panel", () => {
     const handle = fakeHandle();
     handle.run = vi.fn(() => new Promise<RunResult>((resolve) => { finish = resolve; }));
     const view = render(<PracticeRunner language="python" source="while True: pass" loadRunner={async () => handle} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Run in browser" }));
+    await pressWhenReady(await screen.findByRole("button", { name: "Run in browser" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled());
     expect(screen.getByRole("button", { name: "Run in browser" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Stop" }));
     expect(handle.stop).toHaveBeenCalledTimes(1);
     await act(async () => finish({ status: "stopped", durationMs: 0, outputBytes: 0 }));
     expect(screen.getByRole("status")).toHaveTextContent("Stopped.");

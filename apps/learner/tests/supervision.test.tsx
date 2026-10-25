@@ -16,6 +16,7 @@ import {
 } from "../src/client/supervisionClient";
 import { SupervisionPanel } from "../src/components/SupervisionPanel";
 import { connectedSnapshot } from "./connectedFixtures";
+import { pressWhenReady } from "./pressWhenReady";
 const permission = (
   adaptiveTeaching = false,
   revision = 3,
@@ -65,7 +66,7 @@ function mount(
 async function clickEnabled(name: string) {
   const button = await screen.findByRole("button", { name });
   await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
+  await pressWhenReady(button);
 }
 it("shows a supervisor preference as pending learner review and records the learner correction without credit", async () => {
   for (const [delivery, label] of [

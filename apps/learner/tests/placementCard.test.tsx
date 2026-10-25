@@ -4,6 +4,7 @@ import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { ConnectedHost } from "../src/ConnectedHost.web";
 import { presentation } from "../src/client/presentation";
 import { connectedSnapshot } from "./connectedFixtures";
+import { pressWhenReady } from "./pressWhenReady";
 
 afterEach(() => vi.unstubAllGlobals());
 const card = "Already know this material?";
@@ -49,9 +50,9 @@ it("points the card at the open placement panel, and drops it once placement is 
   onTestFinished(() => { Element.prototype.scrollIntoView = original; });
   host(placeable(), "offered");
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   const panel = await screen.findByRole("region", { name: "Already know some of this?" });
-  fireEvent.click(await screen.findByRole("button", { name: "Explore placement ↗" }));
+  await pressWhenReady(await screen.findByRole("button", { name: "Explore placement ↗" }));
   expect(scrolled).toEqual([panel]);
   expect(document.activeElement).toBe(panel);
   fireEvent.click(screen.getByRole("button", { name: "Start from the beginning" }));
@@ -63,7 +64,7 @@ it("points the card at the open placement panel, and drops it once placement is 
 it.each(["declined", "accepted", "unavailable"])("shows no placement card when placement is %s", async (state) => {
   host(placeable(), state);
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   // The roadmap is on screen and the placement view has been read.
   expect((await screen.findAllByText("Notice the change")).length).toBeGreaterThan(0);
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/placement"))).toBe(true));

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { connectedSnapshot } from "./connectedFixtures";
 import type { CompanionMessage, ContextualCompanionClient } from "../src/client/companionClient";
+import { pressWhenReady } from "./pressWhenReady";
 
 // Count how often the lesson and the companion render, around the real components.
 const renders = vi.hoisted(() => ({ lesson: 0, companion: 0 }));
@@ -71,12 +72,12 @@ it("a companion answer re-renders the companion, not the lesson, and identical r
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost companionClient={client} />);
   await screen.findByRole("heading", { name: "Your courses" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", { name: "Everyday patterns" });
-  fireEvent.click(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
   await screen.findByRole("heading", { name: "Notice the change" });
   const trigger = screen.queryByRole("button", { name: "Companion" });
-  if (trigger) fireEvent.click(trigger);
+  if (trigger) await pressWhenReady(trigger);
   await screen.findByText("Why does it change?");
   await waitFor(() => expect(streams).toHaveLength(1));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));

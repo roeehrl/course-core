@@ -166,6 +166,10 @@ describe("evidence dispute queue", () => {
     expect(await screen.findByText(/cannot be upheld as valid/)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Keep result" }));
     await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+    // The retry is refused too; the next decision is made once the form is free again.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Keep result" })).toBeEnabled(),
+    );
     await userEvent.click(
       screen.getByRole("radio", { name: /Invalidate this evidence/ }),
     );

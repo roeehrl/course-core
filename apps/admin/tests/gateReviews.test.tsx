@@ -176,6 +176,12 @@ describe("gate review queue", () => {
       screen.getByRole("button", { name: "Grant exception" }),
     );
     await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+    // The retry is refused too; the next decision is made once the form is free again.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Grant exception" }),
+      ).toBeEnabled(),
+    );
     await userEvent.click(
       screen.getByRole("radio", { name: /Uphold the decision/ }),
     );
