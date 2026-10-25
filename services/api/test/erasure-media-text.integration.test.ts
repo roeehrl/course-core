@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, transaction, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
+import { tableNamesContaining } from "./table-scan.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { credentialVault } from "../src/key-vault.js";
@@ -136,13 +137,7 @@ async function erase(l: Learner) {
   return r.json() as { counts: Record<string, number>; replayed: boolean };
 }
 /** Every base table whose rows mention `marker` anywhere (text, JSON or the bytes' hex). */
-async function tablesMentioning(marker: string) {
-  const tables = (await db.query<{ name: string }>("SELECT table_name AS name FROM information_schema.tables WHERE table_schema=$1 AND table_type='BASE TABLE' ORDER BY 1", [schema])).rows;
-  const hits: string[] = [];
-  for (const { name } of tables)
-    if ((await db.query(`SELECT 1 FROM "${schema}"."${name}" t WHERE t::text LIKE $1 LIMIT 1`, ["%" + marker + "%"])).rowCount) hits.push(name);
-  return hits;
-}
+const tablesMentioning = (marker: string) => tableNamesContaining(db, marker);
 const exported = async (s: Session, enrollment: string) => {
   const r = await get(s, `/api/enrollments/${enrollment}/export`);
   expect(r.statusCode, r.body).toBe(200);

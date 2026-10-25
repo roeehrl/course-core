@@ -33,9 +33,11 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await runtime?.end();
+  // The file's database is dropped later, in the background (database-template.ts), so the
+  // role's grants there are revoked now; then nothing depends on the role.
+  await owner?.query(`DROP OWNED BY ${role}`);
   await owner?.end();
   if (root) {
-    // Dropping the file's database removes every grant to the role there.
     await testDatabase?.drop();
     await root.query(`DROP ROLE IF EXISTS ${role}`);
     await root.end();

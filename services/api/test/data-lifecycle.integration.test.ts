@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
+import { tablesContaining } from "./table-scan.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
@@ -42,17 +43,7 @@ async function command(action: string, body: Record<string, unknown>) {
   return r.json();
 }
 /** Every row of every application table, as text, that still contains the canary. */
-async function canaryHits() {
-  const tables = (
-    await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")
-  ).rows.map((r) => r.table_name as string);
-  const hits: string[] = [];
-  for (const table of tables) {
-    const n = (await db.query(`SELECT count(*)::int AS n FROM "${table}" t WHERE t::text LIKE $1`, ["%" + canary + "%"])).rows[0].n;
-    if (n) hits.push(`${table}:${n}`);
-  }
-  return hits;
-}
+const canaryHits = () => tablesContaining(db, canary);
 const erase = (who: Session, body: Record<string, unknown> = {}) =>
   call(who, "POST", `/api/enrollments/${enrollment}/erase`, {
     confirmation: `ERASE ${enrollment.slice(0, 8)}`,

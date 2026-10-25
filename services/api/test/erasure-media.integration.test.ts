@@ -1,8 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { credentialVault } from "../src/key-vault.js";
@@ -10,6 +8,7 @@ import { WorkspaceProviders } from "../src/provider-setup.js";
 import type { AdapterFactory } from "../src/provider-composition.js";
 import { createMediaJobService, workspaceMediaResolver, type MediaJobService } from "../src/media-jobs.js";
 import { fixture } from "./fixture.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy, approveRevisionsForTest } from "./media-fixture.js";
 
 // Data erasure cancels the enrollment's media jobs. Before that it finishes each job's open
@@ -21,7 +20,7 @@ const schema = "erasure_media_" + randomUUID().replaceAll("-", ""),
   ALLOWANCE = 250_000,
   options = { pollIntervalMs: 1000, maxPolls: 6, providerCallTimeoutMs: 20_000, maxActivePerWorkspace: 10 };
 interface Session { id: string; cookie: string; csrf: string }
-let db: Database, admin: Database, app: Awaited<ReturnType<typeof createServer>>, worker: MediaJobService, owner: Session, releaseId: string;
+let db: Database, testDatabase: TestDatabase | undefined, app: Awaited<ReturnType<typeof createServer>>, worker: MediaJobService, owner: Session, releaseId: string;
 const video = new ScriptedVideo();
 /** When set, a submission waits for it after the provider has received the request. */
 let gate: Promise<void> | null = null, submitting = 0;
@@ -76,15 +75,9 @@ const jobRow = async (jobId: string) => (await db.query("SELECT state,failure_co
 const assetCount = async (jobId: string) => (await db.query("SELECT count(*)::int AS n FROM media_assets WHERE job_id=$1", [jobId])).rows[0].n;
 
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw Error("Disposable TEST_DATABASE_URL required");
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
-    throw Error("Disposable loopback DB required");
-  admin = createDatabase(url.href);
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+  // A copy of the run's migrated template (test-database.ts), like every other database test file.
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const providers = new WorkspaceProviders(db, credentialVault(randomBytes(32)), { "scripted-video": gated });
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, workspaceProviders: providers, media: { options } });
   worker = createMediaJobService(db, workspaceMediaResolver(providers), options);
@@ -103,7 +96,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 
 describe("erasure finishes open media reservations", () => {

@@ -69,14 +69,19 @@ describe('per-file copies of the migrated template database', () => {
   }, 30_000);
 
   it('never hands the same ready copy to two concurrent claims', async () => {
-    const run = inject('courseTestDatabase')!;
-    await withBase(base, async client => { for (let i = 0; i < 3; i++) extra.push(await addReadyCopy(client, run)); });
-    const claims = await Promise.all(Array.from({ length: 6 }, () => withBase(base, client => claimCopy(client, run))));
-    extra.push(...claims.map(claim => claim.name));
-    expect(new Set(claims.map(claim => claim.name)).size).toBe(6);
-    // At least the three just added were available; the rest were made on demand.
-    expect(claims.filter(claim => claim.prepared).length).toBeGreaterThanOrEqual(3);
-    for (const claim of claims) expect(await exists(claim.name)).toBe(true);
+    // A run of its own, so no other test file can claim its ready copies meanwhile.
+    const run = newRun(base);
+    try {
+      await withBase(base, async client => {
+        await createDatabase(client, run.template);
+        for (let i = 0; i < 3; i++) await addReadyCopy(client, run);
+      });
+      const claims = await Promise.all(Array.from({ length: 6 }, () => withBase(base, client => claimCopy(client, run))));
+      expect(new Set(claims.map(claim => claim.name)).size).toBe(6);
+      // Each of the three ready copies went to exactly one claim; the other three were made on demand.
+      expect(claims.filter(claim => claim.prepared).length).toBe(3);
+      for (const claim of claims) expect(await exists(claim.name)).toBe(true);
+    } finally { await dropRun(base, run); }
   }, 30_000);
 
   it('cleans up only marked databases from old runs', async () => {
