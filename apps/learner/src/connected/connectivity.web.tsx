@@ -73,11 +73,37 @@ export function pendingActionName(action: string | undefined, t: Translate = eng
   return t(`connectivity.action.${pendingActionKind(action)}` as MessageKey);
 }
 
-/** Room the connection status takes at the bottom of the window, for the stylesheet: the sticky
- * answer actions rise above it and the learning column gains as much room at its end. */
+/** For the stylesheet, while the status shows: the room it takes at the bottom of the window.
+ * The sticky answer actions stick that much higher, above it (as a floating button rises for a
+ * snackbar), and the learning column gains as much room at its end. */
 const STATUS_OFFSET = "--connected-status-offset";
 /** The gap between the status and what rises above it. */
-const STATUS_GAP_PX = 8;
+const STATUS_GAP_PX = 16;
+const ANSWER_ACTIONS = ".connected-answer-actions";
+
+/** The element that scrolls `element`: the learning pane on compact screens, else the page. */
+function scrollerOf(element: Element): Element {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight) return node;
+  }
+  return document.scrollingElement ?? document.documentElement;
+}
+
+/**
+ * Sets the status's room, keeping the answer actions clear of the question: a sticky answer bar
+ * that the extra room would lift over the content above it scrolls that content up with it
+ * instead, so the options stay fully visible and tappable above the bar.
+ */
+function makeRoom(root: HTMLElement, value: string) {
+  const bars = Array.from(document.querySelectorAll(ANSWER_ACTIONS));
+  const before = bars.map((bar) => bar.getBoundingClientRect().top);
+  root.style.setProperty(STATUS_OFFSET, value);
+  bars.forEach((bar, index) => {
+    const lifted = before[index]! - bar.getBoundingClientRect().top;
+    if (lifted > 0.5) scrollerOf(bar).scrollBy({ top: lifted, behavior: "instant" });
+  });
+}
 
 /** The connection status and the state of a request that is saved on this
  * device but not yet confirmed by the server. It floats at the bottom of the
@@ -105,8 +131,13 @@ export function ConnectionStatus({
     const element = box.current;
     if (!shown || !element) return;
     const root = document.documentElement;
-    const update = () =>
-      root.style.setProperty(STATUS_OFFSET, `${Math.ceil(element.getBoundingClientRect().height) + STATUS_GAP_PX}px`);
+    let room = "";
+    const update = () => {
+      const next = `${Math.ceil(element.getBoundingClientRect().height) + STATUS_GAP_PX}px`;
+      if (next === room) return;
+      room = next;
+      makeRoom(root, next);
+    };
     update();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
     observer?.observe(element);
