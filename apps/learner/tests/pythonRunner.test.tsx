@@ -20,13 +20,14 @@ import { sha256HexOfBytes } from "../src/client/webCrypto";
 import { PracticeRunner, resultMessage, type PracticeRunnerHandle } from "../src/components/PracticeRunner.web";
 import { pressWhenReady } from "./pressWhenReady";
 
-const limits = { timeoutMs: 5000, outputBytes: 64, memoryBytes: 256 * 1024 * 1024, sourceBytes: 64_000 };
+// Shared by every test, so frozen: a test changes only the fresh copy config() hands it.
+const limits = Object.freeze({ timeoutMs: 5000, outputBytes: 64, memoryBytes: 256 * 1024 * 1024, sourceBytes: 64_000 });
 function config(): RunnerConfig {
   return {
     status: "ready",
     frameUrl: "/api/python-runner/frame",
     assets: Object.entries(PINNED_PYODIDE.files).map(([name, pin]) => ({ name, ...pin, url: `/api/python-runner/assets/314.0.7/${name}` })),
-    limits,
+    limits: { ...limits },
     runtime: { name: "pyodide", version: "314.0.7", license: { spdx: "MPL-2.0", source: "https://github.com/pyodide/pyodide/tree/314.0.7" } },
   };
 }
@@ -88,12 +89,36 @@ describe("runner configuration", () => {
       (c) => { c.frameUrl = "//example.org/frame"; },
       (c) => { (c as { status: string }).status = "disabled"; },
       (c) => { c.limits.timeoutMs = 0; },
+      // An inherited property of the pin list is not a pinned file.
+      (c) => { c.assets[0] = { name: "constructor", url: "/api/python-runner/assets/314.0.7/constructor" } as never; },
+      (c) => { delete (c.runtime as { license?: unknown }).license; },
     ];
     for (const change of variants) {
       const value = config();
       change(value);
       expect(acceptRunnerConfig(value)).toBeNull();
     }
+  });
+  it("keeps the pins and an accepted configuration unchangeable at run time", () => {
+    const pin = PINNED_PYODIDE.files["pyodide.js"] as { sha256: string; size: number };
+    expect(() => { pin.sha256 = "f".repeat(64); }).toThrow(TypeError);
+    expect(() => { pin.size += 1; }).toThrow(TypeError);
+    expect(() => { (PINNED_PYODIDE.files as Record<string, unknown>)["extra.js"] = { sha256: "f".repeat(64), size: 1 }; }).toThrow(TypeError);
+    expect(Object.keys(PINNED_PYODIDE.files)).toHaveLength(5);
+    const input = config(), expected = config(), accepted = acceptRunnerConfig(input)!;
+    expect(accepted).toEqual(expected);
+    // The accepted value is a copy: changing what the server sent changes nothing a run uses.
+    input.limits.timeoutMs = 0;
+    input.assets[0]!.url = "https://cdn.example.org/pyodide.js";
+    input.runtime.license.source = "https://example.org/";
+    expect(accepted).toEqual(expected);
+    // And it cannot be changed itself.
+    expect(() => { accepted.limits.timeoutMs = 0; }).toThrow(TypeError);
+    expect(() => { accepted.assets[0]!.url = "https://cdn.example.org/pyodide.js"; }).toThrow(TypeError);
+    expect(() => { accepted.assets.push({ ...accepted.assets[0]!, name: "extra.js" }); }).toThrow(TypeError);
+    expect(() => { accepted.runtime.license.source = "https://example.org/"; }).toThrow(TypeError);
+    expect(() => { accepted.frameUrl = "//example.org/frame"; }).toThrow(TypeError);
+    expect(accepted).toEqual(expected);
   });
   it("hashes files the same way with and without Web Crypto (a plain-http page has none)", async () => {
     const bytes = new Uint8Array(200_003).map((_, i) => (i * 31) % 251), expected = createHash("sha256").update(bytes).digest("hex");

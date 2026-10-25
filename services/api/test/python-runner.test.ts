@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PYODIDE_FILES, PYODIDE_VERSION, loadPyodideAssets, pythonRunnerFromEnvironment } from '../src/python-runner.js';
+import { PYODIDE_FILES, PYODIDE_LICENSE, PYODIDE_VERSION, PYTHON_RUN_LIMITS, loadPyodideAssets, pythonRunnerFromEnvironment } from '../src/python-runner.js';
 import { RUNNER_FRAME_SCRIPT, RUNNER_LIMITS_SOURCE, RUNNER_WORKER_SOURCE, runnerFrameContentSecurityPolicy, runnerFrameDocument } from '../src/python-runner-frame.js';
 
 // The exact text the frame runs, evaluated here: these tests exercise the shipped bytes.
@@ -142,6 +142,16 @@ describe('pinned Pyodide files', () => {
       expect(bytes.length).toBe(pin.size);
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(pin.sha256);
     }
+  });
+  it('no code in the process can change the pins, the licence or the default limits', () => {
+    const pin = PYODIDE_FILES[0] as { sha256: string; size: number };
+    expect(() => { pin.sha256 = 'f'.repeat(64); }).toThrow(TypeError);
+    expect(() => { pin.size += 1; }).toThrow(TypeError);
+    expect(() => { (PYODIDE_FILES as { name: string; sha256: string; size: number }[]).push({ name: 'extra.js', sha256: 'f'.repeat(64), size: 1 }); }).toThrow(TypeError);
+    expect(() => { (PYODIDE_LICENSE as { source: string }).source = 'https://example.org/'; }).toThrow(TypeError);
+    expect(() => { (PYTHON_RUN_LIMITS as { timeoutMs: number }).timeoutMs = 0; }).toThrow(TypeError);
+    expect(PYODIDE_FILES).toHaveLength(5);
+    expect(PYODIDE_FILES.every(file => Object.isFrozen(file))).toBe(true);
   });
   it('refuses a changed byte, a different version or a missing package', async () => {
     const scratch = await mkdtemp(path.join(tmpdir(), 'pyodide-pin-'));

@@ -12,17 +12,26 @@
 
 import { sha256HexOfBytes } from "../client/webCrypto";
 
+type Pin = Readonly<{ sha256: string; size: number }>;
+/** Freezes every pin as well as the list, so no code on the page can widen what is accepted. */
+function frozenPins(files: Record<string, { sha256: string; size: number }>): Readonly<Record<string, Pin>> {
+  for (const pin of Object.values(files)) Object.freeze(pin);
+  return Object.freeze(files);
+}
 /** Pinned with services/api/src/python-runner.ts (a root infrastructure test compares them). */
 export const PINNED_PYODIDE = Object.freeze({
   version: "314.0.7",
-  files: Object.freeze({
+  files: frozenPins({
     "pyodide.js": { sha256: "3141b814715a72e59b51b1b18b9ceae5bf19f7c852417e431bb0a34feadf825c", size: 18_912 },
     "pyodide.asm.mjs": { sha256: "f7cdc8ece80678ceb712f8e65ebe6d3a83203a180c399865f49612a051693635", size: 1_250_344 },
     "pyodide.asm.wasm": { sha256: "cc36e3cab04fdfc9a63ff13eb52eae2b911bf46c025cc7b281f394bd3de1d5e6", size: 9_598_218 },
     "python_stdlib.zip": { sha256: "fa1957e5777068fc4f7437f96d860ae2fbe9c19732ba06c84e004ec16dd7dd7a", size: 2_545_637 },
     "pyodide-lock.json": { sha256: "5dc2fc119108bc148c7457dc86e7675b5c87e1cafd420b9c34c1eaef7b36c010", size: 119_077 },
-  } as Record<string, { sha256: string; size: number }>),
+  }),
 });
+/** The pin of a file name, never an inherited property such as "constructor". */
+const pinOf = (name: unknown): Pin | undefined =>
+  typeof name === "string" && Object.hasOwn(PINNED_PYODIDE.files, name) ? PINNED_PYODIDE.files[name] : undefined;
 /** Sandbox of the runner frame: scripts only, never allow-same-origin. */
 export const RUNNER_FRAME_SANDBOX = "allow-scripts";
 export const RUNNER_CONFIG_PATH = "/api/python-runner";
@@ -48,22 +57,36 @@ export interface RunCallbacks { onOutput(stream: OutputStream, text: string): vo
 const RUN_STATUSES = new Set<RunStatus>(["ok", "error", "timeout", "output_limit", "memory_limit", "stopped", "crashed", "unavailable", "busy", "invalid"]);
 const SAFE_PATH = /^\/api\/python-runner\/[A-Za-z0-9._/-]{1,120}$/;
 
-/** The server's runner description, accepted only when it names exactly the pinned files. */
+/**
+ * The server's runner description, accepted only when it names exactly the pinned files. The
+ * result is a frozen copy of the checked fields: changing the value passed in, or the result,
+ * cannot change what a later run uses.
+ */
 export function acceptRunnerConfig(value: unknown): RunnerConfig | null {
   if (!value || typeof value !== "object") return null;
   const config = value as Partial<RunnerConfig> & { status?: unknown };
-  if (config.status !== "ready" || typeof config.frameUrl !== "string" || !SAFE_PATH.test(config.frameUrl) || config.runtime?.version !== PINNED_PYODIDE.version) return null;
+  const runtime = config.runtime, license = runtime?.license;
+  if (config.status !== "ready" || typeof config.frameUrl !== "string" || !SAFE_PATH.test(config.frameUrl) || runtime?.version !== PINNED_PYODIDE.version) return null;
+  if (typeof runtime.name !== "string" || typeof license?.spdx !== "string" || typeof license.source !== "string") return null;
   const names = Object.keys(PINNED_PYODIDE.files);
   if (!Array.isArray(config.assets) || config.assets.length !== names.length) return null;
+  const assets: RunnerConfig["assets"] = [];
   for (const asset of config.assets) {
-    const pin = PINNED_PYODIDE.files[asset?.name];
+    const pin = pinOf(asset?.name);
     if (!pin || asset.sha256 !== pin.sha256 || asset.size !== pin.size || typeof asset.url !== "string" || !SAFE_PATH.test(asset.url)) return null;
+    assets.push(Object.freeze({ name: asset.name, sha256: pin.sha256, size: pin.size, url: asset.url }));
   }
-  if (new Set(config.assets.map((asset) => asset.name)).size !== names.length) return null;
+  if (new Set(assets.map((asset) => asset.name)).size !== names.length) return null;
   const limits = config.limits;
   const positive = (n: unknown) => typeof n === "number" && Number.isSafeInteger(n) && n > 0;
   if (!limits || !positive(limits.timeoutMs) || !positive(limits.outputBytes) || !positive(limits.memoryBytes) || !positive(limits.sourceBytes)) return null;
-  return config as RunnerConfig;
+  return Object.freeze({
+    status: "ready",
+    frameUrl: config.frameUrl,
+    assets: Object.freeze(assets) as RunnerConfig["assets"],
+    limits: Object.freeze({ timeoutMs: limits.timeoutMs, outputBytes: limits.outputBytes, memoryBytes: limits.memoryBytes, sourceBytes: limits.sourceBytes }),
+    runtime: Object.freeze({ name: runtime.name, version: runtime.version, license: Object.freeze({ spdx: license.spdx, source: license.source }) }),
+  });
 }
 
 let configRequest: Promise<RunnerConfig | null> | null = null;
@@ -100,7 +123,8 @@ export function browserDependencies(): RunnerDependencies | null {
 /** Fetches every pinned file and checks size and SHA-256 against the pins in this bundle. */
 export async function fetchVerifiedFiles(config: RunnerConfig, deps: Pick<RunnerDependencies, "fetch" | "digest">) {
   const entries = await Promise.all(config.assets.map(async (asset) => {
-    const pin = PINNED_PYODIDE.files[asset.name]!;
+    const pin = pinOf(asset.name);
+    if (!pin) throw new Error("asset_integrity");
     const response = await deps.fetch(asset.url, { credentials: "omit" });
     if (!response.ok) throw new Error("asset_unavailable");
     const bytes = await response.arrayBuffer();

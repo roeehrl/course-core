@@ -19,14 +19,15 @@ import { runnerFrameContentSecurityPolicy, runnerFrameDocument } from './python-
  * Code assessments are graded only by the registered server evaluator (Docker sandbox).
  */
 export const PYODIDE_VERSION = '314.0.7';
-export const PYODIDE_LICENSE = { spdx: 'MPL-2.0', source: 'https://github.com/pyodide/pyodide/tree/314.0.7' } as const;
-export const PYODIDE_FILES: readonly { name: string; sha256: string; size: number }[] = Object.freeze([
+export const PYODIDE_LICENSE = Object.freeze({ spdx: 'MPL-2.0', source: 'https://github.com/pyodide/pyodide/tree/314.0.7' } as const);
+/** Each pin is frozen as well as the list, so no code in the process can change what is served. */
+export const PYODIDE_FILES: readonly Readonly<{ name: string; sha256: string; size: number }>[] = Object.freeze([
   { name: 'pyodide.js', sha256: '3141b814715a72e59b51b1b18b9ceae5bf19f7c852417e431bb0a34feadf825c', size: 18_912 },
   { name: 'pyodide.asm.mjs', sha256: 'f7cdc8ece80678ceb712f8e65ebe6d3a83203a180c399865f49612a051693635', size: 1_250_344 },
   { name: 'pyodide.asm.wasm', sha256: 'cc36e3cab04fdfc9a63ff13eb52eae2b911bf46c025cc7b281f394bd3de1d5e6', size: 9_598_218 },
   { name: 'python_stdlib.zip', sha256: 'fa1957e5777068fc4f7437f96d860ae2fbe9c19732ba06c84e004ec16dd7dd7a', size: 2_545_637 },
   { name: 'pyodide-lock.json', sha256: '5dc2fc119108bc148c7457dc86e7675b5c87e1cafd420b9c34c1eaef7b36c010', size: 119_077 },
-]);
+].map(pin => Object.freeze(pin)));
 /** Defaults a host may tighten. The frame clamps whatever it is sent to 0.1-60 s and 256 B-1 MiB. */
 export const PYTHON_RUN_LIMITS = Object.freeze({ timeoutMs: 10_000, outputBytes: 65_536, memoryBytes: 256 * 1024 * 1024, sourceBytes: 64_000 });
 
