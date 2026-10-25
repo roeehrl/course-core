@@ -1957,9 +1957,10 @@ html:has(.connected-host.is-compact) body {
     animation: connected-connection-in 0.18s ease-out;
   }
 }
+/* It slides in without fading, so its text keeps full contrast from the first frame (an
+ * accessibility check run while it faded in measured its text at 4.1:1). */
 @keyframes connected-connection-in {
   from {
-    opacity: 0;
     transform: translateY(8px);
   }
 }
