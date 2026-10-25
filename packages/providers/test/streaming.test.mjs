@@ -84,11 +84,12 @@ test('Google stream: a non-SSE answer, malformed data and an oversized body are 
   await assert.rejects(big.client.tutorStream(request(), {}, () => {}), code('OUTPUT_TOO_LARGE'));
 });
 
-test('Google stream: a stalled stream times out at the attempt bound', async () => {
+test('Google stream: a stream that stalls after it began ends at the idle bound (default: the attempt bound) with the usage it reported', async () => {
   const stalled = new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk('Hi').data)}\n\n`)); } }),
     { headers: { 'content-type': 'text/event-stream' } });
   const h = harness([stalled]);
-  await assert.rejects(h.client.tutorStream(request(), {}, () => {}), error => code('TIMEOUT')(error) && error.submission === 'unknown');
+  await assert.rejects(h.client.tutorStream(request(), {}, () => {}), error => code('STREAM_STALLED')(error) && error.submission === 'unknown'
+    && error.usage.attempts[0].outcome === 'partial' && error.usage.attempts[0].tokens.total === 14);
 });
 
 function anthropic(steps) {
@@ -164,10 +165,11 @@ test('router: tutorStream streams through a streaming port, falls back to tutor 
   assert.throws(() => registry.registerAdapter({ providerId: 'other', validateModel() {}, ports: { tutoring: { tutor() {}, tutorStream: 'not a function' } } }), code('INVALID_CONFIG'));
 });
 
-test('stream: a response that never begins times out at the attempt bound, unknown and not replayed', async () => {
+test('stream: a response that never begins ends at the first-byte bound (default: the attempt bound), unknown and not replayed', async () => {
   const h = harness([(_url, init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))]);
   const started = Date.now();
-  await assert.rejects(h.client.tutorStream(request(), { timeoutMs: 60_000 }, () => {}), error => code('TIMEOUT')(error) && error.submission === 'unknown');
+  await assert.rejects(h.client.tutorStream(request(), { timeoutMs: 60_000 }, () => {}), error => code('NO_RESPONSE')(error) && error.submission === 'unknown'
+    && error.usage.attempts[0].status === null && error.usage.attempts[0].outcome === 'unknown');
   assert.ok(Date.now() - started < 1_000); assert.equal(h.calls.length, 1);
 });
 

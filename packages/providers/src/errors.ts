@@ -4,7 +4,8 @@ export type ErrorCode = 'INVALID_INPUT' | 'INVALID_CONFIG' | 'UNKNOWN_MODEL' | '
   | 'MISSING_CREDENTIAL' | 'AUTHENTICATION' | 'PERMISSION_DENIED' | 'NOT_FOUND' | 'THROTTLED'
   | 'UPSTREAM_UNAVAILABLE' | 'UPSTREAM_REJECTED' | 'NETWORK_ERROR' | 'TIMEOUT' | 'CANCELLED'
   | 'INVALID_RESPONSE' | 'OUTPUT_TOO_LARGE' | 'BLOCKED' | 'INCOMPLETE_OUTPUT' | 'OPERATION_FAILED'
-  | 'POLL_LIMIT' | 'SERVER_ONLY' | 'SUBSCRIPTION_EXPIRED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' | 'SUBSCRIPTION_OVERAGE_REQUIRED';
+  | 'POLL_LIMIT' | 'SERVER_ONLY' | 'SUBSCRIPTION_EXPIRED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' | 'SUBSCRIPTION_OVERAGE_REQUIRED'
+  | 'NO_RESPONSE' | 'STREAM_STALLED';
 const messages: Record<ErrorCode, string> = {
   INVALID_INPUT: 'Invalid provider input.', INVALID_CONFIG: 'Invalid provider configuration.', UNKNOWN_MODEL: 'Model is not registered.',
   ADAPTER_UNAVAILABLE: 'The configured provider adapter is not registered.',
@@ -12,6 +13,7 @@ const messages: Record<ErrorCode, string> = {
   AUTHENTICATION: 'Provider authentication failed.', PERMISSION_DENIED: 'Provider denied permission.', NOT_FOUND: 'Provider resource was not found.',
   THROTTLED: 'Provider throttled the request.', UPSTREAM_UNAVAILABLE: 'Provider is temporarily unavailable.', UPSTREAM_REJECTED: 'Provider rejected the request.',
   NETWORK_ERROR: 'Provider transport failed.', TIMEOUT: 'Provider request timed out.', CANCELLED: 'Local provider request was aborted.',
+  NO_RESPONSE: 'Provider sent no reply before the first-byte timeout.', STREAM_STALLED: 'Provider stopped sending the reply before it finished.',
   INVALID_RESPONSE: 'Provider response failed validation.', OUTPUT_TOO_LARGE: 'Provider output exceeds the configured bound.',
   BLOCKED: 'Provider blocked generation.', INCOMPLETE_OUTPUT: 'Provider output did not finish successfully.', OPERATION_FAILED: 'Remote media operation failed.',
   POLL_LIMIT: 'Bounded polling ended before the remote operation completed.', SERVER_ONLY: 'Provider credentials may only be used on a Node server.',
@@ -41,6 +43,34 @@ export function ensure(condition: unknown, code: ErrorCode = 'INVALID_INPUT'): a
 }
 export function safeError(error: unknown): ProviderError {
   return error instanceof ProviderError ? error : new ProviderError('NETWORK_ERROR', { submission: 'unknown' });
+}
+/**
+ * Errors of the connection phase: the socket or TLS session to the provider never opened, so the
+ * HTTP request (its headers carry the credential) was never written and nothing can have been
+ * accepted. A reset or close after connecting is not listed: the request may have been sent.
+ * Node's fetch reports these as a TypeError whose `cause` (or each error of an AggregateError
+ * cause, for several addresses) carries the system or undici code.
+ */
+const CONNECT_PHASE_CODES: ReadonlySet<string> = new Set(['ENOTFOUND', 'EAI_AGAIN', 'EAI_NONAME', 'EAI_FAIL', 'ECONNREFUSED', 'EHOSTUNREACH',
+  'ENETUNREACH', 'EADDRNOTAVAIL', 'UND_ERR_CONNECT_TIMEOUT', 'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'ERR_TLS_CERT_ALTNAME_INVALID',
+  'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'ERR_SSL_WRONG_VERSION_NUMBER', 'ERR_TLS_PROTOCOL_VERSION_CONFLICT']);
+export function connectionNeverOpened(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false;
+  const cause = (error as { cause?: unknown }).cause;
+  const codes = (value: unknown): string[] => {
+    if (value instanceof AggregateError) return value.errors.flatMap(codes);
+    const code = (value as { code?: unknown } | null)?.code;
+    return typeof code === 'string' ? [code] : [];
+  };
+  const found = cause instanceof AggregateError ? cause.errors.flatMap(codes) : codes(cause);
+  return found.length > 0 && found.every(code => CONNECT_PHASE_CODES.has(code));
+}
+/** A call's submission once its attempts are recorded: not sent only while no attempt could have
+ * reached the provider (none was made, or each one's connection never opened). */
+export function callSubmission(usage: UsageReceipt, error: ProviderError): ProviderError['submission'] {
+  if (error.submission !== 'not_sent') return error.submission;
+  return usage.attempts.every(attempt => attempt.outcome === 'not_sent') ? 'not_sent' : 'unknown';
 }
 /**
  * HTTP statuses that both supported providers document as a refusal of the request itself
@@ -84,7 +114,7 @@ export function definiteRejection(error: unknown): DefiniteRejection | null {
   return { status: error.status, retryable, retryAfterMs: retryable ? error.retryAfterMs : null };
 }
 export function classifyRetry(error: ProviderError, method: 'GET' | 'POST') {
-  const transient = ['THROTTLED', 'UPSTREAM_UNAVAILABLE', 'NETWORK_ERROR', 'TIMEOUT'].includes(error.code);
+  const transient = ['THROTTLED', 'UPSTREAM_UNAVAILABLE', 'NETWORK_ERROR', 'TIMEOUT', 'NO_RESPONSE', 'STREAM_STALLED'].includes(error.code);
   return { transient, automaticRetryAllowed: transient && (method === 'GET' || error.code === 'THROTTLED'),
     mayDuplicateGeneration: method === 'POST' && error.submission === 'unknown' };
 }

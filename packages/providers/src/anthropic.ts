@@ -4,7 +4,7 @@ import { callOptionsSchema, id, textRequestSchema, type AccountingInput, type As
   type ResearchProvider, type StructuredAssessmentProvider, type TextDeltaListener, type TextRequest, type TutoringOutput, type TutoringProvider, type UsageReceipt, MIN_CUT_SHORT_CHARACTERS } from './contracts.js';
 import { requireAnthropicModel, type AnthropicResolvedModel } from './anthropic-contracts.js';
 import { anthropicMessage, anthropicResearch, anthropicStream, anthropicText, anthropicTokens, anthropicTutoring } from './anthropic-response.js';
-import { classifyHttpError, ensure, ProviderError, safeError } from './errors.js';
+import { callSubmission, classifyHttpError, ensure, ProviderError, safeError } from './errors.js';
 import { JsonTransport, type JsonProtocol, type TransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -116,7 +116,7 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
       const safe = safeError(error);
       const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
         ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
-        submission: usage.attempts.length > 0 && safe.submission === 'not_sent' ? 'unknown' : safe.submission });
+        submission: callSubmission(usage, safe) });
       sanitized.usage = structuredClone(usage);
       throw sanitized;
     }
@@ -145,7 +145,7 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
       const safe = safeError(error);
       const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
         ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
-        submission: usage.attempts.length > 0 && safe.submission === 'not_sent' ? 'unknown' : safe.submission });
+        submission: callSubmission(usage, safe) });
       sanitized.usage = structuredClone(usage);
       throw sanitized;
     }

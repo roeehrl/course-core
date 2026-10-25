@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { counter, transportSettingsSchema, type CallOptions, type Operation, type TelemetryEvent,
+import { counter, transportSettingsSchema, type AttemptOutcome, type CallOptions, type Operation, type TelemetryEvent,
   type TokenUsage, type TransportSettings, type UsageReceipt } from './contracts.js';
-import { classifyHttpError, classifyRetry, ensure, ProviderError, safeError } from './errors.js';
+import { classifyHttpError, classifyRetry, connectionNeverOpened, ensure, ProviderError, safeError, type ErrorCode } from './errors.js';
 import { parse } from './validation.js';
 import { boundedJson } from './json.js';
 
@@ -32,12 +32,13 @@ export function interactionUsage(input: unknown): TokenUsage {
     cachedInput: u.total_cached_tokens ?? null, thoughts: u.total_thought_tokens ?? null, toolInput: u.total_tool_use_tokens ?? null };
 }
 
-export function abortScope(parent: AbortSignal | undefined, timeoutMs: number) {
+/** An abort scope under `parent` with its own deadline; `code` names what its deadline means. */
+export function abortScope(parent: AbortSignal | undefined, timeoutMs: number, code: ErrorCode = 'TIMEOUT') {
   const controller = new AbortController(); let timeout = false;
   const forward = () => controller.abort();
   if (parent?.aborted) forward(); else parent?.addEventListener('abort', forward, { once: true });
   const timer = setTimeout(() => { timeout = true; controller.abort(); }, timeoutMs);
-  return { signal: controller.signal, error: () => new ProviderError(timeout ? 'TIMEOUT' : 'CANCELLED', { submission: 'unknown' }),
+  return { signal: controller.signal, error: () => new ProviderError(timeout ? code : 'CANCELLED', { submission: 'unknown' }),
     /** Ends this scope's own deadline; the parent still aborts it. */
     extend: () => clearTimeout(timer),
     dispose: () => { clearTimeout(timer); parent?.removeEventListener('abort', forward); } };
@@ -156,16 +157,23 @@ export class JsonTransport {
       const key = await this.credential(total.signal, total.error);
       const encoded = body === undefined ? undefined : JSON.stringify(body);
       for (let attempt = 1; attempt <= this.settings.maxAttempts; attempt++) {
-        const scope = abortScope(total.signal, Math.min(this.settings.attemptTimeoutMs, totalMs));
-        const record = { attempt, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
+        const attemptMs = Math.min(this.settings.attemptTimeoutMs, totalMs);
+        const scope = abortScope(total.signal, attemptMs);
+        // A whole reply's first byte is the finished response, so a first-byte bound applies only
+        // when the caller set one; it ends as NO_RESPONSE.
+        const first = options.firstByteTimeoutMs !== undefined && options.firstByteTimeoutMs < attemptMs
+          ? abortScope(scope.signal, options.firstByteTimeoutMs, 'NO_RESPONSE') : null;
+        const record = { attempt, status: null as number | null, outcome: 'unknown' as AttemptOutcome, tokens: emptyTokens() };
         usage.attempts.push(record);
         let failure: ProviderError | undefined;
-        const scopeError = () => total.signal.aborted ? total.error() : scope.error();
+        const scopeError = () => total.signal.aborted ? total.error() : scope.signal.aborted ? scope.error() : first ? first.error() : scope.error();
+        const sending = first?.signal ?? scope.signal;
         try {
           const response = await abortable(() => this.#fetch(`${this.#protocol.origin}${path}`, {
             method, headers: { ...this.#protocol.headers(key), 'Content-Type': 'application/json', Accept: 'application/json' },
-            ...(encoded === undefined ? {} : { body: encoded }), signal: scope.signal, redirect: 'error',
-          }), scope.signal, scopeError);
+            ...(encoded === undefined ? {} : { body: encoded }), signal: sending, redirect: 'error',
+          }).catch(notOpened), sending, scopeError);
+          first?.extend();
           record.status = response.status;
           if (!response.ok) {
             const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
@@ -174,19 +182,19 @@ export class JsonTransport {
               : (void response.body?.cancel().catch(() => {}), undefined);
             throw refined ?? classifyHttpError(response.status, retryAfterMs);
           }
-          const data = await readJson(response, maxBytes, scope.signal, scopeError);
+          const data = await readJson(response, maxBytes, sending, scopeError);
           record.tokens = this.#protocol.tokens(data);
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
           this.emit(usage.operation, attempt, 'response', response.status, null, start);
           return data;
         } catch (error) {
-          const sanitized = safeError(error);
+          const sanitized = safeError(error), unopened = error instanceof NotOpened;
           failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }),
             ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }),
-            submission: sanitized.submission === 'rejected' ? 'rejected' : 'unknown' });
-          usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : 'unknown' };
+            submission: sanitized.submission === 'rejected' ? 'rejected' : unopened ? 'not_sent' : 'unknown' });
+          usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : unopened ? 'not_sent' : 'unknown' };
           this.emit(usage.operation, attempt, 'error', failure.status, failure.code, start);
-        } finally { scope.dispose(); }
+        } finally { first?.dispose(); scope.dispose(); }
         const retry = classifyRetry(failure!, method);
         if (!retry.automaticRetryAllowed || attempt >= this.settings.maxAttempts || total.signal.aborted) throw failure;
         const backoff = Math.min(this.settings.maxDelayMs, this.settings.baseDelayMs * 2 ** (attempt - 1));
@@ -204,8 +212,15 @@ export class JsonTransport {
    * A streamed POST answered with Server-Sent Events. Retries follow `request` and happen only
    * before any event arrived (an explicit throttle answered with an error status); once the
    * stream has started nothing is ever replayed, and a failure afterwards leaves the outcome
-   * unknown. The whole stream is bounded by the total timeout and `maxBytes`, and the wait for
-   * each next chunk by the attempt timeout.
+   * unknown. Bounds, each below the total timeout:
+   * - first byte (`firstByteTimeoutMs`, at most and by default the attempt timeout): from
+   *   sending until the reply's first chunk; ends as NO_RESPONSE.
+   * - idle (`idleTimeoutMs`, at most and by default the attempt timeout): between two chunks once
+   *   the reply has begun; ends as STREAM_STALLED.
+   * - total (`timeoutMs`): the whole stream; ends as TIMEOUT. The caller's signal ends it as CANCELLED.
+   * An attempt whose connection never opened is `not_sent`. One that stopped part way after the
+   * provider reported its cumulative usage (the sink's counters) is `partial` with that usage;
+   * otherwise its outcome is `unknown`.
    */
   async stream(path: string, body: unknown, usage: UsageReceipt, maxBytes: number, options: CallOptions, sink: StreamSink): Promise<void> {
     ensure(this.#protocol.path(path, 'POST'), 'INVALID_INPUT');
@@ -216,40 +231,44 @@ export class JsonTransport {
       const key = await this.credential(total.signal, total.error);
       const encoded = JSON.stringify(body);
       for (let attempt = 1; attempt <= this.settings.maxAttempts; attempt++) {
-        const record = { attempt, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
+        const record = { attempt, status: null as number | null, outcome: 'unknown' as AttemptOutcome, tokens: emptyTokens() };
         usage.attempts.push(record);
         let failure: ProviderError | undefined;
-        // The response must begin within the attempt timeout; after that the stream may run until
-        // the total timeout, as long as each next chunk comes within the attempt timeout.
         const attemptMs = Math.min(this.settings.attemptTimeoutMs, totalMs);
-        const scope = abortScope(total.signal, attemptMs);
+        // The caller may shorten either bound below the attempt timeout, never lengthen it.
+        const firstByteMs = Math.min(options.firstByteTimeoutMs ?? attemptMs, attemptMs), idleMs = Math.min(options.idleTimeoutMs ?? attemptMs, attemptMs);
+        const scope = abortScope(total.signal, firstByteMs, 'NO_RESPONSE');
         const scopeError = () => total.signal.aborted ? total.error() : scope.error();
+        let began = false;
         try {
           const response = await abortable(() => this.#fetch(`${this.#protocol.origin}${path}`, {
             method: 'POST', headers: { ...this.#protocol.headers(key), 'Content-Type': 'application/json', Accept: 'text/event-stream' },
             body: encoded, signal: scope.signal, redirect: 'error',
-          }), scope.signal, scopeError);
-          scope.extend();
+          }).catch(notOpened), scope.signal, scopeError);
           record.status = response.status;
           if (!response.ok) {
+            scope.extend();
             const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
             const refined = this.#protocol.refineError
               ? this.#protocol.refineError(response.status, await errorBody(response, total.signal, scopeError), retryAfterMs)
               : (void response.body?.cancel().catch(() => {}), undefined);
             throw refined ?? classifyHttpError(response.status, retryAfterMs);
           }
-          try { await readEvents(response, maxBytes, attemptMs, scope.signal, scopeError, sink); sink.end?.(); }
+          // The first chunk ends the first-byte bound; from then on each chunk has the idle bound.
+          try { await readEvents(response, maxBytes, idleMs, scope.signal, scopeError, sink, () => { began = true; scope.extend(); }); sink.end?.(); }
           finally { try { record.tokens = sink.tokens(); } catch { /* counters stay unknown */ } }
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
           this.emit(usage.operation, attempt, 'response', response.status, null, start);
           return;
         } catch (error) {
-          const sanitized = safeError(error);
+          const sanitized = safeError(error), unopened = error instanceof NotOpened;
           // Anything after the response began (including a refusal the stream reported) may have run.
+          const submission = sanitized.submission === 'rejected' && record.status !== null && record.status >= 400 ? 'rejected' : unopened ? 'not_sent' : 'unknown';
           failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }),
-            ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }),
-            submission: sanitized.submission === 'rejected' && record.status !== null && record.status >= 400 ? 'rejected' : 'unknown' });
-          usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : 'unknown' };
+            ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }), submission });
+          const reported = began && record.tokens.input !== null && (record.tokens.output !== null || record.tokens.total !== null);
+          usage.attempts[usage.attempts.length - 1] = { ...record,
+            outcome: submission === 'rejected' ? 'rejected' : submission === 'not_sent' ? 'not_sent' : reported ? 'partial' : 'unknown' };
           this.emit(usage.operation, attempt, 'error', failure.status, failure.code, start);
         } finally { scope.dispose(); }
         const retry = classifyRetry(failure, 'POST');
@@ -267,6 +286,14 @@ export class JsonTransport {
   }
 }
 
+/** A fetch that failed before its connection opened (connectionNeverOpened): nothing was sent. */
+class NotOpened extends ProviderError {
+  constructor() { super('NETWORK_ERROR', { submission: 'not_sent' }); }
+}
+function notOpened(error: unknown): never {
+  throw connectionNeverOpened(error) ? new NotOpened() : error;
+}
+
 /** Receives one parsed Server-Sent Event at a time. `event` throws a ProviderError to end the
  * stream (an invalid chunk or an error event); `end` throws when the stream closed before the
  * provider finished (so the outcome stays unknown); `tokens` reports the attempt's usage once it
@@ -279,7 +306,7 @@ export interface StreamSink {
 }
 /** One SSE body read with fixed bounds: total bytes, one event's bytes, and the wait for the next
  * chunk. Each `data:` payload must be bounded JSON. Comments and unknown fields are ignored. */
-async function readEvents(response: Response, maxBytes: number, idleMs: number, signal: AbortSignal, error: () => ProviderError, sink: StreamSink) {
+async function readEvents(response: Response, maxBytes: number, idleMs: number, signal: AbortSignal, error: () => ProviderError, sink: StreamSink, began: () => void) {
   const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
   ensure(contentType === 'text/event-stream', 'INVALID_RESPONSE');
   ensure(response.body, 'INVALID_RESPONSE');
@@ -303,13 +330,17 @@ async function readEvents(response: Response, maxBytes: number, idleMs: number, 
     if (field === 'event') name = value.slice(0, 64);
     else if (field === 'data') data.push(value);
   };
+  let first = true;
   try {
     while (true) {
+      // Until the first chunk the caller's first-byte bound (on `signal`) applies; then the idle bound.
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const idle = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ProviderError('TIMEOUT', { submission: 'unknown' })), idleMs); });
+      const idle = first ? null : new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ProviderError('STREAM_STALLED', { submission: 'unknown' })), idleMs); });
       let part: ReadableStreamReadResult<Uint8Array>;
-      try { part = await Promise.race([abortable(() => reader.read(), signal, error), idle]); } finally { clearTimeout(timer); }
+      try { part = await (idle ? Promise.race([abortable(() => reader.read(), signal, error), idle]) : abortable(() => reader.read(), signal, error)); }
+      finally { clearTimeout(timer); }
       if (part.done) break;
+      if (first) { first = false; began(); }
       size += part.value.byteLength; ensure(size <= maxBytes, 'OUTPUT_TOO_LARGE');
       try { buffer += decoder.decode(part.value, { stream: true }); } catch { throw new ProviderError('INVALID_RESPONSE'); }
       let cut: number;

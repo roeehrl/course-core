@@ -147,9 +147,16 @@ its errors are those of `tutor`: the answer counts only when the stream finished
 `STOP`, Anthropic `end_turn` then `message_stop`); a block in any chunk or a `refusal` stop is
 `BLOCKED`; an `error` event or a broken stream after it began is a failure with an unknown
 outcome and is never replayed. An explicit throttle before any event is retried like `tutor`.
-The whole stream is bounded by `maxResponseBytes` and the total timeout, the wait for each next
-chunk by the attempt timeout. `ProviderRouter.tutorStream` falls back to `tutor` for an adapter
-without streaming. Streamed text is unverified model output: hosts check it before showing it.
+The whole stream is bounded by `maxResponseBytes` and the total timeout. Two shorter bounds
+apply below it, each defaulting to the attempt timeout: `firstByteTimeoutMs`, from sending to the
+reply's first chunk (it ends as `NO_RESPONSE`), and `idleTimeoutMs`, between two chunks once the
+reply began (`STREAM_STALLED`). The caller's signal ends it as `CANCELLED`, and aborting closes the
+provider connection. An attempt that stopped part way after the provider reported its cumulative
+usage (Google sends `usageMetadata` with each chunk) is recorded with outcome `partial` and that
+usage, which `priceUsage` prices; Anthropic reports the output count only in `message_delta` at
+the end, so a stream stopped before it keeps an unknown output count and outcome `unknown`.
+`ProviderRouter.tutorStream` falls back to `tutor` for an adapter without streaming. Streamed text
+is unverified model output: hosts check it before showing it.
 
 Text history starts and ends with a user message and alternates `user`/`assistant`.
 System instructions are separate. Unknown fields, empty history, non-text content and
@@ -295,7 +302,14 @@ cancellation contract, so the package does not invent one.
 
 - Public calls accept `AbortSignal` and a bounded timeout. HTTP timeout includes credential
   resolution, attempts, body reads and backoff; each attempt has its own shorter bound.
-  A fetch that ignores the signal still cannot keep the caller waiting indefinitely.
+  A fetch that ignores the signal still cannot keep the caller waiting indefinitely. An optional
+  `firstByteTimeoutMs` also bounds the wait for a whole reply's response (`NO_RESPONSE`); a whole
+  reply's first byte is its finished response, so set it only when the reply must finish that fast.
+- An attempt whose connection never opened (Node's fetch `TypeError` whose cause is a name
+  lookup failure, a refused connection, a connect timeout or a TLS failure) is recorded as
+  `not_sent`: the request, whose headers carry the credential, was never written. The error's
+  `submission` stays `not_sent` while every attempt is, so a host may release that call's
+  reservation and ask again. A reset or close after connecting is `unknown`.
 - Retry classification distinguishes authentication/permission/client errors, throttling,
   transient availability/network/timeouts, invalid output, provider blocking and local
   cancellation. Retries use finite attempts, exponential backoff and jitter. `Retry-After`

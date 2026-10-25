@@ -6,7 +6,7 @@ import { callOptionsSchema, id, imageRequestSchema, textRequestSchema, videoRequ
   type DownloadOptions, type VideoAsset, MAX_VIDEO_DOWNLOAD_BYTES,
   type CostEstimate, type MediaCapabilities, type MediaPrice, type TutoringOutput, MIN_CUT_SHORT_CHARACTERS, priceMediaUnits } from './contracts.js';
 import { googleVideoJobSchema, requireGoogleModel, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
-import { ensure, ProviderError, safeError } from './errors.js';
+import { callSubmission, ensure, ProviderError, safeError } from './errors.js';
 import { candidate, generationConfig, imageOutput, interactionImageOutput, operationOutput, researchOutput, responseText, streamedCandidate, tutoringText, validateOperationName } from './google-response.js';
 import { abortable, abortScope, GoogleTransport, waitAbortable, type GoogleTransportOptions } from './http.js';
 import { ModelRegistry } from './registry.js';
@@ -82,7 +82,7 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
       const safe = safeError(error);
       const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
         ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
-        submission: usage.attempts.length > 0 && safe.submission === 'not_sent' ? 'unknown' : safe.submission });
+        submission: callSubmission(usage, safe) });
       sanitized.usage = structuredClone(usage); if (job ?? safe.job) sanitized.job = structuredClone((job ?? safe.job)!);
       throw sanitized;
     }

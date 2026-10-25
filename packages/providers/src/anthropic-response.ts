@@ -132,7 +132,7 @@ const STREAM_EVENTS = new Set(['message_start', 'content_block_start', 'content_
  */
 export function anthropicStream(onText: (text: string) => void) {
   const blocks = new Map<number, { type: string; text: string }>();
-  let started = false, stopped = false, stop: string | null = null, usage: Record<string, unknown> = {};
+  let started = false, stopped = false, stop: string | null = null, usage: Record<string, unknown> = {}, counted = false;
   return {
     event(_name: string, data: Record<string, unknown>) {
       if (typeof data.type !== 'string' || !STREAM_EVENTS.has(data.type)) return;
@@ -160,13 +160,20 @@ export function anthropicStream(onText: (text: string) => void) {
         case 'message_delta':
           ensure(started, 'INVALID_RESPONSE');
           if (event.delta.stop_reason !== undefined) stop = event.delta.stop_reason;
-          if (event.usage) usage = { ...usage, ...event.usage };
+          if (event.usage) { usage = { ...usage, ...event.usage }; counted = counted || event.usage.output_tokens !== undefined; }
           return;
         case 'message_stop': ensure(started, 'INVALID_RESPONSE'); stopped = true; return;
       }
     },
     end() { ensure(stopped, 'INCOMPLETE_OUTPUT'); },
-    tokens: () => started ? anthropicTokens({ usage }) : emptyTokens(),
+    // message_start reports the input and a placeholder output count; the cumulative output count
+    // comes with message_delta. Until one arrives (a stream stopped or cut off early) the output,
+    // and so the total, are unknown rather than the placeholder.
+    tokens: () => {
+      if (!started) return emptyTokens();
+      const tokens = anthropicTokens({ usage });
+      return counted ? tokens : { ...tokens, output: null, total: null, thoughts: null };
+    },
     /** The assembled turn, for `anthropicMessage` (thinking content is not kept). */
     message(): Record<string, unknown> {
       const content = [...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) =>
