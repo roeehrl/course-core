@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { requireHostedLinux, requirePracticalBuild, runDockerGate, selectSandboxImage, verifyDockerServer, verifySandboxImage } from './sandbox-ci.mjs';
+import { WARMUP_MARKER, requireHostedLinux, requirePracticalBuild, runDockerGate, selectSandboxImage, verifyDockerServer, verifySandboxImage, warmSandboxImage, warmupArguments } from './sandbox-ci.mjs';
 
 // These are approved image identities, not evidence of execution qualification.
 const images = {
@@ -42,7 +42,7 @@ test('image selection is native and digest-only, with no tag or unknown-architec
   assert.throws(() => verifySandboxImage(selected, { os: 'linux', architecture: 'amd64', repoDigests: [images.arm64] }), /digest/);
 });
 
-test('CI preparation pulls before inspecting; the test phase never pulls and runs the real package command', async () => {
+test('CI preparation pulls before inspecting, then warms the image; the test phase never pulls and runs the real package command', async () => {
   const selection = selectSandboxImage(images, 'x64');
   const calls = [];
   // Command-planning assertions only; these do not claim a Docker test pass.
@@ -50,17 +50,43 @@ test('CI preparation pulls before inspecting; the test phase never pulls and run
     calls.push({ command, args, env });
     if (args[0] === 'info') return JSON.stringify({ os: 'linux', architecture: 'x86_64' });
     if (args[0] === 'image') return JSON.stringify({ os: 'linux', architecture: 'amd64', repoDigests: ['docker.io/library/' + images.x64] });
+    if (args[0] === 'run') return `${WARMUP_MARKER}\n`;
     return '';
   };
-  await runDockerGate('pull', selection, invoke);
-  assert.deepEqual(calls.map((call) => call.args[0]), ['info', 'pull', 'image']);
+  await runDockerGate('pull', selection, invoke, {}, {}, { log: () => {} });
+  assert.deepEqual(calls.map((call) => [call.command, call.args[0]]), [['docker', 'info'], ['docker', 'pull'], ['docker', 'image'], ['docker', 'run'], ['sync', undefined]]);
   assert.deepEqual(calls[1].args, ['pull', '--platform', 'linux/amd64', images.x64]);
+  assert.deepEqual(calls[3].args, warmupArguments(images.x64));
   calls.length = 0;
   await runDockerGate('test', selection, invoke);
   assert.deepEqual(calls.map((call) => call.command), ['docker', 'docker', 'npm']);
   assert.deepEqual(calls[2].args, ['--workspaces=false', 'run', 'test:docker']);
   assert.deepEqual(calls[2].env, { COURSE_SANDBOX_IMAGE: images.x64 });
   assert.ok(!calls.some((call) => call.args[0] === 'pull'));
+  // Warm-up belongs to preparation only: the test phase starts no container of its own.
+  assert.ok(!calls.some((call) => call.args[0] === 'run' || call.command === 'sync'));
+});
+
+test('the warm-up runs fixed code in the pinned image with the sandbox isolation, waits for it and for the disk, and fails preparation otherwise', async () => {
+  const args = warmupArguments(images.x64);
+  assert.deepEqual(args.slice(0, 3), ['run', '--rm', '--pull=never']);
+  for (const flag of ['--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user=65532:65532', '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=32', '--init'])
+    assert.ok(args.includes(flag), flag);
+  // No host path is mounted and no learner code runs: the image, then a fixed Python command.
+  assert.ok(!args.some((arg) => /^(?:-v|--volume|--mount)\b/.test(arg)));
+  assert.deepEqual(args.slice(args.indexOf(images.x64), -1), [images.x64, 'python', '-I', '-B', '-c']);
+  assert.match(args.at(-1), new RegExp(`^import importlib\\.util, json, sys; print\\("${WARMUP_MARKER}"\\)$`));
+  const selection = selectSandboxImage(images, 'x64');
+  let clock = 0;
+  const logged = [], order = [];
+  const ok = async (command, a) => { order.push(command); clock += command === 'sync' ? 40 : 1500; return a?.[0] === 'run' ? `${WARMUP_MARKER}\n` : ''; };
+  await warmSandboxImage(selection, ok, { now: () => clock, log: (line) => logged.push(line) });
+  assert.deepEqual(order, ['docker', 'sync']);
+  assert.deepEqual(logged, ['Warm-up container finished in 1500 ms; pending disk writes flushed in 40 ms']);
+  // A container that exits without the marker, a failed run and a failed sync all fail preparation.
+  await assert.rejects(warmSandboxImage(selection, async () => 'something else', { log: () => {} }), /did not run the pinned image/);
+  await assert.rejects(warmSandboxImage(selection, async (command) => { if (command === 'docker') throw new Error('docker run failed (125)'); return ''; }, { log: () => {} }), /docker run failed/);
+  await assert.rejects(warmSandboxImage(selection, async (command) => { if (command === 'sync') throw new Error('sync failed (1)'); return WARMUP_MARKER; }, { log: () => {} }), /sync failed/);
 });
 
 test('missing image, failed pulls and failed Docker tests all fail the gate', async () => {
@@ -89,14 +115,14 @@ test('a network-class pull failure is retried; a definitive one, and the inspect
         const output = pullOutputs[calls.filter((call) => call === 'pull').length - 1];
         if (output) throw Object.assign(new Error('docker pull failed (1); Docker qualification did not pass'), { output });
       }
-      return '';
+      return args[0] === 'run' ? WARMUP_MARKER : '';
     };
-    const result = runDockerGate(action, selection, invoke, {}, { wait: async (ms) => { waits.push(ms); }, log: () => {} });
+    const result = runDockerGate(action, selection, invoke, {}, { wait: async (ms) => { waits.push(ms); }, log: () => {} }, { log: () => {} });
     return { result, calls, waits };
   };
   let attempt = await run(['read tcp 10.1.0.4:52144->104.18.1.1:443: read: connection reset by peer', 'net/http: TLS handshake timeout']);
   await attempt.result;
-  assert.deepEqual(attempt.calls, ['info', 'pull', 'pull', 'pull', 'image']);
+  assert.deepEqual(attempt.calls, ['info', 'pull', 'pull', 'pull', 'image', 'run', undefined]);
   assert.equal(attempt.waits.length, 2);
   for (const output of ['manifest unknown', 'toomanyrequests: You have reached your pull rate limit.']) {
     attempt = await run([output]);
