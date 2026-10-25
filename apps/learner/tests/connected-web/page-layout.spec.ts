@@ -7,7 +7,7 @@ import { expect, test, type Page } from "./health";
 
 const LABELS = {
   en: { open: "Open course", start: "Start course", next: "Continue learning →", close: "Close companion", lesson: "Minimum" },
-  he: { open: "פתיחת הקורס", start: "התחלת הקורס", next: "המשך למידה ←", close: "סגירת המלווה", lesson: "Minimum" },
+  he: { open: "פתיחת הקורס", start: "התחלת הקורס", next: "המשך למידה ←", close: "סגירת המנחה", lesson: "Minimum" },
 } as const;
 const PAGE_BACKGROUND = "rgb(248, 248, 242)";
 
@@ -71,7 +71,7 @@ async function buttonClearsContent(page: Page, where: string) {
   const trigger = page.locator(".connected-companion-trigger");
   if (!(await trigger.isVisible())) {
     // Desktop: the companion is a pane; collapse it so its floating button shows.
-    await page.getByRole("button", { name: /^(Close companion|סגירת המלווה)$/ }).click();
+    await page.getByRole("button", { name: /^(Close companion|סגירת המנחה)$/ }).click();
     await expect(trigger).toBeVisible();
   }
   const overlap = await page.evaluate(() => {
