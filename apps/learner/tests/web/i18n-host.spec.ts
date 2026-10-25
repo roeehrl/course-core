@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { trackedHebrew } from "../hebrewText";
 import { connectedSnapshot } from "../connectedFixtures";
 
 /* The connected host, lesson, passkeys and demo app in Hebrew and under the
@@ -141,6 +142,8 @@ test("the demo app switches to Hebrew and passes the pseudo-locale check", async
   await expect(page.getByText("קורס הדגמה · התקדמות מקומית")).toBeVisible();
   await expectNoOverflowAtWidths(page);
   await expectAccessible(page);
+  // Hebrew labels (the roadmap's eyebrows) are not letter-spaced or set in capitals.
+  expect(await trackedHebrew(page.locator("body"))).toEqual([]);
 
   await page.goto("/demo?locale=en-XA");
   await expect(page.getByRole("button", { name: /⟦/ }).first()).toBeVisible();

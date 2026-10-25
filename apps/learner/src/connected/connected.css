@@ -2545,6 +2545,21 @@ html:has(.connected-host:not(.is-compact)) {
   display: inline-block;
   transform: scaleX(-1);
 }
+/* Hebrew has no capitals, and letter-spacing pulls its words apart: a label set in tracked
+   capitals for Latin script keeps normal spacing in Hebrew. Every rule in this stylesheet that
+   sets a positive letter-spacing or a text-transform has its selector here with :lang(he)
+   (tests/cssStructure.test.ts checks it). */
+.connected-kicker:lang(he),
+.connected-part-top:lang(he),
+.connected-eyebrow:lang(he),
+.connected-sources p:lang(he),
+.connected-resources > summary span:lang(he),
+.connected-menu-heading:lang(he),
+.connected-now-next dt:lang(he),
+.connected-unverified > summary:lang(he) {
+  letter-spacing: 0;
+  text-transform: none;
+}
 .connected-locale-switcher {
   display: flex;
   align-items: center;

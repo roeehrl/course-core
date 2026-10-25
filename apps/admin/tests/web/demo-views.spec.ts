@@ -3,6 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
 import { fieldIconOverlaps } from "../fieldIcons";
+import { trackedHebrew } from "../hebrewText";
 
 /** Every view of the public demo, in English and Hebrew. The demo client stands in for the
  * answer keys, allowances, media, supervision, platform and integrations ports with fictional
@@ -79,6 +80,9 @@ for (const locale of ["en", "he"] as const)
       expect(
         await fieldIconOverlaps(page.locator("main"), `${name}: `),
       ).toEqual([]);
+      // Hebrew labels are not letter-spaced or case-transformed (sidebar and bar included).
+      if (locale === "he")
+        expect(await trackedHebrew(page.locator("body")), name).toEqual([]);
       expect(
         (
           await new AxeBuilder({ page })

@@ -2,7 +2,7 @@ import React from "react";
 import type { SourceReference } from "@course-core/sdk";
 import { Text, View } from "react-native";
 import { useT } from "../i18n";
-import { styles } from "./ui";
+import { Eyebrow, styles } from "./ui";
 export interface SourceLinksProps {
   sources: readonly SourceReference[];
   sourceIds?: readonly string[];
@@ -15,7 +15,7 @@ export function SourceLinks({ sources, sourceIds }: SourceLinksProps) {
     : sources;
   return selected.length ? (
     <View style={{ gap: 8 }}>
-      <Text style={styles.eyebrow}>{t("sourceLinks.title")}</Text>
+      <Eyebrow>{t("sourceLinks.title")}</Eyebrow>
       {selected.map((source) => (
         <Text key={source.id} style={styles.small}>
           {source.title}

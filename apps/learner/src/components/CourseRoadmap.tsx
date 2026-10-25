@@ -7,7 +7,7 @@ import type {
   Lesson,
 } from "../domain/types";
 import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
-import { Badge, Button, colors, styles } from "./ui";
+import { Badge, Button, colors, Eyebrow, styles } from "./ui";
 import type { PolicyCoverage } from "../client/policyClient";
 
 /** What the roadmap shows for one lesson. Under review and optional detour are
@@ -101,7 +101,7 @@ export function CourseRoadmap({
   return (
     <View style={{ gap: 28 }} testID="course-roadmap">
       <View style={{ gap: 14 }}>
-        <Text style={styles.eyebrow}>{t("courseRoadmap.journey")}</Text>
+        <Eyebrow>{t("courseRoadmap.journey")}</Eyebrow>
         <Text
           accessibilityRole="header"
           style={[local.hero, compact && { fontSize: 38, lineHeight: 44 }]}
@@ -132,9 +132,9 @@ export function CourseRoadmap({
           (side by side, the button stretched into a tall square). */}
       <View style={[local.resume, compact && { flexDirection: "column", flexWrap: "nowrap", alignItems: "stretch", padding: 20, gap: 16 }]}>
         <View style={compact ? { gap: 6, alignSelf: "flex-start" } : { flex: 1, minWidth: 150, gap: 6 }}>
-          <Text style={styles.eyebrow}>
+          <Eyebrow>
             {resume ? t("courseRoadmap.resume.eyebrow") : t("courseRoadmap.finished.eyebrow")}
-          </Text>
+          </Eyebrow>
           <Text style={styles.heading}>
             {resume?.title ?? t("courseRoadmap.finished.title")}
           </Text>
@@ -202,7 +202,7 @@ export function CourseRoadmap({
             <View style={styles.spread}>
               <View style={{ flex: 1, gap: 5 }}>
                 {section.subtitle ? (
-                  <Text style={styles.eyebrow}>{section.subtitle}</Text>
+                  <Eyebrow>{section.subtitle}</Eyebrow>
                 ) : null}
                 <Text role="heading" aria-level={group.stage ? 3 : 2} style={styles.heading}>
                   {section.title}
@@ -310,7 +310,7 @@ export function CourseRoadmap({
       {selected && progress && (
         <View style={[styles.card, { backgroundColor: colors.paper }]}>
           <View style={styles.spread}>
-            <Text style={styles.eyebrow}>{t("courseRoadmap.inside")}</Text>
+            <Eyebrow>{t("courseRoadmap.inside")}</Eyebrow>
             <Badge
               label={roadmapLabel(roadmapState(selected, progress, resume?.id), t)}
               tone={

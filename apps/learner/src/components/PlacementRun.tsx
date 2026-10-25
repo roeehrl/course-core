@@ -5,7 +5,7 @@ import { PLACEMENT_PANEL_ID } from "../client/presentation";
 import { MarkdownContent } from "./MarkdownContent";
 import { useI18n, type MessageKey } from "../i18n";
 import { abstainHint, placementReason, retakeState, unavailableMessage, usePlacementRun, type PlacementRunProps } from "./placementRunState";
-import { Button, colors, Notice, styles } from "./ui";
+import { Button, colors, Notice, Eyebrow, styles } from "./ui";
 
 export type { PlacementRunProps } from "./placementRunState";
 
@@ -21,7 +21,7 @@ export function PlacementRun(props: PlacementRunProps) {
   if (unavailable)
     return (
       <View style={styles.card} aria-labelledby="placement-title">
-        <Text style={styles.eyebrow}>{t("placementRun.eyebrow")}</Text>
+        <Eyebrow>{t("placementRun.eyebrow")}</Eyebrow>
         <Heading>{t("placementRun.title.unavailable")}</Heading>
         <Notice error>{unavailableMessage(t)}</Notice>
         <View style={styles.row}>
@@ -34,7 +34,7 @@ export function PlacementRun(props: PlacementRunProps) {
   const abstainable = item?.question.allowAbstain !== false;
   return (
     <View nativeID={PLACEMENT_PANEL_ID} style={styles.card} aria-labelledby="placement-title">
-      <Text style={styles.eyebrow}>{t("placementRun.eyebrow")}</Text>
+      <Eyebrow>{t("placementRun.eyebrow")}</Eyebrow>
       {view.state === "offered" && (
         <>
           <Heading>{t("placementRun.offer.title")}</Heading>

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import postcss, { type Node, type Rule } from "postcss";
+import postcss, { type Declaration, type Node, type Rule } from "postcss";
 import { describe, expect, it } from "vitest";
 
 // The stylesheets are written as flat CSS. A rule inside another rule is
@@ -41,6 +41,44 @@ function cssStructureProblems(css: string, from: string): string[] {
     }
   });
   return problems;
+}
+
+// Hebrew has no capitals, and letter-spacing pulls its words apart. A rule that sets a positive
+// letter-spacing or a text-transform (tracked capitals for Latin script) needs each of its
+// selectors again, with :lang(he), in a rule that sets letter-spacing: 0 and text-transform: none.
+function hebrewTrackingProblems(css: string, from: string): string[] {
+  const root = postcss.parse(css, { from });
+  const squash = (selector: string) => selector.replace(/\s+/g, " ").trim();
+  const resets = new Set<string>();
+  root.walkRules((rule) => {
+    const value = (prop: string) =>
+      rule.nodes
+        .filter((n): n is Declaration => n.type === "decl" && n.prop === prop)
+        .map((d) => d.value.trim());
+    if (
+      value("letter-spacing").some((v) => /^(0(px|em|rem)?|normal)$/.test(v)) &&
+      value("text-transform").includes("none")
+    )
+      for (const selector of rule.selectors) resets.add(squash(selector));
+  });
+  const problems = new Set<string>();
+  root.walkDecls((decl) => {
+    const value = decl.value.trim();
+    const latin =
+      (decl.prop === "letter-spacing" &&
+        !/^(0(px|em|rem)?|normal|-.*)$/.test(value)) ||
+      (decl.prop === "text-transform" && value !== "none");
+    if (!latin || decl.parent?.type !== "rule") return;
+    for (const selector of (decl.parent as Rule).selectors) {
+      if (selector.includes(":lang(")) continue;
+      const reset = `${squash(selector)}:lang(he)`;
+      if (!resets.has(reset))
+        problems.add(
+          `${from}:${decl.source?.start?.line ?? "?"}: "${squash(selector)}" sets ${decl.prop}: ${value} without a "${reset}" reset`,
+        );
+    }
+  });
+  return [...problems];
 }
 
 function stylesheets(dir: string): string[] {
@@ -121,5 +159,34 @@ describe("learner stylesheet structure", () => {
     expect(cssStructureProblems(css, "x.css")).toEqual([
       'x.css:1: ".b" is nested inside ".a" (missing "}"?)',
     ]);
+  });
+
+  it.each(files.map((file) => [relative(appRoot, file), file]))(
+    "%s keeps Hebrew labels untracked and uncapitalized",
+    (name, file) => {
+      expect(hebrewTrackingProblems(readFileSync(file, "utf8"), name)).toEqual(
+        [],
+      );
+    },
+  );
+
+  it("reports tracking or a case transform without a Hebrew reset", () => {
+    const css = [
+      ".a { letter-spacing: 1.5px; text-transform: uppercase; }",
+      ".b span { letter-spacing: 0.08em; }",
+      ".c { letter-spacing: -1px; text-transform: none; }",
+      ".a:lang(he) { letter-spacing: 0; }",
+    ].join("\n");
+    expect(hebrewTrackingProblems(css, "x.css")).toEqual([
+      'x.css:1: ".a" sets letter-spacing: 1.5px without a ".a:lang(he)" reset',
+      'x.css:1: ".a" sets text-transform: uppercase without a ".a:lang(he)" reset',
+      'x.css:2: ".b span" sets letter-spacing: 0.08em without a ".b span:lang(he)" reset',
+    ]);
+    expect(
+      hebrewTrackingProblems(
+        `${css}\n.a:lang(he),\n.b span:lang(he) { letter-spacing: 0; text-transform: none; }`,
+        "x.css",
+      ),
+    ).toEqual([]);
   });
 });

@@ -25,7 +25,7 @@ import {
   type MessageKey,
   type Translate,
 } from "../i18n";
-import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
+import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
 import { DeclaredProfileFields } from "./DeclaredProfileFields";
 
@@ -431,9 +431,9 @@ function MemoryPanel({
     >
       <View style={styles.spread}>
         <View style={local.grow}>
-          <Text style={styles.eyebrow}>
+          <Eyebrow>
             {t("learnerMemoryPanel.header.eyebrow")}
-          </Text>
+          </Eyebrow>
           <Text accessibilityRole="header" style={styles.title}>
             {t("learnerMemoryPanel.header.title")}
           </Text>
@@ -1595,7 +1595,7 @@ function Section({
 }) {
   return (
     <View style={[styles.card, local.section]}>
-      <Text style={styles.eyebrow}>{eyebrow}</Text>
+      <Eyebrow>{eyebrow}</Eyebrow>
       <Text accessibilityRole="header" style={styles.heading}>
         {title}
       </Text>

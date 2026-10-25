@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import type { Step } from "../domain/types";
-import { Badge, Button, colors, Field, styles } from "./ui";
+import { Badge, Button, colors, Field, Eyebrow, styles } from "./ui";
 import { useT } from "../i18n";
 
 export function Companion({
@@ -61,7 +61,7 @@ export function Companion({
         </Text>
       </View>
       <View style={{ gap: 8 }}>
-        <Text style={styles.eyebrow}>{t("companion.place")}</Text>
+        <Eyebrow>{t("companion.place")}</Eyebrow>
         <Text style={styles.small}>
           {lessonTitle
             ? t("companion.placeLesson", { lesson: lessonTitle, step: step?.title ?? "" })

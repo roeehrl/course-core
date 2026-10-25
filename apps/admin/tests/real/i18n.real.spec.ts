@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
 import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
 import { fieldIconOverlaps } from "../fieldIcons";
+import { trackedHebrew } from "../hebrewText";
 
 /**
  * Every admin view against the real API, in Hebrew (right to left, axe, no overflow) and under
@@ -89,6 +90,9 @@ test("every admin view on the real API renders in Hebrew, right to left, accessi
       problems.push(`${name}: ${wide}px overflow (${info.project.name})`);
     problems.push(
       ...(await fieldIconOverlaps(page.locator("main"), `${name}: `)),
+      ...(await trackedHebrew(page.locator("body"))).map(
+        (line) => `${name}: ${line}`,
+      ),
     );
     const violations = (
       await new AxeBuilder({ page })
