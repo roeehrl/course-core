@@ -1552,14 +1552,33 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   await page.getByRole("button", { name: "Pin idea", exact: true }).click();
   await expect(page.getByText("Pinned by you", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Correct this idea", exact: true }).click();
-  await page.getByRole("textbox", { name: "Say it in your own words", exact: true }).fill("I read “smallest” as “largest”.");
+  const correction = "I read “smallest” as “largest”.";
+  await page.getByRole("textbox", { name: "Say it in your own words", exact: true }).fill(correction);
+  // The save is held until the page has been checked: no success is shown, and the save cannot be
+  // sent twice, before the server answers (it answers once the correction is committed).
+  let answer!: () => void;
+  const held = new Promise<void>((resolve) => { answer = resolve; });
+  const decision = /\/hypotheses\/[^/]+\/decision$/;
+  await page.route(decision, async (route) => { await held; await route.continue(); });
+  const saved = page.waitForResponse((r) => r.request().method() === "POST" && decision.test(new URL(r.url()).pathname));
   await page.getByRole("button", { name: "Save correction", exact: true }).click();
-  await expect(page.getByText("I read “smallest” as “largest”.", { exact: true })).toBeVisible();
-  // The correction persists across reload.
+  await expect(page.getByRole("button", { name: "Save correction", exact: true })).toBeDisabled();
+  await expect(page.getByText(/Your correction is saved/)).toHaveCount(0);
+  answer();
+  expect((await saved).ok()).toBe(true);
+  await page.unroute(decision);
+  await expect(page.getByText("Your correction is saved and replaces the original wording for your tutor.", { exact: true })).toBeVisible();
+  // The idea's card now carries the saved wording. The editor's own box holds the same text while
+  // it is open, so the assertion names the card, and the editor has closed.
+  const corrected = page.locator(`[aria-label="Teaching idea: ${correction}"]`);
+  await expect(corrected.getByText(correction, { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Say it in your own words", exact: true })).toHaveCount(0);
+  // The committed correction persists across reload.
   await page.reload();
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
   await openProfile(page);
-  await expect(page.getByText("I read “smallest” as “largest”.", { exact: true })).toBeVisible();
+  await expect(corrected.getByText(correction, { exact: true })).toBeVisible();
+  await expect(corrected.getByText(/^Your correction\. Original wording: /)).toBeVisible();
   await expect(page.getByText("Pinned by you", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reject this idea", exact: true }).click();
   await page.getByRole("button", { name: "Confirm reject", exact: true }).click();
