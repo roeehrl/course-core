@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { Card, Notice } from "./ui";
-import { useT } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 
 export function RecoveryRegistry({
   data,
@@ -10,7 +10,13 @@ export function RecoveryRegistry({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
+  // A release's state in words ("published", "פורסם"), never the raw code.
+  const stateName = (state: string) => {
+    const key = `ui.status.${state}` as MessageKey;
+    return i18n.has(key) ? t(key) : state.replaceAll("_", " ");
+  };
   const [releaseId, setReleaseId] = useState(data.releases[0]?.id ?? ""),
     [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(false),
@@ -134,7 +140,7 @@ export function RecoveryRegistry({
                 <option key={r.id} value={r.id}>
                   {t("recoveryRegistry.releaseOption", {
                     version: r.version,
-                    state: r.state,
+                    state: stateName(r.state),
                   })}
                 </option>
               ))}
