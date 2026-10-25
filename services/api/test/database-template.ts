@@ -46,6 +46,8 @@ export interface TemplateRun {
   template: string;
   /** Copies waiting to be claimed are named `<ready><hex>`. */
   ready: string;
+  /** Empty databases (copies of template0) waiting to be claimed are named `<readyEmpty><hex>`. */
+  readyEmpty: string;
   /** Copies their files are done with, waiting for the background drop, are named `<retired><hex>`. */
   retired: string;
 }
@@ -148,10 +150,11 @@ export async function dropRetired(client: pg.Client, base: URL, run: TemplateRun
   return names.length;
 }
 
-async function databasesStartingWith(client: pg.Client, prefix: string): Promise<string[]> {
+/** This harness's databases named `prefix...`; with `marked: false`, also those without `cloneComment`. */
+async function databasesStartingWith(client: pg.Client, prefix: string, { marked = true } = {}): Promise<string[]> {
   const { rows } = await client.query<{ datname: string }>(
-    `SELECT datname FROM pg_database WHERE left(datname, $2) = $1 AND shobj_description(oid, 'pg_database') = $3 ORDER BY datname`,
-    [prefix, prefix.length, cloneComment]);
+    `SELECT datname FROM pg_database WHERE left(datname, $2) = $1 AND ($4 OR shobj_description(oid, 'pg_database') = $3) ORDER BY datname`,
+    [prefix, prefix.length, cloneComment, !marked]);
   return rows.map(row => row.datname);
 }
 
@@ -159,7 +162,7 @@ async function databasesStartingWith(client: pg.Client, prefix: string): Promise
 export function newRun(base: URL, now = Date.now()): TemplateRun {
   const run = now.toString(36).padStart(9, '0') + randomBytes(2).toString('hex');
   const prefix = `${base.pathname.slice(1)}__${run}`;
-  return { prefix, template: `${prefix}_tpl`, ready: `${prefix}_r`, retired: `${prefix}_x` };
+  return { prefix, template: `${prefix}_tpl`, ready: `${prefix}_r`, readyEmpty: `${prefix}_y`, retired: `${prefix}_x` };
 }
 
 /** Drops this harness's databases left behind by crashed runs older than `maxAgeMs`. */
@@ -178,10 +181,20 @@ export async function dropStale(client: pg.Client, base: URL, maxAgeMs: number, 
 
 /**
  * Drops every database of one run, including copies of files that crashed, timed out or
- * leaked connections, `batch` at a time so that each group shares one checkpoint.
+ * leaked connections, `batch` at a time so that each group shares one checkpoint. A file
+ * whose setup timed out can still be copying the template (the server finishes the
+ * command after the file has gone), so this first waits, for up to `creatingMs`, for
+ * copies of this run still being made. Such a copy may never have received
+ * `cloneComment`; the run's own prefix, which is unique to the run, is enough here.
  */
-export async function dropRun(base: URL, run: TemplateRun, batch = dropBatch): Promise<string[]> {
-  const names = await withBase(base, client => databasesStartingWith(client, `${run.prefix}_`));
+export async function dropRun(base: URL, run: TemplateRun, { batch = dropBatch, creatingMs = 60_000 } = {}): Promise<string[]> {
+  const names = await withBase(base, async client => {
+    const deadline = Date.now() + creatingMs;
+    while (Date.now() < deadline && (await client.query(
+      `SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND pid <> pg_backend_pid() AND starts_with(query, $1) LIMIT 1`,
+      [`CREATE DATABASE "${run.prefix}_`])).rowCount) await delay(100);
+    return databasesStartingWith(client, `${run.prefix}_`, { marked: false });
+  });
   for (let start = 0; start < names.length; start += batch)
     await Promise.all(names.slice(start, start + batch).map(name => withBase(base, client => dropDatabase(client, name))));
   return names;
@@ -202,30 +215,31 @@ export async function prepareTemplate(base: URL, run: TemplateRun): Promise<stri
   return applied;
 }
 
-/** Number of copies waiting to be claimed. */
-export async function readyCount(client: pg.Client, run: TemplateRun): Promise<number> {
-  return (await databasesStartingWith(client, run.ready)).length;
+/** Number of copies (or, with `empty`, empty databases) waiting to be claimed. */
+export async function readyCount(client: pg.Client, run: TemplateRun, { empty = false } = {}): Promise<number> {
+  return (await databasesStartingWith(client, empty ? run.readyEmpty : run.ready)).length;
 }
 
 /**
- * Adds one ready copy. It is built under a name claimants ignore and published by an
- * atomic rename, so a claimant never sees a half-made copy.
+ * Adds one ready copy of the template (or, with `empty`, of template0). It is built under a
+ * name claimants ignore and published by an atomic rename, so a claimant never sees a
+ * half-made copy.
  */
-export async function addReadyCopy(client: pg.Client, run: TemplateRun): Promise<string> {
-  const id = suffix(), building = `${run.prefix}_n${id}`, ready = `${run.ready}${id}`;
-  await createDatabase(client, building, run.template);
+export async function addReadyCopy(client: pg.Client, run: TemplateRun, { empty = false } = {}): Promise<string> {
+  const id = suffix(), building = `${run.prefix}_n${id}`, ready = `${empty ? run.readyEmpty : run.ready}${id}`;
+  await createDatabase(client, building, empty ? 'template0' : run.template);
   await client.query(`ALTER DATABASE ${quoted(building)} RENAME TO ${quoted(ready)}`);
   return ready;
 }
 
 /**
- * Takes a ready copy for one test file, or makes one if none is waiting. Renaming is
- * the claim: PostgreSQL lets exactly one session rename a database, so two files can
- * never receive the same copy.
+ * Takes a ready copy for one test file (with `empty`, an empty database), or makes one if
+ * none is waiting. Renaming is the claim: PostgreSQL lets exactly one session rename a
+ * database, so two files can never receive the same copy.
  */
-export async function claimCopy(client: pg.Client, run: TemplateRun): Promise<{ name: string; prepared: boolean }> {
-  const name = `${run.prefix}_f${suffix()}`;
-  for (const ready of await databasesStartingWith(client, run.ready)) {
+export async function claimCopy(client: pg.Client, run: TemplateRun, { empty = false } = {}): Promise<{ name: string; prepared: boolean }> {
+  const name = `${run.prefix}_${empty ? 'e' : 'f'}${suffix()}`;
+  for (const ready of await databasesStartingWith(client, empty ? run.readyEmpty : run.ready)) {
     try {
       await client.query(`ALTER DATABASE ${quoted(ready)} RENAME TO ${quoted(name)}`);
       return { name, prepared: true };
@@ -235,11 +249,6 @@ export async function claimCopy(client: pg.Client, run: TemplateRun): Promise<{ 
       throw error;
     }
   }
-  await createDatabase(client, name, run.template);
+  await createDatabase(client, name, empty ? 'template0' : run.template);
   return { name, prepared: false };
-}
-
-/** Name for a database a file creates empty, to exercise `migrate()` from scratch. */
-export function emptyName(run: TemplateRun): string {
-  return `${run.prefix}_e${suffix()}`;
 }

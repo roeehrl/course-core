@@ -150,15 +150,18 @@ describe('per-file copies of the migrated template database', () => {
   it('drops retired copies together, and the run teardown drops everything a run left', async () => {
     const run = newRun(base);
     const names = [`${run.prefix}_tpl`, `${run.prefix}_f000001`, `${run.prefix}_e000002`, `${run.retired}000003`, `${run.retired}000004`];
-    foreign.push(...names);
+    // A copy whose file went away between CREATE DATABASE and COMMENT carries no mark, only the run's prefix.
+    const orphan = `${run.prefix}_f000005`;
+    foreign.push(...names, orphan);
     await withBase(base, async client => {
       for (const name of names) await createDatabase(client, name);
+      await client.query(`CREATE DATABASE "${orphan}" TEMPLATE template0`);
       expect(await dropRetired(client, base, run)).toBe(2);
       expect(await dropRetired(client, base, run)).toBe(0);
     });
     for (const name of names) expect(await exists(name)).toBe(!name.startsWith(run.retired));
-    expect(await dropRun(base, run)).toEqual(names.filter(name => !name.startsWith(run.retired)).sort());
-    for (const name of names) expect(await exists(name)).toBe(false);
+    expect(await dropRun(base, run)).toEqual([...names.filter(name => !name.startsWith(run.retired)), orphan].sort());
+    for (const name of [...names, orphan]) expect(await exists(name)).toBe(false);
   }, 30_000);
 
   it('refuses non-test database URLs before connecting', () => {

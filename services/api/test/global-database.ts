@@ -9,6 +9,8 @@ declare module 'vitest' {
 
 const staleAfterMs = 6 * 60 * 60 * 1000;
 const maxReady = 8;
+/** Empty databases kept ready, for the few files that run migrate() from an empty schema. */
+const readyEmpty = 2;
 /** Copies made at once; more only compete for the same disk. */
 const fillers = 2;
 
@@ -40,8 +42,9 @@ export default async function setup(project: TestProject) {
   });
   const target = Math.max(1, Math.min(maxReady, Number(project.config.maxWorkers) || maxReady));
   const loops = Array.from({ length: fillers }, () => background('Ready test database copies', async client => {
-    if (await readyCount(client, run) >= target) return false;
-    await addReadyCopy(client, run);
+    if (await readyCount(client, run, { empty: true }) < readyEmpty) await addReadyCopy(client, run, { empty: true });
+    else if (await readyCount(client, run) < target) await addReadyCopy(client, run);
+    else return false;
     return true;
   }));
   // DROP DATABASE waits for a checkpoint of the whole server; no test file waits for one.

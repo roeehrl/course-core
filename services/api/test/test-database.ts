@@ -1,7 +1,7 @@
 import { inject } from 'vitest';
 import { migrate } from '../src/migrations.js';
 import { createDatabase as createPool } from '../src/database.js';
-import { baseDatabaseUrl, claimCopy, createDatabase, databaseUrl, dropDatabase, emptyName, migrationsDirectory, retireWhenClosed, templateSchema, withBase } from './database-template.js';
+import { baseDatabaseUrl, claimCopy, databaseUrl, dropDatabase, migrationsDirectory, retireWhenClosed, templateSchema, withBase } from './database-template.js';
 
 export interface TestDatabase {
   /** The schema holding the application tables (the name the test asked for). */
@@ -29,12 +29,7 @@ export async function createTestDatabase(schema: string, options: { migrated?: b
   const run = inject('courseTestDatabase');
   if (!run) throw new Error('The API test global setup did not prepare a template database.');
   const migrated = options.migrated ?? true;
-  const name = await withBase(base, async client => {
-    if (migrated) return (await claimCopy(client, run)).name;
-    const empty = emptyName(run);
-    await createDatabase(client, empty);
-    return empty;
-  });
+  const name = await withBase(base, async client => (await claimCopy(client, run, { empty: !migrated })).name);
   const drop = () => withBase(base, client => retireWhenClosed(client, run, name));
   try {
     const root = createPool(databaseUrl(base, name));
