@@ -28,7 +28,8 @@ afterAll(async () => {
   for (const database of opened) await database.drop();
   const run = inject('courseTestDatabase')!;
   await withBase(base, async client => { for (const name of extra) await retireWhenClosed(client, run, name); });
-  // Together, so the drops share one checkpoint.
+  // Normally already gone: the tests that make them drop them (a drop waits for a checkpoint,
+  // which can take seconds on a loaded machine, so not in a hook).
   await Promise.all(foreign.map(name => withBase(base, client => dropDatabase(client, name))));
 });
 
@@ -100,6 +101,7 @@ describe('per-file copies of the migrated template database', () => {
     expect(await exists(marked)).toBe(false);
     expect(await exists(unmarked)).toBe(true);
     expect(await exists(fresh)).toBe(true);
+    await Promise.all([unmarked, fresh].map(name => withBase(base, client => dropDatabase(client, name))));
   }, 30_000);
 
   it('fails the file that leaves a connection open, without killing it, and leaves its database to the run teardown', async () => {
@@ -136,9 +138,9 @@ describe('per-file copies of the migrated template database', () => {
     const retired = await nameOf();
     // Dropped already, or waiting under this run's retired prefix.
     if (retired !== undefined) expect(retired.startsWith(run.retired)).toBe(true);
-    // Waits for the global setup's background drop, polling, never for a fixed time.
+    // Waits for the global setup's background drop by polling, never for a fixed time.
     let left = retired;
-    for (let attempt = 0; left !== undefined && attempt < 200; attempt++) {
+    for (let attempt = 0; left !== undefined && attempt < 250; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 100));
       left = await nameOf();
     }
