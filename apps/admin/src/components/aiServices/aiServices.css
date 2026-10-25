@@ -756,3 +756,43 @@
   flex-wrap: wrap;
   align-items: center;
 }
+
+/* Calls whose cost stayed unknown (UncertainCallsPanel): one card per call, no table, so a
+   phone shows every decision without scrolling sideways. */
+.ai-unknown {
+  display: grid;
+  gap: 10px;
+  border-block-start: 1px solid var(--line);
+  padding-block-start: 14px;
+}
+.ai-unknown h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.ai-unknown p {
+  margin: 0;
+}
+.ai-unknown-list,
+.ai-unknown-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ai-unknown-call {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.ai-unknown-choice {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.ai-actions.ai-actions-start {
+  justify-content: flex-start;
+}

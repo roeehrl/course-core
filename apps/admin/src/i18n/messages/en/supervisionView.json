@@ -92,6 +92,7 @@
   "eventType.assessment_submitted": "Answer submitted",
   "eventType.assessment_regraded": "Answer checked again",
   "eventType.companion_requested": "Companion request",
+  "eventType.companion_retry_requested": "Companion question asked again automatically (no reply came)",
   "eventType.continuation_opted_in": "Continued learning chosen",
   "eventType.continuation_stopped": "Continued learning stopped",
   "eventType.cross_course_suggestion_confirmed": "Cross-course suggestion confirmed",

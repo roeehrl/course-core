@@ -232,6 +232,9 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "GET /api/admin/workspaces/:workspaceId/provider-spend": "roles:owner,admin",
   // Workspace-wide like the audit log: a course grant never opens workspace spending data.
   "GET /api/admin/workspaces/:workspaceId/provider-spend/learners": "roles:owner,admin,instructor,reviewer,support_observer,service",
+  // Calls whose cost stayed unknown, and the decision that settles one: who may change spending.
+  "GET /api/admin/workspaces/:workspaceId/provider-spend/uncertain": "roles:owner,admin",
+  "POST /api/admin/workspaces/:workspaceId/provider-spend/uncertain/:ledgerId/settle": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/supervision/enrollments/:enrollmentId/budget": "roles:owner,admin",
   "PUT /api/admin/workspaces/:workspaceId/supervision/enrollments/:enrollmentId/budget": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/supervision/requests": "roles:owner,admin",

@@ -6,6 +6,7 @@ import {
 } from "../../../services/api/src/database.ts";
 import { appendEvent } from "../../../services/api/src/events.ts";
 import {
+  configureSupervisorBudget,
   createPostgresSupervisorBridge,
   parkSupervisorJob,
 } from "../../../services/api/src/supervisor-bridge.ts";
@@ -2475,6 +2476,156 @@ app.post("/test/pricing-fixture", async (request) => {
     ],
   );
   return { code: await issueLoginCode(db, adminId), workspaceId };
+});
+// Test-only: the live companion re-test's held call (finding B-2), with the same shape: a companion
+// question whose streamed call got no reply at all, recorded by an older Core as CANCELLED with no
+// HTTP status, its whole $0.031410 reservation charged and held. Built through the real bridge and
+// ledger; no provider is contacted.
+app.post("/test/uncertain-call-fixture", async () => {
+  const workspaceId = randomUUID(),
+    ownerId = randomUUID(),
+    learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `uncertain-${workspaceId}`,
+    "Uncertain call workspace",
+  ]);
+  for (const [id, role, name] of [
+    [ownerId, "owner", "Spending owner"],
+    [learnerId, "learner", "Held learner"],
+  ] as const) {
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [id, `uncertain:${id}`, name],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspaceId, id, role],
+    );
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({
+      method: "POST",
+      url: "/auth/redeem",
+      headers: { origin },
+      payload: { token: await issueLoginCode(db, userId) },
+    });
+    return {
+      cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+      origin,
+      "x-csrf-token": r.json().csrfToken,
+    };
+  };
+  const owner = await login(ownerId),
+    learner = await login(learnerId);
+  const post = async (
+    url: string,
+    payload: unknown,
+    headers: Record<string, string>,
+  ) => {
+    const r = await app.inject({
+      method: "POST",
+      url,
+      headers,
+      payload: payload as object,
+    });
+    if (r.statusCode !== 200)
+      throw new Error(`Uncertain call fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (
+    await post(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)
+  ).id as string;
+  await post(`/api/releases/${releaseId}/publish`, {}, owner);
+  const enrollmentId = (await post("/api/enrollments", { releaseId }, learner))
+    .id as string;
+  const messageId = randomUUID();
+  await db.query(
+    "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
+    [
+      messageId,
+      enrollmentId,
+      "Which classification should I pick?",
+      JSON.stringify({ episodeId: "min" }),
+    ],
+  );
+  const asked = await transaction(db, (client) =>
+    appendEvent(client, {
+      workspaceId,
+      enrollmentId,
+      actorId: learnerId,
+      actorKind: "learner",
+      type: "companion.requested",
+      payload: { messageId, episodeId: "min", requestKind: "question" },
+      idempotencyKey: randomUUID(),
+      supervise: true,
+    }),
+  );
+  const bridge = createPostgresSupervisorBridge(db, {
+    workspaceIds: [workspaceId],
+    jobPolicy: { allowance: { microUsd: 31_410, tokens: 500_000 } },
+  });
+  await configureSupervisorBudget(
+    db,
+    { workspaceId },
+    { microUsd: 25_000_000, tokens: 100_000_000 },
+  );
+  const lease = await bridge.claimOutboxEvent(asked.id, randomUUID(), 30_000);
+  const [ref] = lease ? await bridge.prepareOutbox(lease) : [];
+  if (!ref || !lease || !(await bridge.ackOutbox(lease)))
+    throw new Error("Uncertain call fixture job failed");
+  await configureSupervisorBudget(
+    db,
+    { workspaceId, enrollmentId },
+    { microUsd: 2_000_000, tokens: 10_000_000 },
+  );
+  const ownerOfCall = randomUUID();
+  const claimed = await bridge.transition({
+    type: "claim",
+    ref,
+    checkpointId: "generate",
+    ownerId: ownerOfCall,
+    availability: { status: "ready" },
+  });
+  const operation = claimed.snapshot.operations[0];
+  if (claimed.effect !== "invoke" || !operation)
+    throw new Error("Uncertain call fixture claim failed");
+  await db.query(
+    `INSERT INTO provider_dispatches(operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,provider_usage,failure_code,started_at,sent_at,finished_at)
+    VALUES($1,$2,$3,$4,$5,'fixture','uncertain','{"status":"uncertain"}',$6,'CANCELLED',clock_timestamp()-interval '61 seconds',clock_timestamp()-interval '60 seconds',clock_timestamp())`,
+    [
+      operation.id,
+      ref.jobId,
+      enrollmentId,
+      workspaceId,
+      ownerOfCall,
+      JSON.stringify({
+        attempts: [
+          {
+            attempt: 1,
+            status: null,
+            outcome: "unknown",
+            tokens: {
+              input: null,
+              output: null,
+              total: null,
+              cachedInput: null,
+              thoughts: null,
+              toolInput: null,
+            },
+          },
+        ],
+      }),
+    ],
+  );
+  await bridge.transition({
+    type: "settle",
+    ref,
+    operationId: operation.id,
+    ownerId: ownerOfCall,
+    outcome: { status: "uncertain" },
+  });
+  return { code: await issueLoginCode(db, ownerId) };
 });
 // Test-only: a workspace after a Core upgrade. Its tutor is on, approved by the owner for an older
 // set of quality checks, so it now needs a check (it keeps working). The tutor's model is the
