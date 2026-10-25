@@ -271,8 +271,8 @@ for (const locale of ["en", "he"] as Locale[]) {
       .click();
     await expect(spending.getByText(t("spending.saved"))).toBeVisible();
 
-    // Quality check: the owner runs it from the page. It shows the estimate first (15 practice
-    // conversations at $0.30 / $2.50 per million tokens: thirteen tutor calls of 3000 input and 600
+    // Quality check: the owner runs it from the page. It shows the estimate first (20 practice
+    // conversations at $0.30 / $2.50 per million tokens: eighteen tutor calls of 3000 input and 600
     // output tokens, $0.0024 each, and two supervisor tool-loop conversations of three rounds each
     // (two tool results, then the answer) whose input grows by 1000 tokens a round, 12000 input
     // and 1800 output tokens, $0.0081 each), runs on the server against the synthetic model,
@@ -284,7 +284,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     );
     await expect(
       check.getByText(
-        t("check.run.estimate", { count: 15, amount: x.money(0.0474) }),
+        t("check.run.estimate", { count: 20, amount: x.money(0.0594) }),
       ),
     ).toBeVisible();
     // Approving without a check is still there, folded away as the secondary choice.
