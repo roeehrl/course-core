@@ -10,9 +10,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that PR's superseded run. Every other run (a push to main,
+# release.yml's call, a manual dispatch) gets a group of its own: it is never cancelled, and never
+# replaced while pending (a newer run in a shared group replaces a pending one even without
+# cancel-in-progress), so every main commit gets a complete result for the release to check.
 concurrency:
-  group: public-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('public-ci-pr-{0}', github.ref) || format('public-ci-run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # A skipped, todo or not-run test fails PR and release CI (release.yml calls this workflow).
