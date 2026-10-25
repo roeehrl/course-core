@@ -12,6 +12,7 @@ import type { YouTubeSearchResult } from '@course-core/research/node';
 import { createActivities, dispatchOnce, HttpHostBridge, HttpProviderGateway, type RunRef } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
+import { tableNamesContaining } from './table-scan.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { appendEvent } from '../src/events.js';
@@ -97,12 +98,7 @@ async function ok(who: Session | null, method: string, url: string, payload?: un
   return r.text;
 }
 /** Every application table's rows, as text, that contain `value`. */
-async function tablesContaining(value: string) {
-  const tables = (await db.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")).rows;
-  const hits: string[] = [];
-  for (const { table_name } of tables) if ((await db.query(`SELECT 1 FROM "${table_name}" t WHERE t::text LIKE $1 LIMIT 1`, [`%${value}%`])).rowCount) hits.push(table_name);
-  return hits;
-}
+const tablesContaining = (value: string) => tableNamesContaining(db, value);
 
 beforeAll(async () => {
   captureProcessOutput();

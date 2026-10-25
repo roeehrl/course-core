@@ -13,6 +13,7 @@ import { throttleKey } from "../src/passwords.js";
 import { ERASED_DIGEST } from "../src/erased-digests.js";
 import { ACCOUNT_ERASURE_CONFIRMATION } from "../src/account-erasure.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
+import { tablesContaining } from "./table-scan.js";
 import { fixture } from "./fixture.js";
 
 // Two places kept personal data past erasure. Course admin command receipts stored the whole
@@ -42,15 +43,6 @@ function call(who: Session, method: "GET" | "POST" | "PATCH", url: string, paylo
   return app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf, ...headers }, ...(payload === undefined ? {} : { payload: payload as object }) });
 }
 /** Tables (as `table:rows`) whose rows contain `needle` anywhere, in any column. */
-async function tablesContaining(needle: string) {
-  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")).rows.map((r) => r.table_name as string);
-  const hits: string[] = [];
-  for (const table of tables) {
-    const n = (await db.query(`SELECT count(*)::int AS n FROM "${table}" t WHERE t::text LIKE $1`, ["%" + needle + "%"])).rows[0].n;
-    if (n) hits.push(`${table}:${n}`);
-  }
-  return hits;
-}
 const canary = (label: string) => `${label}${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 const snapshot = async () => (await call(owner, "GET", `/api/admin/courses/${catalog}`)).json();
 /** A course command through the admin API with fresh revision and key headers. */
@@ -129,7 +121,7 @@ describe("course admin command receipts", () => {
       confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Learner asked for their course data to be removed.",
     });
     expect(erased.statusCode, erased.body).toBe(200);
-    for (const needle of [name, goal, note]) expect(await tablesContaining(needle), needle).toEqual([]);
+    for (const needle of [name, goal, note]) expect(await tablesContaining(db, needle), needle).toEqual([]);
     // After erasure the same replay still answers, without the erased learner's details.
     const afterErasure = await replay("PATCH", "", course, renamed.key, revision);
     expect(afterErasure.statusCode, afterErasure.body).toBe(200);
@@ -183,14 +175,14 @@ describe("account erasure and people administration records", () => {
     const resetDigest = digestJson({ actorId: owner.userId, operation: "people.password_reset", semantic: { userId, ...reset } });
     const digests = (await db.query("SELECT request_digest FROM people_command_receipts WHERE workspace_id=$1", [workspace])).rows.map((r) => r.request_digest);
     expect(digests).toEqual(expect.arrayContaining([inviteDigest, resetDigest]));
-    for (const needle of [login, relogin, reason]) expect(await tablesContaining(needle), needle).not.toEqual([]);
+    for (const needle of [login, relogin, reason]) expect(await tablesContaining(db, needle), needle).not.toEqual([]);
 
     const learner = await signIn(userId);
     const erased = await call(learner, "POST", "/api/account/erase", { confirmation: ACCOUNT_ERASURE_CONFIRMATION, reason: "Please remove my account and data." });
     expect(erased.statusCode, erased.body).toBe(200);
     expect(erased.json().counts).toMatchObject({ "account.peopleReceipts": 3, "account.peopleEvents": 3, "account.loginThrottleRows": 1 });
 
-    for (const needle of [displayName, login, relogin, reason, inviteDigest, resetDigest, throttle]) expect(await tablesContaining(needle), needle).toEqual([]);
+    for (const needle of [displayName, login, relogin, reason, inviteDigest, resetDigest, throttle]) expect(await tablesContaining(db, needle), needle).toEqual([]);
     // The skeleton stays: which command, about whom, by whom, with the receipt key still reserved.
     const receipts = (await db.query("SELECT request_digest,response FROM people_command_receipts WHERE workspace_id=$1 AND response->>'userId'=$2", [workspace, userId])).rows;
     expect(receipts).toHaveLength(3);
@@ -211,7 +203,7 @@ describe("account erasure and people administration records", () => {
     expect((await db.query("SELECT count(*)::int AS n FROM app_users WHERE display_name=$1", [displayName])).rows[0].n).toBe(0);
 
     // The bystander's records are untouched and still replay.
-    expect(await tablesContaining(bystanderLogin)).toEqual(expect.arrayContaining([expect.stringMatching(/^people_command_receipts:/), expect.stringMatching(/^learning_events:/)]));
+    expect(await tablesContaining(db, bystanderLogin)).toEqual(expect.arrayContaining([expect.stringMatching(/^people_command_receipts:/), expect.stringMatching(/^learning_events:/)]));
     const bystanderReplay = await call(owner, "POST", people(), bystander);
     expect(bystanderReplay.json()).toMatchObject({ loginName: bystanderLogin, replayed: true });
   });

@@ -11,6 +11,7 @@ import { migrate } from "../src/migrations.js";
 import { digestJson } from "../src/repository.js";
 import { ERASED_DIGEST } from "../src/erased-digests.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
+import { tablesContaining } from "./table-scan.js";
 import { fixture } from "./fixture.js";
 
 // Erasure redacts learner content but used to keep plain SHA-256 digests of the requests that
@@ -46,15 +47,6 @@ const erase = () => call(learner, "POST", `/api/enrollments/${enrollment}/erase`
 /** The receipt digest of an `answer` command, as repository.ts computes it. */
 const answerDigest = (challengeId: string, answer: unknown) => digestJson({ actorId: learner.userId, operation: "answer", challengeId, answer });
 /** Tables (as `table:rows`) whose rows contain `needle` anywhere, in any column. */
-async function tablesContaining(needle: string) {
-  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")).rows.map((r) => r.table_name as string);
-  const hits: string[] = [];
-  for (const table of tables) {
-    const n = (await db.query(`SELECT count(*)::int AS n FROM "${table}" t WHERE t::text LIKE $1`, ["%" + needle + "%"])).rows[0].n;
-    if (n) hits.push(`${table}:${n}`);
-  }
-  return hits;
-}
 async function answered(answer: number) {
   await command("read", { episodeId: "min", blockId: "min-text" });
   const challenge = await command("challenges", { episodeId: "min", assessmentId: "min-b", mode: "independent" });
@@ -99,9 +91,9 @@ describe("erasure leaves no digest that gives an answer back", () => {
     expect(after).toHaveLength(stored.length);
     expect(after.every((r) => r.request_digest === ERASED_DIGEST)).toBe(true);
     // Not in the receipts, and not anywhere else in the database either.
-    for (const { digest } of candidates) expect(await tablesContaining(digest)).toEqual([]);
+    for (const { digest } of candidates) expect(await tablesContaining(db, digest)).toEqual([]);
     // Every digest the enrollment's commands produced is gone, not only the answer's.
-    for (const digest of stored) expect(await tablesContaining(digest)).toEqual([]);
+    for (const digest of stored) expect(await tablesContaining(db, digest)).toEqual([]);
   });
 
   it("a staff edit of the learner's profile: its course-level receipt names the enrollment and is tombstoned too", async () => {
@@ -120,7 +112,7 @@ describe("erasure leaves no digest that gives an answer back", () => {
 
     expect((await erase()).json().counts.adminReceiptDigests).toBe(1);
     expect(await receipt()).toEqual([{ request_digest: ERASED_DIGEST, enrollment_id: enrollment }]);
-    for (const pace of paces) expect(await tablesContaining(guess(pace))).toEqual([]);
+    for (const pace of paces) expect(await tablesContaining(db, guess(pace))).toEqual([]);
   });
 
   it("a staff-created enrollment records itself on the creating receipt, whose digest covers the profile", async () => {

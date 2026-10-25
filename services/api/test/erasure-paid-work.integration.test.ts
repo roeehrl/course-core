@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError } from '@course-core/providers';
 import { GoogleProvider } from '@course-core/providers/google';
 import type { Outcome, ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { initialPolicy } from '../src/policy-adapter.js';
@@ -15,6 +13,8 @@ import { configureSupervisorBudget, createPostgresSupervisorBridge, type Postgre
 import { composeProviders } from '../src/provider-composition.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
 import { fixture } from './fixture.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
+import { tableNamesContaining } from './table-scan.js';
 import { streamedIfAsked } from './streamed-provider-fixture.js';
 
 // Data erasure finishes every open supervisor reservation of the erased enrollment before it clears
@@ -28,7 +28,7 @@ const CANARY = `canary-${randomUUID()}`;
 type Step = { status: number } | 'ok' | 'gated';
 const script: Step[] = [];
 let sent = 0, openGate: () => void = () => undefined;
-let admin: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
+let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const answer = () => json({ candidates: [{ index: 0, finishReason: 'STOP', content: { role: 'model', parts: [{ text: `Compare each value with the smallest so far. ${CANARY}` }] } }],
@@ -44,12 +44,9 @@ const scriptedFetch: typeof fetch = async () => {
 };
 
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Use a disposable loopback test database without connection overrides.');
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  // A copy of the run's migrated template (test-database.ts), like every other database test file.
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const course = compileCourse(fixture()), author = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [author, `test:${author}`, 'Author']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, `erasure-spend-${workspaceId}`, 'Erasure spend']);
@@ -71,7 +68,7 @@ beforeAll(async () => {
   await allowUnpricedPaidWork(db, workspaceId);
   await configureSupervisorBudget(db, { workspaceId }, { microUsd: 100_000_000, tokens: 100_000_000 });
 }, 60000);
-afterAll(async () => { openGate(); await app?.close(); await db?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); } });
+afterAll(async () => { openGate(); await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 async function prepare() {
   const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), now = new Date().toISOString(), course = fixture();
@@ -135,12 +132,7 @@ async function erase(job: Job) {
   return r.json() as { counts: Record<string, number>; replayed: boolean };
 }
 /** Tables (by name) holding any row that contains the canary. */
-async function canaryHits() {
-  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")).rows.map(r => r.table_name as string);
-  const hits: string[] = [];
-  for (const table of tables) if ((await db.query(`SELECT count(*)::int AS n FROM "${table}" t WHERE t::text LIKE $1`, [`%${CANARY}%`])).rows[0].n) hits.push(table);
-  return hits;
-}
+const canaryHits = () => tableNamesContaining(db, CANARY);
 async function until(check: () => Promise<boolean>) {
   for (let i = 0; i < 1000; i++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
   throw new Error('condition not reached');

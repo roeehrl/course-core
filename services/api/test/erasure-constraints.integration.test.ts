@@ -6,6 +6,7 @@ import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { ACCOUNT_ERASURE_CONFIRMATION } from "../src/account-erasure.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
+import { tablesContaining } from "./table-scan.js";
 import { fixture } from "./fixture.js";
 
 // Erasure redacts in place with UPDATEs. A placeholder that breaks a column's CHECK, NOT NULL or
@@ -31,15 +32,6 @@ function call(who: Session, method: "GET" | "POST", url: string, payload?: unkno
   return app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 }
 /** Tables (as `table:rows`) whose rows contain `needle` anywhere, in any column. */
-async function tablesContaining(needle: string) {
-  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")).rows.map((r) => r.table_name as string);
-  const hits: string[] = [];
-  for (const table of tables) {
-    const n = (await db.query(`SELECT count(*)::int AS n FROM "${table}" t WHERE t::text LIKE $1`, ["%" + needle + "%"])).rows[0].n;
-    if (n) hits.push(`${table}:${n}`);
-  }
-  return hits;
-}
 
 const hex = (c: string) => c.repeat(64);
 const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -282,7 +274,7 @@ async function enrolled() {
   // Every enrollment table holds a row for this learner before erasure.
   for (const table of tables) if (!(table in NOT_FILLED))
     expect((await db.query(`SELECT count(*)::int AS n FROM "${table}" WHERE enrollment_id=$1`, [enrollment])).rows[0].n, table).toBeGreaterThan(0);
-  expect((await tablesContaining(secret)).length).toBeGreaterThan(30);
+  expect((await tablesContaining(db, secret)).length).toBeGreaterThan(30);
   return { learner, enrollment, secret };
 }
 
@@ -313,7 +305,7 @@ describe("erasure succeeds whatever learner data the enrollment holds", () => {
     expect(erased.statusCode, erased.body).toBe(200);
     expect(erased.json()).toMatchObject({ status: "erased", replayed: false });
     expect(erased.json().counts).toMatchObject({ writtenAnswerAppeals: 1, adaptationProofs: 1, gateReviewRequests: 1, teachingHypotheses: 1, mediaJobText: 1 });
-    expect(await tablesContaining(secret)).toEqual([]);
+    expect(await tablesContaining(db, secret)).toEqual([]);
     // The appeal row stays as the audit skeleton with the placeholder reason.
     expect((await db.query("SELECT reason,state,decision,reviewer_note FROM rubric_appeals WHERE enrollment_id=$1", [enrollment])).rows)
       .toEqual([{ reason: "[erased]", state: "upheld", decision: "met", reviewer_note: "[erased]" }]);
@@ -328,7 +320,7 @@ describe("erasure succeeds whatever learner data the enrollment holds", () => {
     const erased = await call(learner, "POST", "/api/account/erase", { confirmation: ACCOUNT_ERASURE_CONFIRMATION, reason: "I want my account and data removed." });
     expect(erased.statusCode, erased.body).toBe(200);
     expect(erased.json()).toMatchObject({ status: "erased", enrollmentIds: [enrollment] });
-    expect(await tablesContaining(secret)).toEqual([]);
+    expect(await tablesContaining(db, secret)).toEqual([]);
     expect((await db.query("SELECT status FROM enrollments WHERE id=$1", [enrollment])).rows[0].status).toBe("erased");
   });
 

@@ -8,6 +8,7 @@ import { createServer } from '../src/server.js';
 import { AGENT_GRANT_LIMITS, resetAgentAuthThrottle } from '../src/agent-tools-routes.js';
 import { createLearnerModelProposalPort } from '../src/learner-model.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
+import { tableNamesContaining } from './table-scan.js';
 import { fixture } from './fixture.js';
 
 const origin = 'http://localhost:4310';
@@ -72,12 +73,7 @@ async function propose(token: string, id: string, sourceEventIds: string[], idem
   return tool(token, 'propose_intervention', { expectedRevision: await revision(id), idempotencyKey, suggestion: { kind: 'explanation_style', value: 'step_by_step' }, sourceEventIds });
 }
 /** Every application table's rows that contain `marker` as text. */
-async function tablesContaining(marker: string) {
-  const tables = (await db.query<{ name: string }>("SELECT table_name AS name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'")).rows;
-  const hits: string[] = [];
-  for (const { name } of tables) if ((await db.query(`SELECT 1 FROM "${name}" t WHERE t::text LIKE $1 LIMIT 1`, [`%${marker}%`])).rowCount) hits.push(name);
-  return hits;
-}
+const tablesContaining = (marker: string) => tableNamesContaining(db, marker);
 /** What grading and progress rest on, to show the tools leave it untouched. */
 async function gradingState(id: string) {
   const q = async (sql: string) => (await db.query(sql, [id])).rows;
