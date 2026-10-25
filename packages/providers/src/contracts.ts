@@ -65,6 +65,14 @@ export type TransportSettings = z.infer<typeof transportSettingsSchema>;
 export const callOptionsSchema = z.strictObject({
   signal: z.instanceof(AbortSignal).optional(),
   timeoutMs: positive.max(300_000).optional(),
+  /** The longest wait from sending a request to the first byte of its reply. A streamed reply's
+   * first byte is its first chunk; a whole reply's first byte comes only when the provider has
+   * finished, so set it for whole replies only when they must finish that fast. At most, and by
+   * default, the attempt timeout. Ends as NO_RESPONSE (outcome unknown: the request was sent). */
+  firstByteTimeoutMs: positive.max(300_000).optional(),
+  /** Streams only: the longest wait between two chunks once the reply has begun. At most, and by
+   * default, the attempt timeout. Ends as STREAM_STALLED. */
+  idleTimeoutMs: positive.max(300_000).optional(),
 });
 
 export type ModelConfig = z.infer<typeof modelSchema>;
@@ -95,8 +103,20 @@ export interface TokenUsage {
    * separately from tokens. Absent when the provider reports no such counter. */
   serverToolRequests?: number | null;
 }
+/**
+ * How one attempt ended, for settlement:
+ * - response: the reply was read in full; `tokens` is its reported usage.
+ * - rejected: the provider refused the request with a documented rejection status (nothing ran).
+ * - not_sent: the connection never opened (name lookup, refused connection, TLS failure, connect
+ *   timeout), so no byte of the request could have been accepted and nothing can be billed.
+ * - partial: a streamed reply that stopped part way (stopped by the caller, stalled, timed out or
+ *   cut off) after the provider had reported its cumulative usage up to that point; `tokens` is
+ *   that usage, the most recent count the provider sent.
+ * - unknown: anything else; the provider may have run the request and its usage is not known.
+ */
+export type AttemptOutcome = 'response' | 'rejected' | 'not_sent' | 'partial' | 'unknown';
 export interface AttemptAccounting {
-  attempt: number; status: number | null; outcome: 'response' | 'rejected' | 'unknown'; tokens: TokenUsage;
+  attempt: number; status: number | null; outcome: AttemptOutcome; tokens: TokenUsage;
 }
 export interface UsageReceipt {
   accounting: AccountingInput; providerId: string; modelId: string; operation: Operation;

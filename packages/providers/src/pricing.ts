@@ -60,7 +60,10 @@ export function pricingCovers(pricing: ModelPricing, kind: 'tokens' | 'video'): 
 
 /**
  * Prices a receipt from what the provider reported. Rules:
- * - A rejected attempt (the provider refused it before work) is not billed.
+ * - A rejected attempt (the provider refused it before work) is not billed, nor is one whose
+ *   connection never opened (not sent).
+ * - A partial attempt (a stream that stopped part way) is priced at the cumulative usage the
+ *   provider reported up to the stop.
  * - An attempt whose outcome is unknown may have been billed for an unknown amount, so the
  *   whole receipt is unpriced and the host keeps its conservative reservation.
  * - Input tokens include cached tokens (the provider reports cached as a subset of input);
@@ -85,8 +88,9 @@ export function priceUsage(receipt: UsageReceipt, raw: ModelPricing): PricingRes
     return { cost: null, reason: 'usage_unknown' };
   let input = 0n, cached = 0n, output = 0n, requests = 0n, serverTools = 0n;
   for (const attempt of receipt.attempts) {
-    if (attempt.outcome === 'rejected') continue;
-    if (attempt.outcome !== 'response') return { cost: null, reason: 'usage_unknown' };
+    if (attempt.outcome === 'rejected' || attempt.outcome === 'not_sent') continue;
+    // A partial attempt (a stream stopped part way) is priced at the usage it reported up to the stop.
+    if (attempt.outcome !== 'response' && attempt.outcome !== 'partial') return { cost: null, reason: 'usage_unknown' };
     requests += 1n;
     const t = attempt.tokens;
     if ((t.cacheWriteInput ?? 0) > 0) return { cost: null, reason: 'pricing_incomplete' };
