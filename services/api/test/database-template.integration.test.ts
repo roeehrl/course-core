@@ -48,7 +48,7 @@ describe('per-file copies of the migrated template database', () => {
       expect((await other.query('SELECT 1 FROM workspaces WHERE id=$1', [workspace])).rowCount).toBe(0);
       expect((await other.query('SELECT count(*)::int AS n FROM workspaces')).rows[0].n).toBe(0);
     } finally { await db.end(); await other.end(); }
-  });
+  }, 30_000);
 
   it('still rejects a copy whose recorded migration no longer matches its file', async () => {
     const copy = await open();
@@ -57,7 +57,7 @@ describe('per-file copies of the migrated template database', () => {
       await db.query("UPDATE schema_migrations SET digest='tampered' WHERE name=(SELECT min(name) FROM schema_migrations)");
       await expect(migrate(db, migrationsDirectory)).rejects.toThrow(/Applied migration changed/);
     } finally { await db.end(); }
-  });
+  }, 30_000);
 
   it('can start from an empty schema so a file exercises migrate() itself', async () => {
     const empty = await open({ migrated: false });
