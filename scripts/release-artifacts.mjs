@@ -51,8 +51,9 @@ export function sourceAllowed(filename) {
   if (ROOT_SOURCE.has(filename)) return true;
   if (filename.startsWith('.github/')) return /^\.github\/(?:workflows\/[A-Za-z0-9_-]+\.ya?ml|CODEOWNERS|dependabot\.ya?ml)$/.test(filename);
   // scripts/tests/ holds tests that need a disposable database, outside the test:infra glob.
+  // scripts/i18n-glossary.json is data only: the forbidden synonyms the i18n check reads.
   if (filename.startsWith('scripts/')) return /^scripts\/(?:tests\/)?[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
-    || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
+    || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt' || filename==='scripts/i18n-glossary.json';
   // Project documentation: flat Markdown files, and the published JSON Schemas of versioned contracts.
   if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename)
     || /^docs\/contracts\/[a-z0-9-]+\.v[0-9]+\.schema\.json$/.test(filename);

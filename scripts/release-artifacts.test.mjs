@@ -97,6 +97,8 @@ test('source and web allowlists include actual Expo CSS and reject private paths
   assert(sourceAllowed('services/api/src/server.ts'));assert(sourceAllowed('scripts/release-artifacts.test.mjs'));assert(sourceAllowed('scripts/tests/release-rehearsal.test.mjs'));assert(!sourceAllowed('scripts/tests/nested/x.mjs'));assert(!sourceAllowed('scripts/other/x.mjs'));assert(webAllowed('_expo/static/css/connected-abcd.css','learner'));
   for(const p of ['../escape','/absolute','a//b','a/./b','a\\b'])assert.throws(()=>safePath(p));
   assert(sourceAllowed('docs/threat-model.md'));
+  // The i18n glossary rules are the one reviewed data file in scripts/; other JSON there is not a source.
+  assert(sourceAllowed('scripts/i18n-glossary.json'));for(const p of ['scripts/other.json','scripts/tests/i18n-glossary.json'])assert.equal(sourceAllowed(p),false,p);
   for(const p of ['deploy/docker/compose.yaml','deploy/docker/Dockerfile','deploy/docker/Caddyfile','deploy/docker/.env.example','deploy/docker/smoke.test.mjs','deploy/docker/README.md'])assert(sourceAllowed(p),p);
   for(const p of ['deploy/docker/nested/x.mjs','deploy/other/compose.yaml'])assert.equal(sourceAllowed(p),false,p);
   assert.throws(()=>sourceAllowed('deploy/docker/.env'),/private configuration/);
