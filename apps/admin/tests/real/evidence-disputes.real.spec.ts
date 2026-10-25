@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { closeWorkspaceNav, workspaceNav } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 async function signIn(page: Page, code: string) {
@@ -18,8 +19,9 @@ test("a reviewer resolves learners' evidence disputes without seeing their reaso
   ).json();
 
   await signIn(page, fixture.reviewerCode);
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Answer reviews" })
     .click();
   await expect(
@@ -87,9 +89,8 @@ test("a reviewer resolves learners' evidence disputes without seeing their reaso
     .courses[0].id as string;
   await page.context().clearCookies();
   await signIn(page, fixture.observerCode);
-  await expect(
-    page.getByRole("navigation", { name: "Workspace navigation" }),
-  ).toBeVisible();
+  await expect(await workspaceNav(page)).toBeVisible();
+  await closeWorkspaceNav(page);
   expect(
     (
       await page.request.get(`/api/admin/courses/${courseId}/evidence-disputes`)

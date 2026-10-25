@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
+import { openSection } from "../workspaceNav";
 
 // A workspace with no runtime models configured shows one capability slot per agent
 // role to read-only staff, including the reviewer role that drafts written-answer
@@ -31,7 +32,7 @@ test("read-only staff see every agent role's capability slot without a configure
   for (const provider of course.providers)
     expect(provider.runtimeStatus).toBe("configuration_missing");
 
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   // Read-only staff see a plain summary: job names, not role ids, and no setup controls.
   await expect(
     page.getByText(

@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
+import { openSection } from "../workspaceNav";
 
 /** Matches the en-XA rendering of an English catalog string. */
 const pseudo = (english: string) =>
@@ -75,7 +76,7 @@ test.describe("demo workspace", () => {
     await expectRightToLeft(page);
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
-      await page.getByRole("button", { name: "מדיניות והארכות" }).click();
+      await openSection(page, "מדיניות והארכות", {});
       await expect(
         page.getByRole("heading", { name: "שני שעונים. גבולות ברורים." }),
       ).toBeVisible();
@@ -100,7 +101,7 @@ test.describe("demo workspace", () => {
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
 
-      await page.getByRole("button", { name: "הרשמות", exact: true }).click();
+      await openSection(page, "הרשמות");
       await expect(
         page.getByRole("heading", { name: "כל לומד/ת, בהקשר המלא." }),
       ).toBeVisible();
@@ -115,7 +116,7 @@ test.describe("demo workspace", () => {
   }) => {
     await page.goto("/admin/demo?locale=he");
     await expectRightToLeft(page);
-    await page.getByRole("button", { name: "מדיניות והארכות" }).click();
+    await openSection(page, "מדיניות והארכות", {});
     // The course setting, explained in plain words beside its two fields.
     await expect(page.getByLabel("מספר ניסיונות לכל נקודת בקרה")).toHaveValue(
       "3",
@@ -149,9 +150,7 @@ test.describe("demo workspace", () => {
     page,
   }) => {
     await page.goto("/admin/demo?locale=en-XA");
-    await page
-      .getByRole("button", { name: pseudo("Policy & extensions") })
-      .click();
+    await openSection(page, pseudo("Policy & extensions"), {});
     await expect(
       page.getByRole("heading", { name: pseudo("Two clocks. Clear limits.") }),
     ).toBeVisible();
@@ -164,10 +163,7 @@ test.describe("demo workspace", () => {
     expect(
       await untranslatedText(page, "#main-content", ["Chapter · Foundations"]),
     ).toEqual([]);
-    await page
-      .getByRole("button", { name: pseudo("Enrollments") })
-      .first()
-      .click();
+    await openSection(page, pseudo("Enrollments"), {});
     await expect(
       page.getByRole("heading", { name: pseudo("Every learner, in context.") }),
     ).toBeVisible();
@@ -353,7 +349,7 @@ test.describe("connected workspace", () => {
     await expectRightToLeft(page);
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
-      await page.getByRole("button", { name: "אנשים ותפקידים" }).click();
+      await openSection(page, "אנשים ותפקידים", {});
       await expect(
         page.getByRole("heading", { name: "חברי סביבת העבודה" }),
       ).toBeVisible();
@@ -386,7 +382,7 @@ test.describe("connected workspace", () => {
         .getByRole("button", { name: "ביטול", exact: true })
         .click();
 
-      await page.getByRole("button", { name: "שיבוץ", exact: true }).click();
+      await openSection(page, "שיבוץ");
       await expect(page.getByText("הופעל על ידי הצוות")).toBeVisible();
       await page.getByLabel("לומד/ת", { exact: true }).selectOption({
         index: 1,
@@ -405,15 +401,12 @@ test.describe("connected workspace", () => {
   }) => {
     await connected(page, "en-XA");
     await page.goto("/admin/?locale=en-XA");
-    await page.getByRole("button", { name: pseudo("People & roles") }).click();
+    await openSection(page, pseudo("People & roles"), {});
     await expect(
       page.getByRole("heading", { name: pseudo("Workspace members") }),
     ).toBeVisible();
     expect(await untranslatedText(page, "#main-content")).toEqual([]);
-    await page
-      .getByRole("button", { name: pseudo("Placement") })
-      .first()
-      .click();
+    await openSection(page, pseudo("Placement"), {});
     await page.getByRole("combobox", { name: pseudo("Learner") }).selectOption({
       index: 1,
     });

@@ -48,5 +48,6 @@
   "nav.allowances": "Extensions & accommodations",
   "nav.platform": "Platform",
   "nav.integrations": "Integrations",
-  "nav.assessments": "Answer keys"
+  "nav.assessments": "Answer keys",
+  "openMenu": "Open menu"
 }

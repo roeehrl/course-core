@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 async function signIn(
@@ -29,10 +30,7 @@ async function signIn(
   return page;
 }
 const open = async (page: Page, name: string) => {
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("button", { name })
-    .click();
+  await (await workspaceNav(page)).getByRole("button", { name }).click();
   await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
 };
 const accessible = async (page: Page) => {

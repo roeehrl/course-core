@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { expectModeBadge, openSection } from "../workspaceNav";
 test.beforeEach(async ({ page, request }, info) => {
   const setup = await request.post("/test/admin-fixture");
   expect(setup.ok()).toBeTruthy();
@@ -13,7 +14,7 @@ test.beforeEach(async ({ page, request }, info) => {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await expect(page.getByText("CONNECTED WORKSPACE")).toBeVisible();
+  await expectModeBadge(page, "CONNECTED WORKSPACE");
   await expect(page.getByText("Interactive demo", { exact: true })).toHaveCount(
     0,
   );
@@ -196,7 +197,7 @@ test("a draft bundle loads from a chosen manifest file and saves through the rea
 test("real incorrect evidence cannot be accepted; profile and rejection persist", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Enrollments", exact: true }).click();
+  await openSection(page, "Enrollments");
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page.getByLabel("Display name").fill("Updated public learner");
   await page.getByRole("button", { name: "Save profile", exact: true }).click();
@@ -220,7 +221,7 @@ test("real incorrect evidence cannot be accepted; profile and rejection persist"
   ).toBeVisible();
   await expect(page.getByRole("progressbar")).toHaveAttribute("value", "0");
   await page.reload();
-  await page.getByRole("button", { name: "Enrollments", exact: true }).click();
+  await openSection(page, "Enrollments");
   await expect(
     page.getByRole("heading", { name: "Updated public learner" }),
   ).toBeVisible();
@@ -231,7 +232,7 @@ test("real incorrect evidence cannot be accepted; profile and rejection persist"
 test("real offer remains ungranted; concrete migration preserves the calendar clock", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   await page
     .getByRole("button", { name: "Preview calendar extension" })
     .click();
@@ -281,7 +282,7 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
     ),
   ).toBeVisible();
   await expect(page.getByText("superseded", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Enrollments", exact: true }).click();
+  await openSection(page, "Enrollments");
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page
     .getByLabel("Learning goal")
@@ -290,7 +291,7 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
   await expect(
     page.getByText("Profile saved. Evidence and mastery are unchanged."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   await expect(page.locator(".ai-status-bar")).toContainText(
     "AI services are off:",
   );
@@ -308,7 +309,7 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
 test("subscription fallback opt-in and opt-out persist through the real server without enabling spending", async ({
   page,
 }, info) => {
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   // A connection whose key the subscription can fall back to.
   await page
     .getByLabel("API key", { exact: true })
@@ -345,7 +346,7 @@ test("subscription fallback opt-in and opt-out persist through the real server w
     advanced.getByText("Configuration saved and turned on."),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   await page.locator("#ai-advanced summary").click();
   await expect(choice).toBeChecked();
   await expect(page.locator(".ai-status-bar")).toContainText("spending is off");
@@ -378,7 +379,7 @@ test("subscription fallback opt-in and opt-out persist through the real server w
       .getByText("Configuration saved and turned on."),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   await page.locator("#ai-advanced summary").click();
   await expect(choice).not.toBeChecked();
 });

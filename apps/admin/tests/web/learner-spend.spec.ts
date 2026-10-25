@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 /** "What learners spend" on the demo's AI services page: fictional in-memory spending, the
  * spread per day and active hour, a suggested limit for each learner, and paging, in English and
@@ -32,8 +33,9 @@ for (const locale of ["en", "he"] as const)
     const nav = catalog(locale, "adminApp"),
       ai = catalog(locale, "aiServices");
     await page.goto(`/admin/demo?locale=${locale}`);
-    await page
-      .locator(".nav-links")
+    await (
+      await workspaceNav(page)
+    )
       .getByRole("button", { name: nav["nav.providers"], exact: true })
       .click();
     await page.getByText(ai["learnerSpend.title"]!, { exact: true }).click();

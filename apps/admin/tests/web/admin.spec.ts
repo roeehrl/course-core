@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { coursePicker, openSection } from "../workspaceNav";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/admin/demo");
@@ -36,9 +37,7 @@ test("course management and reviewed release publication", async ({
   await expect(
     page.getByText("Demo release marked published. Nothing was deployed."),
   ).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Course", exact: true })
-    .selectOption("graphs");
+  await (await coursePicker(page)).selectOption("graphs");
   await expect(
     page.getByText(
       "A public example course about nodes, edges and finding a path.",
@@ -47,7 +46,7 @@ test("course management and reviewed release publication", async ({
 });
 
 test("enrollment profile and versioned evidence review", async ({ page }) => {
-  await page.getByRole("button", { name: "Enrollments", exact: true }).click();
+  await openSection(page, "Enrollments");
   await expect(page.getByRole("progressbar")).toHaveAttribute("value", "1");
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page
@@ -89,7 +88,7 @@ test("enrollment profile and versioned evidence review", async ({ page }) => {
 test("calendar policy, exact before/after terms and learner-only consent", async ({
   page,
 }, info) => {
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   await expect(
     page.getByText("14 calendar days from scope started"),
   ).toBeVisible();
@@ -167,7 +166,7 @@ test("calendar policy, exact before/after terms and learner-only consent", async
 test("provider configuration remains unverified; inspector displays safe records", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   // The demo shows a read-only summary: no fake connection, test or configuration request.
   await expect(
     page.getByText(
@@ -177,7 +176,7 @@ test("provider configuration remains unverified; inspector displays safe records
   await expect(
     page.getByRole("button", { name: /Request configuration|Save connection/ }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Run inspector" }).click();
+  await openSection(page, "Run inspector");
   await page
     .getByRole("button", { name: "Tool decisions", exact: true })
     .click();
@@ -254,7 +253,7 @@ test("responsive layouts, focus and accessibility across admin views", async ({
     "AI services",
     "Run inspector",
   ]) {
-    await page.getByRole("button", { name: view, exact: true }).click();
+    await openSection(page, view);
     await expect(
       page.getByRole("heading", { name: view, exact: true, level: 1 }),
     ).toBeFocused();
@@ -270,9 +269,7 @@ test("responsive layouts, focus and accessibility across admin views", async ({
   }
   for (const width of [768, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    await page
-      .getByRole("button", { name: "Course & releases", exact: true })
-      .click();
+    await openSection(page, "Course & releases");
     await page.screenshot({
       path: info.outputPath(`workspace-${width}.png`),
       fullPage: true,

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -19,10 +20,7 @@ async function signIn(page: Page, code: string, view: string) {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("button", { name: view })
-    .click();
+  await (await workspaceNav(page)).getByRole("button", { name: view }).click();
   await expect(
     page.getByRole("heading", { name: view, level: 1 }),
   ).toBeVisible();
@@ -96,8 +94,9 @@ test("an owner inspects a learner's lesson from the read-only view: visual state
   await dialog.getByRole("button", { name: /Close/ }).first().click();
 
   // The run inspector shows policies, budgets and client/sync state; the audit log has both receipts.
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Run inspector" })
     .click();
   await page.getByRole("button", { name: "Policies & budgets" }).click();
@@ -113,8 +112,9 @@ test("an owner inspects a learner's lesson from the read-only view: visual state
     path: info.outputPath("run-sync.png"),
     fullPage: true,
   });
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Audit log" })
     .click();
   await expect(page.getByText("run.payload_revealed").first()).toBeVisible();

@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
+import { openSection, workspaceNav } from "../workspaceNav";
 
 /** Research sources, generated media, studies and concept mappings in Hebrew and in en-XA. */
 
@@ -509,7 +510,7 @@ test("research, media, studies and concept mappings render in Hebrew right to le
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   for (const view of views) {
-    await page.getByRole("button", { name: view.nav.he }).click();
+    await openSection(page, view.nav.he, {});
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       view.nav.he,
     );
@@ -531,7 +532,7 @@ test("research, media, studies and concept mappings render in Hebrew right to le
     await expectAccessible(page);
   }
   // The media job dialog: translated states, history and the review form.
-  await page.getByRole("button", { name: "מדיה שנוצרה" }).click();
+  await openSection(page, "מדיה שנוצרה");
   await page
     .getByRole("button", { name: /^פתיחת .*Insertion sort animation/ })
     .click();
@@ -553,8 +554,9 @@ test("the en-XA pseudo-locale leaves no untranslated text in research, media, st
   await expect(page.locator("html")).toHaveAttribute("lang", "en-XA");
   for (const view of views) {
     // By accessible name (accented English under en-XA), so new navigation items do not shift it.
-    await page
-      .locator(".nav-links")
+    await (
+      await workspaceNav(page)
+    )
       .getByRole("button", { name: accent(view.nav.en) })
       .click();
     if (view.nav.en === "Concept mappings") {

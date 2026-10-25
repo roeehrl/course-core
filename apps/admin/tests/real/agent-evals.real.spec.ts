@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { ownerApproves } from "./eval-gate";
+import { openSection } from "../workspaceNav";
 
 // Real server and database. No provider is contacted: saving a configuration never calls a model.
 async function accessible(page: Page) {
@@ -24,7 +25,7 @@ async function signIn(page: Page, code: string) {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
 }
 const configuration = {
   registry: {
@@ -115,7 +116,7 @@ test("a new tutor model waits for a quality check; only the owner's audited appr
 
   // 3. The tutor is on, and the history shows how it was accepted.
   await page.reload();
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   await expect(check).toContainText("No model is waiting for a check.");
   await expect(check).toContainText(
     "Learner tutor — public-text-model · Approved without checking",

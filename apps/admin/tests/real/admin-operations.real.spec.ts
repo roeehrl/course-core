@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 // Real API and PostgreSQL: the chapter and lesson editor with its server check and learner
 // preview, the confirmed forward publish, the platform and integrations pages, the audit export
@@ -25,10 +26,7 @@ async function signIn(page: Page, code: string) {
   ).toBeVisible();
 }
 async function open(page: Page, view: string) {
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("button", { name: view })
-    .click();
+  await (await workspaceNav(page)).getByRole("button", { name: view }).click();
   await expect(
     page.getByRole("heading", { name: view, level: 1 }),
   ).toBeVisible();
@@ -223,7 +221,7 @@ test("platform pages stay hidden from roles that cannot use them", async ({
 }) => {
   const fixture = await (await page.request.post("/test/admin-fixture")).json();
   await signIn(page, fixture.observerCode);
-  const nav = page.getByRole("navigation", { name: "Workspace navigation" });
+  const nav = await workspaceNav(page);
   await expect(nav.getByRole("button", { name: "Audit log" })).toBeVisible();
   await expect(nav.getByRole("button", { name: "Platform" })).toHaveCount(0);
   await expect(nav.getByRole("button", { name: "Integrations" })).toHaveCount(

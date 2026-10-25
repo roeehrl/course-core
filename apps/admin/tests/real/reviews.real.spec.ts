@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 test("a reviewer records quoted rubric findings and the queue empties", async ({
   page,
@@ -10,8 +11,9 @@ test("a reviewer records quoted rubric findings and the queue empties", async ({
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Answer reviews" })
     .click();
   await expect(
@@ -80,8 +82,9 @@ test("a reviewer sees why Core rejected an AI draft and can ask again", async ({
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Answer reviews" })
     .click();
   await expect(

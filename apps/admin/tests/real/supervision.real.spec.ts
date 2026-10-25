@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -16,8 +17,9 @@ async function openSupervision(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "AI supervision" })
     .click();
   await expect(

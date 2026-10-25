@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openSection } from "../workspaceNav";
 
 interface Fixture {
   code: string;
@@ -48,7 +49,7 @@ test("course policy settings are previewed for feasibility before saving, at eve
   request,
 }, info) => {
   await signIn(page, request);
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Course policy settings" }),
   });
@@ -219,7 +220,7 @@ test("approve learner-accepted terms, then revoke, refund and make an exceptiona
   await learner.close();
 
   await page.reload();
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   await page.getByLabel("Policy enrollment").selectOption(id);
   await expect(
     page.getByText(
@@ -350,7 +351,7 @@ test("a cohort-wide deadline change names the grant it shortens and applies only
   await learner.close();
 
   await page.reload();
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   await page
     .getByRole("button", { name: "Change a deadline for all learners" })
     .click();
@@ -397,7 +398,7 @@ test("a graded-attempt limit refuses the next check until an administrator allow
   const origin = info.project.use.baseURL!;
   const headers = { "x-csrf-token": await csrf(page), origin };
   // The course setting through the form: explained in plain words, previewed, then saved.
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Course policy settings" }),
   });
@@ -481,7 +482,7 @@ test("a graded-attempt limit refuses the next check until an administrator allow
   expect((await refused.json()).error).toBe("ATTEMPT_LIMIT_REACHED");
 
   await page.reload();
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   await page.getByLabel("Policy enrollment").selectOption(id);
   const attempts = page.getByRole("region", {
     name: "Graded attempts per check",

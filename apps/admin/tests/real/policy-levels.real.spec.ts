@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openSection } from "../workspaceNav";
 
 /** Organization limits, allowance pools, the cross-learner approval queue and group outage
  * adjustments against the real API and PostgreSQL (G02, G03, G05, G09, Q05). */
@@ -50,7 +51,7 @@ test("organization limits are checked against every course before saving", async
   request,
 }, info) => {
   await signIn(page, request);
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Organization limits" }),
   });
@@ -83,7 +84,7 @@ test("an allowance that can never be used is flagged in the settings preview", a
   request,
 }) => {
   await signIn(page, request);
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Course policy settings" }),
   });
@@ -213,9 +214,7 @@ test("an accepted offer is approved from the cross-learner queue, then a group o
   await learner.close();
 
   await page.reload();
-  await page
-    .getByRole("button", { name: "Extensions & accommodations" })
-    .click();
+  await openSection(page, "Extensions & accommodations");
   const queue = page.locator("section", {
     has: page.getByRole("heading", { name: "Waiting for your approval" }),
   });

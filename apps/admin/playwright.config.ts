@@ -23,8 +23,10 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { viewport: { width: 1440, height: 1000 } } },
+    // Tests tagged @desktop-window set their own window sizes and run once, on desktop.
     {
       name: "phone",
+      grepInvert: /@desktop-window/,
       use: {
         viewport: { width: 390, height: 844 },
         isMobile: true,
