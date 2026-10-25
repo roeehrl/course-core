@@ -128,10 +128,11 @@ in another domain, classified; a translated or paraphrased option; ruling option
   or ready, an unpriced judge model in a workspace that requires prices, a request over the judge's
   input bound (16,000 characters), no room left in the job's reservation for the judge's ceiling, a
   failed or stalled call (first-byte bound 20 s), or an answer that is not exactly the verdict.
-- **Cost:** one call per check-coaching reply that the patterns let through: about 1,500 to 2,500
-  input tokens (the rubric, the checks and the draft) and up to 2,048 output tokens (a short verdict;
-  a thinking model's thoughts count). At $0.75 / $3.75 per million input / output tokens a typical
-  call costs about 2,000 µ$ ($0.002). Ordinary turns never call it.
+- **Cost:** one call per check-coaching reply that the patterns let through: about 4,000 characters
+  (1,000 to 2,000 input tokens: the 1,700-character rubric, the checks and the draft) and a short
+  verdict, at most 2,048 output tokens (a thinking model's thoughts count). At $0.75 / $3.75 per
+  million input / output tokens a typical call costs about 1,500 to 3,000 µ$ (about $0.002).
+  Ordinary turns never call it.
 
 The design follows published two-stage leak detection (a rule-based filter, then an LLM judge with
 a written rubric and a structured verdict; Zhao, Knežević & Käser, "Evaluating Answer Leakage
