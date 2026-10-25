@@ -11,7 +11,7 @@
   "feedback.reflectionTooShort": "כדאי להוסיף עוד כמה מילים לרפלקציה (לפחות {min, number} תווים).",
   "feedback.reflectionSaved": "הרפלקציה נשמרה בהדגמה הזו. התוכן שלה לא נבדק.",
   "feedback.stepComplete": "שלב ההדגמה הושלם. אפשר לעבור לשלב הקטן הבא.",
-  "feedback.placementRetry": "אפשר להתחיל מהשיעור הראשון, או לנסות שוב את בדיקת הרשות הזו. שום דבר לא דולג.",
+  "feedback.placementRetry": "אפשר להתחיל מהשיעור הראשון, או לנסות שוב את בדיקת הרשות הזו. לא ניתן פטור על שום חלק.",
   "feedback.placementRecorded": "שיבוץ ההדגמה נרשם. השיעור הראשון זמין לעיון, והשיעור הבא שלך מוכן.",
   "feedback.profileSaved": "הפרופיל נשמר."
 }

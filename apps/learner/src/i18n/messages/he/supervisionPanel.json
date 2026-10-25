@@ -27,7 +27,7 @@
   "status.suggestionReady": "מוכן לבדיקה שלך · אפשר לפתוח את זיכרון הלמידה",
   "status.suggestionAccepted": "אישרת · לא ניתן קרדיט להשלמה",
   "status.suggestionCorrected": "תיקנת · לא ניתן קרדיט להשלמה",
-  "status.suggestionDisputed": "ערערת · לא נכלל בהקשר של המלווה",
+  "status.suggestionDisputed": "ערערת · לא נכלל בהקשר של המנחה",
   "status.suggestionNotDelivered": "ההצעה לא נמסרה",
   "status.suggestionPending": "הוצע · ממתין לאימות ולמסירה",
   "status.added": "נוסף לשיעור שלך · תוכנית {plan}",

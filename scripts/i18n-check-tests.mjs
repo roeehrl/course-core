@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BASELINE_FILE, checkCatalogs, compareBaseline, formatBaseline, loadTypeScript, main, scanSource, unexplained } from './i18n-check.mjs';
+import { BASELINE_FILE, checkCatalogs, checkGlossary, compareBaseline, formatBaseline, loadTypeScript, main, readGlossary, scanSource, unexplained } from './i18n-check.mjs';
 
 const ts = loadTypeScript();
 const scan = (text, filename = 'View.tsx') => scanSource(ts, filename, text);
@@ -221,4 +221,107 @@ test('a file that keeps baselined strings must say why; reasons survive --update
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('glossary: a forbidden synonym in a rule\'s locale and surfaces fails, with prefixes; documented exceptions pass, stale ones fail', () => {
+  const learnerMessages = 'apps/learner/src/i18n/messages';
+  const rules = {
+    rules: [
+      { id: 'tutor', locale: 'he', forbidden: ['מלוו'], use: 'המנחה', why: 'the tutor is המנחה' },
+      { id: 'supervisor-in-learner-app', locale: 'he', surfaces: ['learner'], forbidden: ['מפקח'], use: 'המנחה', why: 'learners never see המפקח' },
+      { id: 'placed-out', locale: 'he', forbidden: ['דולג'], use: 'פטור בזכות השיבוץ', why: 'never דולג' },
+    ],
+    exceptions: [
+      { rule: 'placed-out', message: 'admin:shell.dst', reason: 'a clock time daylight saving skips, not a placement' },
+      { rule: 'placed-out', message: 'admin:shell.gone', reason: 'this message was rephrased long ago' },
+    ],
+  };
+  const root = fixture({
+    'scripts/i18n-glossary.json': rules,
+    [`${messages}/en/shell.json`]: { title: 'Companion', supervisor: 'Supervisor', dst: 'skipped hour', ok: 'Tutor' },
+    [`${messages}/he/shell.json`]: { title: 'הודעה למלווה', supervisor: 'המפקח', dst: 'שעה שדולגה', ok: 'המנחה', $pending: [] },
+    [`${learnerMessages}/en/dock.json`]: { open: 'Companion', supervisor: 'Supervisor', placed: 'Placed out', select: '{role, select, learner {You} other {Companion}}' },
+    [`${learnerMessages}/he/dock.json`]: { open: 'המנחה', supervisor: 'המפקח שלך', placed: 'שום דבר לא ידולג', select: '{role, select, learner {השאלה שלך} other {המלווה}}' },
+  });
+  try {
+    const { errors } = checkGlossary(root);
+    const text = errors.join('\n');
+    assert.match(text, /admin\/src\/i18n\/messages\/he\/shell\.json: "title" says "למלווה"; use המנחה: the tutor is המנחה \(rule "tutor"/);
+    assert.match(text, /learner\/src\/i18n\/messages\/he\/dock\.json: "select" says "המלווה"/);
+    assert.match(text, /learner\/src\/i18n\/messages\/he\/dock\.json: "supervisor" says "המפקח"/);
+    assert.match(text, /learner\/src\/i18n\/messages\/he\/dock\.json: "placed" says "ידולג"/);
+    // המפקח is the staff-side term: allowed in admin. The documented exception passes; English is not checked.
+    assert.doesNotMatch(text, /shell\.json: "supervisor"/);
+    assert.doesNotMatch(text, /"dst"/);
+    assert.doesNotMatch(text, /\/en\//);
+    assert.match(text, /exception for rule "placed-out" on admin:shell\.gone matches nothing; remove it/);
+    assert.equal(errors.length, 5);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('glossary: the configuration is validated, and the CLI fails on a forbidden synonym', async () => {
+  const bad = fixture({
+    'scripts/i18n-glossary.json': {
+      rules: [
+        { id: 'tutor', locale: 'he', forbidden: [], use: 'המנחה', why: 'x' },
+        { id: 'Bad Id', locale: 'he', forbidden: ['x'], use: 'y', why: 'z' },
+        { id: 'scoped', locale: 'he', surfaces: ['visuals'], forbidden: ['x'], use: 'y', why: 'z' },
+        { id: 'ok', locale: 'he', forbidden: ['x'], use: 'y', why: 'z' },
+      ],
+      exceptions: [
+        { rule: 'missing', message: 'admin:a.b', reason: 'a reason that is long enough' },
+        { rule: 'ok', message: 'a.b', reason: 'a reason that is long enough' },
+        { rule: 'ok', message: 'admin:a.b', reason: 'short' },
+      ],
+    },
+  });
+  try {
+    const glossary = readGlossary(bad);
+    const text = glossary.errors.join('\n');
+    assert.match(text, /rule "tutor" needs a non-empty "forbidden" list/);
+    assert.match(text, /rule "Bad Id" needs a unique lower-case id/);
+    assert.match(text, /rule "scoped" "surfaces" must list some of admin, learner/);
+    assert.match(text, /exception "admin:a\.b" names unknown rule "missing"/);
+    assert.match(text, /exception "a\.b" must name the message as <surface>:<namespace>\.<key>/);
+    assert.match(text, /exception "admin:a\.b" needs a reason/);
+    assert.deepEqual(glossary.rules.map((rule) => rule.id), ['ok']);
+  } finally {
+    rmSync(bad, { recursive: true, force: true });
+  }
+  const root = fixture({
+    'scripts/i18n-glossary.json': { rules: [{ id: 'tutor', locale: 'he', forbidden: ['מלוו'], use: 'המנחה', why: 'the tutor is המנחה' }] },
+    'apps/admin/src/View.tsx': 'export const V = () => <p>{t("view.title")}</p>;',
+    [`${messages}/en/view.json`]: { title: 'Companion' },
+    [`${messages}/he/view.json`]: { title: 'המלווה' },
+  });
+  const run = async (...args) => {
+    const lines = [];
+    const code = await main(args, root, (line) => lines.push(line));
+    return { code, out: lines.join('\n') };
+  };
+  try {
+    await run('--sync');
+    let result = await run();
+    assert.equal(result.code, 1);
+    assert.match(result.out, /he\/view\.json: "title" says "המלווה"; use המנחה/);
+    writeFileSync(path.join(root, messages, 'he/view.json'), `${JSON.stringify({ title: 'המנחה' }, null, 2)}\n`);
+    result = await run();
+    assert.equal(result.code, 0);
+    assert.match(result.out, /✔ glossary: no forbidden synonyms \(1 rules/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('glossary: the repository keeps the tutor rules, and its catalogs pass them', () => {
+  const glossary = readGlossary();
+  assert.deepEqual(glossary.errors, []);
+  const byId = new Map(glossary.rules.map((rule) => [rule.id, rule]));
+  assert.ok(byId.get('tutor')?.forbidden.includes('מלוו'));
+  assert.deepEqual(byId.get('tutor')?.surfaces, ['admin', 'learner']);
+  assert.deepEqual(byId.get('supervisor-in-learner-app')?.surfaces, ['learner']);
+  assert.ok(byId.get('supervisor-in-learner-app')?.forbidden.includes('מפקח'));
+  assert.deepEqual(checkGlossary().errors, []);
 });

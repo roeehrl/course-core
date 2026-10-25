@@ -196,7 +196,7 @@ describe("staff notification bell", () => {
       await screen.findByRole("button", { name: "התראות, 2 חדשות" }),
     );
     expect(screen.getByText("3 פריטים מחכים להחלטה")).toBeVisible();
-    expect(screen.getByText(/מלווה הלמידה.*: נדרשת בדיקת איכות/)).toBeVisible();
+    expect(screen.getByText(/מנחה הלומדים.*: נדרשת בדיקת איכות/)).toBeVisible();
     expect(screen.getAllByRole("button", { name: "מעבר לטיפול" }).length).toBe(
       3,
     );

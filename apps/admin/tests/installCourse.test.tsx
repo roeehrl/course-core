@@ -701,7 +701,7 @@ describe("installing a course package", () => {
       screen.getByLabelText("קובץ חבילת הקורס"),
       packageFile(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "בדיקת החבילה" }));
+    await userEvent.click(screen.getByRole("button", { name: "סריקת החבילה" }));
     const heading = await screen.findByRole("heading", { level: 3 });
     expect(stripBidiControls(heading.textContent ?? "")).toBe(
       "Synthetic course · גרסה 1.2.0",
@@ -740,7 +740,7 @@ describe("installing a course package", () => {
       screen.getByLabelText("קובץ חבילת הקורס"),
       packageFile(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "בדיקת החבילה" }));
+    await userEvent.click(screen.getByRole("button", { name: "סריקת החבילה" }));
     await userEvent.click(
       await screen.findByRole("button", { name: "התקנת טיוטה" }),
     );

@@ -6,7 +6,7 @@ Use Node 26. Each component owns its standalone manifest, lockfile, build and te
 
 ## Checks and coordination
 
-Run `npm run test:infra` and `npm run audit:public` for root changes. User-visible text goes through the message catalogs ([docs/i18n.md](docs/i18n.md)); `node scripts/i18n-check.mjs` fails on new hardcoded strings and inconsistent catalogs. `actionlint .github/workflows/*.yml` validates the workflow when available. Use `node scripts/orchestrate.mjs install <module>` followed by the appropriate `check:<module>` command. See the README for disposable Postgres and browser setup.
+Run `npm run test:infra` and `npm run audit:public` for root changes. User-visible text goes through the message catalogs ([docs/i18n.md](docs/i18n.md)); `node scripts/i18n-check.mjs` fails on new hardcoded strings, inconsistent catalogs and synonyms the [glossary](docs/i18n-glossary.md) forbids (`scripts/i18n-glossary.json`). `actionlint .github/workflows/*.yml` validates the workflow when available. Use `node scripts/orchestrate.mjs install <module>` followed by the appropriate `check:<module>` command. See the README for disposable Postgres and browser setup.
 
 Root commands hold one checkout lock across dependency work, exports/builds, and browser tests. They fail immediately on overlap. Do not start a direct app export, install, or browser suite in the same checkout while another command uses those files. Other contributors' work should be verified in separate checkouts or temporary source copies. Do not overwrite an active component's build output to obtain a local pass.
 

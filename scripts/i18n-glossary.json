@@ -1,0 +1,76 @@
+{
+  "$comment": "Glossary lint for the message catalogs (docs/i18n-glossary.md, docs/i18n.md). node scripts/i18n-check.mjs fails when a message in a rule's locale and surfaces contains one of its forbidden words (a plain substring, so Hebrew prefixes such as ה, ל, מ and ש are covered). A genuine exception names the rule and the message as <surface>:<namespace>.<key> and says why; an exception that matches nothing fails too.",
+  "rules": [
+    {
+      "id": "tutor",
+      "locale": "he",
+      "forbidden": ["מלוו"],
+      "use": "המנחה (מנחה ה-AI where the AI nature matters, מנחה הלומדים as the admin job name)",
+      "why": "the learner-facing tutor (the companion) is המנחה, owner decisions 7 and 16"
+    },
+    {
+      "id": "supervisor-in-learner-app",
+      "locale": "he",
+      "surfaces": ["learner"],
+      "forbidden": ["מפקח"],
+      "use": "המנחה",
+      "why": "המפקח is the staff-side supervisor and appears only in admin; learners see one helper, המנחה (owner decision 16)"
+    },
+    {
+      "id": "placed-out",
+      "locale": "he",
+      "forbidden": ["דולג"],
+      "use": "פטור בזכות השיבוץ",
+      "why": "placed out is never דולג (owner decision 7)"
+    },
+    {
+      "id": "debug-inspector",
+      "locale": "he",
+      "forbidden": ["ניפוי באגים", "ניפוי שגיאות", "דיבאג"],
+      "use": "כלי דיבוג / דיבוג",
+      "why": "owner decision 7"
+    },
+    {
+      "id": "scope",
+      "locale": "he",
+      "forbidden": ["היקף"],
+      "use": "תחום (תחום-על for an ancestor scope)",
+      "why": "a policy scope is never היקף (owner decision 7)"
+    },
+    {
+      "id": "receipt",
+      "locale": "he",
+      "forbidden": ["אישור רישום", "אישורי רישום"],
+      "use": "אישור (plural אישורים)",
+      "why": "owner decision 7"
+    },
+    {
+      "id": "rerun",
+      "locale": "he",
+      "forbidden": ["הרצה חוזרת", "הרצות חוזרות"],
+      "use": "הרצה מחדש",
+      "why": "owner decision 7; replay is הפעלה חוזרת"
+    },
+    {
+      "id": "quarantined",
+      "locale": "he",
+      "forbidden": ["בבידוד"],
+      "use": "בהסגר",
+      "why": "owner decision 7"
+    },
+    {
+      "id": "transliterations",
+      "locale": "he",
+      "forbidden": ["קוהורט", "ארטיפקט", "לדג'ר", "רמדיאציה"],
+      "use": "מחזור, תוצר, פנקס, חיזוק",
+      "why": "cohort, artifact, ledger and remediation have Hebrew terms (owner decision 7)"
+    }
+  ],
+  "exceptions": [
+    {
+      "rule": "placed-out",
+      "message": "admin:policySettingsCard.windowDisambiguation.hint",
+      "reason": "a local clock time that a daylight-saving change skips, not a placement"
+    }
+  ]
+}
