@@ -16,7 +16,7 @@
   "rollback.contentChanges": "שינויי תוכן בין הגרסאות",
   "rollback.evidenceOnChanged": "ראיות על פריטים שהשתנו ({count, plural, one {לומד/ת אחד/ת} two {שני לומדים} other {# לומדים}})",
   "rollback.defectiveTitle": "פריטים שמסומנים כפגומים בגרסה הזו",
-  "rollback.nobodyMoved": "אף אחד לא מועבר: לומדים קיימים נשארים בגרסה שבה התחילו.",
+  "rollback.nobodyMoved": "אין העברה של לומדים: לומדים קיימים נשארים בגרסה שבה התחילו.",
   "rollback.confirm": "אישור החזרה לגרסה קודמת",
   "defect.title": "סימון פריט כפגום בגרסה {version}",
   "defect.eyebrow": "פריט פגום",

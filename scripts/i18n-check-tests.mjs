@@ -382,5 +382,9 @@ test('glossary: the repository keeps the tutor rules, and its catalogs pass them
   assert.ok(byId.get('supervisor-is-not-the-tutor')?.source.when.test('Stopping the supervisors'));
   assert.ok(byId.get('supervisor-is-not-the-tutor')?.source.unless.test('The AI companion'));
   assert.deepEqual(byId.get('tutor-is-not-the-supervisor')?.surfaces, ['admin']);
+  // Gendered references to people, where the words decide it: someone, and a role noun before its object.
+  assert.deepEqual(byId.get('gendered-someone')?.forbidden, ['מישהו', 'מישהי']);
+  for (const word of ['כותב הקורס', 'כותבת הקורס', 'מפעיל השרת', 'מפעילת השרת']) assert.ok(byId.get('gendered-role-noun')?.forbidden.includes(word));
+  assert.deepEqual(byId.get('gendered-role-noun')?.surfaces, ['admin', 'learner']);
   assert.deepEqual(checkGlossary().errors, []);
 });

@@ -11,7 +11,7 @@
   "classification.unknown": "לא ידוע",
   "changeLabel": "{kind} ב{episode}",
   "unverified.label": "לא אומת.",
-  "unverified.body": "נכתב על ידי AI ונבדק אוטומטית; אף אדם לא בדק אותו.",
+  "unverified.body": "נכתב על ידי AI ונבדק אוטומטית, לא בידי אדם.",
   "sources": "מקורות:",
   "sourceSeparator": ", ",
   "transfer": "הבדיקה העצמאית הבאה שלך בנושא: {statuses}.",
