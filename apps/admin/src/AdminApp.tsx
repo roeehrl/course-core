@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import type { AdminClient, AdminSession } from "./domain/contracts";
 import { useRemote, useWorkspace } from "./hooks/useAdmin";
+import { useStickyHeight } from "./hooks/useStickyHeight";
 import { Badge, Button, ErrorState, Loading, Notice } from "./components/ui";
 import { CourseView } from "./views/CourseView";
 import { EnrollmentsView } from "./views/EnrollmentsView";
@@ -305,6 +306,7 @@ function CourseWorkspace({
   const layout = useFrameLayout();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const appBar = useStickyHeight();
   // Where focus goes when the drawer closes: back to the menu button, or to the chosen page.
   const afterDrawer = useRef<"menu" | "heading">("menu");
   const drawerShown = drawerOpen && layout !== "wide";
@@ -468,7 +470,7 @@ function CourseWorkspace({
             </div>
           </header>
         ) : (
-          <header className="topbar app-bar">
+          <header className="topbar app-bar" ref={appBar}>
             <button
               ref={menuButton}
               type="button"

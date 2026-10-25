@@ -2999,8 +2999,10 @@ code.digest {
   }
 }
 html:has(.app-bar) {
-  /* Content scrolled to by focus or a link stops below the bar. */
-  scroll-padding-top: 76px;
+  /* Content scrolled to by focus, a link to an anchor or find-in-page stops below the bar, never
+     under it: the bar's measured height (--app-bar-height, published by AdminApp as the bar
+     grows or shrinks) plus a gap. */
+  scroll-padding-top: calc(var(--app-bar-height, 64px) + 12px);
 }
 .topbar.app-bar {
   position: sticky;
