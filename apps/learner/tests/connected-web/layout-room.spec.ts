@@ -88,7 +88,9 @@ for (const locale of ["en", "he"] as const) {
     const status = page.getByRole("status").filter({ hasText: t.connectivity.offline });
     await expect(status).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--connected-status-offset"))).not.toBe("");
-    await page.waitForTimeout(250);
+    // Measured where it rests, after its short slide in.
+    await status.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    await page.waitForTimeout(100);
     const room = (await status.boundingBox())!;
     const viewport = page.viewportSize()!;
     // The next step rose above the status, whole.

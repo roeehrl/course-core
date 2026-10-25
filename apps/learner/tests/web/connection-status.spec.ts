@@ -134,6 +134,8 @@ async function expectAccessible(page: Page) {
 /** The status floats inside the window, below the header, and does not widen the page. */
 async function expectFloating(page: Page) {
   const status = page.locator(".connected-connection");
+  // Measured where it rests, after its short slide in.
+  await status.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
   const box = (await status.boundingBox())!;
   const header = (await page.locator(".connected-header").boundingBox())!;
   const viewport = page.viewportSize()!;
