@@ -7,6 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PropsWithChildren,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -210,8 +211,34 @@ export function Stat({
   );
 }
 /**
+ * Moves focus to a control without scrolling the page. Focus that goes back to a control in the
+ * sticky app bar (the account menu, the bell, the navigation button) made the browser scroll the
+ * page so the control cleared the bar's scroll padding: the page jumped by hundreds of pixels
+ * each time a menu or dialog closed. Use it whenever focus returns to where the person already
+ * is; let focus that leads somewhere new scroll as usual.
+ */
+export function focusInPlace(element: HTMLElement | null | undefined) {
+  element?.focus({ preventScroll: true });
+}
+/**
+ * Notes where the window is scrolled to now and returns a function that puts it back there if
+ * anything moved it meanwhile (a browser restoring focus, a scroll lock, a layout change).
+ */
+export function keepScrollPosition() {
+  const left = window.scrollX,
+    top = window.scrollY;
+  return () => {
+    if (
+      Math.round(window.scrollX) !== Math.round(left) ||
+      Math.round(window.scrollY) !== Math.round(top)
+    )
+      window.scrollTo({ left, top, behavior: "instant" });
+  };
+}
+/**
  * Stops the page scrolling behind a modal without moving it: where the window shows a classic
- * scrollbar, its space stays reserved while the scrollbar is hidden. Returns the undo.
+ * scrollbar, its space stays reserved while the scrollbar is hidden, and the page is where it was
+ * when the lock ends. Returns the undo.
  */
 export function lockPageScroll() {
   const root = document.documentElement,
@@ -220,13 +247,52 @@ export function lockPageScroll() {
     overflow: body.style.overflow,
     gutter: root.style.scrollbarGutter,
   };
+  const restore = keepScrollPosition();
   if (window.innerWidth - root.clientWidth > 0)
     root.style.scrollbarGutter = "stable";
   body.style.overflow = "hidden";
   return () => {
     body.style.overflow = before.overflow;
     root.style.scrollbarGutter = before.gutter;
+    restore();
   };
+}
+/**
+ * Marks a scrolling dialog with `data-more-below` while part of it is below its bottom edge, so
+ * its sticky actions (styles.css, .dialog-footer) show a divider only when content scrolls under
+ * them.
+ */
+export function useMoreBelow(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const update = () =>
+      element.toggleAttribute(
+        "data-more-below",
+        element.scrollTop + element.clientHeight < element.scrollHeight - 1,
+      );
+    update();
+    element.addEventListener("scroll", update, { passive: true });
+    const sizes =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    const watch = () => {
+      sizes?.disconnect();
+      sizes?.observe(element);
+      for (const child of Array.from(element.children)) sizes?.observe(child);
+      update();
+    };
+    watch();
+    const children =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(watch);
+    children?.observe(element, { childList: true });
+    return () => {
+      element.removeEventListener("scroll", update);
+      sizes?.disconnect();
+      children?.disconnect();
+    };
+  }, [ref]);
 }
 /**
  * Keeps Tab inside a modal container in every browser, wrapping at either end. A control that
@@ -278,21 +344,22 @@ export function Dialog({
   const latest = useRef({ onClose, pending });
   latest.current = { onClose, pending };
   const unmounting = useRef(false);
+  useMoreBelow(ref);
   useEffect(() => {
     unmounting.current = false;
     const before = document.activeElement as HTMLElement | null;
     const dialog = ref.current!;
     // A modal dialog makes the rest of the page inert and sits in the top layer, so the page
-    // underneath neither moves nor takes focus.
+    // underneath neither moves nor takes focus. The lock notes the page's place first.
+    const unlock = lockPageScroll();
     dialog.showModal();
     dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-    const unlock = lockPageScroll();
     return () => {
       unmounting.current = true;
       dialog.close();
+      // Focus goes back to the control that opened the dialog, and the page stays where it was.
+      if (before?.isConnected) focusInPlace(before);
       unlock();
-      // Focus goes back to the control that opened the dialog.
-      if (before?.isConnected) before.focus();
     };
   }, []);
   return createPortal(

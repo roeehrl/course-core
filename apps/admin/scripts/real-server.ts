@@ -2481,7 +2481,13 @@ app.post("/test/pricing-fixture", async (request) => {
 // question whose streamed call got no reply at all, recorded by an older Core as CANCELLED with no
 // HTTP status, its whole $0.031410 reservation charged and held. Built through the real bridge and
 // ledger; no provider is contacted.
-app.post("/test/uncertain-call-fixture", async () => {
+// Test-only: calls whose cost stayed unknown. `calls` (default 1) calls are sent within the same
+// minute, so the page has to tell them apart.
+app.post("/test/uncertain-call-fixture", async (request) => {
+  const count = Math.min(
+    5,
+    Math.max(1, (request.body as { calls?: number } | undefined)?.calls ?? 1),
+  );
   const workspaceId = randomUUID(),
     ownerId = randomUUID(),
     learnerId = randomUUID();
@@ -2539,28 +2545,6 @@ app.post("/test/uncertain-call-fixture", async () => {
   await post(`/api/releases/${releaseId}/publish`, {}, owner);
   const enrollmentId = (await post("/api/enrollments", { releaseId }, learner))
     .id as string;
-  const messageId = randomUUID();
-  await db.query(
-    "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
-    [
-      messageId,
-      enrollmentId,
-      "Which classification should I pick?",
-      JSON.stringify({ episodeId: "min" }),
-    ],
-  );
-  const asked = await transaction(db, (client) =>
-    appendEvent(client, {
-      workspaceId,
-      enrollmentId,
-      actorId: learnerId,
-      actorKind: "learner",
-      type: "companion.requested",
-      payload: { messageId, episodeId: "min", requestKind: "question" },
-      idempotencyKey: randomUUID(),
-      supervise: true,
-    }),
-  );
   const bridge = createPostgresSupervisorBridge(db, {
     workspaceIds: [workspaceId],
     jobPolicy: { allowance: { microUsd: 31_410, tokens: 500_000 } },
@@ -2570,62 +2554,94 @@ app.post("/test/uncertain-call-fixture", async () => {
     { workspaceId },
     { microUsd: 25_000_000, tokens: 100_000_000 },
   );
-  const lease = await bridge.claimOutboxEvent(asked.id, randomUUID(), 30_000);
-  const [ref] = lease ? await bridge.prepareOutbox(lease) : [];
-  if (!ref || !lease || !(await bridge.ackOutbox(lease)))
-    throw new Error("Uncertain call fixture job failed");
-  await configureSupervisorBudget(
-    db,
-    { workspaceId, enrollmentId },
-    { microUsd: 2_000_000, tokens: 10_000_000 },
-  );
-  const ownerOfCall = randomUUID();
-  const claimed = await bridge.transition({
-    type: "claim",
-    ref,
-    checkpointId: "generate",
-    ownerId: ownerOfCall,
-    availability: { status: "ready" },
-  });
-  const operation = claimed.snapshot.operations[0];
-  if (claimed.effect !== "invoke" || !operation)
-    throw new Error("Uncertain call fixture claim failed");
-  await db.query(
-    `INSERT INTO provider_dispatches(operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,provider_usage,failure_code,started_at,sent_at,finished_at)
-    VALUES($1,$2,$3,$4,$5,'fixture','uncertain','{"status":"uncertain"}',$6,'CANCELLED',clock_timestamp()-interval '61 seconds',clock_timestamp()-interval '60 seconds',clock_timestamp())`,
-    [
-      operation.id,
-      ref.jobId,
-      enrollmentId,
-      workspaceId,
-      ownerOfCall,
-      JSON.stringify({
-        attempts: [
-          {
-            attempt: 1,
-            status: null,
-            outcome: "unknown",
-            tokens: {
-              input: null,
-              output: null,
-              total: null,
-              cachedInput: null,
-              thoughts: null,
-              toolInput: null,
-            },
-          },
-        ],
+  for (let call = 0; call < count; call++) {
+    const messageId = randomUUID();
+    await db.query(
+      "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
+      [
+        messageId,
+        enrollmentId,
+        "Which classification should I pick?",
+        JSON.stringify({ episodeId: "min" }),
+      ],
+    );
+    const asked = await transaction(db, (client) =>
+      appendEvent(client, {
+        workspaceId,
+        enrollmentId,
+        actorId: learnerId,
+        actorKind: "learner",
+        type: "companion.requested",
+        payload: { messageId, episodeId: "min", requestKind: "question" },
+        idempotencyKey: randomUUID(),
+        supervise: true,
       }),
-    ],
-  );
-  await bridge.transition({
-    type: "settle",
-    ref,
-    operationId: operation.id,
-    ownerId: ownerOfCall,
-    outcome: { status: "uncertain" },
-  });
-  return { code: await issueLoginCode(db, ownerId) };
+    );
+    const lease = await bridge.claimOutboxEvent(asked.id, randomUUID(), 30_000);
+    const [ref] = lease ? await bridge.prepareOutbox(lease) : [];
+    if (!ref || !lease || !(await bridge.ackOutbox(lease)))
+      throw new Error("Uncertain call fixture job failed");
+    await configureSupervisorBudget(
+      db,
+      { workspaceId, enrollmentId },
+      { microUsd: 2_000_000, tokens: 10_000_000 },
+    );
+    const ownerOfCall = randomUUID();
+    const claimed = await bridge.transition({
+      type: "claim",
+      ref,
+      checkpointId: "generate",
+      ownerId: ownerOfCall,
+      availability: { status: "ready" },
+    });
+    const operation = claimed.snapshot.operations[0];
+    if (claimed.effect !== "invoke" || !operation)
+      throw new Error("Uncertain call fixture claim failed");
+    await db.query(
+      `INSERT INTO provider_dispatches(operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,provider_usage,failure_code,started_at,sent_at,finished_at)
+    VALUES($1,$2,$3,$4,$5,'fixture','uncertain','{"status":"uncertain"}',$6,'CANCELLED',clock_timestamp()-interval '61 seconds',clock_timestamp()-interval '60 seconds',clock_timestamp())`,
+      [
+        operation.id,
+        ref.jobId,
+        enrollmentId,
+        workspaceId,
+        ownerOfCall,
+        JSON.stringify({
+          attempts: [
+            {
+              attempt: 1,
+              status: null,
+              outcome: "unknown",
+              tokens: {
+                input: null,
+                output: null,
+                total: null,
+                cachedInput: null,
+                thoughts: null,
+                toolInput: null,
+              },
+            },
+          ],
+        }),
+      ],
+    );
+    await bridge.transition({
+      type: "settle",
+      ref,
+      operationId: operation.id,
+      ownerId: ownerOfCall,
+      outcome: { status: "uncertain" },
+    });
+  }
+  // Every call sent in one minute, seconds apart, as a question and its automatic retry are.
+  if (count > 1)
+    await db.query(
+      `UPDATE provider_spend_ledger l SET reserved_at=date_trunc('minute',clock_timestamp())-interval '20 minutes'+make_interval(secs=>n.rank*7)
+     FROM (SELECT id,row_number() OVER (ORDER BY reserved_at,id) AS rank FROM provider_spend_ledger WHERE workspace_id=$1) n
+     WHERE l.id=n.id`,
+      [workspaceId],
+    );
+  return { code: await issueLoginCode(db, ownerId), workspaceId };
 });
 // Test-only: a workspace after a Core upgrade. Its tutor is on, approved by the owner for an older
 // set of quality checks, so it now needs a check (it keeps working). The tutor's model is the

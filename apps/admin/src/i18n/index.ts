@@ -40,23 +40,26 @@ export const { I18nProvider, useI18n, useT } = createI18nBindings<MessageKey>({
 
 /**
  * Locale-aware replacements for the old `money` and `when` helpers in components/ui.tsx.
- * Server times are shown in UTC, with the zone name in the active locale.
+ * Server times are shown in UTC, with the zone name in the active locale. `whenExact` adds the
+ * seconds, for events that can fall in the same minute (two AI calls, say).
  */
 export function useFormatters() {
   const i18n = useI18n();
+  // Intl rejects dateStyle/timeStyle together with timeZoneName, so name the fields.
+  const fields = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  } as const;
   return {
     money: (cents: number, currency = "USD") =>
       i18n.currency(cents / 100, currency),
-    when: (iso: string) =>
-      // Intl rejects dateStyle/timeStyle together with timeZoneName, so name the fields.
-      i18n.dateTime(iso, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: "UTC",
-        timeZoneName: "short",
-      }),
+    when: (iso: string) => i18n.dateTime(iso, fields),
+    whenExact: (iso: string) =>
+      i18n.dateTime(iso, { ...fields, second: "2-digit" }),
   };
 }

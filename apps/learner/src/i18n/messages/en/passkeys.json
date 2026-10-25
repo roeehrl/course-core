@@ -7,7 +7,6 @@
   "defaultName.platform": "Passkey on {platform}",
   "defaultName.generic": "Passkey",
   "never": "never",
-  "title": "Passkeys",
   "intro": "A passkey lets you sign in with your device's screen lock or a security key instead of typing your password. Your password keeps working either way.",
   "loading": "Loading your passkeys…",
   "empty": "You have no passkeys yet.",

@@ -23,7 +23,15 @@ import {
   type AdminTranslator,
   type MessageKey,
 } from "../i18n";
-import { Badge, Button, Card, EmptyState, Notice, Status } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Notice,
+  Status,
+  focusInPlace,
+} from "./ui";
 import {
   blockLabel,
   InspectorContext,
@@ -80,7 +88,7 @@ export function LearnerViewScreen({
   );
   const closeInspector = () => {
     setInspected(undefined);
-    opener.current?.focus();
+    focusInPlace(opener.current);
   };
   const episodes = snapshot.course.chapters.flatMap(
     (chapter) => chapter.episodes,

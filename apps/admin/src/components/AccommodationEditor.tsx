@@ -245,36 +245,38 @@ export function AccommodationEditor({
               onChange={(e) => setReason(e.target.value)}
             />
           </Field>
-          <Button
-            kind="primary"
-            disabled={pending || !reason.trim()}
-            onClick={() =>
-              void run(async () => {
-                const fingerprint = JSON.stringify([
-                  preview.previewId,
-                  reason.trim(),
-                ]);
-                let key = keys.current.get(fingerprint);
-                if (!key) {
-                  key = randomId();
-                  keys.current.set(fingerprint, key);
-                }
-                const result = await client.applyAccommodation!(
-                  policy.enrollmentId,
-                  {
-                    previewId: preview.previewId,
-                    previewDigest: preview.previewDigest,
-                    reason: reason.trim(),
-                  },
-                  { expectedRevision: preview.revision, idempotencyKey: key },
-                );
-                onUpdated(result);
-                onClose();
-              })
-            }
-          >
-            {t("accommodationEditor.apply")}
-          </Button>
+          <div className="dialog-footer">
+            <Button
+              kind="primary"
+              disabled={pending || !reason.trim()}
+              onClick={() =>
+                void run(async () => {
+                  const fingerprint = JSON.stringify([
+                    preview.previewId,
+                    reason.trim(),
+                  ]);
+                  let key = keys.current.get(fingerprint);
+                  if (!key) {
+                    key = randomId();
+                    keys.current.set(fingerprint, key);
+                  }
+                  const result = await client.applyAccommodation!(
+                    policy.enrollmentId,
+                    {
+                      previewId: preview.previewId,
+                      previewDigest: preview.previewDigest,
+                      reason: reason.trim(),
+                    },
+                    { expectedRevision: preview.revision, idempotencyKey: key },
+                  );
+                  onUpdated(result);
+                  onClose();
+                })
+              }
+            >
+              {t("accommodationEditor.apply")}
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>

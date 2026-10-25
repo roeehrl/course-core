@@ -154,8 +154,8 @@ export function PasskeyManager({
   }
   const supported = passkeysSupported();
   return (
-    <section className="connected-form connected-reading-card connected-passkeys" aria-labelledby="connected-passkeys-title">
-      <h2 id="connected-passkeys-title">{t("passkeys.title")}</h2>
+    // The sheet it opens in (Overlay) shows the title and the close button.
+    <section className="connected-form connected-reading-card connected-passkeys">
       <p>{t("passkeys.intro")}</p>
       {passkeys === undefined && !error && <p role="status">{t("passkeys.loading")}</p>}
       {passkeys && passkeys.length === 0 && <p>{t("passkeys.empty")}</p>}
@@ -256,9 +256,6 @@ export function PasskeyManager({
               disabled={pending || !name.trim() || (needsPassword && (!hasPassword || !password))}
             >
               {pending ? t("passkeys.waiting") : t("passkeys.add")}
-            </button>
-            <button type="button" className="connected-secondary" disabled={pending} onClick={onClose}>
-              {t("passkeys.close")}
             </button>
           </div>
         </form>

@@ -225,32 +225,34 @@ export function LedgerActionDialog({
               onChange={(e) => setReason(e.target.value)}
             />
           </Field>
-          <Button
-            kind={action.kind === "revocation" ? "danger" : "primary"}
-            disabled={flight.pending || !reason.trim()}
-            onClick={() =>
-              void flight.run(async () => {
-                const input = {
-                  previewId: preview.previewId,
-                  previewDigest: preview.previewDigest,
-                  reason: reason.trim(),
-                };
-                const result = await client.applyLedgerAction!(
-                  policy.enrollmentId,
-                  action,
-                  input,
-                  {
-                    expectedRevision: preview.revision,
-                    idempotencyKey: flight.key(input),
-                  },
-                );
-                onUpdated(result);
-                onClose();
-              })
-            }
-          >
-            {t(`ledgerActionDialog.apply.${action.kind}` as MessageKey)}
-          </Button>
+          <div className="dialog-footer">
+            <Button
+              kind={action.kind === "revocation" ? "danger" : "primary"}
+              disabled={flight.pending || !reason.trim()}
+              onClick={() =>
+                void flight.run(async () => {
+                  const input = {
+                    previewId: preview.previewId,
+                    previewDigest: preview.previewDigest,
+                    reason: reason.trim(),
+                  };
+                  const result = await client.applyLedgerAction!(
+                    policy.enrollmentId,
+                    action,
+                    input,
+                    {
+                      expectedRevision: preview.revision,
+                      idempotencyKey: flight.key(input),
+                    },
+                  );
+                  onUpdated(result);
+                  onClose();
+                })
+              }
+            >
+              {t(`ledgerActionDialog.apply.${action.kind}` as MessageKey)}
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>

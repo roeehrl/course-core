@@ -64,7 +64,8 @@ test("a learner adds a passkey, signs in with it, removes it and still signs in 
   await expect(page.getByRole("heading", { name: "Your courses" })).toBeVisible();
 
   await chooseFromMenu(page, "Passkeys");
-  const manager = page.getByRole("region", { name: "Passkeys" });
+  // The sheet carries the title; the manager is its content.
+  const manager = page.getByRole("dialog", { name: "Passkeys" });
   await expect(manager.getByText("You have no passkeys yet.")).toBeVisible();
   await manager.getByLabel("Passkey name").fill("Learner test device");
   await manager.getByRole("button", { name: "Add a passkey" }).click();

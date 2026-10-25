@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Check, ChevronDown, UserRound } from "lucide-react";
 import { useT } from "../i18n";
+import { focusInPlace } from "./ui";
 
 type Icon = ComponentType<{
   size?: number;
@@ -129,9 +130,10 @@ export function AccountMenu({
     setPlace(measure());
     setOpen(true);
   };
+  // The button sits in the sticky top bar: focus goes back to it without scrolling the page.
   const close = (returnFocus: boolean) => {
     setOpen(false);
-    if (returnFocus) button.current?.focus();
+    if (returnFocus) focusInPlace(button.current);
   };
   const items = () =>
     Array.from(

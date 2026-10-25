@@ -382,7 +382,7 @@ export function ChangePasswordForm({
         />
       </Field>
       {error && <Notice tone="red">{error}</Notice>}
-      <div className="dialog-actions">
+      <div className="dialog-actions dialog-footer">
         <Button type="submit" kind="primary" disabled={pending}>
           {pending ? t("signIn.change.saving") : t("signIn.change.submit")}
         </Button>

@@ -36,7 +36,7 @@ export function WorkspaceLocaleSetting({
           first={index === 0}
         />
       ))}
-      <div className="dialog-actions">
+      <div className="dialog-actions dialog-footer">
         <Button type="button" onClick={onClose}>
           {t("workspaceLocaleSetting.close")}
         </Button>

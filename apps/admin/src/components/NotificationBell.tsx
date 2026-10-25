@@ -7,7 +7,7 @@ import {
   type StaffNotification,
 } from "../domain/notifications";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
-import { Button } from "./ui";
+import { Button, focusInPlace } from "./ui";
 
 /** How often the bell's count is refreshed while the page is open. */
 const POLL_MS = 120_000;
@@ -66,11 +66,13 @@ export function NotificationBell({
   }, [load]);
   useEffect(() => {
     if (!open) return;
-    heading.current?.focus();
+    // The panel hangs from the sticky top bar: moving focus into it, or back to the bell, must
+    // not scroll the page.
+    focusInPlace(heading.current);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
-        button.current?.focus();
+        focusInPlace(button.current);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -131,7 +133,7 @@ export function NotificationBell({
               aria-label={t("notifications.panel.close")}
               onClick={() => {
                 setOpen(false);
-                button.current?.focus();
+                focusInPlace(button.current);
               }}
             >
               <X size={18} aria-hidden="true" />

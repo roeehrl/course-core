@@ -209,13 +209,15 @@ export function PolicyMigrationEditor({
             />
             {t("policyMigrationEditor.reviewed")}
           </label>
-          <Button
-            kind="primary"
-            disabled={!reviewed || !reason.trim() || pending}
-            onClick={() => void apply()}
-          >
-            {t("policyMigrationEditor.apply")}
-          </Button>
+          <div className="dialog-footer">
+            <Button
+              kind="primary"
+              disabled={!reviewed || !reason.trim() || pending}
+              onClick={() => void apply()}
+            >
+              {t("policyMigrationEditor.apply")}
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>

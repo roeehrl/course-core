@@ -198,8 +198,9 @@ async function execute(action, selection, withDependencies) {
           const cli = path.join(module.directory, 'node_modules/@playwright/test/cli.js');
           await requireFile(cli, `${MODULES[name].directory}: installed Playwright CLI`);
           // Matching Playwright pin; local direct checks can still use installed Chrome.
-          // The learner's web suite also checks wide-screen wheel scrolling on WebKit.
-          const browsers = name === 'learner' ? ['chromium', 'webkit'] : ['chromium'];
+          // The learner's web suite also checks wide-screen wheel scrolling on WebKit; both web
+          // apps check their menus, dialogs and form controls on WebKit too.
+          const browsers = name === 'learner' || name === 'admin' ? ['chromium', 'webkit'] : ['chromium'];
           const browserEnv = name === 'visuals'
             ? { ...env, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(module.directory, 'node_modules/.cache/ms-playwright') }
             : env;

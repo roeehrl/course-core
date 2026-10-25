@@ -95,14 +95,18 @@ export function registerProviderSpendResolutionRoutes(app: FastifyInstance, db: 
     const rows = (await db.query<Row>(`${SELECT} ORDER BY l.reserved_at DESC,l.id LIMIT ${MAX_LISTED + 1}`, [workspaceId])).rows;
     const held = (await db.query<{ calls: number; held: string }>(`SELECT count(*)::int AS calls,COALESCE(sum(t.reserved::bigint),0)::text AS held FROM (${SELECT}) t`,
       [workspaceId])).rows[0]!;
+    // Each decision names its call (the job and when it was sent), as the list of calls does.
     const recent = (await db.query<{ ledger_id: string; decision: 'zero' | 'reservation'; reserved: string; charged: string; released: string; reason: string;
-      created_at: Date; actor: string | null }>(`SELECT r.ledger_id,r.decision,r.reserved_micro_usd::text AS reserved,r.charged_micro_usd::text AS charged,
-        r.released_micro_usd::text AS released,r.reason,r.created_at,u.display_name AS actor
-      FROM provider_spend_resolutions r LEFT JOIN app_users u ON u.id=r.actor_id WHERE r.workspace_id=$1 ORDER BY r.created_at DESC,r.id LIMIT 10`, [workspaceId])).rows;
+      created_at: Date; actor: string | null; role: string | null; reserved_at: Date | null }>(`SELECT r.ledger_id,r.decision,r.reserved_micro_usd::text AS reserved,
+        r.charged_micro_usd::text AS charged,r.released_micro_usd::text AS released,r.reason,r.created_at,u.display_name AS actor,l.role,l.reserved_at
+      FROM provider_spend_resolutions r LEFT JOIN app_users u ON u.id=r.actor_id
+      LEFT JOIN provider_spend_ledger l ON l.id=r.ledger_id AND l.workspace_id=r.workspace_id
+      WHERE r.workspace_id=$1 ORDER BY r.created_at DESC,r.id LIMIT 10`, [workspaceId])).rows;
     return { currency: 'USD' as const, calls: rows.slice(0, MAX_LISTED).map(view), more: rows.length > MAX_LISTED,
       uncertainCalls: held.calls, heldMicroUsd: Number(held.held), settleAfterMinutes: SETTLE_AFTER_MS / 60_000,
       recent: recent.map(r => ({ ledgerId: r.ledger_id, decision: r.decision, reservedMicroUsd: Number(r.reserved), chargedMicroUsd: Number(r.charged),
-        releasedMicroUsd: Number(r.released), reason: r.reason, decidedAt: r.created_at.toISOString(), decidedBy: r.actor })) };
+        releasedMicroUsd: Number(r.released), reason: r.reason, decidedAt: r.created_at.toISOString(), decidedBy: r.actor,
+        role: r.role, reservedAt: r.reserved_at?.toISOString() ?? null })) };
   });
   app.post(`${base}/:ledgerId/settle`, { schema: { params: { type: 'object', additionalProperties: false, required: ['workspaceId', 'ledgerId'],
     properties: { workspaceId: { type: 'string', format: 'uuid' }, ledgerId: { type: 'string', format: 'uuid' } } } }, bodyLimit: 4096, logLevel: 'silent' }, async request => {

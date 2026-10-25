@@ -1192,8 +1192,10 @@ html:has(.connected-host.is-compact) body {
 .connected-danger {
   background: #8b413d;
 }
-.connected-danger:disabled {
-  background: #c9b5b3;
+.connected-danger:disabled,
+.connected-button.connected-danger:disabled {
+  background: #efe2e0;
+  color: #6b3936;
 }
 .connected-error-text {
   color: #8b413d;
@@ -1372,10 +1374,24 @@ html:has(.connected-host.is-compact) body {
   border: 2px solid #dce6e2;
   color: #17363b;
 }
+/* A disabled button reads as inactive (flat, muted) while its label keeps a contrast of at least
+   4.5:1: fading the whole button left white text on pale teal at about 2:1. */
 .connected-primary:disabled,
-.connected-secondary:disabled {
-  opacity: 0.55;
+.connected-secondary:disabled,
+.connected-button:disabled {
+  opacity: 1;
   cursor: not-allowed;
+}
+.connected-primary:disabled,
+.connected-button:disabled {
+  background: #dfe9e5;
+  border-color: #dfe9e5;
+  color: #3f5a55;
+}
+.connected-secondary:disabled {
+  background: #fff;
+  border-color: #e4ebe8;
+  color: #56706b;
 }
 .connected-primary:focus-visible,
 .connected-secondary:focus-visible {
@@ -2716,7 +2732,7 @@ html:has(.connected-host:not(.is-compact)) {
   cursor: pointer;
   touch-action: manipulation;
 }
-.connected-portal button:disabled {
+.connected-portal :where(button:disabled) {
   cursor: default;
   opacity: 0.55;
 }
@@ -2729,6 +2745,29 @@ html:has(.connected-host:not(.is-compact)) {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+/* The sheet's head (components/Overlay.web.tsx): the title and a close button that shows an
+   icon only. A form that fills the sheet keeps its actions at the bottom edge while its fields
+   scroll under them (an on-screen keyboard, a small phone, larger text). */
+.learner-sheet-close:hover {
+  background: #e4ece8 !important;
+}
+.learner-sheet-close:focus-visible {
+  outline: 3px solid #183237;
+  outline-offset: 2px;
+}
+.learner-sheet-body > .connected-portal > form.connected-form > .connected-form-actions:last-child {
+  position: sticky;
+  z-index: 1;
+  bottom: calc(-1 * var(--sheet-pad-end, 24px));
+  margin: 0 -24px calc(-1 * var(--sheet-pad-end, 24px));
+  padding: 12px 24px var(--sheet-pad-end, 24px);
+  background: #f8f8f2;
+}
+.learner-sheet-body[data-more-below] > .connected-portal > form.connected-form > .connected-form-actions:last-child {
+  box-shadow:
+    0 -1px 0 #dce6e2,
+    0 -12px 18px -14px rgb(24 50 55 / 0.45);
 }
 @media (forced-colors: active) {
   .connected-portal button {

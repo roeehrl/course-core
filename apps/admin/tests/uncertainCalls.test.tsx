@@ -26,6 +26,18 @@ const t = (key: string, args?: Record<string, string | number>) =>
   english.t(`aiServices.${key}` as MessageKey, args);
 const PILOT = "00000000-0000-4000-8000-000000000b02",
   SETTLING = "00000000-0000-4000-8000-000000000b03";
+/** A time as the panel shows it: UTC, to the second. */
+const exactTime = (iso: string, translator = english) =>
+  translator.dateTime(iso, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  });
 function view(overrides: Partial<UncertainCalls> = {}): UncertainCalls {
   return uncertainCallsSchema.parse({
     currency: "USD",
@@ -161,9 +173,16 @@ describe("calls with an unknown cost", () => {
     expect(fake.settleUncertainCall.mock.calls[0]![2].idempotencyKey).toMatch(
       /^ai-services:/,
     );
+    // The message names the call that was decided.
     expect(
       await screen.findByText(
-        t("unknown.savedZero", { amount: "$0.03141", zero: "$0.00" }),
+        t("unknown.savedZero", {
+          job: english.t("aiServices.role.companion.name" as MessageKey),
+          when: exactTime("2026-10-24T22:51:00.000Z"),
+          ref: t("unknown.ref", { id: "00000b02" }),
+          amount: "$0.03141",
+          zero: "$0.00",
+        }),
       ),
     ).toBeTruthy();
     await waitFor(() => expect(onSettled).toHaveBeenCalled());
@@ -247,5 +266,94 @@ describe("calls with an unknown cost", () => {
     expect(
       screen.getByText(hebrew.t("aiServices.unknown.happened.noResponse")),
     ).toBeTruthy();
+  });
+
+  it("tells apart calls sent in the same minute, by the second and a short reference", async () => {
+    const twin = "00000000-0000-4000-8000-0000000c4a17";
+    const fake = port(
+      view({
+        calls: [
+          { ...view().calls[0]!, reservedAt: "2026-10-25T07:45:12.000Z" },
+          {
+            ...view().calls[0]!,
+            id: twin,
+            reservedAt: "2026-10-25T07:45:41.000Z",
+          },
+        ],
+      }),
+      async () => {
+        throw new Error("unused");
+      },
+    );
+    render(<UncertainCallsPanel port={fake} workspaceId="w" />);
+    const list = await screen.findByRole("list", {
+      name: t("unknown.listLabel"),
+    });
+    const heads = within(list)
+      .getAllByRole("listitem")
+      .map((item) => item.querySelector(".ai-unknown-head")!.textContent);
+    expect(heads).toEqual([
+      `Learner tutor · ${exactTime("2026-10-25T07:45:12.000Z")} · ref. 00000b02`,
+      `Learner tutor · ${exactTime("2026-10-25T07:45:41.000Z")} · ref. 000c4a17`,
+    ]);
+    expect(heads[0]).toMatch(/7:45:12/);
+    expect(new Set(heads).size).toBe(2);
+  });
+
+  it("in Hebrew, keeps a date and an English note in their own order, and names each decided call", async () => {
+    const fake = port(
+      view({
+        recent: [
+          {
+            ledgerId: PILOT,
+            decision: "zero",
+            reservedMicroUsd: 31_410,
+            chargedMicroUsd: 0,
+            releasedMicroUsd: 31_410,
+            reason: "Checked the provider usage page: no request at that time.",
+            decidedAt: "2026-10-25T07:51:00.000Z",
+            decidedBy: "Owner up",
+            role: "companion",
+            reservedAt: "2026-10-24T22:51:00.000Z",
+          },
+        ],
+      }),
+      async () => {
+        throw new Error("unused");
+      },
+    );
+    const { container } = render(
+      <I18nProvider value={hebrew}>
+        <div dir="rtl">
+          <UncertainCallsPanel port={fake} workspaceId="w" />
+        </div>
+      </I18nProvider>,
+    );
+    await screen.findByRole("list", {
+      name: hebrew.t("aiServices.unknown.listLabel"),
+    });
+    // The call's time is isolated without forcing it left to right: a Hebrew date reads right
+    // to left (it used to read "UTC באוק׳ 2026, 07:45 · 25").
+    const times = Array.from(container.querySelectorAll(".ai-unknown-when"));
+    expect(times.length).toBe(3);
+    for (const time of times) {
+      expect(time.tagName).toBe("BDI");
+      expect(time.getAttribute("dir")).toBeNull();
+      expect(time.closest('[dir="ltr"]')).toBeNull();
+    }
+    expect(times[0]!.textContent).toBe(
+      exactTime("2026-10-24T22:51:00.000Z", hebrew),
+    );
+    // The note is its own isolated block in its own direction.
+    const note = container.querySelector(".ai-unknown-recent q")!;
+    expect(note.getAttribute("dir")).toBe("auto");
+    expect(note.textContent).toBe(
+      "Checked the provider usage page: no request at that time.",
+    );
+    const decided = container.querySelector(".ai-unknown-recent li")!;
+    expect(decided.querySelector(".ai-unknown-head")!.textContent).toContain(
+      hebrew.t("aiServices.role.companion.name" as MessageKey),
+    );
+    expect(decided.textContent).toContain("Owner up");
   });
 });
