@@ -23,7 +23,7 @@ import { migrate } from '../src/migrations.js';
  * Waiting for that in each file's afterAll took seconds per file on a loaded machine
  * and was where the API suite's hook timeouts came from. A finished file renames its
  * copy to a retired name instead (no checkpoint), and the global setup drops retired
- * copies in the background, several at once so that one checkpoint serves them all.
+ * copies in the background, up to 16 at once so that one checkpoint serves them all.
  *
  * Every database here is named `<base>__<run>_<kind>` and carries `cloneComment`;
  * cleanup never touches a database without both.
@@ -37,7 +37,7 @@ export const cloneComment = 'course-core disposable API test database';
 const identifier = /^[a-z_][a-z0-9_]{0,62}$/;
 const maxBaseLength = 40;
 /** Databases dropped together (one connection each), so they share a checkpoint. */
-const dropBatch = 8;
+const dropBatch = 16;
 
 export interface TemplateRun {
   /** `<base>__<run>`: every database of this run starts with it. */
