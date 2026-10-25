@@ -202,6 +202,44 @@ test('browser jobs budget setup and tests in separate steps under a job limit', 
   }
 });
 
+/** A workflow's top-level concurrency block, or undefined without one. */
+function concurrency(text) {
+  const block = /\nconcurrency:\n {2}group: (.+)\n {2}cancel-in-progress: (.+)\n/.exec(header(text));
+  return block && { group: block[1], cancel: block[2] };
+}
+const PR_ONLY_CANCEL = "${{ github.event_name == 'pull_request' }}";
+const PER_RUN_GROUP = "${{ github.event_name == 'pull_request' && format('public-ci-pr-{0}', github.ref) || format('public-ci-run-{0}', github.run_id) }}";
+/** Why a ci.yml concurrency block could cancel, or replace while pending, a main or release run ('' when it cannot). */
+function mainRunRisk(block) {
+  if (!block) return 'no concurrency block';
+  if (block.cancel !== PR_ONLY_CANCEL) return 'only pull request runs may cancel in progress';
+  // GitHub keeps one pending run per group and cancels it when a newer one queues, whatever cancel-in-progress says.
+  if (block.group !== PER_RUN_GROUP) return 'every run outside a pull request needs a group of its own';
+  return '';
+}
+
+test('main and release CI runs are never cancelled; only a superseded pull request run is', () => {
+  // The release tags only a "Version" commit whose own main run passed, so no later merge may cancel or replace that run.
+  const ci = workflows['ci.yml'];
+  assert.match(header(ci), /\non:\n {2}pull_request:\n {2}push:\n {4}branches: \[main\]\n {2}workflow_dispatch:\n {2}workflow_call:\n/);
+  assert.equal(mainRunRisk(concurrency(ci)), '');
+  // The checker rejects the configuration that cancelled the 0.1.60 main run, and a shared group whose pending run a later merge replaces.
+  assert.match(mainRunRisk({ group: 'public-ci-${{ github.ref }}', cancel: 'true' }), /only pull request runs/);
+  assert.match(mainRunRisk({ group: 'public-ci-${{ github.ref }}', cancel: PR_ONLY_CANCEL }), /group of its own/);
+  assert.match(mainRunRisk({ group: PER_RUN_GROUP, cancel: 'true' }), /only pull request runs/);
+  assert.match(mainRunRisk(undefined), /no concurrency block/);
+  // The release workflow (which calls ci.yml) never cancels a candidate run.
+  assert.equal(concurrency(workflows['release.yml'])?.cancel, 'false');
+  // A job-level concurrency block would bypass the workflow-level rule.
+  for (const name of ['ci.yml', 'release.yml'])
+    for (const [job, body] of Object.entries(jobs(workflows[name]))) assert.doesNotMatch(body, /^ {4}concurrency:/m, `${name} ${job}`);
+  // Any other workflow a push or another workflow can start must not cancel in progress either.
+  for (const [name, text] of Object.entries(workflows)) {
+    const on = header(text).slice(header(text).indexOf('\non:\n'));
+    if (name !== 'ci.yml' && /\n {2}(?:push|workflow_call):/.test(on)) assert.notEqual(concurrency(text)?.cancel, 'true', name);
+  }
+});
+
 test('PR and release CI fail on test-level skips: every test command is skip-checked', () => {
   const ci = workflows['ci.yml'];
   assert.match(header(ci), /\nenv:\n(?: {2}#.*\n)* {2}COURSE_FORBID_TEST_SKIPS: '1'\n/, 'orchestrate.mjs checks module suites for skips');
