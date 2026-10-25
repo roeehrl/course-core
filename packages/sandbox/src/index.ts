@@ -8,9 +8,25 @@ import { StringDecoder } from 'node:string_decoder';
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export interface Case { id: string; input: Json; expected: Json; absoluteTolerance?: number; relativeTolerance?: number }
 export interface Submission { source: string; cases: Case[]; signal?: AbortSignal; batchCaseCounts?: number[] }
-export interface Options { image: string; storageDirectory: string; dockerBinary?: string; timeoutMs?: number; memoryMiB?: number; maxOutputBytes?: number; concurrency?: number }
-export interface GradeReport { status: 'graded' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'unavailable' | 'busy' | 'cleanup_failed';
-  passed: boolean; cases: { id: string; passed: boolean; reason: string }[]; sourceDigest: string; durationMs: number; outputBytes: number; batchesCompleted: number; runtime: { protocol: 'python-json-v1'; image: string } }
+/**
+ * `timeoutMs` is the learner's time limit: the execution of their code, summed over every batch of
+ * one submission. Its clock runs from the runner's ready line (written before the submission is
+ * loaded) until the container's process ends. `setupTimeoutMs` bounds everything else in that
+ * submission (admission, Docker checks, container create and start up to the ready line, cleanup
+ * between batches). Running past it is `setup_timeout`: the sandbox was slow, which says nothing
+ * about the learner's code, so callers must not grade it or count it as an attempt.
+ */
+export interface Options { image: string; storageDirectory: string; dockerBinary?: string; timeoutMs?: number; setupTimeoutMs?: number; memoryMiB?: number; maxOutputBytes?: number; concurrency?: number }
+/** `durationMs` is wall time; `executionMs` is what `timeoutMs` limits, and `setupMs` the rest. */
+export interface GradeReport { status: 'graded' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'setup_timeout' | 'unavailable' | 'busy' | 'cleanup_failed';
+  passed: boolean; cases: { id: string; passed: boolean; reason: string }[]; sourceDigest: string; durationMs: number; executionMs: number; setupMs: number; outputBytes: number; batchesCompleted: number; runtime: { protocol: 'python-json-v1'; image: string } }
+
+/** The runner's first stdout line (runner.py). It is written before learner code is loaded, so
+ * learner code can neither end setup early nor print it first. It is not graded output. */
+export const RUNNER_READY_LINE = 'course-core-sandbox-ready python-json-v1';
+/** Default bound for sandbox setup in one submission; generous because a cold or loaded Docker
+ * host can create and start containers several times slower than usual. */
+export const DEFAULT_SETUP_TIMEOUT_MS = 60000;
 
 export const QUALIFIED_IMAGES = {
   arm64: 'python@sha256:55432fc4ef6d07e33c10449312f0ec00071bbb310bb9bd7ba626a31fbbc2cb0d',
@@ -88,12 +104,15 @@ export class DockerSandbox {
   private readonly storageDirectory: string;
   private active = 0;
   private unhealthy = false;
+  private setupTimeouts = 0;
+  private lastSetupTimeoutAt: number | null = null;
   constructor(options: Options) {
     this.storageDirectory = options.storageDirectory;
-    this.config = { image: options.image, dockerBinary: options.dockerBinary ?? 'docker', timeoutMs: options.timeoutMs ?? 5000, memoryMiB: options.memoryMiB ?? 128,
-      maxOutputBytes: options.maxOutputBytes ?? 65536, concurrency: options.concurrency ?? 1 };
+    this.config = { image: options.image, dockerBinary: options.dockerBinary ?? 'docker', timeoutMs: options.timeoutMs ?? 5000, setupTimeoutMs: options.setupTimeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS,
+      memoryMiB: options.memoryMiB ?? 128, maxOutputBytes: options.maxOutputBytes ?? 65536, concurrency: options.concurrency ?? 1 };
     if (!/^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(options.image) || !path.isAbsolute(options.storageDirectory) || /[,\n\r\0]/.test(options.storageDirectory)
       || !Number.isInteger(this.config.timeoutMs) || this.config.timeoutMs < 200 || this.config.timeoutMs > 15000
+      || !Number.isInteger(this.config.setupTimeoutMs) || this.config.setupTimeoutMs < 1000 || this.config.setupTimeoutMs > 300000
       || !Number.isInteger(this.config.memoryMiB) || this.config.memoryMiB < 64 || this.config.memoryMiB > 512
       || !Number.isInteger(this.config.maxOutputBytes) || this.config.maxOutputBytes < 1024 || this.config.maxOutputBytes > 1048576
       || this.config.concurrency !== 1) throw new Error('INVALID_SANDBOX_CONFIGURATION');
@@ -138,13 +157,23 @@ export class DockerSandbox {
     if (!architecture || image?.Os !== 'linux' || image.Architecture !== architecture) return { ok: false, step: 'sandbox_image_inspect', reason: 'native_image_architecture_required' };
     return { ok: true };
   }
+  /** In-process staff diagnostics since this broker started: grades stopped by `setup_timeout`
+   * (the code did not run) and when the latest one ended (epoch milliseconds, or null). */
+  setupDiagnostics(): { setupTimeouts: number; lastSetupTimeoutAt: number | null } {
+    return { setupTimeouts: this.setupTimeouts, lastSetupTimeoutAt: this.lastSetupTimeoutAt };
+  }
   async grade(input: Submission): Promise<GradeReport> {
     validateSubmission(input);
     // Freeze the host reference/source snapshot before any asynchronous boundary.
     input = { source: input.source, cases: structuredClone(input.cases), ...(input.signal ? { signal: input.signal } : {}), ...(input.batchCaseCounts ? { batchCaseCounts: [...input.batchCaseCounts] } : {}) };
     const startedAt = Date.now(), sourceDigest = createHash('sha256').update(input.source).digest('hex');
-    let outputBytes=0,batchesCompleted=0;
-    const report = (status: GradeReport['status'], cases: GradeReport['cases'] = []): GradeReport => ({ status, passed: status === 'graded' && cases.length === input.cases.length && cases.every(item => item.passed), cases, sourceDigest, durationMs: Date.now() - startedAt, outputBytes, batchesCompleted, runtime: { protocol: 'python-json-v1', image: this.config.image } });
+    let outputBytes=0,batchesCompleted=0,executionMs=0;
+    // Two clocks: the learner's execution (timeoutMs) and everything else in this submission (setupTimeoutMs).
+    const setupLeft = () => this.config.setupTimeoutMs - (Date.now() - startedAt - executionMs);
+    const report = (status: GradeReport['status'], cases: GradeReport['cases'] = []): GradeReport => {
+      const durationMs = Date.now() - startedAt;
+      return { status, passed: status === 'graded' && cases.length === input.cases.length && cases.every(item => item.passed), cases, sourceDigest, durationMs, executionMs, setupMs: Math.max(0, durationMs - executionMs), outputBytes, batchesCompleted, runtime: { protocol: 'python-json-v1', image: this.config.image } };
+    };
     if (input.signal?.aborted) return report('cancelled');
     if (this.unhealthy) return report('unavailable');
     if (this.active >= this.config.concurrency) return report('busy');
@@ -161,7 +190,11 @@ export class DockerSandbox {
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { this.active -= 1; return report('busy'); } throw error; }
       await lock.writeFile(JSON.stringify({ containerName: name, pid: process.pid, createdAt: new Date().toISOString() }));
       await lock.sync();
-      if (!(await this.runtimeReadiness()).ready) final = report('unavailable');
+      // The same Docker checks as readiness(), bounded by the setup budget: a daemon too slow to
+      // answer is a slow sandbox (setup_timeout), not a verdict on the code.
+      const checked = await this.preflight(Math.max(1, Math.min(15000, setupLeft())));
+      if (!checked.ok) final = report(checked.reason === 'docker_timeout' || checked.reason === 'image_inspect_timeout' ? 'setup_timeout' : 'unavailable');
+      else if (this.unhealthy) final = report('unavailable');
       else if (input.signal?.aborted) final = report('cancelled');
       else {
         directory = await mkdtemp(path.join(this.storageDirectory, 'run-'));
@@ -178,23 +211,25 @@ export class DockerSandbox {
           }
           const batch=input.cases.slice(offset,offset+counts[batchIndex]!);offset+=batch.length;
           const stdin = batch.map(item => JSON.stringify({ id: item.id, input: item.input })).join('\n') + '\n';
-          const beforeCreate = this.config.timeoutMs - (Date.now() - startedAt);
-          if (beforeCreate <= 0) final = report('timeout');
+          const beforeCreate = setupLeft();
+          if (beforeCreate <= 0) final = report('setup_timeout', results);
           else if (input.signal?.aborted) final = report('cancelled');
           else {
             // Any dispatched create without a valid acknowledgement is ambiguous, including
             // nonzero exits and malformed stdout. A momentary absence cannot fence a late create.
+            // A create slower than the setup budget is too, and still quarantines the broker.
             createAttempted = creationUncertain = true;
             const created = await this.run(dockerArguments(this.config, name, directory), '', input.signal, beforeCreate);
-            if (created.status !== 'completed' || !/^[a-f0-9]{64}\s*$/.test(created.stdout)) final = report(created.status === 'completed' ? 'unavailable' : created.status);
+            if (created.status !== 'completed' || !/^[a-f0-9]{64}\s*$/.test(created.stdout))
+              final = report(created.status === 'cancelled' ? 'cancelled' : created.status === 'timeout' ? 'setup_timeout' : 'unavailable');
             else {
               containerId = created.stdout.trim(); creationUncertain = false;
               // Start and cleanup use the acknowledged immutable ID, not a replaceable name.
-              const remaining = this.config.timeoutMs - (Date.now() - startedAt);
-              if (remaining <= 0) final = report('timeout');
+              const beforeStart = setupLeft();
+              if (beforeStart <= 0) final = report('setup_timeout', results);
               else {
-                const result = await this.run(['start', '--attach', '--interactive', containerId], stdin, input.signal, remaining, this.config.maxOutputBytes-outputBytes);
-                outputBytes+=result.bytes;
+                const result = await this.execute(containerId, stdin, input.signal, beforeStart, this.config.timeoutMs - executionMs, this.config.maxOutputBytes-outputBytes);
+                outputBytes+=result.bytes;executionMs+=result.executionMs;
                 if(result.status==='completed'){results.push(...gradeOutput(result.stdout,batch));batchesCompleted++;final=report('graded',results);}
                 else final=report(result.status,results);
               }
@@ -206,7 +241,7 @@ export class DockerSandbox {
             createAttempted=false;containerId=undefined;
           }
           if(final.status!=='graded')break;
-          if(Date.now()-startedAt>=this.config.timeoutMs&&batchIndex+1<counts.length){final=report('timeout',results);break;}
+          if(executionMs>=this.config.timeoutMs&&batchIndex+1<counts.length){final=report('timeout',results);break;}
           if(outputBytes>=this.config.maxOutputBytes&&batchIndex+1<counts.length){final=report('output_limit',results);break;}
         }
       }
@@ -218,6 +253,7 @@ export class DockerSandbox {
       if (directory) await rm(directory, { recursive: true, force: true });
       if (lock) { await lock.close(); await unlink(lockPath); }
       if(input.signal?.aborted&&final.status==='graded')return report('cancelled',final.cases);
+      if(final.status==='setup_timeout'){this.setupTimeouts+=1;this.lastSetupTimeoutAt=Date.now();}
       return final;
     } catch { this.unhealthy = true; return report('cleanup_failed'); }
     finally { await lock?.close().catch(() => {}); this.active -= 1; }
@@ -244,6 +280,45 @@ export class DockerSandbox {
         ].includes(error);
         resolve(!overflow && ((code === 0 && stdout.trim() === name && !stderr.trim()) || absent));
       });
+    });
+  }
+  /**
+   * Starts an acknowledged container and runs it to completion on two clocks. Until the runner's
+   * ready line arrives, the start is setup, bounded by `setupMs` (`setup_timeout`). From that
+   * line, which is written before the submission is loaded, the learner's code runs, bounded by
+   * `executionMs` (`timeout`) until the process ends. A start that ends or prints anything else
+   * before the ready line is `unavailable`: no learner code ran. The line is not output.
+   */
+  private async execute(containerId: string, input: string, signal: AbortSignal | undefined, setupMs: number, executionMs: number, outputLimit: number): Promise<{ status: 'completed' | 'timeout' | 'setup_timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'unavailable'; stdout: string; bytes: number; executionMs: number }> {
+    return new Promise(resolve => {
+      const child = spawn(this.config.dockerBinary, ['start', '--attach', '--interactive', containerId], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '', bytes = 0, head = Buffer.alloc(0), readyAt: number | undefined, status: 'timeout' | 'setup_timeout' | 'output_limit' | 'cancelled' | 'unavailable' | undefined;
+      const decoder = new StringDecoder('utf8');
+      const stop = (reason: typeof status) => { status ??= reason; child.kill('SIGKILL'); };
+      let timeout = setTimeout(() => stop('setup_timeout'), setupMs);
+      const abort = () => stop('cancelled'); signal?.addEventListener('abort', abort, { once: true });
+      const output = (data: Buffer) => { bytes += data.length; if (bytes > outputLimit) stop('output_limit'); else stdout += decoder.write(data); };
+      child.stdout.on('data', (data: Buffer) => {
+        if (readyAt !== undefined) return output(data);
+        if (status) return;
+        head = Buffer.concat([head, data]);
+        const end = head.indexOf(0x0a);
+        if (end < 0) { if (head.length > RUNNER_READY_LINE.length) stop('unavailable'); return; }
+        if (head.subarray(0, end).toString('latin1') !== RUNNER_READY_LINE) return stop('unavailable');
+        readyAt = Date.now(); clearTimeout(timeout); timeout = setTimeout(() => stop('timeout'), executionMs);
+        const rest = head.subarray(end + 1); head = Buffer.alloc(0);
+        if (rest.length) output(rest);
+      });
+      child.stderr.on('data', (data: Buffer) => { bytes += data.length; if (bytes > outputLimit) stop('output_limit'); });
+      child.stdin.on('error', () => {});
+      const done = (result: Omit<Awaited<ReturnType<DockerSandbox['execute']>>, 'executionMs'>) => {
+        clearTimeout(timeout); signal?.removeEventListener('abort', abort);
+        resolve({ ...result, executionMs: readyAt === undefined ? 0 : Date.now() - readyAt });
+      };
+      child.once('error', () => done({ status: 'unavailable', stdout: '', bytes }));
+      child.once('close', code => { stdout += decoder.end(); done({ status: status ?? (readyAt === undefined ? 'unavailable' : code === 0 ? 'completed' : 'execution_failed'), stdout, bytes }); });
+      child.stdin.end(input);
+      if (signal?.aborted) abort();
     });
   }
   private async run(args: string[], input: string, signal?: AbortSignal, timeoutMs = this.config.timeoutMs,outputLimit=this.config.maxOutputBytes): Promise<{ status: 'completed' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'unavailable'; stdout: string; bytes:number }> {

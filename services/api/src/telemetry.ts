@@ -61,7 +61,8 @@ export const providerCallObserver: ProviderCallObserver = call => {
   };
 };
 
-/** Wraps sandbox grading with a span and duration metric: status, case and batch counts only. */
+/** Wraps sandbox grading with a span and duration metrics (whole job, and its setup outside the
+ * learner time limit): status, case and batch counts only. */
 export function instrumentSandbox(sandbox: DockerSandbox): DockerSandbox {
   const runtime = telemetry();
   if (!runtime.enabled) return sandbox;
@@ -71,6 +72,7 @@ export function instrumentSandbox(sandbox: DockerSandbox): DockerSandbox {
     span.setAttributes({ 'course.sandbox.status': report.status, 'course.sandbox.batches': report.batchesCompleted });
     if (report.status !== 'graded') span.fail(report.status);
     runtime.record('course.sandbox.job.duration', report.durationMs / 1000, { 'course.sandbox.status': report.status });
+    runtime.record('course.sandbox.setup.duration', report.setupMs / 1000, { 'course.sandbox.status': report.status });
     return report;
   });
   return sandbox;

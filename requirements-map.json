@@ -800,7 +800,10 @@
     "N03": [
       "core:packages/sandbox/test/docker-hardening.test.mjs",
       "core:packages/sandbox/test/docker-hardening.test.mjs::actual guest observes non-root seccomp/cgroup limits and cannot raise them or write the code mount",
-      "core:packages/sandbox/test/docker.test.mjs"
+      "core:packages/sandbox/test/docker.test.mjs",
+      "core:packages/sandbox/test/docker.test.mjs::slow container create and start on a real host do not use the learner time limit",
+      "core:packages/sandbox/test/unit.test.mjs::slow container create and start do not use the learner time limit",
+      "core:services/api/test/code-sandbox-setup.integration.test.ts::is not graded or counted, and the same request is graded as the first attempt when sent again"
     ],
     "N05": [
       "core:services/api/test/supervisor-tools.integration.test.ts",

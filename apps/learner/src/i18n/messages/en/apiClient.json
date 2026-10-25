@@ -43,6 +43,7 @@
   "error.PREREQUISITE_NOT_READY": "Finish the current required episode before opening this one.",
   "error.EVALUATOR_NOT_CONFIGURED": "The grader is not configured for this exercise yet. Your draft is preserved; no result or credit has been recorded.",
   "error.CODE_EVALUATOR_UNAVAILABLE": "The code runner is unavailable or busy. Your draft is preserved and no result has been recorded. Retry the saved request when it is available.",
+  "error.CODE_SANDBOX_SETUP_SLOW": "The code runner took too long to start, so your code was not run. This does not count as an attempt. Your draft is saved: send it again in a moment.",
   "error.CODE_LANGUAGE_UNAVAILABLE": "This exercise uses a language the current grader cannot run. Your draft is preserved; no result or credit has been recorded.",
   "error.CODE_FIXTURE_NOT_FOUND": "The reference checks for this exercise are not configured. Your draft is preserved; contact your course team.",
   "error.INVALID_CODE_SUBMISSION": "The grader could not accept this source. Use Python and keep the solution within 64,000 UTF-8 bytes. Your draft is preserved.",

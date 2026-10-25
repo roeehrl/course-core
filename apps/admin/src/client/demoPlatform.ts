@@ -65,9 +65,15 @@ function demoReadiness(now: number): Readiness {
         },
       },
       {
+        // Ready, but Docker recently started it too slowly once: that answer was not run or counted.
         id: "sandbox",
-        status: "not_configured",
-        facts: { ready: null, reason: null },
+        status: "warning",
+        facts: {
+          ready: true,
+          reason: null,
+          slowStarts: 1,
+          lastSlowStartSeconds: 840,
+        },
       },
       {
         id: "collector",

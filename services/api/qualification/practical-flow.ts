@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DockerSandbox, QUALIFIED_IMAGES, type Case } from '@course-core/sandbox';
 import type { LegacyProgressionGate } from '@course-core/sdk';
@@ -96,6 +96,30 @@ try {
   const wrong = await command('answers', { challengeId: repeated.challengeId, answer: 'def solve(values):\n    return max(values)\n' });
   assert.equal(wrong.result.passed, false); assert.equal(wrong.result.independent, false);
   assert((await db.query("SELECT result FROM attempts WHERE enrollment_id=$1 AND result->>'passed'='false'", [enrollmentId])).rowCount);
+  assert(first.json().result.execution.executionMs < 5000 && first.json().result.execution.setupMs >= 0);
+
+  // A real container start the Docker host is too slow to begin (stalled before it reaches the
+  // daemon): the sandbox stops at its setup bound, the answer is refused with a retry code and no
+  // attempt is recorded. The same saved request is graded once when sent again.
+  {
+    const stalledDocker = path.join(storage, 'stalled-start-docker.sh');
+    await writeFile(stalledDocker, '#!/bin/sh\ncase "$1" in start) sleep 30 </dev/null >/dev/null 2>&1;; esac\nexec docker "$@"\n', { mode: 0o700 });
+    const stalledSandbox = new DockerSandbox({ image, storageDirectory: path.join(storage, 'stalled'), dockerBinary: stalledDocker, setupTimeoutMs: 8000 });
+    const stalled = await codeEvaluator(Buffer.from(JSON.stringify(fixtureData)), stalledSandbox);
+    const attempts = async () => Number((await db.query('SELECT count(*) FROM attempts WHERE enrollment_id=$1', [enrollmentId])).rows[0].count);
+    const before = await attempts(), challenge = await command('challenges', { episodeId: 'min', assessmentId: 'min-code', mode: 'practice' });
+    const payload = { expectedRevision: challenge.revision, idempotencyKey: randomUUID(), challengeId: challenge.challengeId, answer: 'def solve(values):\n    return min(values)\n' };
+    const evaluate = registry.evaluateCode!;
+    registry.evaluateCode = stalled.evaluateCode!.bind(stalled);
+    let refused: Awaited<ReturnType<typeof send>>;
+    try { refused = await send('POST', `/api/enrollments/${enrollmentId}/answers`, payload); } finally { registry.evaluateCode = evaluate; }
+    assert.equal(refused.statusCode, 503, refused.body); assert.equal(refused.json().error, 'CODE_SANDBOX_SETUP_SLOW');
+    assert.equal(await attempts(), before); assert.equal(stalledSandbox.setupDiagnostics().setupTimeouts, 1);
+    assert.equal((await stalledSandbox.readiness()).ready, true, 'The stalled container was removed and its lock released');
+    const resent = await send('POST', `/api/enrollments/${enrollmentId}/answers`, payload);
+    assert.equal(resent.statusCode, 200, resent.body); assert.equal(resent.json().result.passed, true);
+    assert.equal(await attempts(), before + 1);
+  }
 
   // A separate actual enrollment fails its first code attempt. A correct repeated
   // submission cannot regain independent credit; only an unexposed variant can.
@@ -153,7 +177,7 @@ try {
   assert.equal((await send('GET',`/api/enrollments/${enrollmentId}`)).json().planRevision,exhausted.planRevision);
   assert.equal((await db.query('SELECT count(*) FROM adaptation_applications WHERE enrollment_id=$1',[enrollmentId])).rows[0].count,'2');
   console.log(JSON.stringify({ verified: true, storage: 'real-postgresql', execution: 'real-container', matchingReferenceCases: 4, duplicateAnswerReplayed: true, wrongProgramRejected: true, privateOracleNotReturned: true,
-    generatedExerciseProven:true,generatedComponentTested:true,freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true,largeApiFixtureBatched:true,laterBatchFailureNotCredited:true }));
+    generatedExerciseProven:true,generatedComponentTested:true,freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true,largeApiFixtureBatched:true,laterBatchFailureNotCredited:true,slowSandboxStartNotCounted:true }));
 } finally {
   await app?.close(); await db.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(storage, { recursive: true, force: true });
 }

@@ -13,6 +13,7 @@
   "error.RUBRIC_QUOTE_REQUIRED": "כל קריטריון שמסומן כמתקיים צריך ציטוט מדויק מהתשובה.",
   "error.RUBRIC_DECISION_INCONSISTENT": "ההחלטה לא תואמת את הקריטריונים הנדרשים.",
   "error.EVALUATOR_NOT_CONFIGURED": "השרת הזה לא יכול להריץ כרגע את מערכת הבדיקה של הפריט.",
+  "error.CODE_SANDBOX_SETUP_SLOW": "הפעלת מריץ הקוד נמשכה יותר מדי זמן, ולכן התשובה לא הורצה. לא שונה דבר. אפשר לנסות שוב בעוד רגע.",
   "error.COURSE_VERSION_UNAVAILABLE": "גרסת הקורס שבה ניתנה התשובה כבר לא שמורה.",
   "error.ENROLLMENT_CLOSED": "ההרשמה הזו סגורה. התיעוד שלה לא משתנה אחרי הסגירה.",
   "error.ENROLLMENT_ERASED": "הנתונים של הלומד/ת נמחקו.",

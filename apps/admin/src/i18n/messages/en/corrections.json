@@ -13,6 +13,7 @@
   "error.RUBRIC_QUOTE_REQUIRED": "Each criterion you mark as shown needs an exact quotation from the answer.",
   "error.RUBRIC_DECISION_INCONSISTENT": "The decision does not match the required criteria.",
   "error.EVALUATOR_NOT_CONFIGURED": "This host cannot run the item's evaluator now.",
+  "error.CODE_SANDBOX_SETUP_SLOW": "The code runner took too long to start, so the answer was not run. Nothing was changed. Try again in a moment.",
   "error.COURSE_VERSION_UNAVAILABLE": "The course version this answer was given on is no longer stored.",
   "error.ENROLLMENT_CLOSED": "This enrollment is closed. Its record is not changed after closure.",
   "error.ENROLLMENT_ERASED": "This learner's data was erased.",

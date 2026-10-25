@@ -84,7 +84,7 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.dispatch.deferred': integer(0, 100),
   'course.dispatch.quarantined': integer(0, 100),
   'course.dispatch.failed': integer(0, 100),
-  'course.sandbox.status': oneOf('graded', 'timeout', 'output_limit', 'cancelled', 'execution_failed', 'unavailable', 'busy', 'cleanup_failed'),
+  'course.sandbox.status': oneOf('graded', 'timeout', 'output_limit', 'cancelled', 'execution_failed', 'setup_timeout', 'unavailable', 'busy', 'cleanup_failed'),
   'course.sandbox.case_count': integer(0, 10_000),
   'course.sandbox.batches': integer(0, 10_000),
   // Generated-media jobs: fixed states, steps and server-enumerated codes only; never prompts, scripts or IDs.
@@ -144,6 +144,9 @@ export const METRICS = Object.freeze({
   'course.supervisor.checkpoint.outcomes': { kind: 'counter', unit: '{checkpoint}', description: 'Supervisor checkpoint executions by provider outcome.',
     attributes: ['course.supervisor.role', 'course.supervisor.outcome', 'course.supervisor.effect'] },
   'course.sandbox.job.duration': { kind: 'histogram', unit: 's', description: 'Duration of isolated sandbox grading jobs.',
+    attributes: ['course.sandbox.status'], boundaries: SECONDS },
+  'course.sandbox.setup.duration': { kind: 'histogram', unit: 's',
+    description: 'Sandbox setup per grading job (Docker checks, container create and start), outside the learner time limit.',
     attributes: ['course.sandbox.status'], boundaries: SECONDS },
   'course.media.transitions': { kind: 'counter', unit: '{transition}', description: 'Generated-media job state changes by target state and code.',
     attributes: ['course.media.state', 'course.media.code'] },

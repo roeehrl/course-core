@@ -34,7 +34,7 @@ const sandbox: CodeSandbox = {
     graded.push(source);
     const passed = source.includes('return x * 2');
     return { status: 'graded', passed, cases: cases.map(c => ({ id: c.id, passed, reason: passed ? 'match' : 'mismatch' })), sourceDigest: 'a'.repeat(64),
-      durationMs: 1, outputBytes: 2, batchesCompleted: 1, runtime: { protocol: 'python-json-v1', image: 'synthetic' } } satisfies GradeReport;
+      durationMs: 1, executionMs: 1, setupMs: 0, outputBytes: 2, batchesCompleted: 1, runtime: { protocol: 'python-json-v1', image: 'synthetic' } } satisfies GradeReport;
   },
 };
 

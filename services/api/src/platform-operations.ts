@@ -36,6 +36,8 @@ export const RECOVERY_TARGETS = Object.freeze({
 });
 /** The supervisor worker and dispatcher reach the API every few seconds while they run. */
 const BRIDGE_QUIET_WARNING_SECONDS = 120, BRIDGE_QUIET_FAILING_SECONDS = 600;
+/** A code answer the sandbox was too slow to start (not run, not counted) marks it for this long. */
+export const SANDBOX_SLOW_START_WARNING_SECONDS = 3600;
 
 export type CheckStatus = 'ok' | 'warning' | 'failing' | 'not_configured' | 'no_data';
 const SEVERITY: Record<CheckStatus, number> = { ok: 0, not_configured: 0, no_data: 1, warning: 2, failing: 3 };
@@ -48,8 +50,9 @@ export function noteBridgeContact(now = Date.now()) { bridgeContactAt = now; }
 
 export interface PlatformOptions {
   installedExtensions: readonly RuntimeExtension[];
-  /** The grading sandbox, when this host runs one. */
-  sandbox?: { readiness(): Promise<{ ready: boolean; reason: string }> } | undefined;
+  /** The grading sandbox, when this host runs one, with its in-process count of grades stopped
+   * because setup (container create and start) ran past its bound. */
+  sandbox?: { readiness(): Promise<{ ready: boolean; reason: string }>; setupDiagnostics?(): { setupTimeouts: number; lastSetupTimeoutAt: number | null } } | undefined;
   /** Whether a supervisor worker is configured to call this API (SUPERVISOR_HOST_TOKEN). */
   supervisorConfigured: boolean;
   migrationsDirectory?: string | undefined;
@@ -133,11 +136,16 @@ export async function platformReadiness(db: Database, options: PlatformOptions, 
   const temporalCheck = { id: 'temporal' as const, status: temporalStatus,
     facts: { lastWorkerContactSeconds: quiet, pendingEvents: outbox.pending, oldestPendingSeconds: outbox.oldest, quarantinedEvents: outbox.quarantined } };
 
-  let sandboxCheck: { id: 'sandbox'; status: CheckStatus; facts: { ready: boolean | null; reason: string | null } };
-  if (!options.sandbox) sandboxCheck = { id: 'sandbox', status: 'not_configured', facts: { ready: null, reason: null } };
+  // Slow starts: code answers the sandbox did not run because Docker was too slow to create or start
+  // the container. The learner was asked to send again and nothing counted. Since this process started.
+  let sandboxCheck: { id: 'sandbox'; status: CheckStatus; facts: { ready: boolean | null; reason: string | null; slowStarts: number | null; lastSlowStartSeconds: number | null } };
+  if (!options.sandbox) sandboxCheck = { id: 'sandbox', status: 'not_configured', facts: { ready: null, reason: null, slowStarts: null, lastSlowStartSeconds: null } };
   else {
     const result = await options.sandbox.readiness().catch(() => ({ ready: false, reason: 'readiness_failed' }));
-    sandboxCheck = { id: 'sandbox', status: result.ready ? 'ok' : 'failing', facts: { ready: result.ready, reason: result.ready ? null : code(result.reason) } };
+    const slow = options.sandbox.setupDiagnostics?.() ?? null;
+    const lastSlowStartSeconds = slow?.lastSetupTimeoutAt == null ? null : Math.max(0, Math.round((now.getTime() - slow.lastSetupTimeoutAt) / 1000));
+    const status: CheckStatus = !result.ready ? 'failing' : lastSlowStartSeconds !== null && lastSlowStartSeconds < SANDBOX_SLOW_START_WARNING_SECONDS ? 'warning' : 'ok';
+    sandboxCheck = { id: 'sandbox', status, facts: { ready: result.ready, reason: result.ready ? null : code(result.reason), slowStarts: slow?.setupTimeouts ?? null, lastSlowStartSeconds } };
   }
 
   const runtime = telemetry(), buffer = runtime.spanBuffer();
