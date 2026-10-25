@@ -392,9 +392,13 @@ export function companionState(
   // A reply about a graded check is written out of sight and checked before it is shown.
   if (live.some((draft) => !draft.checking)) return "replying";
   if (live.length) return "checking";
-  const open = messages.filter(
-    (message) => message.role === "learner" && companionHasPending([message]),
-  );
+  // A question whose reply was withdrawn or stopped on the stream is over for the learner even
+  // before its saved job says so: the status does not keep saying a reply is being built.
+  const open = messages.filter((message) => {
+    if (message.role !== "learner" || !companionHasPending([message])) return false;
+    const draft = companionDraftFor(message, messages, input.drafts);
+    return draft?.state !== "withdrawn" && draft?.state !== "cancelled";
+  });
   if (open.some((m) => RUNNING_STATES.includes(m.job_state ?? "")))
     return "building";
   if (open.some((m) => CHECKING_STATES.includes(m.job_state ?? "")))
@@ -421,7 +425,13 @@ export function companionStateText(state: CompanionState, t: Translate = english
 }
 /** Only known public state labels are shown; provider error/reason text is never surfaced.
  * `draft` is the reply being written for this question (companionDraftFor), which is newer than
- * the saved job: a draft that opened means the call was sent. */
+ * the saved job: a draft that opened means the call was sent.
+ *
+ * One label per outcome, so the card never says two things at once (0.1.58 qualification): a
+ * reply that stalled part way reads as stalled, not also as refused by the checks; a stopped
+ * reply reads as stopped; a reply Core withheld because it gave away a graded check's answer
+ * reads as withheld until Core's hint replaces it. The withdrawn or stopped draft itself shows
+ * nothing more (DraftReply): this label is the only place that says what happened. */
 export function companionJobLabel(
   message: CompanionMessage,
   t: Translate = englishTranslator().t,
@@ -430,17 +440,22 @@ export function companionJobLabel(
   if (message.role !== "learner") return;
   if (message.job_reason === "configuration_missing")
     return t("companionClient.job.configurationMissing");
-  if (companionReplyStalled(message)) return t("companionClient.job.stalled");
-  if (companionCouldNotAnswer(message))
-    return t("companionClient.job.couldNotAnswer");
+  // Saved outcomes that are final come first: they are newer than any draft the stream sent.
+  if (message.job_stalled === true) return t("companionClient.job.stalled");
+  if (message.refusal_reason === "provider_stream_stalled") return t("companionClient.job.stalledPartWay");
+  // Core closed the call because the question was cancelled (the learner's Stop, staff, erasure).
+  if (message.refusal_reason === "provider_stream_stopped") return t("companionClient.job.cancelledSent");
+  if (companionCouldNotAnswer(message)) return t("companionClient.job.couldNotAnswer");
   if (draft && companionHasPending([message])) {
     if (draft.checking && (draft.state === "streaming" || draft.state === "complete")) return t("companionClient.job.checkingReply");
     if (draft.state === "streaming") return t("companionClient.job.writing");
     if (draft.state === "complete") return t("companionClient.job.checking");
     // Stopped by the learner: the call had been sent, so what it used is counted.
     if (draft.state === "cancelled") return t("companionClient.job.cancelledSent");
-    // Withdrawn: the draft says why; the saved outcome follows.
-    return;
+    // Withdrawn before it was kept: said by why, until the saved outcome replaces it.
+    return t(draft.reason === "check_answer_withheld" ? "companionClient.job.withheld"
+      : draft.reason === "provider_failed" ? "companionClient.job.interrupted"
+        : draft.reason ? "companionClient.job.notShown" : "companionClient.job.withdrawn");
   }
   if (companionHeldByLimit(message))
     return t(message.job_ceiling === "workspace" ? "companionClient.job.pausedWorkspace"
@@ -464,9 +479,12 @@ export function companionJobLabel(
       return t("companionClient.job.processed");
     case "cancelled":
       // Honest about cost: a question stopped after its call was sent may still be charged for
-      // what that call used; one cancelled before anything was sent costs nothing.
-      return t(message.job_sent ? "companionClient.job.cancelledSent" : "companionClient.job.cancelled");
+      // what that call used; one cancelled before anything was sent costs nothing. A draft that
+      // opened proves the call had been sent even before the job's snapshot says so.
+      return t(message.job_sent || draft ? "companionClient.job.cancelledSent" : "companionClient.job.cancelled");
     case "refused":
+      // Never prepared into a job (refused or quarantined before any call): nothing was used.
+      return t("companionClient.job.refused");
     case "failed":
     case "dead":
     case "dead_letter":
@@ -483,9 +501,11 @@ export function companionJobLabel(
   }
 }
 /** The reply was produced but refused by Core's checks before it could be shown (a definite end,
- * not a delay): the learner can ask again. */
+ * not a delay): the learner can ask again. A reply that stopped part way, or that Core stopped
+ * because the question was cancelled, is not a refusal (companionReplyStalled, the Stop). */
 export function companionCouldNotAnswer(message: CompanionMessage): boolean {
   return message.role === "learner" && message.job_state === "failed" &&
+    message.refusal_reason !== "provider_stream_stalled" && message.refusal_reason !== "provider_stream_stopped" &&
     (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
 }
 /** The AI service did not answer the question in time: no reply came at all, or the reply
@@ -494,7 +514,7 @@ export function companionReplyStalled(message: CompanionMessage): boolean {
   return message.role === "learner" && (message.job_stalled === true || message.refusal_reason === "provider_stream_stalled");
 }
 /** No reply will come for this question (it stalled, failed, or was refused or not answered):
- * the learner sees "Reply unavailable" and can ask it again. */
+ * the learner sees why and can ask it again. */
 export function companionReplyUnavailable(message: CompanionMessage): boolean {
   return message.role === "learner" && message.content !== "[deleted]" && (message.job_stalled === true ||
     ["failed", "refused", "dead", "dead_letter"].includes(message.job_state ?? ""));

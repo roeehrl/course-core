@@ -254,10 +254,36 @@ export type TagHandlers<R> = Readonly<Record<string, (children: Array<string | R
 export interface FormatContext {
   readonly locale: string;
   readonly isolate: boolean;
+  /** The message's own direction: an argument that is itself composed of isolated parts takes it. */
+  readonly direction?: 'ltr' | 'rtl';
   number(value: number | bigint, options?: Intl.NumberFormatOptions): string;
   date(value: Date | number, options: Intl.DateTimeFormatOptions): string;
   pluralCategory(value: number, ordinal: boolean): string;
   onMissingArgument(name: string): void;
+}
+
+/** Quotation marks that may open or close a quoted argument (`“{x}”`, `"{x}"`, `„{x}“`, `«{x}»`). */
+const QUOTE_MARKS = new Set(['"', '“', '”', '„', '«', '»']);
+const ISOLATE_OPEN = new Set(['⁦', '⁧', '⁨']);
+/**
+ * Whether `text` has a letter outside any isolate it contains (the first-strong rule of UAX #9
+ * P2, which skips isolated runs). A composed string such as "⁨8 Nov⁩ · ⁨UTC⁩" has none: an FSI
+ * around it would resolve left to right however its parts read.
+ */
+function strongOutsideIsolates(text: string): boolean {
+  let depth = 0;
+  for (const char of text) {
+    if (ISOLATE_OPEN.has(char)) depth++;
+    else if (char === '⁩') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && /[\p{L}\u200e\u200f]/u.test(char)) return true;
+  }
+  return false;
+}
+/** The isolate an argument goes in: its own first-strong direction, or for text composed only of
+ * isolated parts (a formatted message passed on as an argument), the direction of the message. */
+function isolated(text: string, direction: 'ltr' | 'rtl' | undefined): string {
+  const composed = direction !== undefined && !strongOutsideIsolates(text) && [...ISOLATE_OPEN].some((mark) => text.includes(mark));
+  return `${composed ? (direction === 'rtl' ? '⁧' : '⁦') : '⁨'}${text}⁩`;
 }
 
 const toNumber = (value: MessageValue): number => (typeof value === 'number' ? value : typeof value === 'bigint' ? Number(value) : Number(value));
@@ -286,10 +312,13 @@ export function formatNodes<R>(
     }
     return params[name];
   };
+  // A closing quotation mark taken into the isolate of the argument before it.
+  let skipQuote = false;
   nodes.forEach((node, position) => {
     switch (node.type) {
       case 'text':
-        push(node.value);
+        push(skipQuote ? node.value.slice(1) : node.value);
+        skipQuote = false;
         return;
       case 'pound':
         push(pound === undefined ? '#' : context.number(pound));
@@ -301,8 +330,21 @@ export function formatNodes<R>(
         if (raw instanceof Date) text = context.date(raw, { dateStyle: 'medium' });
         else if (typeof raw === 'number' || typeof raw === 'bigint') text = context.number(raw);
         else text = String(raw);
-        push(context.isolate && typeof raw === 'string' ? `⁨${text}⁩` : text);
-        return;
+        if (!context.isolate || typeof raw !== 'string') return push(text);
+        // Quotation marks right around the argument go inside its isolate, so they take the quoted
+        // text's own direction and stay at its start and end, also when it wraps. Outside it, in a
+        // right-to-left sentence, the marks of a left-to-right quotation land beside the end of its
+        // first line and the start of its last ("Context used" in Hebrew, 0.1.58 qualification).
+        const before = out[out.length - 1], next = nodes[position + 1];
+        const open = typeof before === 'string' ? before.at(-1) : undefined;
+        const close = next?.type === 'text' ? next.value[0] : undefined;
+        if (open && close && QUOTE_MARKS.has(open) && QUOTE_MARKS.has(close)) {
+          out[out.length - 1] = (before as string).slice(0, -1);
+          if (!out[out.length - 1]) out.pop();
+          skipQuote = true;
+          return push(isolated(`${open}${text}${close}`, context.direction));
+        }
+        return push(isolated(text, context.direction));
       }
       case 'number': {
         const raw = value(node.name);

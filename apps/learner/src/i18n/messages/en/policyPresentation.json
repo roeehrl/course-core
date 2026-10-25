@@ -1,7 +1,7 @@
 {
   "date.none": "No calendar deadline specified",
   "date.unavailable": "Date unavailable",
-  "date.inZone": "{date} · {zone}",
+  "date.inZone": "{date}\u00a0·\u00a0{zone}",
   "scope.course": "Course",
   "scope.chapter": "Chapter: {title}",
   "scope.lesson": "Lesson: {title}",

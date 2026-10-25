@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
 import { stripBidiControls } from "@course-core/i18n";
 import { GateDecisionPanel, GATE_STATUS_LABELS, gateText } from "../src/connected/GateDecision.web";
-import { createLearnerTranslator } from "../src/i18n";
+import { I18nProvider, createLearnerTranslator } from "../src/i18n";
 import { AssessmentInput, answerPayload, traceAnswers } from "../src/connected/AssessmentInput.web";
 import { ConnectedLesson, type ConnectedLessonProps } from "../src/connected/ConnectedLesson.web";
 import type { Challenge, GateView, Question } from "../src/client/apiClient";
@@ -13,7 +13,7 @@ import { connectedSnapshot } from "./connectedFixtures";
 
 const gate = (status: NonNullable<GateView["status"]>, nextActions: NextAction[]): GateView => ({
   passed: status === "ready", status, objectives: [{ id: "observe", families: [], required: 2, passed: false }], decisionId: "decision-1",
-  learnerVisibleReason: "Needs independent success on a new transfer task.",
+  learnerVisibleReason: "More independent evidence is needed.",
   criterionResults: [
     { criterionId: "families", met: true, reason: "Independent success in 2 item families." },
     { criterionId: "transfer", met: status === "under_review" ? "pending" : false, reason: "Needs independent success on a new transfer task." },
@@ -32,7 +32,7 @@ describe("server gate decision panel", () => {
     const onAction = vi.fn();
     render(<GateDecisionPanel gate={gate(status, [...actions])} pending={false} onAction={onAction} onRequestReview={vi.fn()} />);
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS[status] })).toBeVisible();
-    expect(screen.getByText("Needs independent success on a new transfer task.", { selector: "p" })).toBeVisible();
+    expect(screen.getByText("More independent evidence is needed.", { selector: "p" })).toBeVisible();
     expect(screen.getByRole("list", { name: "Readiness criteria" }).querySelectorAll("li")).toHaveLength(2);
     if (status === "under_review") expect(screen.getByText("Waiting for review")).toBeVisible();
     const buttons = actions.filter((a) => a.kind !== "await_review");
@@ -40,6 +40,33 @@ describe("server gate decision panel", () => {
     // An appeal opens the review form in the panel instead of leaving it.
     expect(onAction).toHaveBeenCalledTimes(buttons.filter((a) => a.kind !== "appeal").length);
     if (status === "under_review") expect(screen.queryByRole("button", { name: /Wait for a reviewer/ })).toBeNull();
+  });
+  it("says each sentence once: no reason that repeats a criterion, no criterion twice", () => {
+    // The live card: the reason was the one unmet criterion's sentence, and the criterion said it again.
+    const sentence = "Needs independent success in 2 item families for “Read a number line” (0 so far).";
+    const repeated: GateView = { ...gate("needs_evidence", [{ kind: "attempt_check", label: "Answer a fresh independent check", targetId: "x" }]),
+      learnerVisibleReason: sentence,
+      criterionResults: [
+        { criterionId: "families", met: false, reason: sentence },
+        { criterionId: "families-again", met: false, reason: `${sentence.slice(0, -1)} ` },
+        { criterionId: "transfer", met: true, reason: "Independent transfer evidence recorded." },
+      ] };
+    const { container } = render(<GateDecisionPanel gate={repeated} pending={false} onAction={vi.fn()} />);
+    expect(container.textContent!.split("Needs independent success in 2 item families").length - 1).toBe(1);
+    expect(container.querySelector(".connected-gate-reason")).toBeNull();
+    expect(screen.getByRole("list", { name: "Readiness criteria" }).querySelectorAll("li")).toHaveLength(2);
+    // Server messages translated to the same sentence are compared after translation, in Hebrew too.
+    const he = createLearnerTranslator("he");
+    const detail = { code: "criterion.familiesFor.unmet", params: { required: 2, objectives: ["Read a number line"], count: 0 } };
+    render(
+      <I18nProvider value={he}>
+        <GateDecisionPanel pending={false} onAction={vi.fn()} gate={{ ...repeated, criterionResults: [repeated.criterionResults![0]!],
+          messages: { reason: { code: "reason.needs_evidence.detail", params: { more: 0 }, detail }, criteria: { families: detail }, actions: [] } }} />
+      </I18nProvider>,
+    );
+    const hebrew = document.querySelectorAll(".connected-gate")[1]!;
+    expect(hebrew.querySelector(".connected-gate-reason")).toBeNull();
+    expect(hebrew.querySelectorAll(".connected-gate-criteria li")).toHaveLength(1);
   });
   it("opens a review request form for an appeal step and sends the learner's own reason", async () => {
     const onAction = vi.fn(), onRequestReview = vi.fn().mockResolvedValue(undefined);

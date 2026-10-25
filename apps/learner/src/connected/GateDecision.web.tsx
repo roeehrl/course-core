@@ -33,6 +33,12 @@ export function gateText(message: GateMessage | null | undefined, fallback: stri
   return i18n.t(key, params);
 }
 
+/** Two decision sentences say the same, ignoring direction marks, spacing and a final full stop. */
+const same = (a: string, b: string) => {
+  const plain = (text: string) => text.replace(/[\u200e\u200f\u2066-\u2069]/g, "").replace(/\s+/g, " ").trim().replace(/[.。]$/, "");
+  return plain(a) === plain(b);
+};
+
 /**
  * The server's readiness decision for this lesson's checkpoint: its status, why, each readiness
  * criterion and the concrete next steps the server allows. It displays what the server decided;
@@ -63,6 +69,17 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
     if (!text) return criterion.reason;
     return state === "pending" ? `${text} ${t("gateDecision.awaitingReview")}` : text;
   };
+  // Each sentence once (0.1.58 qualification: the card said "Needs independent success in 2 item
+  // families for …" two or three times). The reason is left out when a criterion below says the
+  // same, and two criteria that read the same are listed once.
+  const rows: { criterion: (typeof criteria)[number]; state: "met" | "pending" | "unmet"; text: string }[] = [];
+  for (const criterion of criteria) {
+    const state = criterion.met === true ? "met" as const : criterion.met === "pending" ? "pending" as const : "unmet" as const;
+    const text = criterionText(criterion, state);
+    if (!rows.some((row) => row.state === state && same(row.text, text))) rows.push({ criterion, state, text });
+  }
+  const reasonText = gate.learnerVisibleReason ? gateText(messages?.reason, gate.learnerVisibleReason, i18n) : "";
+  const showReason = Boolean(reasonText) && !rows.some((row) => same(row.text, reasonText));
   const trimmed = reason.trim();
   const choose = (action: NextAction) => (action.kind === "appeal" && onRequestReview ? setReviewing(true) : onAction(action));
   return (
@@ -74,18 +91,15 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
           {gateStatusLabel(gate.status, t)}
         </h3>
       </div>
-      {gate.learnerVisibleReason && <p className="connected-gate-reason" dir="auto">{gateText(messages?.reason, gate.learnerVisibleReason, i18n)}</p>}
-      {criteria.length > 0 && (
+      {showReason && <p className="connected-gate-reason" dir="auto">{reasonText}</p>}
+      {rows.length > 0 && (
         <ul className="connected-gate-criteria" aria-label={t("gateDecision.criteria")}>
-          {criteria.map((criterion) => {
-            const state = criterion.met === true ? "met" : criterion.met === "pending" ? "pending" : "unmet";
-            return (
-              <li key={criterion.criterionId} data-state={state}>
-                <strong>{t(`gateDecision.criterion.${state}`)}</strong>
-                <span dir="auto">{criterionText(criterion, state)}</span>
-              </li>
-            );
-          })}
+          {rows.map(({ criterion, state, text }) => (
+            <li key={criterion.criterionId} data-state={state}>
+              <strong>{t(`gateDecision.criterion.${state}`)}</strong>
+              <span dir="auto">{text}</span>
+            </li>
+          ))}
         </ul>
       )}
       {actions.length > 0 && (

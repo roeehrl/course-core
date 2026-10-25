@@ -140,6 +140,7 @@ export function createTranslator<C extends Catalog>(options: TranslatorOptions<C
     const context: FormatContext = {
       locale: intlLocale,
       isolate: options.isolateArguments ?? dir === 'rtl',
+      direction: dir,
       number: (value, opts) => numberFormat(opts).format(value),
       date: (value, opts) => dateFormat(opts).format(value),
       pluralCategory,

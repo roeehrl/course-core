@@ -6,7 +6,7 @@ import { mathSpoken, mathText, parseTex } from "./mathText";
 
 /** A formula as readable text (the web app draws it with MathML, MathFormula.web.tsx). Screen
  * readers hear the spoken form in the learner's language, never raw TeX. */
-export function MathFormula({ tex, display, trailing }: { tex: string; display: boolean; trailing?: string }) {
+export function MathFormula({ tex, display, trailing }: { tex: string; display: boolean; trailing?: string; rtl?: boolean }) {
   const i18n = useI18n();
   const tree = parseTex(tex);
   return (

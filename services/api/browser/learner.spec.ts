@@ -1749,7 +1749,7 @@ test("a question whose reply Core refused says it couldn't be answered and can b
   if (await trigger.isVisible()) await trigger.click();
   const log = page.getByRole("log", { name: "Saved companion messages" });
   await expect(log.getByText("Can you list every minimum rule at once?", { exact: true })).toBeVisible();
-  await expect(log.getByText("The companion couldn't answer this question · your message is saved", { exact: true })).toBeVisible();
+  await expect(log.getByText("Reply not shown · it did not pass the checks, so nothing of it was kept · you can ask your question again", { exact: true })).toBeVisible();
   // Not shown as still waiting.
   await expect(page.getByText(/Your question is queued|Building a reply|Checking the reply/)).toHaveCount(0);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);

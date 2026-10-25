@@ -1223,24 +1223,29 @@ app.post("/test/companion-stall", async (request) => {
 // the process's reply drafts for one saved question, as the provider gateway would while a model
 // streams, so the learner app's draft view and its event stream are exercised in a real browser.
 app.post("/test/companion-draft", async (request) => {
-  const body = (request.body ?? {}) as { question?: string; pieces?: string[]; end?: "complete" | "withdrawn"; gapMs?: number };
+  const body = (request.body ?? {}) as { question?: string; pieces?: string[]; end?: "complete" | "withdrawn"; gapMs?: number; reason?: string };
+  // Why a withdrawn draft ended: refused by the provider (the default), stopped part way
+  // (provider_failed, as a stall withdraws it) or withheld for giving away a check's answer.
+  const reason = body.reason === "provider_failed" || body.reason === "check_answer_withheld" || body.reason === "output_refused" ? body.reason : "provider_refused";
   const row = (await db.query<{ id: string; enrollment_id: string }>("SELECT id,enrollment_id FROM companion_messages WHERE content=$1 AND role='learner' ORDER BY created_at DESC LIMIT 1", [String(body.question)])).rows[0];
   if (!row || !Array.isArray(body.pieces) || body.pieces.length > 20) return { opened: false, reason: row ? "invalid_pieces" : "question_not_found" };
   const jobId = randomUUID(), writer = replyDrafts().open({ enrollmentId: row.enrollment_id, jobId, messageId: row.id });
   if (!writer) return { opened: false, reason: "draft_refused" };
   void (async () => {
     for (const piece of body.pieces!) { await new Promise((resolve) => setTimeout(resolve, Math.min(body.gapMs ?? 150, 2000))); writer.push(String(piece)); }
-    if (body.end === "withdrawn") writer.withdraw("provider_refused"); else if (body.end === "complete") writer.complete();
+    if (body.end === "withdrawn") writer.withdraw(reason); else if (body.end === "complete") writer.complete();
   })();
   return { opened: true, jobId };
 });
 // A sent question whose job reached a given state, as the supervisor records it: held back by a
 // spending limit (budget_wait, reason budget_exhausted, the ceiling it hit), cancelled after its
-// call was sent (an operation that succeeded), or answered (applied, with the stored reply). The
-// learner's companion words each one. No provider and no dispatcher are involved.
+// call was sent (an operation that succeeded), answered (applied, with the stored reply), or
+// failed with the refusal record Core keeps for a reply that stopped part way
+// (provider_stream_stalled, the gateway's stalled stream). The learner's companion words each
+// one. No provider and no dispatcher are involved.
 app.post("/test/companion-job", async (request) => {
   const body = (request.body ?? {}) as { question?: string; state?: string; ceiling?: string; answer?: string };
-  const state = body.state === "cancelled" || body.state === "applied" ? body.state : "budget_wait";
+  const state = body.state === "cancelled" || body.state === "applied" || body.state === "stalled_part_way" ? body.state : "budget_wait";
   const ceiling = ["workspace", "enrollment", "daily", "artifact"].includes(String(body.ceiling)) ? String(body.ceiling) : "workspace";
   const row = (await db.query<{ id: string; enrollment_id: string; workspace_id: string; context: unknown }>(
     "SELECT m.id,m.enrollment_id,e.workspace_id,m.context FROM companion_messages m JOIN enrollments e ON e.id=m.enrollment_id WHERE m.content=$1 AND m.role='learner' ORDER BY m.created_at DESC LIMIT 1",
@@ -1248,7 +1253,8 @@ app.post("/test/companion-job", async (request) => {
   if (!row) return { updated: false, reason: "question_not_found" };
   const jobId = randomUUID();
   const result = state === "budget_wait" ? { reason: "budget_exhausted", applicationReceiptId: null, ceiling }
-    : state === "applied" ? { reason: null, applicationReceiptId: null } : { reason: "cancel_requested", applicationReceiptId: null };
+    : state === "applied" ? { reason: null, applicationReceiptId: null }
+      : state === "stalled_part_way" ? { reason: "verification_rejected", applicationReceiptId: null } : { reason: "cancel_requested", applicationReceiptId: null };
   // Only what the companion read needs: the job's identity, its state and one call that was sent.
   const snapshot = state === "cancelled" ? { specification: { key: { jobId, enrollmentId: row.enrollment_id, workspaceId: row.workspace_id } }, state,
     operations: [{ id: `${jobId}:generate`, status: "succeeded" }] } : null;
@@ -1256,8 +1262,14 @@ app.post("/test/companion-job", async (request) => {
   const requested = (await db.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
     [row.enrollment_id, row.id])).rows[0]?.id ?? null;
   await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result,runtime_snapshot,input_event_id)
-    VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6,$7,$8)`, [jobId, row.enrollment_id, row.workspace_id, `browser-job-${jobId}`, state, JSON.stringify(result),
-    snapshot && requested ? JSON.stringify(snapshot) : null, requested]);
+    VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6,$7,$8)`, [jobId, row.enrollment_id, row.workspace_id, `browser-job-${jobId}`,
+    state === "stalled_part_way" ? "failed" : state, JSON.stringify(result), snapshot && requested ? JSON.stringify(snapshot) : null, requested]);
+  if (state === "stalled_part_way") {
+    // Only the reason code is kept for a refused reply, never its text (output-refusal.ts).
+    const refusal = { kind: "output_refusal", role: "companion", reason: "provider_stream_stalled" };
+    await db.query("INSERT INTO supervisor_artifacts(id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [randomUUID(), jobId, row.enrollment_id, row.workspace_id, `${jobId}:generate`, randomUUID(), createHash("sha256").update(JSON.stringify(refusal)).digest("hex"), JSON.stringify(refusal)]);
+  }
   await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
   if (state === "applied")
     await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",

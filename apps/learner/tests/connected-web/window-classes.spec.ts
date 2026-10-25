@@ -140,8 +140,8 @@ test("the secondary Your course menu holds profile, record and account settings 
   await expect(menu).toHaveText(/Your course/);
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   // Settings are not scattered across the header: only the menu button and the notification bell
-  // are there.
-  await expect(page.locator(".connected-header button:visible")).toHaveCount(2);
+  // are there (and, beside a collapsed companion pane, the button that shows it).
+  await expect(page.locator(".connected-header button:visible:not(.connected-companion-trigger)")).toHaveCount(2);
   const bell = (await page.locator(".connected-bell").boundingBox())!;
   expect(bell.height).toBeGreaterThanOrEqual(44);
   expect(bell.x).toBeGreaterThanOrEqual(0);

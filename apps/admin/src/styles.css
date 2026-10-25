@@ -2531,6 +2531,21 @@ code.digest {
   letter-spacing: 0;
   text-transform: none;
 }
+/* Large headings and figures are drawn a little tighter in Latin script. Hebrew letters set that
+   close run into each other, so Hebrew keeps normal spacing here too (the h1 was drawn at -1.2px
+   and the h2 at -0.35px). The product name stays Latin and keeps its tracking. */
+h1:lang(he),
+h2:lang(he),
+.brand:lang(he),
+.hero-card h2:lang(he),
+.stat strong:lang(he),
+.app-bar-title strong:lang(he) {
+  letter-spacing: 0;
+  text-transform: none;
+}
+.brand :lang(en) {
+  letter-spacing: -0.8px;
+}
 .locale-switcher {
   display: inline-flex;
   align-items: center;

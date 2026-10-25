@@ -154,8 +154,9 @@ function renderInline(nodes: readonly Inline[], key: string, isolate: boolean): 
           <React.Fragment key={id}>
             {latinRuns(text).map((run, part) =>
               run.latin ? (
-                // A single term ("fine-tuning") never breaks at its hyphen inside right-to-left text.
-                <Text key={part} {...dirProp("ltr")} style={/\s/.test(run.text) ? undefined : ({ whiteSpace: "nowrap" } as object)}>
+                // A single term ("fine-tuning") never breaks at its hyphen inside right-to-left text;
+                // a long one may, rather than run out of its box.
+                <Text key={part} {...dirProp("ltr")} style={/\s/.test(run.text) || run.text.length > 30 ? undefined : ({ whiteSpace: "nowrap" } as object)}>
                   {run.text}
                 </Text>
               ) : (
@@ -198,7 +199,7 @@ function renderInline(nodes: readonly Inline[], key: string, isolate: boolean): 
       case "link":
         return <InlineReference key={id} label={node.label} href={node.href} />;
       case "math":
-        return <MathFormula key={id} tex={node.tex} display={node.display} {...(trailing[index] ? { trailing: trailing[index] } : {})} />;
+        return <MathFormula key={id} tex={node.tex} display={node.display} rtl={isolate} {...(trailing[index] ? { trailing: trailing[index] } : {})} />;
       case "break":
         return "\n";
       case "pending":
