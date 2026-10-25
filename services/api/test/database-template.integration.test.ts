@@ -4,14 +4,17 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase as createPool } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import {
-  addReadyCopy, baseDatabaseUrl, claimCopy, createDatabase, databaseUrl, dropDatabase, dropStale, migrationsDirectory, newRun,
-  templateSchema, withBase,
+  addReadyCopy, baseDatabaseUrl, claimCopy, createDatabase, databaseUrl, dropDatabase, dropRetired, dropRun, dropStale, migrationsDirectory, newRun,
+  retireWhenClosed, templateSchema, withBase,
 } from './database-template.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 
 const base = baseDatabaseUrl();
 const opened: TestDatabase[] = [];
+/** This run's databases a test made directly; retired at the end like a file's own copy. */
 const extra: string[] = [];
+/** Databases of made-up runs, which neither the background drop nor this run's teardown touches. */
+const foreign: string[] = [];
 const schemaName = () => `harness_${randomUUID().replaceAll('-', '')}`;
 async function open(options?: { migrated?: boolean }) {
   const database = await createTestDatabase(schemaName(), options);
@@ -23,8 +26,11 @@ async function exists(name: string) {
 }
 afterAll(async () => {
   for (const database of opened) await database.drop();
-  await withBase(base, async client => { for (const name of extra) await dropDatabase(client, name); });
-}, 30_000);
+  const run = inject('courseTestDatabase')!;
+  await withBase(base, async client => { for (const name of extra) await retireWhenClosed(client, run, name); });
+  // Together, so the drops share one checkpoint.
+  await Promise.all(foreign.map(name => withBase(base, client => dropDatabase(client, name))));
+});
 
 describe('per-file copies of the migrated template database', () => {
   it('gives each file its own fully migrated schema whose recorded migrations match the files', async () => {
@@ -76,7 +82,7 @@ describe('per-file copies of the migrated template database', () => {
   it('cleans up only marked databases from old runs', async () => {
     const old = newRun(base, Date.now() - 7 * 60 * 60 * 1000), recent = newRun(base);
     const marked = `${old.prefix}_f000001`, unmarked = `${old.prefix}_f000002`, fresh = `${recent.prefix}_f000003`;
-    extra.push(marked, unmarked, fresh);
+    foreign.push(marked, unmarked, fresh);
     await withBase(base, async client => {
       await createDatabase(client, marked);
       await client.query(`CREATE DATABASE "${unmarked}" TEMPLATE template0`);
@@ -91,21 +97,61 @@ describe('per-file copies of the migrated template database', () => {
     expect(await exists(fresh)).toBe(true);
   }, 30_000);
 
-  it('leaves a file database that still has an open connection to the run teardown instead of killing it', async () => {
+  it('fails the file that leaves a connection open, without killing it, and leaves its database to the run teardown', async () => {
     const copy = await createTestDatabase(schemaName());
     const name = new URL(copy.rootUrl).pathname.slice(1);
     extra.push(name);
-    const client = new pg.Client({ connectionString: copy.url });
+    const client = new pg.Client({ connectionString: copy.url, application_name: 'leaky-test-client' });
     await client.connect();
+    await client.query('SELECT 1 AS ok');
     let terminated = false;
     client.on('error', () => { terminated = true; });
-    await copy.drop();
+    await expect(copy.drop()).rejects.toThrow(/left 1 connection\(s\) to its database open: idle for \d+s \(leaky-test-client\), last query: SELECT 1 AS ok/);
     expect(await exists(name)).toBe(true);
     expect((await client.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
     expect(terminated).toBe(false);
     await client.end();
     await copy.drop();
     expect(await exists(name)).toBe(false);
+    // A second call, as an afterAll after a test already dropped it, changes nothing.
+    await copy.drop();
+  }, 30_000);
+
+  it('retires a closed copy under a retired name, which the background drop then removes', async () => {
+    const run = inject('courseTestDatabase')!;
+    const copy = await createTestDatabase(schemaName());
+    const name = new URL(copy.rootUrl).pathname.slice(1);
+    const db = createPool(copy.url);
+    await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [randomUUID(), 'retired', 'Retired']);
+    await db.end();
+    const oid = await withBase(base, async client => (await client.query('SELECT oid FROM pg_database WHERE datname=$1', [name])).rows[0].oid as number);
+    const nameOf = () => withBase(base, async client => (await client.query('SELECT datname FROM pg_database WHERE oid=$1', [oid])).rows[0]?.datname as string | undefined);
+    await copy.drop();
+    expect(await exists(name)).toBe(false);
+    const retired = await nameOf();
+    // Dropped already, or waiting under this run's retired prefix.
+    if (retired !== undefined) expect(retired.startsWith(run.retired)).toBe(true);
+    // Waits for the global setup's background drop, polling, never for a fixed time.
+    let left = retired;
+    for (let attempt = 0; left !== undefined && attempt < 200; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      left = await nameOf();
+    }
+    expect(left).toBeUndefined();
+  }, 30_000);
+
+  it('drops retired copies together, and the run teardown drops everything a run left', async () => {
+    const run = newRun(base);
+    const names = [`${run.prefix}_tpl`, `${run.prefix}_f000001`, `${run.prefix}_e000002`, `${run.retired}000003`, `${run.retired}000004`];
+    foreign.push(...names);
+    await withBase(base, async client => {
+      for (const name of names) await createDatabase(client, name);
+      expect(await dropRetired(client, base, run)).toBe(2);
+      expect(await dropRetired(client, base, run)).toBe(0);
+    });
+    for (const name of names) expect(await exists(name)).toBe(!name.startsWith(run.retired));
+    expect(await dropRun(base, run)).toEqual(names.filter(name => !name.startsWith(run.retired)).sort());
+    for (const name of names) expect(await exists(name)).toBe(false);
   }, 30_000);
 
   it('refuses non-test database URLs before connecting', () => {

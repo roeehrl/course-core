@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { migrate } from '../src/migrations.js';
@@ -16,6 +17,14 @@ import { migrate } from '../src/migrations.js';
  * either. The global setup keeps a few copies ready ahead of demand, created one at
  * a time, so a file usually only has to claim one (an atomic rename).
  *
+ * A file never drops its own copy. DROP DATABASE requests an immediate checkpoint of
+ * the whole server and waits for it, so it costs as much as flushing every dirty
+ * page of every database there, including the other files running at the same time.
+ * Waiting for that in each file's afterAll took seconds per file on a loaded machine
+ * and was where the API suite's hook timeouts came from. A finished file renames its
+ * copy to a retired name instead (no checkpoint), and the global setup drops retired
+ * copies in the background, several at once so that one checkpoint serves them all.
+ *
  * Every database here is named `<base>__<run>_<kind>` and carries `cloneComment`;
  * cleanup never touches a database without both.
  */
@@ -27,6 +36,8 @@ export const templateSchema = 'course_template';
 export const cloneComment = 'course-core disposable API test database';
 const identifier = /^[a-z_][a-z0-9_]{0,62}$/;
 const maxBaseLength = 40;
+/** Databases dropped together (one connection each), so they share a checkpoint. */
+const dropBatch = 8;
 
 export interface TemplateRun {
   /** `<base>__<run>`: every database of this run starts with it. */
@@ -35,6 +46,8 @@ export interface TemplateRun {
   template: string;
   /** Copies waiting to be claimed are named `<ready><hex>`. */
   ready: string;
+  /** Copies their files are done with, waiting for the background drop, are named `<retired><hex>`. */
+  retired: string;
 }
 
 /** Validates TEST_DATABASE_URL as a disposable loopback test database. */
@@ -82,21 +95,57 @@ export async function dropDatabase(client: pg.Client, name: string): Promise<voi
   await client.query(`DROP DATABASE IF EXISTS ${quoted(name)} WITH (FORCE)`);
 }
 
+/** Sessions still connected to `name`, described for a leak report. */
+async function sessionsOn(client: pg.Client, name: string): Promise<string[]> {
+  const { rows } = await client.query<{ application_name: string; state: string | null; query: string; seconds: number }>(
+    `SELECT application_name, state, left(query, 80) AS query, floor(extract(epoch FROM clock_timestamp() - backend_start))::int AS seconds
+       FROM pg_stat_activity WHERE datname = $1 AND backend_type = 'client backend' AND pid <> pg_backend_pid() ORDER BY backend_start`, [name]);
+  return rows.map(row => `${row.state ?? 'unknown'} for ${row.seconds}s${row.application_name ? ` (${row.application_name})` : ''}${row.query ? `, last query: ${row.query}` : ''}`);
+}
+
+function leaked(open: string[]): Error {
+  return new Error(`The test file left ${open.length || 'some'} connection(s) to its database open: ${open.join('; ') || 'already closing'}. `
+    + 'Close every server (app.close()), pool (db.end()) and client the file opens in its afterAll.');
+}
+
 /**
- * Drops a file's database once its sessions are gone. PostgreSQL waits a few seconds for
- * sessions that are still closing (a pool's `end()` resolves before its sockets close).
- * A database still in use after that is left to the run's teardown, which runs after the
- * test workers exit: terminating a live session here would surface as an uncaught
- * connection error in the test file. Returns whether it was dropped.
+ * Retires a file's database once its sessions are gone: renames it for the background
+ * drop, which takes no checkpoint (see the module comment). Sessions that are still
+ * closing (a pool's `end()` resolves before its sockets close) go within milliseconds;
+ * this waits up to `closingMs` for them. PostgreSQL would wait too, but about ten seconds
+ * before refusing, longer than a hook may take. A session open after that is a leak: a
+ * pool, client or server the file never closed. The database is then left to the run's
+ * teardown, which runs after the test workers exit (terminating the session here would
+ * surface as an uncaught connection error in the test file), and this rejects with the
+ * open sessions, so the file that leaked them fails. A database that no longer has this
+ * name (already retired) is left alone.
  */
-export async function dropWhenClosed(client: pg.Client, name: string): Promise<boolean> {
+export async function retireWhenClosed(client: pg.Client, run: TemplateRun, name: string, closingMs = 5_000): Promise<void> {
+  const deadline = Date.now() + closingMs;
+  let open = await sessionsOn(client, name);
+  while (open.length && Date.now() < deadline) {
+    await delay(50);
+    open = await sessionsOn(client, name);
+  }
+  if (open.length) throw leaked(open);
   try {
-    await client.query(`DROP DATABASE IF EXISTS ${quoted(name)}`);
-    return true;
+    await client.query(`ALTER DATABASE ${quoted(name)} RENAME TO ${quoted(run.retired + suffix())}`);
   } catch (error) {
-    if ((error as { code?: string }).code === '55006') return false;
+    const code = (error as { code?: string }).code;
+    if (code === '3D000') return;
+    if (code === '55006') throw leaked(await sessionsOn(client, name));
     throw error;
   }
+}
+
+/**
+ * Drops up to `batch` retired copies at once, each on its own connection: drops that run
+ * together wait for the same checkpoint instead of one each. Returns how many it dropped.
+ */
+export async function dropRetired(client: pg.Client, base: URL, run: TemplateRun, batch = dropBatch): Promise<number> {
+  const names = (await databasesStartingWith(client, run.retired)).slice(0, batch);
+  await Promise.all(names.map(name => withBase(base, other => dropDatabase(other, name))));
+  return names.length;
 }
 
 async function databasesStartingWith(client: pg.Client, prefix: string): Promise<string[]> {
@@ -110,7 +159,7 @@ async function databasesStartingWith(client: pg.Client, prefix: string): Promise
 export function newRun(base: URL, now = Date.now()): TemplateRun {
   const run = now.toString(36).padStart(9, '0') + randomBytes(2).toString('hex');
   const prefix = `${base.pathname.slice(1)}__${run}`;
-  return { prefix, template: `${prefix}_tpl`, ready: `${prefix}_r` };
+  return { prefix, template: `${prefix}_tpl`, ready: `${prefix}_r`, retired: `${prefix}_x` };
 }
 
 /** Drops this harness's databases left behind by crashed runs older than `maxAgeMs`. */
@@ -127,10 +176,14 @@ export async function dropStale(client: pg.Client, base: URL, maxAgeMs: number, 
   return dropped;
 }
 
-/** Drops every database of one run, including copies of files that crashed or timed out. */
-export async function dropRun(client: pg.Client, run: TemplateRun): Promise<string[]> {
-  const names = await databasesStartingWith(client, `${run.prefix}_`);
-  for (const name of names) await dropDatabase(client, name);
+/**
+ * Drops every database of one run, including copies of files that crashed, timed out or
+ * leaked connections, `batch` at a time so that each group shares one checkpoint.
+ */
+export async function dropRun(base: URL, run: TemplateRun, batch = dropBatch): Promise<string[]> {
+  const names = await withBase(base, client => databasesStartingWith(client, `${run.prefix}_`));
+  for (let start = 0; start < names.length; start += batch)
+    await Promise.all(names.slice(start, start + batch).map(name => withBase(base, client => dropDatabase(client, name))));
   return names;
 }
 

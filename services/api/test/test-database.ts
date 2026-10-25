@@ -1,7 +1,7 @@
 import { inject } from 'vitest';
 import { migrate } from '../src/migrations.js';
 import { createDatabase as createPool } from '../src/database.js';
-import { baseDatabaseUrl, claimCopy, createDatabase, databaseUrl, dropDatabase, dropWhenClosed, emptyName, migrationsDirectory, templateSchema, withBase } from './database-template.js';
+import { baseDatabaseUrl, claimCopy, createDatabase, databaseUrl, dropDatabase, emptyName, migrationsDirectory, retireWhenClosed, templateSchema, withBase } from './database-template.js';
 
 export interface TestDatabase {
   /** The schema holding the application tables (the name the test asked for). */
@@ -10,7 +10,11 @@ export interface TestDatabase {
   rootUrl: string;
   /** The same database with `search_path` set to `schema`, as the application connects. */
   url: string;
-  /** Drops the whole database once this file's connections are closed (otherwise the run's teardown does). */
+  /**
+   * Hands the database to the run's background drop once this file's connections are closed.
+   * Rejects, naming the open sessions, when the file left any open (the run's teardown then
+   * drops it): a leaked pool, client or server fails the file that leaked it.
+   */
   drop(): Promise<void>;
 }
 
@@ -31,7 +35,7 @@ export async function createTestDatabase(schema: string, options: { migrated?: b
     await createDatabase(client, empty);
     return empty;
   });
-  const drop = async () => { await withBase(base, client => dropWhenClosed(client, name)); };
+  const drop = () => withBase(base, client => retireWhenClosed(client, run, name));
   try {
     const root = createPool(databaseUrl(base, name));
     try {
