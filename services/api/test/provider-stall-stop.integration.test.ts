@@ -357,7 +357,8 @@ describe('the owner settles a call whose cost stayed unknown', () => {
   it('lists the pilot-shaped row as "no reply", settles it at zero once (audited) and releases the reservation', async () => {
     const { job, ledgerId } = await pilotRow(), headers = await owner();
     const list = (await uncertainList(headers)).json();
-    expect(list.calls.find((c: { id: string }) => c.id === ledgerId)).toMatchObject({ happened: 'no_response', settleable: true, reservedMicroUsd: ALLOWANCE });
+    const call = list.calls.find((c: { id: string }) => c.id === ledgerId);
+    expect(call).toMatchObject({ happened: 'no_response', settleable: true, reservedMicroUsd: ALLOWANCE });
     expect(list.heldMicroUsd).toBeGreaterThanOrEqual(ALLOWANCE);
     const workspaceBefore = Number((await db.query('SELECT used_micro_usd FROM supervisor_workspace_budgets WHERE workspace_id=$1', [workspaceId])).rows[0].used_micro_usd);
     const body = { idempotencyKey: `settle-${randomUUID()}`, decision: 'zero', expectedReservedMicroUsd: ALLOWANCE, reason: 'AI Studio usage shows no request at 22:51 UTC' };
@@ -382,7 +383,9 @@ describe('the owner settles a call whose cost stayed unknown', () => {
     expect(other.statusCode).toBe(409); expect(other.json().error).toBe('PROVIDER_SPEND_ALREADY_SETTLED');
     expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE event_type='provider.spend_settled' AND payload->>'ledgerId'=$1", [ledgerId])).rows[0].n).toBe(1);
     expect((await uncertainList(headers)).json().calls.some((c: { id: string }) => c.id === ledgerId)).toBe(false);
-    expect((await uncertainList(headers)).json().recent[0]).toMatchObject({ ledgerId, decision: 'zero', decidedBy: 'Owner', reason: body.reason });
+    // The decision names its call as the list did: the job and the time it was sent.
+    expect((await uncertainList(headers)).json().recent[0]).toMatchObject({ ledgerId, decision: 'zero', decidedBy: 'Owner', reason: body.reason,
+      role: call.role, reservedAt: call.reservedAt });
   }, 60000);
 
   it('settles a call at the reservation: it stays charged and is no longer held', async () => {

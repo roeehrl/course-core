@@ -279,29 +279,31 @@ export function BatchAdjustDialog({
                 />
               </Field>
               <div>
-                <Button
-                  type="button"
-                  kind="primary"
-                  disabled={flight.pending || !reason.trim()}
-                  onClick={() =>
-                    void flight.run(async () => {
-                      const result = await client.applyAccommodationBatch!(
-                        courseId,
-                        {
-                          batchId: preview.batchId,
-                          previewDigest: preview.previewDigest,
-                          reason: reason.trim(),
-                        },
-                      );
-                      onApplied(result);
-                      onClose();
-                    })
-                  }
-                >
-                  {t("batchAdjustDialog.apply", {
-                    count: preview.enrollments.length,
-                  })}
-                </Button>
+                <div className="dialog-footer">
+                  <Button
+                    type="button"
+                    kind="primary"
+                    disabled={flight.pending || !reason.trim()}
+                    onClick={() =>
+                      void flight.run(async () => {
+                        const result = await client.applyAccommodationBatch!(
+                          courseId,
+                          {
+                            batchId: preview.batchId,
+                            previewDigest: preview.previewDigest,
+                            reason: reason.trim(),
+                          },
+                        );
+                        onApplied(result);
+                        onClose();
+                      })
+                    }
+                  >
+                    {t("batchAdjustDialog.apply", {
+                      count: preview.enrollments.length,
+                    })}
+                  </Button>
+                </div>
               </div>
             </>
           )}

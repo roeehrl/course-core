@@ -131,6 +131,9 @@ export const uncertainCallsSchema = z.object({
         reason: z.string().max(500),
         decidedAt: z.string(),
         decidedBy: z.string().max(200).nullable(),
+        /** The call decided on: its job and when it was sent (older servers omit them). */
+        role: z.string().max(32).nullable().optional(),
+        reservedAt: z.string().nullable().optional(),
       }),
     )
     .max(10),

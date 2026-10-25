@@ -6,7 +6,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { lockPageScroll, trapTab } from "./ui";
+import { focusInPlace, lockPageScroll, trapTab } from "./ui";
 import { useT } from "../i18n";
 
 /**
@@ -39,6 +39,7 @@ export function NavDrawer({
   useEffect(() => {
     unmounting.current = false;
     const dialog = ref.current!;
+    const unlock = lockPageScroll();
     dialog.showModal();
     // The current section first: the person sees where they are and can move from there.
     (
@@ -46,7 +47,6 @@ export function NavDrawer({
         '[aria-current="page"]:not(:disabled)',
       ) ?? dialog.querySelector<HTMLElement>(".nav-drawer-close")
     )?.focus();
-    const unlock = lockPageScroll();
     return () => {
       unmounting.current = true;
       dialog.close();

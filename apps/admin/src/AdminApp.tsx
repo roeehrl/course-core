@@ -530,7 +530,7 @@ function CourseWorkspace({
             <div className="heading-meta">
               <Badge>{roleLabel(i18n, data?.role ?? session.actor.role)}</Badge>
               {data && (
-                <small className="mono">
+                <small className="heading-revision">
                   {t("adminApp.revision", { revision: data.revision })}
                 </small>
               )}

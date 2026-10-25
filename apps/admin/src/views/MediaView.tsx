@@ -879,7 +879,7 @@ function RequestDialog({
             )}
           </div>
         )}
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button kind="primary" type="submit" disabled={pending || !valid}>
             <Clapperboard size={16} aria-hidden="true" />{" "}
             {mode === "clip"

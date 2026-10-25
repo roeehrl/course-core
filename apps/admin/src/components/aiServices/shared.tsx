@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from "lucide-react";
 import { randomId } from "../../domain/webCrypto";
+import { focusInPlace, lockPageScroll, useMoreBelow } from "../ui";
 import { useI18n, type MessageKey } from "../../i18n";
 import {
   AiServicesError,
@@ -413,13 +414,16 @@ export function Confirm({
   const ref = useRef<HTMLDialogElement>(null),
     titleId = useId(),
     bodyId = useId();
+  useMoreBelow(ref);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null,
       dialog = ref.current!;
+    const unlock = lockPageScroll();
     dialog.showModal();
     return () => {
       dialog.close();
-      before?.focus();
+      if (before?.isConnected) focusInPlace(before);
+      unlock();
     };
   }, []);
   return createPortal(
@@ -435,7 +439,7 @@ export function Confirm({
     >
       <h2 id={titleId}>{title}</h2>
       <p id={bodyId}>{body}</p>
-      <div className="ai-actions">
+      <div className="ai-actions dialog-footer">
         <button
           type="button"
           className="button secondary"

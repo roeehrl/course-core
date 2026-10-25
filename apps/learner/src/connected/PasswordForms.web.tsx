@@ -232,8 +232,7 @@ export function ChangePassword({
           .finally(() => setPending(false));
       }}
     >
-      <h2>{t("passwordForms.change.title")}</h2>
-      {/* Lets password managers associate the new password with this account. */}
+      {/* The sheet it opens in (Overlay) shows the title. Lets password managers associate the new password with this account. */}
       {loginName && (
         <input type="text" name="username" autoComplete="username" value={loginName} readOnly hidden />
       )}

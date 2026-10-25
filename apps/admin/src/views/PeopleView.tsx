@@ -615,7 +615,7 @@ function InviteDialog({
             </label>
           ))}
         </fieldset>
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button
             kind="primary"
             type="submit"
@@ -677,7 +677,7 @@ function RemoveDialog({
             onChange={(e) => setReason(e.target.value)}
           />
         </Field>
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button kind="danger" type="submit" disabled={pending}>
             {t("peopleView.removeAccess")}
           </Button>
@@ -737,7 +737,7 @@ function PasswordDialog({
             onChange={(e) => setLogin(e.target.value)}
           />
         </Field>
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button
             kind="primary"
             type="submit"

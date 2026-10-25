@@ -264,33 +264,35 @@ export function RollbackDialog({
           <Notice tone="blue">
             {t("releaseSafetyPanel.rollback.nobodyMoved")}
           </Notice>
-          <Button
-            kind="primary"
-            disabled={actions.pending}
-            onClick={async () => {
-              const result = await actions.run(
-                JSON.stringify([
-                  "release",
-                  release.id,
-                  "rollback",
-                  impact.impactDigest,
-                ]),
-                (context) =>
-                  client.transitionRelease(
-                    data.course.id,
+          <div className="dialog-footer">
+            <Button
+              kind="primary"
+              disabled={actions.pending}
+              onClick={async () => {
+                const result = await actions.run(
+                  JSON.stringify([
+                    "release",
                     release.id,
-                    "activate",
-                    context,
-                    { impactDigest: impact.impactDigest },
-                  ),
-              );
-              if (result) onClose();
-              // A changed impact is shown again for a fresh confirmation.
-              else setImpact(undefined);
-            }}
-          >
-            {t("releaseSafetyPanel.rollback.confirm")}
-          </Button>
+                    "rollback",
+                    impact.impactDigest,
+                  ]),
+                  (context) =>
+                    client.transitionRelease(
+                      data.course.id,
+                      release.id,
+                      "activate",
+                      context,
+                      { impactDigest: impact.impactDigest },
+                    ),
+                );
+                if (result) onClose();
+                // A changed impact is shown again for a fresh confirmation.
+                else setImpact(undefined);
+              }}
+            >
+              {t("releaseSafetyPanel.rollback.confirm")}
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>
@@ -436,18 +438,20 @@ function DefectDialog({
               {t("releaseSafetyPanel.defect.acknowledge")}
             </label>
           )}
-          <Button
-            kind="danger"
-            type="submit"
-            disabled={
-              actions.pending ||
-              p.alreadyDefective ||
-              reason.trim().length < 10 ||
-              (!p.replacement.available && !acknowledge)
-            }
-          >
-            {t("releaseSafetyPanel.defect.submit")}
-          </Button>
+          <div className="dialog-footer">
+            <Button
+              kind="danger"
+              type="submit"
+              disabled={
+                actions.pending ||
+                p.alreadyDefective ||
+                reason.trim().length < 10 ||
+                (!p.replacement.available && !acknowledge)
+              }
+            >
+              {t("releaseSafetyPanel.defect.submit")}
+            </Button>
+          </div>
         </form>
       )}
     </Dialog>

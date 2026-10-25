@@ -1045,7 +1045,7 @@ function AddSourceDialog({
             onChange={(e) => setDays(Number(e.target.value))}
           />
         </Field>
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button
             kind="primary"
             type="submit"
@@ -1360,7 +1360,7 @@ function ReviewDialog({
             {t("researchView.review.truncation")}
           </label>
         )}
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button kind="primary" type="submit" disabled={pending}>
             {t("researchView.review.submit")}
           </Button>
@@ -1438,7 +1438,7 @@ function AttachDialog({
             onChange={(e) => setDays(Number(e.target.value))}
           />
         </Field>
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button kind="primary" type="submit" disabled={pending || !episodeId}>
             <BookMarked size={16} aria-hidden="true" />{" "}
             {t("researchView.attach.submit")}
@@ -1492,7 +1492,7 @@ function RevokeDialog({
             onChange={(e) => setReason(e.target.value)}
           />
         </Field>
-        <div className="tag-row">
+        <div className="tag-row dialog-footer">
           <Button kind="danger" type="submit" disabled={pending}>
             {t("researchView.revoke.button")}
           </Button>

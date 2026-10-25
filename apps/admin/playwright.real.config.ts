@@ -1,10 +1,13 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 import { adminRealPort } from "../../services/api/browser/ports";
 // Fixed 4384 in CI; a free loopback port locally unless COURSE_ADMIN_REAL_PORT is set
 // (COURSE_BROWSER_PORTS=fixed|free overrides the mode),
 // so real-API suites in separate checkouts can run at the same time.
 const port = adminRealPort();
 const origin = `http://127.0.0.1:${port}`;
+// Installed Chrome locally, Playwright's Chromium in CI. Set per Chromium project: a top-level
+// channel would also apply to the WebKit projects.
+const channel = process.env.CI === "true" ? undefined : "chrome";
 export default defineConfig({
   testDir: "./tests/real",
   outputDir: "./test-results/real",
@@ -13,7 +16,6 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: origin,
-    channel: process.env.CI === "true" ? undefined : "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -24,13 +26,20 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 30000,
   },
+  // Tests tagged @desktop-only cover behaviour one viewport proves (for example network
+  // handling); @phone-only ones set phone sizes themselves. Tests tagged @webkit also run on
+  // Safari's engine.
   projects: [
-    { name: "desktop", use: { viewport: { width: 1440, height: 1000 } } },
-    // Tests tagged @desktop-only cover behaviour one viewport proves (for example network handling).
+    {
+      name: "desktop",
+      grepInvert: /@phone-only/,
+      use: { channel, viewport: { width: 1440, height: 1000 } },
+    },
     {
       name: "phone",
       grepInvert: /@desktop-only/,
       use: {
+        channel,
         viewport: { width: 390, height: 844 },
         isMobile: true,
         hasTouch: true,
@@ -38,8 +47,20 @@ export default defineConfig({
     },
     {
       name: "tablet",
+      grepInvert: /@desktop-only|@phone-only/,
+      use: { channel, viewport: { width: 834, height: 1112 }, hasTouch: true },
+    },
+    {
+      name: "webkit-desktop",
+      grep: /@webkit/,
+      grepInvert: /@phone-only/,
+      use: { browserName: "webkit", viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "webkit-phone",
+      grep: /@webkit/,
       grepInvert: /@desktop-only/,
-      use: { viewport: { width: 834, height: 1112 }, hasTouch: true },
+      use: { ...devices["iPhone 15"], browserName: "webkit" },
     },
   ],
 });

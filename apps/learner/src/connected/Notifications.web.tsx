@@ -73,7 +73,8 @@ export function LearnerNotifications({
       if (event.key !== "Escape") return;
       event.preventDefault();
       setOpen(false);
-      toggle.current?.focus();
+      // The bell is in the sticky header: focus goes back without scrolling the page.
+      toggle.current?.focus({ preventScroll: true });
     };
     document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", escape);

@@ -23,6 +23,8 @@ const HAPPENED: Record<UncertainCall["happened"], MessageKey> = {
   no_receipt: "aiServices.unknown.happened.noReceipt",
 };
 
+/** The short reference of a call: the end of its id (the random part), enough to tell calls apart. */
+export const callRef = (id: string) => id.replaceAll("-", "").slice(-8);
 /**
  * AI calls whose cost stayed unknown: sent, but no usage report came back (no reply in time, or
  * the reply stopped before the service said how much it used). Course Core keeps the most each
@@ -30,6 +32,11 @@ const HAPPENED: Record<UncertainCall["happened"], MessageKey> = {
  * checks the service's own usage page and settles each call, at $0 or at the amount held, with a
  * short note of what they checked; the decision is final and recorded in the audit log. Shown
  * only while there is something to decide or a recent decision to show.
+ *
+ * Each call is named by its job, the time it was sent to the second (two calls can fall in the
+ * same minute) and a short reference; the message after a decision and the list of recent
+ * decisions name the call the same way. Times and the owner's notes are isolated (`<bdi>`,
+ * `dir="auto"`), so a Hebrew date or an English note keeps its own order in either direction.
  */
 export function UncertainCallsPanel({
   port,
@@ -43,7 +50,7 @@ export function UncertainCallsPanel({
 }) {
   const text = useAiText();
   const { t } = text;
-  const { when } = useFormatters(),
+  const { when, whenExact } = useFormatters(),
     i18n = useI18n();
   // Exact to the micro-dollar (a held reservation such as $0.031410 is not rounded to cents), so
   // the amount matches the service's own usage page and the decision's record.
@@ -131,15 +138,23 @@ export function UncertainCallsPanel({
       });
       keys.settle();
       setOpen("");
+      // The message names the call that was decided: its job, when it was sent and its reference.
+      const named = {
+        job: jobName(t, call.role),
+        when: whenExact(call.reservedAt),
+        ref: t("aiServices.unknown.ref", { id: callRef(call.id) }),
+      };
       setMessage({
         tone: "ok",
         text:
           settled.decision === "zero"
             ? t("aiServices.unknown.savedZero", {
+                ...named,
                 amount: exact(settled.releasedMicroUsd),
                 zero: exact(0),
               })
             : t("aiServices.unknown.savedKept", {
+                ...named,
                 amount: exact(settled.chargedMicroUsd),
               }),
       });
@@ -189,10 +204,13 @@ export function UncertainCallsPanel({
             const reasonId = `${base}-${call.id}-reason`;
             return (
               <li key={call.id} className="ai-unknown-call">
-                <p className="ai-unknown-head">
-                  <strong>{jobName(t, call.role)}</strong> ·{" "}
-                  <Ltr>{when(call.reservedAt)}</Ltr>
-                </p>
+                <CallName
+                  job={jobName(t, call.role)}
+                  when={whenExact(call.reservedAt)}
+                  reference={t("aiServices.unknown.ref", {
+                    id: callRef(call.id),
+                  })}
+                />
                 <p>{t(HAPPENED[call.happened])}</p>
                 <p>
                   {t("aiServices.unknown.counted")}{" "}
@@ -330,23 +348,71 @@ export function UncertainCallsPanel({
           <ul className="ai-unknown-recent">
             {view.recent.map((row) => (
               <li key={row.ledgerId}>
-                {t(
-                  row.decision === "zero"
-                    ? "aiServices.unknown.recentZero"
-                    : "aiServices.unknown.recentKept",
-                  {
-                    amount: exact(row.reservedMicroUsd),
-                    zero: exact(0),
-                    when: when(row.decidedAt),
-                    who: row.decidedBy ?? t("aiServices.unknown.someone"),
-                  },
-                )}{" "}
-                <q>{row.reason}</q>
+                <CallName
+                  job={row.role ? jobName(t, row.role) : null}
+                  when={row.reservedAt ? whenExact(row.reservedAt) : null}
+                  reference={t("aiServices.unknown.ref", {
+                    id: callRef(row.ledgerId),
+                  })}
+                />
+                <p>
+                  {t(
+                    row.decision === "zero"
+                      ? "aiServices.unknown.recentZero"
+                      : "aiServices.unknown.recentKept",
+                    {
+                      amount: exact(row.reservedMicroUsd),
+                      zero: exact(0),
+                      when: when(row.decidedAt),
+                      who: row.decidedBy ?? t("aiServices.unknown.someone"),
+                    },
+                  )}
+                </p>
+                {/* The owner's note, in its own direction (an English note on a Hebrew page). */}
+                <q className="ai-unknown-note" dir="auto">
+                  {row.reason}
+                </q>
               </li>
             ))}
           </ul>
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * A call's name: its job, when it was sent (to the second) and its short reference. A separator
+ * wraps with what follows it, and the time is isolated in its own direction.
+ */
+function CallName({
+  job,
+  when,
+  reference,
+}: {
+  job: string | null;
+  when: string | null;
+  reference: string;
+}) {
+  const parts = [
+    when && (
+      <bdi key="when" className="ai-unknown-when">
+        {when}
+      </bdi>
+    ),
+    <span key="ref" className="ai-muted">
+      {reference}
+    </span>,
+  ].filter(Boolean);
+  return (
+    <p className="ai-unknown-head">
+      {job && <strong>{job}</strong>}
+      {parts.map((part, index) => (
+        <span key={index} className="ai-unknown-part">
+          {(job || index > 0) && " · "}
+          {part}
+        </span>
+      ))}
+    </p>
   );
 }

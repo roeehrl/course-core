@@ -258,3 +258,38 @@ test("wide windows keep the sidebar; a drawer left open closes when the window w
   // The page is not left locked after the drawer went away.
   expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
 });
+
+for (const locale of ["en", "he"] as const)
+  test(`${locale}: the bell's count keeps clear of the next control and its focus ring @desktop-window`, async ({
+    page,
+    context,
+  }) => {
+    await mockConnectedAdmin(page, context);
+    await page.route("**/api/admin/workspaces/*/notifications**", (route) =>
+      route.fulfill({ json: { items: [], unread: 12, nextCursor: null } }),
+    );
+    for (const size of [
+      { width: 375, height: 667 },
+      { width: 390, height: 844 },
+      { width: 834, height: 1112 },
+    ]) {
+      await page.setViewportSize(size);
+      await open(page, locale);
+      const count = page.locator(".notification-count");
+      await expect(count).toHaveText("12");
+      const badge = await box(count);
+      // The control after the bell: the account button on phones, refresh on tablets.
+      const next = await box(
+        page.locator(".app-bar-actions > .notification-center + *"),
+      );
+      const gap =
+        locale === "he"
+          ? badge.x - (next.x + next.width)
+          : next.x - (badge.x + badge.width);
+      // The focus ring (3px, 2px from the button) still leaves a clear gap.
+      expect(gap, `${size.width}px`).toBeGreaterThanOrEqual(8);
+      // The count stays inside the bar.
+      const bar = await box(page.locator(".app-bar"));
+      expect(badge.y).toBeGreaterThanOrEqual(bar.y);
+    }
+  });

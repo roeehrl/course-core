@@ -209,25 +209,27 @@ export function CohortMigrationDialog({
               onChange={(e) => setReason(e.target.value)}
             />
           </Field>
-          <Button
-            kind="primary"
-            disabled={flight.pending || !reason.trim() || !allAcknowledged}
-            onClick={() =>
-              void flight.run(async () => {
-                onApplied(
-                  await client.applyCohortMigration!(courseId, {
-                    migrationId: preview.migrationId,
-                    previewDigest: preview.previewDigest,
-                    reason: reason.trim(),
-                    acknowledgedShortenedGrantIds: acknowledged,
-                  }),
-                );
-                onClose();
-              })
-            }
-          >
-            {t("cohortMigrationDialog.apply")}
-          </Button>
+          <div className="dialog-footer">
+            <Button
+              kind="primary"
+              disabled={flight.pending || !reason.trim() || !allAcknowledged}
+              onClick={() =>
+                void flight.run(async () => {
+                  onApplied(
+                    await client.applyCohortMigration!(courseId, {
+                      migrationId: preview.migrationId,
+                      previewDigest: preview.previewDigest,
+                      reason: reason.trim(),
+                      acknowledgedShortenedGrantIds: acknowledged,
+                    }),
+                  );
+                  onClose();
+                })
+              }
+            >
+              {t("cohortMigrationDialog.apply")}
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>

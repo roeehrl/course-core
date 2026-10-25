@@ -1672,7 +1672,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         )}
       </div>
       {account && accountDialog === "password" && (
-        <Overlay title={t("connectedHost.menu.changePassword")} onClose={() => setAccountDialog(null)}>
+        <Overlay title={t("connectedHost.menu.changePassword")} titleVisible onClose={() => setAccountDialog(null)}>
           <div className="connected-portal">
             <ChangePassword
               request={api.request}
@@ -1687,7 +1687,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         </Overlay>
       )}
       {account && accountDialog === "passkeys" && (
-        <Overlay title={t("connectedHost.menu.passkeys")} onClose={() => setAccountDialog(null)}>
+        <Overlay title={t("connectedHost.menu.passkeys")} titleVisible onClose={() => setAccountDialog(null)}>
           <div className="connected-portal">
             <PasskeyManager
               request={api.request}

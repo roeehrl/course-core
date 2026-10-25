@@ -7,6 +7,7 @@ import {
   type PriceGroup,
 } from "../../domain/aiServices";
 import type { PriceVersion } from "../../domain/providerCosts";
+import { focusInPlace, lockPageScroll, useMoreBelow } from "../ui";
 import {
   ErrorSummary,
   Field,
@@ -65,13 +66,16 @@ export function ScheduledPriceDialog({
   const [failure, setFailure] = useState("");
   const [pending, setPending] = useState(false);
   const keys = useRequestKeys();
+  useMoreBelow(ref);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null,
       dialog = ref.current!;
+    const unlock = lockPageScroll();
     dialog.showModal();
     return () => {
       dialog.close();
-      before?.focus();
+      if (before?.isConnected) focusInPlace(before);
+      unlock();
     };
   }, []);
   const date = text.date(version.effectiveFrom);
@@ -223,7 +227,7 @@ export function ScheduledPriceDialog({
           {preview}
         </p>
         {failure && <Message tone="error">{failure}</Message>}
-        <div className="ai-actions">
+        <div className="ai-actions dialog-footer">
           <button
             type="button"
             className="button secondary"

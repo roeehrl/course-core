@@ -308,7 +308,7 @@ export function PasskeysPanel({
               ? t("passkeys.unavailableServer")
               : t("passkeys.unavailableBrowser")}
           </Notice>
-          <div className="dialog-actions">
+          <div className="dialog-actions dialog-footer">
             <Button type="button" onClick={onClose}>
               {t("passkeys.close")}
             </Button>
@@ -376,11 +376,16 @@ export function PasskeysPanel({
             >
               {pending ? t("passkeys.waiting") : t("passkeys.add")}
             </Button>
-            <Button type="button" onClick={onClose} disabled={pending}>
-              {t("passkeys.close")}
-            </Button>
           </div>
         </form>
+      )}
+      {available && supported && (
+        // The dialog's own action stays at its bottom edge, however long the list is.
+        <div className="dialog-actions dialog-footer">
+          <Button type="button" onClick={onClose} disabled={pending}>
+            {t("passkeys.close")}
+          </Button>
+        </div>
       )}
     </div>
   );

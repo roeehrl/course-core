@@ -110,13 +110,31 @@ textarea {
   min-height: 46px;
   border: 1px solid #aebec8;
   border-radius: 9px;
-  background: #fff;
+  background-color: #fff;
   padding: 11px 13px;
   font-size: 16px;
 }
 textarea {
   min-height: 108px;
   resize: vertical;
+}
+/* Selects look the same in every browser. WebKit drew them as its own small pop-up button (about
+   22px tall, the text clipped), ignoring the field's height and padding. Without the native look
+   they take the field's height and width, with a chevron at the inline end: on the left in
+   Hebrew. Component rules set background-color (never the background shorthand) so the chevron
+   stays. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23586b78' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+  padding-inline-end: 38px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+select:where(:dir(rtl)) {
+  background-position: left 12px center;
 }
 /* Free-text fields (no dir attribute: codes, URLs, emails and passwords carry dir="ltr", numbers
    a number type or an inputmode) keep the UI's direction, so an empty field's caret and its
@@ -215,7 +233,8 @@ button svg {
   width: auto;
   font-size: 12px;
   padding: 8px;
-  background: #fffaf0;
+  padding-inline-end: 32px;
+  background-color: #fffaf0;
   border-color: #bfae8a;
 }
 .demo-toolbar small {
@@ -373,7 +392,7 @@ button svg {
   color: var(--muted);
 }
 .course-picker select {
-  background: var(--paper);
+  background-color: var(--paper);
   border-color: var(--line);
   font-size: 14px;
   max-width: 330px;
@@ -411,6 +430,11 @@ button svg {
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+}
+/* "revision 4" is a label, set in the UI font (a monospace face tracked the Hebrew word apart). */
+.heading-revision {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .eyebrow {
   font-size: 10px;
@@ -498,6 +522,19 @@ button svg {
 }
 .button.danger {
   color: var(--red);
+}
+/* A disabled button reads as inactive (flat grey, no hover) while its label keeps a contrast of at
+   least 4.5:1: fading the whole button left white text on pale blue at 2.8:1. */
+.button:disabled {
+  opacity: 1;
+  background: #e9edf0;
+  border-color: #d3dbe0;
+  color: #4d5f6b;
+}
+.button.quiet:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: #5b6b76;
 }
 .button:hover:not(:disabled) {
   filter: brightness(0.96);
@@ -1191,16 +1228,59 @@ pre {
   flex-direction: column;
   gap: 25px;
 }
+/* Every dialog fits the window (inside the notch and home-indicator insets): its body scrolls,
+   and its own actions (.dialog-footer, or the last row of buttons of a form that ends it)
+   stay in view at its bottom edge while the rest scrolls under them. The padding sizes are
+   variables so the footer can cover the bottom padding exactly. */
 .dialog {
+  --dialog-pad-block: 28px;
+  --dialog-pad-inline: 28px;
+  --dialog-pad-end: var(--dialog-pad-block);
   border: 1px solid #c7d3db;
   border-radius: 18px;
   width: min(580px, calc(100% - 24px));
-  max-height: 90dvh;
-  padding: 28px;
+  max-height: min(
+    90dvh,
+    calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))
+  );
+  padding: var(--dialog-pad-block) var(--dialog-pad-inline)
+    var(--dialog-pad-end);
   background: var(--paper);
   color: var(--ink);
   box-shadow: 0 30px 120px #192e3e55;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.dialog
+  :is(
+    .dialog-footer,
+    .dialog
+      > form:last-child
+      > :is(.tag-row, .button-row, .dialog-actions, .ai-actions):last-child
+  ) {
+  position: sticky;
+  z-index: 1;
+  bottom: calc(-1 * var(--dialog-pad-end));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-inline: calc(-1 * var(--dialog-pad-inline));
+  margin-block-end: calc(-1 * var(--dialog-pad-end));
+  padding: 12px var(--dialog-pad-inline) var(--dialog-pad-end);
+  background: var(--paper);
+}
+/* While more of the dialog is below, a hairline and a soft shadow set the actions apart. */
+.dialog[data-more-below]
+  :is(
+    .dialog-footer,
+    .dialog
+      > form:last-child
+      > :is(.tag-row, .button-row, .dialog-actions, .ai-actions):last-child
+  ) {
+  box-shadow:
+    0 -1px 0 var(--line),
+    0 -12px 18px -14px rgb(25 46 62 / 0.45);
 }
 .dialog[open] {
   display: flex;
@@ -1349,7 +1429,8 @@ pre {
     width: 100%;
   }
   .dialog {
-    padding: 22px;
+    --dialog-pad-block: 22px;
+    --dialog-pad-inline: 22px;
   }
   .startup {
     padding: 35px 20px;
@@ -2116,12 +2197,14 @@ legend {
 }
 @media (max-width: 520px) {
   .dialog.learner-view-dialog {
+    --dialog-pad-block: max(18px, env(safe-area-inset-top));
+    --dialog-pad-inline: 16px;
+    --dialog-pad-end: max(18px, env(safe-area-inset-bottom));
     width: 100%;
     max-width: 100%;
     max-height: 100dvh;
     height: 100dvh;
     border-radius: 0;
-    padding: 18px 16px;
   }
   .learner-view-facts {
     grid-template-columns: 1fr;
@@ -2610,10 +2693,12 @@ code.digest {
   outline: 3px solid var(--blue);
   outline-offset: 2px;
 }
+/* The count sits on the bell's corner, inside the room the bar leaves around the bell, so it
+   never touches the next control (or its focus ring). */
 .notification-count {
   position: absolute;
   top: -6px;
-  inset-inline-end: -6px;
+  inset-inline-end: -3px;
   min-width: 20px;
   padding: 1px 6px;
   border-radius: 999px;
@@ -2981,11 +3066,13 @@ code.digest {
 }
 @media (max-width: 640px) {
   .dialog.account-dialog {
+    --dialog-pad-block: 22px;
+    --dialog-pad-inline: 20px;
+    --dialog-pad-end: calc(22px + env(safe-area-inset-bottom));
     width: 100%;
     max-width: 100%;
-    max-height: 92dvh;
+    max-height: calc(92dvh - env(safe-area-inset-top));
     margin: auto 0 0;
-    padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
     border-width: 1px 0 0;
     border-radius: 20px 20px 0 0;
     animation-name: account-sheet-in;
@@ -3118,7 +3205,7 @@ html:has(.app-bar) {
 .app-bar-actions {
   flex-shrink: 0;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 12px;
   margin-inline-start: auto;
 }
 .app-bar-actions .notification-bell,
@@ -3129,6 +3216,10 @@ html:has(.app-bar) {
 }
 .app-bar-actions .notification-bell:hover,
 .app-bar-actions .notification-bell[aria-expanded="true"],
+.app-bar-actions > .button.quiet:disabled,
+.nav-drawer-course > .button.quiet:disabled {
+  color: #9fb3c2;
+}
 .app-bar-actions > .button.quiet:hover:not(:disabled) {
   background: #254255;
   filter: none;

@@ -184,8 +184,12 @@
   padding-inline: 12px;
   border: 1px solid #b9c7cf;
   border-radius: 8px;
-  background: #fff;
+  background-color: #fff;
   font-size: 14px;
+}
+/* Room for the chevron (styles.css, select). */
+.ai-field select {
+  padding-inline-end: 38px;
 }
 .ai-field.invalid input,
 .ai-field.invalid select,
@@ -673,11 +677,17 @@
   gap: 8px;
   color: var(--blue);
 }
+/* Closed, the chevron points to the inline end like the browser's own disclosure markers: right in
+   English, left in Hebrew (.flip-rtl mirrors it). Open, it points down; in Hebrew it stays
+   mirrored while it turns, so it turns down from the left instead of flipping through the right. */
 .ai-chevron {
   transition: transform 0.15s;
 }
 .ai-advanced[open] .ai-chevron {
   transform: rotate(90deg);
+}
+.ai-advanced[open] .ai-chevron:dir(rtl) {
+  transform: scaleX(-1) rotate(90deg);
 }
 /* The per-learner limit: an amount, or no limit per learner (the workspace total still applies). */
 .ai-learner-choice {
@@ -801,6 +811,29 @@
 .ai-unknown-choice {
   flex-direction: column;
   align-items: flex-start;
+}
+/* A call's time and an owner's note keep their own direction inside a line of the other one. */
+.ai-unknown-when {
+  unicode-bidi: isolate;
+}
+/* A separator wraps with the part after it, never alone at a line's end. */
+.ai-unknown-part {
+  white-space: nowrap;
+}
+.ai-unknown-recent > li {
+  display: grid;
+  gap: 4px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.ai-unknown-recent > li:last-child {
+  border-block-end: 0;
+}
+.ai-unknown-note {
+  display: block;
+  unicode-bidi: isolate;
+  color: var(--muted);
 }
 .ai-actions.ai-actions-start {
   justify-content: flex-start;
