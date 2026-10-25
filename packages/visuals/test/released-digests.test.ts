@@ -176,6 +176,20 @@ test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 prior declarations are ser
   }
 });
 
+test("0.5.3 changed only the stylesheet, so it serves 0.5.2 declarations on byte identity", () => {
+  // The recorded fact the API's 0.5.3 -> 0.5.2 entry relies on: the Hebrew label resets are the
+  // only change, so the headless entry and every module it imports are 0.5.2's bytes.
+  const previous = record.versions["0.5.2"]!,
+    current = record.versions["0.5.3"]!;
+  assert.equal(current.headless, previous.headless);
+  assert.deepEqual(current.headlessFiles, previous.headlessFiles);
+  const changed = Object.keys(current.files!).filter(
+    (name) => current.files![name] !== previous.files![name],
+  );
+  assert.deepEqual(changed, ["styles.css"]);
+  assert.deepEqual(Object.keys(current.files!), Object.keys(previous.files!));
+});
+
 const scratchDirectories: string[] = [];
 test.after(() =>
   Promise.all(
