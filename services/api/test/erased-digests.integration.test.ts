@@ -83,6 +83,7 @@ describe("erasure leaves no digest that gives an answer back", () => {
     const stored = (await db.query("SELECT request_digest FROM command_receipts WHERE enrollment_id=$1", [enrollment])).rows.map((r) => r.request_digest as string);
     // The attack, against the record as it stood: exactly the submitted answer matches.
     expect(candidates.filter((c) => stored.includes(c.digest)).map((c) => c.n)).toEqual([4]);
+    expect(await tablesContaining(db, stored)).toEqual(expect.arrayContaining([`command_receipts:${stored.length}`]));
 
     const erased = await erase();
     expect(erased.statusCode, erased.body).toBe(200);
@@ -91,9 +92,9 @@ describe("erasure leaves no digest that gives an answer back", () => {
     expect(after).toHaveLength(stored.length);
     expect(after.every((r) => r.request_digest === ERASED_DIGEST)).toBe(true);
     // Not in the receipts, and not anywhere else in the database either.
-    for (const { digest } of candidates) expect(await tablesContaining(db, digest)).toEqual([]);
+    expect(await tablesContaining(db, candidates.map((c) => c.digest))).toEqual([]);
     // Every digest the enrollment's commands produced is gone, not only the answer's.
-    for (const digest of stored) expect(await tablesContaining(db, digest)).toEqual([]);
+    expect(await tablesContaining(db, stored)).toEqual([]);
   });
 
   it("a staff edit of the learner's profile: its course-level receipt names the enrollment and is tombstoned too", async () => {
