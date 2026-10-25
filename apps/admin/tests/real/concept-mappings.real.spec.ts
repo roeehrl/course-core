@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 // The staff concept mapping editor against the real API and PostgreSQL, at desktop, phone and
 // tablet sizes: pick two courses, link objectives in both directions, save, read the history.
@@ -18,8 +19,9 @@ async function openMappings(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Concept mappings" })
     .click();
   await expect(
@@ -82,8 +84,9 @@ test("an owner of both courses maps objectives between them, and the history rec
 
   // Reopened from the other side, the same links read the other way round.
   await page.reload();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Concept mappings" })
     .click();
   await page

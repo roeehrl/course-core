@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
+import { expectModeBadge } from "../workspaceNav";
 
 /**
  * No horizontal scrolling: the page is never wider than the configured viewport. Compared
@@ -69,7 +70,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
     route.fulfill({ json: workspace }),
   );
   await page.goto("/admin/");
-  await expect(page.getByText("CONNECTED WORKSPACE")).toBeVisible();
+  await expectModeBadge(page, "CONNECTED WORKSPACE");
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expectNoHorizontalOverflow(page);
 
@@ -78,7 +79,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   await page.getByRole("menuitemradio", { name: "עברית" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await expect(page.getByText("סביבה מחוברת")).toBeVisible();
+  await expectModeBadge(page, "סביבה מחוברת");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "קורס וגרסאות",
   );
@@ -92,7 +93,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
     .toEqual([{ body: { locale: "he" }, csrf: "mock-csrf" }]);
   // The navigation sits on the right in right-to-left layout on wide screens.
   const viewport = page.viewportSize()!;
-  if (viewport.width >= 1000) {
+  if (viewport.width >= 1100) {
     const sidebar = await page.locator(".sidebar").boundingBox();
     expect(sidebar!.x + sidebar!.width).toBeGreaterThan(viewport.width - 4);
   }
@@ -102,7 +103,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   // The choice survives a reload (stored on this device; the server agrees).
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await expect(page.getByText("סביבה מחוברת")).toBeVisible();
+  await expectModeBadge(page, "סביבה מחוברת");
 });
 
 test("the signed-out sign-in screen switches to Hebrew without horizontal overflow", async ({

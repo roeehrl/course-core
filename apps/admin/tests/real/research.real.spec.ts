@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openSection, workspaceNav } from "../workspaceNav";
 
 async function signIn(page: Page) {
   const setup = await page.request.post("/test/admin-fixture");
@@ -25,8 +26,9 @@ test("staff add, inspect, review with exact evidence, attach and revoke a resear
   browser,
 }, info) => {
   const fixture = await signIn(page);
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Research sources" })
     .click();
   await expect(
@@ -180,8 +182,7 @@ test("staff search YouTube with the workspace key, add a result and review only 
   page.on("request", (r) => {
     if (r.url().includes("youtube-search")) sent.push(r.postData() ?? "");
   });
-  const nav = page.getByRole("navigation", { name: "Workspace navigation" });
-  await nav.getByRole("button", { name: "Research sources" }).click();
+  await openSection(page, "Research sources");
   // Without an admin-entered key, search is off and only the status card says where the key
   // goes (once): the button cannot produce an error that repeats it.
   await expect(
@@ -195,13 +196,13 @@ test("staff search YouTube with the workspace key, add a result and review only 
   await expect(page.getByText(/AI services, under Advanced/)).toHaveCount(1);
 
   const key = ["synthetic", "browser", "youtube", "key"].join("-");
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
   await page.locator("#ai-advanced summary").click();
   await page.getByLabel("YouTube search key").fill(key);
   await page.getByRole("button", { name: "Save key", exact: true }).click();
   await expect(page.getByText("Key saved.", { exact: true })).toBeVisible();
 
-  await nav.getByRole("button", { name: "Research sources" }).click();
+  await openSection(page, "Research sources");
   const bodies: string[] = [];
   page.on("response", (r) => {
     if (r.url().includes("/research"))

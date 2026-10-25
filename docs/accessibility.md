@@ -19,6 +19,7 @@ All in `apps/learner/tests/connected-web/` against the real API and database
 | Line length | `accessibility.spec.ts` ("readable line length") | Lesson prose is at most about 70 characters per line on desktop and uses the card width on phone and tablet | Long words or unusual fonts in a course's own language |
 | IME composition | `apps/admin/tests/web/ime.spec.ts`, `apps/{learner,admin}/tests/imeGuard.test.tsx` | An Enter that commits IME composition never submits a form (a real Chromium composition through the DevTools protocol) | Every OS input method |
 | Screen-reader order and focus (S12) | `screen-reader.spec.ts` | The accessibility tree a reader's browse mode follows, through a whole lesson: banner and main landmarks; each course an article with its heading before its button; focus on the lesson's level-1 heading on entry; the current step marked; the reading part an article named "Reading part 1" with no TeX source; every control named; after "Mark this part read" and after "Check answer" focus moves to what comes next (never to the page); the answer's result in a live region; Tab stops in reading order, all visible and named | How VoiceOver or NVDA actually voices each item, verbosity, rotor and gesture behaviour: run the manual script below |
+| No layout shift from status | `apps/learner/tests/web/connection-status.spec.ts` (fixtures, desktop and phone, en and he) | The offline and slow-server status floats at the bottom of the window: nothing on the page moves when it appears or goes, it stays inside the window, and axe passes. The "Your course" menu marks the current view with `aria-current` and a drawn marker, no generated text in any language | How a reader announces a status that appears while it is reading something else |
 | Slow and interrupted network | `offline.spec.ts`, `apps/admin/tests/real/course-packages.real.spec.ts` | A slow answer says the server is slow and is recorded once; a stalled read ends with a clear message; an interrupted package upload installs nothing and is retried with the same file; an unconfirmed install is retried without installing twice | Real mobile networks |
 
 Browser zoom is emulated faithfully only in Chromium: Chromium's page zoom is a device-scale
@@ -72,8 +73,9 @@ Do each step with the screen reader only: no mouse, screen off or not looked at 
    activate "Check answer". Expect the feedback to be announced once (polite), and focus to stay
    on or near the answer, not at the top of the page.
 9. **Slow or offline.** Turn the network off and submit again. Expect "You're offline." and
-   "Not recorded yet: your answer is saved on this device…" announced as status. Turn it back
-   on; expect the recovery message once.
+   "Not recorded yet: your answer is saved on this device…" announced as status (it floats at
+   the bottom of the window; the page does not move). Turn it back on; expect the recovery
+   message once.
 10. **Gate.** Continue until a checkpoint. Expect its status and what is still needed to be read
     as text, and every action as a button with a full name.
 11. **Companion.** Open the companion (the "Companion" button, or the side pane on desktop).
@@ -82,7 +84,8 @@ Do each step with the screen reader only: no mouse, screen off or not looked at 
     not send the message. The reply is announced when it is complete, not word by word. Escape
     closes the dialog and returns focus to the button that opened it.
 12. **Menu and sign out.** Open the "Your course" menu: expect an expanded button followed by
-    grouped buttons (Tab or the arrow keys move between them) and Escape to close it. Choose
+    grouped buttons (Tab or the arrow keys move between them), the view on screen announced as
+    the current page, and Escape to close it. Choose
     "Change password": expect a dialog named "Change password" over the page, with focus inside
     it; Escape closes it and focus returns to the menu button. Sign out; expect the sign-in form
     again.

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
 
 /** Every view of the public demo, in English and Hebrew. The demo client stands in for the
  * answer keys, allowances, media, supervision, platform and integrations ports with fictional
@@ -46,19 +47,18 @@ for (const locale of ["en", "he"] as const)
       "dir",
       locale === "he" ? "rtl" : "ltr",
     );
-    await page.locator(".nav-links button").first().waitFor();
     for (const key of ["allowances", ...Object.keys(PORTED)])
       await expect(
-        page
-          .locator(".nav-links")
-          .getByRole("button", { name: nav[`nav.${key}`], exact: true }),
+        (await workspaceNav(page)).getByRole("button", {
+          name: nav[`nav.${key}`],
+          exact: true,
+        }),
       ).toBeVisible();
-    const names = (await page.locator(".nav-links button").allInnerTexts()).map(
-      (name) => name.trim(),
-    );
+    const names = await workspaceNavNames(page);
     for (const name of names) {
-      await page
-        .locator(".nav-links")
+      await (
+        await workspaceNav(page)
+      )
         .getByRole("button", { name, exact: true })
         .click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
@@ -94,7 +94,7 @@ test("demo ledger: approve accepted terms, refuse an exception past the course l
 }) => {
   test.setTimeout(120_000);
   await page.goto("/admin/demo");
-  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await openSection(page, "Policy & extensions");
   await expect(
     page.getByText(
       "The learner accepted these exact terms. They also need an administrator’s approval.",
@@ -173,9 +173,7 @@ test("demo ledger: approve accepted terms, refuse an exception past the course l
   await expect(page.getByText(/Demo deadline change applied/)).toBeVisible();
 
   // The allowances view reads the same ledger: the approved offer is no longer pending.
-  await page
-    .getByRole("button", { name: "Extensions & accommodations" })
-    .click();
+  await openSection(page, "Extensions & accommodations");
   await expect(page.locator("main .loading")).toHaveCount(0);
   await expect(page.locator("main")).not.toContainText(
     "Approve learner-accepted terms",

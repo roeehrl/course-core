@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 async function signIn(page: Page) {
   const setup = await page.request.post("/test/admin-fixture");
@@ -18,8 +19,9 @@ test("an admin invites, re-roles and removes a learner while owners stay protect
   browser,
 }, info) => {
   await signIn(page);
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "People & roles" })
     .click();
   await expect(

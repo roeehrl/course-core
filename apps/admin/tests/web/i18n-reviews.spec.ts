@@ -9,6 +9,7 @@ import learnerDataCard from "../../src/i18n/messages/en/learnerDataCard.json" wi
 import heAdminApp from "../../src/i18n/messages/he/adminApp.json" with { type: "json" };
 import heLearnerViewCard from "../../src/i18n/messages/he/learnerViewCard.json" with { type: "json" };
 import heLearnerDataCard from "../../src/i18n/messages/he/learnerDataCard.json" with { type: "json" };
+import { workspaceNav } from "../workspaceNav";
 
 const en = { adminApp, learnerViewCard, learnerDataCard };
 const translators = {
@@ -26,8 +27,8 @@ const translators = {
   }),
 };
 type Locale = keyof typeof translators;
-const nav = (page: Page, key: "reviews" | "learners", locale: Locale) =>
-  page.locator(".nav-links").getByRole("button", {
+const nav = async (page: Page, key: "reviews" | "learners", locale: Locale) =>
+  (await workspaceNav(page)).getByRole("button", {
     name: translators[locale].t(`adminApp.nav.${key}`),
     exact: true,
   });
@@ -244,7 +245,7 @@ test("answer reviews, gate reviews and evidence disputes in Hebrew", async ({
   await openConnected(page, "he");
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await nav(page, "reviews", "he").click();
+  await (await nav(page, "reviews", "he")).click();
   await expect(
     page.getByRole("heading", { name: "בדיקת תשובות", level: 1 }),
   ).toBeVisible();
@@ -264,7 +265,7 @@ test("answer reviews show no untranslated text under the pseudo-locale", async (
   page,
 }) => {
   await openConnected(page, "en-XA");
-  await nav(page, "reviews", "en-XA").click();
+  await (await nav(page, "reviews", "en-XA")).click();
   await expect(page.locator("#gate-review-heading")).toBeVisible();
   await expect(page.locator("#evidence-dispute-heading")).toBeVisible();
   expect(await untranslatedText(page.locator("main"), RUBRIC_FINDINGS)).toEqual(
@@ -285,7 +286,7 @@ for (const locale of ["he", "en-XA"] as const) {
     // untranslated text, so it reads the pseudo-locale at desktop width (Hebrew is checked at both).
     if (locale === "en-XA")
       await page.setViewportSize({ width: 1280, height: 900 });
-    await nav(page, "learners", locale).click();
+    await (await nav(page, "learners", locale)).click();
     const view = card(page, "learnerViewCard.title", locale);
     const data = card(page, "learnerDataCard.title", locale);
     if (locale === "en-XA") {

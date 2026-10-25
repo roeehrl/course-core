@@ -56,7 +56,7 @@ for (const locale of ["he", "en"] as const)
         "dir",
         locale === "he" ? "rtl" : "ltr",
       );
-      await page.locator(".nav-links button").first().waitFor();
+      await page.getByRole("heading", { level: 1 }).waitFor();
       const width = page.viewportSize()!.width;
       await addWideTable(page, wrapClass);
       // The table itself scrolls inside its box (on a phone; a desktop window fits it).

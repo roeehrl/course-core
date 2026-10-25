@@ -1774,10 +1774,25 @@ html:has(.connected-host.is-compact) body {
 .connected-header .connected-menu-panel button[aria-current="page"] {
   background: #eef6f2;
 }
-.connected-header .connected-menu-panel button[aria-current="page"]::after {
-  content: " · shown";
-  color: #526a70;
-  font-weight: 450;
+/* The view on screen: aria-current="page" tells assistive technology; the eye gets an accent
+ * bar at the inline start and the brand colour, with no text, so it reads the same in every
+ * language. */
+.connected-header .connected-menu-panel button[aria-current="page"] {
+  position: relative;
+  color: #075f52;
+  font-weight: 650;
+}
+.connected-header .connected-menu-panel button[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 9px;
+  inset-inline-start: 0;
+  width: 4px;
+  border-radius: 0 3px 3px 0;
+  background: #087b69;
+}
+[dir="rtl"] .connected-header .connected-menu-panel button[aria-current="page"]::before {
+  border-radius: 3px 0 0 3px;
 }
 
 /* Lesson steps: the SDK's seven step statuses in words, with a shape cue. */
@@ -1875,17 +1890,23 @@ html:has(.connected-host.is-compact) body {
 
 /* Connection and saved-request state. Words carry the meaning; colour only
  * supports it. */
+/* The connection status is a snackbar: it floats at the bottom of the window (on phones, just
+ * above the companion button's row) and never moves the page. While it shows, ConnectionStatus
+ * sets --connected-status-offset (its height plus a gap): the sticky answer actions rise above it,
+ * as a floating button does for a snackbar, and the column gains that much room at its end, so
+ * every part of it can still be scrolled clear. */
 .connected-connection {
-  /* Stays in view while the learner scrolls to the action they just took. */
-  position: sticky;
-  top: 8px;
-  z-index: 20;
-  box-shadow: 0 6px 18px #18323718;
+  position: fixed;
+  z-index: 40;
+  inset-block-end: calc(16px + env(safe-area-inset-bottom));
+  inset-inline-start: 24px;
+  width: min(560px, calc(100vw - 48px));
+  box-shadow: 0 14px 40px #18323733;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: 13px;
   line-height: 1.45;
   border: 2px solid #b48a2c;
@@ -1893,16 +1914,43 @@ html:has(.connected-host.is-compact) body {
   background: #fcf3df;
   color: #183237;
 }
+@media (prefers-reduced-motion: no-preference) {
+  .connected-connection {
+    animation: connected-connection-in 0.18s ease-out;
+  }
+}
+@keyframes connected-connection-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.connected-host.is-compact .connected-connection {
+  inset-inline: 16px;
+  width: auto;
+}
+/* Phones: the companion button has its own row at the bottom; the status sits just above it. */
+.connected-host.is-compact:has(.connected-companion-trigger:not([hidden]))
+  .connected-connection {
+  inset-block-end: calc(82px + env(safe-area-inset-bottom));
+}
+.connected-answer-actions {
+  bottom: calc(
+    var(--keyboard-inset, 0px) + 8px + var(--connected-status-offset, 0px)
+  );
+}
+.connected-host.is-compact .connected-main {
+  padding-bottom: calc(16px + var(--connected-status-offset, 0px));
+}
+.connected-host:not(.is-compact) .connected-main {
+  padding-bottom: var(--connected-status-offset, 0px);
+}
 .connected-connection.is-offline {
   border-style: dashed;
 }
 .connected-connection p {
   margin: 0;
   flex: 1 1 220px;
-}
-/* Content scrolled into view (e.g. by keyboard focus) stops below the banner. */
-.connected-host:has(.connected-connection) .connected-main {
-  scroll-padding-top: 96px;
 }
 .connected-connection-retry,
 .connected-draft-conflict-actions button {
@@ -2076,19 +2124,17 @@ html:has(.connected-host:not(.is-compact)) {
 html:has(.connected-host:not(.is-compact)) body {
   overflow: visible;
 }
-.connected-host:not(.is-compact) .connected-connection {
-  top: 82px;
-}
 .connected-host:not(.is-compact) .connected-companion-dock.is-panel {
   top: 94px;
   max-height: calc(100dvh - 114px);
 }
-/* Keyboard focus scrolled into view stops above the sticky answer actions. */
+/* Keyboard focus scrolled into view stops above the sticky answer actions (and the connection
+ * status under them while it shows). */
 .connected-host.is-compact .connected-main {
-  scroll-padding-bottom: 88px;
+  scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
 }
 html:has(.connected-host:not(.is-compact)) {
-  scroll-padding-bottom: 88px;
+  scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
 }
 
 /* A closed course's remaining read-only questions, above the companion. */

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openSection } from "../workspaceNav";
 
 // Real server and database; the Anthropic Models API page is scripted by the test server.
 // No live Anthropic call is made and no generation endpoint is reachable from this suite.
@@ -40,7 +41,7 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
         .then((body) => responses.push(body))
         .catch(() => {});
   });
-  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await openSection(page, "AI services");
 
   // 1. The key is tested with the Models API listing (metadata only), saved once and never shown.
   const secret = "SYNTHETIC_ANTHROPIC_BROWSER_CANARY";

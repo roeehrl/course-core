@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
+import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
 
 /**
  * Every admin view against the real API, in Hebrew (right to left, axe, no overflow) and under
@@ -62,14 +63,10 @@ async function eachView(
   page: Page,
   visit: (name: string) => Promise<void>,
 ): Promise<void> {
-  const nav = page.locator(".nav-links");
-  await nav.locator("button").first().waitFor();
-  const names = (await nav.locator("button").allInnerTexts()).map((n) =>
-    n.trim(),
-  );
+  const names = await workspaceNavNames(page);
   expect(names.length).toBeGreaterThan(5);
   for (const name of names) {
-    await nav.getByRole("button", { name, exact: true }).click();
+    await openSection(page, name);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
     await expect(page.locator("main .loading")).toHaveCount(0);
     await visit(name);
@@ -127,8 +124,9 @@ test("the AI supervision settings wrap their long labels under en-XA instead of 
     await page.setViewportSize({ width: 1280, height: 900 });
   await signIn(page);
   await page.goto("/admin/?locale=en-XA");
-  await page
-    .locator(".nav-links")
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: accent("AI supervision") })
     .click();
   const settings = page.locator(".supervision-settings").first();

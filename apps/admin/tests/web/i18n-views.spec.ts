@@ -3,6 +3,7 @@ import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
+import { openSection, workspaceNav } from "../workspaceNav";
 
 /** Hebrew catalogs, read as data so the checks follow the translations. */
 const he = (namespace: string) => {
@@ -26,10 +27,10 @@ const enNav = JSON.parse(
   ),
 ) as Record<string, string>;
 /** A navigation button by its accessible name under en-XA (accented English), not its position. */
-const pseudoNav = (page: Page, name: string) =>
-  page
-    .locator(".nav-links")
-    .getByRole("button", { name: accent(enNav[`nav.${name}`] ?? name) });
+const pseudoNav = async (page: Page, name: string) =>
+  (await workspaceNav(page)).getByRole("button", {
+    name: accent(enNav[`nav.${name}`] ?? name),
+  });
 
 const WORKSPACE_ID = "00000000-0000-4000-8000-0000000000aa";
 const session = demoSession("administrator");
@@ -352,7 +353,7 @@ test("overview, audit log and a course section render in Hebrew, right to left",
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
 
   const ov = he("overviewView");
-  await page.getByRole("button", { name: nav("nav.overview") }).click();
+  await openSection(page, nav("nav.overview"), {});
   await expect(
     page.getByRole("heading", { name: ov("queue.title") }),
   ).toBeVisible();
@@ -362,7 +363,7 @@ test("overview, audit log and a course section render in Hebrew, right to left",
   await expectAccessible(page);
 
   const au = he("auditView");
-  await page.getByRole("button", { name: nav("nav.audit") }).click();
+  await openSection(page, nav("nav.audit"), {});
   await expect(page.getByText(au("withheldLearner"))).toBeVisible();
   await expect(page.getByText("course.published")).toHaveAttribute(
     "dir",
@@ -373,7 +374,7 @@ test("overview, audit log and a course section render in Hebrew, right to left",
   await expectAccessible(page);
 
   const sv = he("adminSectionView");
-  await page.getByRole("button", { name: "Glaze lab" }).click();
+  await openSection(page, "Glaze lab");
   await expect(page.getByText(sv("access.scoped_with_consent"))).toBeVisible();
   await expect(page.getByText("Kiln practice settings.")).toHaveAttribute(
     "dir",
@@ -391,7 +392,7 @@ test("AI supervision renders in Hebrew, right to left", async ({
 }) => {
   await connected(page, context, "he");
   const sv = he("supervisionView");
-  await page.getByRole("button", { name: nav("nav.supervision") }).click();
+  await openSection(page, nav("nav.supervision"), {});
   await page
     .getByRole("combobox", { name: sv("learner") })
     .selectOption(learner.id);
@@ -407,7 +408,7 @@ test("the run inspector renders every record view in Hebrew without overflow", a
   await page.goto("/admin/demo?locale=he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   const rv = he("runsView");
-  await page.getByRole("button", { name: nav("nav.runs") }).click();
+  await openSection(page, nav("nav.runs"), {});
   await expect(
     page.getByRole("heading", { name: nav("nav.runs"), level: 1 }),
   ).toBeVisible();
@@ -442,17 +443,14 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
   await connected(page, context, "en-XA");
   // Overview, Audit log and the course section (its title is course data, not accented).
   for (const name of ["overview", "audit"]) {
-    await pseudoNav(page, name).click();
+    await (await pseudoNav(page, name)).click();
     await expect(page.locator("main .loading")).toHaveCount(0);
     expect(await untranslated(page, SECTION_DATA)).toEqual([]);
   }
-  await page
-    .locator(".nav-links")
-    .getByRole("button", { name: "Glaze lab" })
-    .click();
+  await openSection(page, "Glaze lab", {});
   await expect(page.locator("main .loading")).toHaveCount(0);
   expect(await untranslated(page, SECTION_DATA)).toEqual([]);
-  await pseudoNav(page, "supervision").click();
+  await (await pseudoNav(page, "supervision")).click();
   await page.locator("main select").first().selectOption(learner.id);
   await expect(page.getByRole("table").first()).toBeVisible();
   expect(await untranslated(page, SUPERVISION_CODES)).toEqual([]);
@@ -464,7 +462,7 @@ test("no hardcoded text under the en-XA pseudo-locale in the run inspector", asy
   page,
 }) => {
   await page.goto("/admin/demo?locale=en-XA");
-  await pseudoNav(page, "runs").click();
+  await (await pseudoNav(page, "runs")).click();
   const views = page.locator("main nav[aria-label] button");
   await views.first().waitFor();
   const count = await views.count();

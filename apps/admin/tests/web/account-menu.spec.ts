@@ -42,19 +42,22 @@ const TEXT = {
   },
 } as const;
 
-/** The shell's boxes in page coordinates (scrolling does not count as moving). */
+/** The shell's boxes in page coordinates (scrolling does not count as moving). Phones and
+ * tablets have no sidebar: their top bar holds the menu button that opens the navigation. */
 async function shell(page: Page) {
   return page.evaluate(() =>
-    [".sidebar", ".topbar", ".page-heading"].map((selector) => {
-      const box = document.querySelector(selector)!.getBoundingClientRect();
-      return {
-        selector,
-        x: Math.round(box.x + window.scrollX),
-        y: Math.round(box.y + window.scrollY),
-        width: Math.round(box.width),
-        height: Math.round(box.height),
-      };
-    }),
+    [".sidebar", ".topbar", ".page-heading"]
+      .filter((selector) => document.querySelector(selector))
+      .map((selector) => {
+        const box = document.querySelector(selector)!.getBoundingClientRect();
+        return {
+          selector,
+          x: Math.round(box.x + window.scrollX),
+          y: Math.round(box.y + window.scrollY),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+        };
+      }),
   );
 }
 const openDialogs = (page: Page) =>

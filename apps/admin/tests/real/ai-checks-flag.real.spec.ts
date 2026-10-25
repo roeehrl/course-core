@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openSection } from "../workspaceNav";
 
 // Real server and database. After a Core upgrade the tutor is on without a check for the current
 // quality checks: it is flagged on the course overview and on the AI services page, each with a
@@ -27,8 +28,7 @@ async function signIn(page: Page, code: string) {
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
 }
-const open = (page: Page, name: string) =>
-  page.locator(".nav-links").getByRole("button", { name, exact: true }).click();
+const open = (page: Page, name: string) => openSection(page, name);
 
 test("the course overview flags a job that needs a check after an upgrade and runs the check for that job only", async ({
   page,

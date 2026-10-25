@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { ADMIN_APP_VERSION } from "../../src/client/eventEnvelope";
+import { workspaceNav } from "../workspaceNav";
 
 test("a staff decision made in the admin app records the client facts on its event, through the real API", async ({
   page,
@@ -10,8 +11,9 @@ test("a staff decision made in the admin app records the client facts on its eve
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.reviewerCode);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "Answer reviews" })
     .click();
   const card = page

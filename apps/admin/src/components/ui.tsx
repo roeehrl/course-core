@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PropsWithChildren,
   type ReactNode,
 } from "react";
@@ -227,6 +228,32 @@ export function lockPageScroll() {
     root.style.scrollbarGutter = before.gutter;
   };
 }
+/**
+ * Keeps Tab inside a modal container in every browser, wrapping at either end. A control that
+ * uses Tab itself (and prevents its default) keeps it.
+ */
+export function trapTab(
+  event: ReactKeyboardEvent<HTMLElement>,
+  container: HTMLElement,
+) {
+  if (event.key !== "Tab" || event.defaultPrevented) return;
+  const items = Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((item) => !item.hidden && item.getClientRects().length > 0);
+  const first = items[0],
+    last = items.at(-1);
+  if (!first || !last) return;
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === container)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 export function Dialog({
   title,
   titleDir,
@@ -285,27 +312,7 @@ export function Dialog({
         if (latest.current.pending) ref.current?.showModal();
         else latest.current.onClose();
       }}
-      onKeyDown={(event) => {
-        // Keep Tab inside the dialog in every browser, wrapping at either end. A control that
-        // uses Tab itself (and prevents its default) keeps it.
-        if (event.key !== "Tab" || event.defaultPrevented) return;
-        const items = Array.from(
-          ref.current!.querySelectorAll<HTMLElement>(
-            'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
-          ),
-        ).filter((item) => !item.hidden && item.getClientRects().length > 0);
-        const first = items[0],
-          last = items.at(-1);
-        if (!first || !last) return;
-        const active = document.activeElement;
-        if (event.shiftKey && (active === first || active === ref.current)) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && active === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }}
+      onKeyDown={(event) => trapTab(event, ref.current!)}
       onClick={(event) => {
         if (event.target === event.currentTarget && !pending) {
           const rect = ref.current!.getBoundingClientRect();

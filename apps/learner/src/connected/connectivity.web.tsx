@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DraftVersion } from "./drafts";
 import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "../i18n";
 
@@ -73,8 +73,15 @@ export function pendingActionName(action: string | undefined, t: Translate = eng
   return t(`connectivity.action.${pendingActionKind(action)}` as MessageKey);
 }
 
-/** The connection banner and the state of a request that is saved on this
- * device but not yet confirmed by the server. */
+/** Room the connection status takes at the bottom of the window, for the stylesheet: the sticky
+ * answer actions rise above it and the learning column gains as much room at its end. */
+const STATUS_OFFSET = "--connected-status-offset";
+/** The gap between the status and what rises above it. */
+const STATUS_GAP_PX = 8;
+
+/** The connection status and the state of a request that is saved on this
+ * device but not yet confirmed by the server. It floats at the bottom of the
+ * window (see connected.css) and never moves the page. */
 export function ConnectionStatus({
   online,
   pendingAction,
@@ -92,11 +99,28 @@ export function ConnectionStatus({
 }) {
   const waiting = pendingAction !== undefined && pendingAction !== null;
   const i18n = useI18n();
-  if (online && !waiting && !slow) return null;
+  const shown = !online || waiting || slow;
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!shown || !element) return;
+    const root = document.documentElement;
+    const update = () =>
+      root.style.setProperty(STATUS_OFFSET, `${Math.ceil(element.getBoundingClientRect().height) + STATUS_GAP_PX}px`);
+    update();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty(STATUS_OFFSET);
+    };
+  }, [shown]);
+  if (!shown) return null;
   const action = pendingActionKind(pendingAction ?? undefined);
   const strong = (children: React.ReactNode, key: string) => <strong key={key}>{children}</strong>;
   return (
     <div
+      ref={box}
       className={`connected-connection ${online ? "" : "is-offline"}`}
       role="status"
     >

@@ -16,6 +16,7 @@ import {
   Layers3,
   Library,
   ListChecks,
+  Menu,
   Network,
   PanelTop,
   PlugZap,
@@ -35,6 +36,8 @@ import { AllowancesView } from "./views/AllowancesView";
 import { ProvidersView } from "./views/ProvidersView";
 import { FirstRun } from "./components/FirstRun";
 import { NotificationBell } from "./components/NotificationBell";
+import { NavDrawer } from "./components/NavDrawer";
+import { useFrameLayout } from "./hooks/useMediaQuery";
 import { RunsView } from "./views/RunsView";
 import { ResearchView } from "./views/ResearchView";
 import { PeopleView } from "./views/PeopleView";
@@ -298,100 +301,207 @@ function CourseWorkspace({
     heading.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [view, courseId]);
+  // Wide windows keep the sidebar; phones and tablets get a top app bar and a navigation drawer.
+  const layout = useFrameLayout();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  // Where focus goes when the drawer closes: back to the menu button, or to the chosen page.
+  const afterDrawer = useRef<"menu" | "heading">("menu");
+  const drawerShown = drawerOpen && layout !== "wide";
+  // A drawer left open when the window widens to the sidebar does not come back on narrowing.
+  useEffect(() => {
+    if (layout === "wide") setDrawerOpen(false);
+  }, [layout]);
+  const openView = (id: ViewId) => {
+    setView(id);
+    actions.clear();
+    heading.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: "instant" });
+  };
+  const navList = (onPick: (id: ViewId) => void) => (
+    <nav aria-label={t("adminApp.navigation")} className="nav-links">
+      {navigation.map((item) => (
+        <button
+          key={item.id}
+          className={view === item.id ? "active" : ""}
+          aria-current={view === item.id ? "page" : undefined}
+          onClick={() => onPick(item.id)}
+          disabled={actions.pending}
+        >
+          <item.icon size={19} aria-hidden="true" />
+          <span dir={item.content ? "auto" : undefined}>{item.title}</span>
+          {view === item.id && (
+            <ChevronRight
+              size={15}
+              className="nav-arrow flip-rtl"
+              aria-hidden="true"
+            />
+          )}
+        </button>
+      ))}
+    </nav>
+  );
+  const courseTitle = (id: string, title: string) =>
+    id === data?.course.id ? data.course.title : title;
+  const coursePicker = (
+    <div className="course-picker">
+      <label htmlFor="course-select">{t("adminApp.course")}</label>
+      <select
+        id="course-select"
+        dir="auto"
+        value={courseId}
+        onChange={(e) => onCourseChange(e.target.value)}
+        disabled={actions.pending}
+      >
+        {session.courses.map((course) => (
+          <option key={course.id} value={course.id}>
+            {courseTitle(course.id, course.title)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  const bell = client.notifications && workspaceId && (
+    <NotificationBell
+      port={client.notifications}
+      workspaceId={workspaceId}
+      courseTitles={courseTitles}
+      onOpen={openTarget}
+    />
+  );
+  const modeBadge = (
+    <Badge tone={client.mode === "demo" ? "gold" : "blue"}>
+      {client.mode === "demo"
+        ? t("adminApp.badge.demo")
+        : t("adminApp.badge.connected")}
+    </Badge>
+  );
+  const refresh = (
+    <Button
+      kind="quiet"
+      aria-label={t("adminApp.refresh")}
+      disabled={actions.pending || actions.loading}
+      onClick={actions.refresh}
+    >
+      <RefreshCw size={18} aria-hidden="true" />
+    </Button>
+  );
+  const actor = (
+    <div className="actor">
+      <span className="actor-avatar">{session.actor.name.charAt(0)}</span>
+      <div>
+        <strong dir="auto">{session.actor.name}</strong>
+        <small>{roleLabel(i18n, data?.role ?? session.actor.role)}</small>
+      </div>
+    </div>
+  );
+  const currentCourse = session.courses.find(
+    (course) => course.id === courseId,
+  );
   return (
-    <div className="app-frame">
+    <div
+      className={`app-frame ${layout === "wide" ? "" : `has-app-bar is-${layout}`}`.trim()}
+    >
       <a className="skip-link" href="#main-content">
         {t("adminApp.skipLink")}
       </a>
-      <aside className="sidebar">
-        <Brand />
-        <div className="workspace-label">
-          <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
-        </div>
-        <nav aria-label={t("adminApp.navigation")} className="nav-links">
-          {navigation.map((item) => (
-            <button
-              key={item.id}
-              className={view === item.id ? "active" : ""}
-              aria-current={view === item.id ? "page" : undefined}
-              onClick={() => {
-                setView(item.id);
-                actions.clear();
-                heading.current?.focus({ preventScroll: true });
-                window.scrollTo({ top: 0, behavior: "instant" });
-              }}
-              disabled={actions.pending}
-            >
-              <item.icon size={19} aria-hidden="true" />
-              <span dir={item.content ? "auto" : undefined}>{item.title}</span>
-              {view === item.id && (
-                <ChevronRight
-                  size={15}
-                  className="nav-arrow flip-rtl"
-                  aria-hidden="true"
-                />
-              )}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <ListChecks size={22} aria-hidden="true" />
-          <strong>{t("adminApp.tagline.title")}</strong>
-          <p>{t("adminApp.tagline.body")}</p>
-          <div className="actor">
-            <span className="actor-avatar">{session.actor.name.charAt(0)}</span>
-            <div>
-              <strong dir="auto">{session.actor.name}</strong>
-              <small>{roleLabel(i18n, data?.role ?? session.actor.role)}</small>
+      {layout === "wide" && (
+        <aside className="sidebar">
+          <Brand />
+          <div className="workspace-label">
+            <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
+          </div>
+          {navList(openView)}
+          <div className="sidebar-bottom">
+            <ListChecks size={22} aria-hidden="true" />
+            <strong>{t("adminApp.tagline.title")}</strong>
+            <p>{t("adminApp.tagline.body")}</p>
+            {actor}
+          </div>
+        </aside>
+      )}
+      {drawerShown && (
+        <NavDrawer
+          id="nav-drawer"
+          brand={<Brand />}
+          onDismiss={() => {
+            afterDrawer.current = "menu";
+            setDrawerOpen(false);
+          }}
+          onClosed={() => {
+            const target =
+              afterDrawer.current === "heading"
+                ? heading.current
+                : menuButton.current;
+            if (target?.isConnected) target.focus({ preventScroll: true });
+          }}
+        >
+          {layout === "phone" && (
+            <div className="nav-drawer-course">
+              {coursePicker}
+              {refresh}
             </div>
+          )}
+          <div className="workspace-label">
+            <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
           </div>
-        </div>
-      </aside>
+          {navList((id) => {
+            afterDrawer.current = "heading";
+            setDrawerOpen(false);
+            openView(id);
+          })}
+          <div className="nav-drawer-foot">
+            {modeBadge}
+            {actor}
+          </div>
+        </NavDrawer>
+      )}
       <div className="workspace-main">
-        <header className="topbar">
-          <div className="course-picker">
-            <label htmlFor="course-select">{t("adminApp.course")}</label>
-            <select
-              id="course-select"
-              dir="auto"
-              value={courseId}
-              onChange={(e) => onCourseChange(e.target.value)}
-              disabled={actions.pending}
+        {layout === "wide" ? (
+          <header className="topbar">
+            {coursePicker}
+            <div className="tag-row">
+              {bell}
+              {modeBadge}
+              {refresh}
+              {account}
+            </div>
+          </header>
+        ) : (
+          <header className="topbar app-bar">
+            <button
+              ref={menuButton}
+              type="button"
+              className="nav-toggle"
+              aria-label={t("adminApp.openMenu")}
+              aria-haspopup="dialog"
+              aria-expanded={drawerShown}
+              aria-controls={drawerShown ? "nav-drawer" : undefined}
+              onClick={() => setDrawerOpen(true)}
             >
-              {session.courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.id === data?.course.id
-                    ? data.course.title
-                    : course.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="tag-row">
-            {client.notifications && workspaceId && (
-              <NotificationBell
-                port={client.notifications}
-                workspaceId={workspaceId}
-                courseTitles={courseTitles}
-                onOpen={openTarget}
-              />
-            )}
-            <Badge tone={client.mode === "demo" ? "gold" : "blue"}>
-              {client.mode === "demo"
-                ? t("adminApp.badge.demo")
-                : t("adminApp.badge.connected")}
-            </Badge>
-            <Button
-              kind="quiet"
-              aria-label={t("adminApp.refresh")}
-              disabled={actions.pending || actions.loading}
-              onClick={actions.refresh}
-            >
-              <RefreshCw size={18} aria-hidden="true" />
-            </Button>
-            {account}
-          </div>
-        </header>
+              <Menu size={22} aria-hidden="true" />
+            </button>
+            <span className="app-bar-mark" aria-hidden="true">
+              <Layers3 size={17} />
+            </span>
+            <div className="app-bar-title">
+              <strong dir={activeView.content ? "auto" : undefined}>
+                {activeView.title}
+              </strong>
+              {layout === "phone" && currentCourse && (
+                <small dir="auto">
+                  {courseTitle(currentCourse.id, currentCourse.title)}
+                </small>
+              )}
+            </div>
+            {layout === "tablet" && coursePicker}
+            <div className="tag-row app-bar-actions">
+              {bell}
+              {layout === "tablet" && refresh}
+              {account}
+            </div>
+          </header>
+        )}
         <main
           id="main-content"
           tabIndex={-1}

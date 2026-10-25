@@ -58,6 +58,7 @@ import en_localeSwitcher from "./messages/en/localeSwitcher.json";
 import en_main from "./messages/en/main.json";
 import en_media from "./messages/en/media.json";
 import en_mediaView from "./messages/en/mediaView.json";
+import en_navDrawer from "./messages/en/navDrawer.json";
 import en_notifications from "./messages/en/notifications.json";
 import en_organizationCeilingsCard from "./messages/en/organizationCeilingsCard.json";
 import en_overview from "./messages/en/overview.json";
@@ -167,6 +168,7 @@ import he_localeSwitcher from "./messages/he/localeSwitcher.json";
 import he_main from "./messages/he/main.json";
 import he_media from "./messages/he/media.json";
 import he_mediaView from "./messages/he/mediaView.json";
+import he_navDrawer from "./messages/he/navDrawer.json";
 import he_notifications from "./messages/he/notifications.json";
 import he_organizationCeilingsCard from "./messages/he/organizationCeilingsCard.json";
 import he_overview from "./messages/he/overview.json";
@@ -278,6 +280,7 @@ export const en = {
   main: en_main,
   media: en_media,
   mediaView: en_mediaView,
+  navDrawer: en_navDrawer,
   notifications: en_notifications,
   organizationCeilingsCard: en_organizationCeilingsCard,
   overview: en_overview,
@@ -389,6 +392,7 @@ export const he: PartialCatalog<typeof en> = {
   main: he_main,
   media: he_media,
   mediaView: he_mediaView,
+  navDrawer: he_navDrawer,
   notifications: he_notifications,
   organizationCeilingsCard: he_organizationCeilingsCard,
   overview: he_overview,

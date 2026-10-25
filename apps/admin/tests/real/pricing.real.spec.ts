@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { workspaceNav } from "../workspaceNav";
 
 async function accessible(page: Page) {
   expect(
@@ -25,8 +26,9 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "AI services" })
     .click();
   const prices = page.locator("#ai-prices");
@@ -92,8 +94,9 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await expect(prices.getByText("Prices saved.")).toBeVisible();
 
   await page.reload();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "AI services" })
     .click();
   await expect(
@@ -125,8 +128,9 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await advanced.getByRole("button", { name: "Save rule" }).click();
   await expect(advanced.getByText("Rule saved.")).toBeVisible();
   await page.reload();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
+  await (
+    await workspaceNav(page)
+  )
     .getByRole("button", { name: "AI services" })
     .click();
   await page.locator("#ai-advanced summary").click();
@@ -150,8 +154,9 @@ test("a price already scheduled for later: today's price still changes, and the 
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
   const openPrices = async () => {
-    await page
-      .getByRole("navigation", { name: "Workspace navigation" })
+    await (
+      await workspaceNav(page)
+    )
       .getByRole("button", { name: "AI services" })
       .click();
     await expect(

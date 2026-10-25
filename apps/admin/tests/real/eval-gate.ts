@@ -1,4 +1,5 @@
 import { expect, type Browser } from "@playwright/test";
+import { openSection } from "../workspaceNav";
 
 /** Signs in as the workspace owner in a separate browser session and approves every model that
  * waits for a quality check on the AI services page (the server resolves the exact version). */
@@ -21,9 +22,7 @@ export async function ownerApproves(
     await expect(
       owner.getByRole("heading", { name: "Course & releases", level: 1 }),
     ).toBeVisible();
-    await owner
-      .getByRole("button", { name: "AI services", exact: true })
-      .click();
+    await openSection(owner, "AI services");
     const check = owner.locator("#ai-check");
     await check.getByText("Approve without checking", { exact: true }).click();
     await check.getByLabel("Why are you skipping the check?").fill(reason);

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { accent } from "@course-core/i18n";
+import { workspaceNav, workspaceNavNames } from "../workspaceNav";
 
 /**
  * Every demo view under the en-XA pseudo-locale: each translated message is wrapped in ⟦…⟧
@@ -65,17 +66,15 @@ test("every demo view leaves no untranslated text under en-XA and does not overf
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/admin/demo?locale=en-XA");
-  await page.locator(".nav-links button").first().waitFor();
-  const names = (await page.locator(".nav-links button").allInnerTexts()).map(
-    (name) => name.trim(),
-  );
+  const names = await workspaceNavNames(page);
   expect(
     names.some((name) => name.includes(accent(enNav["nav.overview"]!))),
   ).toBe(true);
   const problems: string[] = [];
   for (const name of names) {
-    await page
-      .locator(".nav-links")
+    await (
+      await workspaceNav(page)
+    )
       .getByRole("button", { name, exact: true })
       .click();
     await expect(page.locator("main .loading")).toHaveCount(0);
