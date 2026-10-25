@@ -37,6 +37,20 @@
       "why": "the same two roles the other way round: where the English names the companion or tutor and no supervisor or supervision, a מפקח form (המפקח, למפקח, המפקחים, מפקחי) names the wrong role (owner decisions 7 and 16)"
     },
     {
+      "id": "gendered-someone",
+      "locale": "he",
+      "forbidden": ["מישהו", "מישהי"],
+      "use": "a passive or impersonal sentence (הטיוטה השתנתה מאז שנפתחה), or the role (צוות הקורס, בודק/ת אחר/ת)",
+      "why": "Hebrew is gender-neutral by default (docs/i18n-glossary.md, Style): מישהו and מישהי always name a person by gender, and the verb that follows them does too"
+    },
+    {
+      "id": "gendered-role-noun",
+      "locale": "he",
+      "forbidden": ["כותב הקורס", "כותבת הקורס", "מפעיל השרת", "מפעילת השרת"],
+      "use": "כותב/ת הקורס, מפעיל/ת השרת (or the plural כותבי הקורס)",
+      "why": "a person's role names both genders with the slash form (docs/i18n-glossary.md, Style). Before הקורס or השרת these words can only be the role noun, never the verb, so the masculine-only and feminine-only forms are decidable"
+    },
+    {
       "id": "placed-out",
       "locale": "he",
       "forbidden": ["דולג"],

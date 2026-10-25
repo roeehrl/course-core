@@ -43,7 +43,7 @@
   "error.MEDIA_STORYBOARD_NOT_APPROVED": "אפשר ליצור צילומים רק מלוח תכנון מאושר. יש לבקש מבודק/ת לאשר אותו קודם.",
   "error.MEDIA_STORYBOARD_SHOT_MISMATCH": "הצילום הזה מתוכנן כסוג מדיה אחר. יש להשתמש בכפתור של הצילום עצמו.",
   "error.MEDIA_STORYBOARD_NOT_DRAFT": "אפשר לשנות או לבדוק רק לוח תכנון בטיוטה. במקום זאת אפשר להתחיל לוח תכנון חדש.",
-  "error.MEDIA_STORYBOARD_REVISION_CONFLICT": "מישהו שינה את לוח התכנון מאז שנפתח. יש לטעון מחדש ולנסות שוב.",
+  "error.MEDIA_STORYBOARD_REVISION_CONFLICT": "לוח התכנון השתנה מאז שנפתח. יש לטעון מחדש ולנסות שוב.",
   "error.MEDIA_STORYBOARD_DRAFT_PENDING": "הצילומים עדיין לא מוכנים. יש להמתין לטיוטה או לכתוב את הצילומים ידנית, ואז לאשר.",
   "error.MEDIA_SHOT_DURATION_UNSUPPORTED": "צילום שנוצר מבקש אורך שמודל הווידאו לא מציע. יש לערוך את הצילום לאורך נתמך.",
   "error.MEDIA_COMPOSITION_INCOMPLETE": "לכל צילום צריך קליפ מאושר לפני שאפשר לחבר אותם.",

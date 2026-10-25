@@ -15,6 +15,11 @@ one view. See [i18n.md](i18n.md) for how catalogs work.
   - "שלך" and "לך" are neutral: "הקורסים שלך", "הוגדרה לך סיסמה זמנית";
   - when a role noun or adjective must address the person, use the slash form: "לומד/ת",
     "מחובר/ת", "מנהל/ת". Use it sparingly; rephrase first.
+  - the same for people the text talks about. "Someone changed this draft" is "הטיוטה השתנתה
+    מאז שנפתחה", not "מישהו שינה"; "a staff member will reply" is "צוות הקורס יענה"; "nobody is
+    moved" is "אין העברה של לומדים". A person's role takes the slash form or the plural
+    ("כותב/ת הקורס", "כותבי קורסים", "מפעיל/ת השרת"). Where a noun reads as well, a pronoun does
+    not stand for a person or for the tutor: "ההנחיה האישית של ה-AI", not "ההנחיה האישית שלו".
 - **Product name** "Course Core" stays in Latin letters, left to right (`lang="en" dir="ltr"`).
 - **Digits** are Western (0–9). Formatting comes from `Intl` for `he`.
 - **Punctuation**: Hebrew maqaf is written as a hyphen-minus (`חד-פעמי`); quotation marks are
@@ -44,6 +49,15 @@ judge only the messages where the English decides the role:
   מנחות. Use המפקח (plural המפקחים) or פיקוח.
 - **Admin, `tutor-is-not-the-supervisor`.** Where the English names the companion or tutor and no
   supervisor, any form of מפקח fails.
+- **Gendered references to people, `gendered-someone` and `gendered-role-noun`.** מישהו and
+  מישהי always name a person by gender. Before הקורס or השרת, כותב and מפעיל can only be the
+  role noun, so כותב הקורס and מפעיל השרת (and the feminine-only forms) fail; use the slash form.
+  Most other gendered forms cannot be told from the text alone, so the lint leaves them to review:
+  a pronoun (שלו, הוא, אותו) agrees with any noun of its gender, a person or a thing ("ההגדרות
+  שלו" of a chapter); a second-person future such as תגיע is spelled like the third-person
+  feminine ("התוצאה תגיע"); a singular imperative such as בחר is spelled like the past ("צוות
+  הקורס בחר"); אף אחד and כל אחד also count things ("יתרה לכל אחד"); and unslashed לומד, בודק
+  or מנהל are also verbs.
 - **Where it cannot be decided.** A message whose English names both roles ("the companion and
   the supervisor") may use either word, so neither rule judges it. In the learner app the English
   does not decide either: learners see one helper, so "your supervisor made this for you" is
@@ -93,6 +107,7 @@ judge only the messages where the English decides the role:
 | exemption | פטור | owner-approved 2026-10-24; plural פטורים |
 | workspace | סביבת עבודה | plural סביבות עבודה |
 | owner | בעלים | role label; same in singular and plural |
+| server operator | מפעיל/ת השרת | the person who runs the server; plural מפעילי השרת |
 | admin / administrator | מנהל/ת | the admin app → אזור הניהול |
 | author | כותב/ת | |
 | instructor | מדריך/ה | |
