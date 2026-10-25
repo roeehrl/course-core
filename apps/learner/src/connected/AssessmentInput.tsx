@@ -1,7 +1,7 @@
 import React from "react";
 import { Platform, Text, View } from "react-native";
 import type { Question } from "../client/apiClient";
-import { ChoiceList, colors, Field, styles } from "../components/ui";
+import { ChoiceList, colors, Field, Eyebrow, styles } from "../components/ui";
 import { CodeEditor } from "../components/CodeEditor";
 import { numericPayload, traceAnswers, writtenLabel } from "./answers";
 import { useT } from "../i18n";
@@ -72,7 +72,7 @@ export function AssessmentInput({ question, answer, pending, onChange }: { quest
   return (
     <View style={{ gap: 12 }}>
       <View style={{ gap: 6 }}>
-        <Text style={styles.eyebrow}>{t("assessmentInput.rubric.title")}</Text>
+        <Eyebrow>{t("assessmentInput.rubric.title")}</Eyebrow>
         <View role="list" style={{ gap: 4 }}>
           {question.criteria.map((c) => (
             <Text key={c.id} role="listitem" style={styles.body}>

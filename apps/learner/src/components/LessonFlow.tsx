@@ -8,7 +8,7 @@ import type {
   Step,
 } from "../domain/types";
 import { useI18n } from "../i18n";
-import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
+import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles } from "./ui";
 
 export function LessonFlow({
   lesson,
@@ -96,7 +96,7 @@ export function LessonFlow({
       </View>
       <View style={{ gap: 14 }}>
         <View style={styles.spread}>
-          <Text style={styles.eyebrow}>{step.eyebrow}</Text>
+          <Eyebrow>{step.eyebrow}</Eyebrow>
           <Badge
             label={t("lessonFlow.badge", { requirement: step.requirement, kind: step.kind })}
             tone={step.requirement === "optional" ? "lilac" : "mint"}
@@ -130,9 +130,9 @@ export function LessonFlow({
             overflow: "hidden",
           }}
         >
-          <Text style={[styles.eyebrow, { color: "#9CE2CA", padding: 22 }]}>
+          <Eyebrow style={{ color: "#9CE2CA", padding: 22 }}>
             {step.diagram.label}
-          </Text>
+          </Eyebrow>
           <View
             style={{
               flexDirection: "row",

@@ -9,6 +9,7 @@ import {
   View,
   type StyleProp,
   type TextInputProps,
+  type TextProps,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
@@ -56,11 +57,14 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 26,
   },
+  /** Use `<Eyebrow>`: it adds the Latin-script capitals and tracking (`latinCaps`) only where they fit. */
   eyebrow: {
     color: colors.teal,
     fontSize: 11,
     lineHeight: 18,
     fontWeight: "700",
+  },
+  latinCaps: {
     letterSpacing: 1.7,
     textTransform: "uppercase",
   },
@@ -90,6 +94,27 @@ const buttonLabel: TextStyle = {
   fontWeight: "600",
   textAlign: "center",
 };
+const HEBREW_LETTER = /[\u0590-\u05ff]/;
+/** The plain text among a label's children (strings and numbers). */
+function plainText(children: React.ReactNode): string {
+  return React.Children.toArray(children)
+    .map((child) => (typeof child === "string" || typeof child === "number" ? String(child) : ""))
+    .join("");
+}
+/**
+ * The small label above a heading. In Latin script it is set in tracked capitals. Hebrew has no
+ * capitals and letter-spacing pulls its words apart, so a Hebrew interface, or a label in Hebrew
+ * (course text), keeps normal spacing (docs/i18n.md).
+ */
+export function Eyebrow({ style, children, ...props }: TextProps) {
+  const hebrew = useI18n().locale === "he" || HEBREW_LETTER.test(plainText(children));
+  return (
+    <Text {...props} style={[styles.eyebrow, !hebrew && styles.latinCaps, style]}>
+      {children}
+    </Text>
+  );
+}
+
 export function Button({
   label,
   onPress,

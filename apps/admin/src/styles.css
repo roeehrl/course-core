@@ -2403,13 +2403,26 @@ code.digest {
 }
 
 /* Internationalization: see docs/i18n.md. Directional icons mirror in right-to-left
-   locales; tracking (letter-spacing) is for Latin capitals only. */
+   locales; tracking (letter-spacing) and case transforms are for Latin capitals only. */
 [dir="rtl"] .flip-rtl {
   transform: scaleX(-1);
 }
-[dir="rtl"] .brand small,
-[dir="rtl"] .eyebrow {
+/* Hebrew has no capitals, and letter-spacing pulls its words apart: a label set in tracked
+   capitals for Latin script keeps normal spacing in Hebrew. Every rule in this stylesheet that
+   sets a positive letter-spacing or a text-transform has its selector here with :lang(he)
+   (tests/cssStructure.test.ts checks it). */
+.demo-toolbar strong:lang(he),
+.brand small:lang(he),
+.workspace-label:lang(he),
+.actor small:lang(he),
+.eyebrow:lang(he),
+.badge:lang(he),
+.hero-art small:lang(he),
+.learner-view-path h3:lang(he),
+.account-avatar:lang(he),
+.account-group-label:lang(he) {
   letter-spacing: 0;
+  text-transform: none;
 }
 .locale-switcher {
   display: inline-flex;
@@ -2777,9 +2790,6 @@ code.digest {
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-}
-[dir="rtl"] .account-group-label {
-  letter-spacing: 0;
 }
 .account-item {
   display: flex;

@@ -19,7 +19,7 @@ import {
 } from "../client/companionClient";
 import { useOnline } from "../hooks/useOnline";
 import { CourseApiError } from "../client/apiClient";
-import { Badge, Button, Field, Notice, colors, styles } from "./ui";
+import { Badge, Button, Field, Notice, colors, Eyebrow, styles } from "./ui";
 import { MarkdownContent } from "./MarkdownContent";
 import {
   companionFocus,
@@ -244,7 +244,7 @@ export function ConnectedCompanion({
         )}
       </View>
       <View style={{ gap: 5 }}>
-        <Text style={styles.eyebrow}>{t("connectedCompanion.place")}</Text>
+        <Eyebrow>{t("connectedCompanion.place")}</Eyebrow>
         <Text style={styles.heading}>
           {context.episodeTitle ?? t("connectedCompanion.roadmap")}
         </Text>
@@ -286,9 +286,9 @@ export function ConnectedCompanion({
               },
             ]}
           >
-            <Text style={styles.eyebrow}>
+            <Eyebrow>
               {t(message.role === "learner" ? "connectedCompanion.role.learner" : "connectedCompanion.role.companion")}
-            </Text>
+            </Eyebrow>
             <Text style={styles.small}>
               {t(
                 message.role === "assistant"
@@ -421,7 +421,7 @@ export function ConnectedCompanion({
           accessibilityLabel={t("connectedCompanion.attached")}
           style={[styles.card, { padding: 14, gap: 10, backgroundColor: "#F2EDFB" }]}
         >
-          <Text style={styles.eyebrow}>{t("connectedCompanion.attached")}</Text>
+          <Eyebrow>{t("connectedCompanion.attached")}</Eyebrow>
           {focus.selection && (
             <View style={{ gap: 6 }}>
               <Text style={styles.small}>
@@ -628,7 +628,7 @@ function DraftReply({ draft, connected, nodeRef }: { draft?: CompanionDraft; con
       accessibilityLabel={t("connectedCompanion.reply.region")}
       style={[styles.card, { padding: 16, backgroundColor: "#F7F4FC", borderStyle: "dashed" }]}
     >
-      <Text style={styles.eyebrow}>{t("connectedCompanion.role.companion")}</Text>
+      <Eyebrow>{t("connectedCompanion.role.companion")}</Eyebrow>
       <Text style={styles.small}>
         {t(draft.state === "streaming" ? "connectedCompanion.reply.writing" : "connectedCompanion.reply.checking")}
       </Text>

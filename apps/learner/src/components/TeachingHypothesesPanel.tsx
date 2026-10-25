@@ -9,7 +9,7 @@ import type {
   ProbeRun,
   TeachingHypothesis,
 } from "../client/hypothesisClient";
-import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
+import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
 import {
   englishTranslator,
@@ -164,7 +164,7 @@ export function TeachingHypothesesPanel({
       style={[styles.card, local.panel, { minHeight: reserve.minHeight }]}
       onLayout={reserve.onLayout}
     >
-      <Text style={styles.eyebrow}>{t("teachingHypothesesPanel.eyebrow")}</Text>
+      <Eyebrow>{t("teachingHypothesesPanel.eyebrow")}</Eyebrow>
       <Text accessibilityRole="header" style={styles.heading}>
         {t("teachingHypothesesPanel.title")}
       </Text>

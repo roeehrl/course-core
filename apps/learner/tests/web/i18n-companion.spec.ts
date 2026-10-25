@@ -5,6 +5,7 @@ import { authorPolicy, policyFixture } from "../policyFixtures";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { MessageKey } from "../../src/i18n";
+import { trackedHebrew } from "../hebrewText";
 
 /** Hebrew and pseudo-locale checks for the learner's settings panels (profile view)
  * and the companion, with fixture HTTP responses only. */
@@ -264,6 +265,7 @@ for (const width of [390, 1280]) {
     await openProfile(page, "he");
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+    expect(await trackedHebrew(page.locator("body"))).toEqual([]);
 
   });
 }
@@ -282,6 +284,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+    expect(await trackedHebrew(page.locator("body"))).toEqual([]);
   });
 }
 
@@ -298,6 +301,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+    expect(await trackedHebrew(page.locator("body"))).toEqual([]);
   });
 }
 
