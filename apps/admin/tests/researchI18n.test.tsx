@@ -109,7 +109,7 @@ describe("research, studies, media and mapping messages", () => {
   it("names default arms and instrument sets in the author's locale", () => {
     expect(defaultArms(he.t).map((arm) => [arm.id, arm.label])).toEqual([
       ["fixed", "מסלול קבוע"],
-      ["chat_only", "מלווה בצ'אט בלבד"],
+      ["chat_only", "מנחה בצ'אט בלבד"],
       ["supervisor", "פיקוח מלא"],
     ]);
     expect(defaultArms().map((arm) => arm.label)).toEqual([

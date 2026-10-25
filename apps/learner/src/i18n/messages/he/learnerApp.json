@@ -1,6 +1,6 @@
 {
   "nav.path": "המסלול שלי",
-  "nav.companion": "מלווה הלמידה",
+  "nav.companion": "המנחה",
   "nav.profile": "פרופיל",
   "retryLoad": "ניסיון נוסף לטעון",
   "loading": "פותחים את מרחב הלמידה שלך…",
@@ -15,5 +15,5 @@
   "footer.tagline": "נוצר כדי להבין קצת יותר.",
   "dialog.profile": "פרופיל",
   "dialog.placement": "שיבוץ",
-  "dialog.companion": "מלווה הלמידה"
+  "dialog.companion": "המנחה"
 }

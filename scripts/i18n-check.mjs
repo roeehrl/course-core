@@ -1,4 +1,5 @@
-// Enforces "no hardcoded user-visible strings" and message catalog consistency.
+// Enforces "no hardcoded user-visible strings", message catalog consistency and the glossary
+// (no forbidden synonyms, scripts/i18n-glossary.json).
 // See docs/i18n.md ("Enforcement"). Usage:
 //   node scripts/i18n-check.mjs                 check strings against each surface's baseline, and all catalogs
 //   node scripts/i18n-check.mjs --update        lower baseline counts to the current counts (never raises them)
@@ -409,6 +410,104 @@ export async function checkCatalogs(ts, name, root = ROOT) {
   return { errors, pending, keys: english.size };
 }
 
+// ---------------------------------------------------------------------------
+// Glossary
+// ---------------------------------------------------------------------------
+
+/** Forbidden synonyms per locale and surface (docs/i18n-glossary.md), with documented exceptions. */
+export const GLOSSARY_FILE = 'scripts/i18n-glossary.json';
+const RULE_ID = /^[a-z][a-z0-9-]*$/;
+const LOCALE_TAG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+const MESSAGE_ID = /^([a-z][A-Za-z0-9]*):([a-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)$/;
+const nonEmpty = (value) => typeof value === 'string' && value.trim().length > 0;
+
+/** Reads and validates the glossary lint configuration. A missing file means no rules. */
+export function readGlossary(root = ROOT) {
+  const filename = path.join(root, GLOSSARY_FILE);
+  const empty = { rules: [], exceptions: [], errors: [] };
+  if (!existsSync(filename)) return empty;
+  let document;
+  try {
+    document = JSON.parse(readFileSync(filename, 'utf8'));
+  } catch (error) {
+    return { ...empty, errors: [`${GLOSSARY_FILE}: invalid JSON (${error.message})`] };
+  }
+  const errors = [];
+  const catalogSurfaces = Object.keys(SURFACES).filter((name) => SURFACES[name].catalog);
+  const rules = [];
+  const ids = new Set();
+  for (const [index, rule] of (Array.isArray(document?.rules) ? document.rules : []).entries()) {
+    const where = `${GLOSSARY_FILE}: rule ${rule?.id ? `"${rule.id}"` : index + 1}`;
+    const problems = [];
+    if (!RULE_ID.test(rule?.id ?? '') || ids.has(rule.id)) problems.push('needs a unique lower-case id');
+    if (!LOCALE_TAG.test(rule?.locale ?? '')) problems.push('needs a locale');
+    if (!Array.isArray(rule?.forbidden) || !rule.forbidden.length || !rule.forbidden.every(nonEmpty)) problems.push('needs a non-empty "forbidden" list of words');
+    if (!nonEmpty(rule?.use) || !nonEmpty(rule?.why)) problems.push('needs "use" (the glossary term) and "why"');
+    if (rule?.surfaces !== undefined && (!Array.isArray(rule.surfaces) || !rule.surfaces.length || rule.surfaces.some((name) => !catalogSurfaces.includes(name))))
+      problems.push(`"surfaces" must list some of ${catalogSurfaces.join(', ')}`);
+    if (problems.length) errors.push(`${where} ${problems.join('; ')}`);
+    else rules.push({ ...rule, surfaces: rule.surfaces ?? catalogSurfaces });
+    if (rule?.id) ids.add(rule.id);
+  }
+  if (!Array.isArray(document?.rules)) errors.push(`${GLOSSARY_FILE}: "rules" must be a list`);
+  const exceptions = [];
+  for (const exception of Array.isArray(document?.exceptions) ? document.exceptions : []) {
+    const where = `${GLOSSARY_FILE}: exception ${JSON.stringify(exception?.message ?? '')}`;
+    if (!rules.some((rule) => rule.id === exception?.rule)) errors.push(`${where} names unknown rule ${JSON.stringify(exception?.rule ?? '')}`);
+    else if (!MESSAGE_ID.test(exception?.message ?? '')) errors.push(`${where} must name the message as <surface>:<namespace>.<key>`);
+    else if (!nonEmpty(exception?.reason) || exception.reason.trim().length < MIN_REASON) errors.push(`${where} needs a reason (at least a sentence)`);
+    else exceptions.push(exception);
+  }
+  if (document?.exceptions !== undefined && !Array.isArray(document.exceptions)) errors.push(`${GLOSSARY_FILE}: "exceptions" must be a list`);
+  return { rules, exceptions, errors };
+}
+
+/** The whole word around a match, for the report ("למלווה", not "מלוו"). */
+function wordAt(text, index, length) {
+  let start = index;
+  let end = index + length;
+  while (start > 0 && /[\p{L}\p{M}'׳״-]/u.test(text[start - 1])) start -= 1;
+  while (end < text.length && /[\p{L}\p{M}'׳״-]/u.test(text[end])) end += 1;
+  return text.slice(start, end);
+}
+
+/** Messages that use a forbidden synonym, unless an exception names them. Unused exceptions fail too. */
+export function checkGlossary(root = ROOT, glossary = readGlossary(root)) {
+  const errors = [...glossary.errors];
+  const used = new Set();
+  for (const rule of glossary.rules)
+    for (const name of rule.surfaces) {
+      const surface = SURFACES[name];
+      const folder = path.join(root, surface.directory, surface.catalog, rule.locale);
+      if (!existsSync(folder)) continue;
+      for (const file of readdirSync(folder).filter((entry) => entry.endsWith('.json')).sort()) {
+        let messages;
+        try {
+          messages = JSON.parse(readFileSync(path.join(folder, file), 'utf8'));
+        } catch {
+          continue; // reported by checkCatalogs
+        }
+        const namespace = file.slice(0, -5);
+        for (const [key, message] of Object.entries(messages ?? {})) {
+          if (key === '$pending' || typeof message !== 'string') continue;
+          const word = rule.forbidden.find((candidate) => message.includes(candidate));
+          if (!word) continue;
+          const exception = glossary.exceptions.find((item) => item.rule === rule.id && item.message === `${name}:${namespace}.${key}`);
+          if (exception) {
+            used.add(exception);
+            continue;
+          }
+          errors.push(
+            `${surface.directory}/${surface.catalog}/${rule.locale}/${file}: "${key}" says "${wordAt(message, message.indexOf(word), word.length)}"; use ${rule.use}: ${rule.why} (rule "${rule.id}" in ${GLOSSARY_FILE}, docs/i18n-glossary.md)`,
+          );
+        }
+      }
+    }
+  for (const exception of glossary.exceptions)
+    if (!used.has(exception)) errors.push(`${GLOSSARY_FILE}: exception for rule "${exception.rule}" on ${exception.message} matches nothing; remove it`);
+  return { errors, rules: glossary.rules.length };
+}
+
 /** The generated import index for a surface's catalogs; `--sync` writes it, the check compares it. */
 export async function catalogIndex(name, root = ROOT) {
   const surface = SURFACES[name];
@@ -532,6 +631,11 @@ export async function main(args = process.argv.slice(2), root = ROOT, log = cons
       if (surface.catalog && !catalogs.errors.length) log(`✔ ${name}: ${catalogs.keys} catalog keys consistent across locales.`);
       if (catalogs.pending.length) log(`ℹ ${name}: ${catalogs.pending.length} keys pending translation: ${catalogs.pending.join(', ')}`);
     }
+  }
+  if (mode === 'check' || mode === '--update') {
+    const glossary = checkGlossary(root);
+    for (const error of glossary.errors) fail(error);
+    if (glossary.rules && !glossary.errors.length) log(`✔ glossary: no forbidden synonyms (${glossary.rules} rules in ${GLOSSARY_FILE}).`);
   }
   return failed ? 1 : 0;
 }

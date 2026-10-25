@@ -882,14 +882,17 @@ describe("help paused by a spending limit", () => {
     expect(companionJobLabel({ ...message, job_state: "budget_wait" })).toBe("Still working on your last question · your message is saved");
     expect(companionJobLabel({ ...message, job_state: "waiting", job_ceiling: "workspace" })).toBe("Still working on your last question · your message is saved");
   });
-  it("in Hebrew uses the glossary (המנחה, המלווה) and no gendered address", () => {
+  it("in Hebrew names one helper, המנחה, and uses no gendered address", () => {
     show([held("workspace")], "he");
-    expect(screen.getByRole("status", { name: /^מצב המלווה: .?העזרה מושהית · השאלה שלך נשמרה.?$/ })).toBeVisible();
-    expect(screen.getByText(/תקציב ה-AI של הקורס נוצל במלואו, ולכן המלווה והמנחה לא יכולים לענות כרגע\. צוות הקורס קיבל הודעה\./)).toBeVisible();
+    expect(screen.getByRole("status", { name: /^מצב המנחה: .?העזרה מושהית · השאלה שלך נשמרה.?$/ })).toBeVisible();
+    expect(screen.getByText(/תקציב ה-AI של הקורס נוצל במלואו, ולכן מנחה ה-AI לא יכול לענות כרגע\. צוות הקורס קיבל הודעה\./)).toBeVisible();
+    // The learner's own messages are headed "השאלה שלך", the replies "המנחה".
+    expect(screen.getAllByText("השאלה שלך").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/מלווה|המפקח|את\/ה/);
     const { t } = createLearnerTranslator("he");
     expect(companionJobLabel(held("enrollment"), t)).toContain("ניצלת את כל עזרת ה-AI שהוקצתה לך בקורס");
     expect(companionJobLabel(held("daily"), t)).toContain("ואפשר לשאול אותה שוב מחר");
     for (const ceiling of ["workspace", "enrollment", "daily", "artifact"])
-      expect(companionJobLabel(held(ceiling), t)).not.toMatch(/המפקח|את\/ה|תוכל|תוכלי/);
+      expect(companionJobLabel(held(ceiling), t)).not.toMatch(/מלווה|המפקח|את\/ה|תוכל|תוכלי/);
   });
 });

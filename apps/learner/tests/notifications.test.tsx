@@ -71,7 +71,7 @@ describe("learner notifications", () => {
       </I18nProvider>,
     );
     await userEvent.click(await screen.findByRole("button", { name: "התראות, 2 חדשות" }));
-    expect(screen.getByText(/מלווה הלמידה השיב על השאלה שלך/)).toBeVisible();
+    expect(screen.getByText(/המנחה השיב על השאלה שלך/)).toBeVisible();
     expect(screen.getAllByRole("button", { name: "פתיחה" })).toHaveLength(3);
   });
 

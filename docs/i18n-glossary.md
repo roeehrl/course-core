@@ -24,6 +24,17 @@ one view. See [i18n.md](i18n.md) for how catalogs work.
 - **Tone** matches English: calm, factual, no exclamation marks, no blame ("הסיסמה שגויה", not
   "הקלדת סיסמה שגויה").
 
+## Lint
+
+`node scripts/i18n-check.mjs` fails when a catalog message uses a forbidden synonym listed in
+[`scripts/i18n-glossary.json`](../scripts/i18n-glossary.json): for example מלווה (use המנחה) in
+any Hebrew catalog, המפקח in the learner app, דולג for placed out, ניפוי באגים for the debug
+inspector. A rule names its locale, optionally its surfaces (`admin`, `learner`), the forbidden
+words (plain substrings, so prefixed forms such as למלווה are caught), the term to use and why.
+A genuine exception names the rule and the message (`admin:policySettingsCard.windowDisambiguation.hint`)
+with a reason; an exception that no longer matches anything fails, so the list stays current.
+When the owner changes a term, update the table below and the rules together.
+
 ## Terms
 
 | English | Hebrew | Notes |
@@ -53,8 +64,8 @@ one view. See [i18n.md](i18n.md) for how catalogs work.
 | grade / grader | ציון / מערכת הבדיקה | |
 | regrade | בדיקה מחדש | |
 | appeal / dispute | ערעור | evidence dispute → ערעור על ראיה |
-| companion | מלווה הלמידה | short form המלווה |
-| tutor (the AI supervisor as learners see it) | המנחה | owner-approved 2026-10-24; plural המנחים. In the learner app every "supervisor" or "tutor" is המנחה; personal AI supervision → ההנחיה האישית של ה-AI |
+| companion / tutor (the learner-facing AI tutor) | המנחה | owner-approved 2026-10-24; plural המנחים. Construct forms: מנחה ה-AI where the AI nature matters, מנחה הלומדים for the companion job in admin (AI services). Learners see one helper: the companion and the supervisor are both המנחה ("המנחה לא משתמש בתוצאה הזו", never "המלווה והמנחה"); personal AI supervision → ההנחיה האישית של ה-AI. Never מלווה |
+| you (the learner's own messages in the conversation with the tutor) | השאלה שלך | heading of the learner's own message and of their lines in "context used"; never the slash form את/ה |
 | supervisor (AI agent, staff-facing) | המפקח | admin only, next to פיקוח AI; learners never see המפקח |
 | supervision | פיקוח | AI supervision → פיקוח AI |
 | teaching hypothesis | השערת הוראה | |
