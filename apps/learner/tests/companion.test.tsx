@@ -172,26 +172,42 @@ describe("persisted companion integration", () => {
     const refused = { ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "output_too_large" };
     expect(companionJobLabel(refused)).toBe("The companion couldn't answer this question · your message is saved");
     expect(companionHasPending([refused])).toBe(false);
-    // Other failures keep the general label and offer no ask-again.
+    // Other failures keep the general label; like a stalled call (no reply came, nothing can settle
+    // it any more) they read as unavailable and can be asked again (live finding U2).
     expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "deadline_exceeded" })).toBe("Reply unavailable · your message is saved");
+    const stalled = { ...message, id: "stalled", content: "Which option is right?", job_state: "waiting", job_reason: "provider_uncertain", job_stalled: true };
+    expect(companionJobLabel(stalled)).toBe("Reply unavailable · the AI service didn't answer in time · your question is saved and you can ask it again");
+    expect(companionHasPending([stalled])).toBe(false);
+    // Waiting without that mark (a receipt may still settle it) is still in progress.
+    expect(companionHasPending([{ ...stalled, job_stalled: false }])).toBe(true);
+    expect(companionJobLabel({ ...stalled, job_stalled: null })).toBe("Still working on your last question · your message is saved");
+    // A reply that stopped coming part way (settled at its reported usage) also reads as stalled.
+    expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "provider_stream_stalled" }))
+      .toBe("Reply unavailable · the AI service didn't answer in time · your question is saved and you can ask it again");
     const change = vi.fn();
     render(
       <ConnectedCompanion
         context={context}
-        messages={[refused, { ...message, id: "other", content: "Still waiting?", job_state: "failed", job_reason: "deadline_exceeded" }]}
+        messages={[refused, { ...message, id: "other", content: "Still waiting?", job_state: "failed", job_reason: "deadline_exceeded" }, stalled]}
         episodeTitles={{ intro: "Notice change" }}
         draft=""
         onDraftChange={change}
         onSend={vi.fn()}
         pending={false}
         loaded
+        onCancelQuestion={vi.fn()}
       />,
     );
     expect(screen.getByText(/The companion couldn't answer this question/)).toBeVisible();
+    expect(screen.getByText(/the AI service didn't answer in time/)).toBeVisible();
+    // No controls for a reply that will never come.
+    expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).toBeNull();
     const again = screen.getAllByRole("button", { name: "Ask this question again" });
-    expect(again).toHaveLength(1);
+    expect(again).toHaveLength(3);
     fireEvent.click(again[0]!);
     expect(change).toHaveBeenCalledWith(message.content);
+    fireEvent.click(again[2]!);
+    expect(change).toHaveBeenLastCalledWith("Which option is right?");
   });
   it("keeps drafts on failed sends and sends no consent flag without an independent check", async () => {
     const send = vi.fn().mockRejectedValue(new Error("offline")),

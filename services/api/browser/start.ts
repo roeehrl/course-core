@@ -1204,6 +1204,21 @@ app.post("/test/version-offer-session", async () => {
   await post(`/api/admin/courses/${courseId}/version-moves/${preview.moveId}/confirm`, { previewDigest: preview.previewDigest, reason: "Version 2.0.0 for everyone." });
   return { token: await issueLoginCode(db, userId) };
 });
+// Test-only: the saved question with this text gets the state a call that got no reply leaves behind
+// (live finding B-2): its job waits as provider_uncertain and no gateway receipt can settle it any
+// more (none was recorded), so no answer will come. Nothing is sent to a provider.
+app.post("/test/companion-stall", async (request) => {
+  const body = (request.body ?? {}) as { question?: string };
+  const row = (await db.query<{ id: string; enrollment_id: string; workspace_id: string }>(`SELECT m.id,m.enrollment_id,e.workspace_id FROM companion_messages m
+    JOIN enrollments e ON e.id=m.enrollment_id WHERE m.content=$1 AND m.role='learner' ORDER BY m.created_at DESC LIMIT 1`, [String(body.question)])).rows[0];
+  if (!row) return { stalled: false };
+  const jobId = randomUUID();
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
+    VALUES ($1,$2,$3,$4,'companion','waiting',1,'{}',$5)`, [jobId, row.enrollment_id, row.workspace_id, `browser-stalled-${jobId}`,
+    JSON.stringify({ reason: "provider_uncertain", applicationReceiptId: null })]);
+  await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
+  return { stalled: true, jobId };
+});
 // Streamed companion drafts (docs/streamed-replies.md) without a model: plays scripted pieces into
 // the process's reply drafts for one saved question, as the provider gateway would while a model
 // streams, so the learner app's draft view and its event stream are exercised in a real browser.

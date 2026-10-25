@@ -89,6 +89,9 @@ export interface CompanionMessage {
   /** Learner messages held by a spending limit: which one (`workspace`, `enrollment`, `daily`,
    * `artifact`). */
   job_ceiling?: string | null;
+  /** Learner messages: the call for the question ended with no reply and nothing can still
+   * settle it (no answer will come); the learner can ask again. */
+  job_stalled?: boolean | null;
 }
 /** A reply the companion is still writing, streamed over the event stream (`companion-draft`).
  * Not yet checked by Core: shown as a draft and replaced by the stored reply once applied. */
@@ -421,6 +424,7 @@ export function companionJobLabel(
   if (message.role !== "learner") return;
   if (message.job_reason === "configuration_missing")
     return t("companionClient.job.configurationMissing");
+  if (companionReplyStalled(message)) return t("companionClient.job.stalled");
   if (companionCouldNotAnswer(message))
     return t("companionClient.job.couldNotAnswer");
   if (draft && companionHasPending([message])) {
@@ -477,12 +481,24 @@ export function companionCouldNotAnswer(message: CompanionMessage): boolean {
   return message.role === "learner" && message.job_state === "failed" &&
     (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
 }
-/** A question that ended without an answer the learner can use: Core refused the reply, or the
- * question was cancelled or its reply stopped. It offers "Ask this question again", which puts
- * its text back in the draft to send as a new question. */
+/** The AI service did not answer the question in time: no reply came at all, or the reply
+ * stopped coming part way (Core kept nothing of it). Not the companion refusing it. */
+export function companionReplyStalled(message: CompanionMessage): boolean {
+  return message.role === "learner" && (message.job_stalled === true || message.refusal_reason === "provider_stream_stalled");
+}
+/** No reply will come for this question (it stalled, failed, or was refused or not answered):
+ * the learner sees "Reply unavailable" and can ask it again. */
+export function companionReplyUnavailable(message: CompanionMessage): boolean {
+  return message.role === "learner" && message.content !== "[deleted]" && (message.job_stalled === true ||
+    ["failed", "refused", "dead", "dead_letter"].includes(message.job_state ?? ""));
+}
+/** A question that ended without an answer the learner can use: Core refused the reply, no reply
+ * will come (it stalled, failed or was refused), or the question was cancelled or its reply
+ * stopped. It offers "Ask this question again", which puts its text back in the draft to send as
+ * a new question. */
 export function companionCanAskAgain(message: CompanionMessage, draft?: CompanionDraft): boolean {
   if (message.role !== "learner" || message.content === "[deleted]") return false;
-  return companionCouldNotAnswer(message) || message.job_state === "cancelled" || draft?.state === "cancelled";
+  return companionCouldNotAnswer(message) || companionReplyUnavailable(message) || message.job_state === "cancelled" || draft?.state === "cancelled";
 }
 /** A pending question the learner may cancel or ask again: queued or held up, not once its reply
  * is under way (a draft opened, or the job is running or checking): that one offers Stop. */
@@ -496,6 +512,8 @@ export function companionHasPending(
   return messages.some(
     (message) =>
       message.role === "learner" &&
+      // A stalled question is over: nothing more will come for it.
+      message.job_stalled !== true &&
       ![
         "applied",
         "refused",

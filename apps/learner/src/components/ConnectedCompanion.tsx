@@ -11,6 +11,7 @@ import {
   companionCanCancel,
   companionDraftFor,
   companionHeldByLimit,
+  companionReplyUnavailable,
   companionJobLabel,
   companionReplyStarted,
   companionState,
@@ -398,7 +399,8 @@ export function ConnectedCompanion({
           );
         })}
       </View>
-      {sent && (
+      {/* Once the question's reply is unavailable its card says so; "waiting" would no longer be true. */}
+      {sent && !messages.some((row) => row.id === sent && companionReplyUnavailable(row)) && (
         <Notice>
           {messages.some(
             (message) =>
