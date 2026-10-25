@@ -283,7 +283,6 @@ function RegradeForm({
               maxLength={2000}
               value={reason}
               disabled={pending}
-              dir="auto"
               onChange={(e) => setReason(e.target.value)}
             />
           </Field>

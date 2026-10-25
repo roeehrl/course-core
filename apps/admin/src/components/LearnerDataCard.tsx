@@ -83,7 +83,6 @@ export function LearnerDataCard({
                 <textarea
                   id={id + "-reason"}
                   rows={2}
-                  dir="auto"
                   maxLength={1000}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}

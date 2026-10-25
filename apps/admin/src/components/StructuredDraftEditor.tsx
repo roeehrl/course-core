@@ -204,7 +204,6 @@ function Editor({
           >
             <textarea
               id={`${id}-notes`}
-              dir="auto"
               value={notes}
               maxLength={1200}
               disabled={locked}
@@ -382,7 +381,6 @@ function ChapterEditor({
       >
         <input
           id={`${id}-title`}
-          dir="auto"
           value={chapter.title}
           maxLength={200}
           required
@@ -398,7 +396,6 @@ function ChapterEditor({
       >
         <textarea
           id={`${id}-summary`}
-          dir="auto"
           value={chapter.summary ?? ""}
           maxLength={2000}
           disabled={locked}
@@ -458,7 +455,6 @@ function ChapterEditor({
         >
           <input
             id={`${id}-new`}
-            dir="auto"
             value={newLesson}
             maxLength={200}
             disabled={locked}
@@ -519,7 +515,6 @@ function LessonEditor({
         >
           <input
             id={`${id}-title`}
-            dir="auto"
             value={episode.title}
             maxLength={200}
             required
@@ -595,7 +590,6 @@ function LessonEditor({
                 >
                   <textarea
                     id={`${id}-${block.id}`}
-                    dir="auto"
                     value={block.markdown ?? ""}
                     maxLength={20000}
                     disabled={locked}
@@ -769,7 +763,6 @@ function AddChapter({
       >
         <input
           id={`${id}-title`}
-          dir="auto"
           value={title}
           maxLength={200}
           disabled={locked}
@@ -783,7 +776,6 @@ function AddChapter({
       >
         <input
           id={`${id}-lesson`}
-          dir="auto"
           value={lesson}
           maxLength={200}
           disabled={locked}

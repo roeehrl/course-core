@@ -357,7 +357,6 @@ function ReviewCard({
                   >
                     <textarea
                       id={`${id}-${c.id}-quote`}
-                      dir="auto"
                       rows={2}
                       maxLength={800}
                       value={f.quote}
@@ -380,7 +379,6 @@ function ReviewCard({
               >
                 <input
                   id={`${id}-${c.id}-note`}
-                  dir="auto"
                   maxLength={500}
                   value={f.note}
                   onChange={(e) => update(c.id, { note: e.target.value })}
@@ -418,7 +416,6 @@ function ReviewCard({
         >
           <textarea
             id={`${id}-note`}
-            dir="auto"
             rows={2}
             maxLength={2000}
             value={learnerNote}
@@ -723,7 +720,6 @@ function AppealCard({
         >
           <textarea
             id={`${id}-appeal-note`}
-            dir="auto"
             rows={2}
             maxLength={2000}
             value={note}

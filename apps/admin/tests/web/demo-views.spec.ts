@@ -4,6 +4,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
 import { fieldIconOverlaps } from "../fieldIcons";
 import { trackedHebrew } from "../hebrewText";
+import { emptyFieldsAgainstPage } from "../fieldText";
 
 /** Every view of the public demo, in English and Hebrew. The demo client stands in for the
  * answer keys, allowances, media, supervision, platform and integrations ports with fictional
@@ -83,6 +84,11 @@ for (const locale of ["en", "he"] as const)
       // Hebrew labels are not letter-spaced or case-transformed (sidebar and bar included).
       if (locale === "he")
         expect(await trackedHebrew(page.locator("body")), name).toEqual([]);
+      // Empty free-text fields keep the UI's direction: their caret and placeholder start at the
+      // reading edge (an empty dir="auto" field is left to right, even in Hebrew).
+      expect(await emptyFieldsAgainstPage(page.locator("main")), name).toEqual(
+        [],
+      );
       expect(
         (
           await new AxeBuilder({ page })

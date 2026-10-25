@@ -192,6 +192,15 @@
 .ai-field.invalid textarea {
   border: 2px solid var(--red);
 }
+/* iOS zooms into a focused field whose text is smaller than 16px: on touch screens the fields
+   keep the 16px of the text-field defaults. */
+@media (pointer: coarse) {
+  .ai-field input,
+  .ai-field select,
+  .ai-field textarea {
+    font-size: 16px;
+  }
+}
 .ai-hint {
   color: var(--muted);
   font-size: 12px;

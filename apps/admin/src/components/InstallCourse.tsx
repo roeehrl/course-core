@@ -691,7 +691,6 @@ export function InstallCourse({
               >
                 <textarea
                   id={`${id}-notes`}
-                  dir="auto"
                   maxLength={1200}
                   value={notes}
                   disabled={pending}

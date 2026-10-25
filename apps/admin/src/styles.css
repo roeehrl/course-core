@@ -97,8 +97,12 @@ a:focus-visible {
   outline-offset: 3px;
 }
 /* Text-like fields fill their column. Radio buttons and checkboxes keep their native box
-   size (sized below): a full-width, 46px-tall radio renders as a huge circle. */
-input:not([type="checkbox"]):not([type="radio"]),
+   size (sized below): a full-width, 46px-tall radio renders as a huge circle.
+   These are defaults: the type conditions sit inside :where(), so the rule has the specificity
+   of a bare element selector (0,0,1) and every component rule that names a class
+   (.ai-field input, .search-field > input) wins wherever it is in the bundle.
+   tests/cssStructure.test.ts keeps base field rules at that specificity. */
+input:where(:not([type="checkbox"]):not([type="radio"])),
 select,
 textarea {
   width: 100%;
@@ -114,6 +118,22 @@ textarea {
   min-height: 108px;
   resize: vertical;
 }
+/* Free-text fields (no dir attribute: codes, URLs, emails and passwords carry dir="ltr", numbers
+   a number type or an inputmode) keep the UI's direction, so an empty field's caret and its
+   placeholder sit at the start of the UI's reading direction: right in Hebrew. dir="auto" would
+   resolve an empty field to left to right. Typed text still takes its own direction from its
+   first strong letter, per paragraph, as dir="auto" does: an English note in a Hebrew screen
+   reads left to right, a Hebrew name in an English one right to left. */
+input:where(
+  :not([dir], [inputmode]):is(:not([type]), [type="text"], [type="search"])
+),
+textarea:where(:not([dir])) {
+  unicode-bidi: plaintext;
+}
+/* Radio buttons and checkboxes keep their native size even inside a component whose rule is
+   written for its text fields (.ai-field input, .ai-money input): this rule keeps the
+   attribute's specificity (0,1,1) on purpose, and wins over those rules because their
+   stylesheet loads before this one. */
 input[type="checkbox"],
 input[type="radio"] {
   width: 20px;
@@ -660,6 +680,11 @@ button svg {
   font-size: 11px;
   overflow-wrap: anywhere;
 }
+/* A code someone reads aloud or copies from a field (a sign-in code, a temporary password) keeps
+   the field's text size: 11px is for digests and identifiers in running text. */
+input.mono {
+  font-size: 16px;
+}
 .checklist {
   list-style: none;
   padding: 0;
@@ -790,9 +815,8 @@ button svg {
    the placeholder, typed text and the browser's clear button never run under the icon. Typed
    text still takes its own direction from its first letter (`unicode-bidi: plaintext`, as
    dir="auto" does), without dir="auto" flipping the input, and the padding, to the far side when
-   a name in the other script is typed. The input rule must outrank the text-field rule
-   (input:not([type="checkbox"]):not([type="radio"])) and come after it: that rule's `padding`
-   shorthand otherwise puts the text back under the icon. */
+   a name in the other script is typed. The text-field defaults above have element specificity,
+   so this rule's padding wins over their `padding` shorthand. */
 .search-field {
   position: relative;
 }

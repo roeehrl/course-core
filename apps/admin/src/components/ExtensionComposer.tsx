@@ -321,7 +321,6 @@ export function ExtensionComposer({
               >
                 <textarea
                   id="plan-impact"
-                  dir="auto"
                   required
                   maxLength={2000}
                   value={impact}
@@ -338,7 +337,6 @@ export function ExtensionComposer({
               >
                 <textarea
                   id="proposal-alternatives"
-                  dir="auto"
                   required
                   maxLength={4000}
                   value={alternatives}

@@ -557,7 +557,6 @@ function InviteDialog({
         >
           <input
             id={id + "-name"}
-            dir="auto"
             required
             maxLength={200}
             value={name}
@@ -670,7 +669,6 @@ function RemoveDialog({
         >
           <textarea
             id={id + "-reason"}
-            dir="auto"
             rows={3}
             minLength={10}
             maxLength={1000}

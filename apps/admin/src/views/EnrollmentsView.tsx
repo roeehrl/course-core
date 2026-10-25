@@ -523,7 +523,6 @@ function ProfileForm({
       >
         <input
           id="profile-name"
-          dir="auto"
           required
           maxLength={100}
           value={profile.displayName}
@@ -536,7 +535,6 @@ function ProfileForm({
       <Field label={t("enrollmentsView.form.goal")} htmlFor="profile-goal">
         <textarea
           id="profile-goal"
-          dir="auto"
           maxLength={2000}
           value={profile.goal}
           onChange={(e) => setProfile({ ...profile, goal: e.target.value })}
@@ -615,7 +613,6 @@ function EvidenceReview({
       <Field label={t("enrollmentsView.review.note")} htmlFor="review-note">
         <textarea
           id="review-note"
-          dir="auto"
           required
           maxLength={600}
           value={note}

@@ -396,7 +396,6 @@ function CreateStoryboardDialog({
         <Field label={t("mediaView.request.clipTitle")} htmlFor={id + "-title"}>
           <input
             id={id + "-title"}
-            dir="auto"
             value={title}
             maxLength={200}
             onChange={(e) => setTitle(e.target.value)}
@@ -409,7 +408,6 @@ function CreateStoryboardDialog({
         >
           <textarea
             id={id + "-objective"}
-            dir="auto"
             value={objective}
             maxLength={2000}
             onChange={(e) => setObjective(e.target.value)}
@@ -422,7 +420,6 @@ function CreateStoryboardDialog({
         >
           <textarea
             id={id + "-script"}
-            dir="auto"
             value={script}
             maxLength={8000}
             onChange={(e) => setScript(e.target.value)}
@@ -620,7 +617,6 @@ function ShotsEditor({
           >
             <textarea
               id={`${id}-${index}-description`}
-              dir="auto"
               value={shot.description}
               maxLength={1000}
               onChange={(e) => set(index, { description: e.target.value })}
@@ -632,7 +628,6 @@ function ShotsEditor({
           >
             <textarea
               id={`${id}-${index}-narration`}
-              dir="auto"
               value={shot.narration}
               maxLength={2000}
               onChange={(e) => set(index, { narration: e.target.value })}

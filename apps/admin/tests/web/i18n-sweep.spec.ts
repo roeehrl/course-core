@@ -27,7 +27,8 @@ async function expectNoHorizontalOverflow(page: Page, name: string) {
 }
 
 /** Visible text in main with plain Latin letters outside any ⟦…⟧ frame, except data
- * (dir="ltr"/"auto", bdi, code, pre, option, lang="en") and English-formatted dates. */
+ * (dir="ltr"/"auto", bdi, code, pre, option, a field's own text, lang="en") and English-formatted
+ * dates. */
 async function untranslated(page: Page) {
   return page.evaluate(() => {
     const found: string[] = [];
@@ -46,7 +47,7 @@ async function untranslated(page: Page) {
       const element = node.parentElement!;
       if (!/[A-Za-z]/.test(outside.replace(date, ""))) continue;
       const data = element.closest(
-        '[dir="ltr"], [dir="auto"], bdi, code, pre, option, [lang="en"], .sr-only',
+        '[dir="ltr"], [dir="auto"], bdi, code, pre, option, textarea, [lang="en"], .sr-only',
       );
       if (data && main.contains(data)) continue;
       if (!element.checkVisibility()) continue;

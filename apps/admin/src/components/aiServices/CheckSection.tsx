@@ -323,7 +323,6 @@ function CourseSetups(props: Props) {
             >
               <textarea
                 id={reasonId}
-                dir="auto"
                 rows={3}
                 maxLength={1000}
                 value={reason}
@@ -985,7 +984,6 @@ function ApproveWithoutCheck(
           >
             <textarea
               id={reasonId}
-              dir="auto"
               rows={3}
               maxLength={1000}
               value={reason}
@@ -1093,7 +1091,6 @@ function ApproveActive(
         >
           <textarea
             id={reasonId}
-            dir="auto"
             rows={3}
             maxLength={1000}
             value={reason}

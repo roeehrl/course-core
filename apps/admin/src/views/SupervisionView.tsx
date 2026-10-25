@@ -508,7 +508,6 @@ function SupervisionPanel({
                     maxLength={500}
                     required
                     value={requeueReason}
-                    dir="auto"
                     onChange={(e) => setRequeueReason(e.target.value)}
                   />
                 </Field>

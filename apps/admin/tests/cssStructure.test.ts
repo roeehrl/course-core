@@ -1,7 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import postcss, { type Declaration, type Node, type Rule } from "postcss";
+import postcss, {
+  type AtRule,
+  type Declaration,
+  type Node,
+  type Rule,
+} from "postcss";
 import { describe, expect, it } from "vitest";
 
 // The stylesheets are written as flat CSS. A rule inside another rule is
@@ -79,6 +84,51 @@ function hebrewTrackingProblems(css: string, from: string): string[] {
     }
   });
   return [...problems];
+}
+
+// A default for a kind of form control (a rule whose only condition is the element, apart from
+// the app's host class) must not out-rank a component's rule for the same control. Its type and
+// attribute conditions go inside :where(), leaving at most the bare element (or nothing, after
+// the host class) and a state such as :focus-visible. Before, the admin's text-field rule
+// (input:not([type="checkbox"]):not([type="radio"]), specificity 0,2,1) silently replaced the
+// padding, border and size of .ai-field input (0,1,1). Rules with a combinator are structure,
+// not defaults, and forced-colour and reduced-motion overrides are meant to win.
+const STATES =
+  /:(focus-visible|focus-within|focus|hover|active|disabled|enabled|checked|placeholder-shown|invalid|read-only)(?![\w-])/g;
+const WHERE = /:where\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g;
+const CONTROL = /(^|[\s(,])(input|select|textarea|button|summary|a)(?![\w-])/;
+function outrankingFieldDefaults(
+  css: string,
+  from: string,
+  { host = "", allowed = [] as string[] } = {},
+): string[] {
+  const root = postcss.parse(css, { from });
+  const problems: string[] = [];
+  root.walkRules((rule) => {
+    const parent = rule.parent;
+    if (
+      parent?.type === "atrule" &&
+      /forced-colors|prefers-reduced-motion/.test((parent as AtRule).params)
+    )
+      return;
+    for (const raw of rule.selectors) {
+      let selector = raw.replace(/\s+/g, " ").trim();
+      if (host) {
+        if (!selector.startsWith(`${host} `)) continue;
+        selector = selector.slice(host.length + 1);
+      }
+      const outer = selector.replace(WHERE, "").replace(/\([^()]*\)/g, "()");
+      if (/[\s>+~]/.test(outer) || /[.#]/.test(outer)) continue;
+      if (!CONTROL.test(selector) || allowed.includes(selector)) continue;
+      const bare = outer.replace(/::[a-z-]+/g, "").replace(STATES, "");
+      // Under the host class even a bare element adds to the class: (0,1,1) beats (0,1,0).
+      if (host ? bare !== "" : !/^[a-z]*$/.test(bare))
+        problems.push(
+          `${from}:${rule.source?.start?.line ?? "?"}: "${raw.replace(/\s+/g, " ")}" out-ranks component rules for the same control; put its conditions inside :where()`,
+        );
+    }
+  });
+  return problems;
 }
 
 function stylesheets(dir: string): string[] {
@@ -210,5 +260,32 @@ describe("admin stylesheet structure", () => {
         "x.css",
       ),
     ).toEqual([]);
+  });
+
+  it.each(files.map((file) => [relative(appRoot, file), file]))(
+    "%s keeps form-control defaults below component rules",
+    (name, file) => {
+      expect(
+        outrankingFieldDefaults(readFileSync(file, "utf8"), name, {
+          // Radio buttons and checkboxes keep their native size inside components whose rules
+          // are written for text fields (.ai-field input): that guard is meant to win.
+          allowed: ['input[type="checkbox"]', 'input[type="radio"]'],
+        }),
+      ).toEqual([]);
+    },
+  );
+
+  it("reports a form-control default that out-ranks component rules", () => {
+    const css = [
+      'input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; }',
+      'input[type="search"] { padding: 0; }',
+      'input:where(:not([type="checkbox"])), select, textarea { width: 100%; }',
+      "button:disabled, input:focus-visible, textarea::placeholder { opacity: 1; }",
+      ".a input, .b > select, button svg, :root { color: red; }",
+    ].join("\n");
+    expect(outrankingFieldDefaults(css, "x.css")).toEqual([
+      'x.css:1: "input:not([type="checkbox"]):not([type="radio"])" out-ranks component rules for the same control; put its conditions inside :where()',
+      'x.css:2: "input[type="search"]" out-ranks component rules for the same control; put its conditions inside :where()',
+    ]);
   });
 });

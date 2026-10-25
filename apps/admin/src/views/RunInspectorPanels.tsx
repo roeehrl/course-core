@@ -903,7 +903,6 @@ export function RetryPanel({
           >
             <textarea
               id={`${id}-reason`}
-              dir="auto"
               rows={2}
               maxLength={500}
               value={reason}
@@ -1008,7 +1007,6 @@ export function CancelPanel({
           >
             <textarea
               id={`${id}-reason`}
-              dir="auto"
               rows={2}
               maxLength={500}
               value={reason}

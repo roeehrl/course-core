@@ -413,7 +413,6 @@ function PendingOffer({
               >
                 <input
                   id={`reject-${offer.offerId}`}
-                  dir="auto"
                   maxLength={1000}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}

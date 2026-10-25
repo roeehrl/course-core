@@ -421,7 +421,6 @@ function DefectDialog({
             <textarea
               id={`${id}-reason`}
               rows={3}
-              dir="auto"
               maxLength={2000}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
