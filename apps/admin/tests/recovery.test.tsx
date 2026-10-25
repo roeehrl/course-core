@@ -1,10 +1,17 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { it, expect, vi } from "vitest";
 import { RecoveryRegistry } from "../src/components/RecoveryRegistry";
 import { createFetchAdminClient } from "../src/client/fetchClient";
 import { demoWorkspace, demoSession } from "../src/data/fixtures";
 import { demo } from "./helpers";
 import type { AdminClient } from "../src/domain/contracts";
+import { I18nProvider, createAdminTranslator } from "../src/i18n";
 const workspace = () => ({
   ...demoWorkspace(demoSession("administrator").courses[0]!, "administrator"),
   role: "owner",
@@ -82,4 +89,52 @@ it("fetch client uses protected release routes and sends the registry revision w
     expectedRegistryRevision: 1,
     configuration: { profiles: [] },
   });
+});
+
+it("names each release's state in the reader's language, never the raw code", async () => {
+  const client: AdminClient = {
+    ...demo(),
+    mode: "connected",
+    adaptationRuntime: vi.fn().mockResolvedValue({ adapters: [] }),
+    adaptationRegistry: vi.fn().mockResolvedValue({
+      registryRevision: 1,
+      configured: false,
+      configurationDigest: null,
+    }),
+    approveAdaptationRegistry: vi.fn(),
+  };
+  const data = workspace();
+  const versions = data.releases.map((r) => r.version);
+  for (const [locale, published] of [
+    ["en", "published"],
+    ["he", "פורסם"],
+  ] as const) {
+    const { unmount } = render(
+      <I18nProvider value={createAdminTranslator(locale)}>
+        <RecoveryRegistry data={data} client={client} />
+      </I18nProvider>,
+    );
+    const options = within(screen.getByRole("combobox"))
+      .getAllByRole("option")
+      .map((o) => o.textContent!.replace(/[\u2066-\u2069]/g, ""));
+    expect(options).toHaveLength(versions.length);
+    const index = data.releases.findIndex((r) => r.state === "published");
+    expect(options[index]).toBe(`${versions[index]} · ${published}`);
+    // No option shows a raw state code.
+    for (const option of options)
+      expect(option).not.toMatch(/pending_review|\bpublished\b.*_/);
+    if (locale === "he")
+      for (const option of options) expect(option).not.toMatch(/[a-z]{4,}/);
+    unmount();
+  }
+  // The pseudo-locale translates the state too.
+  render(
+    <I18nProvider value={createAdminTranslator("en-XA")}>
+      <RecoveryRegistry data={data} client={client} />
+    </I18nProvider>,
+  );
+  const pseudo = within(screen.getByRole("combobox"))
+    .getAllByRole("option")
+    .map((o) => o.textContent!);
+  for (const option of pseudo) expect(option).not.toMatch(/· published$/);
 });
