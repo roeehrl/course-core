@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError } from '@course-core/providers';
@@ -11,6 +12,7 @@ import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
+import { registerProviderGateway } from '../src/provider-gateway.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
 import { fixture } from './fixture.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
@@ -29,6 +31,9 @@ type Step = { status: number } | 'ok' | 'gated';
 const script: Step[] = [];
 let sent = 0, openGate: () => void = () => undefined;
 let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
+/** A second gateway that has not seen a job's cancellation yet: no commit wake-up and no useful
+ * poll. Calls sent through it are still out when the test erases, whatever the machine's load. */
+let unwatched: FastifyInstance;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const answer = () => json({ candidates: [{ index: 0, finishReason: 'STOP', content: { role: 'model', parts: [{ text: `Compare each value with the smallest so far. ${CANARY}` }] } }],
@@ -65,10 +70,12 @@ beforeAll(async () => {
   const supervisor = { serviceToken: token, workspaceIds: [workspaceId], jobPolicy: { allowance: { microUsd: ALLOWANCE, tokens: TOKENS } } };
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, supervisor, providers });
   bridge = createPostgresSupervisorBridge(db, supervisor);
+  unwatched = Fastify();
+  registerProviderGateway(unwatched, db, providers, { serviceToken: token, workspaceIds: [workspaceId], cancellationPollMs: 600_000 });
   await allowUnpricedPaidWork(db, workspaceId);
   await configureSupervisorBudget(db, { workspaceId }, { microUsd: 100_000_000, tokens: 100_000_000 });
 }, 60000);
-afterAll(async () => { openGate(); await app?.close(); await db?.end(); await testDatabase?.drop(); });
+afterAll(async () => { openGate(); await unwatched?.close(); await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 async function prepare() {
   const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), now = new Date().toISOString(), course = fixture();
@@ -96,10 +103,11 @@ async function claim(job: Job) {
   return { operation, request, ownerId };
 }
 type Claimed = Awaited<ReturnType<typeof claim>>;
-const post = (body: ProviderRequest) =>
-  app.inject({ method: 'POST', url: '/v1/operations', headers: { authorization: `Bearer ${token}`, 'idempotency-key': body.operationId }, payload: body });
-async function invoke(body: ProviderRequest) {
-  const r = await post(body);
+/** The worker's request to a gateway: the server's own (commit wake-up and 1 s poll) unless named. */
+const post = (body: ProviderRequest, gateway: Pick<FastifyInstance, 'inject'> = app) =>
+  gateway.inject({ method: 'POST', url: '/v1/operations', headers: { authorization: `Bearer ${token}`, 'idempotency-key': body.operationId }, payload: body });
+async function invoke(body: ProviderRequest, gateway?: Pick<FastifyInstance, 'inject'>) {
+  const r = await post(body, gateway);
   expect(r.statusCode, r.body).toBe(200);
   return r.json() as Outcome;
 }
@@ -208,10 +216,15 @@ describe('erasure finishes open supervisor reservations', () => {
     expect(await canaryHits()).toEqual([]);
   }, 60000);
 
+  // A call that may have run is closed at its full reservation by erasure, whichever comes first:
+  // erasure, or the gateway stopping the call because its job was cancelled (docs/provider-stalls.md,
+  // "Stop ends the provider call"). The next two tests each fix one order instead of leaving it to
+  // the gateway's 1 s cancellation poll racing the test's own queries.
   it('a call in flight at erasure stays charged at its reservation; its late answer neither charges again nor stores the generated text', async () => {
     const job = await prepare(), claimed = await claim(job);
     script.length = 0; script.push('gated');
-    const calls = sent, running = invoke(claimed.request);
+    // Sent through the gateway that has not seen the cancellation: erasure lands while it is still out.
+    const calls = sent, running = invoke(claimed.request, unwatched);
     await until(async () => sent > calls);
     expect((await halt(job)).snapshot.state).toBe('cancelled');
     const workspaceBefore = (await budgets(job.enrollmentId)).workspace;
@@ -229,6 +242,8 @@ describe('erasure finishes open supervisor reservations', () => {
     expect(sent - calls).toBe(1);
     const [row] = await dispatches(claimed.operation.id);
     expect(row).toMatchObject({ state: 'uncertain', candidate: null, outcome: { status: 'uncertain' } });
+    // The gateway never stopped it: it ran to the end and could not store a result for an erased job.
+    expect(row.failure_code).not.toBe('JOB_CANCELLED');
     expect((await db.query('SELECT count(*)::int AS n FROM supervisor_artifacts WHERE operation_id=$1', [claimed.operation.id])).rows[0].n).toBe(0);
     expect(await canaryHits()).toEqual([]);
     expect(await ledger(job.enrollmentId)).toEqual(closed);
@@ -238,6 +253,39 @@ describe('erasure finishes open supervisor reservations', () => {
     expect(sent - calls).toBe(1);
     await expect(settle(job, claimed, { status: 'uncertain' })).rejects.toThrow();
     expect(await ledger(job.enrollmentId)).toEqual(closed);
+  }, 60000);
+
+  it('a call that erasure\'s cancellation stops first is closed at its reservation too, once its job has ended', async () => {
+    const job = await prepare(), claimed = await claim(job);
+    script.length = 0; script.push('gated');
+    const calls = sent, running = invoke(claimed.request);
+    await until(async () => sent > calls);
+    // The learner asks for erasure while the call is out. Erasure records the job's cancellation,
+    // commits it and asks to be repeated once supervision has stopped.
+    const first = await eraseRequest(job);
+    expect(first.statusCode, first.body).toBe(409);
+    expect(first.json()).toEqual({ error: 'ERASURE_WAITING_FOR_SUPERVISION' });
+    // The gateway sees the cancellation (the commit's wake-up, or its poll) and aborts the provider
+    // request, as for the learner's Stop. Nothing came back, so the call is uncertain.
+    expect(await running).toEqual({ status: 'uncertain' });
+    expect(await dispatches(claimed.operation.id)).toMatchObject([{ state: 'uncertain', failure_code: 'JOB_CANCELLED', candidate: null, outcome: { status: 'uncertain' } }]);
+    expect((await halt(job)).snapshot.state).toBe('cancelled');
+    const before = await budgets(job.enrollmentId);
+    expect(before).toMatchObject({ usd: ALLOWANCE, tokens: TOKENS });
+    expect((await erase(job)).counts).toMatchObject({ paidWorkClosedUncertain: 1, paidWorkClosedMicroUsd: ALLOWANCE, paidWorkReleased: 0, paidWorkSettled: 0 });
+    // The same end as erasure landing first: charged at the reservation, uncertain, no longer held.
+    const closed = [{ attempt: 1, state: 'uncertain', reserved: ALLOWANCE, charged: ALLOWANCE, released: 0, actual: null, settled: true }];
+    expect(await ledger(job.enrollmentId)).toEqual(closed);
+    expect(await budgets(job.enrollmentId)).toEqual(before);
+    expect(await reportedHeld(job.enrollmentId)).toEqual({ held: 0, charged: ALLOWANCE, uncertain: 1 });
+    // The provider's answer to the aborted request reaches nobody; repeats replay the receipt.
+    openGate();
+    expect(await invoke(claimed.request)).toEqual({ status: 'uncertain' });
+    expect(sent - calls).toBe(1);
+    await expect(settle(job, claimed, { status: 'uncertain' })).rejects.toThrow();
+    expect(await ledger(job.enrollmentId)).toEqual(closed);
+    expect(await budgets(job.enrollmentId)).toEqual(before);
+    expect(await canaryHits()).toEqual([]);
   }, 60000);
 
   it('a dispatch admitted but paused before its last fence is released, not charged, when erasure lands in between', async () => {
