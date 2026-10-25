@@ -203,3 +203,46 @@ describe('context minimization keeps the question and anchors, leaves headroom a
     expect(seen[0]!.systemInstruction).toContain('Keep replies short and plain');
   });
 });
+
+describe('response bounds of a role call (live finding B-2)', () => {
+  function bounded(roles: Record<string, unknown>) {
+    const calls: { operation: string; options: Record<string, unknown> }[] = [];
+    const usage: UsageReceipt = { accounting: { accountingKey: 'b' }, providerId: 'custom', modelId: 'portable:custom', operation: 'tutor', attempts: [], inputCharacters: 1,
+      requestedMaxOutputTokens: 1, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null };
+    const adapter: ProviderAdapter = { providerId: 'custom', validateModel: () => {}, ports: {
+      tutoring: {
+        async tutor(_request, options) { calls.push({ operation: 'tutor', options: { ...options } }); return { output: { text: 'Whole reply.' }, usage }; },
+        async tutorStream(_request, options, onText) { calls.push({ operation: 'tutorStream', options: { ...options } }); onText('Streamed.'); return { output: { text: 'Streamed.' }, usage }; },
+      },
+      structured_assessment: { async assess(_request, options) { calls.push({ operation: 'assess', options: { ...options } });
+        return { output: { summary: 'None.', needs: [] }, usage: { ...usage, operation: 'assess' } }; } },
+    } };
+    const runtime = composeProviders({ ...config(), roles }, () => 'synthetic-credential-canary', { custom: () => adapter });
+    return { runtime, calls };
+  }
+  const companion = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 1000 };
+  const supervisor = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 1000 };
+
+  it('a streamed reply must start within 20 s and never pause longer than 20 s, below the 60 s call bound; a whole reply keeps the call bound', async () => {
+    const { runtime, calls } = bounded({ companion, supervisor });
+    await runtime.execute('companion', context(), 'k1', new AbortController().signal, undefined, undefined, [], () => {});
+    await runtime.execute('companion', context(), 'k2', new AbortController().signal);
+    await runtime.execute('supervisor', context(), 'k3', new AbortController().signal);
+    expect(calls.map(c => [c.operation, c.options.timeoutMs, c.options.firstByteTimeoutMs, c.options.idleTimeoutMs])).toEqual([
+      ['tutorStream', 60000, 20000, 20000],
+      // A whole reply's first byte is its finished response: no first-byte bound unless the role sets one.
+      ['tutor', 60000, undefined, undefined],
+      ['assess', 60000, undefined, undefined],
+    ]);
+  });
+
+  it('a role binding sets its own bounds, within the call bound', async () => {
+    const { runtime, calls } = bounded({ companion: { ...companion, firstByteTimeoutMs: 12000, streamIdleTimeoutMs: 8000 }, supervisor: { ...supervisor, firstByteTimeoutMs: 45000 } });
+    await runtime.execute('companion', context(), 'k1', new AbortController().signal, undefined, undefined, [], () => {});
+    await runtime.execute('supervisor', context(), 'k2', new AbortController().signal);
+    expect(calls.map(c => [c.operation, c.options.firstByteTimeoutMs, c.options.idleTimeoutMs])).toEqual([['tutorStream', 12000, 8000], ['assess', 45000, undefined]]);
+    for (const value of [4999, 55001, 1.5])
+      expect(() => composeProviders({ ...config(), roles: { companion: { ...companion, firstByteTimeoutMs: value } } }, () => 'k', { custom: () => ({ providerId: 'custom', validateModel: () => {}, ports: {} }) })).toThrow();
+    expect(() => composeProviders({ ...config(), roles: { companion: { ...companion, streamIdleTimeoutMs: 60000 } } }, () => 'k', { custom: () => ({ providerId: 'custom', validateModel: () => {}, ports: {} }) })).toThrow();
+  });
+});

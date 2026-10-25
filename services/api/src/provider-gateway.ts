@@ -28,7 +28,14 @@ interface Options { adaptation?:AdaptationRuntime; serviceToken?: string; worksp
   /** The host's provider configuration file, when loaded: the configuration of the fallback runtime. */
   hostConfiguration?: unknown;
   /** Where streamed companion drafts go: the process's own by default; null turns streaming off. */
-  drafts?: ReplyDrafts | null }
+  drafts?: ReplyDrafts | null;
+  /** Commit-time wake-ups (database-wake.ts): a job cancellation raises `course_outbox`, so a call
+   * under way for it is stopped at once instead of at the next poll. */
+  wake?: { subscribe(channel: 'course_outbox', listener: () => void): () => void };
+  /** How often a call under way re-reads its job's cancellation flag (the backstop to `wake`). */
+  cancellationPollMs?: number }
+/** Output refusal reasons for a streamed reply that stopped part way with its usage reported. */
+const STOPPED_REPLY = { cancelled: 'provider_stream_stopped', stalled: 'provider_stream_stalled' } as const;
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
 /** The recorded answer for a repeated request. A dispatch still running is uncertain. A finished
  * dispatch whose outcome was cleared by an erasure made before erasure kept the outcome's
@@ -143,9 +150,38 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         usageBasis: { microUsd: charge ? 'reported' : 'reserved_ceiling', tokens: 'reported' } };
       return { outcome, cost: charge };
     };
+    /**
+     * A streamed reply stopped part way (the job was cancelled, or the stream stalled or timed
+     * out) after the provider reported its cumulative usage up to the stop: a definite outcome,
+     * charged at that usage (or, unpriced, at the reservation) and recorded as a refusal (reason
+     * code only, nothing of the reply), so the rest of the reservation is released. Null when any
+     * attempt's usage is unknown (nothing reported, or a count only sent at the end): that call
+     * stays uncertain.
+     */
+    const settleStoppedReply = async (error: ProviderError, reason: (typeof STOPPED_REPLY)[keyof typeof STOPPED_REPLY]) => {
+      const receipt = error.usage;
+      if (!receipt || (body.role !== 'companion' && body.role !== 'supervisor')) return null;
+      const attempts = receipt.attempts;
+      if (!attempts.some(a => a.outcome === 'partial') || attempts.some(a => !['partial', 'response', 'rejected', 'not_sent'].includes(a.outcome))) return null;
+      let artifact: Awaited<ReturnType<typeof storeSupervisorArtifact>>;
+      try { artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, { kind: 'output_refusal', role: body.role, reason }); }
+      catch { return null; }
+      const tokens = attempts.reduce((sum, a) => sum + (a.outcome === 'partial' || a.outcome === 'response'
+        ? a.tokens.total ?? (a.tokens.input ?? 0) + (a.tokens.output ?? 0) + (a.tokens.thoughts ?? 0) : 0), 0);
+      const priced = pricing ? priceUsage(receipt, pricing).cost : null;
+      const charge = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
+      receipt.cost = charge;
+      const outcome: Outcome = { status: 'succeeded', artifact, usage: { microUsd: charge ? charge.microUsd : body.checkpoint.allowance.microUsd, tokens },
+        usageBasis: { microUsd: charge ? 'reported' : 'reserved_ceiling', tokens: 'reported' } };
+      return { outcome, cost: charge };
+    };
     let assembled: TeachingContext | null = null;
+    // Why the call under way was stopped by Core, if it was: its job was cancelled (the learner's
+    // Stop, staff, erasure), seen through the cancellation flag.
+    let stoppedBy: 'cancelled' | null = null;
     let draft: ReturnType<ReplyDrafts['open']> = null;
     let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
+    let watching: (() => void) | null = null;
     let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
     // Which strategy answered and the revision it ran as, recorded on the dispatch (requirement B08).
     let ran: { id: string; version: string; source: 'core' | 'course'; revisionDigest: string | null; standing: string } | null = null;
@@ -196,7 +232,28 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
           requireCondition(marked.rowCount === 1, 'PROVIDER_DISPATCH_CLOSED', 409);
           return resolved;
         });
-        const signal = AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs)));
+        // The call stops at the checkpoint's deadline, or as soon as its job is cancelled: the
+        // cancellation flag is committed before the workflow is told, so the gateway reads it on
+        // the commit's wake-up, on a short poll, and when the worker's request to it closes (the
+        // activity aborts it when Temporal cancels the activity). A worker that only went away is
+        // not a cancellation: the call goes on and its receipt is reconciled.
+        const stop = new AbortController();
+        const signal = AbortSignal.any([AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs))), stop.signal]);
+        let checking = false;
+        const check = async () => {
+          if (checking || stop.signal.aborted) return;
+          checking = true;
+          try {
+            const job = (await db.query<{ cancellation_requested: boolean; state: string }>('SELECT cancellation_requested,state FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3',
+              [body.job.jobId, body.job.enrollmentId, body.job.workspaceId])).rows[0];
+            if (!job || job.cancellation_requested || job.state === 'cancelled') { stoppedBy = 'cancelled'; stop.abort(); }
+          } catch { /* the next poll reads it again */ } finally { checking = false; }
+        };
+        const closed = () => { if (!reply.raw.writableFinished) void check(); };
+        reply.raw.on('close', closed);
+        const poll = setInterval(() => void check(), options.cancellationPollMs ?? 1_000); poll.unref();
+        const unsubscribe = options.wake?.subscribe('course_outbox', () => void check());
+        watching = () => { clearInterval(poll); unsubscribe?.(); reply.raw.off('close', closed); };
         started = true;
         // A companion answer streams to the learner as a draft while it arrives (reply-drafts.ts):
         // only now, after admission, pricing, the reservation check and the last fence, and only
@@ -204,8 +261,11 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         const messageId = (operation.input.context as { messageId?: unknown }).messageId;
         draft = body.role === 'companion' && typeof messageId === 'string' && options.drafts !== null
           ? (options.drafts ?? replyDrafts()).open({ enrollmentId: body.job.enrollmentId, jobId: body.job.jobId, messageId }) : null;
-        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course,
-          draft ? draft.push : undefined);
+        let generated: Awaited<ReturnType<ProviderRuntime['execute']>>;
+        try {
+          generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course,
+            draft ? draft.push : undefined);
+        } finally { watching?.(); watching = null; }
         usage = generated.usage;
         // Graded-check integrity (companion-check-integrity.ts): a reply in check-coaching mode that
         // gives away a matched check's answer is withheld here, before anything of it is stored or its
@@ -241,27 +301,41 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       // The provider answered in full and reported its usage, but the adapter's own checks refused
       // the reply (cut off at the output limit, malformed, blocked): a definite outcome, charged at
       // the reported usage like any answer and then rejected by the verifier, never an uncertain one.
-      const refusedAnswer = started && error instanceof ProviderError ? await settleRefusedAnswer(error, assembled) : null;
+      watching?.(); watching = null;
+      // Assigned by the cancellation watch above; widen what control-flow narrowing assumed.
+      const cancelled = (stoppedBy as 'cancelled' | null) === 'cancelled';
+      const answered = started && error instanceof ProviderError ? await settleRefusedAnswer(error, assembled) : null;
+      const stoppedReply = !answered && started && error instanceof ProviderError
+        ? await settleStoppedReply(error, cancelled ? STOPPED_REPLY.cancelled : STOPPED_REPLY.stalled) : null;
+      const refusedAnswer = answered ?? stoppedReply;
       if (refusedAnswer) {
-        draft?.withdraw(error instanceof ProviderError && error.code === 'BLOCKED' ? 'provider_refused' : 'output_refused');
-        usage = error instanceof ProviderError ? error.usage ?? null : null; failureCode = error instanceof ProviderError ? error.code : null;
+        draft?.withdraw(error instanceof ProviderError && error.code === 'BLOCKED' ? 'provider_refused' : stoppedReply ? 'provider_failed' : 'output_refused');
+        usage = error instanceof ProviderError ? error.usage ?? null : null; failureCode = cancelled ? 'JOB_CANCELLED' : error instanceof ProviderError ? error.code : null;
         cost = refusedAnswer.cost; if (!cost) pricingState = 'unpriced';
         result = refusedAnswer.outcome;
       } else {
-      const definitelyNotSent = !started || (error instanceof ProviderError && error.submission === 'not_sent' && !error.usage?.attempts.length);
+      const attempts = error instanceof ProviderError ? error.usage?.attempts ?? [] : [];
+      // Admitted and started, but the connection to the provider never opened on any attempt (name
+      // lookup, refused connection, TLS failure, connect timeout): no byte of the request could have
+      // been accepted, so nothing was charged; a later attempt may well succeed.
+      const neverOpened = started && error instanceof ProviderError && error.submission === 'not_sent' && attempts.length > 0 && attempts.every(a => a.outcome === 'not_sent');
+      const definitelyNotSent = !started || neverOpened || (error instanceof ProviderError && error.submission === 'not_sent' && !attempts.length);
       // Sent, but every attempt was refused with a documented rejection status (auth, permission,
       // invalid request, rate limit...): the model never ran, so the reservation is released.
-      // Anything that might have run (timeouts, 5xx, 529, resets, later tool rounds) stays uncertain.
+      // Anything that might have run (no reply in time, a stall, timeouts, 5xx, 529, resets, later
+      // tool rounds) stays uncertain.
       const rejected = definitelyNotSent ? null : definiteRejection(error);
-      result = definitelyNotSent ? { status: 'not_started', retryable: false }
+      result = definitelyNotSent ? { status: 'not_started', retryable: neverOpened }
         : rejected ? { status: 'not_started', retryable: rejected.retryable,
           ...(rejected.retryAfterMs !== null ? { retryAfterMs: Math.min(rejected.retryAfterMs, MAX_RETRY_AFTER_MS) } : {}) }
         : { status: 'uncertain' };
-      failureCode = error instanceof ProviderError ? error.code : error instanceof ApiError ? error.code : 'PROVIDER_OPERATION_FAILED';
+      // A call Core stopped because its job was cancelled is recorded as such (the uncertain-call
+      // list explains it to the owner); NO_RESPONSE marks a request that got no reply at all.
+      failureCode = cancelled ? 'JOB_CANCELLED' : error instanceof ProviderError ? error.code : error instanceof ApiError ? error.code : 'PROVIDER_OPERATION_FAILED';
       draft?.withdraw(error instanceof ProviderError && error.code === 'BLOCKED' ? 'provider_refused' : 'provider_failed');
       if (error instanceof ProviderError) usage = error.usage ?? null;
       }
-    } finally { if (acquired) active -= 1; }
+    } finally { watching?.(); watching = null; if (acquired) active -= 1; }
     result = outcomeSchema.parse(result);
     }); } finally {
       const final = result, succeeded = final.status === 'succeeded' ? final : null;

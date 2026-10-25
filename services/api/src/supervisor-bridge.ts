@@ -13,7 +13,7 @@ import {
   transition as reduce, transitionSchema, uuid, verificationSchema, workflowId, nextGeneration, resumable, outcomeSchema, refence,
   MAX_PARK_MS, type JobObjective,
   type Command, type Fence, type HostBridge, type HostContext, type JobSpec, type OutboxEvent,
-  type RunRef, type Snapshot, type Verification, type ProviderRequest, type SupervisionState,
+  type RunRef, type Snapshot, type Transition, type Verification, type ProviderRequest, type SupervisionState,
 } from '@course-core/supervisor';
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
@@ -41,6 +41,7 @@ import { ACTION_EVENT, ALTERNATIVE_ACTIONS, DEFAULT_ACTION_POLICY, actionForEven
 import { supervisionSettingsWithin } from './supervision-settings.js';
 import { automaticHypothesesEnabled } from './teaching-hypotheses.js';
 import { effectiveLearnerLimit } from './learner-limit.js';
+import { COMPANION_RETRY_EVENT } from './closure.js';
 
 /** A staff retry of one ended supervisor run (scoped-corrections.ts): prepared into its own new run. */
 export const RETRY_EVENT = 'supervisor.run_retry_requested';
@@ -568,7 +569,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     }
     const context: SupervisorInputContext = { kind: 'learning_event', eventId: row.event_id, eventType: row.event_type,
       courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
-    const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
+    const retry = row.event_type === COMPANION_RETRY_EVENT;
+    const role = row.event_type === 'companion.requested' || retry ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
     outcome.role = role;
     if (role === 'reviewer') {
       // Only a staff request, or the host's own proposal for a gate conversation, for a learner
@@ -587,7 +589,9 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         && (p.blockId === undefined || p.blockId === null || typeof p.blockId === 'string' && p.blockId.length > 0 && p.blockId.length <= 200)
         && (p.downgradedChallengeIds === undefined || Array.isArray(p.downgradedChallengeIds) && p.downgradedChallengeIds.length <= 100
           && p.downgradedChallengeIds.every(id => uuid.safeParse(id).success) && new Set(p.downgradedChallengeIds).size === p.downgradedChallengeIds.length)
-        && Object.keys(p).every(k => ['messageId', 'episodeId', 'blockId', 'requestKind', 'downgradedChallengeIds'].includes(k)), 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
+        && Object.keys(p).every(k => ['messageId', 'episodeId', 'blockId', 'requestKind', 'downgradedChallengeIds', ...(retry ? ['retryOfJobId'] : [])].includes(k))
+        // The automatic re-ask is Core's own, naming the stalled job it replaces.
+        && (!retry || row.actor_kind === 'system' && uuid.safeParse(p.retryOfJobId).success), 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
       const message = await client.query("SELECT 1 FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner' FOR SHARE", [p.messageId, row.enrollment_id]);
       requireCondition(message.rowCount === 1, 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
       context.messageId = p.messageId as string; context.episodeId = p.episodeId as string;
@@ -874,7 +878,7 @@ async function repairRefusedAnswers(db: Database, workspaces: readonly string[],
 /** One host transition inside the caller's transaction: every lock, fence and budget check of the
  * bridge's `transition`, for trusted host paths that already hold a transaction (follow-up and
  * authority parking, application of a delivered teaching action). */
-export async function transitionWithin(client: PoolClient, raw: Command, options: Pick<SupervisorBridgeOptions, 'applyPlan' | 'confirmRubricSuggestion'> = {}) {
+export async function transitionWithin(client: PoolClient, raw: Command, options: Pick<SupervisorBridgeOptions, 'applyPlan' | 'confirmRubricSuggestion'> = {}): Promise<Transition> {
   const command = jobCommandSchema.parse(raw), ref = command.ref;
   const locked = await lockedJob(client, ref), old = locked.snapshot;
   const budgets = await lockBudgetCeilings(client, ref, locked.episodeId), availableBudget = budgets.available;
@@ -925,7 +929,53 @@ export async function transitionWithin(client: PoolClient, raw: Command, options
     // A slow database write must not commit an expired permit/application. Roll back all effects.
     requireCondition(await clock(client) < old.specification.deadlineAtMs, 'SUPERVISOR_DEADLINE_REACHED', 409);
   }
+  if (command.type === 'settle' && command.outcome.status === 'uncertain' && role === 'companion'
+    && result.snapshot.state === 'waiting' && result.snapshot.reason === 'provider_uncertain') {
+    const retried = await retryStalledCompanionWithin(client, ref, result.snapshot, command.operationId, command.ownerId, availableBudget, options);
+    if (retried) return transitionSchema.parse(retried);
+  }
   return transitionSchema.parse(result);
+}
+/**
+ * A companion question whose call got no reply at all (the provider sent nothing before the
+ * first-byte bound, provider-runtime.ts RESPONSE_BOUNDS; dispatch failure NO_RESPONSE) is asked
+ * once more, automatically, when that is safe:
+ * - nothing of the first call reached the learner, so a second one cannot show or store anything twice;
+ * - the first call stays uncertain and keeps holding its reservation (the request was sent, so it
+ *   may have been billed; the owner settles it in AI services, provider-spend-resolutions.ts), so the second
+ *   call needs a reservation of its own: it is asked only while the learner's remaining budget
+ *   (every ceiling, after the first call's hold) covers one more call;
+ * - only once per question, and never for a deleted, answered or cancelled one.
+ * In the settle transaction itself: the stalled job ends (cancelled; its call stays uncertain),
+ * the question is unlinked from it, and a system `companion.retry_requested` event prepares a new
+ * job for the same question through the outbox. The learner sees the question queued again; if
+ * the second call stalls too, the question reads "Reply unavailable" with "Ask again".
+ * Returns the stalled job's final transition, or null when it stays waiting.
+ */
+async function retryStalledCompanionWithin(client: PoolClient, ref: RunRef, snapshot: Snapshot, operationId: string, ownerId: string,
+  available: { microUsd: number; tokens: number }, options: Pick<SupervisorBridgeOptions, 'applyPlan' | 'confirmRubricSuggestion'>): Promise<Transition | null> {
+  const op = snapshot.operations.find(o => o.id === operationId), cp = op && snapshot.specification.checkpoints.find(c => c.id === op.checkpointId);
+  if (!op || !cp || available.microUsd < cp.allowance.microUsd || available.tokens < cp.allowance.tokens) return null;
+  const dispatch = (await client.query<{ state: string; failure_code: string | null }>(
+    'SELECT state,failure_code FROM provider_dispatches WHERE operation_id=$1 AND owner_id=$2 AND job_id=$3 AND enrollment_id=$4', [operationId, ownerId, ref.jobId, ref.enrollmentId])).rows[0];
+  if (dispatch?.state !== 'uncertain' || dispatch.failure_code !== 'NO_RESPONSE') return null;
+  const message = (await client.query<{ id: string; content: string }>(
+    "SELECT id,content FROM companion_messages WHERE enrollment_id=$1 AND job_id=$2 AND role='learner' FOR UPDATE", [ref.enrollmentId, ref.jobId])).rows[0];
+  if (!message || message.content === '[deleted]') return null;
+  const answered = await client.query("SELECT 1 FROM companion_messages WHERE enrollment_id=$1 AND job_id=$2 AND role='assistant' LIMIT 1", [ref.enrollmentId, ref.jobId]);
+  if (answered.rowCount) return null;
+  const asked = (await client.query<{ event_type: string; payload: Record<string, unknown> }>(
+    `SELECT event_type,payload FROM learning_events WHERE enrollment_id=$1 AND event_type IN ('companion.requested',$3) AND payload->>'messageId'=$2::text ORDER BY sequence`,
+    [ref.enrollmentId, message.id, COMPANION_RETRY_EVENT])).rows;
+  const original = asked.find(e => e.event_type === 'companion.requested')?.payload;
+  if (!original || asked.some(e => e.event_type === COMPANION_RETRY_EVENT)) return null;
+  const halted = await transitionWithin(client, { type: 'halt', ref, reason: 'cancel_requested' }, options);
+  await client.query('UPDATE companion_messages SET job_id=NULL WHERE id=$1 AND enrollment_id=$2 AND job_id=$3', [message.id, ref.enrollmentId, ref.jobId]);
+  const { messageId, episodeId, blockId, requestKind, downgradedChallengeIds } = original;
+  await appendEvent(client, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, actorKind: 'system', type: COMPANION_RETRY_EVENT,
+    payload: { messageId, episodeId, blockId: blockId ?? null, requestKind, ...(downgradedChallengeIds === undefined ? {} : { downgradedChallengeIds }), retryOfJobId: ref.jobId },
+    idempotencyKey: `${ref.enrollmentId}:companion-retry:${message.id}`, supervise: true });
+  return halted;
 }
 /** Moves a non-terminal job with no open call to its next generation (or returns the generation
  * already waiting for its workflow). The previous generation's workflow has closed: it returned

@@ -92,7 +92,7 @@ export class ProviderRuntime {
     course: readonly RuntimeStrategy[] = [], onText?: (text: string) => void): Promise<RuntimeResult> {
     if (this.availability(role).status !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
     const { binding, strategy } = this.strategy(role, course)!;
-    const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router), tools, beforeModelCall,
+    const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router, binding), tools, beforeModelCall,
       ...(role === 'companion' && onText ? { onText } : {}) });
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
@@ -228,14 +228,33 @@ function requestBytes(request: { systemInstruction?: string | undefined; message
   const text = (request.systemInstruction ?? '') + (request.messages ?? []).map(m => m.text).join('') + (request.prompt ?? '');
   return new TextEncoder().encode(text).byteLength;
 }
-/** The router a strategy receives: every model request over the ceiling is refused before it is sent. */
-function capped(router: ProviderRouter): ProviderRouter {
+/**
+ * How long a role's call may wait for its reply, below the 60 s call bound every strategy sets.
+ * A streamed reply (the companion) must start within `firstByteMs` and keep coming with no gap
+ * longer than `idleMs`; a stall ends the call at once instead of at the call bound, so the learner
+ * is told and the host can ask again. A whole reply's first byte is its finished response, so it
+ * gets a first-byte bound only when the role's binding sets one. A binding's
+ * `firstByteTimeoutMs` / `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
+ */
+export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000 } as const;
+interface ResponseBinding { firstByteTimeoutMs?: number | undefined; streamIdleTimeoutMs?: number | undefined }
+function responseBounds(binding: RoleBinding, streamed: boolean) {
+  const bounds = binding as RoleBinding & ResponseBinding;
+  const first = bounds.firstByteTimeoutMs ?? (streamed ? RESPONSE_BOUNDS.streamFirstByteMs : undefined);
+  const idle = streamed ? bounds.streamIdleTimeoutMs ?? RESPONSE_BOUNDS.streamIdleMs : undefined;
+  return { ...(first === undefined ? {} : { firstByteTimeoutMs: first }), ...(idle === undefined ? {} : { idleTimeoutMs: idle }) };
+}
+/** The router a strategy receives: every model request over the ceiling is refused before it is
+ * sent, and each call gets the role's response bounds (the strategy's own options still win). */
+function capped(router: ProviderRouter, binding?: RoleBinding): ProviderRouter {
   return new Proxy(router, { get(target, property, receiver) {
     const value = Reflect.get(target, property, receiver);
     if (typeof property !== 'string' || !CAPPED_CALLS.has(property) || typeof value !== 'function') return value;
     return (request: Parameters<ProviderRouter['tutor']>[0], ...rest: unknown[]) => {
       if (requestBytes(request) > MAX_MODEL_CONTEXT_BYTES) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
-      return (value as (...args: unknown[]) => unknown).call(target, request, ...rest);
+      const [options, ...more] = rest;
+      const bounded = binding ? { ...responseBounds(binding, property === 'tutorStream'), ...(options && typeof options === 'object' ? options : {}) } : options;
+      return (value as (...args: unknown[]) => unknown).call(target, request, ...(rest.length || binding ? [bounded, ...more] : []));
     };
   } });
 }

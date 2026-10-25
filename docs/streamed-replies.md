@@ -79,9 +79,10 @@ until the checked reply replaces it.
   cancelled like any host cancellation (reason `learner_cancelled`: its next step stops it and a
   wake-up reaches a running workflow), a draft being shown stops at once, and nothing the job
   produced is kept. The question stays and reads as cancelled (event
-  `companion.question.cancelled`). The model call already sent runs to its end, bounded by its
-  output and time limits, so its usage is settled from the provider's receipt instead of being
-  charged at the reservation ceiling. A reply already shown cannot be stopped
+  `companion.question.cancelled`). The model call already sent is aborted at once: the gateway
+  sees the committed cancellation and closes the provider connection, and the call is settled
+  at the usage the provider reported up to the stop, or stays uncertain for the owner when it
+  reported none ([provider-stalls.md](provider-stalls.md)). A reply already shown cannot be stopped
   (`MESSAGE_ALREADY_ANSWERED`), nor one already cancelled (`MESSAGE_NOT_PENDING`); the question
   can be deleted.
 - **Checks:** a streamed answer is assembled and judged by the same checks as a whole one

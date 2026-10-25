@@ -20,7 +20,17 @@ export const TOOL_LOOP_REFUSAL_REASONS = ['tool_loop_invalid_decision', 'tool_lo
   'tool_loop_round_rejected', 'tool_loop_runtime_unavailable'] as const;
 export type ToolLoopRefusalReason = (typeof TOOL_LOOP_REFUSAL_REASONS)[number];
 /** Reasons that end a run for a host or provider cause, never for what the model returned. */
-export const HOST_ENDED_REASONS: readonly string[] = ['tool_loop_round_not_started', 'tool_loop_round_rejected', 'tool_loop_runtime_unavailable'];
+export const HOST_ENDED_REASONS: readonly string[] = ['tool_loop_round_not_started', 'tool_loop_round_rejected', 'tool_loop_runtime_unavailable',
+  'provider_stream_stopped', 'provider_stream_stalled'];
+/**
+ * A streamed reply that stopped part way after the provider had reported its cumulative usage up
+ * to the stop (provider-gateway.ts): `provider_stream_stopped` when Core stopped it because its
+ * job was cancelled (the learner's Stop, staff, erasure), `provider_stream_stalled` when the
+ * provider stopped sending (the idle or call bound, or a stream cut off early). The call is settled
+ * at that usage and the rest of the reservation released; nothing of the reply is kept. Neither is
+ * the model's doing.
+ */
+export const STOPPED_REPLY_REASONS = ['provider_stream_stopped', 'provider_stream_stalled'] as const;
 /**
  * Output a strategy received from the model and refused by Core's own checks before storing it:
  * a teaching proposal naming an objective outside this lesson, a companion reply over the
@@ -60,7 +70,8 @@ export function refusedAnswerReason(code: unknown, usage: unknown): ProviderOutp
     || ((attempt as { tokens: { total: number } }).tokens.total) < 0)) return null;
   return PROVIDER_OUTPUT_REASONS[code as keyof typeof PROVIDER_OUTPUT_REASONS];
 }
-export const OUTPUT_REFUSAL_REASONS = ['objective_out_of_scope', 'output_too_large', 'autonomy_exceeded', 'provider_output_incomplete', 'provider_output_invalid', 'provider_output_blocked', ...TOOL_LOOP_REFUSAL_REASONS] as const;
+export const OUTPUT_REFUSAL_REASONS = ['objective_out_of_scope', 'output_too_large', 'autonomy_exceeded', 'provider_output_incomplete', 'provider_output_invalid', 'provider_output_blocked',
+  ...STOPPED_REPLY_REASONS, ...TOOL_LOOP_REFUSAL_REASONS] as const;
 export type OutputRefusalReason = (typeof OUTPUT_REFUSAL_REASONS)[number];
 export const outputRefusalSchema = z.strictObject({
   kind: z.literal('output_refusal'),

@@ -35,8 +35,14 @@ export function coverageView(course: CourseManifest, context: Pick<EnrollmentCon
  * was quarantined, or its job ended failed or cancelled. None of these can produce an answer
  * later (terminal jobs never resume; refusals and quarantine are final). A question still
  * queued or being answered is not refused, so concurrent questions cannot exceed a budget. */
+/** The one automatic re-ask of a companion question whose call got no reply at all
+ * (supervisor-bridge.ts retryStalledCompanionWithin). Like `companion.requested`, it prepares a
+ * companion job for the same learner message; it is a system event, never the learner's. */
+export const COMPANION_RETRY_EVENT = 'companion.retry_requested';
+/** Every event that asks for a companion reply to a learner message. */
+export const COMPANION_QUESTION_EVENTS_SQL = `('companion.requested','${COMPANION_RETRY_EVENT}')`;
 export const REFUSED_QUESTION_SQL = `(EXISTS (SELECT 1 FROM supervisor_jobs rj WHERE rj.id=m.job_id AND rj.state IN ('failed','cancelled'))
-  OR (m.job_id IS NULL AND EXISTS (SELECT 1 FROM learning_events re WHERE re.enrollment_id=m.enrollment_id AND re.event_type='companion.requested'
+  OR (m.job_id IS NULL AND EXISTS (SELECT 1 FROM learning_events re WHERE re.enrollment_id=m.enrollment_id AND re.event_type IN ${COMPANION_QUESTION_EVENTS_SQL}
     AND re.payload->>'messageId'=m.id::text AND (EXISTS (SELECT 1 FROM supervisor_preparations rp WHERE rp.event_id=re.id AND rp.disposition<>'prepared')
       OR EXISTS (SELECT 1 FROM outbox ro WHERE ro.event_id=re.id AND ro.quarantined_at IS NOT NULL)))))`;
 /** A closed enrollment (completed or capped) keeps bounded explanatory questions when its

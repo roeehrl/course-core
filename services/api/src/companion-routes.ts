@@ -7,7 +7,7 @@ import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput }
 import { requireCondition } from './errors.js';
 import { requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
-import { assertClosedCourseQuestion, REFUSED_QUESTION_SQL } from './closure.js';
+import { assertClosedCourseQuestion, COMPANION_QUESTION_EVENTS_SQL, REFUSED_QUESTION_SQL } from './closure.js';
 import { appendEvent } from './events.js';
 import { resolveInteractiveContext } from './interactive-context.js';
 import { recordCompanionSignal } from './teaching-hypotheses.js';
@@ -26,7 +26,7 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
     await loadEnrollment(db, actor, enrollmentId);
     // A question the supervisor refused has no job; it reads as 'refused' instead of queued forever.
     const rows = (await db.query<{ id: string; role: string; content: string; context: Record<string, unknown>; created_at: Date; job_id: string | null; job_state: string | null; job_reason: string | null;
-      job_sent: boolean | null; job_ceiling: string | null; refusal_reason: string | null; capsule: CompanionCapsule | null }>(
+      job_sent: boolean | null; job_ceiling: string | null; refusal_reason: string | null; job_stalled: boolean | null; capsule: CompanionCapsule | null }>(
       // An answer recorded before it carried its lesson takes the lesson of the question it answers.
       `SELECT m.id,m.role,m.content,CASE WHEN m.role='assistant' AND m.context->>'episodeId' IS NULL AND q.context->>'episodeId' IS NOT NULL
           THEN m.context||jsonb_build_object('episodeId',q.context->'episodeId','blockId',COALESCE(q.context->'blockId','null'::jsonb)) ELSE m.context END AS context,m.created_at,m.job_id,
@@ -44,6 +44,11 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
         -- Why Core refused the reply it received (a reason code only; the refused text is never stored).
         CASE WHEN m.role='learner' AND j.state='failed' THEN (SELECT a.content->>'reason' FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.enrollment_id=j.enrollment_id
           AND a.content->>'kind'='output_refusal' LIMIT 1) END AS refusal_reason,
+        -- A question whose call ended uncertain (no reply came) with no gateway receipt that can still settle it:
+        -- nothing more will come for it, so the learner is told and offered to ask again.
+        CASE WHEN m.role='learner' AND j.state='waiting' AND j.result->>'reason'='provider_uncertain' AND NOT j.cancellation_requested
+          THEN NOT EXISTS (SELECT 1 FROM provider_dispatches d WHERE d.job_id=j.id AND d.enrollment_id=j.enrollment_id
+            AND d.state IN ('in_flight','completed','not_started')) END AS job_stalled,
         CASE WHEN m.role='assistant' THEN c.capsule END AS capsule
       FROM companion_messages m LEFT JOIN supervisor_jobs j ON j.id=m.job_id LEFT JOIN companion_context_capsules c ON c.job_id=m.job_id AND c.enrollment_id=m.enrollment_id
         LEFT JOIN LATERAL (SELECT q.context FROM companion_messages q WHERE m.role='assistant' AND q.job_id=m.job_id AND q.enrollment_id=m.enrollment_id AND q.role='learner' LIMIT 1) q ON true
@@ -72,7 +77,7 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       requireCondition(message, 'MESSAGE_NOT_FOUND', 404);
       requireCondition(message.content !== '[deleted]', 'MESSAGE_ALREADY_DELETED', 409);
       jobId = message.job_id;
-      const requested = (await client.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
+      const requested = (await client.query<{ id: string }>(`SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type IN ${COMPANION_QUESTION_EVENTS_SQL} AND payload->>'messageId'=$2::text`,
         [enrollmentId, messageId])).rows.map(row => row.id);
       // A real context change: an answer still being prepared from it is fenced as well as cancelled.
       context.enrollment.revision = (await client.query<{ revision: number }>('UPDATE enrollments SET revision=revision+1 WHERE id=$1 RETURNING revision', [enrollmentId])).rows[0]!.revision;
@@ -95,9 +100,11 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
   /** The learner stops waiting for the answer to one of their questions (also the "Stop" on a reply
    * that is streaming). The question stays (it is not deleted and can be asked again). Its
    * undelivered request is withdrawn; the job preparing its answer is cancelled, so no new provider
-   * call starts for it, and a wake-up stops a call under way; a draft being shown is withdrawn at
-   * once. Nothing the job produced is kept or shown. A call already out is settled at its receipt by
-   * the workflow, never resent; a job with no call out is ended by the dispatcher's reconcile pass. */
+   * call starts for it, and a call under way is aborted: the gateway sees the committed
+   * cancellation and closes its provider request (provider-gateway.ts, docs/provider-stalls.md); a
+   * draft being shown is withdrawn at once. Nothing the job produced is kept or shown. The aborted
+   * call is settled at the usage reported up to the stop (or stays uncertain for the owner), never
+   * resent; a job with no call out is ended by the dispatcher's reconcile pass. */
   app.post(`${path}/messages/:messageId/cancel`, { schema: { params: { type: 'object', required: ['enrollmentId', 'messageId'],
     properties: { enrollmentId: { type: 'string', format: 'uuid' }, messageId: { type: 'string', format: 'uuid' } } },
     body: { type: 'object', additionalProperties: false, required: ['expectedRevision', 'idempotencyKey'], properties: {
@@ -114,7 +121,7 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       const answered = message.job_id ? (await client.query("SELECT 1 FROM companion_messages WHERE enrollment_id=$1 AND job_id=$2 AND role='assistant' LIMIT 1",
         [enrollmentId, message.job_id])).rowCount : 0;
       requireCondition(!answered, 'MESSAGE_ALREADY_ANSWERED', 409);
-      const requested = (await client.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
+      const requested = (await client.query<{ id: string }>(`SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type IN ${COMPANION_QUESTION_EVENTS_SQL} AND payload->>'messageId'=$2::text`,
         [enrollmentId, messageId])).rows.map(row => row.id);
       // Not yet prepared into a job: withdrawing the request is the whole cancellation.
       const withdrawn = (await client.query('UPDATE outbox SET quarantined_at=clock_timestamp() WHERE event_id=ANY($1::uuid[]) AND delivered_at IS NULL AND quarantined_at IS NULL',
