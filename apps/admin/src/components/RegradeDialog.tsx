@@ -291,17 +291,19 @@ function RegradeForm({
               <Notice tone="red">{regradeErrorMessage(error, t)}</Notice>
             )}
           </div>
-          <Button
-            kind="primary"
-            type="submit"
-            disabled={pending || reason.trim().length < 10}
-          >
-            {pending
-              ? t("regradeDialog.submit.pending")
-              : view.kind === "rubric"
-                ? t("regradeDialog.submit.rubric")
-                : t("regradeDialog.submit.automated")}
-          </Button>
+          <div className="dialog-footer">
+            <Button
+              kind="primary"
+              type="submit"
+              disabled={pending || reason.trim().length < 10}
+            >
+              {pending
+                ? t("regradeDialog.submit.pending")
+                : view.kind === "rubric"
+                  ? t("regradeDialog.submit.rubric")
+                  : t("regradeDialog.submit.automated")}
+            </Button>
+          </div>
         </form>
       )}
     </div>

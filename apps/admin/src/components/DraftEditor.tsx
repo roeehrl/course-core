@@ -207,9 +207,11 @@ export function DraftEditorBody({
         />
       </Field>
       {error && <Notice tone="red">{error}</Notice>}
-      <Button type="submit" kind="primary" disabled={locked || reading}>
-        {pending ? t("draftEditor.validating") : t("draftEditor.submit")}
-      </Button>
+      <div className="dialog-footer">
+        <Button type="submit" kind="primary" disabled={locked || reading}>
+          {pending ? t("draftEditor.validating") : t("draftEditor.submit")}
+        </Button>
+      </div>
     </form>
   );
 }

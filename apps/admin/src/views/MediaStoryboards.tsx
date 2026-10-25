@@ -720,7 +720,7 @@ function ShotsEditor({
           )}
         </fieldset>
       ))}
-      <div className="tag-row">
+      <div className="tag-row dialog-footer">
         <Button
           type="button"
           disabled={shots.length >= 8}

@@ -1575,7 +1575,7 @@ function RevokeForm({
           onChange={(e) => setReason(e.target.value)}
         />
       </Field>
-      <div className="tag-row">
+      <div className="tag-row dialog-footer">
         <Button
           kind="danger"
           type="submit"
