@@ -72,7 +72,37 @@ const scrollTo = (page: Page, compact: boolean, y: number) =>
   }, [compact, y] as const);
 const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
 
+/** Where the lesson is: the window's scroll and the phone's learning pane's. */
+const lessonPlace = (page: Page) =>
+  page.evaluate(() => ({ window: Math.round(window.scrollY), pane: Math.round(document.querySelector(".connected-main")!.scrollTop) }));
+/** A tap where the control is on screen (Playwright's click first scrolls it "into view"). */
+async function tap(page: Page, selector: string) {
+  const box = (await page.locator(selector).first().boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 for (const locale of ["en", "he"] as const) {
+  test(`${locale}: opening and closing the companion never moves the lesson`, async ({ page }, info) => {
+    const compact = await openLesson(page, locale);
+    await lengthen(page, { lesson: 1600 });
+    const middle = Math.round((await positions(page, compact)).at(-1)! / 2);
+    await scrollTo(page, compact, middle);
+    const dock = page.locator("#connected-companion");
+    for (let round = 0; round < 2; round++) {
+      const before = await lessonPlace(page);
+      if (!(await dock.isVisible())) await tap(page, ".connected-companion-trigger");
+      await expect(dock).toBeVisible();
+      if (compact) expect(await lessonPlace(page), "opening the sheet").toEqual(before);
+      await page.waitForTimeout(150);
+      if (compact) await page.keyboard.press("Escape");
+      else await tap(page, "#connected-companion .connected-dock-title button");
+      await expect(dock).toBeHidden();
+      await page.waitForTimeout(150);
+      expect(await lessonPlace(page), `round ${round}: closing the companion`).toEqual(before);
+    }
+    await page.screenshot({ path: info.outputPath(`companion-closed-${locale}.png`) });
+  });
+
   test(`${locale}: the connection status never covers the lesson's buttons`, async ({ page, context }, info) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
