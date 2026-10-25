@@ -42,10 +42,43 @@ export async function requirePracticalBuild(directory) {
   await requireFile(path.join(directory, 'qualification/practical-flow.ts'), 'API real-Postgres/real-Docker practical qualification');
 }
 
+/** Fixed warm-up code: the imports the sandbox runner makes, then a marker line. */
+export const WARMUP_MARKER = 'course-core-sandbox-warm';
+/**
+ * One throwaway container from the pinned image with the learner sandbox's isolation (no network,
+ * read-only root, no capabilities, unprivileged user, the same memory, CPU and process caps and
+ * init), running fixed code, never learner code. `--pull=never`: preparation pulls only explicitly.
+ */
+export function warmupArguments(image) {
+  return ['run', '--rm', '--pull=never', '--label', 'course-core.sandbox-warmup=true', '--network=none', '--read-only', '--cap-drop=ALL',
+    '--security-opt=no-new-privileges', '--user=65532:65532', '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=32', '--init',
+    image, 'python', '-I', '-B', '-c', `import importlib.util, json, sys; print(${JSON.stringify(WARMUP_MARKER)})`];
+}
+
+/**
+ * Leaves the runner ready for timed grading. The qualification grades run under the sandbox's own
+ * wall-clock budget (container create and start included), and a cold runner once timed them out:
+ * on a slow disk the freshly extracted image layers were still being written back, and the first
+ * containers' creates and starts waited behind them for about half a minute (PR #230, first
+ * attempt). So preparation runs one container to completion, which pays the first container's cold
+ * start, then `sync`, which returns once the pulled layers are on disk. Both are waits for an
+ * outcome, not timers; a failure fails preparation. The durations are logged for diagnosis.
+ */
+export async function warmSandboxImage(selection, invoke, { now = Date.now, log = console.log } = {}) {
+  let started = now();
+  const output = await invoke('docker', warmupArguments(selection.image));
+  ensure(output.trim() === WARMUP_MARKER, 'The warm-up container did not run the pinned image to completion');
+  const warm = now() - started;
+  started = now();
+  await invoke('sync', []);
+  log(`Warm-up container finished in ${warm} ms; pending disk writes flushed in ${now() - started} ms`);
+}
+
 /** `retry` overrides the bounded network retry of the explicit pull (scripts/network-retry.mjs).
  * The pull is by digest and the image is inspected afterwards, so a retried pull cannot
- * substitute other bytes; inspection and the test phases are never retried. */
-export async function runDockerGate(action, selection, invoke, environment = {}, retry = {}) {
+ * substitute other bytes; inspection and the test phases are never retried. `warmup` passes
+ * `now` and `log` to the preparation warm-up (warmSandboxImage). */
+export async function runDockerGate(action, selection, invoke, environment = {}, retry = {}, warmup = {}) {
   ensure(['pull', 'test', 'api-practical'].includes(action), 'Use sandbox-ci.mjs pull, test, or api-practical');
   const database = action === 'api-practical' ? { TEST_DATABASE_URL: testDatabaseUrl(environment).href } : {};
   const server = JSON.parse(await invoke('docker', ['info', '--format', '{"os":{{json .OSType}},"architecture":{{json .Architecture}}}']));
@@ -56,6 +89,7 @@ export async function runDockerGate(action, selection, invoke, environment = {},
   // No pull is allowed in the test phase. A missing image is a hard failure.
   const metadata = JSON.parse(await invoke('docker', ['image', 'inspect', selection.image, '--format', '{"os":{{json .Os}},"architecture":{{json .Architecture}},"repoDigests":{{json .RepoDigests}}}']));
   verifySandboxImage(selection, metadata);
+  if (action === 'pull') await warmSandboxImage(selection, invoke, warmup);
   if (action === 'test') await invoke('npm', ['--workspaces=false', 'run', 'test:docker'], { COURSE_SANDBOX_IMAGE: selection.image });
   if (action === 'api-practical') await invoke('npm', ['--workspaces=false', 'run', 'test:practical'], { COURSE_SANDBOX_IMAGE: selection.image, ...database });
 }
@@ -96,7 +130,7 @@ export async function main(args = process.argv.slice(2)) {
         }).catch((error) => {
           if (command === 'npm') process.stderr.write(error.stdout ?? '');
           // The output is kept only so a network-class pull failure can be classified and retried.
-          throw Object.assign(new Error(`${command} ${arguments_[0]} failed (${error.code ?? 'unknown'}); Docker qualification did not pass`),
+          throw Object.assign(new Error(`${[command, arguments_[0]].filter(Boolean).join(' ')} failed (${error.code ?? 'unknown'}); Docker qualification did not pass`),
             { output: `${error.stderr ?? ''}\n${error.stdout ?? ''}` });
         });
         if (command === 'npm') process.stdout.write(result.stdout);
