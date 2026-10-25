@@ -90,6 +90,66 @@ export const spendViewSchema = z.object({
   byPeriod: z.array(sums.extend({ period: z.string().max(10) })).max(400),
 });
 export type SpendView = z.infer<typeof spendViewSchema>;
+/** AI calls whose cost stayed unknown (sent, but no usage report came back), and the owner's
+ * decisions on them (API provider-spend-resolutions.ts). */
+export const UNCERTAIN_HAPPENED = [
+  "no_response",
+  "stopped",
+  "stalled",
+  "service_error",
+  "no_receipt",
+] as const;
+const decision = z.enum(["zero", "reservation"]);
+export const uncertainCallsSchema = z.object({
+  currency: z.literal("USD"),
+  calls: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        reservedAt: z.string(),
+        role: z.string().max(32),
+        modelId: z.string().max(2048).nullable(),
+        reservedMicroUsd: z.number().int().nonnegative(),
+        enrollmentId: z.string().uuid().nullable(),
+        happened: z.enum(UNCERTAIN_HAPPENED),
+        settleable: z.boolean(),
+      }),
+    )
+    .max(100),
+  more: z.boolean(),
+  uncertainCalls: z.number().int().nonnegative(),
+  heldMicroUsd: z.number().int().nonnegative(),
+  settleAfterMinutes: z.number().int().positive(),
+  recent: z
+    .array(
+      z.object({
+        ledgerId: z.string().uuid(),
+        decision,
+        reservedMicroUsd: z.number().int().nonnegative(),
+        chargedMicroUsd: z.number().int().nonnegative(),
+        releasedMicroUsd: z.number().int().nonnegative(),
+        reason: z.string().max(500),
+        decidedAt: z.string(),
+        decidedBy: z.string().max(200).nullable(),
+      }),
+    )
+    .max(10),
+});
+export type UncertainCalls = z.infer<typeof uncertainCallsSchema>;
+export type UncertainCall = UncertainCalls["calls"][number];
+export const settledCallSchema = z.object({
+  ledgerId: z.string().uuid(),
+  decision,
+  chargedMicroUsd: z.number().int().nonnegative(),
+  releasedMicroUsd: z.number().int().nonnegative(),
+  settledAt: z.string(),
+});
+export interface SettleCallInput {
+  idempotencyKey: string;
+  decision: "zero" | "reservation";
+  expectedReservedMicroUsd: number;
+  reason: string;
+}
 export interface PriceInput {
   idempotencyKey: string;
   modelId: string;

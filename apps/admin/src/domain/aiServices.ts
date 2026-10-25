@@ -8,7 +8,10 @@ import {
 import {
   costSettingsReceiptSchema,
   pricingViewSchema,
+  settledCallSchema,
+  type SettleCallInput,
   type SpendView,
+  type UncertainCalls,
   priceReceiptSchema,
   type PriceInput,
   type PricingView,
@@ -452,6 +455,16 @@ export interface AiServicesPort {
   ): Promise<z.infer<typeof budgetReceiptSchema>>;
   /** What learners spend, for choosing a per-learner limit. Older servers lack it. */
   learnerSpend?: LearnerSpendPort["learnerSpend"];
+  /** AI calls whose cost stayed unknown, and the owner's decision that settles one. Older servers lack them. */
+  uncertainCalls?(
+    workspace: string,
+    signal?: AbortSignal,
+  ): Promise<UncertainCalls>;
+  settleUncertainCall?(
+    workspace: string,
+    ledgerId: string,
+    input: SettleCallInput,
+  ): Promise<z.infer<typeof settledCallSchema>>;
   evals(workspace: string, signal?: AbortSignal): Promise<EvalStatus>;
   qualityStatus(
     workspace: string,

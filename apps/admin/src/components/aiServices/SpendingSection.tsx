@@ -25,6 +25,7 @@ import {
 import { ChangedElsewhere } from "../ChangedElsewhere";
 import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
 import { LearnerSpendPanel } from "./LearnerSpendPanel";
+import { UncertainCallsPanel } from "./UncertainCallsPanel";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 /** Proposed when nothing is set yet (the operator's decision): $25 in total, $2 per learner. */
@@ -352,6 +353,12 @@ export function SpendingSection(props: Props) {
           </div>
         </form>
       )}
+      {/* Calls whose cost stayed unknown wait here for the owner's decision. */}
+      <UncertainCallsPanel
+        port={port}
+        workspaceId={workspaceId}
+        onSettled={reload}
+      />
       <SpendHistory port={port} workspaceId={workspaceId} />
       {port.learnerSpend && budgets && (
         <LearnerSpendPanel

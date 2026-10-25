@@ -92,6 +92,7 @@
   "eventType.assessment_submitted": "תשובה נשלחה",
   "eventType.assessment_regraded": "תשובה נבדקה מחדש",
   "eventType.companion_requested": "פנייה למנחה",
+  "eventType.companion_retry_requested": "השאלה למנחה נשאלה שוב אוטומטית (לא הגיעה תשובה)",
   "eventType.continuation_opted_in": "נבחר המשך למידה",
   "eventType.continuation_stopped": "המשך הלמידה הופסק",
   "eventType.cross_course_suggestion_confirmed": "הצעה מקורס אחר אושרה",

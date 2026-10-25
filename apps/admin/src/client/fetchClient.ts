@@ -81,6 +81,8 @@ import {
   pricingViewSchema,
   ProviderCostError,
   spendViewSchema,
+  settledCallSchema,
+  uncertainCallsSchema,
 } from "../domain/providerCosts";
 import {
   mutationSchema,
@@ -1382,6 +1384,21 @@ export function createFetchAdminClient(
           "GET",
           undefined,
           signal,
+        ),
+      uncertainCalls: (id, signal) =>
+        ai(
+          `${workspacePath(id)}/provider-spend/uncertain`,
+          uncertainCallsSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      settleUncertainCall: (id, ledgerId, input) =>
+        ai(
+          `${workspacePath(id)}/provider-spend/uncertain/${encodeURIComponent(ledgerId)}/settle`,
+          settledCallSchema,
+          "POST",
+          input,
         ),
     },
     learnerSpend: {
