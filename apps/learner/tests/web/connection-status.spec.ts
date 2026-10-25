@@ -131,6 +131,36 @@ async function expectAccessible(page: Page) {
     ).violations,
   ).toEqual([]);
 }
+/**
+ * The status's text keeps its contrast while it slides in, not only once it rests: an
+ * accessibility check can run at any moment (the connected learner journeys run one as soon as
+ * the status shows). Its slide used to fade it in too, and a check run part way measured its text
+ * at 4.1:1. This replays the status's animations and holds them at points along the way while
+ * axe checks its contrast.
+ */
+async function expectReadableWhileArriving(page: Page) {
+  const status = page.locator(".connected-connection");
+  try {
+    for (const progress of [0.1, 0.25, 0.5, 0.75]) {
+      await status.evaluate((element, progress) => {
+        const html = element as HTMLElement;
+        html.style.animation = "none";
+        void html.offsetWidth;
+        html.style.animation = "";
+        for (const animation of html.getAnimations()) {
+          animation.pause();
+          animation.currentTime = Number(animation.effect?.getComputedTiming().duration ?? 0) * progress;
+        }
+      }, progress);
+      const result = await new AxeBuilder({ page }).include(".connected-connection").withRules(["color-contrast"]).analyze();
+      expect(result.violations, `${progress * 100}% of the way in`).toEqual([]);
+    }
+  } finally {
+    await status.evaluate((element) => {
+      for (const animation of element.getAnimations()) animation.finish();
+    });
+  }
+}
 /** The status floats inside the window, below the header, and does not widen the page. */
 async function expectFloating(page: Page) {
   const status = page.locator(".connected-connection");
@@ -180,6 +210,7 @@ for (const locale of ["en", "he"] as const) {
     const status = page.getByRole("status").filter({ hasText: text.offline });
     await expect(status).toBeVisible();
     expect(await settledLayout(page)).toEqual(before);
+    await expectReadableWhileArriving(page);
     await expectFloating(page);
     await expectAccessible(page);
 
