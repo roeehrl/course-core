@@ -267,3 +267,61 @@ describe("migration 069 for records written before it", () => {
       .toEqual([{ account_key: throttleKey("login", login + "x") }]);
   });
 });
+
+describe("migration 123: account erasure finds a person's people receipts by index", () => {
+  interface PlanNode { "Node Type": string; "Relation Name"?: string; "Index Name"?: string; Plans?: PlanNode[] }
+  /** How a plan reads people_command_receipts: "Seq Scan", or the scan and the index it uses. */
+  const receiptScans = (node: PlanNode): string[] => [
+    ...(/Scan$/.test(node["Node Type"]) && (node["Relation Name"] === "people_command_receipts" || node["Index Name"]?.startsWith("people_command_receipts"))
+      ? [node["Index Name"] ? `${node["Node Type"]} using ${node["Index Name"]}` : node["Node Type"]] : []),
+    ...(node.Plans ?? []).flatMap(receiptScans),
+  ];
+  /** erase_account_records's own statements that read the receipts, taken from the installed
+   * function with its user ID as $1, so this checks what the function runs. */
+  async function functionLookups() {
+    const source = (await db.query("SELECT prosrc FROM pg_proc WHERE proname='erase_account_records'")).rows[0].prosrc as string;
+    return source.split(";").map((part) => part.replace(/^[\s\S]*?\bBEGIN\b/, "").trim()).filter((part) => part.includes("people_command_receipts"))
+      .map((statement) => statement.replaceAll(/\bp_user\b/g, "$1::uuid"));
+  }
+  async function plans(client: Pick<Database, "query">, user: string) {
+    const result: string[][] = [];
+    for (const statement of await functionLookups()) {
+      // The plan PL/pgSQL makes for this user (a custom plan) and the one it may keep for any user.
+      const custom = (await client.query(`EXPLAIN (FORMAT JSON) ${statement}`, [user])).rows[0]["QUERY PLAN"][0].Plan as PlanNode;
+      const generic = (await client.query(`EXPLAIN (GENERIC_PLAN, FORMAT JSON) ${statement}`)).rows[0]["QUERY PLAN"][0].Plan as PlanNode;
+      result.push(receiptScans(custom), receiptScans(generic));
+    }
+    return result;
+  }
+
+  it("reads only the erased person's receipts through the index, not every workspace's receipts", async () => {
+    const user = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,'Indexed')", [user, "index:" + user]);
+    // Receipts of 5,000 other people beside the person's own two, as in a workspace with history.
+    await db.query(`INSERT INTO people_command_receipts(workspace_id,idempotency_key,request_digest,actor_id,response)
+      SELECT $1,'index-bulk-'||n,md5(n::text),$2,jsonb_build_object('userId',gen_random_uuid(),'role','learner') FROM generate_series(1,5000) n`,
+      [workspace, owner.userId]);
+    for (const key of ["index-own-1", "index-own-2"])
+      await db.query("INSERT INTO people_command_receipts(workspace_id,idempotency_key,request_digest,actor_id,response) VALUES($1,$2,$3,$4,$5)",
+        [workspace, key, digestJson({ key }), owner.userId, JSON.stringify({ userId: user, role: "learner", loginName: "index.login" })]);
+    await db.query("ANALYZE people_command_receipts");
+    expect(await functionLookups()).toHaveLength(2);
+    for (const scans of await plans(db, user)) {
+      expect(scans).not.toContain("Seq Scan");
+      expect(scans).toEqual(expect.arrayContaining([expect.stringMatching(/Index Scan using people_command_receipts_user$/)]));
+    }
+    // Without the index the same lookups read the whole table, so the check above can fail.
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DROP INDEX people_command_receipts_user");
+      for (const scans of await plans(client, user)) expect(scans).toContain("Seq Scan");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    // The function still redacts exactly that person's receipts.
+    expect((await db.query("SELECT erase_account_records($1) AS c", [user])).rows[0].c).toMatchObject({ peopleReceipts: 2 });
+    expect((await db.query("SELECT count(*)::int AS n FROM people_command_receipts WHERE workspace_id=$1 AND request_digest='erased'", [workspace])).rows[0].n).toBe(2);
+  });
+});

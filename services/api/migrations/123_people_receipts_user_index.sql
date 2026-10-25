@@ -1,0 +1,11 @@
+-- Account erasure (erase_account_records, migration 069, called by account-erasure.ts inside the
+-- erasure transaction) finds the person's people administration receipts by the user ID in their
+-- stored response, response->>'userId'. Nothing indexed that, so every account erasure read every
+-- people receipt of every workspace. This index serves both of the function's lookups: the
+-- receipts it redacts, and the people.* events it reaches through them (learning_events is then
+-- read by its unique (workspace_id, idempotency_key)).
+--
+-- Migrations run in one transaction, so the index is built without CONCURRENTLY. Building it
+-- holds back writes to this table (staff people commands) only while it is built; the table
+-- holds one row per staff people command.
+CREATE INDEX people_command_receipts_user ON people_command_receipts ((response->>'userId'));
