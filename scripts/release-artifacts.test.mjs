@@ -10,7 +10,7 @@ import {MODULES} from './modules.mjs';
 import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
-  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,ciStepPassed,fetchWithTransientRetry,fetchJsonWithTransientRetry,npmWithRetry,checksumText,cycloneDxSbom,sbomFilename,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
+  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,CACHE_SAVE_CI_STEPS,ciStepPassed,fetchWithTransientRetry,fetchJsonWithTransientRetry,npmWithRetry,checksumText,cycloneDxSbom,sbomFilename,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),epoch=1791817000;
 const releasedSdk='https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz';
 const entry=(filename,text='public data')=>({path:filename,bytes:Buffer.from(text),mode:0o644});
@@ -81,8 +81,14 @@ test('full CI evidence rejects skipped required steps and only tolerates skipped
   altered[0].steps=[{name:'Mandatory check',conclusion:'success'},...FAILURE_ONLY_CI_STEPS.map(name=>({name,conclusion:'skipped'}))];
   assert.equal(validateCiEvidence(i,run,altered,1).jobs.length,REQUIRED_CI_JOBS.length);
   assert.equal(ciStepPassed({name:FAILURE_ONLY_CI_STEPS[0],conclusion:'failure'}),false);
+  // A cache save skipped after an exact restore hit is not a missing check; a failed or cancelled one still fails.
+  altered[0].steps=[{name:'Mandatory check',conclusion:'success'},...CACHE_SAVE_CI_STEPS.map(name=>({name,conclusion:'skipped'}))];
+  assert.equal(validateCiEvidence(i,run,altered,1).jobs.length,REQUIRED_CI_JOBS.length);
+  for(const conclusion of ['failure','cancelled',null])assert.equal(ciStepPassed({name:CACHE_SAVE_CI_STEPS[0],conclusion}),false,String(conclusion));
+  altered[0].steps=[{name:CACHE_SAVE_CI_STEPS[0],conclusion:'skipped'}];
+  assert.throws(()=>validateCiEvidence(i,run,altered,1),/failed or skipped required step/,'a job whose only step is a skipped cache save proves nothing');
 });
-test('only failure-diagnostic steps in ci.yml are conditional, matching the skippable allowlist',async()=>{
+test('only failure-diagnostic steps and the cache save in ci.yml are conditional, matching the skippable allowlists',async()=>{
   const text=await readFile(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
   const conditional=[];let name;
   for(const line of text.split('\n')){
@@ -90,8 +96,9 @@ test('only failure-diagnostic steps in ci.yml are conditional, matching the skip
     const condition=line.match(/^ {8}if: (.+)$/);if(condition)conditional.push({name,condition:condition[1].trim()});
   }
   assert.ok(conditional.length>0);
-  for(const step of conditional)assert.equal(step.condition,'failure()',`Conditional CI step may be skipped on a passing run: ${step.name}`);
-  assert.deepEqual([...new Set(conditional.map(step=>step.name))].sort(),[...FAILURE_ONLY_CI_STEPS].sort());
+  const allowed={'failure()':FAILURE_ONLY_CI_STEPS,"steps.browser-cache-restore.outputs.cache-hit != 'true'":CACHE_SAVE_CI_STEPS};
+  for(const step of conditional)assert.ok(allowed[step.condition]?.includes(step.name),`Conditional CI step may be skipped on a passing run: ${step.name} (${step.condition})`);
+  for(const [condition,names] of Object.entries(allowed))assert.deepEqual([...new Set(conditional.filter(step=>step.condition===condition).map(step=>step.name))].sort(),[...names].sort(),condition);
 });
 test('source and web allowlists include actual Expo CSS and reject private paths, maps and arbitrary code',()=>{
   assert(sourceAllowed('services/api/src/server.ts'));assert(sourceAllowed('scripts/release-artifacts.test.mjs'));assert(sourceAllowed('scripts/tests/release-rehearsal.test.mjs'));assert(!sourceAllowed('scripts/tests/nested/x.mjs'));assert(!sourceAllowed('scripts/other/x.mjs'));assert(webAllowed('_expo/static/css/connected-abcd.css','learner'));

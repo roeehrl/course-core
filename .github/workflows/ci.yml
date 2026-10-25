@@ -120,12 +120,21 @@ jobs:
   # runners, each with its own Postgres 17 service, Docker store and disposable browser
   # host schema, so the same suites finish in about half the wall time of one serial job.
   # Every Playwright suite keeps workers: 1 because its specs share one host and database.
+  #
+  # Browser jobs budget setup and tests separately. Setup steps that download get fixed budgets
+  # well above their slowest recent run (install api 1.5 min: 8; sandbox pull 15 s: 5). Browser
+  # and Ubuntu package downloads come from one cache entry per job (scripts/browser-cache.mjs):
+  # installing from a restored entry gets 10 minutes, a full miss 25, enough for 120 MB from a
+  # mirror as slow as one seen in Oct 2026 (96 kB/s). Each test step gets at least 1.6 times its
+  # slowest recent run. The job limit covers the slowest recent run plus such a full miss; it is
+  # a backstop, since every long step stops at its own budget.
   api-core:
     name: API / backup, practical, unit, database and Chromium suites
     needs: audit
     runs-on: ubuntu-24.04
-    # Measured: about 13-15 min (check:api alone is 9.5-11.5 min). 30 min is 2x headroom.
-    timeout-minutes: 30
+    # Measured over 32 recent runs (Oct 2026): 12.5-19.5 min (median 17.5); check:api 9.5-15.5
+    # min. A full miss downloads 35 MB of packages. Budgets are explained above.
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:17
@@ -153,9 +162,29 @@ jobs:
         with:
           node-version: '26'
           package-manager-cache: false
+      - name: Name the browser and system package cache
+        id: browser-cache
+        run: node scripts/browser-cache.mjs key api-core api
+      # A slow cache download is abandoned after 3 minutes per 128 MB segment and the job
+      # continues as a cache miss; the step budget covers unpacking on a slow disk.
+      - name: Restore cached browsers and the job's system packages
+        id: browser-cache-restore
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '3'
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
+          restore-keys: ${{ steps.browser-cache.outputs.restore-keys }}
+      # Restored packages reach apt only after their SHA-256 matches the signed index (apt-restore).
       - name: Install the PostgreSQL 17 client tools and age for the backup restore drill
+        timeout-minutes: 8
         run: |
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          node scripts/browser-cache.mjs apt-restore
           sudo apt-get install -y -o Acquire::Retries=5 --no-install-recommends postgresql-client-17 sqlite3 age
       - name: Require the real PostgreSQL 17 backup and restore drill
         env:
@@ -185,9 +214,11 @@ jobs:
       # install api installs and builds the API, all local prerequisites (sandbox included)
       # and the learner export and administration build it serves.
       - run: node scripts/orchestrate.mjs install api
+        timeout-minutes: 8
       # Jobs have separate Docker stores; the browser host refuses to start without the
       # qualified image, so each job prepares the same pin on its own runner.
       - name: Prepare the qualified Python image for API practical tests
+        timeout-minutes: 5
         env:
           SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: npm run sandbox:pull
@@ -195,12 +226,28 @@ jobs:
         env:
           SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: npm run check:api:practical
-      - run: node scripts/orchestrate.mjs browsers api --with-deps
+      - name: Install Chromium with its system packages
+        # 10 minutes when the restore found an entry; 25 for a full miss, which downloads every package.
+        timeout-minutes: ${{ steps.browser-cache-restore.outputs.cache-hit != '' && 10 || 25 }}
+        run: |
+          node scripts/orchestrate.mjs browsers api --with-deps
+          node scripts/browser-cache.mjs apt-collect
+      - name: Save the browser and system package cache for later runs
+        if: steps.browser-cache-restore.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
       # The root check exports learner first, then runs API tests and real DB-backed browsers.
       - run: npm run check:api
+        timeout-minutes: 25
       # Generality gate: every public pack (including the algorithms lab's sandboxed code tasks and
       # the Spanish reviewed role-play) runs on unchanged Core through real HTTP, PostgreSQL and Docker.
       - name: Run every public course pack through unchanged Core (real HTTP, PostgreSQL and Docker sandbox)
+        timeout-minutes: 5
         run: |
           node scripts/orchestrate.mjs install example-courses
           npm --prefix examples/courses run proof:local
@@ -227,67 +274,10 @@ jobs:
     name: API / learner journeys on WebKit and Firefox
     needs: audit
     runs-on: ubuntu-24.04
-    # Measured: about 12-15 min (the suite alone is 9.5-12.5 min). 30 min is 2x headroom.
-    timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_DB: course_core_ci
-          POSTGRES_USER: course_ci
-          # Public disposable CI credential, never an application credential.
-          POSTGRES_PASSWORD: course_ci_test_only
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U course_ci -d course_core_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          submodules: false
-          lfs: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '26'
-          package-manager-cache: false
-      # install api installs and builds the API, all local prerequisites (sandbox included)
-      # and the learner export and administration build it serves.
-      - run: node scripts/orchestrate.mjs install api
-      # Jobs have separate Docker stores; the browser host refuses to start without the
-      # qualified image, so each job prepares the same pin on its own runner.
-      - name: Prepare the qualified Python image for API practical tests
-        env:
-          SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: npm run sandbox:pull
-      - name: Require the same real learner journeys on WebKit (desktop, iPhone, iPad) and Firefox
-        working-directory: services/api
-        run: |
-          node node_modules/@playwright/test/cli.js install --with-deps webkit firefox
-          node ../../scripts/test-skips.mjs -- node node_modules/@playwright/test/cli.js test -c playwright.engines.config.ts --forbid-only
-      - name: Retain disposable-database browser failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: connected-learner-browser-failure-engines
-          path: |
-            services/api/test-results/
-            services/api/playwright-report/
-          retention-days: 3
-          if-no-files-found: ignore
-          include-hidden-files: false
-
-  api-connected:
-    name: API / learner-owned and administration connected flows
-    needs: audit
-    runs-on: ubuntu-24.04
-    # Measured: 23-27 min on main after wave 2, about 31 min with wave 3's connected and real
-    # specs (learner Chromium 6 min, WebKit 9 min, admin real-server about 13 min). 45 min keeps headroom.
+    # Measured over 32 recent runs (Oct 2026): 12-19 min (median 16); the suite 9.5-15.5 min.
+    # A runner whose apt mirror sent 117 MB at 96 kB/s spent 21 of its 30 minutes installing
+    # WebKit's and Firefox's packages; the cache and the step budgets keep setup from eating
+    # the suite's time. 19 min plus a 21-minute full miss: 45.
     timeout-minutes: 45
     services:
       postgres:
@@ -319,26 +309,156 @@ jobs:
       # install api installs and builds the API, all local prerequisites (sandbox included)
       # and the learner export and administration build it serves.
       - run: node scripts/orchestrate.mjs install api
+        timeout-minutes: 8
       # Jobs have separate Docker stores; the browser host refuses to start without the
       # qualified image, so each job prepares the same pin on its own runner.
       - name: Prepare the qualified Python image for API practical tests
+        timeout-minutes: 5
         env:
           SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: npm run sandbox:pull
-      - name: Require learner-owned connected flows at phone, tablet and desktop sizes
+      - name: Name the browser and system package cache
+        id: browser-cache
+        run: node scripts/browser-cache.mjs key api-engines api
+      # A slow cache download is abandoned after 3 minutes per 128 MB segment and the job
+      # continues as a cache miss; the step budget covers unpacking on a slow disk.
+      - name: Restore cached browsers and system packages
+        id: browser-cache-restore
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '3'
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
+          restore-keys: ${{ steps.browser-cache.outputs.restore-keys }}
+      - name: Install WebKit and Firefox with their system packages
+        # 10 minutes when the restore found an entry; 25 for a full miss, which downloads every package.
+        timeout-minutes: ${{ steps.browser-cache-restore.outputs.cache-hit != '' && 10 || 25 }}
+        working-directory: services/api
         run: |
+          node ../../scripts/browser-cache.mjs apt-restore
+          node node_modules/@playwright/test/cli.js install --with-deps webkit firefox
+          node ../../scripts/browser-cache.mjs apt-collect
+      - name: Save the browser and system package cache for later runs
+        if: steps.browser-cache-restore.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
+      - name: Require the same real learner journeys on WebKit (desktop, iPhone, iPad) and Firefox
+        timeout-minutes: 25
+        working-directory: services/api
+        run: node ../../scripts/test-skips.mjs -- node node_modules/@playwright/test/cli.js test -c playwright.engines.config.ts --forbid-only
+      - name: Retain disposable-database browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: connected-learner-browser-failure-engines
+          path: |
+            services/api/test-results/
+            services/api/playwright-report/
+          retention-days: 3
+          if-no-files-found: ignore
+          include-hidden-files: false
+
+  api-connected:
+    name: API / learner-owned and administration connected flows
+    needs: audit
+    runs-on: ubuntu-24.04
+    # Measured over 23 recent runs (Oct 2026): 29-45 min (median 38); learner Chromium 8.5-12
+    # min, learner WebKit 9.5-15.5 min, administration 10-15.5 min. The former 45-minute limit
+    # left no headroom. Each suite has its own budget; 45 min plus a 21-minute full miss: 70.
+    timeout-minutes: 70
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: course_core_ci
+          POSTGRES_USER: course_ci
+          # Public disposable CI credential, never an application credential.
+          POSTGRES_PASSWORD: course_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U course_ci -d course_core_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      # install api installs and builds the API, all local prerequisites (sandbox included)
+      # and the learner export and administration build it serves.
+      - run: node scripts/orchestrate.mjs install api
+        timeout-minutes: 8
+      # Jobs have separate Docker stores; the browser host refuses to start without the
+      # qualified image, so each job prepares the same pin on its own runner.
+      - name: Prepare the qualified Python image for API practical tests
+        timeout-minutes: 5
+        env:
+          SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: npm run sandbox:pull
+      - name: Name the browser and system package cache
+        id: browser-cache
+        run: node scripts/browser-cache.mjs key api-connected learner admin
+      # A slow cache download is abandoned after 3 minutes per 128 MB segment and the job
+      # continues as a cache miss; the step budget covers unpacking on a slow disk.
+      - name: Restore cached browsers and system packages
+        id: browser-cache-restore
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '3'
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
+          restore-keys: ${{ steps.browser-cache.outputs.restore-keys }}
+      # Both apps lock the same Playwright, so learner's Chromium and WebKit serve administration too.
+      - name: Install Chromium and WebKit with their system packages
+        # 10 minutes when the restore found an entry; 25 for a full miss, which downloads every package.
+        timeout-minutes: ${{ steps.browser-cache-restore.outputs.cache-hit != '' && 10 || 25 }}
+        run: |
+          node scripts/browser-cache.mjs apt-restore
           node scripts/orchestrate.mjs browsers learner --with-deps
-          node scripts/test-skips.mjs -- npm --prefix apps/learner run test:connected -- --forbid-only
+          node scripts/orchestrate.mjs browsers admin
+          node scripts/browser-cache.mjs apt-collect
+      - name: Save the browser and system package cache for later runs
+        if: steps.browser-cache-restore.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
+      - name: Require learner-owned connected flows at phone, tablet and desktop sizes
+        timeout-minutes: 20
+        run: node scripts/test-skips.mjs -- npm --prefix apps/learner run test:connected -- --forbid-only
       - name: Require learner-owned connected flows on WebKit (desktop, iPhone, iPad)
+        timeout-minutes: 25
         working-directory: apps/learner
-        run: |
-          node node_modules/@playwright/test/cli.js install --with-deps webkit
-          node ../../scripts/test-skips.mjs -- npm run test:connected:webkit -- --forbid-only
+        run: node ../../scripts/test-skips.mjs -- npm run test:connected:webkit -- --forbid-only
       # install api already installed and built administration against the fresh visuals build.
       - name: Require real administration browser and PostgreSQL workflows
-        run: |
-          node scripts/orchestrate.mjs browsers admin
-          node scripts/test-skips.mjs -- npm --prefix apps/admin run test:real
+        timeout-minutes: 25
+        run: node scripts/test-skips.mjs -- npm --prefix apps/admin run test:real
       - name: Retain disposable-database browser failure diagnostics
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -379,7 +499,10 @@ jobs:
     name: Browser / ${{ matrix.app }}
     needs: audit
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Measured over 30+ recent runs per app (Oct 2026): 1.5-8 min, checks 1-6.5 min; one
+    # learner run spent 25.5 min downloading Chromium's and WebKit's Ubuntu packages.
+    # 8 min plus a 21-minute full miss: 35.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -397,9 +520,44 @@ jobs:
           node-version: '26'
           package-manager-cache: false
       - run: node scripts/orchestrate.mjs install "$TARGET"
-      - run: node scripts/orchestrate.mjs browsers "$TARGET" --with-deps
+        timeout-minutes: 8
+      # After install: visuals keeps its browsers in its own node_modules, which npm ci replaces.
+      - name: Name the browser and system package cache
+        id: browser-cache
+        run: node scripts/browser-cache.mjs key "web-$TARGET" "$TARGET"
+      # A slow cache download is abandoned after 3 minutes per 128 MB segment and the job
+      # continues as a cache miss; the step budget covers unpacking on a slow disk.
+      - name: Restore cached browsers and system packages
+        id: browser-cache-restore
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '3'
+        with:
+          path: |
+            ${{ matrix.app == 'visuals' && 'packages/visuals/node_modules/.cache/ms-playwright' || '~/.cache/ms-playwright' }}
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
+          restore-keys: ${{ steps.browser-cache.outputs.restore-keys }}
+      - name: Install the app's browsers with their system packages
+        # 10 minutes when the restore found an entry; 25 for a full miss, which downloads every package.
+        timeout-minutes: ${{ steps.browser-cache-restore.outputs.cache-hit != '' && 10 || 25 }}
+        run: |
+          node scripts/browser-cache.mjs apt-restore
+          node scripts/orchestrate.mjs browsers "$TARGET" --with-deps
+          node scripts/browser-cache.mjs apt-collect
+      - name: Save the browser and system package cache for later runs
+        if: steps.browser-cache-restore.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ matrix.app == 'visuals' && 'packages/visuals/node_modules/.cache/ms-playwright' || '~/.cache/ms-playwright' }}
+            ~/.cache/course-ci/apt-archives
+          key: ${{ steps.browser-cache.outputs.key }}
       # A single command builds/exports before browser tests and owns the checkout lock.
       - run: node scripts/orchestrate.mjs check "$TARGET"
+        timeout-minutes: 15
       - name: Retain public-demo browser failure diagnostics
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
