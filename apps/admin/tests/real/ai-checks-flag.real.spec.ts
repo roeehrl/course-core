@@ -106,6 +106,13 @@ test("the AI services page flags the job with its own Run check; the route refus
   await expect(check).toContainText(
     "Learner tutor — public-text-model · Checked",
   );
+  // The result shows once (it used to show again under "Run the quality check").
+  await expect(check.getByText(/Learner tutor: passed all \d+/)).toHaveCount(1);
+  await check.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: info.outputPath("ai-services-job-checked.png"),
+    fullPage: true,
+  });
 
   // The route refuses a job that no longer needs a check, and an unknown job.
   const workspaces = await (
