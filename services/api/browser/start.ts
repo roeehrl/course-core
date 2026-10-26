@@ -769,6 +769,43 @@ app.post("/test/gates-session", async () => {
   if (published.statusCode !== 200) throw Error("Gate fixture publication failed: " + published.body);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
 });
+// A workspace whose first lesson's checkpoint offers a run of choice checks with long, wrapping
+// options (as real courses have), then a numeric one: for presses that land right after a check
+// appears or on an option partly under the sticky answer actions (press-after-render.spec.ts).
+app.post("/test/quick-answer-session", async (request) => {
+  const items = Number((request.body as { items?: number } | undefined)?.items ?? 8);
+  if (!Number.isInteger(items) || items < 1 || items > 40) throw Error("1 to 40 choice checks");
+  const workspace = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "quick-" + workspace, "Quick answers browser workspace"]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "quick-browser:" + ids[role], role === "owner" ? "Owner" : "Quick learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ids.owner!) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const course = fixture();
+  course.id = "quick-answers";
+  course.title = "Quick answers";
+  const checks = Array.from({ length: items }, (_, i) => `tap-${i + 1}`);
+  course.assessments.push(...checks.map((id, i) => ({
+    id, type: "choice" as const, objectiveIds: ["minimum"], familyId: "compare",
+    prompt: `Check ${i + 1}: which statement about the minimum of ${i + 3} and ${i + 30} is right?`,
+    options: [
+      { id: "larger", text: `${i + 30} is the minimum, because the value read last in a list always replaces the values read before it.` },
+      { id: "equal", text: `Neither is the minimum: two different values compared with each other are always treated as equal.` },
+      { id: "smaller", text: `${i + 3} is the minimum: it is no greater than any other member, so a running minimum keeps it once it is read.` },
+    ],
+    grading: { correctOptionId: "smaller", explanation: `${i + 3} is below ${i + 30}.` },
+  })));
+  // The choice checks share one item family; the numeric check after them is the second.
+  course.gates[0] = { id: "min-gate", objectiveIds: ["minimum"], assessmentIds: [...checks, "min-b"], minimumIndependentFamilies: 2, requireAllObjectives: true };
+  const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: course })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
+  if (published.statusCode !== 200) throw Error("Quick answer fixture publication failed: " + published.body);
+  return { token: await issueLoginCode(db, ids.learner!) };
+});
 // A workspace whose first lesson has a declarative activity (judged by a synthetic registered
 // evaluator) and a sandboxed web activity that probes its own sandbox.
 app.post("/test/activity-session", async () => {

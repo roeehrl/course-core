@@ -5,9 +5,10 @@ import { act, fireEvent } from "@testing-library/react";
 // passive effect, after the render that shows them has committed. A render that does not come from
 // an event (a request that settles, a timer) commits from React's scheduler, which then yields
 // before running those effects as a separate task. Between the two, the page already shows the new
-// button while its click handler still holds the old `disabled` and `onPress`. A person cannot press
-// inside that gap, but a test can: `waitFor` and `findBy*` resolve on the DOM change, and a
-// synchronous `fireEvent.click` straight after them can reach the old handler and be dropped.
+// button while its click handler still holds the old `disabled` and `onPress`. On a busy phone a
+// learner's tap can land there too, so the app's own controls no longer use Pressable on web
+// (components/LivePressable.tsx; tests/pressRightAfterRender.test.tsx). A test still presses right
+// after `waitFor` and `findBy*`, which resolve on the DOM change; this lets React finish first.
 //
 // The scheduler is the one react-dom loads: both resolve it from this app's node_modules.
 const scheduler = createRequire(import.meta.url)("scheduler") as {

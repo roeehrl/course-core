@@ -1217,7 +1217,9 @@
     "I01": [
       "core:apps/learner/tests/connected-web/option-tap.spec.ts::tapping an answer option always selects it",
       "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane",
-      "core:apps/learner/tests/windowClass.test.ts"
+      "core:apps/learner/tests/pressRightAfterRender.test.tsx::takes a press on an option the moment it is shown unlocked",
+      "core:apps/learner/tests/windowClass.test.ts",
+      "core:services/api/browser/press-after-render.spec.ts::a tap on an option the moment a check appears always chooses it"
     ],
     "P15": [
       "core:apps/learner/tests/connected-web/study.spec.ts::in a study that asked for usability timings",
