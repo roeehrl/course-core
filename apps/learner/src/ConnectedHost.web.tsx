@@ -68,6 +68,7 @@ import {
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
+import { keepFocusClearOfAnswerActions } from "./connected/focusClear";
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn, useSlow } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
 import { keepLessonPlace, PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
@@ -563,24 +564,18 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     const scrolled = () => {
       lessonPlace.current.top = scroller()?.scrollTop ?? window.scrollY;
     };
-    const focused = (event: FocusEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest?.(".connected-lesson-keeper")) return;
-      lessonPlace.current.focus = target;
-      // Focus Not Obscured: a focused control behind the sticky answer actions
-      // (or the sticky header) is scrolled clear of them.
-      const bar = document.querySelector<HTMLElement>(".connected-answer-actions");
-      if (!bar || bar.contains(target)) return;
-      const box = target.getBoundingClientRect(), cover = bar.getBoundingClientRect();
-      const behindBar = box.bottom > cover.top && box.top < cover.bottom;
-      if (behindBar) (scroller() ?? window).scrollBy?.({ top: box.bottom - cover.top + 12, behavior: "instant" });
-    };
     scrolled();
     document.addEventListener("scroll", scrolled, { capture: true, passive: true });
-    document.addEventListener("focusin", focused);
+    // Keyboard and script focus is kept clear of the sticky answer actions; a press's is not moved.
+    const stopKeepingClear = keepFocusClearOfAnswerActions(
+      () => scroller() ?? window,
+      (target) => {
+        lessonPlace.current.focus = target;
+      },
+    );
     return () => {
       document.removeEventListener("scroll", scrolled, { capture: true });
-      document.removeEventListener("focusin", focused);
+      stopKeepingClear();
     };
   }, [learning, wide]);
   const previousView = useRef(view);

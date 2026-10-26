@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
+import { LivePressable } from "./LivePressable";
 import { MEMORY_ACCESSIBILITY, MEMORY_DEPTH, MEMORY_EXPERIENCE, type MemoryProfile } from "../client/memoryClient";
 import { ChoiceList, Field, Notice, styles } from "./ui";
 import { useT, type MessageKey } from "../i18n";
@@ -88,7 +89,7 @@ export function DeclaredProfileFields({ draft, disabled, onChange, onValidity }:
         {MEMORY_ACCESSIBILITY.map((need) => {
           const checked = needs.includes(need);
           return (
-            <Pressable
+            <LivePressable
               key={need}
               accessibilityRole="checkbox"
               accessibilityLabel={t(`profileDetails.accessibility.${need}` as MessageKey)}
@@ -103,7 +104,7 @@ export function DeclaredProfileFields({ draft, disabled, onChange, onValidity }:
             >
               <Text aria-hidden style={styles.body}>{checked ? "☑" : "☐"}</Text>
               <Text style={styles.body}>{t(`profileDetails.accessibility.${need}` as MessageKey)}</Text>
-            </Pressable>
+            </LivePressable>
           );
         })}
       </View>

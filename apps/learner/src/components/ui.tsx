@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useI18n } from "../i18n";
+import { LivePressable } from "./LivePressable";
 import {
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -168,8 +168,9 @@ export function Button({
 }) {
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // LivePressable: a press right after this button is enabled (or given a new action) is taken.
   return (
-    <Pressable
+    <LivePressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
@@ -224,7 +225,7 @@ export function Button({
       >
         {label}
       </Text>
-    </Pressable>
+    </LivePressable>
   );
 }
 /** An inert block with a one-line Button's box, kept in the layout while the
@@ -482,7 +483,7 @@ function Choice({
         }
       : {};
   return (
-    <Pressable
+    <LivePressable
       {...keyboardProps}
       accessibilityRole="radio"
       accessibilityLabel={option.label}
@@ -538,6 +539,6 @@ function Choice({
       >
         {option.label}
       </Text>
-    </Pressable>
+    </LivePressable>
   );
 }
