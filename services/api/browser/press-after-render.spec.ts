@@ -102,11 +102,17 @@ test("a tap on an option the moment a check appears always chooses it, also just
       await option.click();
     }
     if (point.name !== options(n)[2]) await page.getByRole("radio", { name: options(n)[2], exact: true }).click();
+    // "Check answer" is pressed as soon as it is enabled; that press must send the answer too.
+    const sent = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/answers"), { timeout: 10_000 }).then(() => true, () => false);
     await page.getByRole("button", { name: "Check answer", exact: true }).click();
-    await expect(start).toBeVisible();
+    if (!(await sent)) {
+      lost.push(`check ${n}: "Check answer" sent nothing`);
+      await page.getByRole("button", { name: "Check answer", exact: true }).click();
+    }
+    await expect(start).toBeVisible({ timeout: 15_000 });
   }
   info.annotations.push({ type: "ms from an option appearing to the tap", description: delays.join(", ") });
-  expect(lost, `taps lost: ${lost.length} of ${CHECKS}`).toEqual([]);
+  expect(lost, `presses lost: ${lost.length} of ${CHECKS * 2}`).toEqual([]);
   expect(errors).toEqual([]);
 });
 
