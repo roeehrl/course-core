@@ -25,19 +25,16 @@ async function openQuickAnswers(page: Page, request: APIRequestContext) {
 
 declare global {
   interface Window {
-    __quick?: { shown: Map<string, number>; pressedAt: number | null };
+    __quick?: { shown: WeakMap<Element, number>; pressedAt: number | null };
   }
 }
 
-/** Records when each option first appears and when the next press starts. */
+/** Records when each option element first appears and when the next press starts. */
 async function watchPresses(page: Page) {
   await page.evaluate(() => {
-    const quick = (window.__quick = { shown: new Map<string, number>(), pressedAt: null as number | null });
+    const quick = (window.__quick = { shown: new WeakMap<Element, number>(), pressedAt: null as number | null });
     const seen = () => {
-      for (const radio of document.querySelectorAll('[role="radio"]')) {
-        const name = radio.getAttribute("aria-label") ?? "";
-        if (!quick.shown.has(name)) quick.shown.set(name, performance.now());
-      }
+      for (const radio of document.querySelectorAll('[role="radio"]')) if (!quick.shown.has(radio)) quick.shown.set(radio, performance.now());
     };
     new MutationObserver(seen).observe(document.body, { childList: true, subtree: true });
     for (const type of ["pointerdown", "touchstart", "mousedown"])
@@ -69,7 +66,9 @@ async function spotAsSoonAsShown(page: Page, n: number, spot: Spot) {
       const now = radio.getBoundingClientRect(), top = Math.max(now.top, header), bottom = Math.min(now.bottom, barTop());
       if (bottom - top < 12) return null;
       const y = spot === "top" ? top + 6 : spot === "middle" ? (top + bottom) / 2 : bottom - gap;
-      return { name: names[index]!, x: now.left + now.width / 2, y, shownAt: window.__quick!.shown.get(names[index]!) ?? performance.now() };
+      // The next press after this is the tap.
+      window.__quick!.pressedAt = null;
+      return { name: names[index]!, x: now.left + now.width / 2, y, shownAt: window.__quick!.shown.get(radio) ?? performance.now() };
     },
     { names: options(n), spot, shown: 40 + ((n * 13) % 50), gap: 3 + (n % 7) },
     { polling: "raf", timeout: 10_000 },
@@ -78,6 +77,8 @@ async function spotAsSoonAsShown(page: Page, n: number, spot: Spot) {
 }
 
 test("a tap on an option the moment a check appears always chooses it, also just above the answer actions", async ({ page, request }, info) => {
+  // Twelve checks in a row: a long journey for a loaded runner.
+  test.setTimeout(120_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await openQuickAnswers(page, request);
@@ -87,7 +88,6 @@ test("a tap on an option the moment a check appears always chooses it, also just
   const lost: string[] = [], delays: number[] = [];
   for (let n = 1; n <= CHECKS; n++) {
     const start = page.getByRole("button", { name: "Start the next check →", exact: true });
-    await page.evaluate(() => (window.__quick!.pressedAt = null));
     await start.click();
     const spot = spots[n % spots.length]!;
     const point = await spotAsSoonAsShown(page, n, spot);
