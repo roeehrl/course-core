@@ -6,11 +6,12 @@ import { runRefSchema, type Snapshot } from '@course-core/supervisor';
 import type { authService } from './auth.js';
 import { workspaceRole } from './course-access.js';
 import type { Database } from './database.js';
-import { afterCommitTransaction } from './after-commit.js';
+import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { digestJson } from './repository.js';
-import { transitionWithin } from './supervisor-bridge.js';
+import { lockPaidWorkBudgets, releasePaidWork, transitionWithin } from './supervisor-bridge.js';
+import { recordSpendEvents } from './provider-costs.js';
 
 /**
  * AI calls whose cost stayed unknown, and the owner's explicit, audited decision on each
@@ -30,19 +31,28 @@ import { transitionWithin } from './supervisor-bridge.js';
  * The ledger row is then closed, still `uncertain` (the provider's outcome is still unknown), the
  * decision is stored (provider_spend_resolutions, migration 121) and written to the workspace
  * audit log (`provider.spend_settled`). Nothing is ever settled without that request.
+ *
+ * A check-judge call that was sent but never answered (provider-gateway.ts judgeSettlement) is held
+ * the same way, but only its own part: its operation succeeded (the learner got Core's coaching
+ * message), the reply's call is priced, and the judge's ceiling for that request stays charged
+ * (`judge_held_micro_usd`, migration 124). Once the job has ended, the owner settles that amount:
+ * at zero (it is released to the budgets and the row becomes reconciled at the priced reply) or at
+ * the amount held (it stays charged).
  */
 const SETTLE_AFTER_MS = 10 * 60_000;
+/** Job states after which nothing settles or changes the job's accounting. */
+const ENDED = ['applied', 'failed', 'cancelled'];
 const MAX_LISTED = 100;
-type Happened = 'no_response' | 'stopped' | 'stalled' | 'service_error' | 'no_receipt';
+type Happened = 'no_response' | 'stopped' | 'stalled' | 'service_error' | 'no_receipt' | 'check_judge_no_answer';
 interface Row {
   id: string; reserved_at: Date; role: string; reserved: string; operation_id: string; attempt: number; enrollment_id: string | null;
   job_id: string | null; job_state: string | null; generation: number | null; op: Snapshot['operations'][number] | null;
   dispatch_state: string | null; dispatch_owner: string | null; failure_code: string | null; provider_usage: unknown; model_id: string | null;
-  finished_at: Date | null; now: Date;
+  finished_at: Date | null; now: Date; judge_held: string | null;
 }
 /** Open uncertain calls of runs Core still holds (their job and operation are recorded). The
  * spending view's "held" total also counts any other open reservation. */
-const SELECT = `SELECT l.id,l.reserved_at,l.role,l.reserved_micro_usd::text AS reserved,l.source_ref AS operation_id,l.attempt,l.enrollment_id,
+const SELECT = `SELECT l.id,l.reserved_at,l.role,COALESCE(l.judge_held_micro_usd,l.reserved_micro_usd)::text AS reserved,l.judge_held_micro_usd::text AS judge_held,l.source_ref AS operation_id,l.attempt,l.enrollment_id,
     j.id AS job_id,j.state AS job_state,(j.runtime_snapshot->>'generation')::integer AS generation,o.value AS op,
     d.state AS dispatch_state,d.owner_id::text AS dispatch_owner,d.failure_code,d.provider_usage,COALESCE(d.model_id,l.model_id) AS model_id,d.finished_at,
     clock_timestamp() AS now
@@ -55,6 +65,7 @@ const SELECT = `SELECT l.id,l.reserved_at,l.role,l.reserved_micro_usd::text AS r
 
 /** What happened to the call, from the gateway receipt: codes only, never provider text. */
 function happened(row: Row): Happened {
+  if (row.judge_held !== null) return 'check_judge_no_answer';
   if (!row.dispatch_state) return 'no_receipt';
   if (row.failure_code === 'JOB_CANCELLED') return 'stopped';
   if (row.failure_code === 'STREAM_STALLED') return 'stalled';
@@ -68,6 +79,10 @@ function happened(row: Row): Happened {
  * gateway receipt is final and uncertain, or there is none and the run's last step is long past. */
 function settleable(row: Row) {
   const op = row.op;
+  // A held judge part: its operation succeeded with a final receipt, and its job has ended, so
+  // nothing will change the job's accounting again.
+  if (row.judge_held !== null) return Boolean(row.job_id && op && op.status === 'succeeded' && op.attempt === row.attempt && row.generation !== null
+    && row.dispatch_state === 'completed' && row.dispatch_owner === op.ownerId && row.finished_at !== null && ENDED.includes(row.job_state ?? ''));
   if (!row.job_id || !op || op.status !== 'uncertain' || op.attempt !== row.attempt || row.generation === null) return false;
   if (!row.dispatch_state) return row.now.getTime() - row.reserved_at.getTime() >= SETTLE_AFTER_MS;
   return row.dispatch_state === 'uncertain' && row.dispatch_owner === op.ownerId && row.finished_at !== null;
@@ -136,7 +151,25 @@ export function registerProviderSpendResolutionRoutes(app: FastifyInstance, db: 
       requireCondition(settleable(row), 'PROVIDER_SPEND_STILL_SETTLING', 409);
       const reserved = Number(row.reserved), op = row.op!;
       const ref = runRefSchema.parse({ jobId: row.job_id, workspaceId, enrollmentId: row.enrollment_id, generation: row.generation });
-      if (input.decision === 'zero') {
+      if (row.judge_held !== null) {
+        // Only the judge's held part is decided; the reply's priced call stays as it is. Lock order
+        // as everywhere: enrollment -> job -> workspace budget -> enrollment budget.
+        await client.query('SELECT 1 FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE', [row.enrollment_id, workspaceId]);
+        await lockJob(client, ref.jobId);
+        if (input.decision === 'zero') {
+          await lockPaidWorkBudgets(client, { workspaceId, enrollmentId: row.enrollment_id! });
+          const closed = await client.query(`UPDATE provider_spend_ledger SET state='reconciled',charged_micro_usd=charged_micro_usd-$2,released_micro_usd=released_micro_usd+$2,
+              actual_micro_usd=charged_micro_usd-$2,settled_at=clock_timestamp() WHERE id=$1 AND state='uncertain' AND settled_at IS NULL AND judge_held_micro_usd=$2`, [ledgerId, reserved]);
+          requireCondition(closed.rowCount === 1, 'PROVIDER_SPEND_STILL_SETTLING', 409);
+          await releasePaidWork(client, { workspaceId, enrollmentId: row.enrollment_id! }, reserved);
+          await client.query('UPDATE supervisor_job_spend SET micro_usd=GREATEST(0,micro_usd-$2) WHERE job_id=$1', [ref.jobId, reserved]);
+          onCommit(client, () => recordSpendEvents([{ kind: 'released', role: row.role, microUsd: reserved, modelId: row.model_id, basis: 'reported' }]));
+        } else {
+          const closed = await client.query(`UPDATE provider_spend_ledger SET settled_at=clock_timestamp() WHERE id=$1 AND state='uncertain' AND settled_at IS NULL
+            AND judge_held_micro_usd=$2`, [ledgerId, reserved]);
+          requireCondition(closed.rowCount === 1, 'PROVIDER_SPEND_STILL_SETTLING', 409);
+        }
+      } else if (input.decision === 'zero') {
         // The job's own settle transition (under its locks, in the canonical order) releases the
         // reservation from both budgets and the job's spend; the ledger row it closes as a
         // non-start is relabelled below, since the provider's outcome is still unknown.

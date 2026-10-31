@@ -30,5 +30,6 @@
   "job.withheld": "Reply withheld · it gave away the answer to one of the course's checks · a hint without the answer follows",
   "job.interrupted": "The reply stopped part way through · nothing of it was kept",
   "job.notShown": "Reply not shown · it did not pass the checks, so nothing of it was kept",
-  "job.withdrawn": "Reply not shown · nothing of it was kept"
+  "job.withdrawn": "Reply not shown · nothing of it was kept",
+  "job.unverified": "Reply not shown · it could not be checked against the course's checks, so it was not kept · a hint without the answer follows"
 }

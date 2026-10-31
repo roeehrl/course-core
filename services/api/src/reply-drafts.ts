@@ -29,8 +29,10 @@ const MAX_LISTENERS_PER_ENROLLMENT = 16;
 
 export type DraftState = 'streaming' | 'complete' | 'withdrawn' | 'cancelled';
 /** Why a draft was withdrawn; codes only, translated by the app. `check_answer_withheld`: the reply
- * gave away a graded check's answer (companion-check-integrity.ts); Core's coaching message follows. */
-export type DraftReason = 'output_too_large' | 'provider_refused' | 'provider_failed' | 'output_refused' | 'check_answer_withheld';
+ * gave away a graded check's answer (companion-check-integrity.ts); `check_unverified`: it could not
+ * be checked (the judge gave no verdict, or a check's key is missing), so it was not kept either.
+ * Core's coaching message follows both. */
+export type DraftReason = 'output_too_large' | 'provider_refused' | 'provider_failed' | 'output_refused' | 'check_answer_withheld' | 'check_unverified';
 /** One frame for the learner's stream: `text` replaces whatever the client holds from `offset` on.
  * `checking`: the reply is in check-coaching mode (companion-check-integrity.ts): it streams into a
  * hidden buffer and no text of it is ever sent; the app says the reply is being checked. */

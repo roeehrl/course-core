@@ -42,6 +42,7 @@ import { supervisionSettingsWithin } from './supervision-settings.js';
 import { automaticHypothesesEnabled } from './teaching-hypotheses.js';
 import { effectiveLearnerLimit } from './learner-limit.js';
 import { COMPANION_RETRY_EVENT } from './closure.js';
+import { questionCheckCoaching } from './companion-check-scope.js';
 
 /** A staff retry of one ended supervisor run (scoped-corrections.ts): prepared into its own new run. */
 export const RETRY_EVENT = 'supervisor.run_retry_requested';
@@ -71,7 +72,9 @@ export interface SupervisorBridgeOptions {
    * installed deterministic evaluator may confirm it (conversation-confirmation.ts). */
   confirmRubricSuggestion?:(client:PoolClient,ref:RunRef,suggestion:RubricSuggestion,suggestionId:string)=>Promise<void>;
   /** `roleAllowances`: a role's reservation sized from its limits and price (role-reservation.ts), in place of the policy allowance. */
-  providerBinding?:(client:PoolClient,workspaceId:string)=>Promise<{revision:number;jobPolicy:SupervisorJobPolicy;roleAllowances?:Partial<Record<string,{microUsd:number;tokens:number}>>}|null>;
+  providerBinding?:(client:PoolClient,workspaceId:string)=>Promise<{revision:number;jobPolicy:SupervisorJobPolicy;roleAllowances?:Partial<Record<string,{microUsd:number;tokens:number}>>;
+    /** A companion question in check-coaching mode: its own call and one check-judge call (role-reservation.ts companionReservation). */
+    checkModeAllowance?:{microUsd:number;tokens:number}}|null>;
 }
 interface Settings {
   workspaces: string[]; allowance: { microUsd: number; tokens: number };
@@ -127,6 +130,16 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
     // Navigation (reading, switching episode, asking) is not a context change: see migration 053.
     fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision - enrollment.navigation_revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
+}
+/** Whether a companion question being prepared is in check-coaching mode (companion-check-scope.ts). */
+async function companionQuestionInCheckMode(client: PoolClient, c: Current, context: SupervisorInputContext) {
+  const release = (await client.query<{ digest: string; server_bundle: unknown }>('SELECT digest,server_bundle FROM course_releases WHERE id=$1 AND workspace_id=$2',
+    [c.enrollment.course_release_id, c.enrollment.workspace_id])).rows[0];
+  const message = (await client.query<{ content: string; created_at: Date }>("SELECT content,created_at FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner'",
+    [context.messageId, c.enrollment.id])).rows[0];
+  if (!release || !message || !context.episodeId) return false;
+  return Boolean(await questionCheckCoaching(client, { enrollmentId: c.enrollment.id, courseDigest: release.digest, course: release.server_bundle, episodeId: context.episodeId,
+    blockId: context.blockId ?? null, messageId: context.messageId!, question: message.content, before: message.created_at }));
 }
 /** After closure, completed or capped (a reached deadline or quota, status 'closed'), only the
  * companion may answer bounded explanatory questions, and only while the course policy keeps
@@ -284,6 +297,12 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
   if (next.state === 'budget_wait' && old.state !== 'budget_wait' && ceiling) await notifyStaffOfHeldWork(client, key.workspaceId);
   // A teaching action whose job stopped without delivering its change ends with the job's reason.
   if ((next.state === 'failed' || next.state === 'cancelled') && old.state !== next.state) await endActionsOfJob(client, key.jobId, next.reason ?? next.state);
+  // A companion question whose reply will not come (refused, failed, or a call that got no answer)
+  // tells the learner's event streams at commit, like an applied reply (`supervisor.applied`), so
+  // the app shows it at once instead of at its safety read. Ids and codes only.
+  if (next.specification.role === 'companion' && old.state !== next.state && (next.state === 'failed' || (next.state === 'waiting' && next.reason === 'provider_uncertain')))
+    await appendEvent(client, { workspaceId: key.workspaceId, enrollmentId: key.enrollmentId, actorKind: 'system', type: 'companion.job.changed',
+      payload: { jobId: key.jobId, state: next.state, reason: next.reason ?? null }, idempotencyKey: `companion-job-changed:${key.jobId}:${next.version}`, supervise: false });
 }
 
 /** `withheld`: the model's reply gave away a graded check's answer and was not kept; `text` is Core's
@@ -626,7 +645,13 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     }
     if (disposition === 'prepared') {
       const policy=binding?.jobPolicy;
-      const admission=policy?{allowance:binding?.roleAllowances?.[role]??policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
+      // A companion question in check-coaching mode also reserves its check judge's call; an
+      // ordinary question holds only its own (companion-check-scope.ts, the same match the
+      // teaching context makes when the call is assembled).
+      const checkMode = role === 'companion' && binding?.checkModeAllowance && context.messageId
+        ? await companionQuestionInCheckMode(client, c, context) : false;
+      const sized = checkMode ? binding!.checkModeAllowance : binding?.roleAllowances?.[role];
+      const admission=policy?{allowance:sized??policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
       const ref = { jobId: randomUUID(), workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: 1 };
       // An action that builds new material gets a planner, concurrent alternative builders and an
       // evaluator that commits (design §4), when the workspace lets the supervisor apply changes.

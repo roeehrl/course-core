@@ -447,6 +447,11 @@
   font-size: 13px;
   line-height: 1.5;
 }
+/* What a broken quality-check rule means, under its count. */
+.ai-rule-explain {
+  display: block;
+  overflow-wrap: anywhere;
+}
 .ai-job {
   display: flex;
   flex-direction: column;

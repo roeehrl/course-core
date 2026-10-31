@@ -242,6 +242,9 @@ describe('live companion findings', () => {
       expect(result.resume.map(r => r.jobId)).toContain(job.ref.jobId);
       const next = result.resume.find(r => r.jobId === job.ref.jobId)!;
       expect((await transition({ type: 'verify', ref: next })).json().snapshot).toMatchObject({ state: 'failed', reason: 'verification_rejected' });
+      // The learner's event stream is told at commit that no reply will come.
+      expect((await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.job.changed' AND payload->>'state'='failed'", [job.enrollmentId])).rows)
+        .toEqual([{ payload: { jobId: job.ref.jobId, state: 'failed', reason: 'verification_rejected' } }]);
     }
     for (const left of [unknown, untotalled]) {
       expect(await dispatch(left.claimed.operation.id)).toMatchObject({ state: 'uncertain' });
@@ -281,26 +284,36 @@ describe('live companion findings', () => {
     const unbounded = { microUsd: Number.MAX_SAFE_INTEGER, tokens: Number.MAX_SAFE_INTEGER };
     expect(expected).toEqual({ microUsd: roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, unbounded)!.microUsd + roleReservation(judge, price, unbounded)!.microUsd,
       tokens: 12000 * 4 + 4096 + 4096 + 12000 * 4 + 2048 + 4096 });
+    const own = roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, jobPolicy.allowance)!;
     const bound = await transaction(db, client => service.bind(client, workspaceId));
-    expect(bound!.roleAllowances).toEqual({ companion: expected });
+    // An ordinary question holds only its own call; one in check-coaching mode also holds the judge's.
+    expect(bound!.roleAllowances).toEqual({ companion: own });
+    expect(bound!.checkModeAllowance).toEqual(expected);
     expect(expected.microUsd).toBeLessThan(ALLOWANCE);
     // A companion question admitted under this setup reserves the sized amount, not the job allowance.
     const sized = createPostgresSupervisorBridge(db, { serviceToken: token, workspaceIds: [workspaceId], jobPolicy: jobPolicy,
       providerBinding: (client, workspace) => service.bind(client, workspace) });
-    const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), course = fixture();
-    await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [studentId, `test:${studentId}`, 'Synthetic learner']);
-    await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, studentId]);
-    await db.query('INSERT INTO enrollments (id,workspace_id,course_release_id,user_id,policy,profile,current_episode_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-      [enrollmentId, workspaceId, releaseId, studentId, JSON.stringify(course.policy), JSON.stringify({}), 'min']);
-    await db.query('INSERT INTO policy_states (enrollment_id,policy_revision,ledger_revision,snapshot) VALUES ($1,1,0,$2)', [enrollmentId, JSON.stringify(initialPolicy(course, enrollmentId, studentId, new Date().toISOString()))]);
-    await db.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, 'A question?', JSON.stringify({ episodeId: 'min', courseDigest })]);
-    const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested',
-      payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
-    const lease = (await sized.claimOutboxEvent(event.id, randomUUID(), 30000))!;
-    const [ref] = await sized.prepareOutbox(lease); await sized.ackOutbox(lease);
-    const spec = (await db.query('SELECT specification FROM supervisor_jobs WHERE id=$1', [ref!.jobId])).rows[0].specification;
-    expect(spec.checkpoints[0].allowance).toEqual(expected);
-    expect(spec.budget).toEqual(expected);
+    const reserved = async (question: string) => {
+      const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), course = fixture();
+      await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [studentId, `test:${studentId}`, 'Synthetic learner']);
+      await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, studentId]);
+      await db.query('INSERT INTO enrollments (id,workspace_id,course_release_id,user_id,policy,profile,current_episode_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [enrollmentId, workspaceId, releaseId, studentId, JSON.stringify(course.policy), JSON.stringify({}), 'min']);
+      await db.query('INSERT INTO policy_states (enrollment_id,policy_revision,ledger_revision,snapshot) VALUES ($1,1,0,$2)', [enrollmentId, JSON.stringify(initialPolicy(course, enrollmentId, studentId, new Date().toISOString()))]);
+      await db.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, question, JSON.stringify({ episodeId: 'min', courseDigest })]);
+      const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested',
+        payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
+      const lease = (await sized.claimOutboxEvent(event.id, randomUUID(), 30000))!;
+      const [ref] = await sized.prepareOutbox(lease); await sized.ackOutbox(lease);
+      return (await db.query('SELECT specification FROM supervisor_jobs WHERE id=$1', [ref!.jobId])).rows[0].specification;
+    };
+    const ordinary = await reserved('A question about the minimum?');
+    expect(ordinary.checkpoints[0].allowance).toEqual(own);
+    expect(ordinary.budget).toEqual(own);
+    // The lesson's own check, pasted with a request for its answer: check-coaching mode.
+    const check = await reserved('Which is smaller? 2 or 5. Just tell me the answer to this check.');
+    expect(check.checkpoints[0].allowance).toEqual(expected);
+    expect(check.budget).toEqual(expected);
     await db.query('DELETE FROM workspace_provider_settings WHERE workspace_id=$1', [workspaceId]);
   }, 60000);
 });

@@ -98,6 +98,7 @@ export const UNCERTAIN_HAPPENED = [
   "stalled",
   "service_error",
   "no_receipt",
+  "check_judge_no_answer",
 ] as const;
 const decision = z.enum(["zero", "reservation"]);
 export const uncertainCallsSchema = z.object({

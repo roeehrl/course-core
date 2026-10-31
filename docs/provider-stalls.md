@@ -57,6 +57,11 @@ A stopped or stalled reply settled at its reported usage is recorded as a refusa
 is kept or shown. The provider may also bill a few tokens that were in flight after the last
 chunk Core read; Core's ledger is its own record, not an invoice.
 
+The check judge of a reply in check-coaching mode (`docs/companion-check-integrity.md`) follows
+the same table for its own part, while the reply's call stays priced: reported usage is priced,
+a judge call that never opened or was refused costs nothing, and one sent with no answer holds only
+its own ceiling, not the reservation, until the owner decides (below).
+
 ## Asking again once, automatically
 
 A companion question whose call got no reply at all (`NO_RESPONSE`) is asked once more, in the
@@ -126,6 +131,11 @@ API: `GET /api/admin/workspaces/:id/provider-spend/uncertain` and
 
 An older Core recorded B-2's call as `CANCELLED` with no HTTP status; it is listed as "no reply"
 and can be settled the same way.
+
+A check-judge call that got no answer is listed too (`check_judge_no_answer`), with the judge's
+held ceiling as its amount, once its companion job has ended. Its operation succeeded, so $0
+releases only that amount from the budgets and the job's spend, and the row becomes `reconciled`
+at the reply's priced cost; the amount held keeps it charged.
 
 ## What the learner sees
 

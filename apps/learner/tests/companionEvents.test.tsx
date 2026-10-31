@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   COMPANION_FALLBACK_POLL_MS,
   COMPANION_SAFETY_POLL_MS,
+  COMPANION_SETTLING_POLL_MS,
+  COMPANION_SETTLING_READS,
   useCompanionConversation,
 } from "../src/hooks/useCompanionConversation";
 import type { CompanionMessage, ContextualCompanionClient } from "../src/client/companionClient";
@@ -183,6 +185,46 @@ describe("companion conversation, event-driven", () => {
     expect(load).toHaveBeenCalledTimes(3);
     await act(async () => vi.advanceTimersByTimeAsync(COMPANION_SAFETY_POLL_MS));
     expect(load).toHaveBeenCalledTimes(4);
+    unmount();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("once a reply's draft ends or its check finishes, reads at the settling pace for a short while, then only the safety read", async () => {
+    const stream = fakeStream();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const load = vi.fn().mockResolvedValue([{ ...queued, job_state: "running" }]);
+    const client: ContextualCompanionClient = { load, send: vi.fn() };
+    const { unmount } = renderHook(() => useCompanionConversation(client, "e", false, 1));
+    await vi.waitFor(() => expect(stream.opened).toHaveLength(1));
+    await act(async () => {});
+    expect(load).toHaveBeenCalledTimes(1);
+    // A checking draft opens and is withdrawn (the reply was withheld): one read at once, and the
+    // stored hint (or what happened) is read again within seconds, not at the 30 s safety read.
+    const frame = (state: string, extra: object = {}) => `event: companion-draft\ndata: ${JSON.stringify({ jobId: "job", messageId: "q2", offset: 0, text: "", state, checking: true, ...extra })}\n\n`;
+    stream.opened[0]!.push(frame("streaming"));
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    stream.opened[0]!.push(frame("withdrawn", { reason: "check_answer_withheld" }));
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_SETTLING_POLL_MS + 50));
+    expect(load).toHaveBeenCalledTimes(4);
+    // Bounded: after its reads, the safety read again.
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_SETTLING_POLL_MS * COMPANION_SETTLING_READS));
+    const after = load.mock.calls.length;
+    expect(after).toBe(3 + COMPANION_SETTLING_READS);
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_SETTLING_POLL_MS * 3));
+    expect(load).toHaveBeenCalledTimes(after);
+    // The check-finished event (from the database, so from any API process) reads at once and
+    // starts the settling pace too, with no draft frame at all.
+    stream.opened[0]!.push(stream.event(7, "companion.reply.checked"));
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(after + 1));
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(COMPANION_SETTLING_POLL_MS + 50));
+    expect(load).toHaveBeenCalledTimes(after + 2);
+    // A failed companion job is an event as well.
+    stream.opened[0]!.push(stream.event(8, "companion.job.changed"));
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(after + 3));
     unmount();
     vi.useRealTimers();
     vi.unstubAllGlobals();
