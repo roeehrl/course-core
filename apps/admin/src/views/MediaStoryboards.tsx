@@ -448,6 +448,9 @@ function CreateStoryboardDialog({
         </fieldset>
         {draftWith === "model" ? (
           <div className="tag-row">
+            <Button onClick={onClose} disabled={pending}>
+              {t("mediaView.cancel")}
+            </Button>
             <Button
               kind="primary"
               disabled={pending || !valid}
@@ -456,9 +459,6 @@ function CreateStoryboardDialog({
               }
             >
               {t("mediaView.storyboards.draftButton")}
-            </Button>
-            <Button onClick={onClose} disabled={pending}>
-              {t("mediaView.cancel")}
             </Button>
           </div>
         ) : (
@@ -739,11 +739,11 @@ function ShotsEditor({
         >
           <Plus size={16} aria-hidden="true" /> {t("mediaView.shots.add")}
         </Button>
-        <Button kind="primary" type="submit" disabled={pending || !valid}>
-          {submitLabel}
-        </Button>
         <Button type="button" onClick={onCancel}>
           {t("mediaView.cancel")}
+        </Button>
+        <Button kind="primary" type="submit" disabled={pending || !valid}>
+          {submitLabel}
         </Button>
       </div>
     </form>

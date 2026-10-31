@@ -508,6 +508,12 @@ function HypothesisCard({
           />
           <View style={styles.row}>
             <Button
+              label={t("teachingHypothesesPanel.cancel")}
+              kind="quiet"
+              disabled={disabled}
+              onPress={close}
+            />
+            <Button
               label={t(
                 editing === "correct"
                   ? "teachingHypothesesPanel.saveCorrection"
@@ -533,12 +539,6 @@ function HypothesisCard({
                 );
                 if (ok) close();
               }}
-            />
-            <Button
-              label={t("teachingHypothesesPanel.cancel")}
-              kind="quiet"
-              disabled={disabled}
-              onPress={close}
             />
           </View>
         </View>

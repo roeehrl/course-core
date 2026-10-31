@@ -17,11 +17,11 @@ export function ChangedElsewhere({
     <Notice tone="gold" title={t("changedElsewhere.title")}>
       <p>{t("changedElsewhere.body")}</p>
       <div className="tag-row">
-        <Button type="button" disabled={disabled} onClick={onShowSaved}>
-          {t("changedElsewhere.showSaved")}
-        </Button>
         <Button type="button" kind="quiet" disabled={disabled} onClick={onKeep}>
           {t("changedElsewhere.keep")}
+        </Button>
+        <Button type="button" disabled={disabled} onClick={onShowSaved}>
+          {t("changedElsewhere.showSaved")}
         </Button>
       </div>
     </Notice>

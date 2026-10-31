@@ -880,6 +880,9 @@ function RequestDialog({
           </div>
         )}
         <div className="tag-row dialog-footer">
+          <Button type="button" onClick={onClose} disabled={pending}>
+            {t("mediaView.cancel")}
+          </Button>
           <Button kind="primary" type="submit" disabled={pending || !valid}>
             <Clapperboard size={16} aria-hidden="true" />{" "}
             {mode === "clip"
@@ -887,9 +890,6 @@ function RequestDialog({
               : mode === "image"
                 ? t("mediaView.request.submitImage")
                 : t("mediaView.request.submit")}
-          </Button>
-          <Button type="button" onClick={onClose} disabled={pending}>
-            {t("mediaView.cancel")}
           </Button>
         </div>
       </form>
@@ -1113,6 +1113,9 @@ function JobDialog({
           )}
           <Events job={job} />
           <div className="tag-row">
+            <Button onClick={onClose} disabled={command.pending}>
+              {t("mediaView.close")}
+            </Button>
             {job.attachment?.state === "active" &&
               library.permissions.review && (
                 <Button
@@ -1141,9 +1144,6 @@ function JobDialog({
                 {t("mediaView.job.cancel")}
               </Button>
             )}
-            <Button onClick={onClose} disabled={command.pending}>
-              {t("mediaView.close")}
-            </Button>
           </div>
           {revoking && job.attachment && (
             <RevokeForm
@@ -1576,15 +1576,15 @@ function RevokeForm({
         />
       </Field>
       <div className="tag-row dialog-footer">
+        <Button type="button" onClick={onCancel} disabled={pending}>
+          {t("mediaView.revoke.keep")}
+        </Button>
         <Button
           kind="danger"
           type="submit"
           disabled={pending || reason.trim().length < 10}
         >
           {t("mediaView.revoke.confirm")}
-        </Button>
-        <Button type="button" onClick={onCancel} disabled={pending}>
-          {t("mediaView.revoke.keep")}
         </Button>
       </div>
     </form>

@@ -317,6 +317,14 @@ export function UncertainCallsPanel({
                     <p className="ai-muted">{t("aiServices.unknown.final")}</p>
                     <div className="ai-actions ai-actions-start">
                       <button
+                        type="button"
+                        className="button secondary"
+                        disabled={saving}
+                        onClick={() => setOpen("")}
+                      >
+                        {t("aiServices.unknown.cancel")}
+                      </button>
+                      <button
                         type="submit"
                         className="button primary"
                         disabled={saving}
@@ -324,14 +332,6 @@ export function UncertainCallsPanel({
                         {saving
                           ? t("aiServices.unknown.saving")
                           : t("aiServices.unknown.save")}
-                      </button>
-                      <button
-                        type="button"
-                        className="button secondary"
-                        disabled={saving}
-                        onClick={() => setOpen("")}
-                      >
-                        {t("aiServices.unknown.cancel")}
                       </button>
                     </div>
                   </form>

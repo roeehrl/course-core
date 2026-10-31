@@ -616,6 +616,9 @@ function InviteDialog({
           ))}
         </fieldset>
         <div className="tag-row dialog-footer">
+          <Button type="button" onClick={onClose} disabled={pending}>
+            {t("peopleView.cancel")}
+          </Button>
           <Button
             kind="primary"
             type="submit"
@@ -624,9 +627,6 @@ function InviteDialog({
             {login.trim()
               ? t("peopleView.inviteWithPassword")
               : t("peopleView.inviteWithCode")}
-          </Button>
-          <Button type="button" onClick={onClose} disabled={pending}>
-            {t("peopleView.cancel")}
           </Button>
         </div>
       </form>
@@ -678,11 +678,11 @@ function RemoveDialog({
           />
         </Field>
         <div className="tag-row dialog-footer">
-          <Button kind="danger" type="submit" disabled={pending}>
-            {t("peopleView.removeAccess")}
-          </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             {t("peopleView.cancel")}
+          </Button>
+          <Button kind="danger" type="submit" disabled={pending}>
+            {t("peopleView.removeAccess")}
           </Button>
         </div>
       </form>
@@ -738,15 +738,15 @@ function PasswordDialog({
           />
         </Field>
         <div className="tag-row dialog-footer">
+          <Button type="button" onClick={onClose} disabled={pending}>
+            {t("peopleView.cancel")}
+          </Button>
           <Button
             kind="primary"
             type="submit"
             disabled={pending || !login.trim()}
           >
             {t("peopleView.createPassword")}
-          </Button>
-          <Button type="button" onClick={onClose} disabled={pending}>
-            {t("peopleView.cancel")}
           </Button>
         </div>
       </form>

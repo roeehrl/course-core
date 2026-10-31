@@ -428,6 +428,9 @@ function StudyCard({
           <Notice tone="gold" title={t("studyView.confirmClose.title")}>
             {t("studyView.confirmClose.body")}
             <div className="tag-row">
+              <Button kind="quiet" onClick={() => setConfirmClose(false)}>
+                {t("studyView.confirmClose.keep")}
+              </Button>
               <Button
                 kind="danger"
                 disabled={pending}
@@ -443,9 +446,6 @@ function StudyCard({
                 }
               >
                 {t("studyView.confirmClose.confirm")}
-              </Button>
-              <Button kind="quiet" onClick={() => setConfirmClose(false)}>
-                {t("studyView.confirmClose.keep")}
               </Button>
             </div>
           </Notice>
@@ -797,15 +797,15 @@ function StudyForm({
           )}
         </div>
         <div className="tag-row">
+          <Button kind="quiet" type="button" onClick={onCancel}>
+            {t("studyView.cancel")}
+          </Button>
           <Button
             kind="primary"
             type="submit"
             disabled={pending || chosen.length < 2 || !releaseId}
           >
             {t("studyView.form.save")}
-          </Button>
-          <Button kind="quiet" type="button" onClick={onCancel}>
-            {t("studyView.cancel")}
           </Button>
         </div>
       </form>

@@ -110,10 +110,6 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
         {t("studyConsent.join.agree")}
       </label>
       <div className="connected-study-actions">
-        <button type="button" className="connected-primary" disabled={!agree || busy}
-          onClick={() => void send("study/consent", { consentDigest: study.consentDigest }, t("studyConsent.join.failed"))}>
-          {t(again ? "studyConsent.join.again" : "studyConsent.join.button")}
-        </button>
         {mode === "prompt" && (
           <button type="button" className="connected-secondary" disabled={busy} onClick={() => {
             try {
@@ -126,6 +122,10 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
             {t("studyConsent.join.notNow")}
           </button>
         )}
+        <button type="button" className="connected-primary" disabled={!agree || busy}
+          onClick={() => void send("study/consent", { consentDigest: study.consentDigest }, t("studyConsent.join.failed"))}>
+          {t(again ? "studyConsent.join.again" : "studyConsent.join.button")}
+        </button>
       </div>
     </>
   );
@@ -152,12 +152,12 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
             <div role="group" aria-label={t("studyConsent.leave.confirmLabel")}>
               <p>{t("studyConsent.leave.explain")}</p>
               <div className="connected-study-actions">
+                <button type="button" className="connected-secondary" disabled={busy} onClick={() => setConfirmLeave(false)}>
+                  {t("studyConsent.leave.stay")}
+                </button>
                 <button type="button" className="connected-button connected-danger" disabled={busy}
                   onClick={() => void send("study/withdraw", {}, t("studyConsent.leave.failed"))}>
                   {t("studyConsent.leave.button")}
-                </button>
-                <button type="button" className="connected-secondary" disabled={busy} onClick={() => setConfirmLeave(false)}>
-                  {t("studyConsent.leave.stay")}
                 </button>
               </div>
             </div>

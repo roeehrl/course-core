@@ -26,8 +26,8 @@ export function ChangedElsewhere({
       </Text>
       <Text style={[styles.small, { color: colors.gold }]}>{t("changedElsewhere.body")}</Text>
       <View style={styles.row}>
-        <Button label={t("changedElsewhere.showSaved")} onPress={onShowSaved} disabled={disabled} />
         <Button label={t("changedElsewhere.keep")} kind="quiet" onPress={onKeep} disabled={disabled} />
+        <Button label={t("changedElsewhere.showSaved")} onPress={onShowSaved} disabled={disabled} />
       </View>
     </View>
   );
