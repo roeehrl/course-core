@@ -1,20 +1,29 @@
 import { expect, test, type Page } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { openProfile } from "./learner-menu.js";
+import { recordRendererHealth, watchRenderer } from "./renderer-health.js";
 
 /** Supervisor-generated simulations in the learner's lesson (E01, E03, E05, E06), on desktop, tablet
  * and phone. The supervisor's output is scripted (browser/start.ts); the pipeline is real. */
 
+// A failure in which the page itself stopped answering says so, and whether its own script caused
+// it. A CI run once timed out pressing the "Unverified" label: the label was visible, enabled and
+// stable, the press never got past scrolling it into view, the screencast stopped and the context
+// took 5 s to close, so the page had stopped answering rather than the label being covered.
+test.beforeEach(async ({ page }) => watchRenderer(page));
+test.afterEach(async ({ page }, testInfo) => recordRendererHealth(page, testInfo));
+
+/** Opens the current lesson from wherever the signed-in page starts (library or roadmap). Each
+ * screen has one "Continue learning" press; panels that load late can shift it mid-press, so the
+ * press is retried. The loop waits for the open lesson itself, not for the roadmap in between: on a
+ * slow page a retried press could pass the roadmap before it was seen, and then never find it. */
 async function openCurrentLesson(page: Page) {
   const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
-  const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
+  const lesson = page.locator("article[data-reading-part]").first();
   await expect(async () => {
-    if (!(await roadmap.count())) await resume.click({ timeout: 2_000 });
-    await expect(roadmap).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
-  await expect(async () => {
+    if (await lesson.isVisible()) return;
     if (await resume.count()) await resume.click({ timeout: 2_000 });
-    await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
+    await expect(lesson).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
 }
 async function accessible(page: Page) {
