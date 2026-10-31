@@ -201,6 +201,73 @@ export async function releasesFor(client: Sql, catalog: Catalog) {
     )
   ).rows;
 }
+/** A release row without its bundles. `row_version` is the row's xmin: it changes with every
+ * update of the row, so it names the exact stored bundle without reading it. */
+export type ReleaseSummary = Omit<ReleaseRow, "server_bundle" | "learner_bundle"> & { row_version: string };
+/** The course's releases for listing: metadata only. Each bundle can be megabytes, so a view that
+ * lists every release must not load, parse or check them (releaseChecksFor reads one only when its
+ * checks are not known yet). */
+export async function releaseSummariesFor(client: Sql, catalog: Catalog) {
+  return (
+    await client.query<ReleaseSummary>(
+      `SELECT r.id,r.workspace_id,r.course_key,r.version,r.digest,r.status,r.created_by,r.created_at,r.xmin::text AS row_version,
+    v.state AS review_state,v.notes,v.reviewed_digest FROM course_releases r
+    JOIN admin_release_reviews v ON v.release_id=r.id WHERE v.catalog_id=$1 AND r.workspace_id=$2 AND r.course_key=$3 ORDER BY r.created_at DESC,r.id`,
+      [catalog.id, catalog.workspace_id, catalog.course_key],
+    )
+  ).rows;
+}
+/** One release with its bundles, or undefined. */
+async function releaseWithBundles(client: Sql, id: string) {
+  return (await client.query<ReleaseRow>("SELECT * FROM course_releases WHERE id=$1", [id])).rows[0];
+}
+const extensionIdentities = new WeakMap<RuntimeExtension, number>();
+let nextExtensionIdentity = 0;
+/** What release checks depend on besides the release: each installed extension object (by
+ * identity, in order) and its readiness flags, which can change while the process runs. */
+function installedKey(extensions: readonly RuntimeExtension[]) {
+  return extensions.map((extension) => {
+    let identity = extensionIdentities.get(extension);
+    if (identity === undefined) extensionIdentities.set(extension, (identity = ++nextExtensionIdentity));
+    return `${identity}:${extension.codeReady ? 1 : 0}${extension.rubricReady ? 1 : 0}`;
+  }).join(",");
+}
+/** Release checks already computed, by release id, stored row version, digest and installed
+ * extensions. A check is a pure function of those, so a repeated view reuses it; any change to
+ * the row or to what is installed gives a new key. Bounded, process-local. */
+const knownChecks = new Map<string, ReleaseCheck[]>();
+const KNOWN_CHECKS_LIMIT = 512;
+const checksKey = (release: { id: string; digest: string; row_version: string }, extensions: string) =>
+  `${release.id}|${release.row_version}|${release.digest}|${extensions}`;
+/** Counters for tests: how many releases had their bundle read and checked. */
+const checkStatistics = { computed: 0, reused: 0 };
+export const releaseCheckStatistics = () => ({ ...checkStatistics });
+/**
+ * The checks of each listed release. Known checks are reused without reading the bundle. An
+ * unknown one reads only that release's server bundle (never the learner bundle), checks it and
+ * yields to the event loop before the next, so other requests are not held behind a long view.
+ */
+export async function releaseChecksFor(client: Sql, releases: readonly ReleaseSummary[], options: AdminRuntimeOptions) {
+  const extensions = installed(options), extensionsKey = installedKey(extensions);
+  const checks = new Map<string, ReleaseCheck[]>();
+  for (const summary of releases) {
+    const known = knownChecks.get(checksKey(summary, extensionsKey));
+    if (known) { checkStatistics.reused++; checks.set(summary.id, known); continue; }
+    const row = (await client.query<{ server_bundle: CourseManifest; digest: string; row_version: string }>(
+      "SELECT server_bundle,digest,xmin::text AS row_version FROM course_releases WHERE id=$1", [summary.id])).rows[0];
+    if (!row) continue;
+    await prepareCourseRunnable(row.server_bundle, extensions);
+    const found = validation({ ...summary, ...row } as unknown as ReleaseRow, options);
+    checkStatistics.computed++;
+    const key = checksKey({ id: summary.id, digest: row.digest, row_version: row.row_version }, extensionsKey);
+    knownChecks.delete(key);
+    knownChecks.set(key, found);
+    if (knownChecks.size > KNOWN_CHECKS_LIMIT) knownChecks.delete(knownChecks.keys().next().value!);
+    checks.set(summary.id, found);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return checks;
+}
 /** The author's question limit across the course's live (published or archived) releases. */
 async function authorLimitFor(client: Sql, catalog: Catalog) {
   const live = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
@@ -483,12 +550,16 @@ async function workspaceView(
 ) {
   const { catalog, role } = await catalogFor(client, actor, catalogId);
   const permissions = adminPermissionMatrix[role] ?? [];
-  const releases = await releasesFor(client, catalog);
+  const releases = await releaseSummariesFor(client, catalog);
   const visible = ["owner", "admin", "author", "reviewer"].includes(role)
     ? releases
     : releases.filter((r) => r.status === "published");
-  // Release checks below run every visual check; prepare them in parallel, off the event loop.
-  await Promise.all(visible.map((release) => prepareCourseRunnable(release.server_bundle, installed(options))));
+  const checks = await releaseChecksFor(client, visible, options);
+  // The newest visible release's objectives only, read inside the database.
+  const objectives = visible[0]
+    ? ((await client.query<{ objectives: CourseManifest["objectives"] | null }>(
+        "SELECT server_bundle->'objectives' AS objectives FROM course_releases WHERE id=$1", [visible[0].id])).rows[0]?.objectives ?? [])
+    : [];
   const enrollments = permissions.includes("enrollment.read")
     ? (
         await client.query<{ id: string }>(
@@ -531,9 +602,7 @@ async function workspaceView(
       description: catalog.description,
       // A code, worded by the admin app in the reader's language (adminApp.workspace).
       categoryCode: "course_workspace" as const,
-      objectives: (visible[0]?.server_bundle.objectives ?? []).map(
-        (o) => o.description,
-      ),
+      objectives: objectives.map((o) => o.description),
       workspaceId: catalog.workspace_id,
     },
     role,
@@ -546,7 +615,7 @@ async function workspaceView(
       state: release.status === "draft" ? release.review_state : release.status,
       notes: release.notes,
       createdAt: iso(release.created_at),
-      checks: validation(release, options),
+      checks: checks.get(release.id) ?? [],
     })),
     enrollments: enrollmentViews,
     providers,
@@ -886,7 +955,7 @@ export async function transitionReleaseWithin(
     confirmForward?: boolean },
   options: AdminRuntimeOptions,
 ): Promise<{ outcome: "saved" | "pending_review" | "published"; message: StaffMessage }> {
-  const row = (await releasesFor(client, catalog)).find(
+  const row = (await releaseSummariesFor(client, catalog)).find(
     (r) => r.id === releaseId,
   );
   requireCondition(row, "RELEASE_NOT_FOUND", 404);
@@ -908,7 +977,7 @@ export async function transitionReleaseWithin(
   }
   if (input.action === "activate") {
     requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
-    const active = (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id);
+    const active = catalog.active_release_id ? await releaseWithBundles(client, catalog.active_release_id) : undefined;
     // Selecting an older release than the live one is a rollback: staff confirm its exact impact.
     if (active && active.id !== release.id && active.created_at > release.created_at) {
       const { impact, impactDigest } = await rollbackImpact(client, active, release);
@@ -959,7 +1028,7 @@ export async function transitionReleaseWithin(
     const backFrom = await assertPublishVersion(client, release, input.confirmOlderVersion === true);
     await assertPublishable(client, release.id, release.server_bundle);
     if (input.confirmForward) {
-      const active = catalog.active_release_id ? (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id) ?? null : null;
+      const active = catalog.active_release_id ? (await releaseWithBundles(client, catalog.active_release_id)) ?? null : null;
       requireConfirmedImpact(await publishImpact(client, catalog, active, release), input.impactDigest);
     }
     await client.query(
@@ -1034,7 +1103,7 @@ export function registerAdminRoutes(
         enrollments: permissions.includes("enrollment.read"),
         policy: permissions.includes("policy.read"),
         runs: permissions.includes("run.inspect"),
-      }, (release) => validation(release as ReleaseRow, options));
+      }, async (release) => (await releaseChecksFor(client, [release as ReleaseSummary], options)).get(release.id) ?? []);
     });
   });
   /** Workspace audit log, newest first. Payloads only for allowlisted staff/system events. */

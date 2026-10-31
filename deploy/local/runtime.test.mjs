@@ -268,6 +268,37 @@ test('manager cannot install over an existing foreground owner or remove a modif
   const service=manager({root,state,agentsDirectory:agents,launchctl:fakeLaunchctl});await writePrivate(path.join(state,'owner.json'),JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}));await assert.rejects(service.install(),/existing_owner_requires_coordination/);assert(!calls.some(a=>a[0]==='bootstrap'));await rm(path.join(state,'owner.json'));
   const installed=await service.install();assert.equal(installed.status,'installed');const receipt=JSON.parse(await readFile(path.join(state,'installation.json'),'utf8'));await writePrivate(receipt.plistPath,'changed',true);await assert.rejects(service.uninstall(),/installation_file_changed/);assert(!calls.some(a=>a[0]==='bootout'));assert((await readdir(state)).includes('installation.json'));
 }));
+test('launchd runs the pilot as an Interactive job without low-priority I/O',()=>{
+  const definition=launchdDefinition({root:'/tmp/root',state:'/tmp/state',installationId:randomUUID()});
+  assert.equal(definition.ProcessType,'Interactive');assert(!Object.hasOwn(definition,'LowPriorityIO'));assert(!Object.hasOwn(definition,'Nice'));
+  const text=plist(definition);assert(text.includes('<key>ProcessType</key><string>Interactive</string>'));assert(!text.includes('LowPriorityIO'));assert(!text.includes('Background'));
+});
+test('install rewrites an earlier Background definition safely; a foreground owner or a changed file blocks it',()=>fixture(async state=>{
+  const root=path.join(state,'root'),agents=path.join(state,'agents');await mkdir(root);await executableFixture(root);await mkdir(agents,{mode:0o700});await writePrivate(path.join(state,'config.json'),JSON.stringify(config()));
+  const calls=[],loaded=new Set(),fakeLaunchctl=async args=>{calls.push(args);if(args[0]==='print')return {code:loaded.has(args[1])?0:113};
+    if(args[0]==='bootstrap'){const text=await readFile(args[2],'utf8');const label=/<key>Label<\/key><string>([^<]+)<\/string>/.exec(text)[1];loaded.add(`${args[1]}/${label}`);return {code:0};}
+    if(args[0]==='bootout'){loaded.delete(args[1]);return {code:0};}return {code:-1};};
+  const service=manager({root,state,agentsDirectory:agents,launchctl:fakeLaunchctl});
+  assert.equal((await service.install()).status,'installed');
+  // What releases up to 0.1.60 installed: the same agent as a Background job with LowPriorityIO.
+  const receiptPath=path.join(state,'installation.json'),receipt=JSON.parse(await readFile(receiptPath,'utf8'));
+  const legacy=plist(launchdDefinition({...receipt,node:receipt.node},{legacy:true}));
+  assert(legacy.includes('<key>ProcessType</key><string>Background</string><key>LowPriorityIO</key><true/>'));
+  await writePrivate(receipt.plistPath,legacy,true);await writePrivate(receiptPath,JSON.stringify({...receipt,plistDigest:createHash('sha256').update(legacy).digest('hex')}),true);
+  const before=await service.status();assert.equal(before.status,'installed');assert.equal(before.definition,'outdated');assert.equal(before.registration,'loaded');
+  // A foreground pilot is never stopped to rewrite the agent.
+  await writePrivate(path.join(state,'owner.json'),JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}));
+  await assert.rejects(service.install(),/runtime_ownership_requires_review|existing_owner_requires_coordination/);
+  assert(!calls.some(a=>a[0]==='bootout'));assert.equal(await readFile(receipt.plistPath,'utf8'),legacy);await rm(path.join(state,'owner.json'));
+  const updated=await service.install();assert.equal(updated.status,'updated');assert.equal(updated.registration,'loaded');
+  const bootout=calls.findIndex(a=>a[0]==='bootout'),rebootstrap=calls.findLastIndex(a=>a[0]==='bootstrap');assert(bootout>=0&&rebootstrap>bootout);
+  const text=await readFile(receipt.plistPath,'utf8'),stored=JSON.parse(await readFile(receiptPath,'utf8'));
+  assert(text.includes('<string>Interactive</string>'));assert(!text.includes('LowPriorityIO'));
+  assert.equal(stored.plistDigest,createHash('sha256').update(text).digest('hex'));assert(!Object.hasOwn(stored,'previousPlistDigest'));assert(!Object.hasOwn(stored,'outdated'));
+  assert.equal((await service.status()).definition,'current');assert.equal((await service.install()).status,'already_installed');
+  // A file that is neither definition is not ours to rewrite.
+  await writePrivate(receipt.plistPath,legacy.replace('Background','Adaptive'),true);await assert.rejects(service.install(),/installation_file_changed/);
+}));
 async function freePorts(){const held=[];try{for(let i=0;i<3;i++){const s=createServer();await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));held.push(s);}return held.map(s=>s.address().port);}finally{await Promise.all(held.map(s=>new Promise(resolve=>s.close(resolve))));}}
 async function waitRunning(state){const until=Date.now()+10000;while(Date.now()<until){try{const status=await control(state,'status');if(status.status==='running')return status;}catch{}await new Promise(resolve=>setTimeout(resolve,20));}throw new Error('Owned fixture pilot did not start');}
 test('actual four-service start/stop/restart preserves configuration and removes only its owned children and control state',{timeout:30000},()=>fixture(async state=>{

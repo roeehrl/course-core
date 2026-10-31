@@ -18,13 +18,24 @@ function encode(value) {
   if (Array.isArray(value)) return `<array>${value.map(encode).join('')}</array>`;
   return `<dict>${Object.entries(value).map(([key, item]) => `<key>${xml(key)}</key>${encode(item)}`).join('')}</dict>`;
 }
-export function launchdDefinition({ root, state, installationId, node = process.execPath }) {
+/**
+ * The per-user LaunchAgent. ProcessType Interactive: the pilot answers learners' and staff's
+ * requests while they wait, and launchd applies no resource limits to Interactive jobs. A
+ * Background job (with LowPriorityIO), as releases up to 0.1.60 installed, runs the launcher and
+ * every child at a low scheduling priority on efficiency cores with throttled disk I/O: on the
+ * live pilot one sign-in derivation took about 3.3 s of CPU instead of 0.2 s and sign-in took
+ * minutes. Standard is not used because launchd documents it only as "no ProcessType", which
+ * leaves the job to the system's default policy for agents instead of naming none.
+ * `legacy` reproduces that older definition exactly, so an installation it made is still
+ * recognised as ours and `install` can rewrite it.
+ */
+export function launchdDefinition({ root, state, installationId, node = process.execPath }, { legacy = false } = {}) {
   const label = labelFor(root, state, installationId);
   return { Label: label, ProgramArguments: [node, launcher, 'start', '--root', root, '--state', state], WorkingDirectory: root,
     EnvironmentVariables: { PATH: [path.dirname(node), '/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/opt/homebrew/bin'].join(':'),
       HOME: homedir(), CORE_PILOT_MANAGED_LABEL: label, CORE_PILOT_INSTALLATION_ID: installationId },
     RunAtLoad: true, KeepAlive: { SuccessfulExit: false }, ThrottleInterval: 30, ExitTimeOut: 80,
-    ProcessType: 'Background', LowPriorityIO: true, AbandonProcessGroup: false,
+    ...(legacy ? { ProcessType: 'Background', LowPriorityIO: true } : { ProcessType: 'Interactive' }), AbandonProcessGroup: false,
     SoftResourceLimits: { NumberOfFiles: 1024, Core: 0 }, HardResourceLimits: { NumberOfFiles: 4096, Core: 0 },
     StandardOutPath: '/dev/null', StandardErrorPath: '/dev/null' };
 }
@@ -50,9 +61,48 @@ export function manager(options = {}) {
       && typeof r.node === 'string' && r.node === absolute(r.node) && r.launcher === launcher
       && r.agentsDirectory === await agentsDirectory(agentsInput, false)
       && r.plistPath === path.join(r.agentsDirectory, `${r.label}.plist`), 'installation_ownership_mismatch');
-    const file = await privateFile(r.plistPath);
-    ensure(hash(file.text) === r.plistDigest && file.text === plist(launchdDefinition({ ...r, node: r.node })), 'installation_file_changed');
-    return r;
+    const file = await privateFile(r.plistPath), digest = hash(file.text);
+    // previousPlistDigest is set only while `install` replaces an outdated definition.
+    ensure(digest === r.plistDigest || (typeof r.previousPlistDigest === 'string' && digest === r.previousPlistDigest), 'installation_file_changed');
+    const current = file.text === plist(launchdDefinition({ ...r, node: r.node }));
+    ensure(current || file.text === plist(launchdDefinition({ ...r, node: r.node }, { legacy: true })), 'installation_file_changed');
+    return { ...r, outdated: !current };
+  }
+  /** Stops a running pilot only when this installation manages it; refuses any other owner. */
+  async function stopManaged(c, r) {
+    const status = await pilot(c.state);
+    if (status.status === 'running' || status.status === 'starting') {
+      if (status.managedBy?.label !== r.label || status.managedBy?.installationId !== r.installationId) return false;
+      await control(c.state, 'stop');
+      const until = Date.now() + 75_000;
+      while (Date.now() < until && await privateJson(path.join(c.state, 'owner.json'), true)) await delay(200);
+      ensure(!await privateJson(path.join(c.state, 'owner.json'), true), 'managed_stop_unconfirmed');
+    } else if (await privateJson(path.join(c.state, 'owner.json'), true)) {
+      // Never authenticate a stale PID by launchctl diagnostics or kill it ourselves.
+      throw new PilotError('runtime_ownership_requires_review');
+    }
+    return true;
+  }
+  /** Replaces an outdated definition (an earlier release's) with the current one: stops the pilot
+   * it manages, unregisters it, replaces the file atomically and registers it again. The receipt
+   * names both digests while the file is replaced, so an interrupted rewrite stays recognisable
+   * and running `install` again finishes it. A foreground owner is never stopped. */
+  async function rewrite(c, r) {
+    const registered = await registration(r); ensure(registered !== 'unknown', 'registration_unavailable');
+    ensure(await stopManaged(c, r), 'existing_owner_requires_coordination');
+    if (registered === 'loaded') {
+      const result = await run(['bootout', `${domain}/${r.label}`]);
+      ensure([0, 113].includes(result.code), 'unregistration_unconfirmed');
+    }
+    ensure(await registration(r) === 'not_loaded', 'unregistration_unconfirmed');
+    await receipt(c); // The exact file is still ours immediately before it is replaced.
+    const text = plist(launchdDefinition({ ...r, node: r.node })), { outdated: _outdated, previousPlistDigest: _previous, ...stored } = r;
+    await writePrivate(path.join(c.state, 'installation.json'), JSON.stringify({ ...stored, plistDigest: hash(text), previousPlistDigest: r.plistDigest }), true);
+    await writePrivate(r.plistPath, text, true);
+    await writePrivate(path.join(c.state, 'installation.json'), JSON.stringify({ ...stored, plistDigest: hash(text) }), true);
+    const bootstrapped = await run(['bootstrap', domain, r.plistPath]);
+    ensure(bootstrapped.code === 0 && await registration(r) === 'loaded', 'registration_unconfirmed');
+    return { status: 'updated', label: r.label, registration: 'loaded', pilot: await pilot(c.state) };
   }
   async function registration(r) {
     // print's text is diagnostic, not an API or an identity source. Only its exit status is used.
@@ -66,7 +116,7 @@ export function manager(options = {}) {
   return {
     async status() {
       const c = await context(), r = await receipt(c);
-      return { status: r ? 'installed' : 'not_installed', ...(r ? { label: r.label, registration: await registration(r) } : {}),
+      return { status: r ? 'installed' : 'not_installed', ...(r ? { label: r.label, registration: await registration(r), definition: r.outdated ? 'outdated' : 'current' } : {}),
         pilot: await pilot(c.state), providerAcceptance: 'not_verified' };
     },
     async install() {
@@ -74,6 +124,7 @@ export function manager(options = {}) {
       const c = await context(); await loadConfiguration(c.root, c.state);
       return mutex(c.state, 'installation.lock', async () => {
         const existing = await receipt(c);
+        if (existing?.outdated) return rewrite(c, existing);
         if (existing) {
           const state = await registration(existing); ensure(state !== 'unknown', 'registration_unavailable');
           if (state === 'loaded') return { status: 'already_installed', label: existing.label, registration: state, pilot: await pilot(c.state) };
@@ -107,19 +158,7 @@ export function manager(options = {}) {
       return mutex(c.state, 'installation.lock', async () => {
         const r = await receipt(c); if (!r) return { status: 'not_installed' };
         const registered = await registration(r); ensure(registered !== 'unknown', 'registration_unavailable');
-        let preservedForeground = false;
-        const status = await pilot(c.state);
-        if (status.status === 'running' || status.status === 'starting') {
-          if (status.managedBy?.label === r.label && status.managedBy?.installationId === r.installationId) {
-            await control(c.state, 'stop');
-            const until = Date.now() + 75_000;
-            while (Date.now() < until && await privateJson(path.join(c.state, 'owner.json'), true)) await delay(200);
-            ensure(!await privateJson(path.join(c.state, 'owner.json'), true), 'managed_stop_unconfirmed');
-          } else preservedForeground = true;
-        } else if (await privateJson(path.join(c.state, 'owner.json'), true)) {
-          // Never authenticate a stale PID by launchctl diagnostics or kill it ourselves.
-          throw new PilotError('runtime_ownership_requires_review');
-        }
+        const preservedForeground = !await stopManaged(c, r);
         if (registered === 'loaded') {
           const result = await run(['bootout', `${domain}/${r.label}`]);
           ensure([0, 113].includes(result.code), 'unregistration_unconfirmed');
