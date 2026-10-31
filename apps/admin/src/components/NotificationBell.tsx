@@ -292,6 +292,16 @@ export function useNotificationText(
             body: t("notifications.kind.help_paused.workspace.body", counts),
           };
     }
+    case "questions_exhausted":
+      return {
+        title: t("notifications.kind.questions_exhausted.title", {
+          learners: num(p.learners),
+        }),
+        body: t("notifications.kind.questions_exhausted.body", {
+          course,
+          lessons: num(p.lessons),
+        }),
+      };
     case "backups_overdue":
       return {
         title: t("notifications.kind.backups_overdue.title"),

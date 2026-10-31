@@ -29,5 +29,7 @@
   "kind.help_paused.learner.body": "In the last day {requests, plural, one {# request for AI help} other {# requests for AI help}} waited. These learners are told that help is paused and that staff know. Raise the limit per learner on the AI services page, or the daily and per-lesson limits in AI supervision settings; they can then ask again.",
   "kind.backups_overdue.title": "Backups are overdue",
   "kind.backups_overdue.body": "The newest backup is {minutes} minutes old; the target is at most {target} minutes. Check the backup job on the Platform page.",
-  "kind.unknown.title": "Something needs attention"
+  "kind.unknown.title": "Something needs attention",
+  "kind.questions_exhausted.title": "{learners, plural, one {# learner ran out of questions in a lesson} other {# learners ran out of questions in a lesson}}",
+  "kind.questions_exhausted.body": "In {course}, {lessons, plural, one {a lesson needs} other {# lessons need}} another question these learners can answer on their own, and none is left: they used every question of the lesson, and no approved fresh-question family covers what is missing. Their work is kept. Approve the course's recovery registry (it adds checked fresh questions) or add questions in a new version; they are told their course team knows."
 }

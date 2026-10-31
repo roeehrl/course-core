@@ -44,6 +44,7 @@ import { PolicyError } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { registerCompanionRoutes } from './companion-routes.js';
 import { registerCompanionAvailabilityRoute, type CompanionAvailability } from './companion-availability.js';
+import { registerQuestionsExhaustedRoute } from './questions-exhausted.js';
 import { registerCompanionContextRoutes } from './context-capsule.js';
 import { registerSupervisorBridge, type SupervisorBridgeOptions } from './supervisor-bridge.js';
 import { registerProviderGateway } from './provider-gateway.js';
@@ -392,6 +393,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerScopedCorrectionRoutes(app, db, auth, () => options.installedExtensions ?? []);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
+  registerQuestionsExhaustedRoute(app, db, auth);
   registerCompanionAvailabilityRoute(app, db, auth, { runtime: async (workspaceId, client) => await options.workspaceProviders?.resolve(workspaceId, client) ?? providers,
     ...(options.supervisor ? { bridgeWorkspaces: options.supervisor.workspaceIds ?? [] } : {}),
     ...(options.companionAvailabilityOverride ? { override: options.companionAvailabilityOverride } : {}) });

@@ -7,8 +7,10 @@ import { englishTranslator, type MessageKey, type Translate } from "../i18n";
  * decide progress themselves. */
 export interface LessonStepView {
   id: string;
-  /** "Part 2 · Video", "Independent check", "Finish". */
+  /** "Part 2 · Video", "Check your understanding", "Finish this lesson". */
   title: string;
+  /** What the step is, for counting parts and activities apart. */
+  kind: "part" | "activity" | "check" | "finish";
   status: StepStatus;
 }
 
@@ -75,6 +77,7 @@ export function lessonSteps(
   const gate = progress?.gate;
   const steps: LessonStepView[] = reading.map((block, index) => ({
     id: block.id,
+    kind: "part" as const,
     title: t(`lessonSteps.part.${block.type}`, { number: index + 1 }),
     status: done.has(block.id)
       ? "completed"
@@ -92,6 +95,7 @@ export function lessonSteps(
   activities.forEach((block, index) =>
     steps.push({
       id: block.id,
+      kind: "activity",
       title: t("lessonSteps.activity", { number: index + 1 }),
       status: done.has(block.id)
         ? "completed"
@@ -106,6 +110,7 @@ export function lessonSteps(
     const passed = Boolean(gate?.passed || gate?.exception);
     steps.push({
       id: "check",
+      kind: "check",
       title: t("lessonSteps.check"),
       status:
         passed || (finished && !gate)
@@ -124,6 +129,7 @@ export function lessonSteps(
   );
   steps.push({
     id: "finish",
+    kind: "finish",
     title: t("lessonSteps.finish"),
     status: finished
       ? "completed"
