@@ -53,7 +53,10 @@ const KNOWN_RULES: ReadonlySet<string> = new Set(QUALITY_RULES);
 /** The rules a job's failed conversations broke, known ones in suite order, then any others. */
 function brokenRules(failed: readonly { graders: readonly string[] }[]) {
   const seen = [...new Set(failed.flatMap((f) => f.graders))];
-  return [...QUALITY_RULES.filter((rule) => seen.includes(rule)), ...seen.filter((rule) => !KNOWN_RULES.has(rule)).sort()].map((rule) => ({
+  return [
+    ...QUALITY_RULES.filter((rule) => seen.includes(rule)),
+    ...seen.filter((rule) => !KNOWN_RULES.has(rule)).sort(),
+  ].map((rule) => ({
     rule,
     known: KNOWN_RULES.has(rule),
     count: failed.filter((f) => f.graders.includes(rule)).length,
@@ -925,11 +928,20 @@ function CheckResult({
                     <li key={r.rule}>
                       <span>
                         {r.known
-                          ? t(`aiServices.check.rule.${r.rule}` as AiKey, { count: r.count })
-                          : t("aiServices.check.rule.other", { count: r.count, rule: r.rule })}
+                          ? t(`aiServices.check.rule.${r.rule}` as AiKey, {
+                              count: r.count,
+                            })
+                          : t("aiServices.check.rule.other", {
+                              count: r.count,
+                              rule: r.rule,
+                            })}
                       </span>
                       <span className="ai-muted ai-rule-explain">
-                        {t((r.known ? `aiServices.check.ruleExplain.${r.rule}` : "aiServices.check.ruleExplain.other") as AiKey)}
+                        {t(
+                          (r.known
+                            ? `aiServices.check.ruleExplain.${r.rule}`
+                            : "aiServices.check.ruleExplain.other") as AiKey,
+                        )}
                       </span>
                     </li>
                   ))}

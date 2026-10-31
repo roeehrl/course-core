@@ -196,15 +196,39 @@ describe("calls with an unknown cost", () => {
 
   it("lists a check of a reply that got no answer, by what is held for that check only", async () => {
     const judged = view({
-      calls: [{ id: PILOT, reservedAt: "2026-10-31T10:00:00.000Z", role: "companion", modelId: "gemini-3.8-flash", reservedMicroUsd: 2_820,
-        enrollmentId: "00000000-0000-4000-8000-0000000000e1", happened: "check_judge_no_answer", settleable: true }],
+      calls: [
+        {
+          id: PILOT,
+          reservedAt: "2026-10-31T10:00:00.000Z",
+          role: "companion",
+          modelId: "gemini-3.8-flash",
+          reservedMicroUsd: 2_820,
+          enrollmentId: "00000000-0000-4000-8000-0000000000e1",
+          happened: "check_judge_no_answer",
+          settleable: true,
+        },
+      ],
       uncertainCalls: 1,
       heldMicroUsd: 2_820,
     });
-    render(<UncertainCallsPanel port={port(judged, async () => { throw new Error("not called"); })} workspaceId="w" onSettled={vi.fn()} />);
-    const list = await screen.findByRole("list", { name: t("unknown.listLabel") });
-    expect(within(list).getByText(t("unknown.happened.checkJudgeNoAnswer"))).toBeVisible();
-    expect(hebrew.t("aiServices.unknown.happened.checkJudgeNoAnswer" as never)).toMatch(/^התשובה נכתבה ותומחרה/);
+    render(
+      <UncertainCallsPanel
+        port={port(judged, async () => {
+          throw new Error("not called");
+        })}
+        workspaceId="w"
+        onSettled={vi.fn()}
+      />,
+    );
+    const list = await screen.findByRole("list", {
+      name: t("unknown.listLabel"),
+    });
+    expect(
+      within(list).getByText(t("unknown.happened.checkJudgeNoAnswer")),
+    ).toBeVisible();
+    expect(
+      hebrew.t("aiServices.unknown.happened.checkJudgeNoAnswer" as never),
+    ).toMatch(/^התשובה נכתבה ותומחרה/);
   });
 
   it("says when a call is still settling or was already decided, and keeps the form for a lost answer", async () => {
