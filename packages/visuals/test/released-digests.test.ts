@@ -190,6 +190,20 @@ test("0.5.3 changed only the stylesheet, so it serves 0.5.2 declarations on byte
   assert.deepEqual(Object.keys(current.files!), Object.keys(previous.files!));
 });
 
+test("0.5.4 changed only the stylesheet, so it serves 0.5.2 and 0.5.3 declarations on byte identity", () => {
+  // The scene and its sliders keep their own left-to-right coordinates in a right-to-left page; the
+  // headless entry and every module it imports are still 0.5.2's (and 0.5.3's) bytes.
+  const previous = record.versions["0.5.3"]!,
+    current = record.versions["0.5.4"]!;
+  assert.equal(current.headless, previous.headless);
+  assert.deepEqual(current.headlessFiles, previous.headlessFiles);
+  const changed = Object.keys(current.files!).filter(
+    (name) => current.files![name] !== previous.files![name],
+  );
+  assert.deepEqual(changed, ["styles.css"]);
+  assert.deepEqual(Object.keys(current.files!), Object.keys(previous.files!));
+});
+
 const scratchDirectories: string[] = [];
 test.after(() =>
   Promise.all(

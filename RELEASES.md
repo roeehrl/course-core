@@ -132,6 +132,13 @@ transform, without that reset. (The heading reset joined 0.5.3 before any releas
 Every other dist file, so its headless code, is byte-identical to 0.5.2: it serves 0.5.2
 declarations with all of their features, and 0.5.0 and 0.5.1 declarations on the same parity as
 0.5.2 (`test/released-digests.test.ts` checks that only `styles.css` changed).
+
+Visuals 0.5.4 changes only the stylesheet again: the scene keeps its own left-to-right coordinates
+in a right-to-left page (`direction: ltr` on `.ccv-scene`, each label ordered by its own first
+letter), so a label anchored at its start no longer grows off the canvas; sliders run left to right
+with the scene, and a control's value is one left-to-right unit. Its headless code is
+byte-identical to 0.5.2 and 0.5.3: it serves 0.5.2 and 0.5.3 declarations with all of their
+features, and 0.5.0 and 0.5.1 declarations on the same parity.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
