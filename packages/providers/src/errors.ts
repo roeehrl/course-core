@@ -5,7 +5,7 @@ export type ErrorCode = 'INVALID_INPUT' | 'INVALID_CONFIG' | 'UNKNOWN_MODEL' | '
   | 'UPSTREAM_UNAVAILABLE' | 'UPSTREAM_REJECTED' | 'NETWORK_ERROR' | 'TIMEOUT' | 'CANCELLED'
   | 'INVALID_RESPONSE' | 'OUTPUT_TOO_LARGE' | 'BLOCKED' | 'INCOMPLETE_OUTPUT' | 'OPERATION_FAILED'
   | 'POLL_LIMIT' | 'SERVER_ONLY' | 'SUBSCRIPTION_EXPIRED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' | 'SUBSCRIPTION_OVERAGE_REQUIRED'
-  | 'NO_RESPONSE' | 'STREAM_STALLED';
+  | 'NO_RESPONSE' | 'STREAM_STALLED' | 'BILLING_REQUIRED' | 'QUOTA_EXHAUSTED';
 const messages: Record<ErrorCode, string> = {
   INVALID_INPUT: 'Invalid provider input.', INVALID_CONFIG: 'Invalid provider configuration.', UNKNOWN_MODEL: 'Model is not registered.',
   ADAPTER_UNAVAILABLE: 'The configured provider adapter is not registered.',
@@ -19,7 +19,17 @@ const messages: Record<ErrorCode, string> = {
   POLL_LIMIT: 'Bounded polling ended before the remote operation completed.', SERVER_ONLY: 'Provider credentials may only be used on a Node server.',
   SUBSCRIPTION_EXPIRED: 'Provider subscription has expired.', SUBSCRIPTION_QUOTA_EXHAUSTED: 'Provider subscription allowance is exhausted.',
   SUBSCRIPTION_OVERAGE_REQUIRED: 'This operation requires an additional charge; subscription access did not authorize it.',
+  BILLING_REQUIRED: 'Provider refused the request because billing or credit is not available for this key.',
+  QUOTA_EXHAUSTED: 'Provider quota for this key is used up until it resets.',
 };
+/**
+ * A provider's documented reason code for a refusal: Google's `ErrorInfo.reason` or canonical
+ * `status` (INVALID_ARGUMENT, RESOURCE_EXHAUSTED), Anthropic's error `type`. Upper snake case of
+ * at most 64 characters, so it can never carry a message, a URL or a key.
+ */
+const REASON = /^[A-Z][A-Z0-9_]{0,63}$/;
+export const providerReason = (value: unknown): string | null =>
+  typeof value === 'string' && REASON.test(value) ? value : null;
 
 /** No upstream body, URL, header, abort reason, schema diagnostics or cause. */
 export class ProviderError extends Error {
@@ -27,16 +37,19 @@ export class ProviderError extends Error {
   readonly status: number | null;
   readonly retryAfterMs: number | null;
   readonly submission: 'not_sent' | 'rejected' | 'unknown';
+  /** The provider's documented reason code for an HTTP refusal (`providerReason`), else null. */
+  readonly reason: string | null;
   usage?: UsageReceipt;
   job?: VideoJob;
   pollUsage?: UsageReceipt[];
-  constructor(code: ErrorCode, details: { status?: number; retryAfterMs?: number; submission?: 'not_sent' | 'rejected' | 'unknown' } = {}) {
+  constructor(code: ErrorCode, details: { status?: number; retryAfterMs?: number; submission?: 'not_sent' | 'rejected' | 'unknown'; reason?: string | null } = {}) {
     super(messages[code]); this.name = 'ProviderError'; this.code = code;
     this.status = details.status ?? null; this.retryAfterMs = details.retryAfterMs ?? null;
     this.submission = details.submission ?? 'not_sent';
+    this.reason = providerReason(details.reason);
   }
   toJSON() { return { name: this.name, code: this.code, message: this.message, status: this.status,
-    retryAfterMs: this.retryAfterMs, submission: this.submission }; }
+    retryAfterMs: this.retryAfterMs, submission: this.submission, reason: this.reason }; }
 }
 export function ensure(condition: unknown, code: ErrorCode = 'INVALID_INPUT'): asserts condition {
   if (!condition) throw new ProviderError(code);
@@ -84,11 +97,11 @@ export function callSubmission(usage: UsageReceipt, error: ProviderError): Provi
  * 413 is rejected before the request reaches the API servers).
  */
 export const DEFINITE_REJECTION_STATUSES: readonly number[] = Object.freeze([400, 401, 402, 403, 404, 413, 429]);
-export function classifyHttpError(status: number, retryAfterMs?: number): ProviderError {
+export function classifyHttpError(status: number, retryAfterMs?: number, reason?: string | null): ProviderError {
   ensure(Number.isInteger(status) && status >= 100 && status <= 599);
   const code: ErrorCode = status === 401 ? 'AUTHENTICATION' : status === 403 ? 'PERMISSION_DENIED' : status === 404 ? 'NOT_FOUND'
     : status === 429 ? 'THROTTLED' : status === 408 || status >= 500 ? 'UPSTREAM_UNAVAILABLE' : 'UPSTREAM_REJECTED';
-  return new ProviderError(code, { status, ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+  return new ProviderError(code, { status, ...(retryAfterMs === undefined ? {} : { retryAfterMs }), reason: reason ?? null,
     submission: DEFINITE_REJECTION_STATUSES.includes(status) ? 'rejected' : 'unknown' });
 }
 export interface DefiniteRejection {

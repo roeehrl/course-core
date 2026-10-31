@@ -24,7 +24,25 @@ export function generationConfig(config: GoogleModelConfig, maxOutputTokens: num
   return { candidateCount: 1, maxOutputTokens,
     ...(config.transport === 'generate_content' && config.thinking ? { thinkingConfig: 'level' in config.thinking
       ? { thinkingLevel: config.thinking.level } : { thinkingBudget: config.thinking.budget } } : {}),
-    ...(format === undefined ? {} : { responseFormat: { text: { mimeType: 'application/json', schema: format } } }) };
+    // generateContent takes JSON output as `responseMimeType` plus a JSON Schema in
+    // `responseJsonSchema`. `responseFormat.text.mimeType` is an enum (APPLICATION_JSON) and
+    // refuses "application/json" with 400 INVALID_ARGUMENT, so that shape is not used.
+    ...(format === undefined ? {} : { responseMimeType: 'application/json', responseJsonSchema: googleJsonSchema(format) }) };
+}
+/**
+ * The JSON Schema as sent to Google. An integer without declared bounds compiles with the
+ * safe-integer range as bounds; Google documents wide numeric bounds as a cause of 400
+ * INVALID_ARGUMENT, so those implicit bounds are left out (the local contract still enforces them).
+ */
+export function googleJsonSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(googleJsonSchema);
+  if (schema === null || typeof schema !== 'object') return schema;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if ((key === 'minimum' && value === Number.MIN_SAFE_INTEGER) || (key === 'maximum' && value === Number.MAX_SAFE_INTEGER)) continue;
+    out[key] = googleJsonSchema(value);
+  }
+  return out;
 }
 /**
  * The single candidate of a finished response. Also the classifier for a streamed response:

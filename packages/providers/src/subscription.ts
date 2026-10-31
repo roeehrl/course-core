@@ -194,7 +194,7 @@ export class SubscriptionAdapter implements ProviderAdapter {
         return this.#result(await invoke(structuredClone(request), call), request, operation, access);
       }, () => sent);
     } catch (raw) {
-      const original = safeError(raw), safe = new ProviderError(original.code, { ...(original.status === null ? {} : { status: original.status }),
+      const original = safeError(raw), safe = new ProviderError(original.code, { ...(original.status === null ? {} : { status: original.status }), reason: original.reason,
         ...(original.retryAfterMs === null ? {} : { retryAfterMs: original.retryAfterMs }), submission: sent && original.submission === 'not_sent' ? 'unknown' : original.submission });
       if (original.usage) safe.usage = { ...structuredClone(original.usage), ...(access ? { access } : {}) };
       if (original.job) safe.job = structuredClone(original.job);
@@ -226,7 +226,7 @@ export class SubscriptionAdapter implements ProviderAdapter {
             throw error;
           }
         }, () => fallbackSent); } catch (failure) {
-          const original = safeError(failure), error = new ProviderError(original.code, { ...(original.status === null ? {} : { status: original.status }),
+          const original = safeError(failure), error = new ProviderError(original.code, { ...(original.status === null ? {} : { status: original.status }), reason: original.reason,
             ...(original.retryAfterMs === null ? {} : { retryAfterMs: original.retryAfterMs }),
             submission: fallbackSent && original.submission === 'not_sent' ? 'unknown' : original.submission });
           if (original.usage) error.usage = structuredClone(original.usage);
