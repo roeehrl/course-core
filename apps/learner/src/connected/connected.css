@@ -152,47 +152,6 @@ html:has(.connected-host) body {
   max-width: 70ch;
   font-size: 15px;
 }
-.connected-kicker {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
-  color: #087b69;
-  letter-spacing: 1.4px;
-  font-weight: 700;
-}
-.connected-kicker span {
-  color: #526a70;
-  letter-spacing: 0;
-  font-weight: 450;
-}
-.connected-reading-progress {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 12px;
-  color: #526a70;
-}
-.connected-step-marks {
-  display: flex;
-  gap: 4px;
-  flex: 1;
-  max-width: 180px;
-}
-.connected-step-marks span {
-  height: 4px;
-  border-radius: 4px;
-  background: #dce6e2;
-  flex: 1;
-}
-.connected-step-marks .done {
-  background: #087b69;
-}
-.connected-step-marks .current {
-  background: #99bdae;
-}
 .connected-reading-card {
   min-width: 0;
   background: #fff;
@@ -293,10 +252,6 @@ html:has(.connected-host) body {
 .connected-check-progress strong {
   font-weight: 650;
   color: #087b69;
-}
-.connected-next-hint {
-  border-top: 1px solid #cdddce;
-  padding-top: 14px;
 }
 .connected-complete {
   display: flex;
@@ -632,13 +587,6 @@ html:has(.connected-host) body {
   }
   .connected-lesson {
     gap: 18px;
-  }
-  .connected-kicker {
-    font-size: 9px;
-    letter-spacing: 1px;
-  }
-  .connected-kicker span {
-    font-size: 10px;
   }
   .connected-lesson-heading h1 {
     font-size: 32px;
@@ -1877,97 +1825,68 @@ html:has(.connected-host.is-compact) body {
   border-radius: 3px 0 0 3px;
 }
 
-/* Lesson steps: the SDK's seven step statuses in words, with a shape cue. */
-.connected-reading-progress {
+/* The lesson's one progress indicator: "Step 2 of 5 · Part 2 · Illustration", then a bar with a
+   segment per step. Each segment's step and status are listed for assistive technology; the
+   current one is taller, under review is striped, so status is never colour alone. */
+.connected-lesson-progress {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: 8px;
+  margin-top: 16px;
+  max-width: 560px;
 }
-.connected-reading-progress > p {
+.connected-lesson-progress > p {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
   margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #183237;
+}
+.connected-lesson-progress-count {
+  font-weight: 450;
+  color: #526a70;
 }
 .connected-steps {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
 }
 .connected-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 4px 10px;
-  border: 1px solid #dce6e2;
-  border-radius: 999px;
-  background: #fff;
-  color: #183237;
-  font-size: 12px;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #dce6e2;
 }
-.connected-step-mark {
-  font-size: 13px;
-  line-height: 1;
-}
-.connected-step-status {
-  color: #526a70;
-}
-.connected-step-status::before {
-  content: "· ";
+.connected-step.is-completed {
+  background: #087b69;
 }
 .connected-step.is-current {
-  border: 2px solid #087b69;
-  background: #e8f6ed;
-  font-weight: 650;
-}
-.connected-step.is-current .connected-step-status,
-.connected-step.is-completed .connected-step-mark {
-  color: #087b69;
-}
-.connected-step.is-locked,
-.connected-step.is-closed-with-gaps {
-  border-style: dashed;
+  height: 10px;
+  background: #8fcfb8;
+  box-shadow: inset 0 0 0 2px #087b69;
 }
 .connected-step.is-under-review {
-  border-color: #8a6a1f;
-  background: #fbf6e8;
+  background: repeating-linear-gradient(135deg, #e0c98f 0 4px, #fbf6e8 4px 8px);
 }
 .connected-step.is-optional-help {
-  border-style: dotted;
+  background: #ecf1ef;
 }
-.connected-now-next {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  margin: 14px 0 0;
-  font-size: 14px;
-}
-.connected-now-next > div {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  min-width: 0;
-}
-.connected-now-next dt {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: #087b69;
-}
-.connected-now-next dd {
-  margin: 0;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-@media (max-width: 599px) {
-  .connected-steps {
-    flex-direction: column;
-  }
-  .connected-step {
-    border-radius: 12px;
-  }
+.connected-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Connection and saved-request state. Words carry the meaning; colour only
@@ -2204,10 +2123,9 @@ html:has(.connected-host.is-compact) body {
   .connected-host [aria-current="step"] {
     border: 3px solid Highlight !important;
   }
-  .connected-step.is-locked,
-  .connected-step.is-optional-help,
-  .connected-step.is-closed-with-gaps {
-    border-style: dashed !important;
+  .connected-step.is-completed,
+  .connected-step.is-current {
+    background: CanvasText !important;
   }
 }
 
@@ -2695,13 +2613,11 @@ html:has(.connected-host:not(.is-compact)) {
    capitals for Latin script keeps normal spacing in Hebrew. Every rule in this stylesheet that
    sets a positive letter-spacing or a text-transform has its selector here with :lang(he)
    (tests/cssStructure.test.ts checks it). */
-.connected-kicker:lang(he),
 .connected-part-top:lang(he),
 .connected-eyebrow:lang(he),
 .connected-sources p:lang(he),
 .connected-resources > summary span:lang(he),
 .connected-menu-heading:lang(he),
-.connected-now-next dt:lang(he),
 .connected-unverified > summary:lang(he) {
   letter-spacing: 0;
   text-transform: none;
@@ -3135,4 +3051,122 @@ html:has(.connected-host:not(.is-compact)) {
 .markdown-table:focus-visible {
   outline: 3px solid #183237;
   outline-offset: 2px;
+}
+/* Lesson header: where the lesson sits in the course, and (for staff) a small tools slot. */
+.connected-lesson-topline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.connected-lesson-where {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #087b69;
+}
+.connected-lesson-staff .connected-debug-entry {
+  margin: 0;
+}
+.connected-lesson-staff .connected-debug-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid #cdbfe6;
+  border-radius: 999px;
+  background: #f6f2fc;
+  color: #4f3780;
+  font-size: 12px;
+  font-weight: 600;
+}
+.connected-lesson-staff .connected-debug-trigger:hover {
+  background: #ece4f8;
+}
+/* What comes after the part being read, under its button. */
+.connected-reading-card .connected-next-step {
+  margin: -8px 0 0;
+  font-size: 14px;
+  color: #526a70;
+}
+/* The check before every part is read: how many questions follow, and when they open. */
+.connected-check.is-waiting {
+  background: #fff;
+  border-style: dashed;
+  padding: 20px 26px;
+}
+.connected-check.is-waiting h2 {
+  font-size: 19px;
+  margin-bottom: 6px;
+}
+/* Whether the open question counts, said before the question. */
+.connected-question-kind {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #dce6e2;
+  border-inline-start-width: 4px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #183237 !important;
+  background: #fff;
+}
+.connected-question-kind.is-counted {
+  border-inline-start-color: #087b69;
+}
+.connected-question-kind.is-practice {
+  border-inline-start-color: #80601e;
+  background: #fcf3df;
+}
+/* The account button: initials and name, so it reads as the account. */
+.connected-header .connected-menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 4px;
+  padding-inline: 6px 14px;
+  min-height: 44px;
+}
+.connected-menu-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #087b69;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.connected-menu-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+@media (max-width: 599px) {
+  .connected-menu-name {
+    display: none;
+  }
+  .connected-check.is-waiting {
+    padding: 18px 20px;
+  }
+}
+/* A lesson that ran out of questions: said plainly, with whether the course team was told. */
+.connected-check .connected-questions-exhausted {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #dce6e2;
+  border-inline-start: 4px solid #80601e;
+  border-radius: 12px;
+  background: #fcf3df;
+}
+.connected-check .connected-questions-exhausted p {
+  color: #183237;
 }

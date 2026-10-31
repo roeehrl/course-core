@@ -587,6 +587,7 @@ describe("persisted companion integration", () => {
         onSend={send}
         pending={false}
         loaded
+        availability="ready"
       />,
     );
     expect(screen.getByRole("status", { name: /Companion status: Offline/ })).toBeVisible();
@@ -1171,5 +1172,44 @@ describe("one statement per companion outcome", () => {
       expect(screen.getByText(stripBidiControls(i18n.t("companionClient.job.cancelled")))).toBeVisible();
       unmount();
     }
+  });
+});
+
+describe("the companion's state comes from the server's availability", () => {
+  const props = (overrides: Partial<React.ComponentProps<typeof ConnectedCompanion>> = {}) => ({
+    context,
+    messages: [],
+    episodeTitles: { intro: "Notice change" },
+    draft: "",
+    onDraftChange: () => {},
+    onSend: vi.fn(),
+    pending: false,
+    loaded: true,
+    ...overrides,
+  });
+  it("says Available only when a companion job can answer, and that it is not turned on otherwise", () => {
+    const { rerender } = render(<ConnectedCompanion {...props({ availability: "not_set_up" })} />);
+    expect(screen.getByRole("status", { name: /^Companion status: Not turned on for this course yet/ })).toBeVisible();
+    expect(screen.queryByText(/Companion: Available/)).toBeNull();
+    rerender(<ConnectedCompanion {...props()} />);
+    expect(screen.getByRole("status", { name: "Companion status: Checking whether it is on…" })).toBeVisible();
+    rerender(<ConnectedCompanion {...props({ availability: "ready" })} />);
+    expect(screen.getByRole("status", { name: "Companion status: Available" })).toBeVisible();
+  });
+  it("outside a lesson shows no empty conversation, no place labels and no disabled composer", () => {
+    render(<ConnectedCompanion {...props({ context: { ...context, episodeId: undefined, episodeTitle: undefined, blockId: undefined, blockTitle: undefined }, availability: "not_set_up" })} />);
+    expect(screen.queryByText("Your saved conversation")).toBeNull();
+    expect(screen.queryByText("Following your place")).toBeNull();
+    expect(screen.queryByText("Course roadmap")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    expect(screen.queryByText(/Open a lesson before sending/)).toBeNull();
+    expect(screen.getByText(/Ask from inside a lesson/)).toBeVisible();
+  });
+  it("keeps a draft started in a lesson, and the saved conversation's badge once there are messages", () => {
+    const message = { id: "m1", role: "learner" as const, content: "Why?", context: { episodeId: "intro" }, created_at: "2026-10-01T10:00:00Z" };
+    render(<ConnectedCompanion {...props({ context: { ...context, episodeId: undefined, episodeTitle: undefined }, draft: "Half a question", messages: [message] as never, availability: "ready" })} />);
+    expect(screen.getByText("Your saved conversation")).toBeVisible();
+    expect(screen.getByDisplayValue("Half a question")).toBeVisible();
+    expect(screen.getByText(/Open a lesson before sending/)).toBeVisible();
   });
 });

@@ -47,7 +47,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByRole("heading", { name: "Ordering values", exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
@@ -68,7 +68,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     fullPage: true,
   });
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Mark this part read", exact: true })
@@ -81,10 +81,10 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   ).toBeVisible();
   await page.reload();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByText("Which is smaller?", { exact: true }),
@@ -96,7 +96,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByText("Correct. 2 is below 5.", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
@@ -109,13 +109,13 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Complete episode →", exact: true })
+    .getByRole("button", { name: "Finish this lesson →", exact: true })
     .click();
   await expect(
-    page.getByText("1 completed / 2", { exact: true }),
+    page.getByText("1 of 2 lessons complete", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Maximum", exact: true }),

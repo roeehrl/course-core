@@ -10,6 +10,6 @@
   "part.visual": "חלק {number, number} · איור",
   "part.media": "חלק {number, number} · וידאו",
   "activity": "פעילות {number, number}",
-  "check": "בדיקה עצמאית",
+  "check": "בדיקת הבנה",
   "finish": "סיום השיעור"
 }

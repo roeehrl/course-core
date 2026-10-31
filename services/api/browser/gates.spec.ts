@@ -29,33 +29,39 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   // page) before pressing a button the re-layout would otherwise move.
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Explore placement ↗" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
 
-  // The server's decision, with concrete next steps.
-  await expect(panel(page).getByRole("heading", { name: "More evidence needed" })).toBeVisible();
-  await expect(panel(page).getByRole("button", { name: "Answer a fresh independent check on “Find a minimum” (0 of 2 item families so far)" })).toBeVisible();
-  await expect(panel(page).getByRole("button", { name: /^Solve a new transfer task: “Predict the running minimum/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeDisabled();
+  // A checkpoint not tried yet reads neutral: how many questions, no decision and no suggestions.
+  await expect(page.locator(".connected-check")).toContainText("Answer 2 questions correctly on your own to finish this lesson.");
+  await expect(panel(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeDisabled();
   await noHorizontalScroll(page);
-  if (info.project.name === "phone") {
-    // Compact layout: next steps stack at full panel width.
-    const [box, button] = await Promise.all([panel(page).boundingBox(), panel(page).getByRole("button").first().boundingBox()]);
-    expect(button!.width).toBeGreaterThan(box!.width - 48);
-  }
 
   // "I don't know yet" records nothing against the learner.
   await nextCheck(page);
   await expect(page.getByText("Which is smaller?")).toBeVisible();
   await page.getByRole("button", { name: "I don't know yet: record no answer and get help" }).click();
   await expect(page.getByText(/Noted\. Nothing was recorded against you, and it does not count as evidence\./)).toBeVisible();
+  // Now the server's decision shows, with concrete next steps in plain words; a new question is
+  // the lesson's own button, not a second one in the decision.
+  await expect(panel(page).getByRole("heading", { name: "Not complete yet" })).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /^Solve a new kind of problem: “Predict the running minimum/ })).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /^Try a new question/ })).toHaveCount(0);
+  await expect(panel(page)).not.toContainText(/item famil|independent success/i);
+  if (info.project.name === "phone") {
+    // Compact layout: next steps stack at full panel width.
+    const [box, button] = await Promise.all([panel(page).boundingBox(), panel(page).getByRole("button").first().boundingBox()]);
+    expect(button!.width).toBeGreaterThan(box!.width - 48);
+  }
 
   // A second unsuccessful attempt: the decision puts help first.
   await nextCheck(page);
   await fill(page.getByRole("textbox", { name: "Your numeric answer" }), "9");
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(panel(page).getByRole("heading", { name: "Let's get you some help" })).toBeVisible();
-  await expect(panel(page).getByRole("button").first()).toHaveText(/^Ask for help: your last 2 attempts on this checkpoint did not succeed/);
+  await expect(panel(page).getByRole("button").first()).toHaveText(/^Ask the companion to explain/);
+  await expect(panel(page).locator(".connected-gate-reason")).toHaveText("Your last few tries did not succeed.");
 
   // Prediction with its unit and optional confidence (which never changes the result).
   await nextCheck(page);
@@ -70,7 +76,7 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await noHorizontalScroll(page);
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(page.getByText(/^Correct\./)).toBeVisible();
-  await expect(panel(page).getByRole("heading", { name: "More evidence needed" })).toBeVisible();
+  await expect(panel(page).getByRole("heading", { name: "Not complete yet" })).toBeVisible();
 
   // Trace: one answer per step.
   await nextCheck(page);
@@ -103,15 +109,16 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   // page) before pressing a button the re-layout would otherwise move.
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Explore placement ↗" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
-  await expect(panel(page).getByRole("heading", { name: "More evidence needed" })).toBeVisible();
+  await expect(page.locator(".connected-check")).toHaveAttribute("data-state", "open");
+  await expect(panel(page)).toHaveCount(0);
   const enrollment = (await (await page.request.get("/api/enrollments")).json())[0].id as string;
   // Reload to read what staff changed, then return to the lesson once the course has loaded.
   const reopen = async () => {
     await page.reload();
     await expect(async () => {
-      await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click({ timeout: 2000 });
+      await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click({ timeout: 2000 });
       await expect(panel(page)).toBeVisible({ timeout: 2000 });
     }).toPass({ timeout: 15000 });
   };
@@ -152,7 +159,7 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   await reopen();
   await expect(panel(page).getByText("Review completed: the decision stands")).toBeVisible();
   await expect(panel(page).getByText("“An extension is the right route; ask for one first.”")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeDisabled();
 
   // The learner asks again; the deadline is extended and staff authorize an exception.
   await ask("The extension was granted; I would like to continue to the next lesson.");
@@ -162,7 +169,7 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   expect(granted.status(), await granted.text()).toBe(200);
   await reopen();
   // The decision stays honest; the exception is shown beside it.
-  await expect(panel(page).getByRole("heading", { name: "More evidence needed" })).toBeVisible();
+  await expect(panel(page).getByRole("heading", { name: "Not complete yet" })).toBeVisible();
   await expect(panel(page).getByText("Staff exception granted")).toBeVisible();
   await expect(panel(page).getByText(/This is not a pass/)).toBeVisible();
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);

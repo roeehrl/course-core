@@ -137,7 +137,7 @@ test("the connected library and lesson lay out right to left in Hebrew without o
   await expectNoOverflowAtWidths(page);
   await expectAccessible(page);
 
-  await openLesson(page, /המשך למידה|Continue learning/);
+  await openLesson(page, /המשך למידה|המשך שיעור|התחלת הקורס|התחלת שיעור|Continue learning/);
   await expect(page.getByRole("navigation", { name: "ניווט בלמידה" })).toBeVisible();
   await expect(page.getByText("עוד לא ידוע לי", { exact: true }).or(page.getByText(/חלק 1/)).first()).toBeVisible();
   // Course content keeps its own direction: the lesson heading is isolated with dir="auto".
@@ -149,7 +149,7 @@ test("the connected library and lesson lay out right to left in Hebrew without o
 test("an English course's lesson text starts at its own edge in the Hebrew host, not indented from the right", async ({ page }) => {
   await connectedFixture(page, { locale: "he" });
   await page.goto("/");
-  await openLesson(page, /המשך למידה|Continue learning/);
+  await openLesson(page, /המשך למידה|המשך שיעור|התחלת הקורס|התחלת שיעור|Continue learning/);
   const heading = page.locator(".connected-lesson-heading");
   const title = heading.locator("h1"),
     subtitle = heading.locator("> p"),
@@ -206,7 +206,7 @@ test("the demo app in Hebrew: English course text starts at its own edge, and no
   expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
   // In a lesson, the step's label, heading and body share the heading's start edge.
   await page.goto("/demo?locale=he");
-  await page.getByRole("button", { name: /המשך למידה/ }).first().click();
+  await page.getByTestId("next-step").getByRole("button").click();
   const heading = page.getByRole("heading", { name: "Every number has a neighbor." });
   const label = page.getByText("First, a small observation", { exact: true });
   for (const width of WIDTHS) {
@@ -238,9 +238,9 @@ test("the en-XA pseudo-locale leaves no untranslated host or lesson chrome", asy
   await expect(page.locator("html")).toHaveAttribute("lang", "en-XA");
   await expect(page.locator("main").first()).toBeVisible();
   expect(await untranslatedText(page, ".connected-library, .connected-header")).toEqual([]);
-  await openLesson(page, /Ç[öô]ñţîñûé|Continue learning/);
+  await openLesson(page, /Ç[öô]ñţîñûé|Šţåŕţ|Continue learning/);
   expect(
-    await untranslatedText(page, ".connected-lesson-heading, .connected-steps, .connected-now-next, .connected-check, .connected-complete, .connected-gate, .connected-navigation"),
+    await untranslatedText(page, ".connected-lesson-heading, .connected-steps, .connected-check, .connected-complete, .connected-gate, .connected-navigation"),
   ).toEqual([]);
   await expectNoOverflowAtWidths(page);
 });

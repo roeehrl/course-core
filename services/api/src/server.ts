@@ -43,6 +43,8 @@ import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { registerCompanionRoutes } from './companion-routes.js';
+import { registerCompanionAvailabilityRoute, type CompanionAvailability } from './companion-availability.js';
+import { registerQuestionsExhaustedRoute } from './questions-exhausted.js';
 import { registerCompanionContextRoutes } from './context-capsule.js';
 import { registerSupervisorBridge, type SupervisorBridgeOptions } from './supervisor-bridge.js';
 import { registerProviderGateway } from './provider-gateway.js';
@@ -133,6 +135,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   eventStream?: EventStreamOptions;
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
   clock?: Clock;
+  /** Test hosts only: the companion availability one enrollment reports (companion-availability.ts). */
+  companionAvailabilityOverride?: (enrollmentId: string) => CompanionAvailability | undefined;
   /** Optional S3-compatible store for large artifacts (artifact-store.ts). Omitted: unchanged; null: inline Postgres only. */
   artifactStore?: ArtifactStore | null;
   /** Course-package installation (course-package-routes.ts): host files, remote-fetch switch and test seams. */
@@ -153,6 +157,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** The migrations this build ships, compared with the database on the platform-readiness page. */
   migrationsDirectory?: string }) {
   const clock = serverClock(options.clock);
+  if (options.companionAvailabilityOverride && process.env.NODE_ENV !== 'test') throw new Error('A companion availability override can only be installed when NODE_ENV=test.');
   // One live list of installed extensions shared by every route, so approved course-supplied
   // extensions (loaded here, and added when an install approves them) take effect at once.
   options.installedExtensions ??= [];
@@ -388,6 +393,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerScopedCorrectionRoutes(app, db, auth, () => options.installedExtensions ?? []);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
+  registerQuestionsExhaustedRoute(app, db, auth);
+  registerCompanionAvailabilityRoute(app, db, auth, { runtime: async (workspaceId, client) => await options.workspaceProviders?.resolve(workspaceId, client) ?? providers,
+    ...(options.supervisor ? { bridgeWorkspaces: options.supervisor.workspaceIds ?? [] } : {}),
+    ...(options.companionAvailabilityOverride ? { override: options.companionAvailabilityOverride } : {}) });
   registerCompanionContextRoutes(app, db, auth);
   registerLearnerModelRoutes(app, db, auth);
   registerConceptMappingRoutes(app, db, auth);

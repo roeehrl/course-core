@@ -72,9 +72,9 @@ it("a companion answer re-renders the companion, not the lesson, and identical r
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost companionClient={client} />);
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", { name: "Everyday patterns" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", { name: "Notice the change" });
   const trigger = screen.queryByRole("button", { name: "Companion" });
   if (trigger) await pressWhenReady(trigger);

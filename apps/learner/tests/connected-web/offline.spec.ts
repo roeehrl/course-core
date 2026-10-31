@@ -18,7 +18,7 @@ async function openCheck(page: Page) {
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await page
     .getByRole("button", { name: "Mark this part read", exact: true })
@@ -126,7 +126,7 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
   const posts = answerPosts(reopened);
   await reopened.goto("/");
   await reopened
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
   await expect(reopened.getByText(/^Recovered submission\./)).toBeVisible();
@@ -187,11 +187,11 @@ test("an answer draft survives closing the tab", async ({ page, context }) => {
   const reopened = await context.newPage();
   await reopened.goto("/");
   await reopened
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
   await reopened
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     reopened.getByRole("radio", { name: "2", exact: true }),

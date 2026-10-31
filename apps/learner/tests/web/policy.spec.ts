@@ -151,7 +151,7 @@ test("opening the policy preview starts no clock; explicit Start enrolls once an
   });
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Continue learning →", exact: true }),
+    page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }),
   ).toBeVisible();
   expect(state.writes()).toBe(1);
   await expect(page.locator(".connected-policy-dates")).toContainText(
@@ -165,14 +165,18 @@ test("opening the policy preview starts no clock; explicit Start enrolls once an
   await expect(page.getByRole("button", { name: "Open course", exact: true })).toHaveCount(0);
   await page
     .getByRole("article")
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(page.locator(".connected-policy-dates")).toHaveText(before!);
+  // Labelled by what falls due, never by a chapter's title alone.
+  await expect(page.locator(".connected-policy-dates")).toContainText(/(Course and chapter 1|Chapter 1) due/);
   expect(state.writes()).toBe(1);
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
-  await expect(page.locator(".connected-policy-dates")).toContainText("Begin:");
+  // The dates belong to the course page; the lesson does not repeat them.
+  await expect(page.locator(".connected-lesson").first()).toBeVisible();
+  await expect(page.locator(".connected-policy-dates")).toHaveCount(0);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -246,7 +250,7 @@ test("closure distinguishes coverage and unproven understanding from professiona
 }) => {
   await policyHost(page, false, true);
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
   await expect(
@@ -269,7 +273,7 @@ test("evidence withdrawn after completion is shown with its reason and does not 
 }, info) => {
   await policyHost(page, false, true, true);
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
   await expect(

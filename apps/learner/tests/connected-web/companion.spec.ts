@@ -19,7 +19,7 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   const navigation = page.getByRole("navigation", {
     name: "Learning navigation",
@@ -103,18 +103,18 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     fullPage: true,
   });
   await page.getByRole("button", { name: "Close companion" }).click();
-  await expect(
-    page.getByText("Practice · no independent credit", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByTestId("question-kind")).toHaveText(
+    "Practice. This question does not count toward finishing the lesson.",
+  );
   await expect(
     page.getByRole("button", { name: "Companion", exact: true }),
   ).toBeFocused();
   await page.reload();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("radio", { name: "2", exact: true }),

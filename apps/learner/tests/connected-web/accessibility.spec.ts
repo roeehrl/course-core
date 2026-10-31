@@ -54,7 +54,7 @@ async function openCheck(page: Page) {
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await page
     .getByRole("button", { name: "Mark this part read", exact: true })
@@ -138,7 +138,7 @@ test("lesson prose keeps a readable line length (I04)", async ({ page }, info) =
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   const prose = page.locator(".connected-reading-card .connected-prose");
   await expect(prose.first()).toBeVisible();

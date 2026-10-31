@@ -33,7 +33,7 @@ describe("linear connected lesson and authoritative gates", () => {
   it('offers an approved fresh check after item exhaustion without changing the completion gate',()=>{
     const p=props();p.server.lessons[0]!.completedBlockIds=p.episode.blocks.filter(b=>b.type!=='assessment').map(b=>b.id);p.server.activeChallenges=[];
     p.server.recovery=[{episodeId:p.episode.id,required:true,freshCheck:{objectiveId:p.episode.objectiveIds[0]!,familyId:'canonical',plannedMinutes:2,additionalEpisodes:1}}];
-    render(<ConnectedLesson {...p}/>);fireEvent.click(screen.getByRole('button',{name:'Get a fresh check · 2 min →'}));expect(p.onStart).toHaveBeenCalledOnce();expect(screen.getByRole('button',{name:'Complete episode →'})).toBeDisabled();
+    render(<ConnectedLesson {...p}/>);fireEvent.click(screen.getByRole('button',{name:'Get a fresh check · 2 min →'}));expect(p.onStart).toHaveBeenCalledOnce();expect(screen.getByRole('button',{name:'Finish this lesson →'})).toBeDisabled();
   });
   it("shows only the current unread part and advances only after a server snapshot", () => {
     const p = props();
@@ -43,7 +43,7 @@ describe("linear connected lesson and authoritative gates", () => {
     ).toBeVisible();
     expect(container.querySelector("svg")).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Complete episode →" }),
+      screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", { name: "Mark this part read" }),
@@ -59,7 +59,7 @@ describe("linear connected lesson and authoritative gates", () => {
     ).toBeVisible();
     expect(container.querySelector("svg")).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: "Complete episode →" }),
+      screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
   });
   it("blocks unreviewed mandatory media even when stale server coverage calls it read", () => {
@@ -69,7 +69,7 @@ describe("linear connected lesson and authoritative gates", () => {
     p.server.course.media[0]!.review = "unreviewed";
     render(<ConnectedLesson {...p} />);
     expect(
-      screen.getByRole("button", { name: "Complete episode →" }),
+      screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
     expect(
       screen.getByText(/required media step is unavailable/),

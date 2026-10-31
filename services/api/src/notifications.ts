@@ -51,7 +51,7 @@ export const NOTIFICATION_LIMITS = Object.freeze({
   /** The AI budget counts as near its limit from this share of it. */
   budgetPercent: 80,
 });
-export const STAFF_NOTIFICATION_KINDS = ['approvals_waiting', 'ai_check_needed', 'jobs_failed', 'budget_near_limit', 'help_paused', 'backups_overdue'] as const;
+export const STAFF_NOTIFICATION_KINDS = ['approvals_waiting', 'ai_check_needed', 'jobs_failed', 'budget_near_limit', 'help_paused', 'backups_overdue', 'questions_exhausted'] as const;
 export const LEARNER_NOTIFICATION_KINDS = ['course_updated', 'move_offer', 'reply_ready'] as const;
 /** Workspace roles that have a staff bell. Course-scoped members and service principals have none. */
 export const STAFF_ROLES = ['owner', 'admin', 'author', 'instructor', 'reviewer', 'observer', 'support_observer'] as const;
@@ -136,6 +136,40 @@ export async function notifyStaffOfHeldWork(client: PoolClient, workspaceId: str
       await notifyUser(client, { workspaceId, userId: person.user_id, audience: 'staff', kind: condition.kind, params: condition.params, link: condition.link,
         dedupeKey: staffKey(workspaceId, condition), fingerprint: condition.fingerprint, rank: condition.rank });
 }
+/** How long a lesson that ran out of questions stays on the staff list while it is not finished. */
+const EXHAUSTED_WINDOW_MS = 14 * 86_400_000;
+/**
+ * Learners in a course whose lesson needs another independent question while none is left
+ * (`questions_exhausted`, questions-exhausted.ts), in the last two weeks and not finished since.
+ * Counts learners and lessons; never names a learner.
+ */
+async function exhaustedQuestionsCondition(client: Sql, workspaceId: string, catalog: { id: string; course_key: string }, now: Date): Promise<Condition | null> {
+  const row = (await client.query<{ learners: number; lessons: number; latest: Date | null }>(
+    `SELECT count(DISTINCT l.enrollment_id)::int AS learners,count(DISTINCT l.payload->>'episodeId')::int AS lessons,max(l.created_at) AS latest
+      FROM learning_events l JOIN enrollments e ON e.id=l.enrollment_id JOIN course_releases r ON r.id=e.course_release_id
+      WHERE l.workspace_id=$1 AND r.course_key=$2 AND l.event_type='assessment.questions_exhausted' AND l.created_at > $3 AND e.status='active'
+        AND NOT EXISTS (SELECT 1 FROM episode_progress p WHERE p.enrollment_id=l.enrollment_id AND p.episode_id=l.payload->>'episodeId' AND p.state IN ('completed','placed'))`,
+    [workspaceId, catalog.course_key, new Date(now.getTime() - EXHAUSTED_WINDOW_MS)])).rows[0]!;
+  if (!row.learners) return null;
+  return { kind: 'questions_exhausted', subject: catalog.id, params: { courseId: catalog.id, learners: row.learners, lessons: row.lessons },
+    link: `/courses/${catalog.id}/overview`, fingerprint: String(row.learners), rank: row.learners };
+}
+/** Tells the staff who can add questions, at once, that a learner ran out of them (in the transaction
+ * that recorded it), so the learner's "your course team has been told" is true from that moment. */
+export async function notifyStaffOfExhaustedQuestions(client: PoolClient, workspaceId: string, now = new Date()) {
+  const catalogs = (await client.query<{ id: string; course_key: string }>(
+    'SELECT id,course_key FROM admin_course_catalog WHERE workspace_id=$1 ORDER BY created_at,id LIMIT $2', [workspaceId, NOTIFICATION_LIMITS.courses])).rows;
+  const staff = (await client.query<{ user_id: string }>(
+    'SELECT user_id FROM memberships WHERE workspace_id=$1 AND role=ANY($2::text[]) ORDER BY user_id LIMIT 200',
+    [workspaceId, STAFF_ROLES.filter(role => roleCan(role, 'release.review'))])).rows;
+  for (const catalog of catalogs) {
+    const condition = await exhaustedQuestionsCondition(client, workspaceId, catalog, now);
+    if (!condition) continue;
+    for (const person of staff)
+      await notifyUser(client, { workspaceId, userId: person.user_id, audience: 'staff', kind: condition.kind, params: condition.params, link: condition.link,
+        dedupeKey: staffKey(workspaceId, condition), fingerprint: condition.fingerprint, rank: condition.rank });
+  }
+}
 const staffKey = (workspaceId: string, condition: Pick<Condition, 'kind' | 'subject'>) => `staff:${workspaceId}:${condition.kind}:${condition.subject}`;
 
 /** The conditions one staff member should be told about now, by what their role can act on. */
@@ -149,6 +183,10 @@ export async function staffConditions(client: Sql, workspaceId: string, role: st
       const count = Object.values(queue).reduce((n, v) => n + v, 0);
       if (count) conditions.push({ kind: 'approvals_waiting', subject: catalog.id, params: { courseId: catalog.id, count, ...queue },
         link: `/courses/${catalog.id}/overview`, fingerprint: String(count), rank: count });
+    }
+    if (roleCan(role, 'release.review')) {
+      const exhausted = await exhaustedQuestionsCondition(client, workspaceId, catalog, now);
+      if (exhausted) conditions.push(exhausted);
     }
     if (roleCan(role, 'run.inspect')) {
       const failed = (await client.query<{ n: number; latest: Date | null }>(

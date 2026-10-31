@@ -43,10 +43,10 @@ async function fixtureHost(
   });
   await page.goto("/");
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
 }
 test("production connected renderer, safe sources, explicit video load and no automatic completion", async ({
@@ -106,7 +106,7 @@ test("production connected renderer, safe sources, explicit video load and no au
     page.getByRole("button", { name: "Play animation" }),
   ).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   const a11y = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
@@ -136,7 +136,7 @@ test("production connected renderer, safe sources, explicit video load and no au
     page.getByRole("button", { name: "Mark this part read", exact: true }),
   ).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   expect(errors).toEqual([]);
 });
@@ -154,7 +154,7 @@ test("mandatory unreviewed media cannot be acknowledged through the connected ho
     page.getByRole("button", { name: "Mark this part read", exact: true }),
   ).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Load reviewed video" }),

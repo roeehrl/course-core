@@ -18,7 +18,8 @@ test.afterEach(async ({ page }, testInfo) => recordRendererHealth(page, testInfo
  * press is retried. The loop waits for the open lesson itself, not for the roadmap in between: on a
  * slow page a retried press could pass the roadmap before it was seen, and then never find it. */
 async function openCurrentLesson(page: Page) {
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  // The library's "Continue learning", then the course page's next step (its wording follows the learner's state).
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first();
   const lesson = page.locator("article[data-reading-part]").first();
   await expect(async () => {
     if (await lesson.isVisible()) return;

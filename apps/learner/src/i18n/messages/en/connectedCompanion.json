@@ -24,11 +24,8 @@
   "statusLabel": "Companion status: {state}",
   "status": "Companion: {state}",
   "heldOffline": "Your question is held on this device and will be sent when you are back online, if you are still in this lesson.",
-  "place": "Following your place",
-  "roadmap": "Course roadmap",
   "about": "Messages are saved to your course account. A reply appears here only when the companion service returns one. Asking for help never grants course credit.",
   "loading": "Loading your conversation…",
-  "empty": "A question, a connection, a point to revisit. Keep it here as you learn.",
   "log": "Saved companion messages",
   "role.learner": "You",
   "role.companion": "Companion",
@@ -110,5 +107,10 @@
   "reply.reconnecting": "Connection lost · the reply continues when you are back online",
   "state.paused": "Help is paused · your question is saved",
   "withheld.answer": "This is a hint in place of a reply that gave away the answer to one of the course's checks. That reply was not kept.",
-  "withheld.unverified": "This is a hint in place of a reply that could not be checked against the course's checks. That reply was not kept."
+  "withheld.unverified": "This is a hint in place of a reply that could not be checked against the course's checks. That reply was not kept.",
+  "state.not_set_up": "Not turned on for this course yet · a question you send is saved and answered once it is",
+  "state.checking_availability": "Checking whether it is on…",
+  "asking": "Asking about",
+  "fromLesson": "Ask from inside a lesson, so the companion sees what you are reading. Your saved questions and answers stay here.",
+  "state.unknown_availability": "Could not check whether it is on · a question you send is saved"
 }

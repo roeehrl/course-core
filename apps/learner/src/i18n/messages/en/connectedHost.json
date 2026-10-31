@@ -1,6 +1,5 @@
 {
   "brandSection": "/ learn",
-  "menu.yourCourse": "Your course",
   "menu.account": "Account",
   "menu.signedIn": "Signed in as {name}",
   "menu.signedInWithCoverage": "Signed in as {name} · {coverage}",
@@ -84,5 +83,6 @@
   "record.event.course_version_move_offered": "Offered a move to a newer version",
   "record.event.course_version_move_offer_accepted": "Accepted the move to a newer version",
   "record.event.course_version_move_offer_declined": "Declined the move to a newer version",
-  "record.event.course_version_move_forced": "Moved to a newer version by the course team"
+  "record.event.course_version_move_forced": "Moved to a newer version by the course team",
+  "menu.accountOf": "Account and course menu, {name}"
 }

@@ -171,7 +171,7 @@ async function host(page: Page, locale: string) {
 }
 
 type Locale = "he" | "en-XA";
-type T = (key: MessageKey) => string;
+type T = (key: MessageKey, params?: Record<string, string | number>) => string;
 /** The app's own catalogs and translator (ESM, loaded once), so names follow the catalogs. */
 const translators: Partial<Record<Locale, T>> = {};
 test.beforeAll(async () => {
@@ -205,18 +205,20 @@ const HEADINGS: MessageKey[] = [
 async function enterCourse(page: Page, locale: Locale) {
   await page.getByRole("button", { name: tr(locale)("connectedHost.library.continue"), exact: true }).click();
 }
-/** From the roadmap into the next lesson. The roadmap's button is not in a catalog yet, so
- * accept its English text as well as the host's translated wording. */
+/** From the roadmap into the next lesson: the library's button, or the next-step card's, whose
+ * wording says whether the course or the lesson starts or continues. */
 async function openLesson(page: Page, locale: Locale) {
   const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const names = [tr(locale)("connectedHost.library.continue"), "Continue learning →"].map(escape).join("|");
-  await page.getByRole("button", { name: new RegExp(`^(${names})$`) }).first().click();
+  const t = tr(locale);
+  const names = [t("connectedHost.library.continue"), t("courseRoadmap.next.startCourse")].map(escape)
+    .concat(["courseRoadmap.next.startLesson", "courseRoadmap.next.continueLesson"].map((key) => escape(t(key as MessageKey, { number: 999 })).replace("999", "\\d+")));
+  await page.getByRole("button", { name: new RegExp(`^(${names.join("|")})$`) }).first().click();
 }
 
 async function openProfile(page: Page, locale: Locale) {
   const t = tr(locale);
   await enterCourse(page, locale);
-  await page.getByRole("button", { name: t("connectedHost.menu.yourCourse") }).click();
+  await page.locator(".connected-menu-toggle").click();
   await page.getByRole("button", { name: t("connectedHost.menu.profile") }).click();
   for (const key of HEADINGS)
     await expect(page.getByRole("heading", { name: t(key), exact: true })).toBeVisible();
@@ -277,7 +279,8 @@ for (const width of [390, 1280]) {
     await host(page, "he");
     await enterCourse(page, "he");
     await openLesson(page, "he");
-    if (width < 600) await page.getByRole("button", { name: t("companionDock.open"), exact: true }).click();
+    // The companion starts closed beside the lesson too; its button opens it.
+    await page.getByRole("button", { name: t("companionDock.open"), exact: true }).click();
     const companion = page.getByRole(width < 600 ? "dialog" : "complementary", { name: t("companionDock.label") });
     await expect(companion).toBeVisible();
     await expect(companion.getByRole("textbox", { name: t("connectedCompanion.draft.label") })).toBeVisible();
@@ -324,6 +327,7 @@ test("the settings panels, study dates and companion have no untranslated text u
   await expect(policy.locator("article").first()).toBeVisible();
   expect(await untranslated(policy)).toEqual([]);
   await openLesson(page, "en-XA");
+  await page.getByRole("button", { name: tr("en-XA")("companionDock.open"), exact: true }).click();
   const companion = page.getByRole("complementary", { name: tr("en-XA")("companionDock.label") });
   await expect(companion.getByRole("textbox", { name: tr("en-XA")("connectedCompanion.draft.label") })).toBeVisible();
   expect(await untranslated(companion)).toEqual([]);

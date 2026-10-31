@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * The staff notification center: what needs someone's attention now (approvals waiting, an AI
  * role that needs a check, failed AI runs, the AI budget near its limit, AI help paused by a
- * spending limit, overdue backups). The
+ * spending limit, overdue backups, learners who ran out of questions in a lesson). The
  * server sends a kind code with parameters and an app path to act on; this app words them.
  */
 export const STAFF_NOTIFICATION_KINDS = [
@@ -13,6 +13,7 @@ export const STAFF_NOTIFICATION_KINDS = [
   "budget_near_limit",
   "help_paused",
   "backups_overdue",
+  "questions_exhausted",
 ] as const;
 export type StaffNotificationKind = (typeof STAFF_NOTIFICATION_KINDS)[number];
 

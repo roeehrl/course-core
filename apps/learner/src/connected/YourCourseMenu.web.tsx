@@ -19,12 +19,20 @@ export interface MenuGroup {
  * arrows, Home and End also move between its buttons. Escape or a click outside
  * closes it and returns focus to its button. Choosing an item closes it with focus
  * on the button first, so a dialog the item opens gives focus back there. */
+/** Up to two initials of a display name, for the account button's avatar. */
+export function initials(name: string) {
+  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((word) => Array.from(word)[0]!.toLocaleUpperCase()).join("");
+}
 export function YourCourseMenu({
   label,
+  name,
   description,
   groups,
 }: {
+  /** The button's accessible name. */
   label: string;
+  /** The signed-in person: the button shows their initials and name, so it reads as the account. */
+  name?: string;
   /** Who is signed in, shown at the top of the open list. */
   description?: string;
   groups: MenuGroup[];
@@ -75,9 +83,18 @@ export function YourCourseMenu({
         className="connected-menu-toggle"
         aria-expanded={open}
         aria-controls={`${id}-panel`}
+        {...(name ? { "aria-label": label } : {})}
         onClick={() => setOpen((value) => !value)}
       >
-        {label} <span aria-hidden="true">{open ? "▴" : "▾"}</span>
+        {name ? (
+          <>
+            <span className="connected-menu-avatar" aria-hidden="true">{initials(name)}</span>
+            <span className="connected-menu-name" aria-hidden="true" dir="auto">{name}</span>
+          </>
+        ) : (
+          label
+        )}{" "}
+        <span aria-hidden="true">{open ? "▴" : "▾"}</span>
       </button>
       <div
         id={`${id}-panel`}

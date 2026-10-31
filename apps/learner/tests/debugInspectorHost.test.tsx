@@ -26,9 +26,9 @@ async function openLesson(access: unknown) {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost companionClient={client} />);
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", { name: "Everyday patterns" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", { name: "Notice the change" });
   await waitFor(() => expect(asked).toHaveLength(1));
   return snapshot;

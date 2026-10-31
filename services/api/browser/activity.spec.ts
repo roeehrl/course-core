@@ -17,7 +17,7 @@ test("activities: declarative controls judged by an evaluator, and a sandboxed f
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
 
   // Declarative: Core's own controls; the server re-checks values and only the evaluator decides.
   const declarative = page.getByRole("region", { name: "Explore the minimum" });

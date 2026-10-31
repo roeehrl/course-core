@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
 import { stripBidiControls } from "@course-core/i18n";
@@ -33,7 +33,7 @@ describe("server gate decision panel", () => {
     render(<GateDecisionPanel gate={gate(status, [...actions])} pending={false} onAction={onAction} onRequestReview={vi.fn()} />);
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS[status] })).toBeVisible();
     expect(screen.getByText("More independent evidence is needed.", { selector: "p" })).toBeVisible();
-    expect(screen.getByRole("list", { name: "Readiness criteria" }).querySelectorAll("li")).toHaveLength(2);
+    expect(screen.getByRole("list", { name: "What this checkpoint needs" }).querySelectorAll("li")).toHaveLength(2);
     if (status === "under_review") expect(screen.getByText("Waiting for review")).toBeVisible();
     const buttons = actions.filter((a) => a.kind !== "await_review");
     for (const action of buttons) fireEvent.click(screen.getByRole("button", { name: action.label }));
@@ -54,7 +54,7 @@ describe("server gate decision panel", () => {
     const { container } = render(<GateDecisionPanel gate={repeated} pending={false} onAction={vi.fn()} />);
     expect(container.textContent!.split("Needs independent success in 2 item families").length - 1).toBe(1);
     expect(container.querySelector(".connected-gate-reason")).toBeNull();
-    expect(screen.getByRole("list", { name: "Readiness criteria" }).querySelectorAll("li")).toHaveLength(2);
+    expect(screen.getByRole("list", { name: "What this checkpoint needs" }).querySelectorAll("li")).toHaveLength(2);
     // Server messages translated to the same sentence are compared after translation, in Hebrew too.
     const he = createLearnerTranslator("he");
     const detail = { code: "criterion.familiesFor.unmet", params: { required: 2, objectives: ["Read a number line"], count: 0 } };
@@ -167,18 +167,34 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(screen.getByRole("button", { name: "Check answer" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
     expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
-    expect(screen.getByRole("button", { name: "Complete episode →" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();
+  });
+  it("says plainly when a lesson has no questions left, and that the course team was told", async () => {
+    const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
+    p.server.activeChallenges = [];
+    p.server.recovery = [{ episodeId: "intro", required: true, freshCheck: null }];
+    let tell!: (told: boolean) => void;
+    const onQuestionsExhausted = vi.fn(() => new Promise<boolean>((resolve) => { tell = resolve; }));
+    render(<ConnectedLesson {...p} onQuestionsExhausted={onQuestionsExhausted} />);
+    const notice = screen.getByTestId("questions-exhausted");
+    expect(notice).toHaveTextContent("No new questions are available for this lesson right now. Your work so far is saved.");
+    expect(notice).toHaveTextContent("Telling your course team…");
+    expect(onQuestionsExhausted).toHaveBeenCalledWith("intro");
+    expect(screen.queryByText(/qualified recovery check/)).toBeNull();
+    await act(async () => tell(true));
+    expect(notice).toHaveTextContent("Your course team has been told and can add more questions.");
+    expect(onQuestionsExhausted).toHaveBeenCalledTimes(1);
   });
   it("lets the learner complete under a standing staff exception, and not otherwise", () => {
     const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
     p.server.activeChallenges = [];
     const { unmount } = render(<ConnectedLesson {...p} />);
-    expect(screen.getByRole("button", { name: "Complete episode →" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();
     unmount();
     p.server.lessons[0]!.gate = { ...p.server.lessons[0]!.gate!, exception: { requestId: "r1", grantedAt: null } };
     render(<ConnectedLesson {...p} />);
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS.needs_evidence })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Complete episode →" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish this lesson →" }));
     expect(p.onComplete).toHaveBeenCalled();
   });
   it("hides the abstention when the author turned it off and routes written tasks to review", () => {
@@ -196,17 +212,20 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
 describe("gate decision text in the learner's language", () => {
   const en = createLearnerTranslator("en"), he = createLearnerTranslator("he"), plain = stripBidiControls;
   const fresh = { code: "action.freshCheck", params: { objectives: ["Find a minimum"], count: 0, required: 2 } };
-  it("renders the server's codes in English exactly as the server's English text", () => {
-    expect(gateText(fresh, "fallback", en)).toBe("Answer a fresh independent check on “Find a minimum” (0 of 2 item families so far)");
+  it("renders the server's codes in plain learner English, without the objective repeated", () => {
+    expect(gateText(fresh, "fallback", en)).toBe("Try a new question (0 of 2 answered correctly so far)");
     expect(gateText({ code: "action.viewGaps", params: { focusKind: "objectives", focus: ["Find a minimum", "Find a maximum"] } }, "", en))
-      .toBe("See what remains unproven: “Find a minimum”, “Find a maximum”");
+      .toBe("See what is still missing");
+    expect(gateText({ code: "action.askCompanion", params: { focusKind: "objectives", focus: ["Find a minimum"] } }, "", en))
+      .toBe("Ask the companion to explain this another way");
     expect(gateText({ code: "action.appeal", params: { reviewer: "staff", days: 14 } }, "", en)).toBe("Request a staff review of this decision within 14 days");
     expect(gateText({ code: "reason.needs_evidence.detail", params: { more: 1 }, detail: { code: "criterion.families.unmet", params: { required: 2, objectives: ["Find a minimum"] } } }, "", en))
-      .toBe("Needs independent success in 2 different item families for “Find a minimum”. (1 more open criterion.)");
+      .toBe("Answer 2 different kinds of question correctly on your own. (1 more thing still needed.)");
   });
   it("translates to Hebrew, keeping course text as written", () => {
-    expect(plain(gateText(fresh, "fallback", he))).toBe("מענה על בדיקה עצמאית חדשה על “Find a minimum” (עד עכשיו 0 מתוך 2 משפחות בדיקה)");
-    expect(plain(gateText({ code: "reason.under_review" }, "fallback", he))).toBe("חלק מהראיות שלך ממתינות לבדיקה. בינתיים שום דבר לא נספר לחובתך.");
+    expect(plain(gateText(fresh, "fallback", he))).toBe("ניסיון בשאלה חדשה (עד עכשיו 0 מתוך 2 נענו נכון)");
+    expect(plain(gateText({ code: "reason.under_review" }, "fallback", he))).toBe("חלק מהתשובות שלך נמצאות בבדיקה. בינתיים שום דבר לא נספר לחובתך.");
+    expect(plain(gateText({ code: "action.reviewLesson", params: { title: "Find a minimum" } }, "fallback", he))).toBe("חזרה על “Find a minimum” לפני הניסיון הבא");
   });
   it("falls back to the server's English text for a code this app does not know, or no code", () => {
     expect(gateText({ code: "action.fromTheFuture" }, "Server text", he)).toBe("Server text");
@@ -218,10 +237,25 @@ describe("gate decision text in the learner's language", () => {
       messages: { reason: { code: "reason.needs_evidence" }, criteria: { families: { code: "criterion.families.met", params: { required: 2 } } }, actions: [fresh] } };
     render(<GateDecisionPanel gate={view} pending={false} onAction={vi.fn()} />);
     // English UI here (no provider): the codes render the English wording, not the stored label.
-    expect(screen.getByRole("button", { name: "Answer a fresh independent check on “Find a minimum” (0 of 2 item families so far)" })).toBeVisible();
-    expect(screen.getByText("More independent evidence is needed.", { selector: "p" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try a new question (0 of 2 answered correctly so far)" })).toBeVisible();
+    expect(screen.getByText("You have not yet answered enough questions correctly on your own.", { selector: "p" })).toBeVisible();
     // A criterion without a code keeps the server's text.
     expect(screen.getByText("Needs independent success on a new transfer task.", { selector: "span" })).toBeVisible();
   });
 });
 
+
+describe("a reason that repeats a listed criterion", () => {
+  it("is said without the criterion it repeats", () => {
+    const detail = { code: "criterion.familiesFor.unmet", params: { required: 2, objectives: ["Find a minimum"], count: 0 } };
+    const view: GateView = {
+      ...gate("needs_help", [{ kind: "request_help", label: "Ask for help" }]),
+      learnerVisibleReason: "Your recent attempts did not succeed. Needs independent success in 2 item families for “Find a minimum” (0 so far).",
+      criterionResults: [{ criterionId: "families", met: false, reason: "Needs independent success in 2 item families for “Find a minimum” (0 so far)." }],
+      messages: { reason: { code: "reason.needs_help.detail", params: { more: 0 }, detail }, criteria: { families: detail }, actions: [null] },
+    };
+    const { container } = render(<GateDecisionPanel gate={view} pending={false} onAction={vi.fn()} />);
+    expect(container.querySelector(".connected-gate-reason")).toHaveTextContent("Your last few tries did not succeed.");
+    expect(container.textContent!.split("Answer 2 different kinds of question correctly on your own").length - 1).toBe(1);
+  });
+});

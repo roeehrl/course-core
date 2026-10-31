@@ -79,7 +79,7 @@ describe("the home page", () => {
     expect(within(card).getByText("Version 0.1.4 · active")).toBeVisible();
     expect(within(card).getByText("Version 0.1.5 of this course is available")).toBeVisible();
     expect(within(card).getByText(/You are on version 0\.1\.4 and can keep learning there/)).toBeVisible();
-    expect(within(card).getByRole("button", { name: "Continue learning →" })).toBeEnabled();
+    expect(within(card).getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Available in your workspace" })).toBeNull();
     await pressWhenReady(within(card).getByRole("button", { name: "Start version 0.1.5 from the beginning instead" }));
     expect(await screen.findByRole("button", { name: "Start course" })).toBeVisible();

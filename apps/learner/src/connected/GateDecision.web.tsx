@@ -45,8 +45,10 @@ const same = (a: string, b: string) => {
  * pressing a step never grants credit by itself.
  */
 const REVIEW_MIN = 10, REVIEW_MAX = 2000;
-export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: {
+export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, omitFreshCheck = false }: {
   gate: GateView; pending: boolean; onAction: (action: NextAction) => void;
+  /** Leave out "try a new question": the lesson shows its own button for the next check. */
+  omitFreshCheck?: boolean;
   /** Sends a staff review request for the current decision; offered when the decision allows an appeal. */
   onRequestReview?: (reason: string) => Promise<unknown>;
 }) {
@@ -62,6 +64,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
   const messages = gate.messages ?? null;
   // Each step keeps its server position, which is how its message code is found.
   const actions = (gate.nextActions ?? []).map((action, index) => ({ ...action, label: gateText(messages?.actions[index], action.label, i18n) }))
+    .filter((_, index) => !omitFreshCheck || messages?.actions[index]?.code !== "action.freshCheck")
     .filter((action) => action.kind !== "appeal" || (onRequestReview && review?.state !== "open" && !exception));
   // A translated criterion still says when its evidence awaits review, as the English text does.
   const criterionText = (criterion: (typeof criteria)[number], state: string) => {
@@ -78,7 +81,15 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
     const text = criterionText(criterion, state);
     if (!rows.some((row) => row.state === state && same(row.text, text))) rows.push({ criterion, state, text });
   }
-  const reasonText = gate.learnerVisibleReason ? gateText(messages?.reason, gate.learnerVisibleReason, i18n) : "";
+  // A reason that only adds a criterion listed below is said without it ("Your last few answers
+  // were not right."), so no sentence shows twice.
+  const reasonMessage = messages?.reason;
+  const detailListed = Boolean(reasonMessage?.detail && rows.some((row) => same(row.text, gateText(reasonMessage.detail, "", i18n))));
+  const baseKey = reasonMessage?.code.replace(/\.detail$/, "");
+  // ("More evidence is needed" plus the criterion says nothing the status and the criterion do not.)
+  const reasonText = !gate.learnerVisibleReason || (detailListed && baseKey === "reason.needs_evidence") ? ""
+    : detailListed && baseKey && i18n.has(`gateDecision.msg.${baseKey}` as MessageKey) ? gateText({ code: baseKey }, gate.learnerVisibleReason, i18n)
+      : gateText(reasonMessage, gate.learnerVisibleReason, i18n);
   const showReason = Boolean(reasonText) && !rows.some((row) => same(row.text, reasonText));
   const trimmed = reason.trim();
   const choose = (action: NextAction) => (action.kind === "appeal" && onRequestReview ? setReviewing(true) : onAction(action));
