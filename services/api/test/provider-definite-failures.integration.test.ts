@@ -162,7 +162,7 @@ describe('definite provider refusals release the reservation; ambiguous outcomes
   }, 60000);
 
   it.each([
-    [400, 'UPSTREAM_REJECTED'], [401, 'AUTHENTICATION'], [402, 'UPSTREAM_REJECTED'], [403, 'PERMISSION_DENIED'], [404, 'NOT_FOUND'], [413, 'UPSTREAM_REJECTED'],
+    [400, 'UPSTREAM_REJECTED'], [401, 'AUTHENTICATION'], [402, 'BILLING_REQUIRED'], [403, 'PERMISSION_DENIED'], [404, 'NOT_FOUND'], [413, 'UPSTREAM_REJECTED'],
   ] as const)('HTTP %i is a permanent rejection: released, no cost, job fails without another call', async (status, code) => {
     const { job, claimed, outcome, settled } = await once({ status, headers: { 'retry-after': '5' } });
     expect(outcome).toEqual({ status: 'not_started', retryable: false });

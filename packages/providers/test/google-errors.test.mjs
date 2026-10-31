@@ -21,7 +21,7 @@ test('Google refusals keep the HTTP status and the documented reason code, never
     // A malformed request (the Gemini 3.x structured-output bug): not a key, quota or billing problem.
     [googleError(400, 'INVALID_ARGUMENT', [{ '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: [{ field: 'generation_config' }] }]), 400, 'UPSTREAM_REJECTED', 'INVALID_ARGUMENT'],
     [googleError(400, 'FAILED_PRECONDITION'), 400, 'UPSTREAM_REJECTED', 'FAILED_PRECONDITION'],
-    [googleError(400, 'INVALID_ARGUMENT', [info('API_KEY_INVALID')]), 400, 'UPSTREAM_REJECTED', 'API_KEY_INVALID'],
+    [googleError(400, 'INVALID_ARGUMENT', [info('API_KEY_INVALID')]), 400, 'AUTHENTICATION', 'API_KEY_INVALID'],
     [googleError(403, 'PERMISSION_DENIED', [info('SERVICE_DISABLED')]), 403, 'PERMISSION_DENIED', 'SERVICE_DISABLED'],
     [googleError(403, 'PERMISSION_DENIED'), 403, 'PERMISSION_DENIED', 'PERMISSION_DENIED'],
     // Billing only for the documented reasons.

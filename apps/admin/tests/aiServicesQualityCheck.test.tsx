@@ -131,6 +131,7 @@ const check = (over: Partial<QualityCheck> = {}): QualityCheck => ({
   draftId: "00000000-0000-4000-8000-0000000000d1",
   state: "running",
   reason: null,
+  reasonDetail: null,
   roles: ["companion", "supervisor"],
   total: 12,
   completed: 0,
@@ -533,6 +534,101 @@ describe("running the quality check from the page", () => {
         }),
       ),
     ).toBeInTheDocument();
+  });
+
+  it("names a refused request with Google's status and reason, not quota or billing, in English and Hebrew", async () => {
+    const refused = check({
+      state: "error",
+      reason: "PROVIDER_REQUEST_REJECTED",
+      reasonDetail: {
+        role: "supervisor",
+        providerCode: "UPSTREAM_REJECTED",
+        status: 400,
+        providerReason: "INVALID_ARGUMENT",
+      },
+      chargedMicroUsd: 0,
+    });
+    const port = fakePort({
+      qualityStatus: vi.fn().mockResolvedValue(status({ latest: refused })),
+    });
+    const { unmount } = render(
+      <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+    );
+    const region = await checkRegion();
+    const google = t("service.google");
+    expect(
+      await within(region).findByText(
+        t("check.run.requestRefused", {
+          service: google,
+          status: 400,
+          reason: "INVALID_ARGUMENT",
+        }),
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    expect(region.textContent).not.toContain(
+      t("connect.errQuota", { service: google }),
+    );
+    const technical = within(region)
+      .getByText(t("connect.technical"))
+      .closest("details")!;
+    expect(technical).not.toHaveAttribute("open");
+    expect(technical.textContent).toContain("PROVIDER_REQUEST_REJECTED");
+    expect(technical.textContent).toContain(t("role.supervisor.name"));
+    expect(technical.textContent).toContain("400");
+    expect(technical.textContent).toContain("INVALID_ARGUMENT");
+    unmount();
+    render(
+      <I18nProvider value={hebrew}>
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />
+      </I18nProvider>,
+    );
+    const heRegion = await screen.findByRole("region", {
+      name: he("section.check"),
+    });
+    expect(
+      await within(heRegion).findByText(
+        // The Hebrew keeps the technical part unbroken (no-break spaces); the matcher compares collapsed whitespace.
+        he("check.run.requestRefused", {
+          service: he("service.google"),
+          status: 400,
+          reason: "INVALID_ARGUMENT",
+        }).replace(/\s+/g, " "),
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    expect(heRegion.textContent).not.toContain(
+      he("connect.errQuota", { service: he("service.google") }),
+    );
+  });
+
+  it("keeps the quota or billing message for Google's documented billing and quota refusals only", async () => {
+    const port = fakePort({
+      qualityStatus: vi.fn().mockResolvedValue(
+        status({
+          latest: check({
+            state: "error",
+            reason: "PROVIDER_METADATA_REJECTED",
+            reasonDetail: {
+              role: "reviewer",
+              providerCode: "BILLING_REQUIRED",
+              status: 403,
+              providerReason: "BILLING_DISABLED",
+            },
+            chargedMicroUsd: 0,
+          }),
+        }),
+      ),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(
+        t("connect.errQuota", { service: t("service.google") }),
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    expect(region.textContent).toContain("BILLING_DISABLED");
   });
 
   it("reads right to left in Hebrew with the amount isolated", async () => {

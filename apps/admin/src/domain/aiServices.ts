@@ -236,6 +236,16 @@ export const qualityCheckSchema = z.object({
   draftId: z.string().uuid().nullable(),
   state: z.enum(["running", "passed", "failed", "error"]),
   reason: z.string().max(100).nullable(),
+  /** The first provider fault of a stopped check: its job, HTTP status and the provider's documented reason code. */
+  reasonDetail: z
+    .object({
+      role: z.string().max(40),
+      providerCode: z.string().max(64),
+      status: z.number().int().nullable(),
+      providerReason: z.string().max(64).nullable(),
+    })
+    .nullable()
+    .default(null),
   roles: z.array(job).max(5),
   total: z.number().int().nonnegative(),
   completed: z.number().int().nonnegative(),

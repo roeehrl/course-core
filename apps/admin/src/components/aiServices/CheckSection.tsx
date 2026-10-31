@@ -697,9 +697,28 @@ export function blockedText(
 }
 
 /** Why a finished check ended without a result, reusing the key messages for provider faults. */
-function errorReason(text: AiText, reason: string | null, service: string) {
+function errorReason(
+  text: AiText,
+  reason: string | null,
+  service: string,
+  detail: QualityCheck["reasonDetail"] = null,
+) {
   const { t } = text;
   switch (reason) {
+    case "PROVIDER_REQUEST_REJECTED":
+      // A refusal of the request itself: the provider's status and documented reason, never "quota or billing".
+      return detail?.status != null && detail.providerReason
+        ? t("aiServices.check.run.requestRefused", {
+            service,
+            status: detail.status,
+            reason: detail.providerReason,
+          })
+        : detail?.status != null
+          ? t("aiServices.check.run.requestRefusedStatus", {
+              service,
+              status: detail.status,
+            })
+          : t("aiServices.check.run.requestRefusedGeneric", { service });
     case "PROVIDER_QUALITY_CHECK_TIMEOUT":
       return t("aiServices.check.run.timeout");
     case "PROVIDER_QUALITY_CHECK_INTERRUPTED":
@@ -889,7 +908,7 @@ function CheckResult({
     return (
       <Message tone="error">
         {t("aiServices.check.run.errorTitle")}{" "}
-        {errorReason(text, check.reason, service)}
+        {errorReason(text, check.reason, service, check.reasonDetail)}
         {check.chargedMicroUsd !== null && (
           <>
             {" "}
@@ -897,6 +916,39 @@ function CheckResult({
               amount: text.money(check.chargedMicroUsd),
             })}
           </>
+        )}
+        {check.reason && (
+          <details className="ai-technical">
+            <summary>{t("aiServices.connect.technical")}</summary>
+            <p>
+              {t("aiServices.connect.technicalCode")}:{" "}
+              <Ltr className="mono">{check.reason}</Ltr>
+            </p>
+            {check.reasonDetail && (
+              <>
+                <p>
+                  {t("aiServices.check.run.technicalJob")}:{" "}
+                  {jobName(t, check.reasonDetail.role)}
+                </p>
+                {check.reasonDetail.status !== null && (
+                  <p>
+                    {t("aiServices.check.run.technicalStatus")}:{" "}
+                    <Ltr className="mono">{check.reasonDetail.status}</Ltr>
+                  </p>
+                )}
+                <p>
+                  {t("aiServices.check.run.technicalProviderReason", {
+                    service,
+                  })}
+                  :{" "}
+                  <Ltr className="mono">
+                    {check.reasonDetail.providerReason ??
+                      check.reasonDetail.providerCode}
+                  </Ltr>
+                </p>
+              </>
+            )}
+          </details>
         )}
       </Message>
     );

@@ -377,6 +377,8 @@ export function googleRefusal(status: number, body: unknown, retryAfterMs: numbe
   const quotaIds = details.filter(d => d['@type']?.endsWith('google.rpc.QuotaFailure')).flatMap(d => d.violations ?? []).map(v => v.quotaId ?? '');
   const refused = (code: ErrorCode) => new ProviderError(code, { status, reason, submission: 'rejected' });
   if (status === 402 || infoReason === 'BILLING_DISABLED') return refused('BILLING_REQUIRED');
+  // Google answers an unknown or expired key with 400 INVALID_ARGUMENT and this reason.
+  if (infoReason === 'API_KEY_INVALID' || infoReason === 'API_KEY_EXPIRED') return refused('AUTHENTICATION');
   if (status === 429 && quotaIds.some(id => /PerDay/i.test(id))) return refused('QUOTA_EXHAUSTED');
   return classifyHttpError(status, retryAfterMs, reason);
 }

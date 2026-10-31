@@ -287,6 +287,21 @@ from v0.1.36.
 Notes for operators and workspace owners, newest first. They describe what changes for a
 running deployment; the candidate's own manifest remains the record of what was built.
 
+### Next release: Gemini structured output works again; refused requests say why
+
+- Gemini jobs that answer in JSON (the lesson planner, answer review drafts, the check-mode
+  judge) now send `responseMimeType` with `responseJsonSchema`. The old
+  `responseFormat.text.mimeType: "application/json"` was refused by Google with 400
+  INVALID_ARGUMENT, so those jobs and their quality checks failed on every call, and the
+  check-mode judge withheld replies.
+- A quality check stopped by a refused request now shows "Google refused this request (HTTP
+  status, reason)", not the quota or billing message. That message stays only for Google's
+  documented billing refusals (402, BILLING_DISABLED) and a used-up daily quota. Migration 125
+  records the job, HTTP status and Google's reason code on the check (`reason_detail`), and the
+  admin shows them under Technical details. No response body or key is stored.
+- New Gemini setups send a thinking level only for models whose levels Google documents. A newer
+  model runs at its own default.
+
 ### Next release: version moves carry unchanged checkpoints and offer the move to learners with personal changes
 
 - A checkpoint a learner passed carries over a move to a newer version when its rules and every

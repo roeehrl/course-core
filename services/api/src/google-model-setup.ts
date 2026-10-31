@@ -57,11 +57,21 @@ export type ModelAssignments = z.infer<typeof modelAssignmentsSchema>;
 export const GEMINI_ROLE_OUTPUT_TOKENS = { companion: 4096, supervisor: 8192, reviewer: 8192, research: 8192 } as const;
 const ROLE_THINKING_LEVEL = { companion: "low", supervisor: "medium", reviewer: "medium", research: "medium" } as const;
 const ROLE_THINKING_BUDGET = { companion: 512, supervisor: -1, reviewer: -1, research: -1 } as const;
-/** Levels a model is documented to refuse (the docs' support table); such a level is not sent. */
-const UNSUPPORTED_LEVELS: readonly [RegExp, readonly string[]][] = [
-  [/^gemini-3-pro/, ["minimal", "medium"]],
-  [/^gemini-3\.8-flash|^gemini-4-/, ["minimal"]],
-  [/^gemini-3\.1-pro/, ["minimal"]],
+/**
+ * The thinking levels each Gemini model is documented to accept (the support table of
+ * https://ai.google.dev/gemini-api/docs/generate-content/thinking, 2026-10). A level outside a
+ * model's list is refused by the API, so it is never sent; a model not in this table (a release
+ * newer than Core) gets no thinking setting at all and runs at its own default, which it always
+ * accepts.
+ */
+const DOCUMENTED_LEVELS: readonly [RegExp, readonly string[]][] = [
+  [/^gemini-3\.8-flash/, ["low", "medium", "high"]],
+  [/^gemini-3\.6-flash/, ["minimal", "low", "medium", "high"]],
+  [/^gemini-3\.[15]-flash-lite/, ["minimal", "low", "medium", "high"]],
+  [/^gemini-3-flash/, ["minimal", "low", "medium", "high"]],
+  [/^gemini-3-pro/, ["low", "high"]],
+  [/^gemini-3\.1-pro/, ["low", "medium", "high"]],
+  [/^gemini-4-argon/, ["low", "medium", "high"]],
 ];
 /** A Gemini model that thinks by default: the 2.5 series and every later generation. */
 export function geminiThinkingFamily(remoteModel: string): "level" | "budget" | null {
@@ -79,7 +89,8 @@ export function geminiRoleThinking(role: keyof typeof ROLE_THINKING_LEVEL, remot
   }
   if (family !== "level") return undefined;
   const level = ROLE_THINKING_LEVEL[role];
-  if (UNSUPPORTED_LEVELS.some(([pattern, levels]) => pattern.test(remoteModel) && levels.includes(level))) return undefined;
+  const documented = DOCUMENTED_LEVELS.find(([pattern]) => pattern.test(remoteModel))?.[1];
+  if (!documented?.includes(level)) return undefined;
   return { level };
 }
 export interface ModelDraftInput {
