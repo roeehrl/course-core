@@ -54,15 +54,28 @@ test('malformed, truncated, unsafe or unexpected content never becomes a success
   }
 });
 
-test('structured assessment sends current responseFormat JSON schema and validates exact typed output', async () => {
+test('structured assessment sends responseMimeType with responseJsonSchema and validates exact typed output', async () => {
   const h = harness([textResponse(JSON.stringify(ASSESSMENT))]);
   const result = await h.client.assess({ ...request(), outputSchema: assessmentSchema });
   assert.deepEqual(result.output, ASSESSMENT);
   const generation = body(h.calls[0]).generationConfig;
-  assert.equal(generation.responseFormat.text.mimeType, 'application/json');
-  assert.equal(generation.responseFormat.text.schema.additionalProperties, false);
-  assert.equal(generation.responseSchema, undefined); assert.equal(generation.responseJsonSchema, undefined);
+  // The generateContent contract (v1beta discovery, 2026-10): `responseFormat.text.mimeType` is an
+  // enum and refuses "application/json" with 400 INVALID_ARGUMENT, so it must never be sent.
+  assert.equal(generation.responseMimeType, 'application/json');
+  assert.equal(generation.responseJsonSchema.type, 'object');
+  assert.equal(generation.responseJsonSchema.additionalProperties, false);
+  assert.equal(generation.responseFormat, undefined); assert.equal(generation.responseSchema, undefined);
   assert.equal(body(h.calls[0]).tools, undefined);
+});
+
+test('structured output leaves implicit safe-integer bounds out of the schema Google receives', async () => {
+  const schema = { type: 'object', required: ['n', 'm'], properties: { n: { type: 'integer' }, m: { type: 'integer', minimum: 0, maximum: 7 } } };
+  const h = harness([textResponse(JSON.stringify({ n: 3, m: 2 }))]);
+  await h.client.assess({ ...request(), outputSchema: schema });
+  const sent = body(h.calls[0]).generationConfig.responseJsonSchema.properties;
+  assert.deepEqual(sent.n, { type: 'integer' });
+  assert.equal(sent.m.minimum, 0); assert.equal(sent.m.maximum, 7);
+  await assert.rejects(harness([textResponse(JSON.stringify({ n: 2 ** 60, m: 2 }))]).client.assess({ ...request(), outputSchema: schema }), code('INVALID_RESPONSE'));
 });
 
 test('structured output rejects coercion, extra keys, bounds, prototype attacks and Markdown wrappers', async () => {

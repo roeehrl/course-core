@@ -25,9 +25,9 @@ export const anthropicProtocol: JsonProtocol = {
     if (!parsed.success) return undefined;
     // A monthly spend-cap 429 keeps failing until access resumes; it is not a transient throttle.
     if (status === 429 && parsed.data.error.details?.error_code === 'enforced_spend_limit_reached')
-      return new ProviderError('UPSTREAM_REJECTED', { status, submission: 'rejected' });
+      return new ProviderError('UPSTREAM_REJECTED', { status, submission: 'rejected', reason: 'ENFORCED_SPEND_LIMIT_REACHED' });
     // 529 overloaded and 504 timeout follow the status rules: unavailable, outcome uncertain.
-    return classifyHttpError(status, retryAfterMs);
+    return classifyHttpError(status, retryAfterMs, parsed.data.error.type.toUpperCase());
   },
 };
 
@@ -114,7 +114,7 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
       return { output: decode(data), usage: structuredClone(usage) };
     } catch (error) {
       const safe = safeError(error);
-      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
+      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }), reason: safe.reason,
         ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
         submission: callSubmission(usage, safe) });
       sanitized.usage = structuredClone(usage);
@@ -143,7 +143,7 @@ export class AnthropicProvider implements ProviderAdapter, TutoringProvider, Str
       return { output, usage: structuredClone(usage) };
     } catch (error) {
       const safe = safeError(error);
-      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
+      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }), reason: safe.reason,
         ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
         submission: callSubmission(usage, safe) });
       sanitized.usage = structuredClone(usage);

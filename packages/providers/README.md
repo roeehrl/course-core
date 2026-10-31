@@ -196,7 +196,7 @@ string enums, booleans, null, finite numbers and safe integers with optional min
 maximum. Arrays require explicit `minItems`/`maxItems`. Objects always reject extra keys.
 It is deliberately not arbitrary JSON Schema: remote refs, executable validators,
 prototype keys, excessive depth/size and unknown keywords are rejected. The package
-derives Google's `generationConfig.responseFormat.text` JSON schema and validates the
+derives Google's `generationConfig.responseJsonSchema` (with `responseMimeType: application/json`) JSON schema and validates the
 returned JSON locally without coercion, Markdown stripping or silent repairs. Structural
 validity does not establish rubric correctness, truthful feedback or an authorized grade.
 
@@ -386,7 +386,7 @@ alongside the newer Interactions API. Image generation through Interactions was 
 
 - [GenerateContent REST reference](https://ai.google.dev/api/generate-content): request/response envelope, completion reasons, usage counters and citation byte offsets.
 - [Text generation](https://ai.google.dev/gemini-api/docs/generate-content/text-generation): message roles and system instructions.
-- [Structured outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output): current `responseFormat.text` JSON schema configuration.
+- [Structured outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output): `responseMimeType` plus `responseJsonSchema` on generateContent (`responseFormat.text.mimeType` is an enum that refuses `application/json`).
 - [Google Search grounding](https://ai.google.dev/gemini-api/docs/generate-content/google-search): `googleSearch`, grounding metadata and attribution requirements.
 - [Image generation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation): response modalities and inline image parts.
 - [Interactions API reference](https://ai.google.dev/api/interactions-api) and [Image generation](https://ai.google.dev/gemini-api/docs/image-generation): `ImageResponseFormat`, `ImageContent`, `ModelOutputStep`, interaction status and usage counters (read 2026-10-21; the [Imagen page](https://ai.google.dev/gemini-api/docs/imagen) says Imagen is shut down).

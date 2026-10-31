@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { counter, transportSettingsSchema, type AttemptOutcome, type CallOptions, type Operation, type TelemetryEvent,
   type TokenUsage, type TransportSettings, type UsageReceipt } from './contracts.js';
-import { classifyHttpError, classifyRetry, connectionNeverOpened, ensure, ProviderError, safeError, type ErrorCode } from './errors.js';
+import { classifyHttpError, classifyRetry, connectionNeverOpened, ensure, ProviderError, providerReason, safeError, type ErrorCode } from './errors.js';
 import { parse } from './validation.js';
 import { boundedJson } from './json.js';
 
@@ -189,7 +189,7 @@ export class JsonTransport {
           return data;
         } catch (error) {
           const sanitized = safeError(error), unopened = error instanceof NotOpened;
-          failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }),
+          failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }), reason: sanitized.reason,
             ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }),
             submission: sanitized.submission === 'rejected' ? 'rejected' : unopened ? 'not_sent' : 'unknown' });
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : unopened ? 'not_sent' : 'unknown' };
@@ -264,7 +264,7 @@ export class JsonTransport {
           const sanitized = safeError(error), unopened = error instanceof NotOpened;
           // Anything after the response began (including a refusal the stream reported) may have run.
           const submission = sanitized.submission === 'rejected' && record.status !== null && record.status >= 400 ? 'rejected' : unopened ? 'not_sent' : 'unknown';
-          failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }),
+          failure = new ProviderError(sanitized.code, { ...(sanitized.status === null ? {} : { status: sanitized.status }), reason: sanitized.reason,
             ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }), submission });
           const reported = began && record.tokens.input !== null && (record.tokens.output !== null || record.tokens.total !== null);
           usage.attempts[usage.attempts.length - 1] = { ...record,
@@ -357,8 +357,32 @@ async function readEvents(response: Response, maxBytes: number, idleMs: number, 
   } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
+const googleErrorSchema = z.object({ error: z.object({ status: z.string().max(64).optional(),
+  details: z.array(z.object({ '@type': z.string().max(256).optional(), reason: z.string().max(128).optional(),
+    violations: z.array(z.object({ quotaId: z.string().max(256).optional() }).passthrough()).max(64).optional() }).passthrough()).max(32).optional() }) });
+/**
+ * Google's documented refusal reasons (https://ai.google.dev/gemini-api/docs/troubleshooting,
+ * https://ai.google.dev/gemini-api/docs/api-errors, google.rpc ErrorInfo / QuotaFailure). The
+ * reason kept is ErrorInfo's `reason` when present, else the canonical `status`; nothing else of
+ * the body is kept. Billing is named only for 402 (prepay credit used up) or the BILLING_DISABLED
+ * reason; quota only for a 429 whose QuotaFailure names a per-day quota. Every other refusal
+ * keeps its status class, so a malformed request (400 INVALID_ARGUMENT) is never reported as a
+ * key or billing problem.
+ */
+export function googleRefusal(status: number, body: unknown, retryAfterMs: number | undefined): ProviderError {
+  const parsed = googleErrorSchema.safeParse(body), error = parsed.success ? parsed.data.error : null;
+  const details = error?.details ?? [];
+  const infoReason = providerReason(details.find(d => d['@type']?.endsWith('google.rpc.ErrorInfo'))?.reason);
+  const reason = infoReason ?? providerReason(error?.status);
+  const quotaIds = details.filter(d => d['@type']?.endsWith('google.rpc.QuotaFailure')).flatMap(d => d.violations ?? []).map(v => v.quotaId ?? '');
+  const refused = (code: ErrorCode) => new ProviderError(code, { status, reason, submission: 'rejected' });
+  if (status === 402 || infoReason === 'BILLING_DISABLED') return refused('BILLING_REQUIRED');
+  if (status === 429 && quotaIds.some(id => /PerDay/i.test(id))) return refused('QUOTA_EXHAUSTED');
+  return classifyHttpError(status, retryAfterMs, reason);
+}
 const googleProtocol: JsonProtocol = {
   adapter: 'google', origin: GOOGLE_ORIGIN,
+  refineError: googleRefusal,
   path: path => /^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|streamGenerateContent\?alt=sse|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+|interactions)$/.test(path),
   headers: key => ({ 'x-goog-api-key': key }),
   // generateContent reports `usageMetadata`; the Interactions API reports `usage`.

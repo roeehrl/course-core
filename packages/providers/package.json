@@ -32,7 +32,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.contracts.json",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "shape:google": "npm run build && node scripts/google-request-shape.mjs"
   },
   "dependencies": {
     "zod": "4.6.6"

@@ -80,7 +80,7 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
     try { return { output: await operation(), usage: structuredClone(usage) }; }
     catch (error) {
       const safe = safeError(error);
-      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }),
+      const sanitized = new ProviderError(safe.code, { ...(safe.status === null ? {} : { status: safe.status }), reason: safe.reason,
         ...(safe.retryAfterMs === null ? {} : { retryAfterMs: safe.retryAfterMs }),
         submission: callSubmission(usage, safe) });
       sanitized.usage = structuredClone(usage); if (job ?? safe.job) sanitized.job = structuredClone((job ?? safe.job)!);
