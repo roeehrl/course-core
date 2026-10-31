@@ -144,6 +144,20 @@ test('missing Hebrew keys fall back to English and are reported; unknown keys re
   );
 });
 
+test('signed numbers are isolated left to right in right-to-left locales, wherever they are formatted', () => {
+  const he = translator('he'), en = translator('en');
+  // "-2." in Hebrew text drew as ".2-" where the minus was not kept with its digits.
+  assert.equal(he.number(-2), '\u2066-2\u2069');
+  assert.equal(he.percent(-0.05), '\u2066-5%\u2069');
+  assert.equal(he.number(-2, { signDisplay: 'always' }), '\u2066-2\u2069');
+  assert.equal(he.number(3, { signDisplay: 'always' }), '\u2066+3\u2069');
+  assert.equal(he.t('shell.score', { value: -0.1 }), 'ציון \u2066-10%\u2069');
+  // Unsigned numbers and left-to-right locales are unchanged.
+  assert.equal(he.number(1234.5), '1,234.5');
+  assert.equal(en.number(-2), '-2');
+  assert.equal(stripBidiControls(he.number(-2.5)), '-2.5');
+});
+
 test('missing arguments render visibly and are reported', () => {
   const events: MissingEvent[] = [];
   assert.equal(translator('en', events).t('shell.greeting'), 'Hello, {name}!');
