@@ -38,15 +38,21 @@ html:has(.connected-host) body {
  * of at least 4.5:1, which fading the whole button did not (tests/disabledContrast.test.ts). */
 .connected-host :where(button:disabled) {
   cursor: default;
-  color: #56706b;
+  color: #4f6863;
 }
 .connected-navigation button:disabled,
 .connected-link-button:disabled {
-  color: #56706b;
+  color: #4f6863;
 }
 .connected-host :where(button, input, textarea, select, summary, a):focus-visible {
   outline: 3px solid #183237;
   outline-offset: 4px;
+}
+/* Free-text fields keep the interface's direction (an empty field's caret and placeholder start
+   at the reading edge, the right in Hebrew); typed text is shown in its own direction, per
+   paragraph. A field for a code, URL or address sets dir="ltr" and keeps it. */
+:where(.connected-host, .connected-portal) :where(textarea, input:not([type]), input[type="text"], input[type="search"]):not([dir]) {
+  unicode-bidi: plaintext;
 }
 .connected-host [data-reading-heading]:focus {
   outline: none;
@@ -1029,7 +1035,7 @@ html:has(.connected-host) body {
   gap: 8px;
 }
 .connected-offer-actions .connected-link-button:disabled {
-  color: #56706b;
+  color: #4f6863;
 }
 @media (max-width: 599px) {
   .connected-offer-comparison {
@@ -1213,20 +1219,35 @@ html:has(.connected-host.is-compact) body {
   margin: 0;
   padding-inline-start: 20px;
 }
-.connected-data-erase {
+/* The erase forms stack in reading order: explanation, label, field, label, field, then the action
+   at the start edge. (`.connected-review > div` lays a review's actions out in a row, and out-ranked
+   this, which put every label, field and button of the form on one line.) */
+.connected-review > .connected-data-erase {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   padding: 8px 0 14px;
+}
+.connected-data-erase p {
+  margin: 0 0 6px;
+}
+.connected-data-erase label {
+  color: #183237;
+  font-weight: 600;
 }
 .connected-data-erase input,
 .connected-data-erase textarea {
   min-height: 44px;
+  width: 100%;
+  max-width: 36rem;
   border: 1px solid #b9cbc6;
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
-  max-width: 100%;
   box-sizing: border-box;
+}
+.connected-data-erase input + .connected-button {
+  justify-self: start;
+  margin-top: 6px;
 }
 .connected-danger {
   background: #8b413d;
@@ -1430,7 +1451,7 @@ html:has(.connected-host.is-compact) body {
 .connected-secondary:disabled {
   background: #fff;
   border-color: #e4ebe8;
-  color: #56706b;
+  color: #4f6863;
 }
 .connected-primary:focus-visible,
 .connected-secondary:focus-visible {
@@ -1566,7 +1587,7 @@ html:has(.connected-host.is-compact) body {
 .connected-gate-action:hover:not(:disabled) { background: #e8f6ed; }
 .connected-gate-action.primary:hover:not(:disabled) { background: #066a5a; }
 .connected-gate-action:focus-visible { outline: 3px solid #183237; outline-offset: 2px; }
-.connected-gate-action:disabled { border-color: #e4ebe8; color: #56706b; cursor: not-allowed; }
+.connected-gate-action:disabled { border-color: #e4ebe8; color: #4f6863; cursor: not-allowed; }
 .connected-gate-action.primary:disabled { background: #dfe9e5; border-color: #dfe9e5; color: #3f5a55; }
 .connected-gate-wait { margin: 0 !important; font-size: 14px !important; color: #7050a4 !important; }
 .connected-gate-review-form { display: grid; gap: 8px; min-width: 0; }
@@ -2858,9 +2879,11 @@ html:has(.connected-host:not(.is-compact)) {
   cursor: pointer;
   touch-action: manipulation;
 }
+/* As on the lesson page: muted colours that keep the label at 4.5:1, not a fade (a disabled
+   button at 0.55 opacity read at about 2:1). */
 .connected-portal :where(button:disabled) {
   cursor: default;
-  opacity: 0.55;
+  color: #4f6863;
 }
 .connected-portal :is(button, input, textarea, select, a):focus-visible {
   outline: 3px solid #183237;

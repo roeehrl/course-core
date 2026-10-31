@@ -132,11 +132,11 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
           }}
         >
           <label htmlFor={reasonId}>{t("gateDecision.review.reasonLabel")}</label>
-          <textarea id={reasonId} dir="auto" value={reason} maxLength={REVIEW_MAX} rows={3} onChange={(event) => setReason(event.target.value)} disabled={pending} />
+          <textarea id={reasonId} value={reason} maxLength={REVIEW_MAX} rows={3} onChange={(event) => setReason(event.target.value)} disabled={pending} />
           <p className="connected-input-hint">{t("gateDecision.review.hint")}</p>
           <div className="connected-gate-actions">
-            <button type="submit" className="connected-gate-action primary" data-usability="next" disabled={pending || trimmed.length < REVIEW_MIN}>{t("gateDecision.review.send")}</button>
             <button type="button" className="connected-gate-action" disabled={pending} onClick={() => setReviewing(false)}>{t("gateDecision.review.cancel")}</button>
+            <button type="submit" className="connected-gate-action primary" data-usability="next" disabled={pending || trimmed.length < REVIEW_MIN}>{t("gateDecision.review.send")}</button>
           </div>
         </form>
       )}

@@ -483,5 +483,28 @@ export function latinRuns(text: string): { text: string; latin: boolean }[] {
     last = index + run.length;
   }
   if (last < text.length) out.push({ text: text.slice(last), latin: false });
-  return out;
+  // A signed number in the Hebrew text ("הוא -2.") is a run of its own: inside right-to-left text its
+  // minus is drawn after the digits (".2-", 0.1.60 qualification). A list it is part of keeps the
+  // sentence's order, and a maqaf after a Hebrew prefix ("ב-2") is not a sign.
+  return out.flatMap((run) => {
+    if (run.latin) return [run];
+    const parts: { text: string; latin: boolean }[] = [];
+    let from = 0;
+    for (const match of run.text.matchAll(SIGNED)) {
+      if (match.index! > from) parts.push({ text: run.text.slice(from, match.index), latin: false });
+      parts.push({ text: match[0], latin: true });
+      from = match.index! + match[0].length;
+    }
+    if (from < run.text.length) parts.push({ text: run.text.slice(from), latin: false });
+    return parts;
+  });
+}
+/** A minus or plus sign right before a number, not after a letter, digit or closing bracket. */
+const SIGNED = /(?<![\p{L}\p{N}\p{M})\].,_])[-+\u2212]\d+(?:[.,]\d+)*%?/gu;
+/** Text for a plain string (a label or a quoted excerpt, where no markup can isolate parts): when it
+ * has right-to-left letters, each run `latinRuns` finds is wrapped in LRI…PDI, so a Hebrew question
+ * with English or a formula in it keeps its order when quoted inside a sentence. */
+export function isolateRuns(text: string): string {
+  if (!hasRightToLeft(text)) return text;
+  return latinRuns(text).map((run) => (run.latin ? `\u2066${run.text}\u2069` : run.text)).join("");
 }

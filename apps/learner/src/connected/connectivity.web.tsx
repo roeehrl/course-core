@@ -126,8 +126,11 @@ export function ConnectionStatus({
   pendingAction,
   pending,
   slow = false,
+  reason,
   onRetry,
 }: {
+  /** Why the saved request is waiting, in the server's words, said instead of "Not recorded yet". */
+  reason?: string;
   online: boolean;
   /** A request has been running for longer than SLOW_REQUEST_MS. */
   slow?: boolean;
@@ -171,9 +174,11 @@ export function ConnectionStatus({
       {(!online || waiting) && (
         <p>
           {!online && <strong>{i18n.t("connectivity.offline")} </strong>}
-          {waiting
-            ? i18n.rich(online ? "connectivity.pending.online" : "connectivity.pending.offline", { action }, { strong })
-            : i18n.t("connectivity.offlineDrafts")}
+          {waiting && reason && online
+            ? reason
+            : waiting
+              ? i18n.rich(online ? "connectivity.pending.online" : "connectivity.pending.offline", { action }, { strong })
+              : i18n.t("connectivity.offlineDrafts")}
         </p>
       )}
       {slow && online && <p>{i18n.t("connectivity.slow")}</p>}

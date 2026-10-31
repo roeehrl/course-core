@@ -32,6 +32,7 @@ import { ActivityBlock } from "./ActivityBlock.web";
 import { PresenceRegion, type PresenceKind, type PresenceState, type ReportPresence } from "./presence.web";
 import { useT } from "../i18n";
 import { courseContentAttributes } from "../domain/contentLanguage";
+import { textDirection } from "../components/ui";
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
 export interface ConnectedLessonProps {
@@ -94,6 +95,15 @@ export interface ConnectedLessonProps {
  * (authored or added for them) or a finished one they are revisiting, while their current step is
  * elsewhere. Names the current lesson and the part they stopped at. Null when this is the path.
  */
+/** A text block's container: the course's language when it declares one, else the direction of
+ * the block's own first letter. (`dir="auto"` here resolved left to right for Hebrew text, since
+ * the paragraphs inside carry their own `dir` and the algorithm skips them: a Hebrew reading sat at
+ * the left of a wide card, its lines ending short of the right edge.) */
+function proseAttributes(course: unknown, markdown: string) {
+  const attributes = courseContentAttributes(course);
+  return attributes.dir === "auto" ? { ...attributes, dir: textDirection(markdown) ?? "auto" } : attributes;
+}
+
 export function returnPoint(server: ServerSnapshot, episode: Episode, placement: boolean) {
   const currentId = server.nextEpisodeId;
   if (placement || !currentId || currentId === episode.id) return null;
@@ -210,7 +220,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
       <>
         {block.type === "text" ? (
           <>
-            <div className="connected-prose" {...courseContentAttributes(server.course)}>
+            <div className="connected-prose" {...proseAttributes(server.course, block.markdown)}>
               <MarkdownContent markdown={block.markdown} />
             </div>
             {/* A generated component runs beside its text alternative, in the sandboxed runner. */}

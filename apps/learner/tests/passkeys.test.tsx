@@ -83,7 +83,7 @@ describe("learner passkey management", () => {
       throw new Error(url);
     }) as unknown as Request;
     webauthn.startRegistration.mockResolvedValue({ id: "new" });
-    render(<PasskeyManager request={request} loginName="learner" hasPassword onClose={() => {}} />);
+    render(<PasskeyManager request={request} loginName="learner" hasPassword />);
     expect(await screen.findByText("You have no passkeys yet.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Passkey name"), { target: { value: "My phone" } });
     await pressWhenReady(screen.getByRole("button", { name: "Add a passkey" }));

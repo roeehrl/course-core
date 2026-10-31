@@ -103,7 +103,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
         <summary>{t("connectedAgentsPanel.form.summary")}</summary>
         <div className="connected-agents-form">
           <label htmlFor={id + "-label"}>{t("connectedAgentsPanel.form.name")}</label>
-          <input id={id + "-label"} maxLength={80} autoComplete="off" dir="auto" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <input id={id + "-label"} maxLength={80} autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} />
           <fieldset>
             <legend>{t("connectedAgentsPanel.form.scopes")}</legend>
             {SCOPES.map(scope => (

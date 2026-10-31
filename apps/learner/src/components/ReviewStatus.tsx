@@ -129,7 +129,7 @@ function ReplyBox({ attemptId, onReply }: { attemptId: string; onReply: ReviewRe
       }}
     >
       <label htmlFor={id}>{t("reviewStatus.reply.label")}</label>
-      <textarea id={id} dir="auto" rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
+      <textarea id={id} rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
       <button type="submit" disabled={busy || text.trim().length < 20}>{t("reviewStatus.reply.submit")}</button>
       {error && <p role="alert">{error}</p>}
     </form>
@@ -167,7 +167,7 @@ function AppealBox({ attemptId, onAppeal }: { attemptId: string; onAppeal: Revie
       }}
     >
       <label htmlFor={id}>{t("reviewStatus.appeal.label")}</label>
-      <textarea id={id} dir="auto" rows={2} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <textarea id={id} rows={2} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
       <button type="submit" disabled={busy || reason.trim().length < 10}>{t("reviewStatus.appeal.submit")}</button>
       {error && <p role="alert">{error}</p>}
     </form>

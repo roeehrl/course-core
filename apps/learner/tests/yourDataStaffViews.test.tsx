@@ -127,9 +127,10 @@ describe("erasing one course's learning data", () => {
       const field = await screen.findByLabelText((label) => label.replace(/[⁦-⁩]/g, "").includes(phrase));
       const strong = field.closest("div")!.querySelector(`label[for="${field.id}"] strong`)!;
       expect(strong.textContent!.replace(/[⁦-⁩]/g, "")).toBe(phrase);
-      // The id is a left-to-right isolate inside a right-to-left phrase; the field follows what is typed.
+      // The id is a left-to-right isolate inside a right-to-left phrase; the field keeps the screen's
+      // direction (its caret starts at the reading edge) and shows typed text in its own.
       if (locale === "he") expect(strong.textContent).toContain(`⁦${shortId}⁩`);
-      expect(field).toHaveAttribute("dir", "auto");
+      expect(field).not.toHaveAttribute("dir");
       const erase = screen.getByRole("button", { name: button });
       fireEvent.change(screen.getByLabelText(new RegExp(reason.replace("?", "\\?"))), { target: { value: "Leaving this course for good." } });
       // The other language's phrase, or another enrollment's id, is not what this screen asks for.

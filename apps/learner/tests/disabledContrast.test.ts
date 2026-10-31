@@ -23,21 +23,22 @@ describe("disabled buttons", () => {
       expect(contrast(DISABLED.text, background), `on ${background}`).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("are never faded with opacity on the lesson page", () => {
+  it("are never faded with opacity, and every label colour a disabled rule sets keeps 4.5:1", () => {
     const css = readFileSync(join(__dirname, "../src/connected/connected.css"), "utf8");
-    const faded: string[] = [];
+    const faded: string[] = [], labels = new Set<string>();
     postcss.parse(css).walkRules((rule: Rule) => {
       if (!rule.selector.includes(":disabled")) return;
-      // The account dialogs' own sheet (.connected-portal) is outside the lesson page.
-      if (rule.selectors.every((selector) => selector.includes(".connected-portal"))) return;
       rule.walkDecls("opacity", (decl) => { if (Number(decl.value) < 1) faded.push(`${rule.selector} { opacity: ${decl.value} }`); });
+      rule.walkDecls("color", (decl) => { if (/^#[0-9a-f]{6}$/i.test(decl.value)) labels.add(decl.value.toLowerCase()); });
     });
+    // The account dialogs (.connected-portal) included: a disabled button there faded to about 2:1.
     expect(faded).toEqual([]);
-    // Each colour a disabled rule sets for a label keeps 4.5:1 on the fill or the page it is on.
-    for (const label of ["#56706b", "#3f5a55"]) expect(css).toContain(label);
-    expect(contrast("#3f5a55", "#dfe9e5")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#56706b", "#ffffff")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#56706b", "#f8f8f2")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#56706b", "#e8f6ed")).toBeGreaterThanOrEqual(4.5);
+    expect([...labels].sort()).toEqual(["#3f5a55", "#4f6863", "#6b3936"]);
+    // A label colour may end up on the disabled fill as well as on a page background (the
+    // companion's disabled Send read #56706b on #dfe9e5, 4.31:1, in the 0.1.60 qualification).
+    for (const label of ["#3f5a55", "#4f6863"])
+      for (const background of [DISABLED.fill, colors.white, colors.paper, colors.mint, colors.lilac, colors.sand])
+        expect(contrast(label, background.toLowerCase()), `${label} on ${background}`).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#6b3936", "#efe2e0")).toBeGreaterThanOrEqual(4.5);
   });
 });

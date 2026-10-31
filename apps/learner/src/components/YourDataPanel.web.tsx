@@ -142,7 +142,9 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
             reason: accountReason.trim(),
           });
           setStatus(t("yourDataPanel.account.erased"));
-          window.location.replace("/");
+          // The sign-in page keeps this screen's language (the account and its saved language are
+          // gone) and confirms the erasure.
+          window.location.replace(`/?${new URLSearchParams({ locale: i18n.locale, erased: "account" })}`);
           return;
         } catch (cause) {
           if (cause instanceof CourseApiError && cause.code === "ERASURE_WAITING_FOR_SUPERVISION") {
@@ -176,11 +178,11 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         <div className="connected-data-erase">
           <p>{t("yourDataPanel.erase.body")}</p>
           <label htmlFor={id + "-reason"}>{t("yourDataPanel.erase.reason")}</label>
-          <textarea dir="auto" id={id + "-reason"} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <textarea id={id + "-reason"} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
           <label htmlFor={id + "-confirm"}>
             {i18n.rich("yourDataPanel.confirm", { phrase }, { strong: (children, key) => <strong key={key} dir="auto">{children}</strong> })}
           </label>
-          <input dir="auto" id={id + "-confirm"} autoComplete="off" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
+          <input id={id + "-confirm"} autoComplete="off" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
           <button
             type="button"
             className="connected-button connected-danger"
@@ -196,11 +198,11 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         <div className="connected-data-erase">
           <p>{t("yourDataPanel.account.body")}</p>
           <label htmlFor={id + "-account-reason"}>{t("yourDataPanel.account.reason")}</label>
-          <textarea dir="auto" id={id + "-account-reason"} rows={2} maxLength={1000} value={accountReason} onChange={(e) => setAccountReason(e.target.value)} />
+          <textarea id={id + "-account-reason"} rows={2} maxLength={1000} value={accountReason} onChange={(e) => setAccountReason(e.target.value)} />
           <label htmlFor={id + "-account-confirm"}>
             {i18n.rich("yourDataPanel.confirm", { phrase: accountPhrase }, { strong: (children, key) => <strong key={key} dir="auto">{children}</strong> })}
           </label>
-          <input dir="auto" id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
+          <input id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
           <button
             type="button"
             className="connected-button connected-danger"
