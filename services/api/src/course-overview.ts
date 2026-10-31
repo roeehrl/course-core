@@ -31,9 +31,10 @@ export function nearestDeadline(policy: PolicyState | null) {
  * free text, no evidence content, nothing learner-private (learner-privacy.ts).
  */
 export async function courseOverview(client: Sql, catalog: OverviewCatalog, access: OverviewAccess,
-  releaseChecks: (release: { id: string; server_bundle: CourseManifest; digest: string; version: string }) => { code: string; passed: boolean; params?: Record<string, string> }[], now = new Date()) {
-  const releases = (await client.query<{ id: string; version: string; status: string; digest: string; created_at: Date; server_bundle: CourseManifest; review_state: string }>(
-    `SELECT r.id,r.version,r.status,r.digest,r.created_at,r.server_bundle,v.state AS review_state FROM course_releases r
+  releaseChecks: (release: { id: string; digest: string; version: string; row_version: string }) => Promise<{ code: string; passed: boolean; params?: Record<string, string> }[]>, now = new Date()) {
+  // Metadata only: the active release's checks are known or read by releaseChecks; no bundle is loaded here.
+  const releases = (await client.query<{ id: string; version: string; status: string; digest: string; created_at: Date; row_version: string; review_state: string }>(
+    `SELECT r.id,r.version,r.status,r.digest,r.created_at,r.xmin::text AS row_version,v.state AS review_state FROM course_releases r
        JOIN admin_release_reviews v ON v.release_id=r.id WHERE v.catalog_id=$1 AND r.workspace_id=$2 AND r.course_key=$3 ORDER BY r.created_at DESC,r.id`,
     [catalog.id, catalog.workspace_id, catalog.course_key])).rows;
   const active = releases.find(r => r.id === catalog.active_release_id) ?? null;
@@ -51,7 +52,7 @@ export async function courseOverview(client: Sql, catalog: OverviewCatalog, acce
       .rows.map(row => ({ availableVersion: row.last_result === 'update_available' ? row.available_version : null, lastResult: row.last_result,
         lastCheckedAt: row.last_checked_at?.toISOString() ?? null, level: row.level }))[0] ?? null,
   };
-  const failingChecks = active ? releaseChecks(active).filter(c => !c.passed).map(c => ({ code: c.code, ...(c.params ? { params: c.params } : {}) })) : [];
+  const failingChecks = active ? (await releaseChecks(active)).filter(c => !c.passed).map(c => ({ code: c.code, ...(c.params ? { params: c.params } : {}) })) : [];
   const invalidated = (await client.query<{ n: number }>(
     `SELECT count(*)::int AS n FROM evidence ev JOIN enrollments e ON e.id=ev.enrollment_id JOIN course_releases r ON r.id=e.course_release_id
       WHERE e.workspace_id=$1 AND r.course_key=$2 AND ev.invalidated_at > $3`, [catalog.workspace_id, catalog.course_key, new Date(now.getTime() - 30 * DAY_MS)])).rows[0]!.n;

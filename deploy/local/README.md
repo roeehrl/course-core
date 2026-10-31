@@ -740,7 +740,21 @@ dump size, and time your own drill (`verify` prints nothing about timing; wrap i
 - **Run it under launchd to restart it after a failure.**
   `node deploy/local/service.mjs install|status|uninstall [--root … --state …]`
   writes a per-user LaunchAgent with `RunAtLoad`, `KeepAlive: {SuccessfulExit:
-  false}`, `ThrottleInterval: 30` and `ExitTimeOut: 80`.
+  false}`, `ThrottleInterval: 30`, `ExitTimeOut: 80` and `ProcessType:
+  Interactive`.
+  - Interactive because the pilot answers people who are waiting: launchd puts no
+    resource limits on Interactive jobs. Releases up to 0.1.60 installed a
+    `Background` job with `LowPriorityIO`, and macOS then ran the launcher and
+    every child at low priority on efficiency cores with throttled disk I/O. One
+    password check took about 3.3 s of CPU instead of 0.2 s, and sign-in took
+    minutes. `Standard` is not used: launchd documents it only as "no
+    ProcessType", which leaves agents to the system default.
+  - `status` reports `definition: "outdated"` for an agent an earlier release
+    wrote. Run `install` again to replace it: it stops the pilot only when this
+    agent manages it (never a foreground `pilot.mjs start`), unregisters the
+    agent, replaces the file atomically, registers it again and answers
+    `"status": "updated"`. The pilot then starts under the new definition. An
+    interrupted replacement is still recognised, and `install` finishes it.
   - After a crash or failed start (exit status 1), launchd starts the launcher
     again, at most once every 30 seconds.
   - A clean `pilot.mjs stop` exits with status 0 and is not restarted.

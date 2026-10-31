@@ -6,6 +6,7 @@ import { createDatabase, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
+import { releaseCheckStatistics } from '../src/admin-routes.js';
 import { svgRenderer, visualCheckStatistics } from '../src/svg-renderer.js';
 import { checkVisual } from '../src/visual-check.js';
 import type { RuntimeExtension } from '../src/publication.js';
@@ -55,7 +56,7 @@ it('review and publication of a ~2 MB course with 40 visuals stay fast on a fres
   expect(imported.statusCode, imported.body).toBe(200);
   const releaseId = imported.json().id as string;
   const catalog = (await db.query('SELECT id,revision FROM admin_course_catalog WHERE workspace_id=$1', [workspaceId])).rows[0];
-  const before = visualCheckStatistics(), timings: Record<string, number> = {}, blocked: Record<string, number> = {};
+  const before = visualCheckStatistics(), releasesBefore = releaseCheckStatistics(), timings: Record<string, number> = {}, blocked: Record<string, number> = {};
   const transition = (action: string, revision: string) => timed(() => app.inject({ method: 'POST', url: `/api/admin/courses/${catalog.id}/releases/${releaseId}/transitions`,
     headers: { ...headers, 'if-match': revision, 'idempotency-key': randomUUID() }, payload: { action } }));
 
@@ -79,10 +80,13 @@ it('review and publication of a ~2 MB course with 40 visuals stay fast on a fres
     blocked[`GET before ${action}`] = view.blockedMs; blocked[action] = done.blockedMs;
   }
   const after = visualCheckStatistics();
-  // Later requests reused the recorded results for these exact bytes; nothing was re-run.
+  // Later requests reused the recorded results for these exact bytes; nothing was re-run. Each
+  // transition's own runtime gate reuses every visual's result; the course reads reuse the
+  // release's recorded checks without reading its bundle (course-view-scaling.integration.test.ts).
   expect(after.offloadedChecks).toBe(afterCold.offloadedChecks);
   expect(after.checks).toBe(afterCold.checks);
-  expect(after.reused - afterCold.reused).toBeGreaterThanOrEqual(4 * VISUALS);
+  expect(after.reused - afterCold.reused).toBeGreaterThanOrEqual(2 * VISUALS);
+  expect(releaseCheckStatistics().reused - releasesBefore.reused).toBeGreaterThanOrEqual(2);
   expect((await db.query('SELECT status FROM course_releases WHERE id=$1', [releaseId])).rows[0].status).toBe('published');
 
   // Bounds relative to one in-process pass over every visual on this machine (the old path
