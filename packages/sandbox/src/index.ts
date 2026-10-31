@@ -16,7 +16,22 @@ export interface Submission { source: string; cases: Case[]; signal?: AbortSigna
  * between batches). Running past it is `setup_timeout`: the sandbox was slow, which says nothing
  * about the learner's code, so callers must not grade it or count it as an attempt.
  */
-export interface Options { image: string; storageDirectory: string; dockerBinary?: string; timeoutMs?: number; setupTimeoutMs?: number; memoryMiB?: number; maxOutputBytes?: number; concurrency?: number }
+export interface Options { image: string; storageDirectory: string; dockerBinary?: string; timeoutMs?: number; setupTimeoutMs?: number; memoryMiB?: number; maxOutputBytes?: number; concurrency?: number; workVolume?: WorkVolume }
+/**
+ * For a broker whose Docker daemon cannot see its file system (a Compose stack whose API talks to the
+ * host daemon through the sandbox gate): `storageDirectory` lies inside `mountPoint`, where the named
+ * Docker volume `name` is mounted in the broker's own container. Each run's directory is then mounted
+ * into the sandbox as that volume's subpath, read-only, instead of as a host bind mount.
+ */
+export interface WorkVolume { name: string; mountPoint: string }
+type Config = Required<Omit<Options, 'storageDirectory' | 'workVolume'>> & { workVolume?: WorkVolume };
+/** The `/work` mount of one run: a read-only bind of its directory, or of its volume subpath. */
+export function workMount(directory: string, workVolume?: WorkVolume): string {
+  if (!workVolume) return `type=bind,source=${directory},target=/work,readonly`;
+  const subpath = path.relative(workVolume.mountPoint, directory);
+  if (!subpath || subpath.startsWith('..') || path.isAbsolute(subpath) || !/^[A-Za-z0-9._/-]+$/.test(subpath)) throw new Error('INVALID_SANDBOX_CONFIGURATION');
+  return `type=volume,source=${workVolume.name},target=/work,readonly,volume-nocopy,volume-subpath=${subpath}`;
+}
 /** `durationMs` is wall time; `executionMs` is what `timeoutMs` limits, and `setupMs` the rest. */
 export interface GradeReport { status: 'graded' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'setup_timeout' | 'unavailable' | 'busy' | 'cleanup_failed';
   passed: boolean; cases: { id: string; passed: boolean; reason: string }[]; sourceDigest: string; durationMs: number; executionMs: number; setupMs: number; outputBytes: number; batchesCompleted: number; runtime: { protocol: 'python-json-v1'; image: string } }
@@ -93,14 +108,14 @@ export function gradeOutput(stdout: string, cases: Case[]): GradeReport['cases']
   } catch { return cases.map(item => ({ id: item.id, passed: false, reason: 'invalid_output_protocol' })); }
 }
 
-export function dockerArguments(options: Required<Omit<Options, 'storageDirectory'>>, name: string, directory: string): string[] {
+export function dockerArguments(options: Config, name: string, directory: string): string[] {
   return ['create', '--pull=never', '--name', name, '--label', 'course-core.sandbox=true', '--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user=65532:65532',
     `--memory=${options.memoryMiB}m`, `--memory-swap=${options.memoryMiB}m`, '--cpus=0.5', '--pids-limit=32', '--ulimit=nofile=64:64', '--ulimit=core=0:0', '--init',
-    '--tmpfs=/tmp:rw,noexec,nosuid,size=16m', '--mount', `type=bind,source=${directory},target=/work,readonly`, '--env=PYTHONDONTWRITEBYTECODE=1', '--env=PYTHONHASHSEED=0', '-i',
+    '--tmpfs=/tmp:rw,noexec,nosuid,size=16m', '--mount', workMount(directory, options.workVolume), '--env=PYTHONDONTWRITEBYTECODE=1', '--env=PYTHONHASHSEED=0', '-i',
     options.image, 'python', '-I', '-B', '/work/runner.py'];
 }
 export class DockerSandbox {
-  private readonly config: Required<Omit<Options, 'storageDirectory'>>;
+  private readonly config: Config;
   private readonly storageDirectory: string;
   private active = 0;
   private unhealthy = false;
@@ -109,7 +124,11 @@ export class DockerSandbox {
   constructor(options: Options) {
     this.storageDirectory = options.storageDirectory;
     this.config = { image: options.image, dockerBinary: options.dockerBinary ?? 'docker', timeoutMs: options.timeoutMs ?? 5000, setupTimeoutMs: options.setupTimeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS,
-      memoryMiB: options.memoryMiB ?? 128, maxOutputBytes: options.maxOutputBytes ?? 65536, concurrency: options.concurrency ?? 1 };
+      memoryMiB: options.memoryMiB ?? 128, maxOutputBytes: options.maxOutputBytes ?? 65536, concurrency: options.concurrency ?? 1,
+      ...(options.workVolume ? { workVolume: { name: options.workVolume.name, mountPoint: options.workVolume.mountPoint } } : {}) };
+    const volume = this.config.workVolume;
+    if (volume && (typeof volume.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(volume.name) || typeof volume.mountPoint !== 'string' || !path.isAbsolute(volume.mountPoint)
+      || /[,\n\r\0]/.test(volume.mountPoint) || path.relative(volume.mountPoint, options.storageDirectory).startsWith('..') || path.isAbsolute(path.relative(volume.mountPoint, options.storageDirectory)))) throw new Error('INVALID_SANDBOX_CONFIGURATION');
     if (!/^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(options.image) || !path.isAbsolute(options.storageDirectory) || /[,\n\r\0]/.test(options.storageDirectory)
       || !Number.isInteger(this.config.timeoutMs) || this.config.timeoutMs < 200 || this.config.timeoutMs > 15000
       || !Number.isInteger(this.config.setupTimeoutMs) || this.config.setupTimeoutMs < 1000 || this.config.setupTimeoutMs > 300000

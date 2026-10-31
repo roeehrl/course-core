@@ -6,11 +6,11 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DockerSandbox, QUALIFIED_IMAGES } from '../dist/index.js';
+import { QUALIFIED_IMAGES } from '../dist/index.js';
+import { DockerSandbox, localRoot } from './environment.mjs';
 
-const exec = promisify(execFile), packageRoot = fileURLToPath(new URL('../', import.meta.url));
-await mkdir(path.join(packageRoot, '.local'), { recursive: true, mode: 0o700 });
-const root = await mkdtemp(path.join(packageRoot, '.local', 'sandbox-qualification-'));
+const exec = promisify(execFile);
+const root = await mkdtemp(path.join(await localRoot(), 'sandbox-qualification-'));
 const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch];
 assert(image, 'Explicit qualified image required for this architecture.');
 // Missing Docker/image is a failed required qualification, never a skipped passing test.

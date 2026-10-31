@@ -14,3 +14,6 @@
 **/.env.*
 !**/.env.example
 deploy/docker/.env
+deploy/docker/course-files
+deploy/docker/backups
+deploy/docker/.ops

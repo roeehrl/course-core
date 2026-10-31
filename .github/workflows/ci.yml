@@ -88,9 +88,10 @@ jobs:
     name: Sandbox / real Docker Linux
     needs: audit
     runs-on: ubuntu-24.04
-    # The sandbox suites take about 5 min. The self-host image build and stack bring-up took
-    # about 4 min locally with a warm npm cache; a cold hosted runner is slower. 35 min allows it.
-    timeout-minutes: 35
+    # The sandbox suites take about 5 min. The Compose stack test builds the image (about 8 min on
+    # a cold runner), starts the whole stack with supervision, runs the sandbox suites again through
+    # the sandbox gate, a backup drill, an upgrade and a rolled-back broken upgrade: about 25 min.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -113,10 +114,12 @@ jobs:
         env:
           SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/test-skips.mjs -- npm run check:sandbox:docker
-      # The documented Linux/Docker self-host stack (deploy/docker): build the image, start
-      # PostgreSQL, the API and the TLS proxy, sign an owner in over HTTPS and prove the
-      # restart policy, then remove only this run's own project. Missing Docker fails.
-      - name: Bring up the documented Docker self-host stack
+      # The documented Compose deployment (deploy/docker), through its operations script: the
+      # whole stack with supervision, code graded in sandbox containers through the sandbox gate
+      # (and the sandbox suites through that gate), restart, backup and restore drill, upgrade and
+      # automatic rollback; then it removes only this run's own project. Missing Docker fails.
+      - name: Bring up the documented Docker Compose deployment
+        timeout-minutes: 50
         run: node scripts/test-skips.mjs -- npm run test:self-host
 
   # The required check "API and connected learner / Postgres 17" (job `api` below) passes

@@ -1,21 +1,41 @@
-# TLS-terminating reverse proxy for the Course Core API. Caddy obtains and renews a
-# public certificate for COURSE_HOSTNAME automatically (ports 80 and 443 must reach this
-# host). CADDY_GLOBAL_OPTIONS can add global options, for example `local_certs` for a
-# private network with Caddy's own certificate authority, or `email you@example.org`.
+# TLS-terminating reverse proxy for the Course Core API.
+# - COURSE_HOSTNAME: a public DNS name gets a public certificate, obtained and renewed
+#   automatically (ports 80 and 443 must reach this host). `localhost` (the default) and other
+#   private names get a certificate from Caddy's own authority. CADDY_GLOBAL_OPTIONS can add
+#   global options, for example `local_certs` for a private name or `email you@example.org`.
+# - core-proxy.internal: the name the supervisor uses on the private network, always with a
+#   certificate from Caddy's own authority (copied for the supervisor by the proxy-ca service).
+# - Port 8380: plain HTTP for a forwarder on this machine, such as `tailscale serve`. Compose
+#   publishes it on 127.0.0.1 only. The API still accepts only the origins it trusts.
 {
 	{$CADDY_GLOBAL_OPTIONS}
 }
 
-{$COURSE_HOSTNAME} {
-	encode zstd gzip
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		-Server
-	}
+(api) {
 	reverse_proxy api:4310 {
 		# Bounded so a stalled upstream fails visibly instead of hanging requests.
 		transport http {
 			dial_timeout 5s
 		}
 	}
+}
+
+{$COURSE_HOSTNAME:localhost} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	import api
+}
+
+core-proxy.internal {
+	tls internal
+	import api
+}
+
+http://:8380 {
+	encode zstd gzip
+	header -Server
+	import api
 }

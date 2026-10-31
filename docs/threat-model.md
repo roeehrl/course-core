@@ -4,7 +4,7 @@ This is the threat model of Course Core as it is built in this repository: the A
 (`services/api`), the supervisor and its Temporal workers (`services/supervisor`), the
 learner and admin web apps (`apps/learner`, `apps/admin`), the practical-exercise sandbox
 (`packages/sandbox`), the provider adapters (`packages/providers`) and the local pilot
-launcher (`deploy/local`). It describes what the code does today, not what a
+launcher (`deploy/local`), and the Docker Compose deployment (`deploy/docker`). It describes what the code does today, not what a
 production deployment would need. Each threat lists the mitigation that exists, with
 the code that implements it, and the residual risk that remains.
 
@@ -66,7 +66,8 @@ reference. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
    role.
 6. **API ↔ providers.** Outbound HTTPS to fixed provider origins; responses are
    untrusted.
-7. **API ↔ Docker.** Learner code runs in a pinned, network-less container.
+7. **API ↔ Docker.** Learner code runs in a pinned, network-less container. In the Compose
+   deployment the API reaches Docker only through the sandbox gate (below).
 8. **Course packages and installers ↔ API.** Uploaded or fetched archives are
    untrusted input to a validator; nothing in them is executed.
 9. **Network path.** Loopback by default; a tailnet origin (WireGuard-encrypted) or,
@@ -128,6 +129,24 @@ reference. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 | Learner code escaping or attacking the host | Digest-pinned images per architecture (`packages/sandbox/src/index.ts:31-34`) with `@sha256:` required (`index.ts:113`) and `--pull=never`; `--network=none`, `--read-only`, `--cap-drop=ALL`, `no-new-privileges`, uid 65532, 128 MiB memory and no swap, 0.5 CPU, 32 pids, 64 files, no core dumps, a 16 MiB `noexec` tmpfs and a read-only work mount (`index.ts:96-100`); 5 s default execution time limit, counted from the runner's ready line so container setup never uses it, a separate 60 s setup bound and 64 KiB output cap (`index.ts:111-118`); readiness checks for a Linux host with memory, pids and seccomp support (`index.ts:143-158`); the reference grader stays outside the container (SECURITY.md) | The API needs the Docker daemon, which is root-equivalent on the host. Isolation is runc with the default seccomp profile, with no gVisor or user namespaces. A kernel escape compromises the host |
 | Supervisor-generated code (exercise solutions, components) | Run only by the installed code evaluator in the sandbox above, at check, verification and delivery (`services/api/src/generated-content.ts`); in the browser a component runs only in the sandboxed Python runner frame below, and the page shows only its declared outputs as text (`apps/learner/src/connected/GeneratedComponent.web.tsx`); hidden tests stay server-side and out of the learner bundle and export | A component can use the learner's CPU until the runner's limits; its output can be wrong teaching (it never counts as evidence) |
 | Untrusted code in the application process | Course packages and provider output are never executed in the API (`course-package.ts:9`); activity scripts come only from extensions installed on the host and checked by integrity at startup (`activity-runtime.ts:59-64`, `main.ts:86`), or from a course package after an owner/admin approves their exact bytes, and either way run only in the opaque-origin activity frame (`course-supplied-extensions.ts`); a course's hidden code cases are data the sandboxed grader compares against, never code; visuals are declarative expression trees with numeric and evaluation budgets (`packages/visuals/src/expression.ts:3-27`) and their build is scanned for markup or script injection (`visuals-identity.ts:58`) | — |
+
+### Docker Compose deployment and the sandbox gate
+
+The Compose stack ([deploy/docker](../deploy/docker/README.md)) changes one boundary: the API no
+longer runs the Docker CLI against a daemon it can fully control. In the pilot the API process
+drives the host's Docker directly, which is root-equivalent. In Compose the API has no Docker
+socket. It talks to `sandbox-gate` (`deploy/docker/sandbox-gate.mjs`) over a Unix socket in a
+volume only the two share, and only the gate mounts the host's `/var/run/docker.sock`.
+
+| Threat | Mitigation in code | Residual risk |
+| --- | --- | --- |
+| A compromised API process takes over the host through Docker | The gate forwards only ping, version, a reduced `info`, inspect of the one pinned image, and create/inspect/attach/start/wait/remove of sandbox containers (`route`); everything else is 403. A create must equal the sandbox's own configuration (`validateCreate`): the pinned image, `none` network, read-only root, `CapDrop: [ALL]`, `no-new-privileges`, uid 65532, bounded memory equal to swap, CPU, 32 pids, the fixed ulimits and tmpfs, init, the fixed command and environment, and exactly one read-only mount: a `run-*` subpath of the `sandbox-work` volume. Every other field must be unset, so bind mounts, other volumes, devices, privileged mode, host namespaces, extra capabilities, seccomp/AppArmor changes, ports, restart policies and log drivers are refused; keys that differ from a checked key only by case, and non-ASCII keys, are refused because Docker decodes JSON keys case-insensitively. Container-scoped calls are answered only for containers Docker reports with the sandbox name, label, image, network and mount (`isSandboxContainer`); others look absent. At most 8 sandbox containers may exist at once. Tests: `deploy/docker/sandbox-gate.test.mjs` | The gate itself is root-equivalent: a bug in it, in Node's HTTP parser or in Docker's handling of an allowed request reaches the host. A compromised API can still run its own code in sandbox containers (the same isolation as learner code), fill the `sandbox-work` volume, and see the reduced `info` fields and the pinned image's metadata |
+| The gate as an attack surface | No network (`network_mode: none`), read-only root, every capability dropped, `no-new-privileges`, request bodies other than create refused, create bodies capped at 64 KiB, at most 64 connections; it pulls only the pinned digest for the daemon's architecture, itself, at start | It runs as root in its container to open the socket. Docker Desktop and Colima confine "host" to their Linux VM; on Linux it is the host |
+| Learner code reaching other data through its mount | Each container mounts only its own run directory of `sandbox-work`, read-only, with `volume-nocopy`; the volume holds run directories and the broker lock, never fixtures, the database or the vault (those are in other volumes the gate refuses) | Same as the sandbox above: a kernel escape compromises the Docker host |
+| Operator course files (fixture registries, teaching verifiers) | Mounted read-only; `api-start.mjs` accepts plain file names only, refuses links and files over 4 MiB, and copies them into an owner-only tmpfs owned by the API user before the API's own owner-only checks | On the host they are as private as the operator makes them (they hold hidden expected outputs) |
+| The supervisor's path to the API | The worker and dispatcher reach the API over HTTPS at `core-proxy.internal` with Caddy's internal authority, whose root certificate (not key) a one-shot container copies for them; they share Temporal's network namespace, where Temporal listens on loopback | Anyone on the private Compose network who can reach the proxy can reach the API, as with the public name |
+| The plain-HTTP loopback listener (`127.0.0.1:8380`, for `tailscale serve`) | Published on the host's loopback only; the API still accepts only its configured origins (an `http` additional origin only for a literal Tailscale address unless the insecure-origin switch is on), CSRF tokens and `SameSite=Strict` cookies | Local users of the host can reach the API without TLS; requests through the forwarder share one client address for sign-in throttling |
+| Backups taken by `core.sh backup` | Owner-only directories and files, the pilot's manifest format re-verified on every drill and restore; the restore drill uses a new scratch database and drops it | Backups are not encrypted and include `.env` (database password, service token) and the vault key. Keep them on encrypted storage |
 
 ### Sandboxed activity frames
 
