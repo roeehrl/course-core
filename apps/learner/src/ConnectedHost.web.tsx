@@ -264,8 +264,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [pending, setPending] = useState(false),
     busy = useRef(false),
     [error, setError] = useState(""),
-    // A notice is rendered at display time, so it follows a language switch while it shows.
-    [notice, setNotice] = useState<{ render: (t: Translate) => string; tone?: "info" | "warning" } | null>(null);
+    // A notice is rendered at display time, so it follows a language switch while it shows. The
+    // feedback on a checked answer (`answer`) shows in the lesson's check, beside the answer, not
+    // above the lesson where a phone would show it out of sight.
+    [notice, setNotice] = useState<{ render: (t: Translate) => string; tone?: "info" | "warning"; answer?: true } | null>(null);
   const slowRequest = useSlow(pending);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]),
     [catalog, setCatalog] = useState<CatalogCourse[]>([]);
@@ -373,6 +375,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const challenge = server?.activeChallenges.find(
     (row) => row.episodeId === episodeId,
   );
+  // Answer feedback belongs to the lesson's check, which shows while the lesson is open.
+  const answerInCheck = view === "learn" && Boolean(episode?.gateId);
   // Usability timings, only while the learner takes part in a study that asked for them
   // (connected/usability.ts). The server refuses them otherwise, and recording then stops.
   const measuring = server?.studyArm?.measuresUsability === true ? server.enrollmentId : undefined;
@@ -840,7 +844,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
       }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t), tone: answerFeedbackTone(result) });
+      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t), tone: answerFeedbackTone(result), answer: true });
     } finally {
       setCheckingAnswer(false);
       setSavingAnswer(false);
@@ -852,7 +856,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setSavingAnswer(true);
     try {
       const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, false, t), tone: answerFeedbackTone(result) });
+      setNotice({ render: (t) => answerFeedback(result, false, t), tone: answerFeedbackTone(result), answer: true });
     } finally {
       setSavingAnswer(false);
     }
@@ -1276,7 +1280,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               )}
             </Notice>
           )}
-          {notice && <Notice tone={notice.tone}>{notice.render(t)}</Notice>}
+          {notice && !(notice.answer && answerInCheck) && <Notice tone={notice.tone}>{notice.render(t)}</Notice>}
           {server && (storageUnavailable || drafts.unavailable) && (
             <Notice>
               {t("connectedHost.storageUnavailable")}
@@ -1578,6 +1582,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               answer={answer}
               checkingAnswer={checkingAnswer}
               savingAnswer={savingAnswer}
+              {...(notice?.answer && answerInCheck ? { answerFeedback: { text: notice.render(t), tone: notice.tone ?? "info" } } : {})}
               policyPanel={policyPanel}
               components={components}
               pendingChanges={

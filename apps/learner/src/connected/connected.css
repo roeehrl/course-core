@@ -276,6 +276,24 @@ html:has(.connected-host) body {
   font-size: 15px;
   margin: 0;
 }
+/* The result of the answer just checked, under the check's heading (ConnectedLesson.web.tsx). */
+.connected-check .connected-answer-feedback p {
+  margin: 14px 0 0;
+  padding: 14px 16px;
+  border: 1px solid #dce6e2;
+  border-inline-start: 4px solid #087b69;
+  border-radius: 12px;
+  background: #fff;
+  color: #183237;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* An answer to revisit: amber, like the notice it replaces (words carry the meaning). */
+.connected-check .connected-answer-feedback p[data-tone="warning"] {
+  border-inline-start-color: #80601e;
+  background: #fcf3df;
+}
 .connected-check-progress {
   list-style: none;
   padding: 0;
@@ -2115,7 +2133,9 @@ html:has(.connected-host.is-compact) body {
   padding: 10px;
   margin: 0 -10px;
   border-radius: 16px;
-  background: #e8f6edf2;
+  /* Opaque, the check's own colour: lesson text scrolling under the bar never shows through it
+   * (a translucent bar let it show through on phones), and the buttons keep their contrast. */
+  background: #e8f6ed;
   box-shadow: 0 -6px 16px #18323712;
 }
 
