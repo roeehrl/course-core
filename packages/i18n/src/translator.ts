@@ -1,5 +1,6 @@
 import { formatNodes, parseMessage, type FormatContext, type MessageNode, type MessageParams, type TagHandlers } from './message.ts';
 import { pseudoFrame, pseudoNodes } from './pseudo.ts';
+import { LRI, PDI } from './bidi.ts';
 import {
   DEFAULT_LOCALE,
   catalogLocale,
@@ -95,6 +96,13 @@ export function createTranslator<C extends Catalog>(options: TranslatorOptions<C
     if (!format) dateFormats.set(cacheKey, (format = new Intl.DateTimeFormat(intlLocale, opts)));
     return format;
   };
+  // A signed number in right-to-left text is drawn left to right as one unit: without it the
+  // minus of "-2." lands after the digits (".2-") wherever the engine does not keep ICU's mark
+  // with it, or the number is copied out without it (0.1.60 qualification).
+  const formatNumber = (value: number | bigint, opts?: Intl.NumberFormatOptions) => {
+    const text = numberFormat(opts).format(value);
+    return dir === 'rtl' && /[-+\u2212]/.test(text) ? `${LRI}${text.replace(/[\u200e\u200f]/g, '')}${PDI}` : text;
+  };
   const pluralCategory = (value: number, ordinal = false) => {
     let rules = pluralRules.get(ordinal);
     if (!rules) pluralRules.set(ordinal, (rules = new Intl.PluralRules(intlLocale, { type: ordinal ? 'ordinal' : 'cardinal' })));
@@ -141,7 +149,7 @@ export function createTranslator<C extends Catalog>(options: TranslatorOptions<C
       locale: intlLocale,
       isolate: options.isolateArguments ?? dir === 'rtl',
       direction: dir,
-      number: (value, opts) => numberFormat(opts).format(value),
+      number: formatNumber,
       date: (value, opts) => dateFormat(opts).format(value),
       pluralCategory,
       onMissingArgument: (argument) => report({ kind: 'argument', locale, key, argument }),
@@ -170,8 +178,8 @@ export function createTranslator<C extends Catalog>(options: TranslatorOptions<C
     has: (key) =>
       lookup(catalogs.en, key) !== undefined ||
       (source !== DEFAULT_LOCALE && lookup(catalogs[source as Exclude<SupportedLocale, 'en'>], key) !== undefined),
-    number: (value, opts) => numberFormat(opts).format(value),
-    percent: (value, opts) => numberFormat({ style: 'percent', ...opts }).format(value),
+    number: formatNumber,
+    percent: (value, opts) => formatNumber(value, { style: 'percent', ...opts }),
     currency: (value, currency, opts) => numberFormat({ style: 'currency', currency, ...opts }).format(value),
     date: (value, opts) => dateFormat(dateOptions(opts, 'dateStyle', 'medium')).format(instant(value)),
     time: (value, opts) => dateFormat(dateOptions(opts, 'timeStyle', 'short')).format(instant(value)),
