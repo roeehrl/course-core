@@ -11,7 +11,7 @@ test("a streaming reply shows as an unchecked draft and a refused one is withdra
   await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
     .getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   if (!info.project.name.endsWith("desktop")) await page.getByRole("button", { name: "Companion", exact: true }).click();
   const draft = page.getByRole("textbox", { name: "Message to your companion", exact: true });
   const drafts = page.getByLabel("Reply being written, not yet checked");

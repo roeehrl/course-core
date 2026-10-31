@@ -145,7 +145,7 @@ test("the connected learner stays within its load, navigation and memory budgets
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
   // The press below is a DOM click, so panels that load late and shift the button cannot make it miss.
-  await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toBeVisible();
 
   const heap = browserName === "chromium" ? await page.context().newCDPSession(page) : null;
   const heapUsed = async () => {
@@ -157,13 +157,13 @@ test("the connected learner stays within its load, navigation and memory budgets
   await heap?.send("Performance.enable");
 
   const lesson: number[] = [], roadmap: number[] = [];
-  lesson.push(await timedPress(page, /^Continue learning →$/, "lesson"));
+  lesson.push(await timedPress(page, /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/, "lesson"));
   await expect(page.getByRole("button", { name: /Course roadmap/ })).toBeVisible();
   const heapFirst = await heapUsed();
   for (let i = 0; i < ROUND_TRIPS; i++) {
     roadmap.push(await timedPress(page, /Course roadmap/, "roadmap"));
-    await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
-    lesson.push(await timedPress(page, /^Continue learning →$/, "lesson"));
+    await expect(page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toBeVisible();
+    lesson.push(await timedPress(page, /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/, "lesson"));
     await expect(page.getByRole("button", { name: /Course roadmap/ })).toBeVisible();
   }
   const heapLast = await heapUsed();
@@ -196,9 +196,9 @@ test("the connected learner stays within its load, navigation and memory budgets
   await page.getByRole("radio", { name: "7", exact: true }).click();
   feedback.push(await timedFeedback(page, /^Check answer$/, "Correct. 7 is below 11."));
   // The second lesson: its reading (with any personal extra part), then its two checks.
-  await page.getByRole("button", { name: "Complete episode →", exact: true }).click();
+  await page.getByRole("button", { name: "Finish this lesson →", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(page.getByRole("heading", { name: "Maximum", exact: true })).toBeVisible();
   const markRead = page.getByRole("button", { name: "Mark this part read", exact: true });
   const startCheck = page.getByRole("button", { name: "Start the next check →", exact: true });

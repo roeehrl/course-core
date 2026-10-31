@@ -267,10 +267,7 @@ test("a slow answer from the server is reported over the page without moving it"
 }) => {
   test.setTimeout(60_000);
   const held = await openCourse(page, "en");
-  await page
-    .getByRole("button", { name: TEXT.en.resume, exact: true })
-    .first()
-    .click();
+  await page.getByTestId("next-step").getByRole("button").click();
   const read = page.getByRole("button", { name: TEXT.en.read, exact: true });
   await expect(read).toBeVisible();
   await read.click();

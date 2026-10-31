@@ -7,7 +7,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 
 /** Opens the course from the course list, then its current lesson (each press retried until the page changed). */
 async function openCurrentLesson(page: Page) {
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
   const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
   await expect(async () => {
     if (!(await roadmap.count())) await resume.click({ timeout: 2_000 });

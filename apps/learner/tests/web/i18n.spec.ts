@@ -75,7 +75,7 @@ test("a signed-in learner's saved Hebrew preference lays out the course shell ri
   await expect(back).toHaveText("← כל הקורסים");
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "הקורס שלך" }).click();
+  await page.locator(".connected-menu-toggle").click();
   await page.getByRole("button", { name: "הפרופיל שלי" }).click();
   await expect(back).toHaveText("← חזרה ללמידה");
   await expectNoHorizontalOverflow(page);

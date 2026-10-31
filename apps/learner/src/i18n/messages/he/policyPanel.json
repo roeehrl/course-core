@@ -36,7 +36,7 @@
   "dates.unavailable": "המועדים השמורים אינם זמינים",
   "dates.courseDue": "מועד אחרון לקורס: {date}",
   "dates.loading": "טוענים את המועדים השמורים…",
-  "dates.chapterDue": "{chapter}: {date}",
+  "dates.chapterDue": "מועד אחרון לפרק {chapter, number}: {date}",
   "offerCount": "{count, plural, one {הצעת הארכה אחת} two {2 הצעות הארכה} other {# הצעות הארכה}} לעיון",
   "refresh": "רענון המועדים וההצעות",
   "explainer": "אלה המועדים בפועל ששמורים בשרת. פתיחה מחדש של קורס או שיעור לא מאפסת את השעון. הארכות נכנסות לתוקף רק אחרי אישור השרת.",
@@ -53,5 +53,7 @@
   "offer.change.days": "{days, plural, one {יום נוסף אחד} other {# ימים נוספים}} עד המועד האחרון",
   "offer.change.minutes": "{minutes, plural, one {דקת לימוד מתוכננת נוספת אחת} other {# דקות לימוד מתוכננות נוספות}}",
   "offer.change.lessons": "{lessons, plural, one {שיעור נוסף אחד} other {# שיעורים נוספים}}",
-  "offer.cost": "משתמש ב-{amount} {unit, select, days {ימים} minutes {דקות לימוד} lessons {שיעורים} other {יחידות}} מהמכסה שלך: {before} לפני, {after} אחרי."
+  "offer.cost": "משתמש ב-{amount} {unit, select, days {ימים} minutes {דקות לימוד} lessons {שיעורים} other {יחידות}} מהמכסה שלך: {before} לפני, {after} אחרי.",
+  "dates.bothDue": "מועד אחרון לקורס ולפרק {chapter, number}: {date}",
+  "dates.noCourseDate": "אין מועד אחרון לקורס"
 }

@@ -32,7 +32,7 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   await expect(companion(page)).toHaveCount(0);
 
   // A failed check: the next steps offer the lesson and a fresh check, never a control that leads to the hidden companion.
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "5", exact: true }).click();
@@ -59,7 +59,7 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   await expect(settings.getByText(/You left this study/)).toBeVisible();
   await expect(companion(page).first()).toBeAttached();
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await chooseFromMenu(page, "My profile");
   await expect(page.getByRole("region", { name: "Research study: Ordering study" }).getByText(/You left this study/)).toBeVisible();
   await accessible(page);
@@ -82,7 +82,7 @@ test("in a study that asked for usability timings, the app sends only place code
     if (response.url().endsWith("/study/usability") && response.request().method() === "POST")
       sent.push({ body: response.request().postDataJSON(), status: response.status() });
   });
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   // Leaving the app sends what was timed.
   await page.evaluate(() => {

@@ -21,12 +21,12 @@ test("the course page appears only after its panels load, so a late card cannot 
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   // While placement is still loading the page says it is loading and offers no action.
   await expect(page.getByRole("progressbar", { name: "Loading your saved learning space" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toHaveCount(0);
   const before = await page.getByRole("heading", { name: "Already know some of this?" }).count();
   expect(before).toBe(0);
   release();
   const offer = page.getByRole("heading", { name: "Already know some of this?" });
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
   await expect(offer).toBeVisible();
   await expect(resume).toBeVisible();
   // Both arrived together: the button does not move after it first appears.

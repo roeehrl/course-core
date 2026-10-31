@@ -100,7 +100,7 @@ describe("connected practical exercise editor", () => {
       screen.getByRole("button", { name: "Run code & check" }),
     ).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Complete episode →" }),
+      screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Run code & check" }));
     expect(p.onAnswer).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe("connected practical exercise editor", () => {
     );
     expect(screen.getByText(/Waiting for the server grader/)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Complete episode →" }),
+      screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
     expect(
       screen.queryByRole("button", {

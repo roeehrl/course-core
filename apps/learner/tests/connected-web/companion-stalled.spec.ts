@@ -27,7 +27,7 @@ async function openCompanion(page: Page, locale: "en" | "he", token: string, pho
   await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
     .getByRole("button", { name: t.host["library.open"], exact: true }).click();
   await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-  await page.getByRole("button", { name: t.host["library.continue"], exact: true }).click();
+  await page.getByTestId("next-step").getByRole("button").click();
   if (phone) await page.getByRole("button", { name: t.dock.open, exact: true }).click();
 }
 

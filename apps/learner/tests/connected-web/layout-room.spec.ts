@@ -41,7 +41,7 @@ async function openLesson(page: Page, locale: Locale) {
   await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
     .getByRole("button", { name: t.host["library.open"], exact: true }).click();
   await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-  await page.getByRole("button", { name: t.host["library.continue"], exact: true }).click();
+  await page.getByTestId("next-step").getByRole("button").click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   return (await page.locator(".connected-host.is-compact").count()) > 0;
 }
@@ -49,7 +49,7 @@ async function openLesson(page: Page, locale: Locale) {
  * conversation are; the layout rules under test do not depend on what the content is. */
 async function lengthen(page: Page, { lesson = 0, companion = 0 }) {
   await page.evaluate(([lessonHeight, companionHeight]) => {
-    const filler = (height: number) => Object.assign(document.createElement("div"), { className: "test-filler", style: `height:${height}px` });
+    const filler = (height: number) => Object.assign(document.createElement("div"), { className: "test-filler", style: `height:${height}px;flex-shrink:0` });
     if (lessonHeight) document.querySelector(".connected-main")!.prepend(filler(lessonHeight));
     if (companionHeight) document.querySelector("#connected-companion")!.append(filler(companionHeight));
   }, [lesson, companion]);

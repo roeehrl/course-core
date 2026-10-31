@@ -219,14 +219,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     size: WindowClass = windowClass(width, fontScale),
     compact = size === "compact",
     wide = companionPlacement(size, height) === "pane";
-  // Beside the lesson the pane starts open in expanded windows and collapsed in
-  // medium ones (where the lesson needs the width) until the learner chooses.
-  // The default is taken from the window the page opened in, so a later resize
-  // never hides a pane the learner may be typing in.
+  // Beside the lesson the pane starts collapsed (the lesson keeps the width; the header's Companion
+  // button opens it) until the learner chooses; that choice is remembered on this device.
   const [panePreference, setPanePreference] = useState(
-    () => readPanePreference() ?? (size === "expanded" ? "open" : "collapsed"),
+    () => readPanePreference() ?? "collapsed",
   );
   const paneCollapsed = panePreference === "collapsed";
+  // On the course page the pane starts closed whatever the lesson preference: it opens only when
+  // the learner asks (the header's Companion button), and closes again when they leave the page.
+  const [overviewPane, setOverviewPane] = useState(false);
+  const onOverview = useRef(true);
   // Opening or closing the pane beside the lesson reflows its text: the line being read stays
   // where it is on the screen (connected/readingAnchor.ts).
   const reading = useRef<ReadingAnchor | null>(null);
@@ -238,15 +240,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     requestAnimationFrame(() => {
       if (reading.current === anchor) reading.current = null;
     });
+    if (onOverview.current) {
+      setOverviewPane(!value);
+      return;
+    }
     setPanePreference(next);
     writePanePreference(next);
   }, []);
-  const paneShown = wide && !paneCollapsed;
-  useLayoutEffect(() => {
-    const anchor = reading.current;
-    reading.current = null;
-    if (anchor) restoreReadingAnchor(anchor);
-  }, [paneShown]);
   const hostRef = useRef<HTMLDivElement>(null);
   // Beside the lesson, the button that shows the companion pane lives in the header, where it
   // never covers lesson text (a floating button did, mid-page, on tablets).
@@ -373,6 +373,36 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const challenge = server?.activeChallenges.find(
     (row) => row.episodeId === episodeId,
   );
+  const overview = view === "learn" && !episode;
+  onOverview.current = overview;
+  useEffect(() => {
+    if (!overview) setOverviewPane(false);
+  }, [overview]);
+  const companionCollapsed = overview ? !overviewPane : paneCollapsed;
+  const paneShown = wide && !companionCollapsed;
+  useLayoutEffect(() => {
+    const anchor = reading.current;
+    reading.current = null;
+    if (anchor) restoreReadingAnchor(anchor);
+  }, [paneShown]);
+  // Whether a companion job can answer here now, from the server; read again when the companion
+  // is opened, so a job turned on meanwhile shows.
+  const companionVisible = paneShown || (!wide && companionOpen);
+  const [companionReady, setCompanionReady] = useState<{ enrollmentId: string; status: "ready" | "not_set_up" | "not_offered" | "unknown" }>();
+  const availabilityEnrollment = server?.enrollmentId;
+  useEffect(() => {
+    if (!availabilityEnrollment) return;
+    const controller = new AbortController();
+    api.request<{ status: "ready" | "not_set_up" | "not_offered" }>(
+      `/api/enrollments/${encodeURIComponent(availabilityEnrollment)}/companion/availability`, "GET", undefined, { signal: controller.signal },
+    ).then(
+      (result) => !controller.signal.aborted && setCompanionReady({ enrollmentId: availabilityEnrollment, status: result.status }),
+      // Never "Available" on a guess: a failed read says it could not be checked.
+      () => !controller.signal.aborted && setCompanionReady({ enrollmentId: availabilityEnrollment, status: "unknown" }),
+    );
+    return () => controller.abort();
+  }, [api, availabilityEnrollment, companionVisible]);
+  const availability = companionReady?.enrollmentId === server?.enrollmentId && companionReady?.status !== "not_offered" ? companionReady?.status : undefined;
   // Usability timings, only while the learner takes part in a study that asked for them
   // (connected/usability.ts). The server refuses them otherwise, and recording then stops.
   const measuring = server?.studyArm?.measuresUsability === true ? server.enrollmentId : undefined;
@@ -895,9 +925,18 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       return scrollTo(".connected-review, .connected-reading-card, .connected-lesson-heading");
     }
     if (action.kind === "consider_extension") {
-      const panel = document.querySelector<HTMLDetailsElement>(".connected-policy-panel");
-      if (panel) panel.open = true;
-      return scrollTo(".connected-policy-panel");
+      // The study dates and extensions are on the course page: go there and open them.
+      const open = () => {
+        const panel = document.querySelector<HTMLDetailsElement>(".connected-policy-panel");
+        if (!panel) return false;
+        panel.open = true;
+        scrollTo(".connected-policy-panel");
+        return true;
+      };
+      setEpisodeId(undefined);
+      setPlacement(false);
+      requestAnimationFrame(() => requestAnimationFrame(() => void open()));
+      return;
     }
     // "appeal" opens the review request form inside the decision panel.
     if (action.kind === "view_gaps") return scrollTo(".connected-gate-criteria");
@@ -1169,14 +1208,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   setPlacement(false);
                   setView("learn");
                   if (target.companion) {
-                    if (wide) setPaneCollapsed(false);
+                    // The notification opens the course page, where the pane opens on request only.
+                    if (wide) setOverviewPane(true);
                     else setCompanionOpen(true);
                   }
                 }).catch(() => {})
               }
             />
             <YourCourseMenu
-              label={server ? t("connectedHost.menu.yourCourse") : t("connectedHost.menu.account")}
+              label={t("connectedHost.menu.accountOf", { name: account.displayName })}
+              name={account.displayName}
               description={
                 server && policy.data?.coverage
                   ? t("connectedHost.menu.signedInWithCoverage", {
@@ -1501,53 +1542,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 }
               />
               <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
-              {policyPanel}
               <ClosureSummary server={server} />
               {(server.closureReport || server.complete) && (
                 <ContinuationTrack api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               )}
-              <PlacementRun
-                key={server.enrollmentId}
-                api={api}
-                command={(action, data) =>
-                  inFlight(async () => {
-                    // Sequential placement steps must use the latest revision, not a render-time snapshot.
-                    const fresh = await api.load(server.enrollmentId);
-                    const result = await api.command<never>(fresh, action, data);
-                    await refresh(server.enrollmentId);
-                    return result;
-                  })
-                }
-                enrollmentId={server.enrollmentId}
-                firstEpisodeId={server.course.chapters[0]?.episodes[0]?.id ?? ""}
-                onFinished={() => void refresh(server.enrollmentId)}
-                onOpenChange={setPlacementOpen}
-              />
-              <RetentionPanel
-                api={api}
-                enrollmentId={server.enrollmentId}
-                revision={server.revision}
-                onStart={async (objectiveId) => {
-                  const issued = await inFlight(async () => {
-                    const fresh = await api.load(server.enrollmentId);
-                    const result = await api.command<{ episodeId: string }>(fresh, "retention/check", { objectiveId });
-                    await refresh(server.enrollmentId);
-                    return result;
-                  });
-                  openEpisode(issued.episodeId);
-                }}
-                onSaveAvailability={async (weekdays, timeZone) => {
-                  await inFlight(async () => {
-                    const fresh = await api.load(server.enrollmentId);
-                    await api.command<never>(fresh, "retention/availability", { weekdays, timeZone });
-                    await refresh(server.enrollmentId);
-                  });
-                }}
-              />
               <CourseRoadmap
                 course={model.course}
                 snapshot={model.snapshot}
                 compact={compact}
+                enrollmentStatus={server.status}
                 {...(policy.data?.coverage ? { coverage: policy.data.coverage } : {})}
                 onOpenLesson={(lesson) => openEpisode(lesson.id)}
                 onPlacement={() => {
@@ -1556,14 +1559,50 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   panel?.scrollIntoView({ behavior: "smooth", block: "start" });
                   panel?.focus({ preventScroll: true });
                 }}
-              />
+              >
+                {policyPanel}
+                <PlacementRun
+                  key={server.enrollmentId}
+                  api={api}
+                  command={(action, data) =>
+                    inFlight(async () => {
+                      // Sequential placement steps must use the latest revision, not a render-time snapshot.
+                      const fresh = await api.load(server.enrollmentId);
+                      const result = await api.command<never>(fresh, action, data);
+                      await refresh(server.enrollmentId);
+                      return result;
+                    })
+                  }
+                  enrollmentId={server.enrollmentId}
+                  firstEpisodeId={server.course.chapters[0]?.episodes[0]?.id ?? ""}
+                  onFinished={() => void refresh(server.enrollmentId)}
+                  onOpenChange={setPlacementOpen}
+                />
+                <RetentionPanel
+                  api={api}
+                  enrollmentId={server.enrollmentId}
+                  revision={server.revision}
+                  onStart={async (objectiveId) => {
+                    const issued = await inFlight(async () => {
+                      const fresh = await api.load(server.enrollmentId);
+                      const result = await api.command<{ episodeId: string }>(fresh, "retention/check", { objectiveId });
+                      await refresh(server.enrollmentId);
+                      return result;
+                    });
+                    openEpisode(issued.episodeId);
+                  }}
+                  onSaveAvailability={async (weekdays, timeZone) => {
+                    await inFlight(async () => {
+                      const fresh = await api.load(server.enrollmentId);
+                      await api.command<never>(fresh, "retention/availability", { weekdays, timeZone });
+                      await refresh(server.enrollmentId);
+                    });
+                  }}
+                />
+              </CourseRoadmap>
               </div>
             </FirstLoadProvider>
           ) : null}
-          {server && episode && view === "learn" && inspectorAccess?.enrollmentId === server.enrollmentId && (
-            <DebugInspector access={inspectorAccess.access} enrollmentId={server.enrollmentId} episodeId={episode.id}
-              blockId={block.scope === readingScope ? block.id : undefined} windowSize={size} />
-          )}
           {server && episode && (
             // Kept mounted while the profile or record is open, so returning to
             // learning restores the reading place, media time and open details.
@@ -1578,7 +1617,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               answer={answer}
               checkingAnswer={checkingAnswer}
               savingAnswer={savingAnswer}
-              policyPanel={policyPanel}
+              // The study dates live on the course page; staff tools sit in the lesson's header.
+              staffTools={inspectorAccess?.enrollmentId === server.enrollmentId && view === "learn" ? (
+                <DebugInspector access={inspectorAccess.access} enrollmentId={server.enrollmentId} episodeId={episode.id}
+                  blockId={block.scope === readingScope ? block.id : undefined} windowSize={size} />
+              ) : undefined}
               components={components}
               pendingChanges={
                 <PendingChangesNotice
@@ -1649,7 +1692,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             wide={wide}
             open={companionOpen}
             onOpenChange={setCompanionOpen}
-            collapsed={paneCollapsed}
+            collapsed={companionCollapsed}
             onCollapsedChange={setPaneCollapsed}
             triggerSlot={wide ? companionSlot : null}
           >
@@ -1670,7 +1713,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             <LiveConversation
               client={chat}
               enrollmentId={server.enrollmentId}
-              open={paneShown || (!wide && companionOpen)}
+              open={companionVisible}
               revision={server.revision}
               onUnansweredChange={setUnansweredQuestions}
             >
@@ -1693,6 +1736,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               }
               drafts={conversation.drafts}
               streamConnected={conversation.streamConnected}
+              availability={availability}
               onCancelQuestion={
                 chat.cancelQuestion
                   ? (messageId) =>

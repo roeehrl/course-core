@@ -152,7 +152,7 @@ for (const viewport of VIEWPORTS)
     await page.goto("/");
     await expect(page.locator(".connected-host")).not.toHaveClass(/is-compact/);
     await page
-      .getByRole("button", { name: /Continue learning/ })
+      .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
       .first()
       .click();
     await expect(
@@ -161,7 +161,7 @@ for (const viewport of VIEWPORTS)
     await expectWheelScrolls(page, "roadmap");
 
     await page
-      .getByRole("button", { name: /Continue learning/ })
+      .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
       .first()
       .click();
     await expect(page.locator(".connected-lesson").first()).toBeVisible();
@@ -182,8 +182,8 @@ for (const viewport of VIEWPORTS)
   });
 
 // The local demo scrolls a full-width React Native ScrollView instead of the
-// page. Its lesson and profile fit these windows, so only its roadmap is long
-// enough to check here.
+// page. Its lesson and profile fit these windows, so only its roadmap is checked
+// here, lengthened to outgrow them.
 for (const viewport of VIEWPORTS)
   test(`the wheel scrolls the demo roadmap at ${viewport.width}x${viewport.height}`, async ({
     page,
@@ -193,5 +193,9 @@ for (const viewport of VIEWPORTS)
     await expect(
       page.getByRole("heading", { name: "A little order." }),
     ).toBeVisible();
+    // The roadmap folds its chapters, so the short demo course no longer outgrows the widest
+    // windows: lengthen it, since what is checked is that the wheel reaches its scroll view.
+    await page.getByTestId("course-roadmap").evaluate((roadmap) =>
+      roadmap.append(Object.assign(document.createElement("div"), { style: "height:1600px;flex-shrink:0" })));
     await expectWheelScrolls(page, "demo roadmap", "");
   });

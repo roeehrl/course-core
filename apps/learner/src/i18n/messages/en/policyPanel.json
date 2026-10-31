@@ -34,9 +34,9 @@
   "caption": "Study dates & optional extensions",
   "dates.updating": "Updating saved dates…",
   "dates.unavailable": "Saved dates unavailable",
-  "dates.courseDue": "Course due: {date}",
+  "dates.courseDue": "Course due {date}",
   "dates.loading": "Loading saved dates…",
-  "dates.chapterDue": "{chapter}: {date}",
+  "dates.chapterDue": "Chapter {chapter, number} due {date}",
   "offerCount": "{count, plural, one {# extension offer} other {# extension offers}} to review",
   "refresh": "Refresh dates and offers",
   "explainer": "These are the server’s saved effective dates. Reopening a course or lesson never resets its clock. Extensions apply only after server confirmation.",
@@ -53,5 +53,7 @@
   "offer.change.days": "{days, plural, one {# more calendar day} other {# more calendar days}} before the deadline",
   "offer.change.minutes": "{minutes, plural, one {# more planned study minute} other {# more planned study minutes}} allowed",
   "offer.change.lessons": "{lessons, plural, one {# more lesson} other {# more lessons}} allowed",
-  "offer.cost": "Uses {amount} {unit, select, days {calendar days} minutes {study minutes} lessons {lessons} other {units}} of your allowance: {before} before, {after} after."
+  "offer.cost": "Uses {amount} {unit, select, days {calendar days} minutes {study minutes} lessons {lessons} other {units}} of your allowance: {before} before, {after} after.",
+  "dates.bothDue": "Course and chapter {chapter, number} due {date}",
+  "dates.noCourseDate": "No course due date"
 }
