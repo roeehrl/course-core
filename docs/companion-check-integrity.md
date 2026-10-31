@@ -145,7 +145,8 @@ message, and a third call would need its own reservation.
 
 On a hit by either stage the reply is withheld: it is never stored (not in the artifact, the
 dispatch receipt or the conversation), the checking draft is withdrawn with reason
-`check_answer_withheld`, and a fixed coaching message is delivered in its place, in the language of
+`check_answer_withheld` (or `check_unverified` when the judge gave no verdict or a check's key
+could not be read), and a fixed coaching message is delivered in its place, in the language of
 the question (Hebrew when it has Hebrew words, written gender-neutrally). The stored reply carries
 the reason code: artifact `{ kind: 'companion_message', text, withheld }` and, on the conversation
 message, context `checkAnswerWithheld` (`check_answer_stated`, `check_option_named`,
@@ -155,20 +156,50 @@ message, context `checkAnswerWithheld` (`check_answer_stated`, `check_option_nam
 The judge's call belongs to the companion's supervisor operation and is charged to its one
 reservation:
 
-- **Reservation sizing** (`role-reservation.ts` `companionReservation`, `provider-setup.ts`): a
-  workspace's companion reservation holds one companion call and one judge call, each at its own
-  limits (the judge at most 16,000 input characters and 2,048 output tokens) and price, never above
-  the job allowance. An ordinary turn releases the judge's part when it settles.
+- **Reservation sizing** (`role-reservation.ts` `companionReservation`, `provider-setup.ts`,
+  `companion-check-scope.ts`): only a question in check-coaching mode reserves room for the judge.
+  When the question is prepared into a job, Core runs the same match the teaching context runs when
+  the call is assembled (the question, the learner's earlier questions in the lesson, the lesson's
+  and its neighbours' checks and the checks open now). A match reserves one companion call and one
+  judge call, each at its own limits (the judge at most 16,000 input characters and 2,048 output
+  tokens) and price, never above the job allowance; any other question reserves its own call only.
+  If the match changes between preparation and the call (a check opened meanwhile), the judge finds
+  no room and fails closed.
 - **Room check:** before the judge is sent, the gateway checks that what the reply used plus the
   judge's ceiling for this request (its bytes, its output limit, the margin) still fits the job's
   allowance in tokens and micro-USD; otherwise it fails closed, so a job is never failed for
   exceeding its reservation (`usage_exceeded`).
-- **Charge:** the operation's usage is the reply's call plus the judge's, each priced at its own
-  model's price version. `provider_dispatches.cost_micro_usd` is that total; the judge's model,
+- **Charge:** the operation's usage is the reply's call plus the judge's part, each priced at its
+  own model's price version. `provider_dispatches.cost_micro_usd` is that total; the judge's model,
   price version, cost, usage receipt and verdict code are on the dispatch (`judge_*`, migration
-  122). The ledger row is `reconciled` when both calls were priced, and records the judge's model,
-  price version and part (`provider_spend_ledger.judge_*`). A judge call whose usage is unknown (a
-  stall) keeps the reservation charged, as any call of unknown usage.
+  122). The ledger row is `reconciled` when both calls were priced, and records the reply's part
+  (`companion_actual_micro_usd`, migration 124) and the judge's model, price version and part
+  (`provider_spend_ledger.judge_*`).
+- **A failed judge call** is settled on its own, by the policy of `docs/provider-stalls.md`, and
+  never turns the reply's priced call into an unpriced charge at the reservation
+  (`judge_settlement`, migration 124):
+  - the provider reported usage (a malformed answer, usage up to a stop): priced at that usage;
+  - no byte of the request could have been accepted (the connection never opened), or every attempt
+    was refused with a documented rejection status: not charged;
+  - sent, and nothing came back that says what it used (no answer, an HTTP 5xx, a stall): the
+    judge's ceiling for that request (`judge_held_micro_usd`, a few thousand micro-USD where the
+    reservation is tens of thousands) stays charged and held. The ledger row stays `uncertain` and
+    open, with the reply's part priced. Once the job has ended, an owner settles the held amount in
+    **AI services → Spending → Calls with an unknown cost** ("the check of the reply got no
+    answer"): at $0 it is released and the row becomes `reconciled` at the reply's cost; at the
+    amount held it stays charged.
+
+What the learner sees: while the reply is checked, "Checking this reply…"; when it is withheld,
+"Reply withheld · it gave away the answer to one of the course's checks · a hint without the answer
+follows" (or, when it could not be checked, "Reply not shown · it could not be checked against the
+course's checks…"). The stored hint keeps a note that it stands in for a reply that was not kept,
+so the withholding stays visible after the hint arrives. When the check ends (kept, withheld or
+failed) the gateway records a `companion.reply.checked` learning event with the receipt; a
+companion job that fails, or whose call got no answer, records `companion.job.changed`; an applied
+reply records `supervisor.applied`. These are database events, so they reach the learner's event
+stream on every API process (a draft frame reaches only the process that sends the call), and the
+app reads the conversation at once and then every 2 s for 20 s, instead of waiting for its 30 s
+safety read.
 
 The companion verifier repeats the deterministic check on the stored reply of a coaching-mode
 dispatch and rejects it on a hit, so a reply that reached storage some other way is still never

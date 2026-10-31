@@ -15,6 +15,7 @@ import {
   companionJobLabel,
   companionReplyStarted,
   companionState,
+  companionWithheldNote,
   plainExcerpt,
 } from "../client/companionClient";
 import { useOnline } from "../hooks/useOnline";
@@ -276,6 +277,7 @@ export function ConnectedCompanion({
           // is sent (the draft opens), the question offers Stop instead of "Stop waiting".
           const replyDraft = companionDraftFor(message, messages, drafts);
           const jobLabel = companionJobLabel(message, t, replyDraft);
+          const withheldNote = companionWithheldNote(message);
           return (
           <React.Fragment key={message.id}>
           <View
@@ -322,6 +324,11 @@ export function ConnectedCompanion({
             />
             {message.role === "assistant" && message.context.cutShort === true && message.content !== "[deleted]" && (
               <Text style={styles.small}>{t("connectedCompanion.cutShort")}</Text>
+            )}
+            {withheldNote && (
+              // The reply was withheld (it gave a check's answer away, or could not be checked):
+              // said on the hint that took its place, so it stays visible once the hint arrives.
+              <Text style={styles.small}>{t(withheldNote === "answer" ? "connectedCompanion.withheld.answer" : "connectedCompanion.withheld.unverified")}</Text>
             )}
             {jobLabel && (companionHeldByLimit(message) && !replyDraft ? (
               // Help is paused by a spending limit: said once, calmly, inside the question's card.

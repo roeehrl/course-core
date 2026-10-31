@@ -21,6 +21,7 @@ const HAPPENED: Record<UncertainCall["happened"], MessageKey> = {
   stalled: "aiServices.unknown.happened.stalled",
   service_error: "aiServices.unknown.happened.serviceError",
   no_receipt: "aiServices.unknown.happened.noReceipt",
+  check_judge_no_answer: "aiServices.unknown.happened.checkJudgeNoAnswer",
 };
 
 /** The short reference of a call: the end of its id (the random part), enough to tell calls apart. */

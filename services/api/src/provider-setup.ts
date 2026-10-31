@@ -253,21 +253,24 @@ export class WorkspaceProviders {
     // A text role's reservation is sized from its own limits and the price in force, so a cheap
     // companion turn does not hold the whole job allowance (role-reservation.ts).
     const roleAllowances: Partial<Record<string, { microUsd: number; tokens: number }>> = {};
+    let checkModeAllowance: { microUsd: number; tokens: number } | undefined;
     for (const role of SIZED_ROLES) {
       const binding = row.configuration.roles[role];
       if (!binding) continue;
       const pricing = await pricingInForce(client, workspace, binding.modelId);
-      // The companion's reservation also holds one check-judge call (companion-check-judge.ts):
-      // its judge role is the binding's checkJudgeRole, else the reviewer, else the companion itself.
-      const judgeRole = role === "companion" ? binding.checkJudgeRole ?? (row.configuration.roles.reviewer ? "reviewer" : "companion") : null;
-      const judge = judgeRole ? row.configuration.roles[judgeRole] : undefined;
-      const sized = role === "companion"
-        ? companionReservation(binding, pricing, judge ? { limits: { maxInputCharacters: judgeInputCharacters(judge), maxOutputTokens: judgeOutputTokens(judge) },
-          pricing: judge.modelId === binding.modelId ? pricing : await pricingInForce(client, workspace, judge.modelId) } : null, jobPolicy.allowance)
-        : roleReservation(binding, pricing, jobPolicy.allowance);
+      const sized = roleReservation(binding, pricing, jobPolicy.allowance);
       if (sized) roleAllowances[role] = sized;
+      if (role !== "companion") continue;
+      // A question in check-coaching mode also holds one check-judge call (companion-check-judge.ts):
+      // its judge role is the binding's checkJudgeRole, else the reviewer, else the companion itself.
+      // Only such a question reserves it (supervisor-bridge.ts, companion-check-scope.ts).
+      const judgeRole = binding.checkJudgeRole ?? (row.configuration.roles.reviewer ? "reviewer" : "companion");
+      const judge = row.configuration.roles[judgeRole];
+      const withJudge = judge ? companionReservation(binding, pricing, { limits: { maxInputCharacters: judgeInputCharacters(judge), maxOutputTokens: judgeOutputTokens(judge) },
+        pricing: judge.modelId === binding.modelId ? pricing : await pricingInForce(client, workspace, judge.modelId) }, jobPolicy.allowance) : null;
+      if (withJudge) checkModeAllowance = withJudge;
     }
-    return { revision: row.revision, jobPolicy, roleAllowances };
+    return { revision: row.revision, jobPolicy, roleAllowances, ...(checkModeAllowance ? { checkModeAllowance } : {}) };
   }
   async read(actor: Actor, workspace: string) {
     await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);

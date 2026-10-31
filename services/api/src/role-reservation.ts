@@ -41,8 +41,9 @@ export function judgeCeilingMicroUsd(requestBytes: number, maxOutputTokens: numb
 /**
  * The companion's reservation with its check judge (companion-check-judge.ts): one companion call
  * and, when a judge role is bound and priced, one judge call at the judge's input and output limits
- * and its own price, together never above the workspace job allowance. A turn in check-coaching
- * mode calls both; an ordinary turn releases the judge's part when it settles. Null when the
+ * and its own price, together never above the workspace job allowance. Only a question in
+ * check-coaching mode reserves it (matched when the question is prepared, companion-check-scope.ts);
+ * an ordinary question reserves the companion's own call (roleReservation). Null when the
  * companion's own price cannot bound its call (the policy allowance stays in force); without a
  * priced judge it is the companion's own reservation, and the gateway fails a judge without room
  * closed rather than exceed it.

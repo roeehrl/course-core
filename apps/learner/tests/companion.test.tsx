@@ -20,6 +20,7 @@ import {
   companionHasPending,
   companionCanAskAgain,
   companionCouldNotAnswer,
+  companionWithheldNote,
   plainExcerpt,
   type CompanionContextUsed,
   applyDraftFrame,
@@ -1036,6 +1037,9 @@ describe("one statement per companion outcome", () => {
     ["withheld (gave away a check's answer)", q({ job_state: "running" }), draft({ state: "withdrawn", reason: "check_answer_withheld" }),
       "Reply withheld · it gave away the answer to one of the course's checks · a hint without the answer follows",
       "התשובה עוכבה · היא חשפה את התשובה לאחת הבדיקות של הקורס · בהמשך יגיע רמז בלי התשובה"],
+    ["not kept, it could not be checked", q({ job_state: "running" }), draft({ state: "withdrawn", reason: "check_unverified" }),
+      "Reply not shown · it could not be checked against the course's checks, so it was not kept · a hint without the answer follows",
+      "התשובה לא הוצגה · לא הייתה אפשרות לבדוק אותה מול הבדיקות של הקורס, ולכן היא לא נשמרה · בהמשך יגיע רמז בלי התשובה"],
     ["refused by the checks", q({ job_state: "failed", job_reason: "verification_rejected", refusal_reason: "output_too_large" }),
       draft({ state: "withdrawn", reason: "output_too_large" }),
       "Reply not shown · it did not pass the checks, so nothing of it was kept · you can ask your question again",
@@ -1071,6 +1075,35 @@ describe("one statement per companion outcome", () => {
     for (const other of [/did not pass the checks/, /didn't answer in time/, /stopped part way/, /Stopped after it was sent/, /withheld/, /Waiting for the companion service/])
       if (!other.test(english)) expect(text).not.toMatch(other);
     unmount();
+  });
+  it("the hint that replaced a withheld reply says so once it is stored, so the withholding stays visible (en and he)", () => {
+    const he = createLearnerTranslator("he");
+    const hint = (reason?: string): CompanionMessage => ({ ...answer, content: "Think about what changes.", context: { episodeId: "intro", ...(reason ? { checkAnswerWithheld: reason } : {}) } });
+    expect(companionWithheldNote(hint("check_answer_judged"))).toBe("answer");
+    expect(companionWithheldNote(hint("check_option_named"))).toBe("answer");
+    expect(companionWithheldNote(hint("check_judge_unavailable"))).toBe("unverified");
+    expect(companionWithheldNote(hint("check_keys_unavailable"))).toBe("unverified");
+    expect(companionWithheldNote(hint())).toBeUndefined();
+    expect(companionWithheldNote({ ...hint("check_answer_judged"), content: "[deleted]" })).toBeUndefined();
+    const show = (reply: CompanionMessage, locale?: "he") => render(
+      <ConnectedCompanion context={{ ...context, independentChallengeIds: [] }} messages={[{ ...message, job_state: "applied" }, reply]} episodeTitles={{}}
+        draft="" onDraftChange={vi.fn()} onSend={vi.fn()} pending={false} loaded drafts={[draft({ state: "withdrawn", reason: "check_answer_withheld" })]} />,
+      locale ? { wrapper: ({ children }) => <I18nProvider value={he}>{children}</I18nProvider> } : undefined);
+    let view = show(hint("check_answer_judged"));
+    expect(screen.getByText("This is a hint in place of a reply that gave away the answer to one of the course's checks. That reply was not kept.")).toBeVisible();
+    view.unmount();
+    view = show(hint("check_judge_unavailable"));
+    expect(screen.getByText(/in place of a reply that could not be checked/)).toBeVisible();
+    view.unmount();
+    view = show(hint());
+    expect(view.container.textContent).not.toMatch(/in place of a reply/);
+    view.unmount();
+    view = show(hint("check_answer_judged"), "he");
+    expect(screen.getByText("זה רמז במקום תשובה שחשפה את התשובה לאחת הבדיקות של הקורס. התשובה ההיא לא נשמרה.", { exact: false })).toBeVisible();
+    view.unmount();
+    expect(he.t("connectedCompanion.withheld.answer")).toBe("זה רמז במקום תשובה שחשפה את התשובה לאחת הבדיקות של הקורס. התשובה ההיא לא נשמרה.");
+    for (const key of ["connectedCompanion.withheld.answer", "connectedCompanion.withheld.unverified", "companionClient.job.unverified"] as const)
+      expect(he.t(key)).not.toMatch(/מלווה|המפקח|הצליח|יכול|זמין|ממתין|מכין|בודק /);
   });
   it("does not say a reply is being built once its draft was withdrawn or stopped", () => {
     const running = q({ job_state: "running" });

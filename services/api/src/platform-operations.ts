@@ -217,7 +217,7 @@ export async function billingStatements(client: Sql, workspaceId: string) {
     recorded_by: string; created_at: Date; charged: string; actual: string; calls: number; held: string }>(
     `SELECT s.id,s.provider_label,s.period_start::text,s.period_end::text,s.billed_micro_usd::text AS billed,s.source_note,u.display_name AS recorded_by,s.created_at,
         COALESCE(sum(l.charged_micro_usd),0)::text AS charged,COALESCE(sum(l.actual_micro_usd),0)::text AS actual,count(l.*)::int AS calls,
-        COALESCE(sum(l.charged_micro_usd) FILTER (WHERE l.state IN ('reserved','uncertain') AND l.settled_at IS NULL),0)::text AS held
+        COALESCE(sum(COALESCE(l.judge_held_micro_usd,l.charged_micro_usd)) FILTER (WHERE l.state IN ('reserved','uncertain') AND l.settled_at IS NULL),0)::text AS held
        FROM provider_billed_statements s JOIN app_users u ON u.id=s.recorded_by
        LEFT JOIN provider_spend_ledger l ON l.workspace_id=s.workspace_id AND l.reserved_at>=s.period_start::timestamp AT TIME ZONE 'UTC'
          AND l.reserved_at<(s.period_end+1)::timestamp AT TIME ZONE 'UTC'

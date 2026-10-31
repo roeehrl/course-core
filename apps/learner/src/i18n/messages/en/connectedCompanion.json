@@ -108,5 +108,7 @@
   "reply.writing": "Writing · not checked yet, so it may change or be withdrawn",
   "reply.checking": "Written · checking it before it is kept",
   "reply.reconnecting": "Connection lost · the reply continues when you are back online",
-  "state.paused": "Help is paused · your question is saved"
+  "state.paused": "Help is paused · your question is saved",
+  "withheld.answer": "This is a hint in place of a reply that gave away the answer to one of the course's checks. That reply was not kept.",
+  "withheld.unverified": "This is a hint in place of a reply that could not be checked against the course's checks. That reply was not kept."
 }

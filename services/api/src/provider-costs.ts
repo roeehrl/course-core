@@ -86,20 +86,51 @@ export async function pricedStatus(client: Queryable, workspaceId: string, runti
 
 // ---- Spend ledger ----
 /** What a gateway receipt says a succeeded operation cost (provider-gateway.ts): `cost_micro_usd`
- * is the reply's call plus, in check-coaching mode, the check judge's (migration 122). */
+ * is the reply's call plus, in check-coaching mode, the check judge's part (migration 122): priced
+ * at its reported usage, nothing, or its ceiling held for the owner (`judge_settlement`,
+ * `judge_held_micro_usd`, migration 124). */
 export interface DispatchCost { model_id: string | null; pricing_version_id: string | null; cost_micro_usd: string | null;
-  judge_model_id: string | null; judge_pricing_version_id: string | null; judge_cost_micro_usd: string | null; judge_usage: unknown }
-export const DISPATCH_COST = 'model_id,pricing_version_id,cost_micro_usd,judge_model_id,judge_pricing_version_id,judge_cost_micro_usd,judge_usage';
+  judge_model_id: string | null; judge_pricing_version_id: string | null; judge_cost_micro_usd: string | null; judge_usage: unknown;
+  judge_settlement?: 'reported' | 'not_charged' | 'held' | null; judge_held_micro_usd?: string | null }
+export const DISPATCH_COST = 'model_id,pricing_version_id,cost_micro_usd,judge_model_id,judge_pricing_version_id,judge_cost_micro_usd,judge_usage,judge_settlement,judge_held_micro_usd';
 /** A receipt settles as reconciled when its priced cost is the charge, and a judge call that ran
- * (a usage receipt) was priced too. */
+ * (a usage receipt) was priced too, or was settled on its own (not charged, or held). */
 export function dispatchReconciles(dispatch: DispatchCost, charged: number) {
   return dispatch.pricing_version_id !== null && Number(dispatch.cost_micro_usd) === charged
-    && (dispatch.judge_usage === null || (dispatch.judge_pricing_version_id !== null && dispatch.judge_cost_micro_usd !== null));
+    && (dispatch.judge_usage === null || dispatch.judge_settlement === 'not_charged' || dispatch.judge_settlement === 'held'
+      || (dispatch.judge_pricing_version_id !== null && dispatch.judge_cost_micro_usd !== null));
 }
 /** The judge's priced part of a reconciled charge, when a judge call was priced. */
 export function judgeSplit(dispatch: DispatchCost) {
   return dispatch.judge_pricing_version_id !== null && dispatch.judge_cost_micro_usd !== null
     ? { pricingVersionId: dispatch.judge_pricing_version_id, microUsd: Number(dispatch.judge_cost_micro_usd) } : null;
+}
+/**
+ * The ledger fields of a succeeded operation (syncSupervisorSpend, and erasure-spend.ts for a receipt
+ * it settles). Reconciled when the receipt prices the whole charge; the reply's call is recorded on
+ * its own (`companion_actual_micro_usd`) whenever it was priced. A judge part held for the owner
+ * keeps the row `uncertain` and open, with the reply's part priced and the held amount named.
+ */
+export function ledgerSettlement(dispatch: DispatchCost | undefined, charged: number, basis: 'reported' | 'reserved_ceiling') {
+  const reconciled = basis === 'reported' && Boolean(dispatch && dispatchReconciles(dispatch, charged));
+  const held = reconciled && dispatch!.judge_settlement === 'held' && dispatch!.judge_held_micro_usd != null ? Number(dispatch!.judge_held_micro_usd) : null;
+  const judge = reconciled && held === null ? judgeSplit(dispatch!) : null;
+  const companionActual = reconciled ? charged - (held ?? 0) - (judge?.microUsd ?? 0) : null;
+  return { state: held !== null ? 'uncertain' as const : reconciled ? 'reconciled' as const : 'unpriced' as const, open: held !== null, reconciled: reconciled && held === null,
+    modelId: dispatch?.model_id ?? null, pricingVersionId: reconciled ? dispatch!.pricing_version_id : null, actual: reconciled && held === null ? charged : null,
+    companionActual: companionActual !== null && companionActual >= 0 ? companionActual : null, held,
+    judgeModelId: dispatch?.judge_usage == null && dispatch?.judge_settlement == null ? null : dispatch?.judge_model_id ?? null,
+    judgePricingVersionId: judge?.pricingVersionId ?? null, judgeActual: judge?.microUsd ?? null };
+}
+/** Writes `ledgerSettlement` to an open ledger row (`where` selects it); returns the reserved amount when it did. */
+export const SETTLE_LEDGER = `state=$S1,model_id=$S2,pricing_version_id=$S3,actual_micro_usd=$S4,charged_micro_usd=$S5,released_micro_usd=GREATEST(0,reserved_micro_usd-$S5),
+  settled_at=CASE WHEN $S6::boolean THEN NULL ELSE clock_timestamp() END,judge_model_id=$S7,judge_pricing_version_id=$S8,judge_actual_micro_usd=$S9,
+  companion_actual_micro_usd=$S10,judge_held_micro_usd=$S11`;
+/** SETTLE_LEDGER with its placeholders numbered from `first`, and its values. */
+export function settleLedgerSql(first: number, settled: ReturnType<typeof ledgerSettlement>, charged: number) {
+  const sql = SETTLE_LEDGER.replace(/\$S(\d+)/g, (_, n: string) => `$${first + Number(n) - 1}`);
+  return { sql, values: [settled.state, settled.modelId, settled.pricingVersionId, settled.actual, charged, settled.open, settled.judgeModelId,
+    settled.judgePricingVersionId, settled.judgeActual, settled.companionActual, settled.held] };
 }
 export interface SpendEvent { kind: 'reserved' | 'released' | 'actual'; role: string; microUsd: number; modelId: string | null; basis: 'reported' | 'reserved_ceiling' }
 /** Mirrors the budget effect of one supervisor transition. The budgets themselves move by the
@@ -132,17 +163,16 @@ export async function syncSupervisorSpend(client: PoolClient, old: Snapshot, nex
       const charged = op.outcome.usage.microUsd, basis = op.outcome.usageBasis?.microUsd ?? 'reported';
       const dispatch = (await client.query<DispatchCost>(
         `SELECT ${DISPATCH_COST} FROM provider_dispatches WHERE operation_id=$1 AND job_id=$2`, [op.id, key.jobId])).rows[0];
-      const reconciled = basis === 'reported' && Boolean(dispatch && dispatchReconciles(dispatch, charged));
-      const judge = reconciled ? judgeSplit(dispatch!) : null;
-      const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state=$3,model_id=$4,pricing_version_id=$5,actual_micro_usd=$6,charged_micro_usd=$7,
-          released_micro_usd=GREATEST(0,reserved_micro_usd-$7),settled_at=clock_timestamp(),judge_model_id=$8,judge_pricing_version_id=$9,judge_actual_micro_usd=$10
+      const fields = ledgerSettlement(dispatch, charged, basis), update = settleLedgerSql(3, fields, charged);
+      const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET ${update.sql}
         WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state IN('reserved','uncertain') AND settled_at IS NULL RETURNING reserved_micro_usd`,
-        [op.id, op.attempt, reconciled ? 'reconciled' : 'unpriced', dispatch?.model_id ?? null, reconciled ? dispatch!.pricing_version_id : null, reconciled ? charged : null, charged,
-          dispatch?.judge_usage == null ? null : dispatch.judge_model_id, judge?.pricingVersionId ?? null, judge?.microUsd ?? null]);
+        [op.id, op.attempt, ...update.values]);
       const row = settled.rows[0];
       if (row) {
         const modelId = dispatch?.model_id ?? null, released = Math.max(0, Number(row.reserved_micro_usd) - charged);
-        if (reconciled) events.push({ kind: 'actual', role, microUsd: charged, modelId, basis: 'reported' });
+        // A judge part held for the owner is not an actual cost yet: only the priced reply is.
+        if (fields.reconciled) events.push({ kind: 'actual', role, microUsd: charged, modelId, basis: 'reported' });
+        else if (fields.open && fields.companionActual !== null) events.push({ kind: 'actual', role, microUsd: fields.companionActual, modelId, basis: 'reported' });
         if (released > 0) events.push({ kind: 'released', role, microUsd: released, modelId, basis: 'reported' });
       }
     }
@@ -200,7 +230,7 @@ function spendWindow(query: z.infer<typeof spendQuerySchema>, now: Date) {
 }
 const SUMS = `count(*)::int AS calls,COALESCE(sum(reserved_micro_usd),0)::text AS reserved,COALESCE(sum(charged_micro_usd),0)::text AS charged,
   COALESCE(sum(actual_micro_usd),0)::text AS actual,COALESCE(sum(released_micro_usd),0)::text AS released,
-  COALESCE(sum(charged_micro_usd) FILTER (WHERE state IN('reserved','uncertain') AND settled_at IS NULL),0)::text AS held,
+  COALESCE(sum(COALESCE(judge_held_micro_usd,charged_micro_usd)) FILTER (WHERE state IN('reserved','uncertain') AND settled_at IS NULL),0)::text AS held,
   COALESCE(sum(charged_micro_usd) FILTER (WHERE state='unpriced'),0)::text AS unpriced,
   (count(*) FILTER (WHERE state='uncertain'))::int AS uncertain`;
 

@@ -33,8 +33,11 @@ type Props = SectionProps & { state: SectionState; unsaved: boolean };
 const MIN_REASON = 20;
 /** How often the page asks how far a running check is. */
 export const POLL_MS = 1500;
-/** Every grader of Core's suite (services/api/src/agent-evals/graders.ts GRADERS). */
-const RULES = [
+/** Every grader of Core's suite (services/api/src/agent-evals/graders.ts GRADERS), each with a
+ * label (`aiServices.check.rule.<id>`) and an explanation (`aiServices.check.ruleExplain.<id>`);
+ * tests/aiServicesQualityCheck.test.tsx keeps this list equal to the server's. A grader this page
+ * does not know yet is still listed, by its id. */
+export const QUALITY_RULES = [
   "hint_leakage",
   "grounding",
   "diagnosis_restraint",
@@ -44,7 +47,21 @@ const RULES = [
   "quotes",
   "citations",
   "privacy",
+  "check_mode",
 ] as const;
+const KNOWN_RULES: ReadonlySet<string> = new Set(QUALITY_RULES);
+/** The rules a job's failed conversations broke, known ones in suite order, then any others. */
+function brokenRules(failed: readonly { graders: readonly string[] }[]) {
+  const seen = [...new Set(failed.flatMap((f) => f.graders))];
+  return [
+    ...QUALITY_RULES.filter((rule) => seen.includes(rule)),
+    ...seen.filter((rule) => !KNOWN_RULES.has(rule)).sort(),
+  ].map((rule) => ({
+    rule,
+    known: KNOWN_RULES.has(rule),
+    count: failed.filter((f) => f.graders.includes(rule)).length,
+  }));
+}
 /** What a check checks: the open draft, or the jobs that are on now. */
 type CheckTarget = { kind: "draft"; draft: Draft } | { kind: "active" };
 /**
@@ -892,10 +909,7 @@ function CheckResult({
       </strong>
       <ul className="ai-list">
         {check.outcome.map((o) => {
-          const rules = RULES.map((rule) => ({
-            rule,
-            count: o.failed.filter((f) => f.graders.includes(rule)).length,
-          })).filter((r) => r.count > 0);
+          const rules = brokenRules(o.failed);
           return (
             <li key={o.role}>
               {o.passed
@@ -912,9 +926,23 @@ function CheckResult({
                 <ul>
                   {rules.map((r) => (
                     <li key={r.rule}>
-                      {t(`aiServices.check.rule.${r.rule}` as AiKey, {
-                        count: r.count,
-                      })}
+                      <span>
+                        {r.known
+                          ? t(`aiServices.check.rule.${r.rule}` as AiKey, {
+                              count: r.count,
+                            })
+                          : t("aiServices.check.rule.other", {
+                              count: r.count,
+                              rule: r.rule,
+                            })}
+                      </span>
+                      <span className="ai-muted ai-rule-explain">
+                        {t(
+                          (r.known
+                            ? `aiServices.check.ruleExplain.${r.rule}`
+                            : "aiServices.check.ruleExplain.other") as AiKey,
+                        )}
+                      </span>
                     </li>
                   ))}
                 </ul>
