@@ -1046,15 +1046,15 @@ function AddSourceDialog({
           />
         </Field>
         <div className="tag-row dialog-footer">
+          <Button type="button" onClick={onClose} disabled={pending}>
+            {t("researchView.cancel")}
+          </Button>
           <Button
             kind="primary"
             type="submit"
             disabled={pending || !url.trim()}
           >
             {t("researchView.source.add")}
-          </Button>
-          <Button type="button" onClick={onClose} disabled={pending}>
-            {t("researchView.cancel")}
           </Button>
         </div>
       </form>
@@ -1361,11 +1361,11 @@ function ReviewDialog({
           </label>
         )}
         <div className="tag-row dialog-footer">
-          <Button kind="primary" type="submit" disabled={pending}>
-            {t("researchView.review.submit")}
-          </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             {t("researchView.cancel")}
+          </Button>
+          <Button kind="primary" type="submit" disabled={pending}>
+            {t("researchView.review.submit")}
           </Button>
         </div>
       </form>
@@ -1439,12 +1439,12 @@ function AttachDialog({
           />
         </Field>
         <div className="tag-row dialog-footer">
+          <Button type="button" onClick={onClose} disabled={pending}>
+            {t("researchView.cancel")}
+          </Button>
           <Button kind="primary" type="submit" disabled={pending || !episodeId}>
             <BookMarked size={16} aria-hidden="true" />{" "}
             {t("researchView.attach.submit")}
-          </Button>
-          <Button type="button" onClick={onClose} disabled={pending}>
-            {t("researchView.cancel")}
           </Button>
         </div>
       </form>
@@ -1493,11 +1493,11 @@ function RevokeDialog({
           />
         </Field>
         <div className="tag-row dialog-footer">
-          <Button kind="danger" type="submit" disabled={pending}>
-            {t("researchView.revoke.button")}
-          </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             {t("researchView.cancel")}
+          </Button>
+          <Button kind="danger" type="submit" disabled={pending}>
+            {t("researchView.revoke.button")}
           </Button>
         </div>
       </form>

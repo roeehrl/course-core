@@ -132,13 +132,13 @@ export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCourse
                     <p>{text.body}</p>
                     {s.state === "pending" ? (
                       <div className="cross-course-actions">
-                        <button type="button" disabled={busy}
-                          onClick={() => act(`confirm:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "confirm" }, t("crossCoursePanel.notice.confirmed"))}>
-                          {i18n.rich("crossCoursePanel.confirm", { title: text.title }, { hidden: (children, k) => <span key={k} className="cross-course-hidden">{children}</span> })}
-                        </button>
                         <button type="button" className="quiet" disabled={busy}
                           onClick={() => act(`dismiss:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "dismiss" }, t("crossCoursePanel.notice.dismissed"))}>
                           {i18n.rich("crossCoursePanel.dismiss", { title: text.title }, { hidden: (children, k) => <span key={k} className="cross-course-hidden">{children}</span> })}
+                        </button>
+                        <button type="button" disabled={busy}
+                          onClick={() => act(`confirm:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "confirm" }, t("crossCoursePanel.notice.confirmed"))}>
+                          {i18n.rich("crossCoursePanel.confirm", { title: text.title }, { hidden: (children, k) => <span key={k} className="cross-course-hidden">{children}</span> })}
                         </button>
                       </div>
                     ) : (

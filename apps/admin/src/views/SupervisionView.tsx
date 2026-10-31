@@ -309,15 +309,15 @@ function SupervisionPanel({
               >
                 {t("supervisionView.confirmStop.body")}
                 <div className="tag-row">
+                  <Button kind="quiet" onClick={() => setConfirmStop(false)}>
+                    {t("supervisionView.confirmStop.keep")}
+                  </Button>
                   <Button
                     kind="danger"
                     disabled={pending}
                     onClick={() => void send("stop")}
                   >
                     {t("supervisionView.confirmStop.confirm")}
-                  </Button>
-                  <Button kind="quiet" onClick={() => setConfirmStop(false)}>
-                    {t("supervisionView.confirmStop.keep")}
                   </Button>
                 </div>
               </Notice>
@@ -512,15 +512,15 @@ function SupervisionPanel({
                   />
                 </Field>
                 <div className="tag-row">
+                  <Button kind="quiet" onClick={() => setRequeueing(null)}>
+                    {t("supervisionView.requeue.cancel")}
+                  </Button>
                   <Button
                     kind="primary"
                     disabled={pending || requeueReason.trim().length < 10}
                     onClick={() => void requeue(requeueing.eventId)}
                   >
                     {t("supervisionView.requeue.confirm")}
-                  </Button>
-                  <Button kind="quiet" onClick={() => setRequeueing(null)}>
-                    {t("supervisionView.requeue.cancel")}
                   </Button>
                 </div>
               </Notice>

@@ -313,6 +313,14 @@ function OfferCard({
           )}
           <div className="connected-offer-actions">
             <button
+              className="connected-link-button"
+              type="button"
+              disabled={!actionable}
+              onClick={() => onDecline(offer)}
+            >
+              {t("policyPanel.offer.decline")}
+            </button>
+            <button
               className="connected-button"
               type="button"
               disabled={!actionable || !consent}
@@ -321,14 +329,6 @@ function OfferCard({
               }}
             >
               {t("policyPanel.offer.accept")}
-            </button>
-            <button
-              className="connected-link-button"
-              type="button"
-              disabled={!actionable}
-              onClick={() => onDecline(offer)}
-            >
-              {t("policyPanel.offer.decline")}
             </button>
           </div>
         </>

@@ -1390,6 +1390,12 @@ function ProposalCard({
           />
           <View style={styles.row}>
             <Button
+              label={t("learnerMemoryPanel.proposal.cancel")}
+              kind="quiet"
+              disabled={locked}
+              onPress={closeReview}
+            />
+            <Button
               label={t(
                 editing === "correct"
                   ? "learnerMemoryPanel.proposal.saveCorrection"
@@ -1404,12 +1410,6 @@ function ProposalCard({
                     : { action: "dispute", reason },
                 )
               }
-            />
-            <Button
-              label={t("learnerMemoryPanel.proposal.cancel")}
-              kind="quiet"
-              disabled={locked}
-              onPress={closeReview}
             />
           </View>
         </View>
@@ -1470,6 +1470,14 @@ function EvidenceControls({
           </Text>
           <View style={local.actions}>
             <Button
+              label={t("learnerMemoryPanel.dispute.cancel")}
+              kind="quiet"
+              onPress={() => {
+                setWriting(false);
+                setReason("");
+              }}
+            />
+            <Button
               label={t("learnerMemoryPanel.dispute.send")}
               kind="primary"
               disabled={disabled || !reason.trim()}
@@ -1478,14 +1486,6 @@ function EvidenceControls({
                   setWriting(false);
                   setReason("");
                 }
-              }}
-            />
-            <Button
-              label={t("learnerMemoryPanel.dispute.cancel")}
-              kind="quiet"
-              onPress={() => {
-                setWriting(false);
-                setReason("");
               }}
             />
           </View>

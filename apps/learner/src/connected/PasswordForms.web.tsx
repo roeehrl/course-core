@@ -252,11 +252,11 @@ export function ChangePassword({
         </p>
       )}
       <div className="connected-form-actions">
-        <button type="submit" className="connected-primary" disabled={pending || !current || !next}>
-          {pending ? t("passwordForms.change.saving") : t("passwordForms.change.submit")}
-        </button>
         <button type="button" className="connected-secondary" disabled={pending} onClick={() => onClose(false)}>
           {t("passwordForms.change.cancel")}
+        </button>
+        <button type="submit" className="connected-primary" disabled={pending || !current || !next}>
+          {pending ? t("passwordForms.change.saving") : t("passwordForms.change.submit")}
         </button>
       </div>
     </form>

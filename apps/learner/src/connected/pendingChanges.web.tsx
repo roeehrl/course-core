@@ -77,6 +77,7 @@ export function PendingChangesNotice({
               {t("pendingChanges.note")}
             </p>
             <div className="connected-pending-actions">
+              <Button label={t("pendingChanges.decline")} kind="quiet" disabled={pending} onPress={() => onDecline(item.pendingId)} />
               <Button
                 label={t("pendingChanges.add")}
                 kind="primary"
@@ -84,7 +85,6 @@ export function PendingChangesNotice({
                 describedBy={`pending-note-${item.pendingId}`}
                 onPress={() => onAdd(item.pendingId)}
               />
-              <Button label={t("pendingChanges.decline")} kind="quiet" disabled={pending} onPress={() => onDecline(item.pendingId)} />
             </div>
           </li>
         ))}

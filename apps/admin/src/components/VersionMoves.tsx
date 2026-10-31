@@ -571,6 +571,9 @@ export function VersionMoves({
                 </label>
               )}
               <div className="button-row">
+                <Button type="button" onClick={() => setPreview(undefined)}>
+                  {t("versionMoves.confirm.discard")}
+                </Button>
                 <Button
                   kind="primary"
                   type="submit"
@@ -585,9 +588,6 @@ export function VersionMoves({
                     : t("versionMoves.confirm.offerOnly", {
                         count: offeredCount,
                       })}
-                </Button>
-                <Button type="button" onClick={() => setPreview(undefined)}>
-                  {t("versionMoves.confirm.discard")}
                 </Button>
               </div>
             </form>

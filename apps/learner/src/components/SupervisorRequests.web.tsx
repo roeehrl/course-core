@@ -94,11 +94,11 @@ export function SupervisorRequests({ api, server, onChanged }: SupervisorRequest
                     {r.reason && <p className="connected-muted" dir="auto">{t("supervisorRequests.why", { reason: r.reason })}</p>}
                     {r.state === "pending" && (
                       <p role="group" aria-label={t("supervisorRequests.goal.decide")}>
-                        <button type="button" className="connected-link-button" disabled={Boolean(busy)} onClick={() => void decide(r, "approve")}>
-                          {t("supervisorRequests.goal.approve")}
-                        </button>{" "}
                         <button type="button" className="connected-link-button" disabled={Boolean(busy)} onClick={() => void decide(r, "reject")}>
                           {t("supervisorRequests.goal.keep")}
+                        </button>{" "}
+                        <button type="button" className="connected-link-button" disabled={Boolean(busy)} onClick={() => void decide(r, "approve")}>
+                          {t("supervisorRequests.goal.approve")}
                         </button>
                       </p>
                     )}

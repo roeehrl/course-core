@@ -253,6 +253,9 @@ export function AssessmentAttemptsCard({
                 </Field>
                 {Boolean(flight.error) && <ErrorState error={flight.error} />}
                 <div className="tag-row">
+                  <Button onClick={() => setGranting(undefined)}>
+                    {t("assessmentPolicy.grant.cancel")}
+                  </Button>
                   <Button
                     kind="primary"
                     disabled={flight.pending || !reason.trim()}
@@ -282,9 +285,6 @@ export function AssessmentAttemptsCard({
                     }
                   >
                     {t("assessmentPolicy.grant.confirm")}
-                  </Button>
-                  <Button onClick={() => setGranting(undefined)}>
-                    {t("assessmentPolicy.grant.cancel")}
                   </Button>
                 </div>
               </div>

@@ -186,6 +186,9 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                   confirming === item.proposalId ? (
                     <p role="group" aria-label={t("personalChanges.undo.confirmLabel", { label })}>
                       {t("personalChanges.undo.question")}{" "}
+                      <button type="button" className="connected-link-button" disabled={Boolean(busy)} onClick={() => setConfirming("")}>
+                        {t("personalChanges.undo.keep")}
+                      </button>{" "}
                       <button
                         type="button"
                         className="connected-link-button"
@@ -205,9 +208,6 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                         }}
                       >
                         {t("personalChanges.undo.yes")}
-                      </button>{" "}
-                      <button type="button" className="connected-link-button" disabled={Boolean(busy)} onClick={() => setConfirming("")}>
-                        {t("personalChanges.undo.keep")}
                       </button>
                     </p>
                   ) : (

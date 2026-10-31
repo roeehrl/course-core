@@ -85,19 +85,19 @@ export function CourseVersionOffer({
       <div className="connected-actions">
         <button
           type="button"
-          className="connected-primary"
-          disabled={busy}
-          onClick={() => void decide(true)}
-        >
-          {t("courseVersionNotice.offer.accept")}
-        </button>
-        <button
-          type="button"
           className="connected-secondary"
           disabled={busy}
           onClick={() => void decide(false)}
         >
           {t("courseVersionNotice.offer.decline")}
+        </button>
+        <button
+          type="button"
+          className="connected-primary"
+          disabled={busy}
+          onClick={() => void decide(true)}
+        >
+          {t("courseVersionNotice.offer.accept")}
         </button>
       </div>
     </section>
