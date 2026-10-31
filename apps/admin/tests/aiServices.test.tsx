@@ -444,13 +444,21 @@ describe("AI services page", () => {
           stored: false,
           generationPerformed: false,
         });
-        const page = <AiServicesPage workspaceId={workspace} port={port} role="owner" />;
+        const page = (
+          <AiServicesPage workspaceId={workspace} port={port} role="owner" />
+        );
         const { unmount } = render(locale === "he" ? inHebrew(page) : page);
-        const field = await screen.findByLabelText(translate("connect.keyLabel"));
+        const field = await screen.findByLabelText(
+          translate("connect.keyLabel"),
+        );
         fireEvent.change(field, { target: { value: key } });
         fireEvent.blur(field);
-        const text = translate(message, { service: translate("service.google") });
-        expect(await screen.findAllByText(text, { exact: false })).not.toHaveLength(0);
+        const text = translate(message, {
+          service: translate("service.google"),
+        });
+        expect(
+          await screen.findAllByText(text, { exact: false }),
+        ).not.toHaveLength(0);
         expect(screen.getByText(outcome)).toBeInTheDocument();
         messages.add(text);
         unmount();
