@@ -143,9 +143,9 @@ describe("quality check on Gemini", () => {
     ["403 PERMISSION_DENIED", () => googleError(403, "PERMISSION_DENIED", [info("SERVICE_DISABLED")]),
       "PROVIDER_METADATA_PERMISSION_DENIED", { providerCode: "PERMISSION_DENIED", status: 403, providerReason: "SERVICE_DISABLED" }],
     ["403 billing disabled", () => googleError(403, "PERMISSION_DENIED", [info("BILLING_DISABLED")]),
-      "PROVIDER_METADATA_REJECTED", { providerCode: "BILLING_REQUIRED", status: 403, providerReason: "BILLING_DISABLED" }],
+      "PROVIDER_METADATA_BILLING_REQUIRED", { providerCode: "BILLING_REQUIRED", status: 403, providerReason: "BILLING_DISABLED" }],
     ["429 daily quota", () => googleError(429, "RESOURCE_EXHAUSTED", [quota("GenerateRequestsPerDayPerProjectPerModel")]),
-      "PROVIDER_METADATA_REJECTED", { providerCode: "QUOTA_EXHAUSTED", status: 429, providerReason: "RESOURCE_EXHAUSTED" }],
+      "PROVIDER_METADATA_QUOTA_EXHAUSTED", { providerCode: "QUOTA_EXHAUSTED", status: 429, providerReason: "RESOURCE_EXHAUSTED" }],
     ["429 rate limit", () => googleError(429, "RESOURCE_EXHAUSTED", [quota("GenerateRequestsPerMinutePerProjectPerModel-PaidTier")]),
       "PROVIDER_METADATA_RATE_LIMITED", { providerCode: "THROTTLED", status: 429, providerReason: "RESOURCE_EXHAUSTED" }],
   ] as const)("records %s with its code, HTTP status and Google's reason, never the body or key", async (_name, respond, reason, detail) => {

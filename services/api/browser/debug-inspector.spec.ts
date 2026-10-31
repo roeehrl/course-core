@@ -5,17 +5,18 @@ import { AxeBuilder } from "@axe-core/playwright";
 // panel on desktop, a pane on tablet and a full-screen dialog on phone, for an owner who is also
 // enrolled; never shown to a learner, whom the server refuses as well.
 
-/** Opens the course from the course list, then its current lesson (each press retried until the page changed). */
+/** Opens the current lesson from wherever the signed-in page starts (library or roadmap). Each
+ * screen has one "Continue learning" press; panels that load late can shift it mid-press, so the
+ * press is retried. The loop waits for the open lesson itself, not for the roadmap in between: on a
+ * slow page a retried press could pass the roadmap before it was seen, and then never find it
+ * (the same race generated-content.spec.ts fixed). */
 async function openCurrentLesson(page: Page) {
   const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
-  const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
+  const lesson = page.locator("article[data-reading-part]").first();
   await expect(async () => {
-    if (!(await roadmap.count())) await resume.click({ timeout: 2_000 });
-    await expect(roadmap).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
-  await expect(async () => {
+    if (await lesson.isVisible()) return;
     if (await resume.count()) await resume.click({ timeout: 2_000 });
-    await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
+    await expect(lesson).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
 }
 /** The learner app's window class for a width (apps/learner/src/domain/windowClass.ts, text scale 1).

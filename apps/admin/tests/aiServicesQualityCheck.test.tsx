@@ -566,9 +566,8 @@ describe("running the quality check from the page", () => {
         { exact: false },
       ),
     ).toBeInTheDocument();
-    expect(region.textContent).not.toContain(
-      t("connect.errQuota", { service: google }),
-    );
+    for (const message of ["connect.errQuotaUsed", "connect.errBilling"])
+      expect(region.textContent).not.toContain(t(message, { service: google }));
     const technical = within(region)
       .getByText(t("connect.technical"))
       .closest("details")!;
@@ -597,18 +596,19 @@ describe("running the quality check from the page", () => {
         { exact: false },
       ),
     ).toBeInTheDocument();
-    expect(heRegion.textContent).not.toContain(
-      he("connect.errQuota", { service: he("service.google") }),
-    );
+    for (const message of ["connect.errQuotaUsed", "connect.errBilling"])
+      expect(heRegion.textContent).not.toContain(
+        he(message, { service: he("service.google") }),
+      );
   });
 
-  it("keeps the quota or billing message for Google's documented billing and quota refusals only", async () => {
+  it("names billing for Google's documented billing refusal, and keeps its reason in the details", async () => {
     const port = fakePort({
       qualityStatus: vi.fn().mockResolvedValue(
         status({
           latest: check({
             state: "error",
-            reason: "PROVIDER_METADATA_REJECTED",
+            reason: "PROVIDER_METADATA_BILLING_REQUIRED",
             reasonDetail: {
               role: "reviewer",
               providerCode: "BILLING_REQUIRED",
@@ -624,7 +624,7 @@ describe("running the quality check from the page", () => {
     const region = await checkRegion();
     expect(
       await within(region).findByText(
-        t("connect.errQuota", { service: t("service.google") }),
+        t("connect.errBilling", { service: t("service.google") }),
         { exact: false },
       ),
     ).toBeInTheDocument();

@@ -295,12 +295,21 @@ running deployment; the candidate's own manifest remains the record of what was 
   INVALID_ARGUMENT, so those jobs and their quality checks failed on every call, and the
   check-mode judge withheld replies.
 - A quality check stopped by a refused request now shows "Google refused this request (HTTP
-  status, reason)", not the quota or billing message. That message stays only for Google's
-  documented billing refusals (402, BILLING_DISABLED) and a used-up daily quota. Migration 125
+  status, reason)", not the quota or billing message. Billing is named only for Google's
+  documented billing refusals (402, BILLING_DISABLED) and a used-up quota only for a per-day
+  quota. Migration 125
   records the job, HTTP status and Google's reason code on the check (`reason_detail`), and the
   admin shows them under Technical details. No response body or key is stored.
 - New Gemini setups send a thinking level only for models whose levels Google documents. A newer
   model runs at its own default.
+- Key tests, model-list inspections and quality checks now name each refusal by its cause, in
+  English and Hebrew: a short-term rate limit ("Google is limiting requests right now; try again
+  in a minute", `PROVIDER_METADATA_RATE_LIMITED`), a used-up per-day or subscription quota
+  (`PROVIDER_METADATA_QUOTA_EXHAUSTED`), billing (402, BILLING_DISABLED, Anthropic
+  `billing_error`; `PROVIDER_METADATA_BILLING_REQUIRED`) and a refused request (400 and other
+  client errors; `PROVIDER_REQUEST_REJECTED`). A 401 or 403 stays a key problem. Before, every one
+  of these said the key had no quota or billing. A stored `PROVIDER_METADATA_REJECTED` from an
+  earlier test now asks to test the key again.
 
 ### Next release: version moves carry unchanged checkpoints and offer the move to learners with personal changes
 

@@ -49,9 +49,16 @@ export const METADATA_FAILURE_CODES = [
   "PROVIDER_METADATA_KEY_RESTRICTED",
   /** Any other refusal of permission. */
   "PROVIDER_METADATA_PERMISSION_DENIED",
-  /** Quota or rate limit reached. */
+  /** A short-term (per-minute) rate limit: the same request works again shortly. */
   "PROVIDER_METADATA_RATE_LIMITED",
-  /** Another client error (for example an unsupported region or billing state). */
+  /** A per-day (or subscription) quota is used up until it resets. */
+  "PROVIDER_METADATA_QUOTA_EXHAUSTED",
+  /** Billing is not set up for the key's project, or its prepaid credit is used up. */
+  "PROVIDER_METADATA_BILLING_REQUIRED",
+  /** The provider refused the request itself (400 and other client errors); not a key or billing
+   * problem. The same code a quality check records for a refused request. */
+  "PROVIDER_REQUEST_REJECTED",
+  /** Recorded by earlier versions for any other client error, billing included; no longer produced. */
   "PROVIDER_METADATA_REJECTED",
   /** The provider reported a server error. */
   "PROVIDER_METADATA_UPSTREAM_ERROR",
@@ -74,7 +81,11 @@ export function metadataFailureCode(
     : "PROVIDER_METADATA_UNAVAILABLE";
 }
 /** Classifies a refused metadata request from its status and the provider's structured error
- * (Google `google.rpc.Status` with `ErrorInfo.reason`, Anthropic `error.type`). */
+ * (Google `google.rpc.Status` with `ErrorInfo.reason` and `QuotaFailure` violations, Anthropic
+ * `error.type`). Billing is named only for 402 or a documented billing reason, a used-up quota
+ * only for a 429 whose QuotaFailure names a per-day quota; any other 429 is a short-term rate
+ * limit, and any other client error (400 INVALID_ARGUMENT, FAILED_PRECONDITION, 404…) is a refused
+ * request, never a key, quota or billing problem. */
 export function refusalCode(status: number, body: unknown): MetadataFailureCode {
   const error =
       body && typeof body === "object" && "error" in body
@@ -83,11 +94,19 @@ export function refusalCode(status: number, body: unknown): MetadataFailureCode 
     text = (value: unknown) => (typeof value === "string" ? value : ""),
     googleStatus = text(error?.status),
     errorType = text(error?.type),
-    reasons = Array.isArray(error?.details)
-      ? error.details.map((d: unknown) =>
-          d && typeof d === "object" && "reason" in d ? text(d.reason) : "",
+    details: Record<string, unknown>[] = Array.isArray(error?.details)
+      ? error.details.filter(
+          (d: unknown): d is Record<string, unknown> =>
+            !!d && typeof d === "object",
         )
-      : [];
+      : [],
+    reasons = details.map((d) => text(d.reason)),
+    quotaIds = details
+      .filter((d) => text(d["@type"]).endsWith("google.rpc.QuotaFailure"))
+      .flatMap((d) => (Array.isArray(d.violations) ? d.violations : []))
+      .map((v: unknown) =>
+        v && typeof v === "object" && "quotaId" in v ? text(v.quotaId) : "",
+      );
   if (
     reasons.includes("API_KEY_INVALID") ||
     reasons.includes("API_KEY_EXPIRED") ||
@@ -96,6 +115,12 @@ export function refusalCode(status: number, body: unknown): MetadataFailureCode 
     errorType === "authentication_error"
   )
     return "PROVIDER_METADATA_KEY_INVALID";
+  if (
+    status === 402 ||
+    reasons.includes("BILLING_DISABLED") ||
+    errorType === "billing_error"
+  )
+    return "PROVIDER_METADATA_BILLING_REQUIRED";
   if (reasons.includes("SERVICE_DISABLED"))
     return "PROVIDER_METADATA_API_NOT_ENABLED";
   if (reasons.some((reason) => /^API_KEY_[A-Z_]*BLOCKED$/.test(reason)))
@@ -105,7 +130,9 @@ export function refusalCode(status: number, body: unknown): MetadataFailureCode 
     googleStatus === "RESOURCE_EXHAUSTED" ||
     errorType === "rate_limit_error"
   )
-    return "PROVIDER_METADATA_RATE_LIMITED";
+    return quotaIds.some((id) => /PerDay/i.test(id))
+      ? "PROVIDER_METADATA_QUOTA_EXHAUSTED"
+      : "PROVIDER_METADATA_RATE_LIMITED";
   if (
     status === 403 ||
     googleStatus === "PERMISSION_DENIED" ||
@@ -113,7 +140,7 @@ export function refusalCode(status: number, body: unknown): MetadataFailureCode 
   )
     return "PROVIDER_METADATA_PERMISSION_DENIED";
   if (status >= 500) return "PROVIDER_METADATA_UPSTREAM_ERROR";
-  return "PROVIDER_METADATA_REJECTED";
+  return "PROVIDER_REQUEST_REJECTED";
 }
 export interface MetadataAdapter {
   label: string;
