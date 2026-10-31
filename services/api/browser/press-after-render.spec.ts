@@ -19,7 +19,7 @@ async function openQuickAnswers(page: Page, request: APIRequestContext) {
   await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
   // The decline is confirmed (the offer leaves) before the next press.
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
 }
 

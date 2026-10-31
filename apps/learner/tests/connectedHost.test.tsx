@@ -62,11 +62,11 @@ it("does not duplicate an acknowledged message when refreshing progress fails", 
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost companionClient={client} />);
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", {
     name: "Everyday patterns",
   });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", {
     name: "Notice the change",
   });
@@ -128,12 +128,12 @@ it("keeps lesson saves disabled until a placement decline is confirmed", async (
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost />);
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await pressWhenReady(await screen.findByRole("button", { name: "Start from the beginning" }));
   await waitFor(() => expect(posts).toEqual([`/api/enrollments/${snapshot.enrollmentId}/placement/decline`]));
   // Navigation stays available, but the lesson must not start a second saved
   // request while the decline is unconfirmed (it would be refused as uncertain).
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", { name: "Notice the change" });
   const markRead = screen.getByRole("button", { name: "Mark this part read" });
   expect(markRead).toBeDisabled();
@@ -209,10 +209,10 @@ it("a slower, older progress refresh never replaces the check the learner is typ
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   render(<ConnectedHost />);
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await pressWhenReady(await screen.findByRole("button", { name: "Start from the beginning" }));
   await waitFor(() => expect(lateStarted).toBe(true));
-  await pressWhenReady(await screen.findByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(await screen.findByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   await screen.findByRole("heading", { name: "Notice the change" });
   const enabled = (name: string) =>
     waitFor(() => {

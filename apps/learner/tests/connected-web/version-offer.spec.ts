@@ -26,7 +26,7 @@ test("a learner with personal changes is offered the new version, sees what it d
   await expect(page.getByRole("heading", { name: "Available in your workspace" })).toHaveCount(0);
   await accessible(page);
   await page.screenshot({ path: info.outputPath("version-offer-home.png") });
-  await card.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await card.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   const offer = page.getByRole("region", { name: "Your course has a new version" });
   await expect(offer).toBeVisible();
   await expect(offer).toContainText("Version 2.0.0 of your course is available (you are on 1.0.0).");

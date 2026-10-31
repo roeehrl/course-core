@@ -26,7 +26,7 @@ describe("connected lesson steps", () => {
       ["Part 1 · Reading", "current"],
       ["Part 2 · Illustration", "required"],
       ["Part 3 · Video", "required"],
-      ["Independent check", "locked"],
+      ["Check your understanding", "locked"],
       ["Finish this lesson", "locked"],
     ]);
     const place = nowAndNext(lessonSteps(server, episodeOf(server)));
@@ -51,18 +51,18 @@ describe("connected lesson steps", () => {
       ["Part 1 · Reading", "completed"],
       ["Part 2 · Illustration", "current"],
       ["Part 3 · Video", "optional_help"],
-      ["Independent check", "locked"],
+      ["Check your understanding", "locked"],
       ["Finish this lesson", "locked"],
     ]);
     expect(nowAndNext(lessonSteps(server, episodeOf(server))).next?.title).toBe(
-      "Independent check",
+      "Check your understanding",
     );
   });
   it("shows a check under review, a passed check, and gaps when access closes", () => {
     const server = connectedSnapshot();
     server.lessons[0]!.completedBlockIds = ["reading", "picture", "movie"];
     expect(statuses(server).slice(3)).toEqual([
-      ["Independent check", "current"],
+      ["Check your understanding", "current"],
       ["Finish this lesson", "locked"],
     ]);
     server.lessons[0]!.gate = {
@@ -79,7 +79,7 @@ describe("connected lesson steps", () => {
       passed: true,
     };
     expect(statuses(server).slice(3)).toEqual([
-      ["Independent check", "completed"],
+      ["Check your understanding", "completed"],
       ["Finish this lesson", "current"],
     ]);
     const closed = connectedSnapshot();
@@ -191,7 +191,7 @@ describe("roadmap from SDK metadata", () => {
       "locked",
     ]);
   });
-  it("groups sections under stage headings with list semantics, and keeps the selection through a resize", () => {
+  it("groups chapters under stage headings, folds all but the current chapter, and keeps them open through a resize", () => {
     const { course, snapshot } = presentation(stagedServer());
     const props = {
       course,
@@ -200,35 +200,31 @@ describe("roadmap from SDK metadata", () => {
       onPlacement: vi.fn(),
     };
     const { rerender } = render(<CourseRoadmap {...props} compact={false} />);
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Foundations" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("heading", { level: 3, name: "Begin" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Unstaged chapter" }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { level: 2, name: "Your learning path" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 3, name: "Foundations" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 4, name: "Begin" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 3, name: "Unstaged chapter" })).toBeVisible();
     expect(screen.getByText("Author eyebrow")).toBeVisible();
-    expect(screen.queryByText(/Chapter \d/)).not.toBeInTheDocument();
     expect(screen.queryByText("≋")).not.toBeInTheDocument();
+    // Only the chapter with the next lesson starts open.
+    const toggle = (title: string) => screen.getByRole("button", { name: new RegExp(`^(Author eyebrow)?${title}`) });
+    expect(toggle("Begin")).toHaveAttribute("aria-expanded", "true");
+    expect(toggle("Apply")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("list", { name: "Lessons in Apply" })).toBeNull();
+    fireEvent.click(toggle("Apply"));
     const lessons = screen.getByRole("list", { name: "Lessons in Apply" });
     expect(within(lessons).getAllByRole("listitem")).toHaveLength(2);
     expect(within(lessons).getByText("Under review")).toBeVisible();
     expect(within(lessons).getByText("Optional detour")).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Inspect A side trip, Optional detour",
-      }),
-    );
-    expect(screen.getByRole("heading", { name: "A side trip" })).toBeVisible();
-    // A resize to a compact window changes the layout, not the learner's selection.
+    // A lesson that can be opened is one press away; a locked one is not a button.
+    fireEvent.click(screen.getByRole("button", { name: "Lesson 3: A side trip, Optional detour" }));
+    expect(props.onOpenLesson).toHaveBeenCalledWith(expect.objectContaining({ id: "detour" }));
+    fireEvent.click(toggle("Unstaged chapter"));
+    expect(screen.queryByRole("button", { name: /Lesson 4: Later/ })).toBeNull();
+    expect(screen.getAllByText((_, node) => node?.textContent === "Later, Locked")[0]).toBeVisible();
+    // A resize to a compact window changes the layout, not which chapters are open.
     rerender(<CourseRoadmap {...props} compact />);
-    expect(screen.getByRole("heading", { name: "A side trip" })).toBeVisible();
-    expect(
-      within(
-        screen.getByRole("list", { name: "Lessons in Apply" }),
-      ).getAllByRole("listitem"),
-    ).toHaveLength(2);
+    expect(toggle("Apply")).toHaveAttribute("aria-expanded", "true");
+    expect(within(screen.getByRole("list", { name: "Lessons in Apply" })).getAllByRole("listitem")).toHaveLength(2);
   });
 });

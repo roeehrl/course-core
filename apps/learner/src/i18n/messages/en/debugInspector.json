@@ -1,7 +1,7 @@
 {
   "close": "Close debug inspector",
   "open": "Debug inspector",
-  "notice": "Staff only · each open is recorded and shown to the learner",
+  "notice": "Staff tool for your own enrollment. Each open is logged and listed in your profile.",
   "title": "Debug inspector",
   "closeLabel": "Close the debug inspector",
   "frame": "Debug inspector for this lesson"

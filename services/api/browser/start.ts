@@ -360,7 +360,11 @@ const mediaVideo = new ScriptedVideo(),
 // This disposable host's server clock runs 25 hours ahead (accepted only under NODE_ENV=test,
 // set at the top of this file). It decides retention due-ness only, so a check demonstrated
 // "now" is already due without rewriting any stored timestamp.
+// The scripted supervisor of this host answers companion questions (the /test routes below), so
+// every enrollment reports the companion as ready, except those a test turned off.
+const companionOff = new Set<string>();
 const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3_600_000),
+  companionAvailabilityOverride: (enrollmentId) => (companionOff.has(enrollmentId) ? "not_set_up" : "ready"),
   // Browser practice runs: a short wall-clock limit so the runaway-loop journey stays quick.
   pythonRunner: { timeoutMs: 3000 },
   media: { resolver: workspaceMediaResolver(mediaProviders), options: mediaOptions },
@@ -1377,6 +1381,18 @@ app.post("/test/notification-session", async () => {
   const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id as string;
   await notifyUser(db, { workspaceId, userId, audience: "learner", kind: "course_updated", enrollmentId, params: { fromVersion: "0.9.0", toVersion: "1.0.0" },
     link: `/enrollments/${enrollmentId}`, dedupeKey: `browser:${enrollmentId}` });
+  return { token: await issueLoginCode(db, userId) };
+});
+// A learner enrolled in the ordering course whose companion is not turned on: the API reports
+// "not_set_up" for this enrollment (companion-availability.ts).
+app.post("/test/companion-off-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)", [userId, `test:${userId}`, "Browser learner"]);
+  await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, userId]);
+  const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const learner = { origin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id as string;
+  companionOff.add(enrollmentId);
   return { token: await issueLoginCode(db, userId) };
 });
 // A member with a username and password (optionally a temporary one that must be

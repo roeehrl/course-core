@@ -31,7 +31,7 @@ test("the open companion pane reads on events, keeps one stream across revisions
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Your companion" })).toBeVisible();
   await expect.poll(() => seen.streams).toBe(1);

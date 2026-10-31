@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 test("real learning flow: wrong answer, restoration, optional skip, next gate", async ({
   page,
 }, testInfo) => {
-  await page.getByRole("button", { name: "Continue learning →" }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.screenshot({ path: testInfo.outputPath("lesson.png") });
   await expect(
     page.getByRole("button", { name: "Predict, required step" }),
@@ -43,8 +43,8 @@ test("real learning flow: wrong answer, restoration, optional skip, next gate", 
   await page.getByRole("button", { name: "Save reflection" }).click();
   await expect(page.getByText(/Its meaning has not been graded/)).toBeVisible();
   await page.getByRole("button", { name: "Return to roadmap →" }).click();
-  await expect(page.getByText("1 completed / 3")).toBeVisible();
-  await page.getByRole("button", { name: "Continue learning →" }).click();
+  await expect(page.getByText("1 of 3 lessons complete")).toBeVisible();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(
     page.getByRole("heading", { name: "Trade places. Keep the numbers." }),
   ).toBeVisible();
@@ -52,7 +52,7 @@ test("real learning flow: wrong answer, restoration, optional skip, next gate", 
   await page.getByRole("radio", { name: "3, 5, 8" }).click();
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await page.getByRole("button", { name: "Return to roadmap →" }).click();
-  await page.getByRole("button", { name: "Continue learning →" }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.getByRole("button", { name: "Mark read & continue →" }).click();
   await page
     .getByRole("radio", {
@@ -61,10 +61,10 @@ test("real learning flow: wrong answer, restoration, optional skip, next gate", 
     .click();
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await page.getByRole("button", { name: "Return to roadmap →" }).click();
-  await expect(page.getByText("3 completed / 3")).toBeVisible();
-  await expect(page.getByText("You reached the end.")).toBeVisible();
+  await expect(page.getByText("3 of 3 lessons complete")).toBeVisible();
+  await expect(page.getByText("You finished every required lesson.")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Continue learning →" }),
+    page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }),
   ).toHaveCount(0);
 });
 
@@ -79,7 +79,7 @@ test("optional placement and editable profile persist", async ({ page }) => {
   await page.getByRole("radio", { name: "2, 4, 7, 9" }).click();
   await page.getByRole("button", { name: "Check placement" }).click();
   await page.getByRole("button", { name: "Return to my path →" }).click();
-  await expect(page.getByText("0 completed · 1 placed out / 3")).toBeVisible();
+  await expect(page.getByText("0 complete · 1 placed out · of 3 lessons")).toBeVisible();
   await page.getByRole("button", { name: "Profile", exact: true }).click();
   await page.getByRole("textbox", { name: "Display name" }).fill("Jordan");
   await page
@@ -158,7 +158,7 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
   await expect(
     page.getByRole("button", { name: "Profile", exact: true }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Continue learning →" }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(
     page.getByRole("heading", { name: "Every number has a neighbor." }),
   ).toBeFocused();
@@ -183,7 +183,7 @@ test("blocked device storage is explicit and learning still works", async ({
   await expect(page.getByRole("alert")).toContainText(
     "Device storage is unavailable",
   );
-  await page.getByRole("button", { name: "Continue learning →" }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.getByRole("button", { name: "Mark read & continue →" }).click();
   await expect(
     page.getByRole("heading", { name: "Which pair breaks the order?" }),

@@ -53,6 +53,9 @@ export interface ConnectedCompanionProps {
   drafts?: readonly CompanionDraft[];
   /** False while the event stream reconnects; a draft continues once it is back. */
   streamConnected?: boolean;
+  /** Whether a companion job can answer now, as the server reports it (companion-availability.ts);
+   * undefined while it is being read. The idle status says only what the server said. */
+  availability?: "ready" | "not_set_up" | "unknown" | undefined;
 }
 function useCompanionFocus() {
   const [focus, setFocus] = useState<CompanionFocusState>(companionFocus.get());
@@ -100,6 +103,7 @@ export function ConnectedCompanion({
   onCancelQuestion,
   drafts = [],
   streamConnected = true,
+  availability,
 }: ConnectedCompanionProps) {
   const t = useT();
   /** Cancel a waiting question; a retry also puts it back in the draft to send again. */
@@ -226,12 +230,15 @@ export function ConnectedCompanion({
       );
     }
   }
-  const stateLabel = t(`connectedCompanion.state.${state}` as MessageKey);
+  // Idle, the status is the server's availability: "Available" only when a companion job can run.
+  const shownState = state !== "available" ? state : availability === "ready" ? "available" : availability === "not_set_up" ? "not_set_up" : availability === "unknown" ? "unknown_availability" : "checking_availability";
+  const stateLabel = t(`connectedCompanion.state.${shownState}` as MessageKey);
+  const inLesson = Boolean(context.episodeId);
   const sentNotice = sentNoticeKey(sent, messages, drafts);
   const reveal = useReveal(context.enrollmentId, messages, drafts, loaded);
   return (
     <View ref={reveal.root} style={{ gap: 18 }}>
-      <Badge label={t("connectedCompanion.badge")} tone="lilac" />
+      {messages.length > 0 && <Badge label={t("connectedCompanion.badge")} tone="lilac" />}
       <View accessibilityRole="none" style={{ gap: 4 }}>
         <Text
           role="status"
@@ -247,25 +254,19 @@ export function ConnectedCompanion({
           </Text>
         )}
       </View>
-      <View style={{ gap: 5 }}>
-        <Eyebrow>{t("connectedCompanion.place")}</Eyebrow>
-        <Text style={styles.heading}>
-          {context.episodeTitle ?? t("connectedCompanion.roadmap")}
-        </Text>
-        {context.blockTitle && (
-          <Text style={styles.small}>{context.blockTitle}</Text>
-        )}
-      </View>
-      <Text style={styles.small}>
-        {t("connectedCompanion.about")}
-      </Text>
+      {inLesson ? (
+        <View style={{ gap: 2 }} testID="companion-place">
+          <Text style={styles.small}>{t("connectedCompanion.asking")}</Text>
+          <Text style={[styles.body, { fontWeight: "600" }]}>{context.episodeTitle}</Text>
+          {context.blockTitle && (
+            <Text style={styles.small}>{context.blockTitle}</Text>
+          )}
+        </View>
+      ) : (
+        <Text style={styles.body} testID="companion-place">{t("connectedCompanion.fromLesson")}</Text>
+      )}
       {!loaded && <Text style={styles.small}>{t("connectedCompanion.loading")}</Text>}
       {error && <Notice error>{error}</Notice>}
-      {loaded && !messages.length && (
-        <Text style={styles.body}>
-          {t("connectedCompanion.empty")}
-        </Text>
-      )}
       <View
         role="log"
         aria-live="polite"
@@ -457,6 +458,10 @@ export function ConnectedCompanion({
           </Text>
         </View>
       )}
+      {/* Questions are asked from a lesson, which gives the companion its context. Outside one, the
+          composer shows only to keep a draft started in a lesson. */}
+      {(inLesson || draft.trim().length > 0) && (
+      <>
       <Field
         label={t("connectedCompanion.draft.label")}
         multiline
@@ -526,6 +531,11 @@ export function ConnectedCompanion({
       <Text style={styles.small}>
         {t(storageUnavailable ? "connectedCompanion.draft.tabOnly" : "connectedCompanion.draft.saved")}
       </Text>
+      <Text style={styles.small}>
+        {t("connectedCompanion.about")}
+      </Text>
+      </>
+      )}
     </View>
   );
 }

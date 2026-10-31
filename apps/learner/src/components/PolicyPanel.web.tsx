@@ -7,6 +7,8 @@ import type {
 } from "../client/policyClient";
 import type { ServerSnapshot } from "../client/apiClient";
 import {
+  authoredInstant,
+  dueDate,
   policyDate,
   policyTimeZone,
   quotaName,
@@ -351,8 +353,24 @@ export function PolicyPanel(props: PolicyPanelProps) {
     chapterDue = data?.constraints.find(
       (value) => value.scopeId === `chapter:${chapter?.id}`,
     );
-  const zone = policyTimeZone(server.course.policy),
-    chapterZone = policyTimeZone(chapter?.policy ?? server.course.policy);
+  const chapterNumber = chapter ? server.course.chapters.indexOf(chapter) + 1 : 0;
+  // The learner's own time zone, the date alone unless an author set the time, and one line when
+  // the course and the chapter fall due the same day.
+  const policies = [server.course.policy, chapter?.policy];
+  const due = (value: string) => dueDate(value, i18n, authoredInstant(value, policies));
+  function dueLine() {
+    const course = courseDue!.effectiveDeadline;
+    if (course === null) return t("policyPanel.dates.noCourseDate");
+    const chapterDate = chapterDue?.effectiveDeadline ?? null;
+    if (!chapter || chapterDate === null) return t("policyPanel.dates.courseDue", { date: due(course) });
+    if (due(chapterDate) === due(course)) return t("policyPanel.dates.bothDue", { chapter: chapterNumber, date: due(course) });
+    return (
+      <>
+        <span>{t("policyPanel.dates.chapterDue", { chapter: chapterNumber, date: due(chapterDate) })}</span>
+        <span>{t("policyPanel.dates.courseDue", { date: due(course) })}</span>
+      </>
+    );
+  }
   const activeOffers =
     data?.offers.filter(
       (offer) =>
@@ -375,18 +393,8 @@ export function PolicyPanel(props: PolicyPanelProps) {
             : error
               ? t("policyPanel.dates.unavailable")
               : courseDue
-                ? t("policyPanel.dates.courseDue", {
-                    date: policyDate(courseDue.effectiveDeadline, zone, i18n),
-                  })
+                ? dueLine()
                 : t("policyPanel.dates.loading")}
-          {!loading && !error && chapter && chapterDue && (
-            <span>
-              {t("policyPanel.dates.chapterDue", {
-                chapter: chapter.title,
-                date: policyDate(chapterDue.effectiveDeadline, chapterZone, i18n),
-              })}
-            </span>
-          )}
         </span>
         {activeOffers.length > 0 && (
           <span className="connected-policy-offer-count">

@@ -9,7 +9,7 @@ test("the learner decides a proposed goal, can undo it, and sees the work the su
   const session = await request.post("/test/supervisor-requests-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
   const panel = page.getByRole("region", { name: "Decisions and work from your supervisor" });
   await expect(panel.getByText("Suggested goal: Find minima and maxima", { exact: true })).toBeVisible();

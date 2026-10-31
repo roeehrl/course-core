@@ -90,7 +90,7 @@ async function signIn(page: Page, locale: Locale, session: string, data?: Record
 }
 async function openHebrewLesson(page: Page, locale: Locale, conversation = false) {
   await signIn(page, locale, "/test/hebrew-reading-session", { conversation });
-  const resume = page.getByRole("button", { name: text[locale].host["library.continue"], exact: true });
+  const resume = page.getByRole("button", { name: text[locale].host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
   const reading = page.getByText(/בשיעור הזה מחפשים/).first();
   await expect(async () => {
     if (await resume.count()) await resume.first().click({ timeout: 2_000 });
@@ -119,6 +119,9 @@ for (const locale of ["en", "he"] as const) {
     const paragraph = page.getByText(/בהשוואה בין שני ערכים שליליים/).first();
     const top = () => paragraph.evaluate((e) => e.getBoundingClientRect().top);
     await paragraph.evaluate((element) => {
+      // Room below the lesson, so the window can scroll the paragraph up to the reading line on
+      // every size (a short lesson ends before it can).
+      document.querySelector(".connected-lesson")!.append(Object.assign(document.createElement("div"), { style: "height:1200px;flex-shrink:0" }));
       const header = document.querySelector(".connected-header")!.getBoundingClientRect().bottom;
       const reading = header + (window.innerHeight - header) / 3;
       window.scrollBy({ top: element.getBoundingClientRect().top - reading + 2, behavior: "instant" });
@@ -250,7 +253,7 @@ for (const locale of ["en", "he"] as const) {
     await page.goto(`/?locale=${locale}#signin=${(await signed.json()).token}`);
     await page.getByRole("button", { name: t.host["library.open"], exact: true }).click();
     await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-    const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true });
+    const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
     const roadmap = page.getByRole("heading", { name: t.roadmap.path, exact: true });
     await expect(roadmap).toBeVisible();
     await expect(async () => {

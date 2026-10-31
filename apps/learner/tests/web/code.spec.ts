@@ -61,10 +61,10 @@ async function codeHost(
   });
   async function open() {
     await page
-      .getByRole("button", { name: "Continue learning →", exact: true })
+      .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
       .click();
     await page
-      .getByRole("button", { name: "Continue learning →", exact: true })
+      .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
       .click();
   }
   await page.goto("/");
@@ -126,7 +126,7 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   });
   await expect(editor).toHaveValue(solution);
   await expect(
-    page.getByRole("button", { name: "Complete episode →" }),
+    page.getByRole("button", { name: "Finish this lesson →" }),
   ).toBeDisabled();
   await expect(
     page.getByText("Code check passed.", { exact: true }),
@@ -161,7 +161,7 @@ test("unknown language cannot submit or claim success; oversized imports preserv
   ).toBeVisible();
   expect(submissions).toHaveLength(0);
   await expect(
-    page.getByRole("button", { name: "Complete episode →" }),
+    page.getByRole("button", { name: "Finish this lesson →" }),
   ).toBeDisabled();
   await page
     .getByLabel("Choose Python source file")

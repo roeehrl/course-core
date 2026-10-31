@@ -12,7 +12,7 @@ import { demoCourse } from "../src/data/demoCourse";
 import { demo } from "./helpers";
 
 describe("reusable learner components", () => {
-  it("renders an unrelated supplied title, inspects locked lessons without entering them", async () => {
+  it("renders an unrelated supplied title, and shows locked lessons quietly without a way into them", async () => {
     const onOpen = vi.fn();
     render(
       <CourseRoadmap
@@ -30,12 +30,12 @@ describe("reusable learner components", () => {
     expect(
       screen.getByRole("heading", { name: "A different topic." }),
     ).toBeVisible();
-    await userEvent.click(
-      screen.getByRole("button", { name: /Inspect Compare & swap/ }),
-    );
-    expect(
-      screen.getByRole("button", { name: "Lesson locked" }),
-    ).toBeDisabled();
+    // Open every chapter: a locked lesson is a padlock and its title, not a button.
+    for (const toggle of screen.getAllByRole("button", { expanded: false })) await userEvent.click(toggle);
+    expect(screen.queryByRole("button", { name: /Compare & swap/ })).toBeNull();
+    expect(screen.getAllByText((_, node) => node?.textContent === "Compare & swap, Locked")[0]).toBeVisible();
+    // The word "Locked" is said to assistive technology, never printed on every row.
+    expect(screen.queryByText("Locked")).toBeNull();
     expect(onOpen).not.toHaveBeenCalled();
   });
   it("makes future required steps unavailable and labels the optional detour", async () => {
