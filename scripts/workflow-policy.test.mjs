@@ -165,6 +165,11 @@ test('every job has a timeout, and the required API check gates every API job', 
   assert.match(gate, /^ {4}needs: \[audit, api-core, api-engines, api-connected\]$/m);
   for (const job of ['audit', ...apiJobs]) assert.ok(gate.includes(`\${{ needs.${job}.result }}`), job);
   assert.match(gate, /\[ "\$\{!job\}" = success \] \|\| status=1/);
+  // Only the two slow suites may be skipped, only on pull requests and pushes to main; a release runs them.
+  for (const job of ['api-engines', 'api-connected'])
+    assert.match(ci[job], /^ {4}if: \$\{\{ github\.event_name != 'pull_request' && github\.event_name != 'push' \}\}$/m, job);
+  assert.doesNotMatch(ci['api-core'], /^ {4}if:/m);
+  assert.match(gate, /FAST: \$\{\{ github\.event_name == 'pull_request' \|\| github\.event_name == 'push' \}\}/);
   for (const job of apiJobs) {
     assert.match(ci[job], /^ {4}needs: audit$/m, job);
     assert.match(ci[job], /image: postgres:17/, job);
