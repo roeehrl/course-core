@@ -60,7 +60,8 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await fill(page.getByRole("textbox", { name: "Your numeric answer" }), "9");
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(panel(page).getByRole("heading", { name: "Let's get you some help" })).toBeVisible();
-  await expect(panel(page).getByRole("button").first()).toHaveText(/^Your last 2 answers were not right\. Ask the companion to explain/);
+  await expect(panel(page).getByRole("button").first()).toHaveText(/^Ask the companion to explain/);
+  await expect(panel(page).locator(".connected-gate-reason")).toHaveText("Your last few tries did not succeed.");
 
   // Prediction with its unit and optional confidence (which never changes the result).
   await nextCheck(page);

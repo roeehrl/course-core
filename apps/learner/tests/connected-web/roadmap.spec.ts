@@ -117,10 +117,17 @@ test("a lesson shows one progress indicator, and its check opens neutral after t
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   // Where the lesson is, and one indicator of the learner's place in it.
   await expect(page.locator(".connected-lesson-where")).toHaveText("Lesson 1 of 2 · Order");
-  await expect(page.locator("#connected-steps-summary")).toContainText("Step 1 of 3 · Part 1 · Reading");
-  await expect(page.locator("#connected-steps-summary")).toContainText("0 of 3 done");
+  // One counting scheme, the parts' own ("PART 1 OF 1" on the card): the bar has a segment per
+  // part and one for the questions.
+  await expect(page.locator("#connected-steps-summary")).toHaveText("Part 1 of 1 · then 2 questions");
+  await expect(page.locator(".connected-reading-card")).toContainText("PART 1 OF 1");
   const steps = page.getByRole("list", { name: "Your place in this lesson" });
-  await expect(steps.getByRole("listitem")).toHaveCount(3);
+  await expect(steps.getByRole("listitem")).toHaveCount(2);
+  // Finishing waits for the reading and the questions: a disabled button that says why.
+  const finish = page.getByRole("button", { name: "Finish this lesson →", exact: true });
+  await expect(finish).toBeDisabled();
+  await expect(finish).toHaveAttribute("aria-describedby", "connected-complete-hint");
+  await expect(page.locator("#connected-complete-hint")).toHaveText("Read every part first, then answer the questions.");
   await expect(steps.locator('[aria-current="step"]')).toHaveText("Part 1 · Reading: Current");
   await expect(steps.getByRole("listitem").nth(1)).toHaveText("Check your understanding: Locked");
   for (const gone of ["Read · explore · check", "YOUR LEARNING PATH", "Study dates & optional extensions"])
@@ -137,6 +144,7 @@ test("a lesson shows one progress indicator, and its check opens neutral after t
   await expect(page.locator(".connected-reading-card")).toContainText("Next: check your understanding · 2 questions");
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await expect(check).toHaveAttribute("data-state", "open");
+  await expect(page.locator("#connected-steps-summary")).toHaveText("Questions · 0 of 2 answered correctly on your own");
   await expect(check).toContainText("Answer 2 questions correctly on your own to finish this lesson.");
   // Fresh: neutral, not "more evidence needed".
   await expect(page.getByTestId("gate-decision")).toHaveCount(0);
