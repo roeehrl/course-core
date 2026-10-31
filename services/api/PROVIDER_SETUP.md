@@ -57,11 +57,18 @@ once; `429 PROVIDER_KEY_TEST_RATE_LIMITED`). The limit is kept per API process.
 
 Key tests and inspections report one reason code: `PROVIDER_METADATA_` +
 `CREDENTIAL_MISSING`, `CREDENTIAL_MALFORMED`, `KEY_INVALID`, `API_NOT_ENABLED`,
-`KEY_RESTRICTED`, `PERMISSION_DENIED`, `RATE_LIMITED`, `REJECTED`,
-`UPSTREAM_ERROR`, `NETWORK`, `TIMEOUT`, `INVALID`, `TOO_LARGE`, `UNSUPPORTED`
-or `UNAVAILABLE`. They come from the HTTP status and the provider's structured
-error reason (Google `ErrorInfo.reason`, Anthropic `error.type`); provider error
-text is never passed on. The admin screen shows an action for each code.
+`KEY_RESTRICTED`, `PERMISSION_DENIED`, `RATE_LIMITED`, `QUOTA_EXHAUSTED`,
+`BILLING_REQUIRED`, `UPSTREAM_ERROR`, `NETWORK`, `TIMEOUT`, `INVALID`,
+`TOO_LARGE`, `UNSUPPORTED` or `UNAVAILABLE`, or `PROVIDER_REQUEST_REJECTED`.
+They come from the HTTP status and the provider's structured error reason
+(Google `ErrorInfo.reason` and `QuotaFailure` quota ids, Anthropic `error.type`);
+provider error text is never passed on. 401 and 403 are key problems; 402,
+`BILLING_DISABLED` and Anthropic `billing_error` are billing; a 429 is
+`QUOTA_EXHAUSTED` only when a per-day quota ran out and otherwise a short-term
+`RATE_LIMITED`; any other client error (400 included) is a refused request,
+never a key, quota or billing problem. `PROVIDER_METADATA_REJECTED` is only
+found in results recorded by earlier versions. The admin screen shows an action
+for each code.
 
 ## Configuration and admission
 

@@ -361,8 +361,16 @@ export function keyProblemText(
     case "PROVIDER_METADATA_PERMISSION_DENIED":
       return t("aiServices.connect.errForbidden", s);
     case "PROVIDER_METADATA_RATE_LIMITED":
+      return t("aiServices.connect.errRateLimitedProvider", s);
+    case "PROVIDER_METADATA_QUOTA_EXHAUSTED":
+      return t("aiServices.connect.errQuotaUsed", s);
+    case "PROVIDER_METADATA_BILLING_REQUIRED":
+      return t("aiServices.connect.errBilling", s);
+    case "PROVIDER_REQUEST_REJECTED":
+      return t("aiServices.connect.errRequestRefused", s);
+    // Earlier versions recorded every other client error, billing included, under this code.
     case "PROVIDER_METADATA_REJECTED":
-      return t("aiServices.connect.errQuota", s);
+      return t("aiServices.connect.errRefusedTestAgain", s);
     case "PROVIDER_METADATA_NETWORK":
     case "PROVIDER_METADATA_TIMEOUT":
     case "PROVIDER_METADATA_UPSTREAM_ERROR":

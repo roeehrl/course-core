@@ -4,9 +4,6 @@ import { recordRendererHealth, watchRenderer } from "./renderer-health.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Locator, Page, Request } from "@playwright/test";
 
-/** Opens the course from the course list, then its current lesson. A press was
- * once lost in CI while the page was still settling after sign-in,
- * so each press is retried until the page has changed. */
 /** Stands in for https://www.youtube.com/iframe_api: builds the iframe the real API
  * would build, then reports ready or the given player error. Never contacts YouTube. */
 async function fakeYouTubeApi(page: Page, errorCode?: number | "blocked") {
@@ -29,14 +26,21 @@ async function fakeYouTubeApi(page: Page, errorCode?: number | "blocked") {
   return state;
 }
 
+/** Opens the current lesson from wherever the signed-in page starts (library or roadmap). A press
+ * was once lost in CI while the page was still settling after sign-in, and panels that load late
+ * can shift the button mid-press, so the single "Continue learning" press each screen has is
+ * retried. The loop waits for the open lesson itself, not for the roadmap in between: on a slow
+ * page a retried press could pass the roadmap before it was seen, and then never find it (the same
+ * race generated-content.spec.ts fixed). The lesson's heading is the mark, since not every lesson
+ * view shows a reading part (a placement step, a closed course, the end-of-lesson check). */
 async function openCurrentLesson(page: Page) {
   const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
-  const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
+  const lesson = page.locator(".connected-lesson-keeper:not([hidden]) [data-reading-heading]");
   await expect(async () => {
-    if (!(await roadmap.count())) await resume.click({ timeout: 2_000 });
-    await expect(roadmap).toBeVisible({ timeout: 2_000 });
+    if (await lesson.isVisible()) return;
+    if (await resume.count()) await resume.click({ timeout: 2_000 });
+    await expect(lesson).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
-  await enterNextLesson(page);
 }
 /** From the visible roadmap, opens the next lesson. Panels that load after the
  * roadmap (placement, dates) can shift the button mid-press, so the press is
