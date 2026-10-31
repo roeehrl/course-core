@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { inlines, latinRuns, parseMarkdown, textDirection } from "../src/components/markdown";
+import { inlines, isolateRuns, latinRuns, parseMarkdown, textDirection } from "../src/components/markdown";
 import { MarkdownContent } from "../src/components/MarkdownContent";
 
 // Synthetic prose shaped like the live companion replies and lesson text (lists with bold lead-ins,
@@ -110,12 +110,37 @@ describe("Markdown reading", () => {
     expect(latinRuns("w=3 ו-x=2, וגם C++.").filter((run) => run.latin).map((run) => run.text)).toEqual(["w=3", "x=2", "C++"]);
     // Plain numbers between Hebrew words are not runs.
     expect(latinRuns("0 מתוך 2 משפחות").filter((run) => run.latin)).toEqual([]);
+    // A signed number is (0.1.60: "-2." drew as ".2-"), on its own, without the sentence's full stop;
+    // a list keeps the sentence's order, and a maqaf after a Hebrew prefix is not a sign.
+    const signed = "ברשימה 3, 7, -2, 5 הערך הקטן הוא -2. בין -8 לבין +3, וגם ב-2 משפחות.";
+    expect(latinRuns(signed).filter((run) => run.latin).map((run) => run.text)).toEqual(["-2", "-2", "-8", "+3"]);
+    expect(latinRuns(signed).map((run) => run.text).join("")).toBe(signed);
+    expect(latinRuns("הערך הוא −1.5%.").filter((run) => run.latin).map((run) => run.text)).toEqual(["−1.5%"]);
     expect(textDirection("  (2) לא")).toBe("rtl");
     expect(textDirection("No, לא")).toBe("ltr");
   });
 });
 
+describe("isolating runs in a plain string", () => {
+  it("wraps each left-to-right run of Hebrew text in LRI…PDI, and leaves other text alone", () => {
+    // A Hebrew question with English and a call in it, quoted in "Context used" (0.1.60).
+    expect(isolateRuns("מה זה minimum value? כתבתי min([3, 7, -2, 5]) וקיבלתי -2.")).toBe(
+      "מה זה \u2066minimum value\u2069? כתבתי \u2066min([3, 7, -2, 5])\u2069 וקיבלתי \u2066-2\u2069.",
+    );
+    expect(isolateRuns("What does minimum mean?")).toBe("What does minimum mean?");
+  });
+});
+
 describe("Markdown on the page", () => {
+  it("keeps a Hebrew prefix and its maqaf on the line of the term it attaches to, and a signed number whole", () => {
+    const { container } = render(<MarkdownContent markdown="משתמשים ב-fine-tuning כאן, והערך הוא -2." />);
+    const joined = Array.from(container.querySelectorAll<HTMLElement>("div, span")).find((e) => e.textContent === "ב-fine-tuning")!;
+    expect(joined).toBeTruthy();
+    expect(joined).toHaveStyle({ whiteSpace: "nowrap" });
+    const number = Array.from(container.querySelectorAll<HTMLElement>("[dir=ltr]")).find((e) => e.textContent === "-2")!;
+    expect(number).toHaveStyle({ whiteSpace: "nowrap" });
+  });
+
   it("draws lists, emphasis and code without raw markers", () => {
     const { container } = render(<MarkdownContent markdown={reply} />);
     const lists = screen.getAllByRole("list");

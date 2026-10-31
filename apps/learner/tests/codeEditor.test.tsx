@@ -274,3 +274,21 @@ it("words Core's coded answer feedback in English and Hebrew and refuses unknown
   ])
     expect(() => answerFeedback(code(message), false, he)).toThrow();
 });
+
+it("shows a failed answer, a time-limit stop included, in the warning tone, never the success green", async () => {
+  const { answerFeedbackTone } = await import("../src/connected/answerFeedback");
+  const { Notice } = await import("../src/components/ui");
+  const timedOut = { result: { passed: false, independent: true, message: { code: "code_limit", params: { limit: "time" } }, execution: { status: "timeout" } } };
+  expect(answerFeedbackTone(timedOut)).toBe("warning");
+  expect(answerFeedbackTone({ result: { passed: false, independent: false, explanation: "Not yet." } })).toBe("warning");
+  expect(answerFeedbackTone({ result: { passed: true, independent: true, explanation: "Yes." } })).toBe("info");
+  expect(answerFeedbackTone({ result: { passed: false, abstained: true, independent: true, message: { code: "abstained" } } })).toBe("info");
+  expect(answerFeedbackTone({ result: { passed: false, pendingReview: true, independent: true, message: { code: "pending_review" } } })).toBe("info");
+  const { container, rerender } = render(<Notice tone="warning">Stopped at the time limit.</Notice>);
+  const box = () => container.firstElementChild as HTMLElement;
+  // Amber, polite, and not an alert: the learner's answer did not pass; nothing broke.
+  expect(box()).toHaveStyle({ backgroundColor: "rgb(252, 243, 223)" });
+  expect(box()).not.toHaveAttribute("role", "alert");
+  rerender(<Notice>Saved.</Notice>);
+  expect(box()).toHaveStyle({ backgroundColor: "rgb(232, 246, 237)" });
+});

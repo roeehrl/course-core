@@ -150,19 +150,34 @@ function renderInline(nodes: readonly Inline[], key: string, isolate: boolean): 
     switch (node.kind) {
       case "text": {
         const text = node.text.slice(trailing[index - 1]?.length ?? 0);
+        const runs = latinRuns(text);
+        const single = (run: { text: string; latin: boolean } | undefined) => Boolean(run?.latin && !/\s/.test(run.text) && run.text.length <= 30);
         return isolate ? (
           <React.Fragment key={id}>
-            {latinRuns(text).map((run, part) =>
-              run.latin ? (
-                // A single term ("fine-tuning") never breaks at its hyphen inside right-to-left text;
-                // a long one may, rather than run out of its box.
-                <Text key={part} {...dirProp("ltr")} style={/\s/.test(run.text) || run.text.length > 30 ? undefined : ({ whiteSpace: "nowrap" } as object)}>
+            {runs.map((run, part) => {
+              if (!run.latin) {
+                // A Hebrew prefix and its maqaf ("ב-", "כש-") stay on the line of the single term
+                // they attach to: the line broke after the hyphen ("ב-" | "forward").
+                const prefix = single(runs[part + 1]) ? /[\u05D0-\u05EA]+[-\u05BE]$/.exec(run.text)?.[0] : undefined;
+                return prefix ? run.text.slice(0, -prefix.length) : run.text;
+              }
+              const before = single(run) ? /[\u05D0-\u05EA]+[-\u05BE]$/.exec(runs[part - 1]?.text ?? "")?.[0] : undefined;
+              // A single term ("fine-tuning") never breaks at its hyphen inside right-to-left text;
+              // a long one may, rather than run out of its box.
+              const term = (
+                <Text key={part} {...dirProp("ltr")} style={single(run) ? ({ whiteSpace: "nowrap" } as object) : undefined}>
                   {run.text}
                 </Text>
+              );
+              return before ? (
+                <Text key={part} style={{ whiteSpace: "nowrap" } as object}>
+                  {before}
+                  {term}
+                </Text>
               ) : (
-                run.text
-              ),
-            )}
+                term
+              );
+            })}
           </React.Fragment>
         ) : (
           text

@@ -21,6 +21,8 @@ import { useOnline } from "../hooks/useOnline";
 import { CourseApiError } from "../client/apiClient";
 import { Badge, Button, Field, Notice, colors, Eyebrow, styles } from "./ui";
 import { MarkdownContent } from "./MarkdownContent";
+import { hasRightToLeft, isolateRuns } from "./markdown";
+import { isolate } from "@course-core/i18n";
 import {
   companionFocus,
   type CompanionFocusState,
@@ -373,8 +375,8 @@ export function ConnectedCompanion({
                   <Text style={styles.small}>
                     {t("connectedCompanion.delete.confirm")}
                   </Text>
-                  <Button label={t("connectedCompanion.delete.yes")} kind="primary" disabled={correcting === message.id} onPress={() => void remove(message.id)} />
                   <Button label={t("connectedCompanion.delete.no")} kind="quiet" onPress={() => setConfirmDelete("")} />
+                  <Button label={t("connectedCompanion.delete.yes")} kind="primary" disabled={correcting === message.id} onPress={() => void remove(message.id)} />
                 </View>
               ) : (
                 <Button label={t("connectedCompanion.delete.start")} kind="quiet" onPress={() => setConfirmDelete(message.id)} />
@@ -706,6 +708,11 @@ function ContextUsed({
 }) {
   const i18n = useI18n(), t = i18n.t;
   const [open, setOpen] = useState(false);
+  // A quoted excerpt keeps its own order: its left-to-right runs are isolated when it has Hebrew
+  // in it, and in a left-to-right sentence a Hebrew excerpt is isolated as a whole (a
+  // right-to-left sentence isolates its arguments itself).
+  const quote = (excerpt: string) =>
+    i18n.dir === "ltr" && hasRightToLeft(excerpt) ? isolate(isolateRuns(excerpt)) : isolateRuns(excerpt);
   const earlier = [
     ...used.history.filter((row) => row.messageId !== used.answersMessageId),
   ];
@@ -722,23 +729,23 @@ function ContextUsed({
         <View style={{ gap: 8 }}>
           {question && (
             <Text style={styles.small}>
-              {t("connectedCompanion.context.answering", { question: clip(plainExcerpt(question), question.length > 160) })}
+              {t("connectedCompanion.context.answering", { question: quote(clip(plainExcerpt(question), question.length > 160)) })}
             </Text>
           )}
           {used.selection && (
             <Text style={styles.small}>
               {!used.selection.lineStart
-                ? t("connectedCompanion.context.pointed", { kind: selectionLabel(used.selection.kind, t), excerpt: plainExcerpt(used.selection.excerpt) })
+                ? t("connectedCompanion.context.pointed", { kind: selectionLabel(used.selection.kind, t), excerpt: quote(plainExcerpt(used.selection.excerpt)) })
                 : used.selection.lineEnd !== used.selection.lineStart
                   ? t("connectedCompanion.context.pointedLines", {
                       kind: selectionLabel(used.selection.kind, t),
-                      excerpt: plainExcerpt(used.selection.excerpt),
+                      excerpt: quote(plainExcerpt(used.selection.excerpt)),
                       start: used.selection.lineStart,
                       end: used.selection.lineEnd ?? "",
                     })
                   : t("connectedCompanion.context.pointedLine", {
                       kind: selectionLabel(used.selection.kind, t),
-                      excerpt: plainExcerpt(used.selection.excerpt),
+                      excerpt: quote(plainExcerpt(used.selection.excerpt)),
                       line: used.selection.lineStart,
                     })}
             </Text>
@@ -763,7 +770,7 @@ function ContextUsed({
               <Text style={styles.small}>
                 {t(row.excluded ? "connectedCompanion.context.rowExcluded" : "connectedCompanion.context.row", {
                   role: row.role === "learner" ? "learner" : "companion",
-                  excerpt: `${plainExcerpt(row.excerpt)}${row.clipped || row.excerpt.length >= 160 ? "…" : ""}`,
+                  excerpt: `${quote(plainExcerpt(row.excerpt))}${row.clipped || row.excerpt.length >= 160 ? "…" : ""}`,
                 })}
               </Text>
               {onExclude && row.role === "learner" && (
@@ -790,7 +797,7 @@ function ContextUsed({
               {used.summary.items.map((item) => (
                 <View key={item.messageId} style={{ gap: 4 }}>
                   <Text style={styles.small}>
-                    {t(item.excluded ? "connectedCompanion.context.itemExcluded" : "connectedCompanion.context.item", { excerpt: plainExcerpt(item.excerpt) })}
+                    {t(item.excluded ? "connectedCompanion.context.itemExcluded" : "connectedCompanion.context.item", { excerpt: quote(plainExcerpt(item.excerpt)) })}
                   </Text>
                   {onExclude && (
                     <Button

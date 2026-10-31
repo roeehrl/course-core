@@ -112,12 +112,10 @@ export function PasskeyManager({
   request,
   loginName,
   hasPassword,
-  onClose,
 }: {
   request: Request;
   loginName?: string | null;
   hasPassword: boolean;
-  onClose: () => void;
 }) {
   const i18n = useI18n(),
     t = i18n.t;
@@ -192,18 +190,12 @@ export function PasskeyManager({
         </ul>
       )}
       {!available || !supported ? (
-        <>
-          <p role="status">
-            {!available
-              ? t("passkeys.unavailable.server")
-              : t("passkeys.unavailable.browser")}
-          </p>
-          <div className="connected-form-actions">
-            <button type="button" className="connected-secondary" onClick={onClose}>
-              {t("passkeys.close")}
-            </button>
-          </div>
-        </>
+        // The sheet's own close button (X) is the way out; a second "Close" said the same thing.
+        <p role="status">
+          {!available
+            ? t("passkeys.unavailable.server")
+            : t("passkeys.unavailable.browser")}
+        </p>
       ) : (
         <form
           className="connected-form"

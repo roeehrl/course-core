@@ -67,3 +67,13 @@ export function answerFeedback(receipt: unknown, code = false, t: Translate = en
     ? t(`answerFeedback.verdict.${verdict}`, { explanation })
     : t(`answerFeedback.verdictPractice.${verdict}`, { explanation });
 }
+
+/** The notice tone for a receipt `answerFeedback` words: an answer that did not pass (wrong, or
+ * stopped by a time or output limit) is a warning, never the calm confirmation a passed answer, an
+ * "I don't know yet" or an answer sent for review gets. */
+export function answerFeedbackTone(receipt: unknown): "info" | "warning" {
+  const result = receipt && typeof receipt === "object" ? (receipt as { result?: unknown }).result : undefined;
+  if (!result || typeof result !== "object") return "info";
+  const value = result as { passed?: unknown; abstained?: unknown; pendingReview?: unknown };
+  return value.passed === false && value.abstained !== true && value.pendingReview !== true ? "warning" : "info";
+}

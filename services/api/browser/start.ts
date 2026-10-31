@@ -31,6 +31,7 @@ import { gatedCourse, repairEvaluatorStub } from "../test/gated-fixture.js";
 import { activityCourse, hintProbeCourse, hintProbeRuntime, sandboxedActivity, sandboxedActivityRuntime, sandboxedDeclaration, syntheticActivityEvaluator } from "../test/activity-fixture.js";
 import { declarativeActivityRuntime } from "../src/activity-runtime.js";
 import { retentionCourse } from "../test/retention-fixture.js";
+import { HEBREW_ANSWER, HEBREW_QUESTION, hebrewReadingFixture } from "../test/hebrew-reading-fixture.js";
 import { hypothesisCourse } from "../test/hypothesis-fixture.js";
 import { teachingContext } from "../src/provider-context.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
@@ -1074,6 +1075,46 @@ app.post("/test/companion-context-session", async () => {
     [randomUUID(), enrollment, "Yes: the maximum is no less than any other member.", olderJob]);
   await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES ($1,$2,'assistant',$3,'{}')",
     [randomUUID(), enrollment, "A note saved before replies recorded their lesson."]);
+  return { token: await issueLoginCode(db, userId) };
+});
+// A Hebrew course in its own workspace (no supervisor watches it), without placement: a long reading
+// with English terms, signed numbers and formulas, and a Hebrew scene with a slider. With
+// { conversation: true } the learner has asked a Hebrew question with English in it, and a synthetic
+// Hebrew answer was recorded through the real provider-context capsule (no provider is called).
+const hebrewReleaseId = randomUUID(), hebrewWorkspaceId = randomUUID();
+{
+  const course = compileCourse(hebrewReadingFixture(renderer));
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [hebrewWorkspaceId, "browser-hebrew-reading", "Hebrew reading acceptance"]);
+  await db.query(
+    "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+    [hebrewReleaseId, hebrewWorkspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), ownerId],
+  );
+  await ensureCatalog(db, hebrewReleaseId);
+}
+app.post("/test/hebrew-reading-session", async (request) => {
+  const body = (request.body ?? {}) as { conversation?: boolean };
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "hebrew-reading:" + userId, "Hebrew learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [hebrewWorkspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: hebrewReleaseId } })).json().id;
+  if (body.conversation) {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision;
+    const asked = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/companion`, headers,
+      payload: { expectedRevision: revision, idempotencyKey: randomUUID(), episodeId: "min", content: HEBREW_QUESTION } });
+    if (asked.statusCode !== 200) throw Error("Hebrew reading fixture failed: " + asked.body);
+    const question = asked.json() as { messageId: string; eventId: string };
+    const jobId = randomUUID();
+    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES ($1,$2,$3,$4,'companion','running',1,'{}')`,
+      [jobId, enrollment, hebrewWorkspaceId, `browser-hebrew-${jobId}`]);
+    await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [question.messageId, jobId]);
+    await teachingContext(db, { jobId, workspaceId: hebrewWorkspaceId, enrollmentId: enrollment, generation: 1 },
+      { kind: "learning_event", eventId: question.eventId, eventType: "companion.requested", courseReleaseId: hebrewReleaseId, episodeId: "min", messageId: question.messageId });
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,'{}',$4)",
+      [randomUUID(), enrollment, HEBREW_ANSWER, jobId]);
+    await db.query("UPDATE supervisor_jobs SET state='applied' WHERE id=$1", [jobId]);
+  }
   return { token: await issueLoginCode(db, userId) };
 });
 // Test-only: "Context used" on an answer whose earlier conversation has a reply written in Markdown

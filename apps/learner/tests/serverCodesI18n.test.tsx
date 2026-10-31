@@ -36,13 +36,16 @@ describe("server reasons sent as codes", () => {
 });
 
 describe("course text direction in shared controls", () => {
-  it("gives free-text fields and course options their own direction on the web", () => {
+  it("keeps free-text fields in the interface's direction and gives course options their own on the web", () => {
     inLocale("he", <>
       <Field label="תשובה" value="" onChangeText={() => {}} />
       <Field label="מספר" dir="ltr" value="" onChangeText={() => {}} />
       <ChoiceList label="בחירה" value="" onChange={() => {}} options={[{ id: "a", label: "Keep the smaller value" }]} />
     </>);
-    expect(screen.getByLabelText("תשובה")).toHaveAttribute("dir", "auto");
+    // An empty dir="auto" field is left to right: its Hebrew placeholder and caret sat on the left.
+    // Typed text still shows in its own direction (unicode-bidi: plaintext).
+    expect(screen.getByLabelText("תשובה")).toHaveAttribute("dir", "rtl");
+    expect(screen.getByLabelText("תשובה")).toHaveStyle({ unicodeBidi: "plaintext" });
     expect(screen.getByLabelText("מספר")).toHaveAttribute("dir", "ltr");
     expect(screen.getByText("Keep the smaller value")).toHaveAttribute("dir", "auto");
   });

@@ -18,7 +18,6 @@
   "removed": "Removed “{name}”.",
   "unavailable.server": "Passkeys are not available on this server's address.",
   "unavailable.browser": "This browser cannot create passkeys here. Use your password.",
-  "close": "Close",
   "add": "Add a passkey",
   "added": "Added “{name}”. You can now sign in with it or with your password.",
   "name": "Passkey name",

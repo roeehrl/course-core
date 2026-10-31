@@ -85,7 +85,8 @@ import { courseContentAttributes } from "./domain/contentLanguage";
 import { library } from "./connected/library";
 import "./connected/connected.css";
 import { codeSubmissionError } from "./connected/code";
-import { answerFeedback } from "./connected/answerFeedback";
+import { answerFeedback, answerFeedbackTone } from "./connected/answerFeedback";
+import { readingAnchor, restoreReadingAnchor, type ReadingAnchor } from "./connected/readingAnchor";
 import { answerPayload } from "./connected/AssessmentInput.web";
 import type { NextAction } from "@course-core/sdk";
 import {
@@ -197,6 +198,8 @@ function useHeaderHeight(hostRef: React.RefObject<HTMLDivElement | null>) {
   }, [hostRef]);
 }
 
+/** Refusals whose message already says nothing ran and the request is kept to send again. */
+const RETRY_IN_ERROR = new Set(["CODE_SANDBOX_SETUP_SLOW"]);
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const t = useT();
   const i18n = useI18n();
@@ -224,12 +227,26 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     () => readPanePreference() ?? (size === "expanded" ? "open" : "collapsed"),
   );
   const paneCollapsed = panePreference === "collapsed";
+  // Opening or closing the pane beside the lesson reflows its text: the line being read stays
+  // where it is on the screen (connected/readingAnchor.ts).
+  const reading = useRef<ReadingAnchor | null>(null);
   const setPaneCollapsed = useCallback((value: boolean) => {
     const next = value ? "collapsed" : "open";
+    const header = document.querySelector(".connected-header")?.getBoundingClientRect().bottom ?? 0;
+    const anchor = (reading.current = readingAnchor(document.querySelector(".connected-main"), header));
+    // Used by the layout this change commits, or by none (the pane was already that way).
+    requestAnimationFrame(() => {
+      if (reading.current === anchor) reading.current = null;
+    });
     setPanePreference(next);
     writePanePreference(next);
   }, []);
   const paneShown = wide && !paneCollapsed;
+  useLayoutEffect(() => {
+    const anchor = reading.current;
+    reading.current = null;
+    if (anchor) restoreReadingAnchor(anchor);
+  }, [paneShown]);
   const hostRef = useRef<HTMLDivElement>(null);
   // Beside the lesson, the button that shows the companion pane lives in the header, where it
   // never covers lesson text (a floating button did, mid-page, on tablets).
@@ -248,7 +265,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     busy = useRef(false),
     [error, setError] = useState(""),
     // A notice is rendered at display time, so it follows a language switch while it shows.
-    [notice, setNotice] = useState<{ render: (t: Translate) => string } | null>(null);
+    [notice, setNotice] = useState<{ render: (t: Translate) => string; tone?: "info" | "warning" } | null>(null);
   const slowRequest = useSlow(pending);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]),
     [catalog, setCatalog] = useState<CatalogCourse[]>([]);
@@ -638,7 +655,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     }
     const recovered = api.takeRecovered(id);
     if (recovered?.action === "answers")
-      setNotice({ render: (t) => t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }) });
+      setNotice({ render: (t) => t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }), tone: answerFeedbackTone(recovered.result) });
     if (recovered?.action === "companion") setNotice({ render: (t) => t("connectedHost.notice.recoveredMessage") });
     return value;
   }
@@ -693,10 +710,12 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     busy.current = true;
     setPending(true);
     setError("");
+    setRetryInError(false);
     setNotice(null);
     try {
       return await action();
     } catch (cause) {
+      setRetryInError(cause instanceof CourseApiError && RETRY_IN_ERROR.has(cause.code));
       // The message appears above the lesson: keep the learner's place, so what they were
       // answering does not slide under the answer actions.
       const restore = keepLessonPlace(scroller);
@@ -740,6 +759,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   function run(action: () => Promise<unknown>) {
     void transact(action).catch(() => {});
   }
+  // An erased account lands here with ?erased=account (YourDataPanel): confirmed on the sign-in
+  // page once; the flag leaves the address so a reload does not repeat it.
+  const [accountErased] = useState(() => new URLSearchParams(window.location.search).get("erased") === "account");
+  useEffect(() => {
+    if (!accountErased) return;
+    const query = new URLSearchParams(window.location.search);
+    query.delete("erased");
+    const rest = query.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+  }, [accountErased]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.hash.slice(1)),
       token = params.get("signin");
@@ -811,7 +840,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
       }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t) });
+      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t), tone: answerFeedbackTone(result) });
     } finally {
       setCheckingAnswer(false);
       setSavingAnswer(false);
@@ -823,7 +852,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setSavingAnswer(true);
     try {
       const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, false, t) });
+      setNotice({ render: (t) => answerFeedback(result, false, t), tone: answerFeedbackTone(result) });
     } finally {
       setSavingAnswer(false);
     }
@@ -1002,6 +1031,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     });
   }
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  // A refusal that says the request did not run and is kept to send again (slow sandbox setup) is
+  // said once, in the connection status beside its retry, where the learner pressed; a notice at
+  // the top of the lesson repeated it while the "Not recorded yet" band said it again.
+  const [retryInError, setRetryInError] = useState(false);
+  const errorHoldsRetry = retryInError && Boolean(error) && pendingAction !== null;
   const hasRecovery = pendingAction !== null;
   const online = useOnline();
   const checkPending = useCallback(() => {
@@ -1229,7 +1263,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               </button>
             </nav>
           )}
-          {error && (
+          {error && !errorHoldsRetry && (
             <Notice error>
               {error}
               {server && !hasRecovery && (
@@ -1242,7 +1276,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               )}
             </Notice>
           )}
-          {notice && <Notice>{notice.render(t)}</Notice>}
+          {notice && <Notice tone={notice.tone}>{notice.render(t)}</Notice>}
           {server && (storageUnavailable || drafts.unavailable) && (
             <Notice>
               {t("connectedHost.storageUnavailable")}
@@ -1252,6 +1286,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             <ConnectionStatus
               online={online}
               pendingAction={server ? pendingAction : null}
+              reason={errorHoldsRetry ? error : undefined}
               pending={pending}
               slow={slowRequest}
               onRetry={() => server && run(() => refresh(server.enrollmentId))}
@@ -1271,6 +1306,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           ) : !account ? (
             <section className="connected-signin">
               <LocaleSwitcher />
+              {accountErased && <Notice>{t("yourDataPanel.account.erased")}</Notice>}
               <Badge label={t("connectedHost.signIn.badge")} />
               <h1>{t("connectedHost.signIn.title")}</h1>
               <p>{t(passkeys ? "connectedHost.signIn.introPasskeys" : "connectedHost.signIn.intro")}</p>
@@ -1710,7 +1746,6 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               request={api.request}
               loginName={account.loginName}
               hasPassword={account.hasPassword === true}
-              onClose={() => setAccountDialog(null)}
             />
           </div>
         </Overlay>

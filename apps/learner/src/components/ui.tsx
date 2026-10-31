@@ -136,7 +136,7 @@ export function Heading({ style, children, ...props }: TextProps) {
 
 /** A disabled button's colours: its label keeps at least 4.5:1 on the fill, on white and on the
  * app's paper, mint and lilac backgrounds (tests/disabledContrast.test.ts). */
-export const DISABLED = { fill: "#DFE9E5", onFill: "#3F5A55", line: "#E4EBE8", text: "#56706B" } as const;
+export const DISABLED = { fill: "#DFE9E5", onFill: "#3F5A55", line: "#E4EBE8", text: "#4F6863" } as const;
 export function Button({
   label,
   onPress,
@@ -300,33 +300,39 @@ export function Badge({
     </View>
   );
 }
+/** A message in the page. `error` is an alert (something failed and needs the learner); `warning`
+ * tells of an outcome that did not go the learner's way, such as an answer that did not pass or ran
+ * out of time, in the same amber without interrupting; the default is a calm confirmation. */
 export function Notice({
   children,
   error = false,
+  tone = error ? "error" : "info",
 }: {
   children: React.ReactNode;
   error?: boolean;
+  tone?: "info" | "warning" | "error";
 }) {
+  const amber = tone !== "info";
   return (
     <View
-      accessibilityRole={error ? "alert" : undefined}
+      accessibilityRole={tone === "error" ? "alert" : undefined}
       accessibilityLiveRegion="polite"
-      aria-live={error ? "assertive" : "polite"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+      {...(Platform.OS === "web" ? ({ dataSet: { tone } } as object) : {})}
       style={{
         padding: 16,
         borderRadius: 12,
-        backgroundColor: error ? colors.sand : colors.mint,
+        backgroundColor: amber ? colors.sand : colors.mint,
       }}
     >
       <Text
-        style={[styles.small, { color: error ? colors.gold : colors.teal }]}
+        style={[styles.small, { color: amber ? colors.gold : colors.teal }]}
       >
         {children}
       </Text>
     </View>
   );
 }
-/** Web-only direction attribute; native lays text out by its content. */
 export const webDir = (dir: TextDir | undefined) => (Platform.OS === "web" && dir ? { dir } : {});
 export type TextDir = "auto" | "ltr" | "rtl";
 const STRONG_RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
@@ -346,10 +352,13 @@ export function textDirection(...texts: (string | undefined)[]): TextDir | undef
     }
   return undefined;
 }
-/** A labelled text input. Free text keeps its own direction (`dir="auto"`); pass `dir="ltr"`
- * for codes, numbers and URLs. */
-export function Field({ label, dir = "auto", ...props }: TextInputProps & { label: string; dir?: TextDir }) {
+/** A labelled text field (pass `dir="ltr"` for codes, numbers and URLs). Without `dir` it keeps the interface's direction, so an empty field's
+ * placeholder and caret start at the reading edge (an empty `dir="auto"` field resolves to left to
+ * right, which put a Hebrew placeholder on the left), and typed text shows in its own direction. */
+export function Field({ label, dir, ...props }: TextInputProps & { label: string; dir?: TextDir }) {
   const [focused, setFocused] = useState(false);
+  // react-native-web gives a TextInput dir="auto" unless told otherwise: name the interface's.
+  const ui = useI18n().dir;
   return (
     <View style={{ gap: 8 }}>
       <Text style={[styles.small, { fontWeight: "600", color: colors.ink }]}>
@@ -357,7 +366,7 @@ export function Field({ label, dir = "auto", ...props }: TextInputProps & { labe
       </Text>
       <TextInput
         {...props}
-        {...webDir(dir)}
+        {...webDir(dir ?? ui)}
         accessibilityLabel={label}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -375,6 +384,7 @@ export function Field({ label, dir = "auto", ...props }: TextInputProps & { labe
             padding: 12,
             textAlignVertical: "top",
           },
+          Platform.OS === "web" && !dir ? ({ unicodeBidi: "plaintext" } as object) : undefined,
           props.style,
         ]}
       />

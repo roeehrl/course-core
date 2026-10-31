@@ -85,7 +85,8 @@ describe("written answers in Hebrew", () => {
     const note = screen.getByText((_, el) => el?.tagName === "P" && stripBidiControls(el.textContent ?? "") === "הערת הבודק/ת: Why is the kept value the minimum?");
     expect(note.textContent).toContain("⁨"); // the reviewer's note is isolated inside right-to-left text
     expect(screen.getByText((_, el) => el?.tagName === "STRONG" && stripBidiControls(el.textContent ?? "") === "התשובה שלך · ממתינה לבדיקה")).toBeVisible();
-    expect(screen.getByLabelText("התשובה שלך לבודק/ת")).toHaveAttribute("dir", "auto");
+    // The field keeps the interface's direction (its caret starts at the right); typed text shows in its own.
+    expect(screen.getByLabelText("התשובה שלך לבודק/ת")).not.toHaveAttribute("dir");
     expect(screen.getByRole("button", { name: "שליחת התשובה לבדיקה" })).toBeDisabled();
   });
 });
