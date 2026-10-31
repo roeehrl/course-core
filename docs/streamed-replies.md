@@ -73,7 +73,12 @@ until the checked reply replaces it.
   reservation, receipt and pricing rules apply.
 - With several API processes behind a balancer, a learner whose event stream is served by a
   process other than the gateway's sees the stored reply only (as before streaming). The
-  supported deployment runs one API process.
+  supported deployment runs one API process. The end of a reply's story does not depend on draft
+  frames: the check of a reply in check-coaching mode ending (`companion.reply.checked`), a
+  companion job failing or getting no answer (`companion.job.changed`) and an applied reply
+  (`supervisor.applied`) are learning events, written in the same transaction, and reach every
+  process's streams at commit. After a draft ends or a check finishes, the app reads the
+  conversation every 2 s for 20 s while the stored reply is due, then only at the 30 s safety read.
 
 ## Stopping and reconnecting
 

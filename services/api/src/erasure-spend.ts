@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 import { outcomeSchema, snapshotSchema, type ProviderRequest, type Snapshot } from '@course-core/supervisor';
 import { telemetry } from '@course-core/supervisor/telemetry';
 import { digestJson } from './repository.js';
-import { DISPATCH_COST, dispatchReconciles, judgeSplit, type DispatchCost, type SpendEvent } from './provider-costs.js';
+import { DISPATCH_COST, ledgerSettlement, settleLedgerSql, type DispatchCost, type SpendEvent } from './provider-costs.js';
 import { lockPaidWorkBudgets } from './supervisor-bridge.js';
 
 /**
@@ -19,7 +19,9 @@ import { lockPaidWorkBudgets } from './supervisor-bridge.js';
  *   reservation is released;
  * - anything that may have run (in flight or uncertain) is closed at its reservation: the row
  *   stays `uncertain` and keeps the full allowance charged, but is settled, so nothing can
- *   settle it again and it no longer counts as an open hold.
+ *   settle it again and it no longer counts as an open hold;
+ * - a check judge's part held for the owner (migration 124) is closed at the amount held, like any
+ *   call whose outcome stays unknown; the reply's priced part is unchanged.
  *
  * Idempotent: only unsettled rows are touched, each by a guarded update.
  */
@@ -40,7 +42,7 @@ export async function lockKeys(client: PoolClient, keys: readonly string[]) {
 
 interface LedgerRow {
   id: string; source: 'supervisor' | 'media'; source_ref: string; attempt: number; role: string; model_id: string | null;
-  reserved_micro_usd: string; reserved_tokens: string;
+  reserved_micro_usd: string; reserved_tokens: string; judge_held_micro_usd: string | null;
 }
 interface DispatchRow extends DispatchCost { owner_id: string; state: string; sent_at: Date | null; outcome: unknown }
 interface MediaRow { id: string; state: string; last_from: string | null }
@@ -64,7 +66,7 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
     'SELECT id,runtime_snapshot FROM supervisor_jobs WHERE enrollment_id=$1 ORDER BY id FOR UPDATE', [enrollment.id])).rows;
   const media = (await client.query<MediaRow>(`SELECT m.id,m.state,(SELECT e.from_state FROM media_job_events e WHERE e.job_id=m.id ORDER BY e.id DESC LIMIT 1) AS last_from
     FROM media_jobs m WHERE m.enrollment_id=$1 ORDER BY m.id FOR UPDATE OF m`, [enrollment.id])).rows;
-  const open = (await client.query<LedgerRow>(`SELECT id,source,source_ref,attempt,role,model_id,reserved_micro_usd,reserved_tokens FROM provider_spend_ledger
+  const open = (await client.query<LedgerRow>(`SELECT id,source,source_ref,attempt,role,model_id,reserved_micro_usd,reserved_tokens,judge_held_micro_usd FROM provider_spend_ledger
     WHERE enrollment_id=$1 AND ${OPEN} ORDER BY source,source_ref,attempt FOR UPDATE`, [enrollment.id])).rows;
   if (open.length === 0) return result;
   await lockPaidWorkBudgets(client, { workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id });
@@ -94,10 +96,13 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
     result.counts.paidWorkReleased += 1; result.counts.paidWorkReleasedMicroUsd += microUsd;
   }
   async function close(row: LedgerRow) {
-    const done = await client.query(`UPDATE provider_spend_ledger SET state='uncertain',charged_micro_usd=reserved_micro_usd,released_micro_usd=0,settled_at=clock_timestamp()
+    // A held judge part keeps exactly what it charges (the priced reply and the amount held).
+    const held = row.judge_held_micro_usd !== null;
+    const done = await client.query(held ? `UPDATE provider_spend_ledger SET settled_at=clock_timestamp() WHERE id=$1 AND ${OPEN}`
+      : `UPDATE provider_spend_ledger SET state='uncertain',charged_micro_usd=reserved_micro_usd,released_micro_usd=0,settled_at=clock_timestamp()
       WHERE id=$1 AND ${OPEN}`, [row.id]);
     if (!done.rowCount) return;
-    result.counts.paidWorkClosedUncertain += 1; result.counts.paidWorkClosedMicroUsd += Number(row.reserved_micro_usd);
+    result.counts.paidWorkClosedUncertain += 1; result.counts.paidWorkClosedMicroUsd += Number(row.judge_held_micro_usd ?? row.reserved_micro_usd);
   }
   /** The recorded completed outcome, settled as `syncSupervisorSpend` settles a succeeded operation. */
   async function settle(row: LedgerRow, job: string, dispatch: DispatchRow) {
@@ -106,13 +111,11 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
     const reserved = Number(row.reserved_micro_usd), reservedTokens = Number(row.reserved_tokens);
     if (!outcome || outcome.usage.microUsd > reserved || outcome.usage.tokens > reservedTokens) return close(row);
     const charged = outcome.usage.microUsd, basis = outcome.usageBasis?.microUsd ?? 'reported';
-    const reconciled = basis === 'reported' && dispatchReconciles(dispatch, charged), judge = reconciled ? judgeSplit(dispatch) : null;
-    const done = await client.query(`UPDATE provider_spend_ledger SET state=$2,model_id=$3,pricing_version_id=$4,actual_micro_usd=$5,charged_micro_usd=$6,
-        released_micro_usd=GREATEST(0,reserved_micro_usd-$6),settled_at=clock_timestamp(),judge_model_id=$7,judge_pricing_version_id=$8,judge_actual_micro_usd=$9 WHERE id=$1 AND ${OPEN}`,
-      [row.id, reconciled ? 'reconciled' : 'unpriced', dispatch.model_id, reconciled ? dispatch.pricing_version_id : null, reconciled ? charged : null, charged,
-        dispatch.judge_usage === null ? null : dispatch.judge_model_id, judge?.pricingVersionId ?? null, judge?.microUsd ?? null]);
+    // Settled as the bridge settles it; a held judge part is closed with it (erasure leaves nothing open).
+    const fields = ledgerSettlement(dispatch, charged, basis), update = settleLedgerSql(2, { ...fields, open: false }, charged);
+    const done = await client.query(`UPDATE provider_spend_ledger SET ${update.sql} WHERE id=$1 AND ${OPEN}`, [row.id, ...update.values]);
     if (!done.rowCount) return;
-    if (reconciled) result.events.push({ kind: 'actual', role: row.role, microUsd: charged, modelId: dispatch.model_id, basis: 'reported' });
+    if (fields.reconciled) result.events.push({ kind: 'actual', role: row.role, microUsd: charged, modelId: dispatch.model_id, basis: 'reported' });
     await refund({ ...row, model_id: dispatch.model_id }, reserved - charged, reservedTokens - outcome.usage.tokens, job);
     result.counts.paidWorkSettled += 1;
   }
@@ -127,6 +130,8 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
       else await close(row);
       continue;
     }
+    // Already settled from its receipt, with only the judge's part still held: closed at that amount.
+    if (row.judge_held_micro_usd !== null) { await close(row); continue; }
     const found = operations.get(row.source_ref);
     if (!found || found.operation.attempt !== row.attempt) { await close(row); continue; }
     const { operation, snapshot, job } = found;

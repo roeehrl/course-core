@@ -7,7 +7,12 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { AiServicesPage } from "../src/components/aiServices/AiServicesPage";
+import { QUALITY_RULES } from "../src/components/aiServices/CheckSection";
+import enAi from "../src/i18n/messages/en/aiServices.json";
+import heAi from "../src/i18n/messages/he/aiServices.json";
 import { specialtyModel } from "../src/components/aiServices/ModelsSection";
 import {
   AiServicesError,
@@ -351,6 +356,40 @@ describe("running the quality check from the page", () => {
         expect.objectContaining({ expectedRevision: 2 }),
       ),
     );
+  });
+
+  it("every grader of Core's suite has a label and an explanation in English and Hebrew", () => {
+    // The server's list of graders (services/api/src/agent-evals/graders.ts GRADERS) is this page's list.
+    const source = readFileSync(path.join(process.cwd(), "../../services/api/src/agent-evals/graders.ts"), "utf8");
+    const declared = /export const GRADERS = \[([^\]]*)\]/.exec(source)?.[1];
+    expect(declared).toBeTruthy();
+    const graders = [...declared!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    expect(graders.length).toBeGreaterThanOrEqual(10);
+    expect([...QUALITY_RULES]).toEqual(graders);
+    for (const catalog of [enAi, heAi] as Record<string, string>[])
+      for (const id of [...graders, "other"]) {
+        expect(catalog[`check.rule.${id}`], `check.rule.${id}`).toMatch(/\S/);
+        expect(catalog[`check.ruleExplain.${id}`], `check.ruleExplain.${id}`).toMatch(/\S/);
+      }
+    expect(t("check.rule.check_mode", { count: 1 })).toMatch(/^In 1 conversation, it handled a question about a graded check/);
+    expect(he("check.rule.check_mode", { count: 2 })).toMatch(/^בשתי שיחות: /);
+  });
+
+  it("names every rule a failed conversation broke, the check-mode rule and one this page does not know yet included", async () => {
+    const failed = check({
+      state: "failed",
+      completed: 18,
+      chargedMicroUsd: 58000,
+      outcome: [{ role: "companion", passed: false, dialogues: 18, failed: [{ dialogueId: "over", graders: ["check_mode"] }, { dialogueId: "new", graders: ["later_rule"] }] }],
+    });
+    const port = fakePort({ qualityStatus: vi.fn().mockResolvedValue(status({ latest: failed })) });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    expect(await within(region).findByText(t("check.run.jobFailed", { job: t("role.companion.name"), failed: 2, count: 18 }))).toBeInTheDocument();
+    expect(within(region).getByText(t("check.rule.check_mode", { count: 1 }))).toBeInTheDocument();
+    expect(within(region).getByText(t("check.ruleExplain.check_mode"))).toBeInTheDocument();
+    expect(within(region).getByText(t("check.rule.other", { count: 1, rule: "later_rule" }))).toBeInTheDocument();
+    expect(within(region).getByText(t("check.ruleExplain.other"))).toBeInTheDocument();
   });
 
   it("says in plain language why it cannot run, and lists the rules a failed check broke", async () => {

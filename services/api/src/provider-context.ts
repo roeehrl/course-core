@@ -17,7 +17,7 @@ import {teachingPolicyView} from './teaching-constraints.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { capsuleFacts, constraintSnapshot, retrieveConversation, simulationState, storeCapsule, type CompanionCapsule, type QuestionFocus } from './context-capsule.js';
 import { effectiveDigestSql } from './carried-digest.js';
-import { checkCoachingView, checkScope, courseChecksFor, matchGradedChecks } from './companion-check-integrity.js';
+import { questionCheckCoaching } from './companion-check-scope.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
@@ -50,12 +50,11 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     requireCondition(question, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
     const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
     // The course's graded checks this question is about, open or not (companion-check-integrity.ts):
-    // only their prompts and options reach the model, never a key.
-    const open = input.messageId ? (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() LIMIT 20',
-      [ref.enrollmentId])).rows.map(row => row.assessment_id) : [];
-    const scope = checkScope(course, episode.id, input.blockId ?? null, open), known = courseChecksFor(loaded.release.digest, course);
-    const checkCoaching = input.messageId ? checkCoachingView(matchGradedChecks({ question: question!, earlier: conversation.history.filter(turn => turn.role === 'learner').map(turn => turn.content),
-      checks: known.checks, current: scope.current, nearby: scope.nearby, open: scope.open, courseText: known.text })) : undefined;
+    // only their prompts and options reach the model, never a key. The same match sized the
+    // question's reservation when it was prepared (companion-check-scope.ts).
+    const checkCoaching = input.messageId && message ? await questionCheckCoaching(client, { enrollmentId: ref.enrollmentId, courseDigest: loaded.release.digest, course,
+      episodeId: episode.id, blockId: input.blockId ?? null, messageId: input.messageId, question: question!, before: message.created_at,
+      earlier: conversation.history.filter(turn => turn.role === 'learner').map(turn => turn.content) }) : undefined;
     const evidence = (await client.query<EvidenceRow>(`SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,${effectiveDigestSql()} AS course_digest,a.mode
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [ref.enrollmentId])).rows;
     const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(course, gate, evidence, loaded.release.digest) : null;

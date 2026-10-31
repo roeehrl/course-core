@@ -13,7 +13,8 @@ import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { checkCoachingMessage, gradedChecks } from '../src/companion-check-integrity.js';
-import { CHECK_JUDGE_INSTRUCTION } from '../src/companion-check-judge.js';
+import { CHECK_JUDGE_INSTRUCTION, judgeRequestBytes } from '../src/companion-check-judge.js';
+import { judgeCeilingMicroUsd } from '../src/role-reservation.js';
 import { fixture } from './fixture.js';
 
 // The semantic check judge end to end (docs/companion-check-integrity.md, layer 4): real
@@ -102,7 +103,7 @@ async function price(model: string, version: number, status: 'active' | 'withdra
 async function session(userId: string) {
   const login = await app.inject({ method: 'POST', url: '/auth/redeem', headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
   expect(login.statusCode, login.body).toBe(200);
-  return { origin, cookie: login.cookies.map(c => `${c.name}=${c.value}`).join('; ') };
+  return { origin, cookie: login.cookies.map(c => `${c.name}=${c.value}`).join('; '), 'x-csrf-token': login.json().csrfToken as string };
 }
 /** A learner question (after any earlier questions of theirs in this lesson) prepared into a claimed companion job. */
 async function prepare(question: string, earlier: string[] = []) {
@@ -132,7 +133,7 @@ const invoke = (body: ProviderRequest) => app.inject({ method: 'POST', url: '/v1
 const transition = (command: unknown) => app.inject({ method: 'POST', url: '/v1/supervisor/bridge', headers: { authorization: `Bearer ${token}` }, payload: { method: 'transition', command } });
 type Frame = { jobId: string; offset: number; text: string; state: string; reason?: string; checking?: true };
 function follow(headers: { cookie: string }, enrollmentId: string) {
-  const controller = new AbortController(), frames: Frame[] = [];
+  const controller = new AbortController(), frames: Frame[] = [], events: { type: string; payload: Record<string, unknown> }[] = [];
   let text = '', resolveOpen!: () => void;
   const opened = new Promise<void>(resolve => { resolveOpen = resolve; });
   const done = (async () => {
@@ -150,11 +151,12 @@ function follow(headers: { cookie: string }, enrollmentId: string) {
           const block = text.slice(0, cut); text = text.slice(cut + 2);
           const event = /^event: (.*)$/m.exec(block)?.[1], data = /^data: (.*)$/m.exec(block)?.[1];
           if (event === 'companion-draft' && data) frames.push(JSON.parse(data));
+          if (event === 'learning-event' && data) { const row = JSON.parse(data); events.push({ type: row.event_type, payload: row.payload }); }
         }
       }
     } catch { /* closed by the test */ }
   })();
-  return { frames, opened, close: async () => { controller.abort(); await done.catch(() => undefined); } };
+  return { frames, events, opened, close: async () => { controller.abort(); await done.catch(() => undefined); } };
 }
 async function until(read: () => boolean, ms = 4000) {
   const deadline = Date.now() + ms;
@@ -162,9 +164,29 @@ async function until(read: () => boolean, ms = 4000) {
 }
 const artifacts = async (jobId: string) => (await db.query('SELECT content FROM supervisor_artifacts WHERE job_id=$1', [jobId])).rows.map(r => r.content);
 const dispatch = async (operationId: string) => (await db.query(`SELECT state,candidate,cost_micro_usd::int AS cost,judge_model_id,judge_cost_micro_usd::int AS judge_cost,judge_verdict,
-  judge_pricing_version_id IS NOT NULL AS judge_priced,judge_usage IS NOT NULL AS judge_receipt FROM provider_dispatches WHERE operation_id=$1`, [operationId])).rows[0];
+  judge_pricing_version_id IS NOT NULL AS judge_priced,judge_usage IS NOT NULL AS judge_receipt,judge_settlement,judge_held_micro_usd::int AS judge_held
+  FROM provider_dispatches WHERE operation_id=$1`, [operationId])).rows[0];
 const ledger = async (enrollmentId: string) => (await db.query(`SELECT state,charged_micro_usd::int AS charged,actual_micro_usd::int AS actual,judge_model_id,judge_actual_micro_usd::int AS judge_actual
   FROM provider_spend_ledger WHERE enrollment_id=$1`, [enrollmentId])).rows;
+/** The whole ledger row, with the reply's own priced part and any judge part held for the owner. */
+const ledgerRow = async (enrollmentId: string) => (await db.query(`SELECT id,state,settled_at IS NULL AS open,reserved_micro_usd::int AS reserved,charged_micro_usd::int AS charged,
+  released_micro_usd::int AS released,actual_micro_usd::int AS actual,companion_actual_micro_usd::int AS companion_actual,judge_held_micro_usd::int AS judge_held,
+  judge_actual_micro_usd::int AS judge_actual FROM provider_spend_ledger WHERE enrollment_id=$1`, [enrollmentId])).rows;
+const NO_TOKENS = { input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null };
+/** A judge call that was sent and got no answer it reported usage for. */
+function noAnswer(code: 'NO_RESPONSE' | 'UPSTREAM_UNAVAILABLE' | 'STREAM_STALLED', status: number | null = null) {
+  const error = new ProviderError(code, { submission: 'unknown', ...(status !== null ? { status } : {}) });
+  error.usage = { ...receipt(JUDGE, 'assess', 0, 0), attempts: [{ attempt: 1, status, outcome: 'unknown', tokens: NO_TOKENS }] };
+  return error;
+}
+/** The judge ceiling of the last judge request (role-reservation.ts judgeCeilingMicroUsd at the judge's price). */
+function judgeCeiling() {
+  const request = judgeCalls().at(-1)!.request as AssessmentRequest;
+  const bytes = judgeRequestBytes({ systemInstruction: request.systemInstruction!, prompt: request.messages[0]!.text });
+  return judgeCeilingMicroUsd(bytes, request.maxOutputTokens!, { versionId: 'x', currency: 'USD', inputMicroUsdPerMillionTokens: JUDGE_PRICE.input,
+    outputMicroUsdPerMillionTokens: JUDGE_PRICE.output, cachedInputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null })!;
+}
+const used = async (enrollmentId: string) => Number((await db.query('SELECT used_micro_usd FROM supervisor_enrollment_budgets WHERE enrollment_id=$1', [enrollmentId])).rows[0].used_micro_usd);
 const answer = async (jobId: string) => (await db.query("SELECT content,context FROM companion_messages WHERE job_id=$1 AND role='assistant'", [jobId])).rows;
 async function deliver(job: Awaited<ReturnType<typeof prepare>>, outcome: unknown) {
   const settled = await bridge.transition({ type: 'settle', ref: job.ref, operationId: job.operation.id, ownerId: job.ownerId, outcome: outcome as never });
@@ -202,9 +224,15 @@ describe('the semantic check judge in the provider gateway', () => {
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: coaching, withheld: 'check_answer_judged' }]);
     expect(await dispatch(job.request.operationId)).toMatchObject({ state: 'completed', cost: COST + JUDGE_COST, judge_model_id: JUDGE, judge_cost: JUDGE_COST, judge_priced: true,
       judge_receipt: true, judge_verdict: 'leak:decides_equivalent_case', candidate: { checkCoaching: { checkIds: ['min-sort'], withheld: 'check_answer_judged' } } });
+    // The check's end is a learning event, committed with the receipt, so a stream on any API
+    // process learns it at once (the draft frame reaches only this process's streams).
+    await until(() => mine.events.some(e => e.type === 'companion.reply.checked'));
+    expect(mine.events.filter(e => e.type === 'companion.reply.checked')).toEqual([{ type: 'companion.reply.checked',
+      payload: { jobId: job.ref.jobId, messageId: expect.any(String), result: 'withheld' } }]);
     const { verified, applied } = await deliver(job, outcome);
     expect(verified.state).toBe('ready');
     expect(applied.state).toBe('applied');
+    await until(() => mine.events.some(e => e.type === 'supervisor.applied'));
     expect(await answer(job.ref.jobId)).toEqual([expect.objectContaining({ content: coaching, context: expect.objectContaining({ checkAnswerWithheld: 'check_answer_judged' }) })]);
     expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', charged: COST + JUDGE_COST, actual: COST + JUDGE_COST, judge_model_id: JUDGE, judge_actual: JUDGE_COST }]);
     for (const table of ['companion_messages', 'supervisor_artifacts', 'provider_dispatches'])
@@ -220,6 +248,8 @@ describe('the semantic check judge in the provider gateway', () => {
     const outcome = (await invoke(job.request)).json();
     expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST + JUDGE_COST, tokens: IN + OUT + JUDGE_IN + JUDGE_OUT } });
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: coached }]);
+    expect((await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.reply.checked'", [job.enrollmentId])).rows)
+      .toEqual([{ payload: expect.objectContaining({ jobId: job.ref.jobId, result: 'kept' }) }]);
     const receiptRow = await dispatch(job.request.operationId);
     expect(receiptRow).toMatchObject({ judge_verdict: 'kept', cost: COST + JUDGE_COST });
     // The gateway's scope travels with the reply, so the companion verifier repeats the same check.
@@ -235,24 +265,31 @@ describe('the semantic check judge in the provider gateway', () => {
     const question = 'Which option should I pick for the filing check?';
     // Malformed: the judge answered (and is charged), but gave no verdict.
     let job = await prepare(question);
+    const mine = follow(job.learner, job.enrollmentId);
+    await mine.opened;
     reply = ['Think about what filing changes: the set of cards, or only their order?']; verdict = { reason: 'no flags' };
     let outcome = (await invoke(job.request)).json();
+    // Not kept because it could not be checked, which the learner is told apart from a give-away.
+    await until(() => mine.frames.at(-1)?.state === 'withdrawn');
+    expect(mine.frames.at(-1)).toMatchObject({ reason: 'check_unverified', checking: true });
+    await mine.close();
     expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST + JUDGE_COST } });
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: checkCoachingMessage(question, gradedChecks(course).filter(c => c.id === 'min-sort')), withheld: 'check_judge_unavailable' }]);
     // The structured output failed the judge's schema (Core's router refuses it, keeping its usage).
     expect(await dispatch(job.request.operationId)).toMatchObject({ judge_verdict: 'unavailable:judge_invalid_response', judge_cost: JUDGE_COST });
     expect((await deliver(job, outcome)).applied.state).toBe('applied');
-    // No answer in time: its usage is unknown, so the operation keeps the reservation charged (as any unknown call).
+    // No answer in time: the judge's usage is unknown, so only its own ceiling is held for the
+    // owner; the reply's call is priced on its own (judge failures: the test below).
     job = await prepare(question);
-    const stalled = new ProviderError('NO_RESPONSE', { submission: 'unknown' });
-    stalled.usage = { ...receipt(JUDGE, 'assess', 0, 0), attempts: [{ attempt: 1, status: null, outcome: 'unknown', tokens: { input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null } }] };
-    verdict = stalled;
+    verdict = noAnswer('NO_RESPONSE');
     outcome = (await invoke(job.request)).json();
-    expect(outcome).toMatchObject({ status: 'succeeded', usage: ALLOWANCE, usageBasis: { microUsd: 'reserved_ceiling', tokens: 'reserved_ceiling' } });
+    const ceiling = judgeCeiling();
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST + ceiling }, usageBasis: { microUsd: 'reported' } });
     expect(await artifacts(job.ref.jobId)).toEqual([expect.objectContaining({ withheld: 'check_judge_unavailable' })]);
-    expect(await dispatch(job.request.operationId)).toMatchObject({ judge_verdict: 'unavailable:judge_no_response', cost: null, judge_cost: null });
+    expect(await dispatch(job.request.operationId)).toMatchObject({ judge_verdict: 'unavailable:judge_no_response', cost: COST + ceiling, judge_cost: null,
+      judge_settlement: 'held', judge_held: ceiling });
     expect((await deliver(job, outcome)).applied.state).toBe('applied');
-    expect(await ledger(job.enrollmentId)).toEqual([expect.objectContaining({ state: 'unpriced', charged: ALLOWANCE.microUsd, judge_actual: null })]);
+    expect(await ledgerRow(job.enrollmentId)).toEqual([expect.objectContaining({ state: 'uncertain', open: true, charged: COST + ceiling, companion_actual: COST, judge_held: ceiling, judge_actual: null })]);
     // Unpriced judge in a workspace that requires prices: never called; the reply's own call is charged.
     await price(JUDGE, ++judgePriceVersion, 'withdrawn', JUDGE_PRICE);
     try {
@@ -267,6 +304,77 @@ describe('the semantic check judge in the provider gateway', () => {
       expect((await deliver(job, outcome)).applied.state).toBe('applied');
       expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', charged: COST, actual: COST, judge_model_id: null, judge_actual: null }]);
     } finally { await price(JUDGE, ++judgePriceVersion, 'active', JUDGE_PRICE); }
+  }, 30_000);
+
+  it('settles a failed judge call on its own: reported usage, never sent, refused, or held for the owner; the reply\'s call is priced either way', async () => {
+    const question = 'Which option should I pick for the filing check?';
+    reply = ['Think about what filing changes: the set of cards, or only their order?'];
+    // An HTTP 500 after the request was sent: no usage came back, so the judge's ceiling is held.
+    let job = await prepare(question);
+    verdict = noAnswer('UPSTREAM_UNAVAILABLE', 500);
+    let outcome = (await invoke(job.request)).json();
+    const ceiling = judgeCeiling();
+    // A normal judged reply costs COST + JUDGE_COST; the failure holds the judge's ceiling, never the reservation.
+    expect(ceiling).toBeLessThan(ALLOWANCE.microUsd / 10);
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST + ceiling }, usageBasis: { microUsd: 'reported', tokens: 'reported' } });
+    expect(await dispatch(job.request.operationId)).toMatchObject({ judge_verdict: 'unavailable:judge_upstream_unavailable', judge_settlement: 'held', judge_held: ceiling, cost: COST + ceiling });
+    const before = await used(job.enrollmentId);
+    expect((await deliver(job, outcome)).applied.state).toBe('applied');
+    expect(await used(job.enrollmentId)).toBe(before - (ALLOWANCE.microUsd - COST - ceiling));
+    const [held] = await ledgerRow(job.enrollmentId);
+    expect(held).toMatchObject({ state: 'uncertain', open: true, reserved: ALLOWANCE.microUsd, charged: COST + ceiling, released: ALLOWANCE.microUsd - COST - ceiling,
+      actual: null, companion_actual: COST, judge_held: ceiling, judge_actual: null });
+    // The owner sees the held judge part (not the reservation) and settles it at zero.
+    const owner = await session(ownerId);
+    const list = (await app.inject({ method: 'GET', url: `/api/admin/workspaces/${workspaceId}/provider-spend/uncertain`, headers: owner })).json();
+    expect(list.calls.find((c: { id: string }) => c.id === held.id)).toMatchObject({ role: 'companion', reservedMicroUsd: ceiling, happened: 'check_judge_no_answer', settleable: true });
+    const settle = (decision: 'zero' | 'reservation', id: string, amount: number) => app.inject({ method: 'POST', url: `/api/admin/workspaces/${workspaceId}/provider-spend/uncertain/${id}/settle`,
+      headers: owner, payload: { idempotencyKey: `judge-${randomUUID()}`, decision, expectedReservedMicroUsd: amount, reason: 'Checked the provider usage page.' } });
+    const zero = await settle('zero', held.id, ceiling);
+    expect(zero.statusCode, zero.body).toBe(200);
+    expect(zero.json()).toMatchObject({ decision: 'zero', chargedMicroUsd: 0, releasedMicroUsd: ceiling });
+    expect(await used(job.enrollmentId)).toBe(before - (ALLOWANCE.microUsd - COST));
+    expect((await ledgerRow(job.enrollmentId))[0]).toMatchObject({ state: 'reconciled', open: false, charged: COST, actual: COST, companion_actual: COST, judge_held: ceiling });
+    expect((await db.query('SELECT micro_usd::int AS spent FROM supervisor_job_spend WHERE job_id=$1', [job.ref.jobId])).rows[0].spent).toBe(COST);
+    // A stall is held the same way; the owner keeps it charged.
+    job = await prepare(question);
+    verdict = noAnswer('STREAM_STALLED');
+    outcome = (await invoke(job.request)).json();
+    expect((await deliver(job, outcome)).applied.state).toBe('applied');
+    const [stalled] = await ledgerRow(job.enrollmentId);
+    expect(stalled).toMatchObject({ state: 'uncertain', open: true, charged: COST + judgeCeiling(), companion_actual: COST });
+    const kept = await settle('reservation', stalled.id, stalled.judge_held);
+    expect(kept.json()).toMatchObject({ decision: 'reservation', chargedMicroUsd: stalled.judge_held, releasedMicroUsd: 0 });
+    expect((await ledgerRow(job.enrollmentId))[0]).toMatchObject({ state: 'uncertain', open: false, charged: COST + stalled.judge_held });
+    // The connection never opened: no byte could have been accepted, so the judge costs nothing.
+    job = await prepare(question);
+    const unopened = new ProviderError('NETWORK_ERROR', { submission: 'not_sent' });
+    unopened.usage = { ...receipt(JUDGE, 'assess', 0, 0), attempts: [{ attempt: 1, status: null, outcome: 'not_sent', tokens: NO_TOKENS }] };
+    verdict = unopened;
+    outcome = (await invoke(job.request)).json();
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST, tokens: IN + OUT }, usageBasis: { microUsd: 'reported' } });
+    expect(await dispatch(job.request.operationId)).toMatchObject({ judge_settlement: 'not_charged', judge_held: null, cost: COST });
+    expect((await deliver(job, outcome)).applied.state).toBe('applied');
+    expect(await ledgerRow(job.enrollmentId)).toEqual([expect.objectContaining({ state: 'reconciled', open: false, charged: COST, actual: COST, companion_actual: COST, judge_held: null })]);
+    // Refused with a documented rejection status (the model never ran): nothing for the judge either.
+    job = await prepare(question);
+    const refused = new ProviderError('UPSTREAM_REJECTED', { submission: 'rejected', status: 400 });
+    refused.usage = { ...receipt(JUDGE, 'assess', 0, 0), attempts: [{ attempt: 1, status: 400, outcome: 'rejected', tokens: NO_TOKENS }] };
+    verdict = refused;
+    outcome = (await invoke(job.request)).json();
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST } });
+    expect(await dispatch(job.request.operationId)).toMatchObject({ judge_settlement: 'not_charged' });
+    // Stopped part way with usage reported up to the stop: settled at that usage.
+    job = await prepare(question);
+    const partial = new ProviderError('STREAM_STALLED', { submission: 'unknown' });
+    partial.usage = { ...receipt(JUDGE, 'assess', JUDGE_IN, 10), attempts: [{ attempt: 1, status: 200, outcome: 'partial', tokens: { input: JUDGE_IN, output: 10, total: JUDGE_IN + 10, cachedInput: 0, thoughts: 0, toolInput: 0 } }] };
+    verdict = partial;
+    outcome = (await invoke(job.request)).json();
+    const partialCost = Math.ceil((JUDGE_IN * JUDGE_PRICE.input + 10 * JUDGE_PRICE.output) / 1_000_000);
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST + partialCost, tokens: IN + OUT + JUDGE_IN + 10 } });
+    expect(await dispatch(job.request.operationId)).toMatchObject({ judge_settlement: 'reported', judge_cost: partialCost, cost: COST + partialCost });
+    expect((await deliver(job, outcome)).applied.state).toBe('applied');
+    expect(await ledgerRow(job.enrollmentId)).toEqual([expect.objectContaining({ state: 'reconciled', charged: COST + partialCost, companion_actual: COST, judge_actual: partialCost })]);
   }, 30_000);
 
   it('an ordinary question right after a pasted check streams normally, with no coaching and no judge', async () => {
@@ -285,6 +393,8 @@ describe('the semantic check judge in the provider gateway', () => {
     expect(mine.frames.filter(f => f.state === 'streaming').map(f => f.text).join('')).toBe(text);
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text }]);
     expect(await dispatch(job.request.operationId)).toMatchObject({ judge_verdict: null, cost: COST });
+    // Not in check-coaching mode: no check event.
+    expect((await db.query("SELECT 1 FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.reply.checked'", [job.enrollmentId])).rowCount).toBe(0);
     await mine.close();
   }, 30_000);
 });

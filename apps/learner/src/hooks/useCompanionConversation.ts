@@ -12,6 +12,12 @@ import {
 export const COMPANION_FALLBACK_POLL_MS = 5000;
 /** A slow safety read while a reply is due and the stream is up, in case an event was lost. */
 export const COMPANION_SAFETY_POLL_MS = 30000;
+/** Once a reply's draft has ended or its check has finished (`companion.reply.checked`), the stored
+ * reply or its outcome is moments away: read at this pace for a short while, so a signal that is
+ * lost (or a step that records no event) costs seconds, not the safety read. */
+export const COMPANION_SETTLING_POLL_MS = 2000;
+/** How many settling reads follow one such signal (20 s in all), before the safety read again. */
+export const COMPANION_SETTLING_READS = 10;
 /** While a question is not yet prepared into a job, a refusal at preparation (closed-course
  * budget, access policy) records no event of its own; and while its job waits to be picked up,
  * the moment its call is sent is signalled only by the draft opening on this stream (from the
@@ -67,6 +73,8 @@ export function useCompanionConversation(
     // Questions whose reply has started on this stream (a draft opened), and the jobs seen so far.
     const drafted = new Set<string>(), seenJobs = new Set<string>();
     let streaming = false;
+    // Settling reads left for a reply that just finished being written or checked.
+    let settling = 0;
     // One read at a time; requests while one runs (a replayed burst of events) read once more after it.
     let running = false, again = false;
     // The text of the last messages read, to tell a real change from an identical answer.
@@ -74,8 +82,11 @@ export function useCompanionConversation(
     const schedule = () => {
       clearTimeout(timer);
       if (controller.signal.aborted) return;
+      const settle = streaming && !unprepared && pending && settling > 0;
+      if (settle) settling -= 1;
       const delay = streaming
-        ? unprepared ? COMPANION_FALLBACK_POLL_MS : pending ? COMPANION_SAFETY_POLL_MS : undefined
+        ? unprepared ? COMPANION_FALLBACK_POLL_MS
+          : pending ? settle ? COMPANION_SETTLING_POLL_MS : COMPANION_SAFETY_POLL_MS : undefined
         : openNow.current || pending ? COMPANION_FALLBACK_POLL_MS : undefined;
       if (delay !== undefined) timer = setTimeout(() => void load(), delay);
     };
@@ -132,6 +143,9 @@ export function useCompanionConversation(
     // The enrollment's resumable event stream reads the conversation again as soon as a
     // question or an answer is recorded.
     const onEvent = (type: string) => {
+      // The check of a reply ended (kept, withheld or failed): its stored outcome follows shortly.
+      // This event comes from the database, so it reaches this stream from any API process.
+      if (type === "companion.reply.checked") settling = COMPANION_SETTLING_READS;
       if (/^(companion\.|supervisor\.applied$)/.test(type)) void load();
     };
     void followEventStream(
@@ -160,6 +174,7 @@ export function useCompanionConversation(
           // the stored reply (or its refusal) is close: read it now. Reads are coalesced.
           const first = typeof jobId === "string" && !seenJobs.has(jobId);
           if (first && seenJobs.size < 1000) seenJobs.add(jobId);
+          if (state === "complete" || state === "withdrawn") settling = COMPANION_SETTLING_READS;
           if (first || state === "complete" || state === "withdrawn") void load();
         },
       },

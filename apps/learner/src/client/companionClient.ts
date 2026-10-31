@@ -72,6 +72,9 @@ export interface CompanionMessage {
     contextRevision?: number;
     /** Assistant messages: the reply reached its length limit and was delivered as far as it got. */
     cutShort?: boolean;
+    /** Assistant messages: Core's hint stands in for a reply it did not keep, because the reply gave
+     * away a graded check's answer or could not be checked (a reason code only). */
+    checkAnswerWithheld?: string;
   };
   /** Assistant messages: the capsule its answer was built from (null if not recorded). */
   context_used?: CompanionContextUsed | null;
@@ -357,6 +360,16 @@ const CEILINGS = ["workspace", "enrollment", "daily", "artifact"];
 /** Help is paused for this question: a spending limit holds it back. */
 export const companionHeldByLimit = (message: CompanionMessage) =>
   message.role === "learner" && message.job_state === "budget_wait" && CEILINGS.includes(message.job_ceiling ?? "");
+/** Withheld reasons (companion-check-integrity.ts WITHHELD_REASONS) for a reply that could not be
+ * checked, as opposed to one that gave an answer away. */
+const UNVERIFIED_REASONS = ["check_judge_unavailable", "check_keys_unavailable"];
+/** What a stored hint says about the reply it replaced: it gave away a check's answer, or it could
+ * not be checked. Undefined for an ordinary reply. */
+export function companionWithheldNote(message: CompanionMessage): "answer" | "unverified" | undefined {
+  const reason = message.role === "assistant" && message.content !== "[deleted]" ? message.context.checkAnswerWithheld : undefined;
+  if (typeof reason !== "string" || !reason) return;
+  return UNVERIFIED_REASONS.includes(reason) ? "unverified" : "answer";
+}
 /** The reply being written for one question, if the event stream brought one (and it is not yet
  * replaced by the stored reply). */
 export function companionDraftFor(
@@ -454,6 +467,7 @@ export function companionJobLabel(
     if (draft.state === "cancelled") return t("companionClient.job.cancelledSent");
     // Withdrawn before it was kept: said by why, until the saved outcome replaces it.
     return t(draft.reason === "check_answer_withheld" ? "companionClient.job.withheld"
+      : draft.reason === "check_unverified" ? "companionClient.job.unverified"
       : draft.reason === "provider_failed" ? "companionClient.job.interrupted"
         : draft.reason ? "companionClient.job.notShown" : "companionClient.job.withdrawn");
   }
