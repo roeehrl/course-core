@@ -402,6 +402,14 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     );
     return () => controller.abort();
   }, [api, availabilityEnrollment, companionVisible]);
+  // A lesson that ran out of questions: the server checks it and tells the course team once.
+  const exhaustedEnrollment = server?.enrollmentId;
+  const reportQuestionsExhausted = useCallback(async (episodeId: string) => {
+    if (!exhaustedEnrollment) return false;
+    const result = await api.request<{ told: boolean }>(
+      `/api/enrollments/${encodeURIComponent(exhaustedEnrollment)}/recovery/exhausted`, "POST", { episodeId });
+    return result.told === true;
+  }, [api, exhaustedEnrollment]);
   const availability = companionReady?.enrollmentId === server?.enrollmentId && companionReady?.status !== "not_offered" ? companionReady?.status : undefined;
   // Usability timings, only while the learner takes part in a study that asked for them
   // (connected/usability.ts). The server refuses them otherwise, and recording then stops.
@@ -1623,6 +1631,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   blockId={block.scope === readingScope ? block.id : undefined} windowSize={size} />
               ) : undefined}
               components={components}
+              onQuestionsExhausted={reportQuestionsExhausted}
               pendingChanges={
                 <PendingChangesNotice
                   items={pendingAdditions}

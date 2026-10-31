@@ -45,6 +45,9 @@ export interface ConnectedLessonProps {
   checkingAnswer?: boolean;
   /** An answer to the open check is being saved; its options are locked only then. Defaults to `pending`. */
   savingAnswer?: boolean;
+  /** The lesson needs another independent question and none is left: tells the course team (the
+   * server checks the state and notifies staff once). Resolves true once they were told. */
+  onQuestionsExhausted?: (episodeId: string) => Promise<boolean>;
   /** Staff-only tools for this lesson (the debug inspector), shown small in the lesson's header. */
   staffTools?: React.ReactNode;
   /** Reports when the learner starts and stops using an interactive part (E03 safe boundary). */
@@ -316,7 +319,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           />
         )}
         {objectiveText && <p {...courseContentAttributes(server.course)}>{objectiveText}</p>}
-        {!placement && !closed && <LessonProgress steps={steps} />}
+        {!placement && !closed && (
+          <LessonProgress steps={steps} questionsLeft={questionsLeft} questionsTotal={questionsTotal} completed={completed} />
+        )}
       </header>
       {detour && (
         <div className="connected-detour" role="note" data-testid="detour-return">
@@ -628,7 +633,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               ) : progress?.gate?.passed ? (
                 <Notice>{t("connectedLesson.check.complete")}</Notice>
               ) : waitingForReading ? null : recovery?.required&&!recovery.freshCheck ? (
-                <Notice>{t("connectedLesson.check.recoveryNeeded")}</Notice>
+                <QuestionsExhausted episodeId={episode.id} onReport={props.onQuestionsExhausted} />
               ) : (
                 <Button
                   label={recovery?.freshCheck ? t("connectedLesson.check.fresh", { minutes: recovery.freshCheck.plannedMinutes }) : t("connectedLesson.check.start")}
@@ -650,13 +655,15 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                     ? t("connectedLesson.complete.placement")
                     : t("connectedLesson.complete.episode")
                 }
-                kind={canComplete ? "primary" : "quiet"}
+                // Unavailable, it reads as a disabled button with its reason under it, not as a link.
+                kind={canComplete ? "primary" : "secondary"}
+                {...(!canComplete ? { describedBy: "connected-complete-hint" } : {})}
                 {...(canComplete ? { usability: "next" as const } : {})}
                 disabled={!canComplete}
                 onPress={props.onComplete}
               />
               {!canComplete && (
-                <p>{t(next && !placement ? "connectedLesson.complete.hintReading" : episode.gateId && !gate?.passed && !gate?.exception ? "connectedLesson.complete.hintCheck" : "connectedLesson.complete.hint")}</p>
+                <p id="connected-complete-hint">{t(next && !placement ? "connectedLesson.complete.hintReading" : episode.gateId && !gate?.passed && !gate?.exception ? "connectedLesson.complete.hintCheck" : "connectedLesson.complete.hint")}</p>
               )}
             </div>
           )}
@@ -675,27 +682,62 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
 }
 
 /**
- * The one progress indicator of a lesson: where the learner is ("Step 2 of 5 · Part 2 · Illustration")
- * and a bar of every step. Each segment's step and status are listed for assistive technology, so
- * the bar is never colour alone.
+ * A lesson that needs another independent question while none is left: said plainly, and the
+ * course team is told (once per lesson and course version, by the server) instead of leaving the
+ * learner at a dead end.
  */
-function LessonProgress({ steps }: { steps: LessonStepView[] }) {
+function QuestionsExhausted({ episodeId, onReport }: { episodeId: string; onReport: ((episodeId: string) => Promise<boolean>) | undefined }) {
   const t = useT();
-  const { now } = nowAndNext(steps);
-  const done = steps.filter((step) => step.status === "completed").length;
-  const position = now ? steps.indexOf(now) + 1 : steps.length;
+  const [told, setTold] = useState<"telling" | "told" | "failed">("telling");
+  useEffect(() => {
+    if (!onReport) return setTold("failed");
+    let live = true;
+    setTold("telling");
+    onReport(episodeId).then((ok) => live && setTold(ok ? "told" : "failed"), () => live && setTold("failed"));
+    return () => {
+      live = false;
+    };
+  }, [episodeId, onReport]);
+  return (
+    <div className="connected-questions-exhausted" role="status" data-testid="questions-exhausted">
+      <p><strong>{t("connectedLesson.check.exhausted")}</strong></p>
+      <p>{t(told === "told" ? "connectedLesson.check.exhaustedTold" : told === "telling" ? "connectedLesson.check.exhaustedTelling" : "connectedLesson.check.exhaustedNotTold")}</p>
+    </div>
+  );
+}
+
+/**
+ * The one progress indicator of a lesson, in the same scheme as its parts ("Part 2 of 3 · then 2
+ * questions"), and a bar with a segment per part, activity and the check. Each segment's step and
+ * status are listed for assistive technology, so the bar is never colour alone.
+ */
+function LessonProgress({ steps, questionsLeft, questionsTotal, completed }: {
+  steps: LessonStepView[]; questionsLeft: number; questionsTotal: number; completed: boolean;
+}) {
+  const t = useT();
+  const shown = steps.filter((step) => step.id !== "finish");
+  const parts = shown.filter((step) => step.kind === "part"), activities = shown.filter((step) => step.kind === "activity");
+  const check = shown.find((step) => step.kind === "check");
+  const { now } = nowAndNext(shown);
+  const then = check && check.status !== "completed"
+    ? t("connectedLesson.progress.thenQuestions", { count: questionsLeft || questionsTotal })
+    : "";
+  const summary = completed
+    ? t("connectedLesson.progress.complete")
+    : !now
+      ? t("connectedLesson.progress.ready")
+      : now.status === "under_review"
+        ? t("connectedLesson.progress.underReview", { title: now.title })
+        : now.kind === "part"
+          ? t("connectedLesson.progress.part", { number: parts.indexOf(now) + 1, total: parts.length, then })
+          : now.kind === "activity"
+            ? t("connectedLesson.progress.activity", { number: activities.indexOf(now) + 1, total: activities.length, then })
+            : t("connectedLesson.progress.questions", { done: questionsTotal - questionsLeft, total: questionsTotal });
   return (
     <div className="connected-lesson-progress">
-      <p id="connected-steps-summary">
-        {now
-          ? now.status === "under_review"
-            ? t("connectedLesson.progress.underReview", { title: now.title })
-            : t("connectedLesson.progress.now", { number: position, total: steps.length, title: now.title })
-          : t("connectedLesson.progress.done", { total: steps.length })}
-        <span className="connected-lesson-progress-count">{t("connectedLesson.progress.count", { done, total: steps.length })}</span>
-      </p>
+      <p id="connected-steps-summary">{summary}</p>
       <ol className="connected-steps" aria-label={t("connectedLesson.place.label")}>
-        {steps.map((step) => (
+        {shown.map((step) => (
           <li
             key={step.id}
             className={`connected-step is-${step.status.replace(/_/g, "-")}`}

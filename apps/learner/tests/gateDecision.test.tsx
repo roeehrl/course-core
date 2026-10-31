@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
 import { stripBidiControls } from "@course-core/i18n";
@@ -169,6 +169,22 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
     expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();
   });
+  it("says plainly when a lesson has no questions left, and that the course team was told", async () => {
+    const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
+    p.server.activeChallenges = [];
+    p.server.recovery = [{ episodeId: "intro", required: true, freshCheck: null }];
+    let tell!: (told: boolean) => void;
+    const onQuestionsExhausted = vi.fn(() => new Promise<boolean>((resolve) => { tell = resolve; }));
+    render(<ConnectedLesson {...p} onQuestionsExhausted={onQuestionsExhausted} />);
+    const notice = screen.getByTestId("questions-exhausted");
+    expect(notice).toHaveTextContent("No new questions are available for this lesson right now. Your work so far is saved.");
+    expect(notice).toHaveTextContent("Telling your course team…");
+    expect(onQuestionsExhausted).toHaveBeenCalledWith("intro");
+    expect(screen.queryByText(/qualified recovery check/)).toBeNull();
+    await act(async () => tell(true));
+    expect(notice).toHaveTextContent("Your course team has been told and can add more questions.");
+    expect(onQuestionsExhausted).toHaveBeenCalledTimes(1);
+  });
   it("lets the learner complete under a standing staff exception, and not otherwise", () => {
     const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
     p.server.activeChallenges = [];
@@ -239,7 +255,7 @@ describe("a reason that repeats a listed criterion", () => {
       messages: { reason: { code: "reason.needs_help.detail", params: { more: 0 }, detail }, criteria: { families: detail }, actions: [null] },
     };
     const { container } = render(<GateDecisionPanel gate={view} pending={false} onAction={vi.fn()} />);
-    expect(container.querySelector(".connected-gate-reason")).toHaveTextContent("Your last few answers were not right.");
+    expect(container.querySelector(".connected-gate-reason")).toHaveTextContent("Your last few tries did not succeed.");
     expect(container.textContent!.split("Answer 2 different kinds of question correctly on your own").length - 1).toBe(1);
   });
 });

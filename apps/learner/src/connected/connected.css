@@ -3156,3 +3156,17 @@ html:has(.connected-host:not(.is-compact)) {
     padding: 18px 20px;
   }
 }
+/* A lesson that ran out of questions: said plainly, with whether the course team was told. */
+.connected-check .connected-questions-exhausted {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #dce6e2;
+  border-inline-start: 4px solid #80601e;
+  border-radius: 12px;
+  background: #fcf3df;
+}
+.connected-check .connected-questions-exhausted p {
+  color: #183237;
+}
