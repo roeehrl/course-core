@@ -45,6 +45,8 @@ export interface ConnectedLessonProps {
   checkingAnswer?: boolean;
   /** An answer to the open check is being saved; its options are locked only then. Defaults to `pending`. */
   savingAnswer?: boolean;
+  /** The server's feedback on the answer just checked, shown in the check beside its heading. */
+  answerFeedback?: { text: string; tone: "info" | "warning" };
   policyPanel?: React.ReactNode;
   /** Reports when the learner starts and stops using an interactive part (E03 safe boundary). */
   onPresence?: (episodeId: string, blockId: string, kind: PresenceKind, state: PresenceState, leaving?: boolean) => void;
@@ -141,6 +143,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   // Likewise the check just answered: its form goes away with the server's result, so focus moves
   // to the check's heading, right above the result and what to do next.
   const answered = useRef<string | null>(null);
+  // Set when an answer is sent: its result is brought into view once it arrives. On a phone the
+  // answer actions sit far below the check's heading, so the result would otherwise appear out of
+  // sight. The heading and the result scroll only as far as needed to be seen (block "nearest"),
+  // never to the top of the page.
+  const revealResult = useRef(false);
+  const checkHead = useRef<HTMLDivElement>(null);
+  const reveal = () =>
+    requestAnimationFrame(() => checkHead.current?.scrollIntoView({ block: "nearest", inline: "nearest" }));
   useEffect(() => {
     setReviewId(undefined);
   }, [episode.id]);
@@ -193,8 +203,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     answered.current = null;
     const active = document.activeElement;
     if (active && active !== document.body && active.isConnected) return;
-    document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus();
+    document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus({ preventScroll: true });
+    reveal();
   }, [challengeId]);
+  useEffect(() => {
+    if (!props.answerFeedback || !revealResult.current) return;
+    revealResult.current = false;
+    reveal();
+  }, [props.answerFeedback?.text]);
   const steps = lessonSteps(server, episode, t);
   const detour = returnPoint(server, episode, placement);
   const place = nowAndNext(steps);
@@ -453,10 +469,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               className="connected-check"
               aria-labelledby="connected-check-title"
             >
-              <div>
+              <div className="connected-check-head" ref={checkHead}>
                 <p className="connected-eyebrow">{t("connectedLesson.check.eyebrow")}</p>
                 <h2 id="connected-check-title" tabIndex={-1}>{t("connectedLesson.check.title")}</h2>
                 <p>{t("connectedLesson.check.intro")}</p>
+                {/* Always mounted, so a screen reader announces each result as it arrives. */}
+                <div className="connected-answer-feedback" role="status" aria-atomic="true">
+                  {props.answerFeedback && <p data-tone={props.answerFeedback.tone}>{props.answerFeedback.text}</p>}
+                </div>
               </div>
               {progress?.gate?.status && props.onGateAction && (
                 <GateDecisionPanel gate={progress.gate} pending={pending} onAction={props.onGateAction} {...(props.onGateReview ? { onRequestReview: props.onGateReview } : {})} />
@@ -553,6 +573,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       }
                       onPress={() => {
                         answered.current = challenge.challengeId;
+                        revealResult.current = true;
                         props.onAnswer(challenge);
                       }}
                     />
@@ -564,6 +585,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                         accessibilityLabel={t("connectedLesson.abstain.accessibilityLabel")}
                         onPress={() => {
                           answered.current = challenge.challengeId;
+                          revealResult.current = true;
                           props.onAbstain!(challenge);
                         }}
                       />
