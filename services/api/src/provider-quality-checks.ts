@@ -39,7 +39,9 @@ import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal
  *   is settled like an answer and recorded as a failed conversation with its reason code.
  * - A finished run is recorded through `ProviderEvaluations.record`, exactly like an uploaded
  *   report: Core regrades the answers and a pass lets the waiting models turn on.
- * - A provider fault (key, quota, network) stops the run and records nothing; the reason is kept.
+ * - A provider fault (key, quota, network, a refused request) stops the run and records no result; the
+ *   reason is kept, with the first faulting call's job, HTTP status and the provider's documented
+ *   reason code (`reason_detail`), so a refusal is diagnosable without logs.
  *   A run past its deadline, or left behind by a stopped server, ends as an error and keeps what it
  *   may have spent charged.
  *
@@ -72,12 +74,17 @@ const startSchema = z.union([
 type Target = "draft" | "active";
 interface CheckRow {
   id: string; workspace_id: string; draft_id: string | null; target: Target; provider_revision: number; actor_id: string; request_digest: string;
-  state: "running" | "passed" | "failed" | "error"; reason_code: string | null; roles: EvalRole[]; total_dialogues: number;
+  state: "running" | "passed" | "failed" | "error"; reason_code: string | null; reason_detail: FaultDetail | null; roles: EvalRole[]; total_dialogues: number;
   completed_dialogues: number; estimate_micro_usd: string; reserved_micro_usd: string; outcome: RoleOutcome[] | null;
   deadline_at: Date; created_at: Date; finished_at: Date | null;
 }
 /** `reason` names why a conversation has no answer to grade (e.g. `provider_output_invalid`); absent when it was answered. */
 interface RoleOutcome { role: EvalRole; passed: boolean; dialogues: number; failed: { dialogueId: string; graders: string[]; reason?: string }[] }
+/**
+ * The first provider fault of a stopped check: the job, Core's provider code, the HTTP status and
+ * the provider's documented reason code (`ProviderError.reason`). Codes and numbers only.
+ */
+interface FaultDetail { role: EvalRole; providerCode: string; status: number | null; providerReason: string | null }
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -92,7 +99,11 @@ const PROVIDER_FAULTS: Record<string, string> = {
   SUBSCRIPTION_QUOTA_EXHAUSTED: "PROVIDER_METADATA_RATE_LIMITED",
   SUBSCRIPTION_EXPIRED: "PROVIDER_METADATA_REJECTED",
   SUBSCRIPTION_OVERAGE_REQUIRED: "PROVIDER_METADATA_REJECTED",
-  UPSTREAM_REJECTED: "PROVIDER_METADATA_REJECTED",
+  // A refusal of the request itself (malformed, unsupported setting): never reported as quota or billing.
+  UPSTREAM_REJECTED: "PROVIDER_REQUEST_REJECTED",
+  // Only the provider's documented billing and daily-quota refusals say so.
+  BILLING_REQUIRED: "PROVIDER_METADATA_REJECTED",
+  QUOTA_EXHAUSTED: "PROVIDER_METADATA_REJECTED",
   UPSTREAM_UNAVAILABLE: "PROVIDER_METADATA_UPSTREAM_ERROR",
   NETWORK_ERROR: "PROVIDER_METADATA_NETWORK",
   TIMEOUT: "PROVIDER_METADATA_TIMEOUT",
@@ -229,7 +240,7 @@ export class ProviderQualityChecks {
   }
 
   private view(row: CheckRow, charged: number | null = null) {
-    return { id: row.id, target: row.target ?? "draft", draftId: row.draft_id, state: row.state, reason: row.reason_code, roles: row.roles,
+    return { id: row.id, target: row.target ?? "draft", draftId: row.draft_id, state: row.state, reason: row.reason_code, reasonDetail: row.reason_detail ?? null, roles: row.roles,
       total: row.total_dialogues, completed: row.completed_dialogues, estimateMicroUsd: Number(row.estimate_micro_usd),
       reservedMicroUsd: Number(row.reserved_micro_usd), chargedMicroUsd: charged, outcome: row.outcome ?? [],
       createdAt: iso(row.created_at), finishedAt: iso(row.finished_at), deadlineAt: iso(row.deadline_at) };
@@ -399,11 +410,15 @@ export class ProviderQualityChecks {
   private async run(actor: Actor, workspace: string, row: CheckRow, runtime: ReturnType<typeof composeProviders>, configuration: Configuration,
     pricing: Map<EvalRole, ModelPricing>) {
     const signal = AbortSignal.timeout(Math.max(1, row.deadline_at.getTime() - Date.now()));
-    let index = 0, fault: string | null = null;
+    let index = 0, fault: string | null = null, detail: FaultDetail | null = null;
     const settle = async (call: CallRecord) => {
       const ref = `${row.id}:${index++}`, error = call.error;
       const code = error instanceof ProviderError ? error.code : error ? "UNEXPECTED" : null;
-      if (code && Object.hasOwn(PROVIDER_FAULTS, code) && !(code === "TIMEOUT" && signal.aborted)) fault ??= PROVIDER_FAULTS[code]!;
+      if (code && Object.hasOwn(PROVIDER_FAULTS, code) && !(code === "TIMEOUT" && signal.aborted) && !fault) {
+        fault = PROVIDER_FAULTS[code]!;
+        const failed = error as ProviderError;
+        detail = { role: call.role, providerCode: failed.code, status: failed.status, providerReason: failed.reason };
+      }
       await this.settleCall(workspace, row.id, ref, call, pricing.get(call.role) ?? null);
     };
     let report: EvalReport | null = null;
@@ -419,7 +434,7 @@ export class ProviderQualityChecks {
       if (!(error instanceof StopRun)) throw error;
     }
     if (signal.aborted) return this.finish(actor, workspace, row.id, { state: "error", reason: "PROVIDER_QUALITY_CHECK_TIMEOUT" }, "not_started");
-    if (fault || !report) return this.finish(actor, workspace, row.id, { state: "error", reason: fault ?? "PROVIDER_QUALITY_CHECK_FAILED" }, "not_started");
+    if (fault || !report) return this.finish(actor, workspace, row.id, { state: "error", reason: fault ?? "PROVIDER_QUALITY_CHECK_FAILED", detail }, "not_started");
     // Recorded exactly as an uploaded report: Core regrades every answer against its own suite.
     let recorded: Awaited<ReturnType<ProviderEvaluations["record"]>>;
     try {
@@ -486,16 +501,16 @@ export class ProviderQualityChecks {
   }
 
   private async finish(actor: Actor, workspace: string, id: string,
-    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[] }, open: "not_started" | "uncertain") {
+    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null }, open: "not_started" | "uncertain") {
     await afterCommitTransaction(this.db, async (client) => {
       const done = await client.query(
-        "UPDATE provider_quality_checks SET state=$3,reason_code=$4,outcome=$5,finished_at=clock_timestamp() WHERE id=$1 AND workspace_id=$2 AND state='running'",
-        [id, workspace, result.state, result.reason, result.outcome ? JSON.stringify(result.outcome) : null]);
+        "UPDATE provider_quality_checks SET state=$3,reason_code=$4,outcome=$5,reason_detail=$6,finished_at=clock_timestamp() WHERE id=$1 AND workspace_id=$2 AND state='running'",
+        [id, workspace, result.state, result.reason, result.outcome ? JSON.stringify(result.outcome) : null, result.detail ? JSON.stringify(result.detail) : null]);
       // Conversations never sent (stopped early) release their reservation.
       await this.closeOpenCalls(client, workspace, id, open);
       if (!done.rowCount) return;
       await appendEvent(client, { workspaceId: workspace, actorId: actor.id, actorKind: "staff", type: "provider.quality_check.finished",
-        payload: { checkId: id, state: result.state, reason: result.reason, chargedMicroUsd: await this.charged(client, id),
+        payload: { checkId: id, state: result.state, reason: result.reason, ...(result.detail ? { reasonDetail: result.detail } : {}), chargedMicroUsd: await this.charged(client, id),
           roles: (result.outcome ?? []).map((o) => ({ role: o.role, passed: o.passed })) },
         idempotencyKey: `provider.quality_check.finished:${id}` });
     });

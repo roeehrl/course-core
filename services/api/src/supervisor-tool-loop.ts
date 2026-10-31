@@ -378,6 +378,8 @@ export async function runSupervisorToolLoop(options: {
             ? { status: original.status } : {}),
           ...(!receipts.length && !options.signal.aborted && original?.retryAfterMs != null
             ? { retryAfterMs: original.retryAfterMs } : {}),
+          // The provider's documented reason code (never body text) goes with it, for diagnosis.
+          ...(!options.signal.aborted && original?.reason ? { reason: original.reason } : {}),
         },
       );
     if (receipts.length) {
