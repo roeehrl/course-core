@@ -277,6 +277,9 @@ jobs:
   api-engines:
     name: API / learner journeys on WebKit and Firefox
     needs: audit
+    # Slow suite: release (workflow_call from a dispatched release.yml), manual and scheduled runs only.
+    # Pull requests and pushes to main skip it so a small change gets its checks in minutes.
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     # Measured over 32 recent runs (Oct 2026): 12-19 min (median 16); the suite 9.5-15.5 min.
     # A runner whose apt mirror sent 117 MB at 96 kB/s spent 21 of its 30 minutes installing
@@ -374,6 +377,9 @@ jobs:
   api-connected:
     name: API / learner-owned and administration connected flows
     needs: audit
+    # Slow suite: release (workflow_call from a dispatched release.yml), manual and scheduled runs only.
+    # Pull requests and pushes to main skip it so a small change gets its checks in minutes.
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     # Measured over 23 recent runs (Oct 2026): 29-45 min (median 38); learner Chromium 8.5-12
     # min, learner WebKit 9.5-15.5 min, administration 10-15.5 min. The former 45-minute limit
@@ -491,10 +497,13 @@ jobs:
           CORE: ${{ needs.api-core.result }}
           ENGINES: ${{ needs.api-engines.result }}
           CONNECTED: ${{ needs.api-connected.result }}
+          # The slow suites are skipped on pull requests and pushes to main; a release always runs them.
+          FAST: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
         run: |
           status=0
           for job in AUDIT CORE ENGINES CONNECTED; do
             printf '%-9s %s\n' "$job" "${!job}"
+            if [ "$FAST" = true ] && { [ "$job" = ENGINES ] || [ "$job" = CONNECTED ]; } && [ "${!job}" = skipped ]; then continue; fi
             [ "${!job}" = success ] || status=1
           done
           exit "$status"
