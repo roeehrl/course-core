@@ -7,13 +7,13 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DockerSandbox, QUALIFIED_IMAGES } from '../dist/index.js';
+import { QUALIFIED_IMAGES } from '../dist/index.js';
+import { DockerSandbox, localRoot, mountsWorkFrom } from './environment.mjs';
 
 const exec = promisify(execFile), image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch];
 assert(image, 'A digest-pinned native test image is required.');
 await exec('docker', ['image', 'inspect', image], { timeout: 10000, maxBuffer: 65536 });
-const local = fileURLToPath(new URL('../.local/', import.meta.url)); await mkdir(local, { recursive: true, mode: 0o700 });
-const root = await mkdtemp(path.join(local, 'hardening-'));
+const root = await mkdtemp(path.join(await localRoot(), 'hardening-'));
 const ownedLogs = [];
 // Only IDs returned by real Docker creates made through these trusted test drivers are eligible for cleanup.
 after(async () => {
@@ -25,7 +25,7 @@ after(async () => {
       try { object = JSON.parse((await exec('docker', ['inspect', id], { timeout: 5000, maxBuffer: 65536 })).stdout)[0]; }
       catch (error) { if ((error.stderr ?? '').trim().toLowerCase() === `error: no such object: ${id}`) continue; throw error; }
       assert.equal(object.Config.Labels['course-core.sandbox'], 'true');
-      assert(object.Mounts.some(mount => mount.Destination === '/work' && mount.Source.startsWith(root + path.sep)));
+      assert(mountsWorkFrom(object, root));
       await exec('docker', ['rm', '--force', id], { timeout: 10000, maxBuffer: 4096 });
     }
   }

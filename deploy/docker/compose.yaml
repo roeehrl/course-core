@@ -1,7 +1,8 @@
-# Course Core self-host stack for one Linux server with Docker. See README.md here.
+# Course Core on one machine with Docker: a Linux server, a Mac with Docker Desktop or Colima, or
+# a private box on a tailnet. See README.md here; deploy/docker/core.sh wraps every operation:
 #   cp deploy/docker/.env.example deploy/docker/.env   # then edit; never commit .env
-#   docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env up -d --build --wait
-# Only the proxy publishes ports. PostgreSQL, the API and Temporal stay on the private
+#   deploy/docker/core.sh up
+# Only the proxy publishes ports. PostgreSQL, the API, Temporal and the sandbox gate stay off the
 # network. Every third-party image is pinned by version and digest; update both together.
 name: course-core
 
@@ -11,10 +12,18 @@ x-core-image: &core-image
     context: ../..
     dockerfile: deploy/docker/Dockerfile
 
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
 services:
   db:
     image: postgres:17.11@sha256:a63c1ea3f6a3a5a1621f97d2aba3b30faecfab4224c1b0000cc85ced57bb1939
     restart: unless-stopped
+    <<: *logging
     environment:
       POSTGRES_DB: course_core
       POSTGRES_USER: course
@@ -28,44 +37,97 @@ services:
       retries: 30
     networks: [course]
 
+  # The only container with the host's Docker socket. It has no network and a read-only root,
+  # and it forwards to Docker only the calls the code sandbox makes for its own locked-down
+  # containers (sandbox-gate.mjs). The API reaches it through a socket in the sandbox-gate volume.
+  sandbox-gate:
+    <<: [*core-image, *logging]
+    restart: unless-stopped
+    user: '0:0'
+    command: ['node', '/app/deploy/docker/sandbox-gate.mjs']
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    environment:
+      SANDBOX_WORK_VOLUME: ${COMPOSE_PROJECT_NAME}_sandbox-work
+    volumes:
+      - ${COURSE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - sandbox-gate:/run/sandbox-gate
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get({socketPath:'/run/sandbox-gate/docker.sock',path:'/_gate/ready'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 300s
+      retries: 6
+
   api:
-    <<: *core-image
+    <<: [*core-image, *logging]
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      sandbox-gate:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://course:${POSTGRES_PASSWORD}@db:5432/course_core
-      PUBLIC_ORIGIN: https://${COURSE_HOSTNAME:?Set COURSE_HOSTNAME in the env file}:${COURSE_HTTPS_PORT:-443}
+      PUBLIC_ORIGIN: https://${COURSE_HOSTNAME:-localhost}:${COURSE_HTTPS_PORT:-443}
+      ADDITIONAL_ORIGINS: ${COURSE_ADDITIONAL_ORIGINS:-}
+      ALLOW_INSECURE_ORIGINS: ${COURSE_ALLOW_INSECURE_ORIGINS:-false}
       API_HOST: 0.0.0.0
       PORT: '4310'
       # Only the proxy's fixed address may name the client in X-Forwarded-For.
       TRUSTED_PROXIES: ${COURSE_PROXY_ADDRESS:-172.30.89.10}
       AUTH_LOGIN_CODES: ${AUTH_LOGIN_CODES:-disabled}
-      SUPERVISOR_HOST_TOKEN: ${SUPERVISOR_HOST_TOKEN:-}
+      SUPERVISOR_HOST_TOKEN: ${SUPERVISOR_HOST_TOKEN:?Set SUPERVISOR_HOST_TOKEN in the env file}
       SUPERVISOR_WORKSPACE_IDS: ${SUPERVISOR_WORKSPACE_IDS:-}
+      PROVIDER_VAULT_DIRECTORY: /data/provider-vault
+      # Code grading: the API drives the sandbox through the gate; run directories live in the
+      # sandbox-work volume, which each sandbox container mounts read-only by subpath.
+      DOCKER_HOST: unix:///run/sandbox-gate/docker.sock
+      SANDBOX_STORAGE_DIR: /sandbox-work/api
+      SANDBOX_WORK_VOLUME: ${COMPOSE_PROJECT_NAME}_sandbox-work
+      SANDBOX_WORK_MOUNT: /sandbox-work
+      SANDBOX_STARTUP_TIMEOUT_MS: ${SANDBOX_STARTUP_TIMEOUT_MS:-180000}
+      COURSE_SUPPLIED_CODE_FIXTURES: ${COURSE_SUPPLIED_CODE_FIXTURES:-on}
+      # File names in COURSE_FILES_DIR (comma-separated); copied privately at start (api-start.mjs).
+      COURSE_CODE_FIXTURES: ${COURSE_CODE_FIXTURES:-}
+      COURSE_TEACHING_VERIFIERS: ${COURSE_TEACHING_VERIFIERS:-}
+      ADAPTATION_ADAPTERS: ${COURSE_ADAPTATION_ADAPTERS:-[]}
+      COURSE_PACKAGE_REMOTE_FETCH: ${COURSE_PACKAGE_REMOTE_FETCH:-github}
+      CLIP_FFMPEG_PATH: /usr/bin/ffmpeg
+      CLIP_FFPROBE_PATH: /usr/bin/ffprobe
+      CLIP_RASTERIZER_PATH: /usr/bin/rsvg-convert
     volumes:
       - core-data:/data
+      - sandbox-work:/sandbox-work
+      - sandbox-gate:/run/sandbox-gate
+      - ${COURSE_FILES_DIR:-./course-files}:/course-files:ro
+    tmpfs:
+      - /run/course-files:uid=1000,gid=1000,mode=0700,size=64m
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
-      start_period: 60s
+      start_period: 240s
       retries: 6
     networks: [course]
 
   proxy:
     image: caddy:2.11.2@sha256:25cdc846626b62d05f6b633b9b40c2c9f6ef89b515dc76133cefd920f7dbe562
     restart: unless-stopped
+    <<: *logging
     depends_on:
       api:
         condition: service_healthy
     environment:
-      COURSE_HOSTNAME: ${COURSE_HOSTNAME:?Set COURSE_HOSTNAME in the env file}
+      COURSE_HOSTNAME: ${COURSE_HOSTNAME:-localhost}
       CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
     ports:
       - ${COURSE_BIND_ADDRESS:-0.0.0.0}:${COURSE_HTTP_PORT:-80}:80
       - ${COURSE_BIND_ADDRESS:-0.0.0.0}:${COURSE_HTTPS_PORT:-443}:443
+      # Plain HTTP on this machine's loopback only, for `tailscale serve` or another local forwarder.
+      - 127.0.0.1:${COURSE_LOCAL_HTTP_PORT:-8380}:8380
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - proxy-data:/data
@@ -78,15 +140,14 @@ services:
     networks:
       course:
         ipv4_address: ${COURSE_PROXY_ADDRESS:-172.30.89.10}
-        # Workers reach the API through the proxy by its public name, over HTTPS.
-        aliases: ['${COURSE_HOSTNAME:?Set COURSE_HOSTNAME in the env file}']
+        # The supervisor reaches the API through the proxy by this private name, over HTTPS.
+        aliases: [core-proxy.internal]
 
-  # Optional supervision (profile "supervision"): a local Temporal development server and
-  # the bounded worker and dispatcher. They share Temporal's network namespace, so Temporal
-  # listens on loopback only and is never reachable from the network.
+  # Supervision (the tutor's replies and follow-ups): a local Temporal development server and the
+  # bounded worker and dispatcher. They share Temporal's network namespace, so Temporal listens
+  # on loopback only and is never reachable from the network.
   temporal:
-    <<: *core-image
-    profiles: [supervision]
+    <<: [*core-image, *logging]
     restart: unless-stopped
     command: ['temporal', 'server', 'start-dev', '--ip', '127.0.0.1', '--port', '7233', '--headless', '--db-filename', '/data/temporal.db']
     environment:
@@ -98,28 +159,26 @@ services:
       test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', '127.0.0.1:7233']
       interval: 10s
       timeout: 5s
-      start_period: 30s
+      start_period: 60s
       retries: 6
     networks: [course]
 
-  # One-shot: with CADDY_GLOBAL_OPTIONS=local_certs, publish the proxy's root certificate
-  # (not its key) where the unprivileged supervisor can read it. Exits at once otherwise.
+  # One-shot: publish the proxy's own root certificate (not its key) where the unprivileged
+  # supervisor can read it. It waits until Caddy has created its authority.
   proxy-ca:
     image: caddy:2.11.2@sha256:25cdc846626b62d05f6b633b9b40c2c9f6ef89b515dc76133cefd920f7dbe562
-    profiles: [supervision]
     restart: 'no'
     depends_on:
       proxy:
         condition: service_healthy
-    entrypoint: ['sh', '-c', 'root=/data/caddy/pki/authorities/local/root.crt; if [ -f "$$root" ]; then install -m 0644 "$$root" /out/root.crt; fi']
+    entrypoint: ['sh', '-c', 'root=/data/caddy/pki/authorities/local/root.crt; for i in $$(seq 120); do if [ -f "$$root" ]; then install -m 0644 "$$root" /out/root.crt; exit 0; fi; sleep 1; done; echo "proxy root certificate missing" >&2; exit 1']
     volumes:
       - proxy-data:/data:ro
       - proxy-ca:/out
     network_mode: none
 
   worker:
-    <<: *core-image
-    profiles: [supervision]
+    <<: [*core-image, *logging]
     restart: unless-stopped
     network_mode: service:temporal
     depends_on:
@@ -128,7 +187,6 @@ services:
       proxy-ca:
         condition: service_completed_successfully
     working_dir: /app/services/supervisor
-    # The proxy's own root certificate (local_certs only), copied readable by proxy-ca.
     volumes: &supervisor-volumes
       - proxy-ca:/proxy-ca:ro
     command: ['node', '--max-old-space-size=384', 'dist/src/cli.js', 'worker']
@@ -137,17 +195,16 @@ services:
       SUPERVISOR_TEMPORAL_NAMESPACE: default
       SUPERVISOR_TEMPORAL_TASK_QUEUE: ${SUPERVISOR_TASK_QUEUE:-course-core}
       SUPERVISOR_TEMPORAL_TLS: 'false'
-      SUPERVISOR_HOST_URL: https://${COURSE_HOSTNAME:?Set COURSE_HOSTNAME in the env file}
-      SUPERVISOR_HOST_TOKEN: ${SUPERVISOR_HOST_TOKEN:-}
-      SUPERVISOR_PROVIDER_URL: https://${COURSE_HOSTNAME:?Set COURSE_HOSTNAME in the env file}
-      SUPERVISOR_PROVIDER_TOKEN: ${SUPERVISOR_HOST_TOKEN:-}
+      SUPERVISOR_HOST_URL: https://core-proxy.internal
+      SUPERVISOR_HOST_TOKEN: ${SUPERVISOR_HOST_TOKEN:?Set SUPERVISOR_HOST_TOKEN in the env file}
+      SUPERVISOR_PROVIDER_URL: https://core-proxy.internal
+      SUPERVISOR_PROVIDER_TOKEN: ${SUPERVISOR_HOST_TOKEN:?Set SUPERVISOR_HOST_TOKEN in the env file}
       SUPERVISOR_ACTIVITY_CONCURRENCY: '2'
       SUPERVISOR_DISPATCH_INTERVAL_MS: '5000'
-      NODE_EXTRA_CA_CERTS: ${COURSE_EXTRA_CA_CERTS:-}
+      NODE_EXTRA_CA_CERTS: /proxy-ca/root.crt
 
   dispatcher:
-    <<: *core-image
-    profiles: [supervision]
+    <<: [*core-image, *logging]
     restart: unless-stopped
     network_mode: service:temporal
     depends_on:
@@ -175,3 +232,7 @@ volumes:
   proxy-config:
   proxy-ca:
   temporal-data:
+  # Code sandbox run directories, shared by the API and (read-only, one run each) its sandboxes.
+  sandbox-work:
+  # The sandbox gate's socket, shared by the gate and the API only.
+  sandbox-gate:

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { dockerArguments, DockerSandbox, equivalent, gradeOutput, QUALIFIED_IMAGES, RUNNER_READY_LINE, validateSubmission } from '../dist/index.js';
+import { dockerArguments, DockerSandbox, equivalent, gradeOutput, QUALIFIED_IMAGES, RUNNER_READY_LINE, validateSubmission, workMount } from '../dist/index.js';
 
 test('batch plans must cover every case exactly once with bounded nonempty counts',()=>{
   const base={source:'def solve(x): return x',cases:[{id:'a',input:1,expected:1},{id:'b',input:2,expected:2}]};
@@ -38,6 +38,21 @@ test('execution arguments deny network, write access, privileges, swap growth an
   assert(!args.some(value => /docker\.sock|privileged|gpus|password|token/i.test(value)));
   assert.throws(() => new DockerSandbox({ image: 'python:latest', storageDirectory: '/safe/test-directory' }));
   assert.throws(() => new DockerSandbox({ image: QUALIFIED_IMAGES.arm64, storageDirectory: '/safe/test-directory', concurrency: 20 }));
+});
+
+test('a broker on a shared Docker volume mounts only its run directory, read-only, as that volume\'s subpath', () => {
+  const workVolume = { name: 'course-core_sandbox-work', mountPoint: '/sandbox-work' };
+  const options = { image: QUALIFIED_IMAGES.arm64, dockerBinary: 'docker', timeoutMs: 1000, memoryMiB: 128, maxOutputBytes: 65536, concurrency: 1, workVolume };
+  const args = dockerArguments(options, 'course-sandbox-fixture', '/sandbox-work/run-abc123');
+  assert(args.includes('type=volume,source=course-core_sandbox-work,target=/work,readonly,volume-nocopy,volume-subpath=run-abc123'));
+  assert(!args.some(value => value.startsWith('type=bind')));
+  for (const required of ['--network=none', '--read-only', '--cap-drop=ALL', '--user=65532:65532', '--pull=never']) assert(args.includes(required));
+  assert.equal(workMount('/safe/run-1'), 'type=bind,source=/safe/run-1,target=/work,readonly');
+  for (const outside of ['/elsewhere/run-1', '/sandbox-work', '/sandbox-work/run,1']) assert.throws(() => workMount(outside, workVolume), /INVALID_SANDBOX_CONFIGURATION/);
+  new DockerSandbox({ image: QUALIFIED_IMAGES.arm64, storageDirectory: '/sandbox-work', workVolume });
+  new DockerSandbox({ image: QUALIFIED_IMAGES.arm64, storageDirectory: '/sandbox-work/broker', workVolume });
+  for (const bad of [{ ...workVolume, name: '../db-data' }, { ...workVolume, name: 'a,b' }, { ...workVolume, mountPoint: 'relative' }, { ...workVolume, mountPoint: '/other' }])
+    assert.throws(() => new DockerSandbox({ image: QUALIFIED_IMAGES.arm64, storageDirectory: '/sandbox-work', workVolume: bad }), /INVALID_SANDBOX_CONFIGURATION/);
 });
 
 test('preflight names the failing Docker step with a fixed reason and never returns Docker output', async () => {

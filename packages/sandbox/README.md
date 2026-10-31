@@ -71,6 +71,15 @@ cleanup failures also quarantine the broker. `readiness()` reports an existing
 broker lock as not ready, including when a new process encounters a retained lock.
 Locks are never expired or automatically deleted based on age or process IDs.
 
+A broker whose Docker daemon cannot see its files (the Compose deployment, where the API reaches
+Docker only through `deploy/docker/sandbox-gate.mjs`) passes `workVolume: { name, mountPoint }`:
+the named volume is mounted at `mountPoint` in the broker's own container, `storageDirectory`
+lies inside it, and each run's directory is mounted into its container as that volume's
+subpath (`volume-subpath`, read-only, `volume-nocopy`; Docker Engine 26 or later) instead of
+as a bind mount. Everything else is unchanged. The Docker suites run in either mode: with
+`COURSE_SANDBOX_WORK_VOLUME` and `COURSE_SANDBOX_WORK_MOUNT` set (`test/environment.mjs`) their
+storage lives in that volume, which is how the Compose stack test runs them through the gate.
+
 ```sh
 npm ci --ignore-scripts
 npm test

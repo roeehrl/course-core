@@ -1,179 +1,236 @@
-# Self-hosting on a Linux server with Docker
+# Deploy Course Core
 
-This directory runs Course Core on one Linux server (or VM) with Docker Engine and the
-Compose plugin. It is the general-purpose alternative to the macOS pilot in
-[`deploy/local`](../local/README.md), and it is what CI brings up on every pull request.
+This is the recommended way to run Course Core: Docker Compose on one machine. It works the
+same on a Linux server, on a Mac with Docker Desktop or Colima, and on a private box that is
+reachable only over a Tailscale tailnet. One script, `deploy/docker/core.sh`, does every
+operation. (The macOS-native pilot in [`deploy/local`](../local/README.md) is still supported,
+but it is no longer the first choice.)
+
+What runs:
 
 | Service | What it does | Reachable from |
 | --- | --- | --- |
-| `proxy` | Caddy: HTTPS with an automatically renewed certificate, HTTP to HTTPS redirect | The internet (ports 80 and 443) |
-| `api` | The Course Core API, which also serves the learner app at `/` and administration at `/admin/` | Only the proxy |
+| `proxy` | Caddy: HTTPS (a public certificate, or its own authority for private names) | The ports you publish |
+| `api` | The API, which also serves the learner app at `/` and administration at `/admin/` | Only the proxy |
 | `db` | PostgreSQL 17 | Only the API |
-| `temporal`, `worker`, `dispatcher` | Optional supervision (companion replies, follow-ups). Off unless you enable the `supervision` profile | Nothing: Temporal listens on loopback inside its own container |
+| `sandbox-gate` | Starts the locked-down containers that grade learners' code (see [Code grading](#code-grading)) | Only the API, through a socket |
+| `temporal`, `worker`, `dispatcher` | Supervision: the tutor's replies and follow-ups | Nothing: Temporal listens on loopback in its own container |
 
-It is a single-host setup with no standby, like the pilot. Everyone signs in: there is no
-anonymous course access, and the API refuses to start on a public address without HTTPS.
+Everyone signs in; there is no anonymous course access. It is one machine with no standby.
 
-## What you need
+## 1. What you need
 
-- A Linux server with Docker Engine 24 or later and the Compose plugin (`docker compose version`).
-  About 2 CPU cores, 4 GB of memory and 20 GB of disk for a small course.
-- A DNS name pointing at the server (for example `course.example.org`), with ports 80 and
-  443 open to the internet so Caddy can obtain the certificate. On a private network
-  without public DNS, see [Private networks](#private-networks).
-- A clone of this repository at a release tag (`git checkout v0.1.50`, for example).
+- Docker with the Compose plugin (`docker compose version` prints v2 or later; Docker Engine 26
+  or later, which every current Docker Desktop and Colima has).
+- Git, to get the code: `git clone https://github.com/roeehrl/course-core && cd course-core &&
+  git checkout <release tag>` (for example `v0.1.60`).
+- Node 22 or later is optional. Without it, `core.sh` runs its commands inside the Course Core
+  image.
 
-## First start
+Memory: give Docker at least **6 GB** (4 GB is the minimum for a small course; the first build
+needs the most). Disk: 20 GB free.
 
-```sh
-cp deploy/docker/.env.example deploy/docker/.env
-chmod 600 deploy/docker/.env
-# Edit .env: set COURSE_HOSTNAME and POSTGRES_PASSWORD (openssl rand -hex 32).
-docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env up -d --build --wait
-```
+### On a Mac
 
-`.env` holds the database password and, with supervision, the service token. It is ignored
-by git and excluded from the image build. Never commit it or paste it into an issue.
+- **Docker Desktop**: Settings > Resources > Memory: 6 GB or more. Nothing else to change.
+- **Colima**: `colima start --cpu 4 --memory 8 --disk 60` (or edit `~/.colima/default/colima.yaml`
+  and restart). Keep the checkout under your home folder, which Colima shares with Docker.
 
-The first build compiles every module and takes a few minutes. `--wait` returns once the
-database, API and proxy report healthy. Open `https://<COURSE_HOSTNAME>/` to check.
+### On Linux
 
-### Create the owner account
+Install Docker Engine and the Compose plugin from Docker's packages
+(https://docs.docker.com/engine/install/), then `sudo systemctl enable --now docker`, so the course
+starts again after a reboot. Run `core.sh` as a user in the `docker` group, or with `sudo`.
 
-```sh
-docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env \
-  exec api node dist/bootstrap-cli.js <workspace-slug> <your-login> "<Your name>" --password
-```
-
-It asks for the owner password twice without echoing it and prints the new workspace ID.
-Then sign in at `https://<COURSE_HOSTNAME>/admin/`. Sign-in options, passkeys and session
-length work as described in
-[Sign-in settings and passwords](../local/README.md#sign-in-settings-and-passwords); set the
-matching variables (for example `AUTH_LOGIN_CODES`, `SESSION_HOURS`) under the `api`
-service. Installing courses works as in
-[Installing courses from packages](../local/README.md#installing-courses-from-packages).
-
-## Private networks
-
-On a network without public DNS (a lab, a VPN or a tailnet), set
-`CADDY_GLOBAL_OPTIONS=local_certs`. Caddy then issues the certificate from its own
-authority. Install that authority's root certificate on the devices that will use the
-course, so browsers trust it:
+## 2. First start
 
 ```sh
-docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env \
-  cp proxy:/data/caddy/pki/authorities/local/root.crt ./course-root.crt
+deploy/docker/core.sh up
 ```
 
-The root certificate is public; the matching key stays in the `proxy-data` volume. To bind
-the proxy to one interface only (for example a VPN address), set `COURSE_BIND_ADDRESS`.
+The first time, this creates `deploy/docker/.env` (owner-only, ignored by git) from
+[`.env.example`](.env.example) with two generated secrets, builds the image (several minutes,
+once) and starts everything, supervision included. It returns when every service is healthy.
 
-## Supervision (optional)
-
-Supervision runs the companion and follow-up jobs. Without it, lessons, checks, grading
-and progress all work; supervised work waits safely in the outbox.
-
-1. Add `SUPERVISOR_HOST_TOKEN` (`openssl rand -hex 32`) and `SUPERVISOR_WORKSPACE_IDS`
-   (the workspace ID printed by the bootstrap command) to `.env`.
-2. With `CADDY_GLOBAL_OPTIONS=local_certs`, also set
-   `COURSE_EXTRA_CA_CERTS=/proxy-ca/root.crt` so the supervisor trusts the proxy.
-3. Start with the profile, and keep using it for every later command:
+The default settings are for a **private machine**: the course listens on this machine only, at
+`https://localhost:8443`. For a **public server**, edit `.env` first:
 
 ```sh
-docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env --profile supervision up -d --build --wait
+COURSE_HOSTNAME=course.example.org   # a DNS name that points at this server
+COURSE_BIND_ADDRESS=0.0.0.0
+COURSE_HTTP_PORT=80
+COURSE_HTTPS_PORT=443
 ```
 
-The worker and dispatcher reach the API through the proxy by its public name, over HTTPS,
-and share the Temporal container's network so Temporal itself is never exposed. Model
-providers are configured in administration, as in the pilot; see
-[`services/api/PROVIDER_SETUP.md`](../../services/api/PROVIDER_SETUP.md).
+Ports 80 and 443 must reach the server; Caddy obtains and renews the certificate itself.
 
-## Keep-alive and degraded modes
-
-- Every long-running service has `restart: unless-stopped` and a health check. If the API,
-  the database, the proxy or a supervision process exits, Docker starts it again; the
-  API waits for a healthy database first. CI proves this: it stops the API process and
-  checks that it comes back healthy with its data.
-- Enable Docker at boot (`sudo systemctl enable docker`) so the stack starts after a reboot
-  without anyone signing in.
-- A container that is running but hung is reported `unhealthy` by `docker compose ps`.
-  Docker does not restart unhealthy containers by itself; check `docker compose ps`
-  from your monitoring, or restart the service by hand.
-- What learners and staff see when a provider, Temporal, telemetry or the database is
-  down is the same as in the pilot: see
-  [Degraded modes](../local/README.md#degraded-modes). The difference here is that an API
-  exit after a database restart is recovered by the restart policy.
-
-## Backups and restore
-
-Stop the services that write, take the dump, then start them again:
+## 3. Create the owner account
 
 ```sh
-C="docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env --profile supervision"
-$C stop api worker dispatcher temporal
-$C exec -T db pg_dump --format=custom -U course course_core > backup-$(date -u +%Y%m%dT%H%M%SZ).pgdump
-$C cp temporal:/data/temporal.db ./temporal.db   # only with supervision
-$C start temporal api worker dispatcher
+deploy/docker/core.sh bootstrap <workspace-slug> <your-login> "<Your name>"
 ```
 
-The dump contains learner records. Keep it on encrypted, private storage, for example
-encrypted with `age` as in [Encrypting backups with age](../local/README.md#encrypting-backups-with-age-optional),
-and never in a repository. Prove each backup restores: create a scratch database with
-`$C exec db createdb -U course restore_check`, restore into it with
-`pg_restore --no-owner --no-privileges --exit-on-error -U course -d restore_check`
-(through `$C exec -T db`), compare row counts with the live database, then drop it.
-Recovery targets and the reasoning behind a daily backup are in
-[Availability, recovery targets and degraded modes](../local/README.md#availability-recovery-targets-and-degraded-modes).
-If you enable the optional object store (`COURSE_ARTIFACT_STORE=s3`), back up that bucket
-separately.
+It asks for the owner password twice and never echoes it. It saves the workspace for
+supervision in `.env`, restarts the API and the supervisor with it, and prints the workspace ID.
+Sign in at `https://<your host>/admin/`. To set or reset a password later:
 
-## Upgrading
+```sh
+deploy/docker/core.sh set-password <workspace-slug> <login>
+```
 
-1. Take and verify a backup (above).
-2. `git fetch --tags && git checkout <new-release-tag>`.
-3. `docker compose ... up -d --build --wait` (with `--profile supervision` if you use it).
+## 4. Private and tailnet use
 
-The API applies new database migrations when it starts. Migrations only move forward: to
-go back to the previous release, check out its tag and restore the backup you took in
-step 1 into a fresh database volume. Read [RELEASES.md](../../RELEASES.md) before upgrading.
+On a private machine the course is at `https://localhost:8443`, with a certificate from Caddy's
+own authority. Browsers warn about it until you trust that authority:
+`deploy/docker/core.sh ca-cert` writes it to `deploy/docker/.ops/proxy-root.crt` (it is public;
+its key stays in the proxy volume); add it to your keychain or browser.
 
-## Least-privilege database role
+**The simplest way to reach it from your other devices is Tailscale.** The proxy also serves
+plain HTTP on `127.0.0.1:8380`, on this machine only, for `tailscale serve` to forward:
 
-By default the API connects as the database owner, which also runs migrations. To split
-them, create a second login role, point `DATABASE_URL` at it and set
-`MIGRATION_DATABASE_URL` to the owner connection, as described in
-[Least-privilege database role](../local/README.md#least-privilege-database-role).
-Use a `compose.override.yaml` next to `compose.yaml` for this and for any other local
-change, so upgrades do not conflict with your edits.
+- **HTTPS with the machine's tailnet name** (recommended; passkeys work). Enable MagicDNS and
+  HTTPS certificates in the tailnet admin console, then:
 
-## Telemetry
+  ```sh
+  tailscale serve --bg --https=443 http://127.0.0.1:8380
+  tailscale serve status    # shows https://<machine>.<tailnet>.ts.net
+  ```
 
-OpenTelemetry export is off by default. Add the standard `OTEL_*` variables to the `api`
-service (and to the supervision services) as described in
-[OpenTelemetry](../local/README.md#opentelemetry-optional).
+  Add that exact origin to `.env` and apply it:
 
-## Network layout
+  ```sh
+  COURSE_ADDITIONAL_ORIGINS=https://<machine>.<tailnet>.ts.net
+  deploy/docker/core.sh up
+  ```
 
-The services share one private network. The proxy has a fixed address (default
-`172.30.89.10`), and the API trusts `X-Forwarded-For` only from that address, so sign-in
-throttling sees each client's real address. If `172.30.89.0/24` is already used on your
-host, change `COURSE_SUBNET`, `COURSE_DYNAMIC_RANGE` and `COURSE_PROXY_ADDRESS` together.
+- **Plain HTTP by tailnet IP address.** `tailscale serve --bg --tcp=8380 tcp://127.0.0.1:8380`,
+  then `COURSE_ADDITIONAL_ORIGINS=http://<100.x.y.z>:8380` (from `tailscale ip -4`) and
+  `core.sh up`. Plain `http` is accepted only for a literal Tailscale address, whose traffic
+  WireGuard encrypts; such a page gets no passkeys and no `Secure` cookies.
+
+The rules are the pilot's: see
+[Using the pilot from your Tailscale tailnet](../local/README.md#using-the-pilot-from-your-tailscale-tailnet),
+including the insecure-origin switch (`COURSE_ALLOW_INSECURE_ORIGINS=true`) for LAN `http`
+origins and its risks. Never use `tailscale funnel`, which publishes the course to the internet.
+Requests through the forwarder all come from one address, so sign-in throttling treats the
+tailnet as one source (each username keeps its own limit).
+
+## 5. Install a course
+
+In administration, **Install course** takes a course package by upload or from a public GitHub
+release link (see the root README, "Installing a course").
+
+Courses that grade code with hidden test cases, or bring teaching verifiers, need files on this
+host. Put them in `deploy/docker/course-files/` (ignored by git and by the image build; set
+`COURSE_FILES_DIR` for another directory), list them in `.env`, and run `core.sh up`:
+
+```sh
+COURSE_CODE_FIXTURES=search-lab.code-fixtures.json
+COURSE_TEACHING_VERIFIERS=worked-verifier.json
+```
+
+Names are plain file names in that directory. The API copies them into private memory at start;
+on Linux they must be readable by user ID 1000 (`sudo chown 1000 deploy/docker/course-files/*`,
+or `chmod 644`). A missing or unreadable file stops the API with `startup.course_files_failed` and
+the file's name in `core.sh logs api`. Courses that bring their own hidden cases in the package
+need nothing here: that is on by default (`COURSE_SUPPLIED_CODE_FIXTURES=on`).
+
+A course repository's own install script (for example `scripts/install-pilot-course.mjs`) checks
+that its `--origin` is on loopback. Use `https://localhost:8443` with the proxy's authority:
+`NODE_EXTRA_CA_CERTS=deploy/docker/.ops/proxy-root.crt node scripts/install-pilot-course.mjs
+--origin https://localhost:8443 --bootstrap <core>/deploy/docker/.ops/bootstrap.json ...`
+(`core.sh bootstrap` writes that `bootstrap.json`, which holds the workspace ID only). On a public
+server that check refuses the public origin, and `https://localhost` is not an origin the API trusts
+there: install the course package from administration instead.
+
+Model providers are configured in administration; see
+[`services/api/PROVIDER_SETUP.md`](../../services/api/PROVIDER_SETUP.md). Exact clips and the
+frame check work out of the box: the image has `ffmpeg`, `ffprobe` and `rsvg-convert`.
+
+## 6. Every day
+
+```sh
+deploy/docker/core.sh status          # health of every service and the running version
+deploy/docker/core.sh logs [api] [-f] # recent logs; logs rotate at 3 x 10 MB per service
+deploy/docker/core.sh backup          # an online backup, no downtime
+deploy/docker/core.sh restore-drill   # restore the newest backup into a scratch database and verify it
+```
+
+`backup` writes `deploy/docker/backups/snapshot-<time>-<id>/`: the database from one consistent
+snapshot, the Temporal store (SQLite's online backup), the sealed provider vault and `.env`, with
+a manifest of digests and row counts in the pilot's format. Each backup and drill is recorded for
+the readiness page in administration. **A backup holds learner records and every secret**: keep it
+on private, encrypted storage, never in a repository. Run `backup` daily (for example from cron:
+`0 3 * * * cd /path/to/course-core && deploy/docker/core.sh backup`) and `restore-drill` weekly.
+To replace the live data with a backup: `core.sh restore --backup <dir> --yes`.
+
+Every service restarts after a crash (`restart: unless-stopped`), and the API waits for a healthy
+database. A container that is running but hung shows as `unhealthy` in `status`; Docker does not
+restart it by itself. What learners see while a provider, Temporal or the database is down is
+described in [Degraded modes](../local/README.md#degraded-modes).
+
+## 7. Upgrade
+
+```sh
+deploy/docker/core.sh upgrade v0.1.61
+```
+
+It checks that the stack is healthy, stops the API and the supervisor, takes a `pre-upgrade`
+backup, checks out the tag and builds it (or, with a registry image, pulls it), and starts the new
+release. If the new release is not healthy within 15 minutes (`--timeout-seconds`), it rolls back
+by itself: it restores the pre-upgrade backup, returns to the previous commit and image and starts
+them, and reports `upgrade_rolled_back` with the reason. Migrations only move forward, which is why
+rollback restores the backup. Read [RELEASES.md](../../RELEASES.md) first. Keep local changes in
+`.env` or a `compose.override.yaml` next to `compose.yaml`: `upgrade` refuses to check out over
+edited tracked files. Without Node and Git on the host, upgrade by image (below).
+
+**Prebuilt images.** Releases do not publish images yet. When they do, set
+`COURSE_CORE_IMAGE=ghcr.io/roeehrl/course-core:<tag>` in `.env`; `up` then pulls instead of
+building, and `upgrade <tag>` pulls that tag. `core.sh upgrade --image <image>` switches to any
+image with the same backup and rollback.
+
+## Code grading
+
+Learners' code runs in a separate, locked-down container per submission: the pinned Python image,
+no network, a read-only root, every capability dropped, no new privileges, a non-root user and
+bounded memory, CPU, processes and files ([`packages/sandbox`](../../packages/sandbox/README.md)).
+Starting those containers needs Docker, and the Docker socket is root on the host, so the API never
+gets it. Only `sandbox-gate` has the socket. It has no network, a read-only root and no
+capabilities, and it lets through only the calls the sandbox makes, for containers configured
+exactly as the sandbox configures them: any other image, mount, network, device, privilege or
+setting is refused, and so is every other Docker call. The pinned image is pulled once by the gate
+when it starts. Run directories live in the `sandbox-work` volume; each container mounts its own
+run directory from it, read-only. The [threat model](../../docs/threat-model.md#docker-compose-deployment-and-the-sandbox-gate)
+describes what this protects and what it does not.
+
+## Settings
+
+Everything is in `.env`; [`.env.example`](.env.example) lists each setting. Others the API reads
+(sign-in options such as `AUTH_LOGIN_CODES` and `SESSION_HOURS`, telemetry `OTEL_*`, a
+least-privilege database role with `MIGRATION_DATABASE_URL`) go in a `compose.override.yaml` under
+the `api` service; see [Sign-in settings and passwords](../local/README.md#sign-in-settings-and-passwords),
+[OpenTelemetry](../local/README.md#opentelemetry-optional) and
+[Least-privilege database role](../local/README.md#least-privilege-database-role). If
+`172.30.89.0/24` is in use on your host, change `COURSE_SUBNET`, `COURSE_DYNAMIC_RANGE` and
+`COURSE_PROXY_ADDRESS` together. `core.sh` accepts `--env-file <file>` and `--project <name>` to
+run a second, separate stack on the same machine (with its own ports).
 
 ## How this is tested
 
-- `deploy/docker/compose.test.mjs` (part of `npm run test:lifecycle`) checks the file
-  itself: pinned image digests, only the proxy publishes ports, restart policies and health
-  checks, no secrets in the compose file.
-- `deploy/docker/smoke.test.mjs` (`npm run test:self-host`, run by the required
-  `Sandbox / real Docker Linux` CI check) builds the image and starts the stack under its
-  own throwaway project. It creates an owner with the bootstrap command, then over HTTPS
-  trusting only the proxy's own root certificate it checks health, the learner and
-  administration pages, that anonymous and wrong-password requests are refused, that the
-  owner signs in with Secure cookies and sees the workspace, that plain HTTP redirects to
-  HTTPS, that the database port is not published, and that the API comes back healthy with
-  its data after its process exits. It removes everything it created, also on failure.
+- `deploy/docker/compose.test.mjs` and `sandbox-gate.test.mjs` (`npm run test:lifecycle`) check the
+  files: pinned images, only the proxy publishes ports, only the gate holds the Docker socket, the
+  gate's refusals (bind mounts, other volumes, privileged mode, host namespaces, networks, devices,
+  case-variant JSON keys and more), and the operations script's env handling.
+- `deploy/docker/smoke.test.mjs` (`npm run test:self-host`, in the required `Sandbox / real Docker
+  Linux` CI check) builds the image and runs the stack under a throwaway project with `ops.mjs`:
+  it starts with supervision and a teaching verifier that must qualify, creates the owner, checks
+  HTTPS, sign-in and the plain loopback listener, runs the dispatcher against the API, imports the
+  public algorithms lab's code episode and grades one correct and one wrong program in sandbox
+  containers, runs the sandbox's own real-Docker qualification suites through the gate, kills the
+  API process and checks it comes back with its data, takes a backup and runs a restore drill,
+  upgrades to another image and then to a broken one, which must roll back with the data intact.
+  It removes everything it created, also on failure.
 
-The supervision profile is not started in CI. It was brought up by hand on Docker with a
-private hostname and `local_certs`: Temporal reported serving and the worker reached the
-API over HTTPS through the proxy. A real public certificate, real provider calls and
-long-running operation on your server are not covered by these tests.
+Not covered: a real public certificate, `tailscale serve` itself, an upgrade between two real
+releases (CI upgrades between two images of the same commit), real provider calls and long-running
+operation on your machine.

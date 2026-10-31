@@ -11,3 +11,8 @@ coverage/
 playwright-report/
 test-results/
 .local/
+
+# Docker self-host: operator course files, backups and operation state stay on the host.
+deploy/docker/course-files/
+deploy/docker/backups/
+deploy/docker/.ops/

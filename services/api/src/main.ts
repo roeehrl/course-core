@@ -129,7 +129,12 @@ try {
     if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new ConfigurationError('Invalid code fixture file list.');
     const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
     if (!image) throw new ConfigurationError('An explicitly pinned sandbox image is required on this platform.');
-    const docker = new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) });
+    // SANDBOX_WORK_VOLUME/SANDBOX_WORK_MOUNT: the Docker daemon cannot see this process's files (the
+    // Compose stack, through the sandbox gate), so runs are mounted from that named volume instead.
+    const workVolume = process.env.SANDBOX_WORK_VOLUME || process.env.SANDBOX_WORK_MOUNT ? { name: process.env.SANDBOX_WORK_VOLUME ?? '', mountPoint: process.env.SANDBOX_WORK_MOUNT ?? '' } : undefined;
+    let docker: DockerSandbox;
+    try { docker = new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)), ...(workVolume ? { workVolume } : {}) }); }
+    catch { throw new ConfigurationError('Invalid sandbox configuration (COURSE_SANDBOX_IMAGE, SANDBOX_STORAGE_DIR, SANDBOX_WORK_VOLUME, SANDBOX_WORK_MOUNT).'); }
     sandbox = instrumentSandbox(docker);
     // Docker first, step by step. Teaching verifiers must qualify before the API serves, so a slow
     // Docker gets until SANDBOX_STARTUP_TIMEOUT_MS; without them code grading starts degraded at once.

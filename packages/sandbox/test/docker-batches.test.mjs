@@ -6,8 +6,9 @@ import {mkdir,mkdtemp,readFile,readdir,rm,unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
-import {DockerSandbox,QUALIFIED_IMAGES} from '../dist/index.js';
-const exec=promisify(execFile),base=fileURLToPath(new URL('../.local/',import.meta.url));await mkdir(base,{recursive:true,mode:0o700});const root=await mkdtemp(path.join(base,'batch-qualification-'));
+import {QUALIFIED_IMAGES} from '../dist/index.js';
+import {DockerSandbox,localRoot,mountsWorkFrom} from './environment.mjs';
+const exec=promisify(execFile);const root=await mkdtemp(path.join(await localRoot(),'batch-qualification-'));
 const image=process.env.COURSE_SANDBOX_IMAGE??QUALIFIED_IMAGES[process.arch];assert(image);await exec('docker',['image','inspect',image]);
 after(async()=>{
   // A failed test must not erase an unreconciled creation/cleanup quarantine.
@@ -93,7 +94,7 @@ test('failed cleanup in a later batch quarantines the shared broker and is never
     const result=await runner.grade({source:'def solve(x): return x*x',cases,batchCaseCounts:[2,2]});assert.equal(result.status,'cleanup_failed');assert.equal(result.passed,false);assert.equal(calls,2);assert.equal((await runner.readiness()).ready,false);
     const other=new DockerSandbox({image,storageDirectory:d});assert.equal((await other.grade({source:'def solve(x): return x*x',cases})).status,'busy');assert((await readdir(d)).includes('broker.lock'));
   }finally{
-    if(owned){const obj=JSON.parse((await exec('docker',['inspect',owned])).stdout)[0];assert.equal(obj.Config.Labels['course-core.sandbox'],'true');assert(obj.Mounts.some(m=>m.Destination==='/work'&&m.Source.startsWith(d+path.sep)));await exec('docker',['rm','--force',owned]);await unlink(path.join(d,'broker.lock'));}
+    if(owned){const obj=JSON.parse((await exec('docker',['inspect',owned])).stdout)[0];assert.equal(obj.Config.Labels['course-core.sandbox'],'true');assert(mountsWorkFrom(obj,d));await exec('docker',['rm','--force',owned]);await unlink(path.join(d,'broker.lock'));}
   }
 });
 test('batch plan and source/reference snapshots are captured before asynchronous execution',async()=>{
