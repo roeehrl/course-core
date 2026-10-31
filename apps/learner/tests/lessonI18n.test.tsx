@@ -70,7 +70,7 @@ describe("lesson, roadmap and placement in Hebrew", () => {
     );
     expect(document.documentElement).toHaveAttribute("dir", "rtl");
     expect(screen.getByText("מסלול הלמידה שלך")).toBeVisible();
-    expect(screen.getByText(`${demoCourse.lessons.length} שיעורים`)).toBeVisible();
+    expect(screen.getByText(new RegExp(`· ${demoCourse.lessons.length} שיעורים ·`))).toBeVisible();
     expect(screen.getByRole("heading", { name: demoCourse.title })).toBeVisible();
     expect(screen.queryByText("Your learning path")).toBeNull();
     expect(screen.queryByText(/Continue learning/)).toBeNull();

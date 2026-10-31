@@ -11,7 +11,7 @@ import { AxeBuilder } from "@axe-core/playwright";
  * slow page a retried press could pass the roadmap before it was seen, and then never find it
  * (the same race generated-content.spec.ts fixed). */
 async function openCurrentLesson(page: Page) {
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
   const lesson = page.locator("article[data-reading-part]").first();
   await expect(async () => {
     if (await lesson.isVisible()) return;

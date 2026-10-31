@@ -33,7 +33,7 @@ async function openLesson(page: Page, locale: Locale) {
   await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
     .getByRole("button", { name: t.host["library.open"], exact: true }).click();
   await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-  await page.getByRole("button", { name: t.host["library.continue"], exact: true }).click();
+  await page.getByTestId("next-step").getByRole("button").click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
 }
 async function openCompanion(page: Page) {
@@ -91,9 +91,9 @@ for (const locale of ["en", "he"] as const) {
     // A new visit: the conversation is long, and the companion opens at its end.
     await page.reload();
     await expect(async () => {
-      const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true });
+      const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
       if (await resume.count()) await resume.first().click({ timeout: 2_000 });
-      await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible({ timeout: 2_000 });
+      await expect(page.getByRole("heading", { name: "Minimum", exact: true, level: 1 })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 20_000 });
     const pane = await openCompanion(page);
     await expect(page.getByRole("log", { name: t.companion.log }).getByText(/ 7 \d+$/)).toBeVisible();

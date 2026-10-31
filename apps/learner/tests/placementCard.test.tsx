@@ -50,7 +50,7 @@ it("points the card at the open placement panel, and drops it once placement is 
   onTestFinished(() => { Element.prototype.scrollIntoView = original; });
   host(placeable(), "offered");
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   const panel = await screen.findByRole("region", { name: "Already know some of this?" });
   await pressWhenReady(await screen.findByRole("button", { name: "Explore placement ↗" }));
   expect(scrolled).toEqual([panel]);
@@ -64,7 +64,7 @@ it("points the card at the open placement panel, and drops it once placement is 
 it.each(["declined", "accepted", "unavailable"])("shows no placement card when placement is %s", async (state) => {
   host(placeable(), state);
   await screen.findByRole("heading", { name: "Your courses" });
-  await pressWhenReady(screen.getByRole("button", { name: "Continue learning →" }));
+  await pressWhenReady(screen.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }));
   // The roadmap is on screen and the placement view has been read.
   expect((await screen.findAllByText("Notice the change")).length).toBeGreaterThan(0);
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/placement"))).toBe(true));

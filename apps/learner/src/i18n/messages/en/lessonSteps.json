@@ -10,6 +10,6 @@
   "part.visual": "Part {number, number} · Illustration",
   "part.media": "Part {number, number} · Video",
   "activity": "Activity {number, number}",
-  "check": "Independent check",
+  "check": "Check your understanding",
   "finish": "Finish this lesson"
 }

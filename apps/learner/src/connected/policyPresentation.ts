@@ -29,6 +29,21 @@ export function policyDate(value: string | null, zone = "UTC", i18n: PolicyForma
       : policyDate(value, "UTC", i18n);
   }
 }
+/** Whether a deadline is a time an author set (a course or chapter `hardDeadline` or `targetDate`),
+ * rather than one counted from a window such as "90 days after enrollment", whose minute is only
+ * when the learner happened to enroll. */
+export function authoredInstant(value: string | null | undefined, policies: readonly (LearningPolicy | undefined)[]): boolean {
+  const at = value ? Date.parse(value) : NaN;
+  if (!Number.isFinite(at)) return false;
+  return policies.some((policy) => [policy?.hardDeadline, policy?.targetDate].some((date) => date !== undefined && Date.parse(date) === at));
+}
+/** A due date as the learner reads it: in their own time zone, the date only unless an author set
+ * the time ("Jan 29, 2027", or "Jan 29, 2027, 5:00 PM GMT+2"). */
+export function dueDate(value: string, i18n: PolicyFormatter, exactTime = false): string {
+  if (!Number.isFinite(Date.parse(value))) return i18n.t("policyPresentation.date.unavailable");
+  return i18n.dateTime(value, { year: "numeric", month: "short", day: "numeric",
+    ...(exactTime ? { hour: "numeric", minute: "2-digit", timeZoneName: "short" as const } : {}) });
+}
 export function scopeLabel(
   scopeId: string,
   course: ServerSnapshot["course"],

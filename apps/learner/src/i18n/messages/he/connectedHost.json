@@ -1,6 +1,5 @@
 {
   "brandSection": "/ למידה",
-  "menu.yourCourse": "הקורס שלך",
   "menu.account": "חשבון",
   "menu.signedIn": "מחובר/ת בתור {name}",
   "menu.signedInWithCoverage": "מחובר/ת בתור {name} · {coverage}",
@@ -84,5 +83,6 @@
   "record.event.course_version_move_offered": "התקבלה הצעה לעבור לגרסה חדשה יותר",
   "record.event.course_version_move_offer_accepted": "ההצעה לעבור לגרסה חדשה יותר התקבלה",
   "record.event.course_version_move_offer_declined": "ההצעה לעבור לגרסה חדשה יותר נדחתה",
-  "record.event.course_version_move_forced": "הועברת לגרסה חדשה יותר על ידי צוות הקורס"
+  "record.event.course_version_move_forced": "הועברת לגרסה חדשה יותר על ידי צוות הקורס",
+  "menu.accountOf": "תפריט החשבון והקורס, {name}"
 }

@@ -44,7 +44,7 @@ test("learner controls persist across reload without changing required learning 
   ).toBeVisible();
   await page.reload();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await chooseFromMenu(page, "My profile");
   await expect(
@@ -83,13 +83,13 @@ test("learner controls persist across reload without changing required learning 
     .getByRole("button", { name: "← Back to learning", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   expect(errors).toEqual([]);
 });

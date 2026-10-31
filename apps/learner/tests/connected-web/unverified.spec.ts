@@ -9,8 +9,8 @@ test("generated teaching carries an inline Unverified label that leads to its pe
   const session = await page.request.post("/test/model-session", { data: { generated: true } });
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   // The authored first part is not labelled.
   await expect(page.locator(".connected-reading-card .connected-unverified")).toHaveCount(0);
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();

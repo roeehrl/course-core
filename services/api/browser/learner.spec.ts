@@ -34,7 +34,7 @@ async function fakeYouTubeApi(page: Page, errorCode?: number | "blocked") {
  * race generated-content.spec.ts fixed). The lesson's heading is the mark, since not every lesson
  * view shows a reading part (a placement step, a closed course, the end-of-lesson check). */
 async function openCurrentLesson(page: Page) {
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
   const lesson = page.locator(".connected-lesson-keeper:not([hidden]) [data-reading-heading]");
   await expect(async () => {
     if (await lesson.isVisible()) return;
@@ -46,7 +46,7 @@ async function openCurrentLesson(page: Page) {
  * roadmap (placement, dates) can shift the button mid-press, so the press is
  * retried until the lesson has opened; it only navigates, never saves. */
 async function enterNextLesson(page: Page) {
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
   const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
   await expect(roadmap).toBeVisible();
   await expect(async () => {
@@ -209,7 +209,7 @@ test("independently verified new teaching is visible on the linear lesson and su
   ).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page.reload();
   await openCurrentLesson(page);
@@ -218,7 +218,7 @@ test("independently verified new teaching is visible on the linear lesson and su
   ).toHaveCount(1);
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   expect(
     (
@@ -274,7 +274,7 @@ test("rejected teaching is repaired and its optional activity record distinguish
     page.getByText("Minimum of [31, -14, 9] is 9.", { exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await chooseFromMenu(page, "Learning record");
   await expect(
@@ -321,7 +321,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await openProfile(page);
   await expect(
@@ -346,7 +346,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   ).toBeVisible();
   await page.reload();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await openProfile(page);
   await expect(
@@ -430,7 +430,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Get a fresh check · 2 min →", exact: true })
@@ -446,7 +446,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     "def solve(values):\n    return values.index(min(values))\n",
   );
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   expect(
     await page.evaluate(
@@ -478,10 +478,10 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Complete episode →", exact: true })
+    .getByRole("button", { name: "Finish this lesson →", exact: true })
     .click();
   await expect(
-    page.getByText("1 completed / 2", { exact: true }),
+    page.getByText("1 of 2 lessons complete", { exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -510,7 +510,7 @@ test("wrong first answer recovers through a fresh qualified family check without
   await page.getByRole("radio", { name: "5", exact: true }).click();
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
@@ -527,7 +527,7 @@ test("wrong first answer recovers through a fresh qualified family check without
     page.getByText("Which value is smaller: 7 or 11?", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page.getByRole("radio", { name: "7", exact: true }).click();
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
@@ -535,10 +535,10 @@ test("wrong first answer recovers through a fresh qualified family check without
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Complete episode →", exact: true })
+    .getByRole("button", { name: "Finish this lesson →", exact: true })
     .click();
   await expect(
-    page.getByText("1 completed / 2", { exact: true }),
+    page.getByText("1 of 2 lessons complete", { exact: true }),
   ).toBeVisible();
 });
 
@@ -606,7 +606,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   ).toBe(true);
   await page.reload();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await openProfile(page);
   await expect(
@@ -623,7 +623,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     .getByRole("button", { name: "← Back to learning", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   const accessibility = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
@@ -641,7 +641,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     fullPage: true,
   });
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Mark this part read", exact: true })
@@ -663,7 +663,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByText("Correct. 2 is below 5.", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Complete episode →", exact: true }),
+    page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
@@ -677,13 +677,13 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Complete episode →", exact: true })
+    .getByRole("button", { name: "Finish this lesson →", exact: true })
     .click();
   await expect(
-    page.getByText("1 completed / 2", { exact: true }),
+    page.getByText("1 of 2 lessons complete", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Maximum", exact: true }),
@@ -725,8 +725,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
       .click();
   // P12: revisiting a finished lesson names where the learner returns, and takes them there.
   await page.getByRole("button", { name: "← Course roadmap", exact: true }).click();
-  await page.getByRole("button", { name: "Inspect Minimum, Completed" }).click();
-  await page.getByRole("button", { name: "Revisit lesson →", exact: true }).click();
+  await page.getByRole("button", { name: "Lesson 1: Minimum, Completed", exact: true }).click();
   await expect(page.getByTestId("detour-return")).toContainText(
     "You are revisiting a lesson you finished. When you are done, you return to “Maximum”",
   );
@@ -770,7 +769,7 @@ test("reviewed research resources are optional in-lesson help that never records
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
-  const progressText = page.getByText(/of \d+ parts read/);
+  const progressText = page.locator("#connected-steps-summary");
   const before = await progressText.textContent();
   const help = page.getByText("2 reviewed resources for this episode");
   await expect(help).toBeVisible();
@@ -831,7 +830,7 @@ test("an unavailable or blocked YouTube video becomes a written route without le
     await page.getByRole("button", { name: "Start course", exact: true }).click();
     await enterNextLesson(page);
     await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
-    const progressText = page.getByText(/of \d+ parts read/);
+    const progressText = page.locator("#connected-steps-summary");
     const before = await progressText.textContent();
     await page.getByText("2 reviewed resources for this episode").click();
     await page.getByRole("button", { name: /Load video player/ }).click();
@@ -860,7 +859,7 @@ test("approved course-made video is optional help with captions and a transcript
   // The fixture enrolled through the API; the learner resumes into the current lesson.
   await openCurrentLesson(page);
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
-  const progressText = page.getByText(/of \d+ parts read/);
+  const progressText = page.locator("#connected-steps-summary");
   const before = await progressText.textContent();
   const help = page.getByText("1 reviewed resource for this episode");
   await expect(help).toBeVisible();
@@ -929,7 +928,7 @@ test("a learner downloads their data and then erases this course's learning data
     .getByRole("article")
     .filter({ has: page.getByText(/learning data erased/) });
   await expect(erasedCard).toBeVisible();
-  await expect(erasedCard.getByRole("button", { name: "Continue learning →" })).toHaveCount(0);
+  await expect(erasedCard.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toHaveCount(0);
   expect((await page.request.get(`/api/enrollments/${enrollmentId}`)).status()).toBe(410);
   await expect(page.getByText(/You erased your learning data for this version/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Resume course" })).toHaveCount(0);
@@ -1081,7 +1080,7 @@ test("optional placement: bounded questions, a reviewed result and an explicit s
       // shown item rather than one being issued.
       await expect(run.getByRole("button", { name: "Save answer" })).toBeVisible();
       await page.reload();
-      await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+      await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
       await run.getByRole("button", { name: /Next question|Resume my question/ }).click();
     }
   }
@@ -1149,8 +1148,8 @@ test("declining placement starts the normal path and the offer does not return",
   await expect(page.getByText("Already know this material?")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Explore placement ↗" })).toHaveCount(0);
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
-  await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
+  await expect(page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toBeVisible();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
   await expect(page.getByText("Already know this material?")).toHaveCount(0);
 });
@@ -1163,7 +1162,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await declinePlacement(page);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
@@ -1176,7 +1175,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
   await expect(page.getByText(/Submitted for review\./)).toBeVisible();
   await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeDisabled();
   // A separate reviewer (the course owner) records quoted findings through the real API.
   const course = (await (await page.request.get("/api/enrollments")).json())[0];
   const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
@@ -1199,7 +1198,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await openCurrentLesson(page);
   await expect(page.getByText("Reviewed · criteria met")).toBeVisible();
   await expect(page.getByText("Empty list not discussed.", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("written-review.png"), fullPage: true });
   expect(errors).toEqual([]);
@@ -1232,7 +1231,7 @@ test("a slower, older progress refresh never removes the check a learner is answ
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await declinePlacement(page);
   await expect.poll(() => Boolean(deliveredLate)).toBe(true);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
@@ -1263,7 +1262,7 @@ test("a reviewer's neutral question continues the written answer as a conversati
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await declinePlacement(page);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
@@ -1292,7 +1291,7 @@ test("a reviewer's neutral question continues the written answer as a conversati
   const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
   expect(reply.thread).toHaveLength(1);
   expect(reply.independentEligible).toBe(true);
-  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeDisabled();
   expect(errors).toEqual([]);
 });
 
@@ -1329,7 +1328,7 @@ test("placement: the learner replies to a reviewer's question about a written an
   expect(asked.ok(), await asked.text()).toBeTruthy();
 
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   const answers = run.getByRole("region", { name: "Your written answers" });
   await expect(answers.getByText("Reviewer: Why is the kept value the maximum at the end?")).toBeVisible();
   expect((await (await page.request.get(`/api/enrollments/${(await (await page.request.get("/api/enrollments")).json())[0].id}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
@@ -1382,7 +1381,7 @@ test("placement: a judged written placement answer can be appealed from the plac
   expect(judged.ok(), await judged.text()).toBeTruthy();
 
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   const answers = run.getByRole("region", { name: "Your written answers" });
   await expect(answers.getByText("Reviewed · not yet")).toBeVisible();
   // The episode is still locked; the appeal is made right here.
@@ -1435,7 +1434,7 @@ test("placement: after accepting a start point, an open reviewer question about 
   expect(asked.ok(), await asked.text()).toBeTruthy();
 
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
   const open = page.getByRole("region", { name: "Placement answers a reviewer asked about" });
@@ -1458,7 +1457,7 @@ test("placement: after accepting a start point, an open reviewer question about 
     criteria: [{ criterionId: "invariant", met: true, quote: "never less than any element seen" }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }] } });
   expect(judged.ok(), await judged.text()).toBeTruthy();
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Placement answers a reviewer asked about" })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -1469,7 +1468,7 @@ test("a due delayed check is optional, fresh and records retention without chang
   page.on("pageerror", (error) => errors.push(error.message));
   const fixture = await (await request.post("/test/retention-session")).json();
   await page.goto(`/#signin=${fixture.token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   const panel = page.getByRole("region", { name: "Delayed checks" });
   await expect(panel).toBeVisible();
   await expect(panel.getByText("Shown once")).toBeVisible();
@@ -1534,7 +1533,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   const session = await request.post("/test/hypothesis-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
   const statement = "You may be choosing the largest value when the question asks for the smallest.";
   await expect(page.getByText(statement, { exact: true })).toBeVisible();
@@ -1579,7 +1578,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   await expect(page.getByRole("textbox", { name: "Say it in your own words", exact: true })).toHaveCount(0);
   // The committed correction persists across reload.
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
   await expect(corrected.getByText(correction, { exact: true })).toBeVisible();
   await expect(corrected.getByText(/^Your correction\. Original wording: /)).toBeVisible();
@@ -1602,7 +1601,7 @@ test("an idea the learner writes is kept for a limited time and can be kept long
   const decisions: Record<string, unknown>[] = [];
   page.on("request", (r) => { if (r.method() === "POST" && /\/decision$/.test(new URL(r.url()).pathname)) decisions.push(r.postDataJSON()); });
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
   await page.getByRole("button", { name: "Show ask for a quick check", exact: true }).click();
   await expect(page.getByText(/What you write here becomes one of your ideas/)).toBeVisible();
@@ -1629,7 +1628,7 @@ test("an optional confidence rating with a declared item reaches the teaching id
   const sent: Record<string, unknown>[] = [];
   page.on("request", (r) => { if (r.method() === "POST" && /\/answers$/.test(new URL(r.url()).pathname)) sent.push(r.postDataJSON()); });
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await enterNextLesson(page);
   await expect(page.getByText("Which is the smallest of 7, 3 and 9?", { exact: true })).toBeVisible();
   const confidence = page.getByRole("radiogroup", { name: "Confidence", exact: true });
@@ -1655,7 +1654,7 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   const session = await request.post("/test/hypothesis-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
   await page.getByRole("button", { name: "Search history", exact: true }).click();
   await page.getByRole("button", { name: /^Show history references / }).first().click();
@@ -1674,7 +1673,7 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   await page.screenshot({ path: info.outputPath("evidence-controls.png"), fullPage: true });
   // Both controls persist across reload; nothing was demonstrated by them.
   await page.reload();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
   await expect(page.getByText("Disputed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Search history", exact: true }).click();
@@ -1689,7 +1688,7 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   const session = await request.post("/test/companion-context-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await enterNextLesson(page);
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   // Select part of the lesson text before opening the companion.
@@ -1744,7 +1743,7 @@ test("context used reads as plain words and leaves out a question the learner ca
   const session = await request.post("/test/companion-context-rich-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await enterNextLesson(page);
   const trigger = page.getByRole("button", { name: "Companion", exact: true });
   if (await trigger.isVisible()) await trigger.click();
@@ -1766,7 +1765,7 @@ test("a question whose reply Core refused says it couldn't be answered and can b
   const session = await request.post("/test/companion-refused-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await enterNextLesson(page);
   const trigger = page.getByRole("button", { name: "Companion", exact: true });
   if (await trigger.isVisible()) await trigger.click();
@@ -1792,7 +1791,7 @@ test("a learner deletes one question with its answer, then erases their whole ac
   const session = await request.post("/test/companion-context-session");
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await enterNextLesson(page);
   const trigger = page.getByRole("button", { name: "Companion", exact: true });
   if (await trigger.isVisible()) await trigger.click();
@@ -1828,7 +1827,7 @@ test("the companion says when it is offline, holds the question, and sends it on
   expect(session.ok()).toBe(true);
   const stream = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith("/events/stream"));
   await page.goto(`/#signin=${(await session.json()).token}`);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await enterNextLesson(page);
   // The conversation follows the enrollment's resumable event stream.
   expect((await stream).headers()["accept"]).toContain("text/event-stream");

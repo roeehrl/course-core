@@ -28,7 +28,7 @@ async function openCheck(page: Page, locale: Locale) {
     .getByRole("button", { name: t.host["library.open"], exact: true })
     .click();
   await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-  await page.getByRole("button", { name: t.roadmap.continue, exact: true }).click();
+  await page.getByRole("button", { name: t.roadmap["next.startCourse"], exact: true }).click();
   await page.getByRole("button", { name: t.lesson.markRead, exact: true }).click();
   await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
   await expect(page.getByRole("radio", { name: "2", exact: true })).toBeVisible();

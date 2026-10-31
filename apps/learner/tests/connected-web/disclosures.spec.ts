@@ -16,11 +16,11 @@ async function openLessonWithHelp(page: Page) {
   expect(signIn.ok()).toBeTruthy();
   await page.goto(`/#signin=${(await signIn.json()).token}`);
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),

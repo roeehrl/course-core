@@ -19,7 +19,7 @@ async function openLesson(page: Page, request: Page["request"]) {
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
@@ -120,7 +120,7 @@ test("599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pan
   await page.getByRole("button", { name: "Close companion" }).click();
   await page.reload();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
@@ -130,14 +130,16 @@ test("599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pan
   expect(errors).toEqual([]);
 });
 
-test("the secondary Your course menu holds profile, record and account settings at every size", async ({
+test("the account menu holds profile, record and account settings at every size", async ({
   page,
 }, info) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await openLesson(page, page.request);
   const menu = page.locator(".connected-menu-toggle");
-  await expect(menu).toHaveText(/Your course/);
+  // The button is the account: the learner's initials and name, named as the account menu.
+  await expect(menu).toHaveAccessibleName("Account and course menu, Browser learner");
+  await expect(menu.locator(".connected-menu-avatar")).toHaveText("BL");
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   // Settings are not scattered across the header: only the menu button and the notification bell
   // are there (and, beside a collapsed companion pane, the button that shows it).

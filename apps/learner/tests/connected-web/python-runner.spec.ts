@@ -21,7 +21,7 @@ async function openCodeCheck(page: Page) {
   await page.goto(`/#signin=${(await signed.json()).token}`);
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const resume = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
   const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
   await expect(roadmap).toBeVisible();
   await expect(async () => {

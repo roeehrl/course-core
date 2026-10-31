@@ -14,7 +14,7 @@ test("tapping an answer option always selects it", async ({ page }, info) => {
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   const options = page.getByRole("radiogroup").first().getByRole("radio");
@@ -52,7 +52,7 @@ test("an option tapped while another request is in flight is chosen, and locked 
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   const options = page.getByRole("radiogroup").first().getByRole("radio");

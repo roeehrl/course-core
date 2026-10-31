@@ -31,11 +31,11 @@ test("help round trip keeps the step, draft, anchor, focus, open help and media"
   expect(signIn.ok()).toBeTruthy();
   await page.goto(`/#signin=${(await signIn.json()).token}`);
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
   await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
@@ -110,7 +110,7 @@ test("help round trip keeps the step, draft, anchor, focus, open help and media"
     "",
   );
   await expect(page.locator('[aria-current="step"]')).toContainText(
-    "Independent check",
+    "Check your understanding",
   );
   if (await trigger.isVisible()) await trigger.click();
   await expect(draft).toHaveValue("Why is 2 the smaller value?");

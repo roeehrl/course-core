@@ -38,8 +38,9 @@ test("a closed course counts down its read-only questions and says when none rem
   expect(closed.ok(), await closed.text()).toBe(true);
   await page.reload();
   await page.getByRole("button", { name: /Continue learning|Resume course|Open course/ }).first().click();
-  await page.getByRole("button", { name: "Inspect Minimum, Current" }).or(page.getByRole("button", { name: /Inspect Minimum/ })).first().click();
-  await page.getByRole("button", { name: /Open lesson|Revisit lesson|Continue learning/ }).first().click();
+  // A closed course offers no next step; its lessons stay open to read from the path.
+  await expect(page.getByTestId("next-step")).toContainText("This course is closed");
+  await page.getByRole("button", { name: /^Lesson 1: Minimum, / }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   const trigger = page.locator(".connected-companion-trigger");
   if (await trigger.isVisible()) await trigger.click();
@@ -62,8 +63,9 @@ test("a closed course answers its read-only question, and a refused question is 
   expect(closed.ok(), await closed.text()).toBe(true);
   await page.reload();
   await page.getByRole("button", { name: /Continue learning|Resume course|Open course/ }).first().click();
-  await page.getByRole("button", { name: "Inspect Minimum, Current" }).or(page.getByRole("button", { name: /Inspect Minimum/ })).first().click();
-  await page.getByRole("button", { name: /Open lesson|Revisit lesson|Continue learning/ }).first().click();
+  // A closed course offers no next step; its lessons stay open to read from the path.
+  await expect(page.getByTestId("next-step")).toContainText("This course is closed");
+  await page.getByRole("button", { name: /^Lesson 1: Minimum, / }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   const trigger = page.locator(".connected-companion-trigger");
   if (await trigger.isVisible()) await trigger.click();

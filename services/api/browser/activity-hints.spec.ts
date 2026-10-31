@@ -31,7 +31,7 @@ test("network hints from a sandboxed activity never reach the network", async ({
     await page.getByRole("button", { name: "Start course", exact: true }).click();
     await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
     await expect(page.locator("section.connected-placement")).toHaveCount(0);
-    await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+    await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
     const report = async () => page.evaluate(async () => {
       const id = (await (await fetch("/api/enrollments", { credentials: "same-origin" })).json())[0].id as string;
       const exported = await (await fetch(`/api/enrollments/${id}/export`, { credentials: "same-origin" })).json();

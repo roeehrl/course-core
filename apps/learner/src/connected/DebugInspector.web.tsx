@@ -63,19 +63,26 @@ export function DebugInspector({ access, enrollmentId, episodeId, blockId, windo
   const src = inspectorUrl(access.path, { enrollmentId, episodeId, blockId: openedBlock.current, locale });
   return (
     <>
+      {/* A small staff control in the lesson's header; the audit note is its tooltip and description. */}
       <div className="connected-debug-entry">
         <button
           ref={trigger}
           type="button"
           className="connected-debug-trigger"
+          title={t("debugInspector.notice")}
+          aria-describedby="connected-debug-note"
           aria-haspopup={modal ? "dialog" : undefined}
           aria-expanded={open}
           aria-controls="connected-debug-inspector"
           onClick={() => { openedBlock.current = blockId; setOpen((value) => !value); }}
         >
-          {open ? t("debugInspector.close") : t("debugInspector.open")}
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <ellipse cx="8" cy="9.5" rx="3.6" ry="4.5" />
+            <path d="M8 5v9M5.5 4.5 4 3M10.5 4.5 12 3M4.4 8H1.8M11.6 8h2.6M4.6 11.5l-2 1.5M11.4 11.5l2 1.5" />
+          </svg>
+          <span>{open ? t("debugInspector.close") : t("debugInspector.open")}</span>
         </button>
-        <span className="connected-muted">{t("debugInspector.notice")}</span>
+        <span id="connected-debug-note" className="connected-visually-hidden">{t("debugInspector.notice")}</span>
       </div>
       {open && createPortal(
         <section

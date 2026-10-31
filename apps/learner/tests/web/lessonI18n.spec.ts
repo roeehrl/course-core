@@ -106,14 +106,15 @@ test("Hebrew: enrollment preview, roadmap, placement, profile and a code lesson 
   await expect(roadmap.getByRole("list", { name: /השיעורים ב-/ })).toBeVisible();
   // Placement could not load: the panel says so in Hebrew.
   await expect(page.getByText("השיבוץ לא זמין כרגע. אפשר להתחיל ללמוד כרגיל או לנסות שוב.")).toBeVisible();
-  // Right to left: the resume text starts at the right edge, never left of the button's end.
-  const resume = await roadmap.getByRole("button", { name: "המשך למידה ←" }).boundingBox();
-  const next = await roadmap.getByText("הצעד הקטן הבא שלך").boundingBox();
+  // Right to left: the next step's text starts at the right edge, never left of the button's end.
+  const nextStep = /^(התחלת הקורס|המשך שיעור \d+|התחלת שיעור \d+) ←$/;
+  const resume = await roadmap.getByRole("button", { name: nextStep }).boundingBox();
+  const next = await roadmap.getByTestId("next-step").getByText(/^שיעור \d+ מתוך/).boundingBox();
   expect(next!.x + next!.width).toBeGreaterThanOrEqual(resume!.x + resume!.width - 2);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  await roadmap.getByRole("button", { name: "המשך למידה ←" }).click();
+  await roadmap.getByRole("button", { name: nextStep }).click();
   const editor = page.getByRole("textbox", { name: "הקוד שלך", exact: true });
   await expect(editor).toBeVisible();
   await expect(editor).toHaveAttribute("dir", "ltr");
@@ -121,7 +122,7 @@ test("Hebrew: enrollment preview, roadmap, placement, profile and a code lesson 
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  await page.getByRole("button", { name: "הקורס שלך" }).click();
+  await page.locator(".connected-menu-toggle").click();
   await page.getByRole("button", { name: "הפרופיל שלי" }).click();
   await expect(page.getByRole("button", { name: "שמירת הפרופיל" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "שם תצוגה" })).toBeVisible();

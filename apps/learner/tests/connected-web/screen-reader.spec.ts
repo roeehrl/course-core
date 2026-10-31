@@ -28,7 +28,7 @@ test("a lesson read in document order: landmarks, headings, named controls, focu
   const preview = await tree(page, "main");
   expect(preview.indexOf('button "Start course"')).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).focus();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).focus();
   await page.keyboard.press("Enter");
 
   // Step 4: focus moves to the lesson's level-1 heading; the steps are a list naming the current one.
@@ -85,7 +85,7 @@ test("keyboard Tab order follows the reading order of the lesson and never gets 
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(page.getByRole("button", { name: "Mark this part read" })).toBeVisible();
   // Tab from the lesson heading until the required step; every stop is a named, visible control
   // and the stops inside the lesson come in document order.

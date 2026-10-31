@@ -6,8 +6,8 @@ import { expect, test, type Page } from "./health";
  * never covers the last content, and the next-step button keeps a button's shape on a phone. */
 
 const LABELS = {
-  en: { open: "Open course", start: "Start course", next: "Continue learning →", close: "Close companion", lesson: "Minimum" },
-  he: { open: "פתיחת הקורס", start: "התחלת הקורס", next: "המשך למידה ←", close: "סגירת המנחה", lesson: "Minimum" },
+  en: { open: "Open course", start: "Start course", next: "Start the course →", close: "Close companion", lesson: "Minimum" },
+  he: { open: "פתיחת הקורס", start: "התחלת הקורס", next: "התחלת הקורס ←", close: "סגירת המנחה", lesson: "Minimum" },
 } as const;
 const PAGE_BACKGROUND = "rgb(248, 248, 242)";
 

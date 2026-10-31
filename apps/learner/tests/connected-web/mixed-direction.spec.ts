@@ -11,8 +11,7 @@ import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
  * qualification), on every device project and both engines, in English and Hebrew:
  * - a quotation in "Context used" keeps its quotation marks at its own start and end, also when
  *   it wraps (in Hebrew the marks of an English quotation landed beside the end of its first line);
- * - the due-date line reads date, time, zone in the sentence's direction, keeps the zone with the
- *   time, and names the UTC zone once ("GMT+0 · UTC" read "UTC · 8 בנוב׳ 2026, 07:41 GMT+0").
+ * - the course page's due-date line reads its label, then the date, in the sentence's direction.
  * Positions are measured on the drawn glyphs, so the checks fail on the old rendering.
  */
 const text = {
@@ -61,56 +60,37 @@ async function signIn(page: Page, locale: Locale, session: string) {
 
 for (const locale of ["en", "he"] as const) {
   const rtl = locale === "he";
-  test(`${locale}: the due date reads date, time and zone in order, with UTC named once and kept with the time`, async ({ page }, info) => {
+  test(`${locale}: the course page's due date is a date in the learner's own zone, after its label`, async ({ page }, info) => {
     const t = text[locale];
     await signIn(page, locale, "/test/session");
     await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
       .getByRole("button", { name: t.host["library.open"], exact: true }).click();
     await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-    await page.getByRole("button", { name: t.host["library.continue"], exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
     const dates = page.locator(".connected-policy-dates");
-    await expect(dates).toContainText("UTC");
-    expect(await dates.innerText()).not.toMatch(/GMT/);
+    await expect(dates).toContainText(/\d{4}/);
+    // A window counted from enrollment has no meaningful minute: the date alone, no zone.
+    expect(await dates.innerText()).not.toMatch(/\d{1,2}:\d{2}|GMT|UTC/);
     await dates.scrollIntoViewIfNeeded();
-    // The course's due date: the day, then the time, then the zone, in the sentence's direction.
+    // The label first in the sentence's direction, then the date.
+    const label = await glyphs(page, ".connected-policy-dates", rtl ? "מועד" : "due");
     const year = await glyphs(page, ".connected-policy-dates", "\\d{4}");
-    const time = await glyphs(page, ".connected-policy-dates", "\\d{1,2}:\\d{2}");
-    const zone = await glyphs(page, ".connected-policy-dates", "UTC");
-    expect(year && time && zone).toBeTruthy();
-    const [first, last] = [year![0]!, zone![zone!.length - 1]!];
-    // "UTC" stays on the time's line (it wrapped alone before).
-    expect(sameLine(time![0]!, zone![0]!), "the zone is on the time's line").toBe(true);
-    if (sameLine(first, last)) {
-      if (rtl) expect(last.right, "UTC comes after the date, to its left").toBeLessThan(first.left);
-      else expect(last.left, "UTC comes after the date, to its right").toBeGreaterThan(first.right);
+    expect(label && year).toBeTruthy();
+    if (sameLine(label![0]!, year![0]!)) {
+      if (rtl) expect(year![0]!.right).toBeLessThan(label![0]!.left);
+      else expect(year![0]!.left).toBeGreaterThan(label![label!.length - 1]!.right);
     }
-    const zoneStart = zone![0]!, timeEnd = time![time!.length - 1]!;
-    if (rtl) expect(zoneStart.right).toBeLessThan(timeEnd.left);
-    else expect(zoneStart.left).toBeGreaterThan(timeEnd.right);
-    // The chapter's line, "{chapter}: {date}": the English chapter title, its colon after it in the
-    // sentence's direction, then the date and the zone ("· :A map of …" and "UTC ·" before the date
-    // in the live Hebrew card).
-    const chapter = await glyphs(page, ".connected-policy-dates", "Order[\\u2066-\\u2069]*:");
-    const chapterYear = await glyphs(page, ".connected-policy-dates", "\\d{4}", 1);
-    const chapterZone = await glyphs(page, ".connected-policy-dates", "UTC", 1);
-    expect(chapter && chapterYear && chapterZone).toBeTruthy();
-    const [o, r, colon] = [chapter![0]!, chapter![4]!, chapter![5]!];
-    if (rtl) {
-      expect(colon.right, "the colon follows the title, on its left").toBeLessThanOrEqual(o.left + 1);
-      if (sameLine(colon, chapterZone![0]!)) expect(chapterZone![0]!.right).toBeLessThan(chapterYear![0]!.left);
-    } else {
-      expect(colon.left).toBeGreaterThanOrEqual(r.right - 1);
-      if (sameLine(colon, chapterZone![0]!)) expect(chapterZone![0]!.left).toBeGreaterThan(chapterYear![0]!.right);
-    }
+    // No lesson repeats the dates: they are on the course page only.
+    await page.locator('[data-testid="next-step"] [data-usability="next"]').click();
+    await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+    await expect(page.locator(".connected-policy-dates")).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`due-date-${locale}.png`) });
   });
 
   test(`${locale}: quotations in "Context used" keep their marks at their own start and end`, async ({ page }, info) => {
     const t = text[locale];
     await signIn(page, locale, "/test/companion-context-rich-session");
-    const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true });
-    const lesson = page.getByRole("heading", { name: "Minimum", exact: true });
+    const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
+    const lesson = page.getByRole("heading", { name: "Minimum", exact: true, level: 1 });
     await expect(async () => {
       if (await resume.count()) await resume.first().click({ timeout: 2_000 });
       await expect(lesson).toBeVisible({ timeout: 2_000 });
