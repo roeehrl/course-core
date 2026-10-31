@@ -200,8 +200,12 @@ function Statements({ value }: { value: Billing }) {
         <thead>
           <tr>
             <th scope="col">{t("billedCosts.col.period")}</th>
-            <th scope="col">{t("billedCosts.col.billed")}</th>
-            <th scope="col">{t("billedCosts.col.estimated")}</th>
+            <th scope="col" className="num">
+              {t("billedCosts.col.billed")}
+            </th>
+            <th scope="col" className="num">
+              {t("billedCosts.col.estimated")}
+            </th>
             <th scope="col">{t("billedCosts.col.difference")}</th>
             <th scope="col">{t("billedCosts.col.source")}</th>
           </tr>
@@ -219,8 +223,8 @@ function Statements({ value }: { value: Billing }) {
                   })}
                 </small>
               </th>
-              <td>{usd(s.billedMicroUsd, i18n)}</td>
-              <td>
+              <td className="num">{usd(s.billedMicroUsd, i18n)}</td>
+              <td className="num">
                 {usd(s.estimate.chargedMicroUsd, i18n)}
                 <br />
                 <small>

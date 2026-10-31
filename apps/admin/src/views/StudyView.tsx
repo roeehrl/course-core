@@ -251,7 +251,7 @@ function StudyCard({
           role="region"
           aria-label={t("studyView.arms.region", { title: study.title })}
         >
-          <table className="people-table">
+          <table className="stacked-table">
             <caption className="sr-only">{t("studyView.arms.title")}</caption>
             <thead>
               <tr>
@@ -264,8 +264,8 @@ function StudyCard({
             <tbody>
               {study.arms.map((arm) => (
                 <tr key={arm.id}>
-                  <th scope="row" dir="auto">
-                    {arm.label}
+                  <th scope="row">
+                    <bdi>{arm.label}</bdi>
                   </th>
                   <td data-label={t("studyView.arms.switches")}>
                     {t(`studies.explain.${arm.behaviour}`)}

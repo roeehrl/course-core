@@ -107,8 +107,8 @@ export function TeachingHypothesesCard({
           <tbody>
             {view.probes.map((p) => (
               <tr key={p.probeRunId}>
-                <td className="mono" dir="ltr">
-                  {p.probeId}
+                <td className="mono">
+                  <span dir="ltr">{p.probeId}</span>
                 </td>
                 <td>
                   {label(

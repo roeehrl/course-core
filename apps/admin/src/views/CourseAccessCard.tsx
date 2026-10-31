@@ -104,11 +104,7 @@ export function CourseAccessCard({
           "courseAccessCard.intro",
           { role: scopedRole },
           {
-            role: (children, key) => (
-              <span key={key} className="mono">
-                {children}
-              </span>
-            ),
+            role: (children, key) => <strong key={key}>{children}</strong>,
           },
         )}
       </p>
@@ -231,7 +227,7 @@ export function CourseAccessCard({
           role="region"
           aria-label={t("courseAccessCard.grants")}
         >
-          <table className="people-table">
+          <table className="stacked-table">
             <caption className="sr-only">
               {t("courseAccessCard.grants")}
             </caption>
@@ -240,7 +236,7 @@ export function CourseAccessCard({
                 <th scope="col">{t("courseAccessCard.person")}</th>
                 <th scope="col">{t("courseAccessCard.column.role")}</th>
                 <th scope="col">{t("courseAccessCard.column.access")}</th>
-                <th scope="col">
+                <th scope="col" className="row-actions">
                   <span className="sr-only">
                     {t("courseAccessCard.column.actions")}
                   </span>
@@ -251,13 +247,19 @@ export function CourseAccessCard({
               {grants.map((g) => (
                 <tr key={g.grantId}>
                   <th scope="row">
-                    <bdi>{name(g.userId)}</bdi>
-                    <small className="people-meta mono" dir="ltr">
-                      {g.reasonCode}
-                    </small>
+                    <div className="person-cell">
+                      <span className="person-name">
+                        <bdi>{name(g.userId)}</bdi>
+                      </span>
+                      <span className="person-details">
+                        <span className="mono" dir="ltr">
+                          {g.reasonCode}
+                        </span>
+                      </span>
+                    </div>
                   </th>
                   <td data-label={t("courseAccessCard.column.role")}>
-                    <Badge>{roleLabel(g.role, t)}</Badge>
+                    <span className="role-chip">{roleLabel(g.role, t)}</span>
                   </td>
                   <td data-label={t("courseAccessCard.column.access")}>
                     <Badge tone={g.state === "active" ? "green" : "neutral"}>
@@ -278,7 +280,7 @@ export function CourseAccessCard({
                             })}
                     </small>
                   </td>
-                  <td className="people-actions">
+                  <td className="row-actions" data-label="">
                     {g.state === "active" && (
                       <Button
                         kind="danger"

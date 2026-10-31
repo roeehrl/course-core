@@ -14,7 +14,7 @@ export const roles = [
   "course_scoped",
 ] as const;
 export type Role = (typeof roles)[number];
-/** The role's name in the active locale (English keeps the role code). */
+/** The role's name in the active locale, in words ("Support observer", not the role code). */
 export const roleLabel = (role: Role, t: Translate = englishTranslator().t) =>
   t(`people.role.${role}` as MessageKey);
 export const roleDescription = (

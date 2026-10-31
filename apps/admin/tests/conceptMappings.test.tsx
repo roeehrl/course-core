@@ -211,7 +211,7 @@ describe("concept mapping editor", () => {
     const history = screen.getByRole("region", { name: "Mapping history" });
     expect(within(history).getByText("Created")).toBeVisible();
     expect(within(history).getByText(/Owner of both/)).toBeVisible();
-    expect(within(history).getByText("(owner / admin)")).toBeVisible();
+    expect(within(history).getByText("(Owner / Admin)")).toBeVisible();
   });
 
   it("keeps a link added the moment the saved mapping appears", async () => {

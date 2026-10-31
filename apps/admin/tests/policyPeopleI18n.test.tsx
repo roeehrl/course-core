@@ -48,7 +48,7 @@ describe("people and placement messages", () => {
   });
 
   it("names roles by code in English and in words in Hebrew", () => {
-    expect(roleLabel("course_scoped", en.t)).toBe("course_scoped");
+    expect(roleLabel("course_scoped", en.t)).toBe("Course access only");
     expect(roleLabel("course_scoped", he.t)).toBe("גישה לפי קורס");
     expect(roleLabel("instructor", he.t)).toBe("מדריך/ה");
     expect(roleDescription("learner")).toBe("Studies enrolled courses only");

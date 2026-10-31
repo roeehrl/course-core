@@ -33,15 +33,15 @@ test("an admin invites, re-roles and removes a learner while owners stay protect
   await expect(selfRow.getByRole("button")).toHaveCount(0);
   await page.getByRole("button", { name: "Invite person" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite a person" });
-  await expect(dialog.getByRole("radio", { name: /^owner/ })).toHaveCount(0);
-  await expect(dialog.getByRole("radio", { name: /^admin/ })).toHaveCount(0);
+  await expect(dialog.getByRole("radio", { name: /^Owner/ })).toHaveCount(0);
+  await expect(dialog.getByRole("radio", { name: /^Admin/ })).toHaveCount(0);
   await dialog.getByLabel("Display name").fill("Pilot learner");
   // Projects share one database, and usernames are unique.
   const username = `pilot.learner.${info.project.name}`;
   await dialog
     .getByLabel("Username (optional)")
     .fill(`Pilot.Learner.${info.project.name}`);
-  await dialog.getByRole("radio", { name: /^learner/ }).check();
+  await dialog.getByRole("radio", { name: /^Learner/ }).check();
   expect(
     (
       await new AxeBuilder({ page })
@@ -54,7 +54,7 @@ test("an admin invites, re-roles and removes a learner while owners stay protect
     .getByRole("button", { name: "Invite and create temporary password" })
     .click();
   await expect(
-    page.getByText("Pilot learner was invited as learner."),
+    page.getByText("Pilot learner was invited with the role Learner."),
   ).toBeVisible();
   // Usernames are stored normalised (NFKC, lower case).
   await expect(page.getByLabel("Username", { exact: true })).toHaveValue(
@@ -106,7 +106,9 @@ test("an admin invites, re-roles and removes a learner while owners stay protect
   const row = table.getByRole("row").filter({ hasText: "Pilot learner" });
   await row.getByLabel("Role for Pilot learner").selectOption("observer");
   await row.getByRole("button", { name: "Save role" }).click();
-  await expect(page.getByText("Pilot learner is now observer.")).toBeVisible();
+  await expect(
+    page.getByText("Pilot learner's role is now Observer."),
+  ).toBeVisible();
   await expect(
     page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth,

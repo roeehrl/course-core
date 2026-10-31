@@ -10,7 +10,8 @@ import { mockConnectedAdmin } from "./connectedAdmin";
  *   pop-up button (about 22px tall, the text clipped).
  * - A disabled button's label keeps a 4.5:1 contrast. Fading the whole button left white on pale
  *   blue at 2.8:1.
- * - The "revision 4" / "מהדורה 4" label is set in the UI font, not a tracked monospace face.
+ * - The page heading's role ("Your role: Owner" / "התפקיד שלך: בעלים") is set in the UI font, not a
+ *   tracked monospace face, and the data revision is its tooltip rather than text on the page.
  */
 async function shot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`) });
@@ -141,12 +142,16 @@ for (const locale of ["en", "he"] as const)
     await page.evaluate(() => window.scrollTo(0, 0));
     await shot(page, `${locale}-controls`);
 
-    // The revision label: the UI font, no tracking.
-    const revision = page.locator(".heading-revision");
-    await expect(revision).toHaveText(
-      locale === "he" ? /^מהדורה \W*\d+\W*$/ : /^revision \d+$/,
+    // The role in the page heading: words in the UI font, no tracking; the revision is its tooltip.
+    const role = page.locator(".heading-role");
+    await expect(role).toHaveText(
+      locale === "he" ? /^התפקיד שלך: \S/ : /^Your role: [A-Z]/,
     );
-    const font = await revision.evaluate((element) => {
+    await expect(role).toHaveAttribute(
+      "title",
+      locale === "he" ? /^מהדורת נתונים \W*\d+\W*$/ : /^Data revision \d+$/,
+    );
+    const font = await role.evaluate((element) => {
       const style = getComputedStyle(element);
       return { family: style.fontFamily, spacing: style.letterSpacing };
     });

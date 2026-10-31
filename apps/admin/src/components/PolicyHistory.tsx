@@ -84,14 +84,32 @@ export function PolicyHistory({
                     <tbody>
                       {entry.changes.map((change) => (
                         <tr key={change.path}>
-                          <th scope="row" className="mono" dir="ltr">
-                            {change.path}
+                          <th scope="row" className="mono">
+                            <span dir="ltr">{change.path}</span>
                           </th>
-                          <td className="mono" dir="ltr">
-                            {change.before ?? t("policyHistory.unset")}
+                          <td>
+                            {change.before === undefined ||
+                            change.before === null ? (
+                              <span className="muted">
+                                {t("policyHistory.unset")}
+                              </span>
+                            ) : (
+                              <span className="mono" dir="ltr">
+                                {change.before}
+                              </span>
+                            )}
                           </td>
-                          <td className="mono" dir="ltr">
-                            {change.after ?? t("policyHistory.unset")}
+                          <td>
+                            {change.after === undefined ||
+                            change.after === null ? (
+                              <span className="muted">
+                                {t("policyHistory.unset")}
+                              </span>
+                            ) : (
+                              <span className="mono" dir="ltr">
+                                {change.after}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}

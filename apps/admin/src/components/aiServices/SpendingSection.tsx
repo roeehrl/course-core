@@ -455,16 +455,20 @@ function SpendHistory({
                   <thead>
                     <tr>
                       <th scope="col">{t("aiServices.history.job")}</th>
-                      <th scope="col">{t("aiServices.history.calls")}</th>
-                      <th scope="col">{t("aiServices.history.charged")}</th>
+                      <th scope="col" className="num">
+                        {t("aiServices.history.calls")}
+                      </th>
+                      <th scope="col" className="num">
+                        {t("aiServices.history.charged")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {view.byRole.map((row) => (
                       <tr key={row.role}>
                         <th scope="row">{jobName(t, row.role)}</th>
-                        <td>{row.calls}</td>
-                        <td>{money(row.charged)}</td>
+                        <td className="num">{row.calls}</td>
+                        <td className="num">{money(row.charged)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -491,8 +495,12 @@ function SpendHistory({
                   <thead>
                     <tr>
                       <th scope="col">{t("aiServices.history.when")}</th>
-                      <th scope="col">{t("aiServices.history.calls")}</th>
-                      <th scope="col">{t("aiServices.history.charged")}</th>
+                      <th scope="col" className="num">
+                        {t("aiServices.history.calls")}
+                      </th>
+                      <th scope="col" className="num">
+                        {t("aiServices.history.charged")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -501,8 +509,8 @@ function SpendHistory({
                         <th scope="row">
                           <Ltr>{row.period}</Ltr>
                         </th>
-                        <td>{row.calls}</td>
-                        <td>{money(row.charged)}</td>
+                        <td className="num">{row.calls}</td>
+                        <td className="num">{money(row.charged)}</td>
                       </tr>
                     ))}
                   </tbody>

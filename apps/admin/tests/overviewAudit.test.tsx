@@ -78,7 +78,9 @@ describe("audit log", () => {
         client={{ audit: { list } } as unknown as AdminClient}
       />,
     );
-    expect(await screen.findByText('{"releaseId":"r1"}')).toBeVisible();
+    // A recorded payload is shown field by field.
+    expect(await screen.findByText("releaseId")).toBeVisible();
+    expect(screen.getByText("r1")).toBeVisible();
     expect(screen.getByText("Details withheld · learner record")).toBeVisible();
   });
 
@@ -149,7 +151,7 @@ describe("course overview", () => {
     expect(text()).toContain("Robin Example · 1 lesson left · due");
     expect(text()).toContain("1 evidence record invalidated in 30 days");
     expect(text()).toContain("oldest open job 2 minutes old");
-    expect(screen.getByText("budget wait")).toBeVisible();
+    expect(screen.getByText("Budget wait")).toBeVisible();
     // AI calls that ran with an unchecked setup are named, not hidden (B08).
     expect(
       screen.getByText("AI ran with a setup nobody checked"),

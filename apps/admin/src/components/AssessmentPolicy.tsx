@@ -123,6 +123,13 @@ export function AssessmentAttemptsCard({
   const flight = useSingleFlight();
   const data =
     view && view.revision >= (remote.data?.revision ?? 0) ? view : remote.data;
+  const grantable =
+    canGrant &&
+    !!client.grantAssessmentAttempt &&
+    !!data?.checks.some(
+      (check) =>
+        (check.limit !== null && check.used >= check.limit) || check.retryAt,
+    );
   return (
     <Card
       title={t("assessmentPolicy.card.title")}
@@ -151,9 +158,12 @@ export function AssessmentAttemptsCard({
                       <th scope="col">{t("assessmentPolicy.card.check")}</th>
                       <th scope="col">{t("assessmentPolicy.card.used")}</th>
                       <th scope="col">{t("assessmentPolicy.card.state")}</th>
-                      {canGrant && client.grantAssessmentAttempt && (
-                        <th scope="col">
-                          {t("assessmentPolicy.card.actions")}
+                      {/* The column appears only when a check can be given another attempt. */}
+                      {grantable && (
+                        <th scope="col" className="row-actions">
+                          <span className="sr-only">
+                            {t("assessmentPolicy.card.actions")}
+                          </span>
                         </th>
                       )}
                     </tr>
@@ -164,7 +174,9 @@ export function AssessmentAttemptsCard({
                         check.limit !== null && check.used >= check.limit;
                       return (
                         <tr key={check.checkId}>
-                          <td dir="auto">{check.title}</td>
+                          <th scope="row">
+                            <bdi>{check.title}</bdi>
+                          </th>
                           <td>
                             {check.limit === null
                               ? t("assessmentPolicy.card.usedUnlimited", {
@@ -202,8 +214,8 @@ export function AssessmentAttemptsCard({
                               </Badge>
                             )}
                           </td>
-                          {canGrant && client.grantAssessmentAttempt && (
-                            <td>
+                          {grantable && (
+                            <td className="row-actions" data-label="">
                               {(full || check.retryAt) && (
                                 <Button
                                   onClick={() => {

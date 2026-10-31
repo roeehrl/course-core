@@ -406,7 +406,8 @@ button svg {
 }
 .page-heading {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 12px;
@@ -431,10 +432,23 @@ button svg {
   align-items: flex-end;
   gap: 8px;
 }
-/* "revision 4" is a label, set in the UI font (a monospace face tracked the Hebrew word apart). */
-.heading-revision {
+/* "Your role: Owner", in the UI font and in sentence case (the data revision is its tooltip). */
+.heading-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.heading-role svg {
+  color: var(--blue);
 }
 .eyebrow {
   font-size: 10px;
@@ -544,10 +558,10 @@ button svg {
   align-items: center;
   max-width: 100%;
   border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 10px;
+  padding: 3px 8px;
+  font-size: 11px;
   line-height: 16px;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: none;
   letter-spacing: 0.2px;
   background: #f0f3f4;
@@ -569,6 +583,13 @@ button svg {
 .badge.red {
   color: var(--red);
   background: var(--rose);
+}
+/* A state badge starts with a capital, like any label (Hebrew has no capitals). */
+.status-text {
+  display: inline-block;
+}
+.status-text:not(:lang(he))::first-letter {
+  text-transform: uppercase;
 }
 .tag-row {
   display: flex;
@@ -711,6 +732,10 @@ button svg {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+/* Secondary text in running content (an unset value, withheld details). */
+.muted {
+  color: var(--muted);
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, monospace;
@@ -1043,29 +1068,61 @@ progress::-moz-progress-bar {
   border: 1px solid var(--line);
   border-radius: 10px;
 }
+/* Every admin table shares one look: text starts at the reading edge (the right in Hebrew),
+   numbers line up at the end, rows are one consistent density, and column headings are a quiet
+   band. Browsers centre <th> by default, so every cell states its alignment here
+   (tests/web/table-layout.spec.ts fails on a centred cell or a table wider than a phone). */
 table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  line-height: 1.5;
   text-align: start;
 }
 caption {
   text-align: start;
-  padding: 13px;
+  padding: 12px 14px;
   background: var(--ice);
   font-weight: 650;
 }
 th,
 td {
-  padding: 13px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--line);
+  text-align: start;
+  vertical-align: middle;
 }
 th {
   font-weight: 600;
 }
-thead {
+tbody th {
+  color: var(--ink);
+}
+thead th {
+  padding-block: 9px;
+  background: #f8f9f8;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Counts, amounts and other figures: end-aligned, with figures of equal width. */
+th.num,
+td.num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A cell whose content runs in the other direction (an event code, an identifier) keeps the
+   table's alignment: the direction is set on the content, not on the cell. */
+.cell-ltr {
+  display: inline-block;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+/* Dates and times stay on one line in wide tables. */
+.cell-date {
+  white-space: nowrap;
 }
 tbody tr:last-child > * {
   border-bottom: 0;
@@ -1527,8 +1584,10 @@ legend {
     12px/1.7 ui-monospace,
     monospace;
 }
+/* Beside the title when there is room, below it when there is not; never wider than the page. */
 .heading-meta {
-  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Research sources */
@@ -1752,12 +1811,32 @@ legend {
 }
 
 /* People */
-.people-meta {
-  display: block;
+/* A person: the name and its badges on one line, then one quiet line of details. */
+.person-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.person-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.person-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
+}
+.person-login {
   font-size: 12px;
-  margin-top: 4px;
+  font-weight: 400;
+  color: var(--muted);
 }
 .people-role {
   display: flex;
@@ -1766,14 +1845,64 @@ legend {
   align-items: center;
 }
 .people-role select {
-  min-width: 150px;
-  min-height: 44px;
+  width: auto;
+  min-width: 170px;
+  min-height: 38px;
+  padding-block: 6px;
+  font-size: 14px;
 }
-.people-table .badge {
+/* A role or state in a table cell: the same size as the text around it, not a tiny tag. */
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #eef2f3;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
+.stacked-table .badge {
+  white-space: nowrap;
+}
+/* Row actions: icon buttons in one line at the row's end; the name stays readable to screen
+   readers and appears as a tooltip. Phones show the names (no hover there). */
+.row-actions {
+  text-align: end;
+  white-space: nowrap;
+  width: 1%;
+}
+.row-actions-group {
+  display: inline-flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.row-actions .button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-color: transparent;
+  background: transparent;
+}
+.row-actions .button:hover:not(:disabled) {
+  background: #eef2f3;
+  filter: none;
+}
+.row-actions .action-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+/* Phones: every table becomes a list of cards. A row's heading cell is the card title, and every
+   other cell shows its column name beside the value (main.tsx copies the column headings into the
+   cells' data-label). Nothing scrolls sideways. */
 @media (max-width: 699px) {
-  .people-table thead {
+  table thead {
     position: absolute;
     inset-block-start: 0;
     inset-inline-start: 0;
@@ -1782,42 +1911,102 @@ legend {
     overflow: hidden;
     clip: rect(0 0 0 0);
   }
-  .table-wrap .people-table {
+  .table-wrap table,
+  .preview-result .table-wrap table {
     min-width: 0;
   }
-  .people-table,
-  .people-table tbody,
-  .people-table tr,
-  .people-table th,
-  .people-table td {
+  table,
+  table tbody,
+  table tfoot,
+  table tr,
+  table th,
+  table td {
     display: block;
     width: 100%;
   }
-  .people-table tr {
-    padding: 14px 0;
+  table tr {
+    padding: 12px 0;
     border-bottom: 1px solid var(--line);
   }
-  .people-table th,
-  .people-table td {
+  table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  table th,
+  table td,
+  table th.num,
+  table td.num {
     border: 0;
-    padding: 4px 14px;
-    box-sizing: border-box;
+    padding: 3px 14px;
+    text-align: start;
+    white-space: normal;
     overflow-wrap: anywhere;
+  }
+  table td[data-label]:not([data-label=""]) {
+    display: grid;
+    grid-template-columns: minmax(88px, 38%) minmax(0, 1fr);
+    gap: 10px;
+    align-items: baseline;
+  }
+  /* The column name is set in the UI font even beside a monospace value. */
+  table td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    font-family:
+      Inter,
+      ui-sans-serif,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  /* A value that is one element (an isolated title, a badge) sits at the reading edge of its
+     column, not stretched across it in its own direction. */
+  table td[data-label]:not([data-label=""]) > * {
+    justify-self: start;
+    min-width: 0;
+    max-width: 100%;
+  }
+  table td[data-label] > .people-role {
+    justify-self: stretch;
+  }
+  table tbody th {
+    padding-block-end: 6px;
+    font-size: 14px;
   }
   .people-role,
   .people-role select {
     width: 100%;
     max-width: 100%;
-    box-sizing: border-box;
   }
-  .people-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 11px;
-    color: var(--muted);
-    margin-bottom: 2px;
+  /* 16px keeps phones from zooming into the field. */
+  .people-role select {
+    font-size: 16px;
   }
-  .people-table .people-actions:empty {
+  .row-actions .button {
+    border-color: var(--line);
+  }
+  .row-actions {
+    width: 100%;
+    text-align: start;
+    white-space: normal;
+  }
+  .row-actions-group {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-top: 6px;
+  }
+  .row-actions .action-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+  .row-actions:empty,
+  .row-actions:has(.row-actions-group:empty) {
     display: none;
   }
 }
@@ -2290,6 +2479,42 @@ legend {
 .audit-controls .field {
   min-width: 200px;
 }
+.audit-table th[scope="row"] {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.audit-who bdi {
+  white-space: nowrap;
+}
+.audit-who {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+/* A payload's fields, one per line: the field name muted, the value as recorded. */
+.audit-fields {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  text-align: start;
+}
+.audit-fields div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  min-width: 0;
+}
+.audit-fields dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.audit-fields dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .audit-payload {
   font-size: 12px;
   white-space: pre-wrap;
@@ -2664,10 +2889,6 @@ h2:lang(he),
 }
 .data-table th,
 .data-table td {
-  text-align: start;
-  padding: 8px;
-  border-block-end: 1px solid var(--line);
-  vertical-align: top;
   overflow-wrap: anywhere;
 }
 .placement-choices {

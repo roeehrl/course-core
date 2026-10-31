@@ -164,11 +164,15 @@ export function LearnerSpendPanel({
                         <th scope="col">
                           {t("aiServices.learnerSpend.measure")}
                         </th>
-                        <th scope="col">
+                        <th scope="col" className="num">
                           {t("aiServices.learnerSpend.median")}
                         </th>
-                        <th scope="col">{t("aiServices.learnerSpend.p90")}</th>
-                        <th scope="col">{t("aiServices.learnerSpend.max")}</th>
+                        <th scope="col" className="num">
+                          {t("aiServices.learnerSpend.p90")}
+                        </th>
+                        <th scope="col" className="num">
+                          {t("aiServices.learnerSpend.max")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -183,9 +187,9 @@ export function LearnerSpendPanel({
                           <th scope="row">
                             {t(`aiServices.learnerSpend.${label}`)}
                           </th>
-                          <td>{money(value.p50)}</td>
-                          <td>{money(value.p90)}</td>
-                          <td>{money(value.max)}</td>
+                          <td className="num">{money(value.p50)}</td>
+                          <td className="num">{money(value.p90)}</td>
+                          <td className="num">{money(value.max)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -448,19 +452,25 @@ function Breakdown({
           <tr>
             <th scope="col">{head}</th>
             {withLearners && (
-              <th scope="col">{t("aiServices.learnerSpend.learnersCol")}</th>
+              <th scope="col" className="num">
+                {t("aiServices.learnerSpend.learnersCol")}
+              </th>
             )}
-            <th scope="col">{t("aiServices.history.calls")}</th>
-            <th scope="col">{t("aiServices.history.charged")}</th>
+            <th scope="col" className="num">
+              {t("aiServices.history.calls")}
+            </th>
+            <th scope="col" className="num">
+              {t("aiServices.history.charged")}
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.key}>
               <th scope="row">{row.name}</th>
-              {withLearners && <td>{row.learners}</td>}
-              <td>{row.calls}</td>
-              <td>
+              {withLearners && <td className="num">{row.learners}</td>}
+              <td className="num">{row.calls}</td>
+              <td className="num">
                 <Ltr>{text.money(Number(row.charged))}</Ltr>
               </td>
             </tr>

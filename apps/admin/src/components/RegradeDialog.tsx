@@ -160,7 +160,9 @@ function RegradeForm({
             {view.history.map((h) => (
               <tr key={h.regradeId}>
                 <td>{when(h.at)}</td>
-                <td dir="auto">{h.actor}</td>
+                <td>
+                  <bdi>{h.actor}</bdi>
+                </td>
                 <td>
                   {t("regradeDialog.history.outcomeValue", {
                     outcome: h.outcome,

@@ -445,7 +445,9 @@ function SettingsForm({
                               zone: row.timeZone,
                             })}
                       </td>
-                      <td dir="ltr">{transition.localDate}</td>
+                      <td>
+                        <span dir="ltr">{transition.localDate}</span>
+                      </td>
                       <td>
                         {t("policySettingsCard.dst.times", {
                           kind: transition.kind,

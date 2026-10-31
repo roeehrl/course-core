@@ -225,7 +225,10 @@ test("permission, loading failure and stale-revision recovery", async ({
     .getByRole("dialog")
     .getByRole("button", { name: "Refresh and try again" })
     .click();
-  await expect(page.getByText("revision 2", { exact: true })).toBeVisible();
+  await expect(page.locator(".heading-role")).toHaveAttribute(
+    "title",
+    "Data revision 2",
+  );
   await page.getByRole("button", { name: "Edit course details" }).click();
   await page
     .getByRole("textbox", { name: "Course title" })

@@ -245,10 +245,18 @@ export function ScopeQuotas({
         <thead>
           <tr>
             <th scope="col">{t("policyDetails.quotas.scopeMetric")}</th>
-            <th scope="col">{t("policyDetails.quotas.limit")}</th>
-            <th scope="col">{t("policyDetails.quotas.consumed")}</th>
-            <th scope="col">{t("policyDetails.quotas.reserved")}</th>
-            <th scope="col">{t("policyDetails.quotas.remaining")}</th>
+            <th scope="col" className="num">
+              {t("policyDetails.quotas.limit")}
+            </th>
+            <th scope="col" className="num">
+              {t("policyDetails.quotas.consumed")}
+            </th>
+            <th scope="col" className="num">
+              {t("policyDetails.quotas.reserved")}
+            </th>
+            <th scope="col" className="num">
+              {t("policyDetails.quotas.remaining")}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -265,10 +273,10 @@ export function ScopeQuotas({
                     : metricLabel(t, q.metric)}
                 </small>
               </th>
-              <td>{i18n.number(q.limit)}</td>
-              <td>{i18n.number(q.consumed)}</td>
-              <td>{i18n.number(q.reserved)}</td>
-              <td>{i18n.number(q.remaining)}</td>
+              <td className="num">{i18n.number(q.limit)}</td>
+              <td className="num">{i18n.number(q.consumed)}</td>
+              <td className="num">{i18n.number(q.reserved)}</td>
+              <td className="num">{i18n.number(q.remaining)}</td>
             </tr>
           ))}
         </tbody>

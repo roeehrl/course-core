@@ -145,7 +145,7 @@ function AuditTable({ page }: { page: AuditPage }) {
       role="region"
       aria-label={t("auditView.table.label")}
     >
-      <table className="people-table audit-table">
+      <table className="stacked-table audit-table">
         <caption className="sr-only">{t("auditView.table.caption")}</caption>
         <thead>
           <tr>
@@ -158,18 +158,22 @@ function AuditTable({ page }: { page: AuditPage }) {
         <tbody>
           {page.events.map((e) => (
             <tr key={e.id}>
-              <th scope="row" className="mono" dir="ltr">
-                {e.type}
+              <th scope="row" className="mono">
+                <span dir="ltr">{e.type}</span>
               </th>
               <td data-label={t("auditView.table.who")}>
-                <Badge tone={e.actorKind === "staff" ? "blue" : "neutral"}>
-                  {i18n.has(`auditView.actorKind.${e.actorKind}`)
-                    ? t(`auditView.actorKind.${e.actorKind}`)
-                    : e.actorKind}
-                </Badge>{" "}
-                {e.actor && <bdi>{e.actor}</bdi>}
+                <span className="audit-who">
+                  <Badge tone={e.actorKind === "staff" ? "blue" : "neutral"}>
+                    {i18n.has(`auditView.actorKind.${e.actorKind}`)
+                      ? t(`auditView.actorKind.${e.actorKind}`)
+                      : e.actorKind}
+                  </Badge>
+                  {e.actor && <bdi>{e.actor}</bdi>}
+                </span>
               </td>
-              <td data-label={t("auditView.table.when")}>{when(e.at)}</td>
+              <td className="cell-date" data-label={t("auditView.table.when")}>
+                {when(e.at)}
+              </td>
               <td data-label={t("auditView.table.details")}>
                 {e.payloadWithheld ? (
                   <span className="muted">
@@ -178,9 +182,7 @@ function AuditTable({ page }: { page: AuditPage }) {
                       : t("auditView.withheld")}
                   </span>
                 ) : (
-                  <code className="audit-payload" dir="ltr">
-                    {JSON.stringify(e.payload)}
-                  </code>
+                  <AuditPayload payload={e.payload} />
                 )}
               </td>
             </tr>
@@ -188,5 +190,28 @@ function AuditTable({ page }: { page: AuditPage }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** A recorded payload as its fields (name, then value), not as one line of JSON. */
+function AuditPayload({ payload }: { payload: unknown }) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return (
+      <code className="audit-payload" dir="ltr">
+        {JSON.stringify(payload)}
+      </code>
+    );
+  const entries = Object.entries(payload as Record<string, unknown>);
+  return (
+    <dl className="audit-fields">
+      {entries.map(([name, value]) => (
+        <div key={name}>
+          <dt dir="ltr">{name}</dt>
+          <dd className="mono" dir="ltr">
+            {typeof value === "string" ? value : JSON.stringify(value)}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }

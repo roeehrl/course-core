@@ -298,10 +298,14 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         <tbody>
           {p.operations.map((o) => (
             <tr key={o.id + o.attempt}>
-              <td className="mono" dir="ltr">
-                {o.id.split("/").at(-1)} #{o.attempt}
+              <td className="mono">
+                <span dir="ltr">
+                  {o.id.split("/").at(-1)} #{o.attempt}
+                </span>
               </td>
-              <td dir="ltr">{o.status}</td>
+              <td>
+                <span dir="ltr">{o.status}</span>
+              </td>
               <td>{pair(o.reservation)}</td>
               <td>
                 {o.usage
@@ -582,9 +586,11 @@ export function ReplayPanel({
                   {result.steps.map((s) => (
                     <tr key={s.step}>
                       <td>{i18n.number(s.step)}</td>
-                      <td dir="ltr">{s.tool}</td>
-                      <td className="mono" dir="ltr">
-                        {s.recordedReceiptId}
+                      <td>
+                        <span dir="ltr">{s.tool}</span>
+                      </td>
+                      <td className="mono">
+                        <span dir="ltr">{s.recordedReceiptId}</span>
                       </td>
                     </tr>
                   ))}

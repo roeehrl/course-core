@@ -683,7 +683,9 @@ function ReleaseResearch({
                           source?.url ??
                           a.sourceId}
                       </td>
-                      <td dir="auto">{episodeTitle(a.episodeId)}</td>
+                      <td>
+                        <bdi>{episodeTitle(a.episodeId)}</bdi>
+                      </td>
                       <td>
                         <Badge>{t(`researchView.attachment.${a.state}`)}</Badge>
                         {a.revokeReason && (
