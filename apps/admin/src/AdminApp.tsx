@@ -371,12 +371,9 @@ function CourseWorkspace({
       onOpen={openTarget}
     />
   );
-  const modeBadge = (
-    <Badge tone={client.mode === "demo" ? "gold" : "blue"}>
-      {client.mode === "demo"
-        ? t("adminApp.badge.demo")
-        : t("adminApp.badge.connected")}
-    </Badge>
+  // Only the demo says what it is: a connected workspace is the normal case and needs no label.
+  const modeBadge = client.mode === "demo" && (
+    <Badge tone="gold">{t("adminApp.badge.demo")}</Badge>
   );
   const refresh = (
     <Button
@@ -528,12 +525,21 @@ function CourseWorkspace({
               </h1>
             </div>
             <div className="heading-meta">
-              <Badge>{roleLabel(i18n, data?.role ?? session.actor.role)}</Badge>
-              {data && (
-                <small className="heading-revision">
-                  {t("adminApp.revision", { revision: data.revision })}
-                </small>
-              )}
+              {/* Your role here, in words. The workspace data revision is a detail for support,
+                  so it is the role's tooltip rather than text on the page. */}
+              <span
+                className="heading-role"
+                title={
+                  data
+                    ? t("adminApp.revision", { revision: data.revision })
+                    : undefined
+                }
+              >
+                <ShieldCheck size={14} aria-hidden="true" />
+                {t("adminApp.yourRole", {
+                  role: roleLabel(i18n, data?.role ?? session.actor.role),
+                })}
+              </span>
             </div>
           </div>
           {session.deployment?.insecureOriginsAllowed && (

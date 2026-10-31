@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { expectModeBadge, openSection } from "../workspaceNav";
+import { expectNoModeBadge, openSection } from "../workspaceNav";
 test.beforeEach(async ({ page, request }, info) => {
   const setup = await request.post("/test/admin-fixture");
   expect(setup.ok()).toBeTruthy();
@@ -14,7 +14,7 @@ test.beforeEach(async ({ page, request }, info) => {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await expectModeBadge(page, "CONNECTED WORKSPACE");
+  await expectNoModeBadge(page);
   await expect(page.getByText("Interactive demo", { exact: true })).toHaveCount(
     0,
   );

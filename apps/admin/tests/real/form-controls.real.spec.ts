@@ -100,9 +100,9 @@ test("the role radios in the invite dialog stay compact", async ({
     .click();
   await page.getByRole("button", { name: "Invite person" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite a person" });
-  await expect(dialog.getByRole("radio", { name: /^learner/ })).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /^Learner/ })).toBeVisible();
   await expectCompactChoices(dialog);
-  await dialog.getByRole("radio", { name: /^learner/ }).check();
+  await dialog.getByRole("radio", { name: /^Learner/ }).check();
   expect(
     (await new AxeBuilder({ page }).include("dialog").withTags(WCAG).analyze())
       .violations,

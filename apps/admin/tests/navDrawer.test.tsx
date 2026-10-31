@@ -95,7 +95,7 @@ describe("phone and tablet navigation", () => {
     expect(current).toHaveFocus();
     // The course picker and the mode badge are in the drawer on phones.
     expect(within(drawer).getByLabelText("Course")).toBeInTheDocument();
-    expect(within(drawer).getByText("DEMO WORKSPACE")).toBeInTheDocument();
+    expect(within(drawer).getByText("Demo workspace")).toBeInTheDocument();
     // Escape (the dialog's cancel) closes it and focus returns to the menu button.
     fireEvent(drawer, new Event("cancel", { cancelable: true }));
     expect(screen.queryByRole("dialog")).toBeNull();

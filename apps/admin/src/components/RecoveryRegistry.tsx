@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
-import { Card, Notice } from "./ui";
+import { Button, Card, Field, Notice } from "./ui";
 import { useI18n, type MessageKey } from "../i18n";
 
 export function RecoveryRegistry({
@@ -173,10 +173,12 @@ export function RecoveryRegistry({
               })}
             </p>
           )}
-          <label>
-            {t("recoveryRegistry.configuration")}
+          <Field
+            label={t("recoveryRegistry.configuration")}
+            htmlFor="recovery-registry-configuration"
+          >
             <textarea
-              aria-label={t("recoveryRegistry.configuration")}
+              id="recovery-registry-configuration"
               dir="ltr"
               rows={10}
               value={draft}
@@ -184,27 +186,28 @@ export function RecoveryRegistry({
               onChange={(e) => setDraft(e.target.value)}
               spellCheck={false}
             />
-          </label>
+          </Field>
           <small>{t("recoveryRegistry.configurationHint")}</small>
           {error && <Notice tone="red">{error}</Notice>}
           {notice && <Notice tone="green">{notice}</Notice>}
-          <div className="button-row">
-            <button
+          <div className="tag-row">
+            <Button
               type="button"
               disabled={busy}
               onClick={() => void refresh()}
             >
               {t("recoveryRegistry.refresh")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              kind="primary"
               disabled={
                 busy || !registry || !runtime?.adapters.length || !draft.trim()
               }
               onClick={() => void approve()}
             >
               {t("recoveryRegistry.approve")}
-            </button>
+            </Button>
           </div>
         </div>
       )}

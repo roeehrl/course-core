@@ -532,7 +532,9 @@ function BlueprintTable({ blueprint }: { blueprint: PlacementBlueprint }) {
         <tbody>
           {blueprint.map((episode) => (
             <tr key={episode.episodeId}>
-              <td dir="auto">{episode.title}</td>
+              <td>
+                <bdi>{episode.title}</bdi>
+              </td>
               <td>
                 <Badge
                   tone={

@@ -530,7 +530,7 @@ function PairEditor({
             role="region"
             aria-label={t("conceptMappingsView.history.region")}
           >
-            <table className="people-table">
+            <table className="stacked-table">
               <thead>
                 <tr>
                   <th scope="col">
@@ -538,7 +538,9 @@ function PairEditor({
                   </th>
                   <th scope="col">{t("conceptMappingsView.history.change")}</th>
                   <th scope="col">{t("conceptMappingsView.history.by")}</th>
-                  <th scope="col">{t("conceptMappingsView.history.links")}</th>
+                  <th scope="col" className="num">
+                    {t("conceptMappingsView.history.links")}
+                  </th>
                   <th scope="col">{t("conceptMappingsView.history.when")}</th>
                   <th scope="col">{t("conceptMappingsView.history.note")}</th>
                 </tr>
@@ -561,9 +563,11 @@ function PairEditor({
                         })}
                       </span>
                     </td>
-                    <td>{i18n.number(h.linkCount)}</td>
-                    <td>{i18n.dateTime(h.createdAt)}</td>
-                    <td dir={h.note ? "auto" : undefined}>{h.note || "—"}</td>
+                    <td className="num">{i18n.number(h.linkCount)}</td>
+                    <td className="cell-date">{i18n.dateTime(h.createdAt)}</td>
+                    <td>
+                      <bdi>{h.note || "—"}</bdi>
+                    </td>
                   </tr>
                 ))}
               </tbody>

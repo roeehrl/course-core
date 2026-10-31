@@ -336,7 +336,7 @@ function SupervisionPanel({
             role="region"
             aria-label={t("supervisionView.jobs.table")}
           >
-            <table className="people-table">
+            <table className="stacked-table">
               <caption className="sr-only">
                 {t("supervisionView.jobs.table")}
               </caption>
@@ -395,7 +395,7 @@ function SupervisionPanel({
               role="region"
               aria-label={t("supervisionView.undelivered.title")}
             >
-              <table className="people-table">
+              <table className="stacked-table">
                 <caption className="sr-only">
                   {t("supervisionView.undelivered.title")}
                 </caption>

@@ -375,7 +375,9 @@ function TestRunCard({
                       · {r.by}
                     </span>
                   </td>
-                  <td dir="ltr">{r.releaseVersion}</td>
+                  <td>
+                    <span dir="ltr">{r.releaseVersion}</span>
+                  </td>
                   <td>
                     {t("assessmentsView.run.counts", {
                       passed: r.passed,

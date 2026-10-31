@@ -76,7 +76,7 @@ function PeopleAdministration({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const { when } = useFormatters();
+  const { when, day } = useFormatters();
   const list = useRemote(
     (signal) => port.list(workspaceId, signal),
     [port, workspaceId],
@@ -124,6 +124,9 @@ function PeopleAdministration({
     return <Notice tone="red">{peopleErrorMessage(list.error, t)}</Notice>;
   const { actorRole, people } = list.data;
   const loginCodes = list.data.loginCodes === true;
+  const anyActions = people.some(
+    (p) => p.canIssueSignIn || p.canSetPassword || p.canRevoke,
+  );
   return (
     <div className="page-stack">
       <Notice tone="blue" title={t("peopleView.access.title")}>
@@ -246,7 +249,7 @@ function PeopleAdministration({
         }
       >
         <div className="table-wrap">
-          <table className="people-table">
+          <table className="stacked-table people-table">
             <caption className="sr-only">
               {t("peopleView.members.caption")}
             </caption>
@@ -254,13 +257,17 @@ function PeopleAdministration({
               <tr>
                 <th scope="col">{t("peopleView.column.person")}</th>
                 <th scope="col">{t("peopleView.column.role")}</th>
-                <th scope="col">{t("peopleView.column.enrollments")}</th>
-                <th scope="col">{t("peopleView.column.lastSignIn")}</th>
-                <th scope="col">
-                  <span className="sr-only">
-                    {t("peopleView.column.actions")}
-                  </span>
+                <th scope="col" className="num">
+                  {t("peopleView.column.enrollments")}
                 </th>
+                <th scope="col">{t("peopleView.column.lastSignIn")}</th>
+                {anyActions && (
+                  <th scope="col" className="row-actions">
+                    <span className="sr-only">
+                      {t("peopleView.column.actions")}
+                    </span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -269,30 +276,38 @@ function PeopleAdministration({
                 return (
                   <tr key={person.userId}>
                     <th scope="row">
-                      <bdi>{person.displayName}</bdi>
-                      {person.self && (
-                        <Badge tone="blue">{t("peopleView.badge.you")}</Badge>
-                      )}
-                      {person.mustChangePassword && (
-                        <Badge tone="gold">
-                          {t("peopleView.badge.temporaryPassword")}
-                        </Badge>
-                      )}
-                      {person.loginName && (
-                        <small className="people-meta mono" dir="ltr">
-                          {person.loginName}
-                        </small>
-                      )}
-                      <small className="people-meta">
-                        {person.addedBy
-                          ? t("peopleView.joinedAddedBy", {
-                              date: when(person.joinedAt),
-                              name: person.addedBy,
-                            })
-                          : t("peopleView.joined", {
-                              date: when(person.joinedAt),
-                            })}
-                      </small>
+                      <div className="person-cell">
+                        <span className="person-name">
+                          <bdi>{person.displayName}</bdi>
+                          {person.loginName && (
+                            <span className="person-login mono" dir="ltr">
+                              {person.loginName}
+                            </span>
+                          )}
+                          {person.self && (
+                            <Badge tone="blue">
+                              {t("peopleView.badge.you")}
+                            </Badge>
+                          )}
+                          {person.mustChangePassword && (
+                            <Badge tone="gold">
+                              {t("peopleView.badge.temporaryPassword")}
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="person-details">
+                          <span>
+                            {person.addedBy
+                              ? t("peopleView.joinedAddedBy", {
+                                  date: day(person.joinedAt),
+                                  name: person.addedBy,
+                                })
+                              : t("peopleView.joined", {
+                                  date: day(person.joinedAt),
+                                })}
+                          </span>
+                        </span>
+                      </div>
                     </th>
                     <td data-label={t("peopleView.column.role")}>
                       {person.canChangeRole ? (
@@ -360,69 +375,88 @@ function PeopleAdministration({
                           )}
                         </div>
                       ) : (
-                        <Badge>{roleLabel(person.role, t)}</Badge>
+                        <span className="role-chip">
+                          {roleLabel(person.role, t)}
+                        </span>
                       )}
                     </td>
-                    <td data-label={t("peopleView.column.enrollments")}>
+                    <td
+                      className="num"
+                      data-label={t("peopleView.column.enrollments")}
+                    >
                       {i18n.number(person.enrollments)}
                     </td>
-                    <td data-label={t("peopleView.column.lastSignIn")}>
+                    <td
+                      className="cell-date"
+                      data-label={t("peopleView.column.lastSignIn")}
+                    >
                       {person.lastSignInAt
                         ? when(person.lastSignInAt)
                         : t("peopleView.never")}
                     </td>
-                    <td className="people-actions">
-                      <div className="tag-row">
-                        {person.canIssueSignIn && (
-                          <Button
-                            kind="quiet"
-                            disabled={pending}
-                            onClick={() =>
-                              void run(
-                                `signin:${person.userId}:${Date.now()}`,
-                                (key) =>
-                                  port.issueSignIn(
-                                    workspaceId,
-                                    person.userId,
-                                    key,
-                                  ),
-                                t("peopleView.codeIssued"),
-                              ).then(
-                                (receipt) =>
-                                  receipt &&
-                                  setIssued({
-                                    name: person.displayName,
-                                    receipt,
-                                  }),
-                              )
-                            }
-                          >
-                            <KeyRound size={16} aria-hidden="true" />{" "}
-                            {t("peopleView.newCode")}
-                          </Button>
-                        )}
-                        {person.canSetPassword && (
-                          <Button
-                            kind="quiet"
-                            disabled={pending}
-                            onClick={() => setSettingPassword(person)}
-                          >
-                            <LockKeyhole size={16} aria-hidden="true" />{" "}
-                            {t("peopleView.setPassword")}
-                          </Button>
-                        )}
-                        {person.canRevoke && (
-                          <Button
-                            kind="danger"
-                            disabled={pending}
-                            onClick={() => setRemoving(person)}
-                          >
-                            <UserMinus size={16} aria-hidden="true" />{" "}
-                            {t("peopleView.remove")}
-                          </Button>
-                        )}
-                      </div>
-                    </td>
+                    {anyActions && (
+                      <td className="row-actions" data-label="">
+                        <div className="row-actions-group">
+                          {person.canIssueSignIn && (
+                            <Button
+                              kind="quiet"
+                              title={t("peopleView.newCode")}
+                              disabled={pending}
+                              onClick={() =>
+                                void run(
+                                  `signin:${person.userId}:${Date.now()}`,
+                                  (key) =>
+                                    port.issueSignIn(
+                                      workspaceId,
+                                      person.userId,
+                                      key,
+                                    ),
+                                  t("peopleView.codeIssued"),
+                                ).then(
+                                  (receipt) =>
+                                    receipt &&
+                                    setIssued({
+                                      name: person.displayName,
+                                      receipt,
+                                    }),
+                                )
+                              }
+                            >
+                              <KeyRound size={16} aria-hidden="true" />
+                              <span className="action-label">
+                                {t("peopleView.newCode")}
+                              </span>
+                            </Button>
+                          )}
+                          {person.canSetPassword && (
+                            <Button
+                              kind="quiet"
+                              title={t("peopleView.setPassword")}
+                              disabled={pending}
+                              onClick={() => setSettingPassword(person)}
+                            >
+                              <LockKeyhole size={16} aria-hidden="true" />
+                              <span className="action-label">
+                                {t("peopleView.setPassword")}
+                              </span>
+                            </Button>
+                          )}
+                          {person.canRevoke && (
+                            <Button
+                              kind="danger"
+                              title={t("peopleView.remove")}
+                              disabled={pending}
+                              onClick={() => setRemoving(person)}
+                            >
+                              <UserMinus size={16} aria-hidden="true" />
+                              <span className="action-label">
+                                {t("peopleView.remove")}
+                              </span>
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

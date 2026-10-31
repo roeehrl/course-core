@@ -63,7 +63,7 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
   await expect(owner.getByText("Gate review requests")).toBeVisible();
   await expect(
     owner.getByRole("list", { name: "Enrollments by state" }),
-  ).toContainText("active");
+  ).toContainText("Active");
   // The overview styles apply: unbulleted grid lists with one flex row per item.
   const enrollments = owner.getByRole("list", { name: "Enrollments by state" });
   await expect(enrollments).toHaveCSS("list-style-type", "none");
@@ -101,12 +101,12 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
   await access.getByRole("button", { name: "Grant course access" }).click();
   await expect(
     owner.getByText(
-      "Visiting tutor can open Ordering values as observer for 14 days.",
+      "Visiting tutor can open Ordering values as Observer for 14 days.",
     ),
   ).toBeVisible();
   await expect(
     access.getByRole("row").filter({ hasText: "Visiting tutor" }),
-  ).toContainText("active");
+  ).toContainText("Active");
   await owner.screenshot({
     path: info.outputPath("course-access.png"),
     fullPage: true,

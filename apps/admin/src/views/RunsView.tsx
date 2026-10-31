@@ -375,8 +375,8 @@ export function RunDetails({
               <tbody>
                 {run.hypothesisChanges.map((c, i) => (
                   <tr key={i}>
-                    <td className="mono" dir="ltr">
-                      {c.templateId ?? c.hypothesisId}
+                    <td className="mono">
+                      <span dir="ltr">{c.templateId ?? c.hypothesisId}</span>
                     </td>
                     <td>
                       {codeLabel(
@@ -489,21 +489,29 @@ export function RunDetails({
                   <caption>{t("runsView.attempts.caption")}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">{t("runsView.attempts.attempt")}</th>
+                      <th scope="col" className="num">
+                        {t("runsView.attempts.attempt")}
+                      </th>
                       <th scope="col">{t("runsView.attempts.http")}</th>
                       <th scope="col">{t("runsView.attempts.outcome")}</th>
-                      <th scope="col">{t("runsView.attempts.tokens")}</th>
+                      <th scope="col" className="num">
+                        {t("runsView.attempts.tokens")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {call.attempts.map((a, i) => (
                       <tr key={i}>
-                        <td>{a.attempt ?? i + 1}</td>
+                        <td className="num">{a.attempt ?? i + 1}</td>
                         <td>{a.status ?? "—"}</td>
-                        <td dir="ltr">{a.outcome ?? "—"}</td>
-                        <td dir="ltr">
-                          {a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} /{" "}
-                          {a.tokens.total ?? "?"}
+                        <td>
+                          <span dir="ltr">{a.outcome ?? "—"}</span>
+                        </td>
+                        <td className="num">
+                          <span dir="ltr">
+                            {a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} /{" "}
+                            {a.tokens.total ?? "?"}
+                          </span>
                         </td>
                       </tr>
                     ))}

@@ -60,7 +60,10 @@ export function Status({ value, label }: { value: string; label?: string }) {
   const key = `ui.status.${value}` as MessageKey;
   return (
     <Badge tone={statusTone(value)}>
-      {label ?? (i18n.has(key) ? i18n.t(key) : value.replaceAll("_", " "))}
+      {/* Drawn in sentence case ("Active"), whatever the catalog's running-text form. */}
+      <span className="status-text">
+        {label ?? (i18n.has(key) ? i18n.t(key) : value.replaceAll("_", " "))}
+      </span>
     </Badge>
   );
 }

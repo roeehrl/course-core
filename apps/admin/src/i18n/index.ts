@@ -59,6 +59,14 @@ export function useFormatters() {
     money: (cents: number, currency = "USD") =>
       i18n.currency(cents / 100, currency),
     when: (iso: string) => i18n.dateTime(iso, fields),
+    /** The calendar day alone (UTC), for dates where the time adds nothing (joined on …). */
+    day: (iso: string) =>
+      i18n.dateTime(iso, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }),
     whenExact: (iso: string) =>
       i18n.dateTime(iso, { ...fields, second: "2-digit" }),
   };

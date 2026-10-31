@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
-import { expectModeBadge } from "../workspaceNav";
+import { expectNoModeBadge } from "../workspaceNav";
 
 /**
  * No horizontal scrolling: the page is never wider than the configured viewport. Compared
@@ -70,7 +70,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
     route.fulfill({ json: workspace }),
   );
   await page.goto("/admin/");
-  await expectModeBadge(page, "CONNECTED WORKSPACE");
+  await expectNoModeBadge(page);
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expectNoHorizontalOverflow(page);
 
@@ -79,7 +79,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   await page.getByRole("menuitemradio", { name: "עברית" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await expectModeBadge(page, "סביבה מחוברת");
+  await expectNoModeBadge(page);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "קורס וגרסאות",
   );
@@ -103,7 +103,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   // The choice survives a reload (stored on this device; the server agrees).
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await expectModeBadge(page, "סביבה מחוברת");
+  await expectNoModeBadge(page);
 });
 
 test("the signed-out sign-in screen switches to Hebrew without horizontal overflow", async ({

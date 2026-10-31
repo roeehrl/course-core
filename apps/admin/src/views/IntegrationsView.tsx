@@ -167,12 +167,14 @@ function Details({ value }: { value: Integrations }) {
             <tbody>
               {value.extensions.map((ext) => (
                 <tr key={ext.id}>
-                  <th scope="row" dir="ltr">
-                    {ext.id}
+                  <th scope="row">
+                    <span dir="ltr">{ext.id}</span>
                   </th>
-                  <td dir="ltr">{ext.version}</td>
-                  <td className="mono" dir="ltr">
-                    {ext.integrity.slice(0, 24)}
+                  <td>
+                    <span dir="ltr">{ext.version}</span>
+                  </td>
+                  <td className="mono">
+                    <span dir="ltr">{ext.integrity.slice(0, 24)}</span>
                   </td>
                 </tr>
               ))}

@@ -263,11 +263,11 @@ export function VisualStatePanel({
                 <span dir="ltr">{b.key}</span>
                 {b.control && ` ${t("learnerInspector.bindings.control")}`}
               </th>
-              <td className="mono" dir="ltr">
-                {JSON.stringify(b.value)}
+              <td className="mono">
+                <span dir="ltr">{JSON.stringify(b.value)}</span>
               </td>
-              <td className="mono" dir="ltr">
-                {JSON.stringify(b.field.initial)}
+              <td className="mono">
+                <span dir="ltr">{JSON.stringify(b.field.initial)}</span>
               </td>
               <td>{i18n.number(b.uses)}</td>
             </tr>
@@ -342,11 +342,11 @@ export function VisualStatePanel({
           <tbody>
             {images.map((image) => (
               <tr key={image.id}>
-                <th scope="row" className="mono" dir="ltr">
-                  {image.id}
+                <th scope="row" className="mono">
+                  <span dir="ltr">{image.id}</span>
                 </th>
-                <td className="mono" dir="ltr">
-                  {image.mediaType || "—"}
+                <td className="mono">
+                  <span dir="ltr">{image.mediaType || "—"}</span>
                 </td>
                 <td>
                   {image.bytes === null
@@ -355,8 +355,10 @@ export function VisualStatePanel({
                         bytes: image.bytes,
                       })}
                 </td>
-                <td className="mono" dir="ltr">
-                  {image.sha256 || t("learnerInspector.hashes.unavailable")}
+                <td className="mono">
+                  <span dir="ltr">
+                    {image.sha256 || t("learnerInspector.hashes.unavailable")}
+                  </span>
                 </td>
               </tr>
             ))}

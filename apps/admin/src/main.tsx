@@ -14,9 +14,12 @@ const EmbeddedInspector = lazy(() =>
 );
 import "./styles.css";
 import { installImeSubmitGuard } from "./client/imeGuard";
+import { installTableCellLabels } from "./client/tableLabels";
 
 // An Enter that commits IME composition never submits a form (I06).
 installImeSubmitGuard();
+// Phones show tables as cards; each value is labelled with its column name.
+installTableCellLabels();
 function Opening({ demo }: { demo?: boolean }) {
   const t = useT();
   return <p>{t(demo ? "main.openingDemo" : "main.openingInspector")}</p>;

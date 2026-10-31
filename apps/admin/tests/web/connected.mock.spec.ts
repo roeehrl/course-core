@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
-import { expectModeBadge } from "../workspaceNav";
+import { expectNoModeBadge } from "../workspaceNav";
 test("connected host uses the API and cookie CSRF; HTTP errors do not become demo success", async ({
   page,
   context,
@@ -32,7 +32,7 @@ test("connected host uses the API and cookie CSRF; HTTP errors do not become dem
     } else await route.fulfill({ json: workspace });
   });
   await page.goto("/admin/");
-  await expectModeBadge(page, "CONNECTED WORKSPACE");
+  await expectNoModeBadge(page);
   await expect(page.getByText("Interactive demo", { exact: true })).toHaveCount(
     0,
   );

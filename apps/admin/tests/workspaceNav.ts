@@ -62,15 +62,10 @@ export async function coursePicker(page: Page): Promise<Locator> {
 }
 
 /**
- * Expects the workspace's mode badge ("Connected workspace", "Demo workspace"). It sits in the
- * top bar on wide windows and at the foot of the navigation drawer on phones and tablets.
+ * A connected workspace is the normal case and carries no mode badge (only the demo says what it
+ * is). Waits for the page heading, then expects no "Demo workspace" label in either language.
  */
-export async function expectModeBadge(page: Page, text: string) {
-  if (!compact(page)) {
-    await expect(page.locator(".topbar").getByText(text)).toBeVisible();
-    return;
-  }
-  await workspaceNav(page);
-  await expect(page.locator(".nav-drawer").getByText(text)).toBeVisible();
-  await closeWorkspaceNav(page);
+export async function expectNoModeBadge(page: Page) {
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByText(/^(Demo workspace|סביבת הדגמה)$/)).toHaveCount(0);
 }
