@@ -77,12 +77,20 @@
   border-top: 1px solid #edf0f6;
   border-bottom: 1px solid #edf0f6;
 }
+/* The scene is laid out in its own left-to-right coordinates, as its standalone SVG is: a label
+   anchored at its start grows to the right of its x in any page direction (in a right-to-left
+   page it grew to the left, off the canvas, and a heading was cut to its last character). Each
+   label still orders its own words by its first letter, so Hebrew reads right to left. */
 .ccv-scene {
+  direction: ltr;
   display: block;
   width: 100%;
   height: auto;
   max-width: 100%;
   font-family: inherit;
+}
+.ccv-scene text {
+  unicode-bidi: plaintext;
 }
 .ccv-handle {
   cursor: grab;
@@ -225,7 +233,11 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* A slider runs the way the scene does, not the page: the scene's coordinates grow to the right
+   in every language (a slider moving a marker along a shelf ran against it in Hebrew), and the
+   timeline is a media scrubber. */
 .ccv-player input[type="range"] {
+  direction: ltr;
   display: block;
   width: 100%;
   min-height: 32px;
@@ -269,7 +281,10 @@
   justify-content: space-between;
   gap: 8px;
 }
+/* A value (a signed number too) is one left-to-right unit in a right-to-left label row. */
 .ccv-control output {
+  direction: ltr;
+  unicode-bidi: isolate;
   color: var(--ccv-accent);
   font-variant-numeric: tabular-nums;
 }

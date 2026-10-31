@@ -426,7 +426,7 @@ export function createDemoPlatform({
             renderers: [
               {
                 rendererId: "course-core-svg-v1",
-                version: "0.5.3",
+                version: "0.5.4",
                 features: ["clip", "gradient", "image", "mask", "path_draw"],
                 targets: ["web_desktop", "web_mobile"],
               },
@@ -435,7 +435,7 @@ export function createDemoPlatform({
             extensions: [
               {
                 id: "course-core-svg-v1",
-                version: "0.5.3",
+                version: "0.5.4",
                 integrity: `sha256-${"0".repeat(64)}`,
               },
             ],
