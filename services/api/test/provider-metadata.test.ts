@@ -11,6 +11,20 @@ import {
   metadataStub,
   type StubReply,
 } from "./metadata-stub-server.js";
+/** A Gemini 429 whose google.rpc.QuotaFailure names the quota that ran out. */
+const quotaError = (quotaId: string) => ({
+  error: {
+    code: 429,
+    message: "Synthetic provider error",
+    status: "RESOURCE_EXHAUSTED",
+    details: [
+      {
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        violations: [{ quotaMetric: "synthetic/requests", quotaId }],
+      },
+    ],
+  },
+});
 const key = "SYNTHETIC_PRIVATE_KEY_CANARY",
   model = (name: string) => ({
     name: "models/" + name,
@@ -213,9 +227,45 @@ it("names the cause of each refusal: invalid key, API not enabled, restricted ke
       { status: 429, body: googleError(429, "RESOURCE_EXHAUSTED") },
       "PROVIDER_METADATA_RATE_LIMITED",
     ],
+    // A per-minute quota is a short-term rate limit; only a per-day quota is used up until it resets.
+    [
+      {
+        status: 429,
+        body: quotaError("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"),
+      },
+      "PROVIDER_METADATA_RATE_LIMITED",
+    ],
+    [
+      {
+        status: 429,
+        body: quotaError("GenerateRequestsPerDayPerProjectPerModel-FreeTier"),
+      },
+      "PROVIDER_METADATA_QUOTA_EXHAUSTED",
+    ],
+    // Billing only for 402 or Google's documented billing reason.
+    [
+      { status: 402, body: googleError(402, "FAILED_PRECONDITION") },
+      "PROVIDER_METADATA_BILLING_REQUIRED",
+    ],
+    [
+      {
+        status: 403,
+        body: googleError(403, "PERMISSION_DENIED", "BILLING_DISABLED"),
+      },
+      "PROVIDER_METADATA_BILLING_REQUIRED",
+    ],
+    // Any other client error is a refused request, never a key, quota or billing problem.
+    [
+      { status: 400, body: googleError(400, "INVALID_ARGUMENT") },
+      "PROVIDER_REQUEST_REJECTED",
+    ],
     [
       { status: 400, body: googleError(400, "FAILED_PRECONDITION") },
-      "PROVIDER_METADATA_REJECTED",
+      "PROVIDER_REQUEST_REJECTED",
+    ],
+    [
+      { status: 404, body: googleError(404, "NOT_FOUND") },
+      "PROVIDER_REQUEST_REJECTED",
     ],
     [
       { status: 500, body: googleError(500, "INTERNAL") },
@@ -276,6 +326,8 @@ it("classifies Anthropic Models API refusals by error type", async () => {
     [401, "authentication_error", "PROVIDER_METADATA_KEY_INVALID"],
     [403, "permission_error", "PROVIDER_METADATA_PERMISSION_DENIED"],
     [429, "rate_limit_error", "PROVIDER_METADATA_RATE_LIMITED"],
+    [402, "billing_error", "PROVIDER_METADATA_BILLING_REQUIRED"],
+    [400, "invalid_request_error", "PROVIDER_REQUEST_REJECTED"],
     [529, "overloaded_error", "PROVIDER_METADATA_UPSTREAM_ERROR"],
   ] as const) {
     const stub = await metadataStub(() => ({

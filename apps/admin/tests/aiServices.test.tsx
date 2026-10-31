@@ -418,6 +418,54 @@ describe("AI services page", () => {
     );
     expect(document.body.innerHTML).not.toContain(key);
   });
+  it("names each refusal of a typed key by its cause: a rate limit, a used-up quota, billing or a refused request, in English and Hebrew", async () => {
+    const cases: [string, string][] = [
+      ["PROVIDER_METADATA_RATE_LIMITED", "connect.errRateLimitedProvider"],
+      ["PROVIDER_METADATA_QUOTA_EXHAUSTED", "connect.errQuotaUsed"],
+      ["PROVIDER_METADATA_BILLING_REQUIRED", "connect.errBilling"],
+      ["PROVIDER_REQUEST_REJECTED", "connect.errRequestRefused"],
+      ["PROVIDER_METADATA_REJECTED", "connect.errRefusedTestAgain"],
+    ];
+    expect(t("connect.errRateLimitedProvider", { service: "Google" })).toBe(
+      "Google is limiting requests right now; try again in a minute.",
+    );
+    const messages = new Set<string>();
+    for (const [locale, translate] of [
+      ["en", t],
+      ["he", he],
+    ] as const)
+      for (const [outcome, message] of cases) {
+        const port = fakePort();
+        port.testKey.mockResolvedValueOnce({
+          kind: "google",
+          outcome,
+          modelCount: null,
+          truncated: null,
+          stored: false,
+          generationPerformed: false,
+        });
+        const page = (
+          <AiServicesPage workspaceId={workspace} port={port} role="owner" />
+        );
+        const { unmount } = render(locale === "he" ? inHebrew(page) : page);
+        const field = await screen.findByLabelText(
+          translate("connect.keyLabel"),
+        );
+        fireEvent.change(field, { target: { value: key } });
+        fireEvent.blur(field);
+        const text = translate(message, {
+          service: translate("service.google"),
+        });
+        expect(
+          await screen.findAllByText(text, { exact: false }),
+        ).not.toHaveLength(0);
+        expect(screen.getByText(outcome)).toBeInTheDocument();
+        messages.add(text);
+        unmount();
+      }
+    // Every cause has its own message in each language.
+    expect(messages.size).toBe(cases.length * 2);
+  });
 
   it("proposes $25 in total and $2 per learner; the button is the consent; a lost answer retries with the same key", async () => {
     const port = fakePort();
