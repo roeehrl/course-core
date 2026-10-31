@@ -266,8 +266,8 @@
     ],
     "A06": [
       "core:deploy/docker/compose.test.mjs::every service restarts unless stopped and the long-running ones have health checks",
-      "core:deploy/docker/compose.test.mjs::only the TLS proxy publishes ports; database, API and Temporal stay private",
-      "core:deploy/docker/smoke.test.mjs::the documented Docker self-host stack comes up, signs an owner in over TLS and restarts after exit",
+      "core:deploy/docker/compose.test.mjs::only the TLS proxy publishes ports; the database, API, Temporal and gate stay private",
+      "core:deploy/docker/smoke.test.mjs::the documented Docker stack grades code in sandboxes, supervises, backs up, upgrades and rolls back",
       "core:deploy/local/backup.test.mjs",
       "core:deploy/local/runtime.test.mjs",
       "core:scripts/workflow-policy.test.mjs::the required Docker job brings up the documented self-host stack"
