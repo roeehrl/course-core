@@ -13,21 +13,35 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { colors as theme } from "../theme/colors";
+import type { ColorToken } from "../theme/palette";
 
+/**
+ * The app's colours under their historical names, each one a design token (final design §1.1):
+ * hex values on native, `var(--token)` strings on web, so a web page follows the light or dark
+ * theme. There are no lilac fills any more (`lilac` is the neutral second surface) and purple is
+ * the companion glyph's colour only.
+ */
 export const colors = {
-  paper: "#F8F8F2",
-  white: "#FFFFFF",
-  ink: "#183237",
-  muted: "#526A70",
-  line: "#DCE6E2",
-  teal: "#087B69",
-  mint: "#E8F6ED",
-  purple: "#7050A4",
-  lilac: "#F2EDFB",
-  gold: "#80601E",
-  sand: "#FCF3DF",
-  stage: "#19383E",
+  paper: theme.page,
+  white: theme.surface,
+  ink: theme.ink,
+  muted: theme.inkMuted,
+  line: theme.line,
+  teal: theme.accent,
+  mint: theme.accentSoft,
+  purple: theme.companion,
+  lilac: theme.surface2,
+  gold: theme.warning,
+  sand: theme.warningSoft,
+  stage: theme.stage,
 };
+/** The focus ring of every control drawn here: a 2 px `--focus` outline, never a border or shadow
+ * alone, so forced colours keep it (final design §6). React Native draws no outline; there the
+ * border change of each control shows focus. */
+const focusRing: ViewStyle = Platform.OS === "web"
+  ? ({ outlineStyle: "solid", outlineWidth: 2, outlineColor: theme.focus, outlineOffset: 2 } as ViewStyle)
+  : {};
 export const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
@@ -57,13 +71,15 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 26,
   },
-  /** Use `<Eyebrow>`: it adds the Latin-script capitals and tracking (`latinCaps`) only where they fit. */
+  /** Use `<Eyebrow>`: the small sentence-case label above a heading (13/20 muted, 14/22 in Hebrew). */
   eyebrow: {
-    color: colors.teal,
-    fontSize: 11,
-    lineHeight: 18,
-    fontWeight: "700",
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "400",
   },
+  /** Tracked Latin capitals. The final design has no uppercase tracked labels (COPY-9), so
+   * `<Eyebrow>` no longer applies it; kept for code that still names it. */
   latinCaps: {
     letterSpacing: 1.7,
     textTransform: "uppercase",
@@ -95,6 +111,17 @@ const buttonLabel: TextStyle = {
   fontWeight: "600",
   textAlign: "center",
 };
+/** Whether a control that just took focus shows its focus ring: always on native; on web only for
+ * :focus-visible (keyboard focus), as the stylesheets' rings do. */
+function showsFocus(event: unknown): boolean {
+  if (Platform.OS !== "web") return true;
+  const target = (event as { target?: unknown; nativeEvent?: { target?: unknown } }).nativeEvent?.target ?? (event as { target?: unknown }).target;
+  try {
+    return !(target instanceof Element) || target.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
 const HEBREW_LETTER = /[\u0590-\u05ff]/;
 /** The plain text among a label's children (strings and numbers). */
 function plainText(children: React.ReactNode): string {
@@ -107,18 +134,19 @@ function useHebrew(children: React.ReactNode): boolean {
   return useI18n().locale === "he" || HEBREW_LETTER.test(plainText(children));
 }
 /**
- * The small label above a heading. In Latin script it is set in tracked capitals. Hebrew has no
- * capitals and letter-spacing pulls its words apart, so a Hebrew interface, or a label in Hebrew
- * (course text), keeps normal spacing (docs/i18n.md).
+ * The small label above a heading, in sentence case with no tracking in every script (final
+ * design §1.2, COPY-9). Hebrew, a Hebrew interface or a label in Hebrew (course text), gets the
+ * 14 px floor for text that carries meaning.
  */
 export function Eyebrow({ style, children, ...props }: TextProps) {
   const hebrew = useHebrew(children);
   return (
-    <Text {...props} style={[styles.eyebrow, !hebrew && styles.latinCaps, style]}>
+    <Text {...props} style={[styles.eyebrow, styles.normalTracking, hebrew && hebrewMeta, style]}>
       {children}
     </Text>
   );
 }
+const hebrewMeta: TextStyle = { fontSize: 14, lineHeight: 22 };
 /**
  * A heading. Large Latin headings are drawn a little tighter (a negative `letterSpacing` in their
  * style); Hebrew letters set that close run into each other, so in a Hebrew interface, or for a
@@ -134,9 +162,18 @@ export function Heading({ style, children, ...props }: TextProps) {
   );
 }
 
-/** A disabled button's colours: its label keeps at least 4.5:1 on the fill, on white and on the
- * app's paper, mint and lilac backgrounds (tests/disabledContrast.test.ts). */
-export const DISABLED = { fill: "#DFE9E5", onFill: "#3F5A55", line: "#E4EBE8", text: "#4F6863" } as const;
+/** The tokens a disabled button is drawn with: the empty Send fill and muted ink. Its label keeps
+ * at least 4.5:1 on the fill and on every surface it sits on, in both themes
+ * (tests/disabledContrast.test.ts reads them from the palette). */
+// i18n-ignore: colour token names, not text
+export const DISABLED_TOKENS = { fill: "sendOff", onFill: "inkMuted", line: "line", text: "inkMuted" } as const satisfies Record<string, ColorToken>;
+/** A disabled button's colours (see DISABLED_TOKENS). */
+export const DISABLED = {
+  fill: theme[DISABLED_TOKENS.fill],
+  onFill: theme[DISABLED_TOKENS.onFill],
+  line: theme[DISABLED_TOKENS.line],
+  text: theme[DISABLED_TOKENS.text],
+} as const;
 export function Button({
   label,
   onPress,
@@ -187,7 +224,7 @@ export function Button({
       aria-disabled={!!disabled}
       disabled={disabled}
       onPress={onPress}
-      onFocus={() => setFocused(true)}
+      onFocus={(event) => setFocused(showsFocus(event))}
       onBlur={() => setFocused(false)}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
@@ -198,20 +235,21 @@ export function Button({
           ...buttonBox,
           backgroundColor:
             kind === "primary"
-              ? disabled ? DISABLED.fill : colors.teal
+              ? disabled ? DISABLED.fill : hovered || pressed ? theme.accentHover : colors.teal
               : kind === "quiet"
                 ? "transparent"
                 : colors.white,
-          borderColor: focused
+          // Outline buttons keep a 3:1 border (--line-strong); native shows focus with an ink border.
+          borderColor: focused && Platform.OS !== "web"
             ? colors.ink
             : kind === "primary"
-              ? disabled ? DISABLED.fill : colors.teal
+              ? disabled ? DISABLED.fill : hovered || pressed ? theme.accentHover : colors.teal
               : kind === "quiet"
                 ? "transparent"
-                : disabled ? DISABLED.line : colors.line,
-          opacity: !disabled && pressed ? 0.8 : 1,
+                : disabled ? DISABLED.line : theme.lineStrong,
         },
-        hovered &&
+        focused && focusRing,
+        (hovered || pressed) &&
           !disabled &&
           kind !== "primary" && { backgroundColor: colors.mint },
         style,
@@ -220,7 +258,7 @@ export function Button({
       <Text
         style={[
           buttonLabel,
-          { color: disabled ? (kind === "primary" ? DISABLED.onFill : DISABLED.text) : kind === "primary" ? colors.white : colors.teal },
+          { color: disabled ? (kind === "primary" ? DISABLED.onFill : DISABLED.text) : kind === "primary" ? theme.onAccent : colors.teal },
         ]}
       >
         {label}
@@ -271,9 +309,11 @@ export function Badge({
   label: string;
   tone?: "mint" | "lilac" | "sand" | "neutral";
 }) {
+  // Purple is the companion glyph's colour only, never text on a fill: the former lilac tone is
+  // ink on the second surface (final design §1.1).
   const pair = {
     mint: [colors.mint, colors.teal],
-    lilac: [colors.lilac, colors.purple],
+    lilac: [colors.lilac, colors.ink],
     sand: [colors.sand, colors.gold],
     neutral: [colors.paper, colors.muted],
   }[tone];
@@ -281,9 +321,12 @@ export function Badge({
     <View
       style={{
         backgroundColor: pair[0],
+        // A transparent border: forced colours draw it, so the badge keeps its edge there.
+        borderWidth: 1,
+        borderColor: "transparent",
         borderRadius: 7,
-        paddingHorizontal: 10,
-        paddingVertical: badgePadding,
+        paddingHorizontal: 9,
+        paddingVertical: badgePadding - 1,
         alignSelf: "flex-start",
       }}
     >
@@ -320,8 +363,11 @@ export function Notice({
       aria-live={tone === "error" ? "assertive" : "polite"}
       {...(Platform.OS === "web" ? ({ dataSet: { tone } } as object) : {})}
       style={{
-        padding: 16,
+        padding: 15,
         borderRadius: 12,
+        // A transparent border: forced colours draw it, so the notice keeps its edge there.
+        borderWidth: 1,
+        borderColor: "transparent",
         backgroundColor: amber ? colors.sand : colors.mint,
       }}
     >
@@ -376,7 +422,8 @@ export function Field({ label, dir, ...props }: TextInputProps & { label: string
             minHeight: props.multiline ? 112 : 48,
             borderRadius: 12,
             borderWidth: 2,
-            borderColor: focused ? colors.teal : colors.line,
+            // The field's edge keeps 3:1 (--line-strong); focus adds the accent border and the ring.
+            borderColor: focused ? colors.teal : theme.lineStrong,
             backgroundColor: colors.white,
             color: colors.ink,
             fontSize: 16,
@@ -385,6 +432,7 @@ export function Field({ label, dir, ...props }: TextInputProps & { label: string
             textAlignVertical: "top",
           },
           Platform.OS === "web" && !dir ? ({ unicodeBidi: "plaintext" } as object) : undefined,
+          focused && focusRing,
           props.style,
         ]}
       />
@@ -502,23 +550,26 @@ function Choice({
       aria-disabled={!!disabled}
       disabled={disabled}
       onPress={onPress}
-      onFocus={() => setFocused(true)}
+      onFocus={(event) => setFocused(showsFocus(event))}
       onBlur={() => setFocused(false)}
-      style={{
-        flexDirection: "row",
-        gap: 14,
-        alignItems: "center",
-        borderWidth: 2,
-        borderColor: focused && !disabled
-          ? colors.ink
-          : selected
-            ? colors.teal
-            : colors.line,
-        borderRadius: 14,
-        padding: 16,
-        minHeight: 58,
-        backgroundColor: selected ? colors.mint : colors.white,
-      }}
+      style={[
+        {
+          flexDirection: "row",
+          gap: 14,
+          alignItems: "center",
+          borderWidth: 2,
+          borderColor: focused && !disabled && Platform.OS !== "web"
+            ? colors.ink
+            : selected
+              ? colors.teal
+              : theme.lineStrong,
+          borderRadius: 14,
+          padding: 16,
+          minHeight: 58,
+          backgroundColor: selected ? colors.mint : colors.white,
+        },
+        focused && !disabled && focusRing,
+      ]}
     >
       <View
         importantForAccessibility="no"
