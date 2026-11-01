@@ -165,6 +165,7 @@ export function Heading({ style, children, ...props }: TextProps) {
 /** The tokens a disabled button is drawn with: the empty Send fill and muted ink. Its label keeps
  * at least 4.5:1 on the fill and on every surface it sits on, in both themes
  * (tests/disabledContrast.test.ts reads them from the palette). */
+// i18n-ignore: colour token names, not text
 export const DISABLED_TOKENS = { fill: "sendOff", onFill: "inkMuted", line: "line", text: "inkMuted" } as const satisfies Record<string, ColorToken>;
 /** A disabled button's colours (see DISABLED_TOKENS). */
 export const DISABLED = {

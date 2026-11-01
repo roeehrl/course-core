@@ -2,8 +2,10 @@
  * follows the light or dark theme with the AI surfaces, and the forced-colours rules below hand
  * borders and focus to the system. A value the tokens do not hold is a local custom property mixed
  * from them, so it follows the theme too. */
-.connected-host {
-  /* The progress bar's track and the under-review stripe, mixed from tokens. */
+.connected-host,
+.connected-portal {
+  /* The progress bar's track and the under-review stripe, mixed from tokens. A dialog portalled
+   * to <body> (Overlay) is outside the host, so it declares them too (its form errors use them). */
   --connected-track: color-mix(in srgb, var(--line-strong) 45%, transparent);
   --connected-current-step: color-mix(in srgb, var(--accent) 45%, var(--page));
   --connected-warning-line: color-mix(in srgb, var(--warning) 35%, var(--warning-soft));
@@ -1630,10 +1632,16 @@ html[data-theme="dark"]:has(.connected-host) {
   flex-wrap: wrap;
   margin-block-end: 12px;
 }
+/* Drawn from the tokens like the app's text fields, so it matches them in both themes. */
 .connected-locale-switcher select {
   min-height: 36px;
   max-width: 100%;
   font: inherit;
+  padding-inline: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background-color: var(--surface);
+  color: var(--ink);
 }
 .connected-placement-evidence {
   margin: 4px 0 12px;
@@ -1835,11 +1843,13 @@ html[data-theme="dark"]:has(.connected-host) {
   justify-content: space-between;
   gap: 8px 16px;
 }
+/* Where the lesson sits, above its title: sentence-case meta text (final design §1.2). */
 .connected-lesson-where {
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
+  font-size: var(--text-meta-size);
+  line-height: var(--text-meta-line);
+  font-weight: 400;
+  color: var(--ink-muted);
 }
 .connected-lesson-staff .connected-debug-entry {
   margin: 0;

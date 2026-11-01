@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import postcss, { type AtRule, type Declaration } from "postcss";
+import postcss, { type AtRule, type Declaration, type Rule } from "postcss";
 import { describe, expect, it } from "vitest";
 import { TOKENS } from "../src/theme/palette";
 
@@ -65,6 +65,36 @@ describe("the base stylesheet", () => {
     });
     expect(rings.length).toBeGreaterThan(3);
     for (const ring of rings) expect(ring).toMatch(/^(2px solid var\(--focus\)|forced 3px solid Highlight)$/);
+  });
+
+  it("sets the small labels above headings as sentence-case meta text, never tracked capitals", () => {
+    const labels = [".connected-lesson-where", ".connected-part-top", ".connected-eyebrow", ".connected-menu-heading", ".connected-sources p"];
+    const found = new Map<string, Map<string, string>>();
+    css.walkRules((rule) => {
+      for (const selector of rule.selectors.map((s) => s.trim()).filter((s) => labels.includes(s))) {
+        const decls = found.get(selector) ?? new Map<string, string>();
+        rule.walkDecls((decl) => void decls.set(decl.prop, decl.value.replace(/ !important$/, "")));
+        found.set(selector, decls);
+      }
+    });
+    for (const label of labels) {
+      const decls = found.get(label);
+      expect(decls, label).toBeDefined();
+      expect(decls!.get("font-size"), label).toBe("var(--text-meta-size)");
+      expect(decls!.get("color"), label).toBe("var(--ink-muted)");
+      expect(decls!.has("text-transform"), label).toBe(false);
+      expect(decls!.has("letter-spacing"), label).toBe(false);
+    }
+  });
+
+  it("declares its own colour mixes wherever its rules apply: the host and dialogs portalled out of it", () => {
+    const owners = new Map<string, string[]>();
+    css.walkDecls(/^--connected-/, (decl) => {
+      const selectors = decl.parent && "selectors" in decl.parent ? (decl.parent as Rule).selectors.map((s) => s.trim()) : [];
+      owners.set(decl.prop, selectors);
+    });
+    expect(owners.size).toBeGreaterThan(0);
+    for (const [property, selectors] of owners) expect(selectors, property).toEqual(expect.arrayContaining([".connected-host", ".connected-portal"]));
   });
 
   it("keeps its cards, notices and menus edged in forced colours", () => {
