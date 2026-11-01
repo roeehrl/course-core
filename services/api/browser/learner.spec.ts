@@ -281,7 +281,7 @@ test("placement: the learner replies to a reviewer's question about a written an
   await fillAnswer(run.getByRole("textbox", { name: "Your explanation" }), "To find the maximum I keep the largest value seen so far and compare every next element with it, keeping the larger value each time.");
   await run.getByRole("button", { name: "Save answer" }).click();
   await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
-  await expect(run.getByText("Waiting for a reviewer")).toBeVisible();
+  await expect(run.getByText("Waiting for review")).toBeVisible();
 
   const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
   const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending
@@ -300,7 +300,7 @@ test("placement: the learner replies to a reviewer's question about a written an
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await fillAnswer(answers.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
   await answers.getByRole("button", { name: "Send reply", exact: true }).click();
-  await expect(answers.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+  await expect(answers.locator(".cc-prof-review-status").filter({ hasText: "Your reply" })).toContainText("Waiting for review");
   await expect(answers.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
   // The reply used no placement question: the fourth one is still available.
   await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
@@ -335,7 +335,7 @@ test("placement: a judged written placement answer can be appealed from the plac
   await fillAnswer(run.getByRole("textbox", { name: "Your explanation" }), "To find the maximum I keep the largest value seen so far and compare every next element with it, keeping the larger value each time.");
   await run.getByRole("button", { name: "Save answer" }).click();
   await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
-  await expect(run.getByText("Waiting for a reviewer")).toBeVisible();
+  await expect(run.getByText("Waiting for review")).toBeVisible();
 
   const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
   const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending
@@ -348,7 +348,7 @@ test("placement: a judged written placement answer can be appealed from the plac
   await page.reload();
   await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).first().click();
   const answers = run.getByRole("region", { name: "Your written answers" });
-  await expect(answers.getByText("Reviewed · not yet")).toBeVisible();
+  await expect(answers.getByText("Not yet", { exact: true })).toBeVisible();
   // The episode is still locked; the appeal is made right here.
   const enrollment = (await (await page.request.get("/api/enrollments")).json())[0].id;
   expect((await (await page.request.get(`/api/enrollments/${enrollment}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
@@ -412,7 +412,7 @@ test("placement: after accepting a start point, an open reviewer question about 
   await fillAnswer(open.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
   await open.getByRole("button", { name: "Send reply", exact: true }).click();
   // The reply stays visible, waiting for review, until the reviewer closes the conversation.
-  await expect(open.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+  await expect(open.locator(".cc-prof-review-status").filter({ hasText: "Your reply" })).toContainText("Waiting for review");
   await expect(open.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
   const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
   expect(reply.thread).toHaveLength(1);

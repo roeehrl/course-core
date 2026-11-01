@@ -422,6 +422,6 @@ test("a slower, older progress refresh never removes the check a learner is answ
   await answer.pressSequentially(" and compare it with every next element.");
   await expect(answer).toHaveValue("I keep the smallest value seen so far and compare it with every next element.");
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
-  await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your written answers" }).getByText("Waiting for review")).toBeVisible();
   expect(errors).toEqual([]);
 });

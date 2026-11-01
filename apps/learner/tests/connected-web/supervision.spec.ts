@@ -23,7 +23,7 @@ test("learner controls persist across reload without changing required learning 
   ).toBeVisible();
   await chooseFromMenu(page, "My profile");
   await expect(
-    page.getByRole("button", { name: "Enable personal support", exact: true }),
+    page.getByRole("button", { name: "Turn on", exact: true }),
   ).toBeVisible();
   const writes: Array<Record<string, unknown>> = [];
   page.on("request", (r) => {
@@ -34,13 +34,10 @@ test("learner controls persist across reload without changing required learning 
       writes.push(r.postDataJSON());
   });
   await page
-    .getByRole("button", { name: "Enable personal support", exact: true })
+    .getByRole("button", { name: "Turn on", exact: true })
     .click();
   await expect(
-    page.getByRole("button", {
-      name: "Turn off personal support",
-      exact: true,
-    }),
+    page.getByRole("button", { name: "Turn off", exact: true }),
   ).toBeVisible();
   await page.reload();
   await page
@@ -48,17 +45,14 @@ test("learner controls persist across reload without changing required learning 
     .click();
   await chooseFromMenu(page, "My profile");
   await expect(
-    page.getByRole("button", {
-      name: "Turn off personal support",
-      exact: true,
-    }),
+    page.getByRole("button", { name: "Turn off", exact: true }),
   ).toBeVisible();
   expect(writes).toHaveLength(1);
   await page
-    .getByRole("button", { name: "Turn off personal support", exact: true })
+    .getByRole("button", { name: "Turn off", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "Enable personal support", exact: true }),
+    page.getByRole("button", { name: "Turn on", exact: true }),
   ).toBeVisible();
   expect(writes).toHaveLength(2);
   expect(

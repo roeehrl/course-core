@@ -1,6 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { CourseApiError } from "../src/client/apiClient";
 import { YourDataPanel } from "../src/components/YourDataPanel.web";
 import { I18nProvider, createLearnerTranslator } from "../src/i18n";
 import { pressWhenReady } from "./pressWhenReady";
@@ -150,3 +151,47 @@ describe("erasing one course's learning data", () => {
       });
     });
 });
+
+describe("your data in your companion's words", () => {
+  for (const [locale, exportLine, stopping, eraseFacts] of [
+    ["en", "Your answers, companion conversations and what the course has learned about your learning.", "Stopping your companion's work before erasing…", /companion conversations, what the course has learned about your learning and your personal teaching/],
+    ["he", "התשובות, השיחות עם המנחה ומה שהקורס למד על הלמידה.", "עבודת המנחה נעצרת לפני המחיקה…", /השיחות עם המנחה, מה שהקורס למד על הלמידה וההוראה האישית/],
+  ] as const)
+    it(`${locale}: says what the export holds, and shows the preparing dots while the companion's work stops`, async () => {
+      let waits = 1;
+      const api = {
+        request: vi.fn(async (path: string) => {
+          if (path.endsWith("/erase")) {
+            if (waits-- > 0) throw new CourseApiError("ERASURE_WAITING_FOR_SUPERVISION", 409);
+            return new Promise(() => {});
+          }
+          return { views: [], exports: [] };
+        }),
+      };
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        render(
+          <I18nProvider value={createLearnerTranslator(locale)}>
+            <YourDataPanel api={api as never} enrollmentId={enrollmentId} courseTitle="Ordering" onErased={vi.fn()} />
+          </I18nProvider>,
+        );
+        expect(await screen.findByText(exportLine)).toBeVisible();
+        expect(document.body.textContent).not.toMatch(/learner model|מודל הלמידה|supervisor|ההנחיה האישית של ה-AI/);
+        expect(screen.getByText(eraseFacts)).toBeInTheDocument();
+        const shortId = enrollmentId.slice(0, 8);
+        const field = await screen.findByLabelText((label) => label.replace(/[⁦-⁩]/g, "").includes(shortId));
+        const strong = field.closest("div")!.querySelector(`label[for="${field.id}"] strong`)!;
+        fireEvent.change(document.querySelector('textarea[id$="-reason"]')!, { target: { value: "Leaving this course for good." } });
+        fireEvent.change(field, { target: { value: strong.textContent! } });
+        await pressWhenReady(document.querySelector(".connected-data-erase .connected-danger")!);
+        const status = await screen.findByText(stopping);
+        expect(status.closest("p")!.querySelector(".cc-ui-dots")).not.toBeNull();
+        // Under the erase button that started it, in a live region of its own.
+        expect(status.closest(".connected-data-erase")).not.toBeNull();
+        expect(status.closest('[aria-live="polite"]')).not.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+});
+

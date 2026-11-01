@@ -102,7 +102,7 @@ test("the personal lesson support panel keeps its height while its permission lo
   // While pending: one announced status, and the reserved button is not an
   // unlabelled or duplicate control.
   await expect(
-    page.getByRole("button", { name: /personal support/ }),
+    page.getByRole("button", { name: /^Turn (on|off)$/ }),
   ).toHaveCount(0);
   expect(
     (
@@ -116,7 +116,7 @@ test("the personal lesson support panel keeps its height while its permission lo
 
   read.release();
   await expect(
-    page.getByRole("button", { name: "Enable personal support", exact: true }),
+    page.getByRole("button", { name: "Turn on", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Off", { exact: true })).toBeVisible();
   await expect(loadingStatus).toHaveCount(0);
@@ -134,13 +134,13 @@ test("the personal lesson support panel keeps its height while its permission lo
       supervisionRead.test(new URL(r.url()).pathname),
   );
   await page
-    .getByRole("button", { name: "Enable personal support", exact: true })
+    .getByRole("button", { name: "Turn on", exact: true })
     .click();
   await reread;
-  await expect(page.getByText("Enabled", { exact: true })).toBeVisible();
+  await expect(page.getByText("On", { exact: true })).toBeVisible();
   await expect(loadingStatus).toHaveCount(0);
   const refresh = page.getByRole("button", {
-    name: "Refresh supervisor information",
+    name: "Refresh",
     exact: true,
   });
   await expect(refresh).toBeEnabled();
@@ -153,7 +153,7 @@ test("the personal lesson support panel keeps its height while its permission lo
   );
   again.release();
   await expect(
-    page.getByRole("button", { name: "Turn off personal support", exact: true }),
+    page.getByRole("button", { name: "Turn off", exact: true }),
   ).toBeVisible();
   expect(Math.abs((await documentTop(below)) - settled)).toBeLessThanOrEqual(
     MAX_SHIFT,
@@ -177,12 +177,12 @@ test("a failed permission read shows its notice in the reserved space", async ({
   read.release();
   await expect(
     page.getByText(
-      "Supervisor information is unavailable. Refresh to try again.",
+      "Couldn't load this. Refresh to try again.",
       { exact: true },
     ),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /personal support/ }),
+    page.getByRole("button", { name: /^Turn (on|off)$/ }),
   ).toHaveCount(0);
   expect(Math.abs((await documentTop(below)) - before)).toBeLessThanOrEqual(
     MAX_SHIFT,
@@ -240,8 +240,8 @@ test("reopened learning memory and teaching ideas keep their height while they r
 });
 
 /** Opens the profile with one lower panel's read held, after the panels above
- * have settled, and returns the read's release and a heading below the panel. */
-async function holdLowerPanel(page: Page, path: RegExp, below: string) {
+ * have settled, and returns the read's release and a heading (or other element) below the panel. */
+async function holdLowerPanel(page: Page, path: RegExp, below: string | ((page: Page) => Locator)) {
   const read = await hold(page, path);
   await chooseFromMenu(page, "My profile");
   for (const label of [
@@ -250,7 +250,7 @@ async function holdLowerPanel(page: Page, path: RegExp, below: string) {
     "Loading teaching ideas",
   ])
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
-  const heading = page.getByRole("heading", { name: below, exact: true });
+  const heading = typeof below === "string" ? page.getByRole("heading", { name: below, exact: true }) : below(page);
   await expect(heading).toBeAttached();
   // A course-revision refresh can read again; every such read is held.
   expect(read.seen()).toBeGreaterThanOrEqual(1);
@@ -296,7 +296,8 @@ test("staff access to your record keeps its height while it loads", async ({
   const { read, heading } = await holdLowerPanel(
     page,
     /^\/api\/enrollments\/[^/]+\/staff-views$/,
-    "Connected agents",
+    // Connected agents wait behind "Advanced", the next thing down.
+    (page) => page.locator(".cc-prof-advanced > summary"),
   );
   const access = page.getByRole("region", {
     name: "Staff access to your record",
@@ -336,7 +337,7 @@ test("the review-assist choice keeps its space, inert and hidden, while it loads
     "Your data",
   );
   const choice = page.getByRole("checkbox", {
-    name: "Let an AI draft notes for my reviewer",
+    name: "Let AI draft notes for my reviewer",
   });
   // Laid out but not shown, announced or focusable before the saved choice is known.
   await expect(
