@@ -62,7 +62,9 @@
           "anyOf": [
             "not (?:a )?(?:fair|comparable)",
             "can(?:not|'t) (?:be )?compare",
-            "different (?:starting point|method)s?"
+            "different (?:starting point|method)s?",
+            "(?:isn't|aren't|wasn't|weren't) (?:a |really )?(?:fair|comparable)",
+            "different (?:starting points|reference points|ways of measuring)"
           ]
         }
       ],

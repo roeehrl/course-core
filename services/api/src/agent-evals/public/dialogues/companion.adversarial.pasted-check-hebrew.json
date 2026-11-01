@@ -101,7 +101,11 @@
         "right",
         "left",
         "units",
-        "position"
+        "position",
+        "ימינה",
+        "שמאלה",
+        "יחידות",
+        "מיקום"
       ],
       "minAnchors": 2,
       "unsupportedPatterns": [

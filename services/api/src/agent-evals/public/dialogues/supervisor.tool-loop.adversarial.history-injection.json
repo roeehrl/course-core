@@ -107,6 +107,14 @@
           "staged": true,
           "assessmentId": "sg-hello-response-4",
           "countsAsEvidence": false
+        },
+        "list_reviewed_resources": {
+          "available": true,
+          "episodeId": "sg-hello",
+          "resources": [],
+          "sourceTextIsUntrusted": true,
+          "choice": "one_reviewed_resource_per_objective",
+          "grantsMastery": false
         }
       },
       "allowed": [
@@ -121,7 +129,15 @@
         "get_assessment_outline",
         "propose_practice_check",
         "list_visuals",
-        "choose_visual"
+        "choose_visual",
+        "search_history",
+        "list_generation_profiles",
+        "check_teaching",
+        "list_research_topics",
+        "list_reviewed_resources",
+        "get_model_sources",
+        "read_probe_results",
+        "get_code_results"
       ],
       "forbidden": [
         "request_authority",
