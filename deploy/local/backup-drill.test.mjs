@@ -10,6 +10,12 @@ import { createBackup, createSnapshot, verifyBackup, decryptBackup } from './bac
 import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
+// A stopped backup refuses to run while any configured service port is taken. These drills open
+// many short psql/pg_dump/pg_restore connections to 127.0.0.1, and each takes an ephemeral local
+// port that stays in TIME_WAIT after it closes. Ports inside the ephemeral range (Linux
+// 32768-60999, macOS 49152-65535) can therefore be held by the drill's own clients, so the
+// fixture's service ports sit below both ranges, where the kernel never assigns a client port.
+const port = (fixture, service) => 24400 + fixture * 10 + service;
 async function fixture(body) { const directory = await mkdtemp('/tmp/cc-bk-'); try { return await body(await privateDirectory(directory)); } finally { await rm(directory, { recursive: true, force: true }); } }
 
 // Real PostgreSQL + pg_dump/pg_restore + sqlite3 restore drill. Requires an
@@ -36,8 +42,8 @@ test('a stopped pilot backs up and restores into a fresh database with identical
       await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), '', { mode: 0o755 });
     }
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@course-core/repository', version: '9.9.9' }));
-    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: 'http://127.0.0.1:44410', databaseUrl: db.href,
-      temporalPort: 44411, temporalUiPort: 44412, serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'backup-test',
+    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: `http://127.0.0.1:${port(1, 0)}`, databaseUrl: db.href,
+      temporalPort: port(1, 1), temporalUiPort: port(1, 2), serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'backup-test',
       additionalOrigins: ['https://pilot.tailnet.example'] }));
     await exec('sqlite3', [path.join(state, 'temporal.db'), 'CREATE TABLE t(x); INSERT INTO t VALUES (1);']); await chmod(path.join(state, 'temporal.db'), 0o600);
     const created = await createBackup({ root, state, output });
@@ -104,8 +110,8 @@ test('an age-encrypted backup holds no plaintext, restores only with the identit
     }
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@course-core/repository', version: '9.9.9' }));
     const serviceToken = randomBytes(32).toString('base64url');
-    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: 'http://127.0.0.1:44430', databaseUrl: db.href,
-      temporalPort: 44431, temporalUiPort: 44432, serviceToken, workspaceIds: [], temporalTaskQueue: 'backup-age-test', backupAgeRecipients: [owner.recipient] }));
+    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: `http://127.0.0.1:${port(3, 0)}`, databaseUrl: db.href,
+      temporalPort: port(3, 1), temporalUiPort: port(3, 2), serviceToken, workspaceIds: [], temporalTaskQueue: 'backup-age-test', backupAgeRecipients: [owner.recipient] }));
     await exec('sqlite3', [path.join(state, 'temporal.db'), 'CREATE TABLE t(x); INSERT INTO t VALUES (1);']); await chmod(path.join(state, 'temporal.db'), 0o600);
     await mkdir(path.join(state, 'provider-vault'), { mode: 0o700, recursive: true });
     await writePrivate(path.join(state, 'provider-vault', 'vault.key'), randomBytes(32).toString('hex'));
@@ -188,8 +194,8 @@ test('an online snapshot of a running database restores exactly what it captured
       await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), '', { mode: 0o755 });
     }
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@course-core/repository', version: '9.9.9' }));
-    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: 'http://127.0.0.1:44440', databaseUrl: db.href,
-      temporalPort: 44441, temporalUiPort: 44442, serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'snapshot-test',
+    await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: `http://127.0.0.1:${port(4, 0)}`, databaseUrl: db.href,
+      temporalPort: port(4, 1), temporalUiPort: port(4, 2), serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'snapshot-test',
       snapshots: { directory: output, intervalMinutes: 60, keep: 3 } }));
     await exec('sqlite3', [path.join(state, 'temporal.db'), 'PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES (1);']); await chmod(path.join(state, 'temporal.db'), 0o600);
     // The pilot is "running": its owner record is present, which blocks a stopped backup but not a snapshot.
