@@ -47,13 +47,13 @@ const same = (a: string, b: string) => {
 
 /**
  * What the learner would ask the companion for a help step: "Can you explain “{focus}” another
- * way?", naming the lesson or the objectives the decision is about, or the plain question when it
- * names neither. Plain text for the message box (no direction marks).
+ * way?" when the decision is about a lesson, else the plain question, so the message box says
+ * what the pill said ("…about “{focus}”" or "…to explain this another way"). Plain text for the
+ * message box (no direction marks).
  */
-export function helpPrefill(message: GateMessage | null | undefined, i18n: Pick<LearnerTranslator, "t" | "list">): string {
+export function helpPrefill(message: GateMessage | null | undefined, i18n: Pick<LearnerTranslator, "t">): string {
   const params = message?.params ?? {};
-  const focus = params.focusKind === "lesson" && typeof params.focus === "string" ? params.focus
-    : params.focusKind === "objectives" && Array.isArray(params.focus) ? i18n.list(params.focus.map(String)) : "";
+  const focus = params.focusKind === "lesson" && typeof params.focus === "string" ? params.focus : "";
   return stripBidiControls(focus ? i18n.t("gateDecision.help.prefill", { focus }) : i18n.t("gateDecision.help.prefillGeneric"));
 }
 
@@ -189,6 +189,8 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
       )}
       {reviewing && onRequestReview && !exception && review?.state !== "open" && (
         <form
+          // Sending the request is the step forward a usability study times (connected/usability.ts).
+          ref={(form) => form?.querySelector(".cc-ui-long-meta button")?.setAttribute("data-usability", "next")}
           className="connected-gate-review-form"
           aria-label={t("gateDecision.review.form")}
           onSubmit={(event) => {
@@ -211,7 +213,10 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
             describedBy={`${reasonId}-about`}
           />
           <p id={`${reasonId}-about`} className="connected-input-hint">{t("gateDecision.review.hint")}</p>
-          {tooShort && <p className="connected-gate-review-short" role="status">{t("gateDecision.review.tooShort", { count: REVIEW_MIN })}</p>}
+          {/* Present from the start, so the line is announced when it appears. */}
+          <div className="connected-gate-review-status" role="status">
+            {tooShort && <p className="connected-gate-review-short">{t("gateDecision.review.tooShort", { count: REVIEW_MIN })}</p>}
+          </div>
           <div className="connected-gate-actions">
             <button type="button" className="connected-gate-action cc-ui-text-button" disabled={pending} onClick={() => setReviewing(false)}>{t("gateDecision.review.cancel")}</button>
           </div>

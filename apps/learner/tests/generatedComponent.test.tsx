@@ -121,3 +121,12 @@ it("shows the grader-verified starting values before a run, and only at the star
   expect(screen.queryByText("6")).toBeNull();
   expect(screen.getByText("Run the model to see this.")).toBeVisible();
 });
+
+it("shows no values when this browser cannot run the model, not even the starting ones", async () => {
+  render(<GeneratedComponentPanel component={{ ...component, start: { outputs: { y: 6 } } }} loadRunner={async () => null} />);
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Run the model" })); });
+  expect(screen.getByRole("alert")).toBeVisible();
+  // The results box keeps its room, empty: the description above has the same information.
+  expect(screen.queryByText(/values at the starting position/)).toBeNull();
+  expect(screen.queryByText("6")).toBeNull();
+});

@@ -81,6 +81,9 @@ export function PendingChangesNotice({
   const [choice, setChoice] = useState<Choice | null>(null);
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const seen = useRef(new Map<string, PendingChange>());
+  // The card whose choice was just made: its pressed button goes, so the line that says what is
+  // happening takes the focus, and then the line that says what happened.
+  const focusAfter = useRef<string | null>(null);
   const here = items.filter((item) => item.episodeId === episodeId);
   for (const item of here) seen.current.set(item.pendingId, item);
   // A choice is settled once the host's request is over; the addition then leaves the waiting list
@@ -106,8 +109,16 @@ export function PendingChangesNotice({
     return () => clearTimeout(timer);
   }, [choice, items, pending, place?.planRevision, place?.blocks]);
   const choose = (item: PendingChange, kind: Choice["kind"]) => {
+    focusAfter.current = item.pendingId;
     setChoice({ pendingId: item.pendingId, kind, planRevision: place?.planRevision, blocks: place?.blocks.map((block) => block.id) ?? [], settled: null });
     (kind === "add" ? onAdd : onDecline)(item.pendingId);
+  };
+  const takeFocus = (id: string, last: boolean) => (line: HTMLParagraphElement | null) => {
+    if (!line || focusAfter.current !== id) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && !line.parentElement?.contains(active)) return;
+    line.focus({ preventScroll: true });
+    if (last) focusAfter.current = null;
   };
   // Each card keeps its place while its choice settles and after, so focus and reading stay put.
   const kept = (id: string) => choice?.pendingId === id || outcomes.some((row) => row.item.pendingId === id);
@@ -128,7 +139,7 @@ export function PendingChangesNotice({
               <span>{t("pendingChanges.title", { kind: item.kind })}</span>
             </h2>
             {outcome ? (
-              <p className={outcome.state === "declined" ? "cc-ai-offer-outcome is-muted" : "cc-ai-offer-outcome"}>
+              <p ref={takeFocus(item.pendingId, true)} tabIndex={-1} className={outcome.state === "declined" ? "cc-ai-offer-outcome is-muted" : "cc-ai-offer-outcome"}>
                 {outcome.state === "added" && <Icon name="check" size={16} />}
                 {outcome.state === "gone" && <Icon name="alert-circle" size={16} />}
                 <span>{t(outcome.state === "added" ? "pendingChanges.added" : outcome.state === "declined" ? "pendingChanges.declined" : "pendingChanges.lapsed")}</span>
@@ -139,7 +150,7 @@ export function PendingChangesNotice({
                 )}
               </p>
             ) : preparing ? (
-              <p className="cc-ai-offer-preparing">
+              <p ref={takeFocus(item.pendingId, false)} tabIndex={-1} className="cc-ai-offer-preparing">
                 <PreparingDots />
                 <span>{t("pendingChanges.preparing")}</span>
               </p>

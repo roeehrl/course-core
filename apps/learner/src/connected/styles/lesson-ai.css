@@ -250,6 +250,10 @@
   inline-size: 100%;
   box-sizing: border-box;
 }
+/* Empty until a reason is too short: it takes no room, not even the form's gap. */
+.connected-gate-review-status:empty {
+  margin-block-start: calc(-1 * var(--space-2));
+}
 .connected-gate .connected-gate-review-short {
   margin: 0;
   color: var(--ink);
@@ -348,6 +352,10 @@
   gap: var(--space-2);
   justify-items: start;
   padding: var(--space-4);
+}
+/* The link lines up with the note's text. */
+.cc-ai-unverified-note .cc-ui-text-button {
+  padding-inline: 0;
 }
 .cc-ai-unverified-note p {
   margin: 0;
@@ -587,6 +595,39 @@
   padding-inline: var(--space-2);
   border-radius: var(--radius-pill);
   text-align: start;
+}
+
+/* Status lines of more than one line: the icon stays at the start of the first line and the words
+ * wrap beside it, never under it on a narrow screen. */
+.cc-ai-model-line,
+.cc-ai-model-results > .cc-ui-status,
+.cc-ai-exhausted-team,
+.cc-ai-offer-outcome,
+.connected-resources.is-unavailable > .cc-ui-status {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.cc-ai-model-line > .cc-ui-icon,
+.cc-ai-model-results > .cc-ui-status > .cc-ui-icon,
+.cc-ai-exhausted-team > .cc-ui-icon,
+.cc-ai-offer-outcome > .cc-ui-icon,
+.connected-resources.is-unavailable > .cc-ui-status > .cc-ui-icon {
+  flex: none;
+  margin-block-start: 2px;
+}
+.cc-ai-exhausted-team > .cc-ui-dots {
+  flex: none;
+  align-self: center;
+}
+.cc-ai-model-line > span,
+.cc-ai-model-results > .cc-ui-status > span,
+.cc-ai-exhausted-team > span,
+.cc-ai-offer-outcome > span,
+.connected-resources.is-unavailable > .cc-ui-status > span {
+  min-inline-size: 0;
+}
+.cc-ai-model-line > .cc-ui-text-button {
+  flex: none;
 }
 
 /* Personal lessons on the roadmap: a chip, never a colour of their own. */

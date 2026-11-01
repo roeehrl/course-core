@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
 import { stripBidiControls } from "@course-core/i18n";
@@ -83,10 +83,15 @@ describe("the gate's help pill (§4.5)", () => {
     expect(field).not.toHaveAttribute("data-cc-ring");
   });
 
-  it("asks about the objectives, or plainly, when the decision names no lesson", () => {
+  it("asks plainly, as the pill says, when the decision names no lesson", () => {
     const en = createLearnerTranslator("en");
+    // The pill says "…to explain this another way" for objectives, so the question does too.
     expect(helpPrefill({ code: "action.askCompanion", params: { focusKind: "objectives", focus: ["Find a minimum", "Find a maximum"] } }, en))
-      .toBe("Can you explain “Find a minimum and Find a maximum” another way?");
+      .toBe("Can you explain this another way?");
+    render(<GateDecisionPanel gate={needsHelp({ focusKind: "objectives", focus: ["Find a minimum"] })} pending={false} onAction={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ask your companion to explain this another way" }));
+    expect(requests.at(-1)?.text).toBe("Can you explain this another way?");
+    cleanup();
     expect(helpPrefill({ code: "action.askCompanion", params: { focusKind: "checkpoint", focus: "" } }, en)).toBe("Can you explain this another way?");
     expect(helpPrefill(null, en)).toBe("Can you explain this another way?");
     render(<GateDecisionPanel gate={needsHelp({ focusKind: "checkpoint", focus: "" })} pending={false} onAction={vi.fn()} />);

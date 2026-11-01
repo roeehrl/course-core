@@ -53,11 +53,14 @@ it("prepares an addition, then says it was added and goes to it", async () => {
   expect(card).toHaveAttribute("data-state", "preparing");
   expect(card).toHaveTextContent("Preparing it…");
   expect(container.querySelector(".cc-ui-dots")).not.toBeNull();
+  // The pressed button is gone: the line that says what is happening has the focus.
+  expect(card.querySelector(".cc-ai-offer-preparing")).toHaveFocus();
   // The plan moved and the part is at the end of the lesson; the waiting list no longer has it.
   rerender(<Offer items={[ready]} pending={false} plan={place(2, [{ id: "generated", type: "visual" }])} />);
   await act(async () => rerender(<Offer items={[]} pending={false} plan={place(2, [{ id: "generated", type: "visual" }])} />));
   expect(card).toHaveAttribute("data-state", "added");
   expect(card).toHaveTextContent("Added to the end of this lesson.");
+  expect(card.querySelector(".cc-ai-offer-outcome")).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "Go to it" }));
   expect(show).toHaveBeenCalledWith({ episodeId: "min", blockId: "generated", focus: "block" });
 });
@@ -68,7 +71,9 @@ it("says when an addition was turned down, or was no longer available", async ()
   fireEvent.click(screen.getAllByRole("button", { name: "No thanks" })[0]!);
   rerender(<Offer items={[ready, { ...ready, pendingId: "w2", kind: "append_teaching" }]} pending plan={place(1)} />);
   await act(async () => rerender(<Offer items={[{ ...ready, pendingId: "w2", kind: "append_teaching" }]} pending={false} plan={place(1)} />));
-  expect(screen.getByRole("region", { name: "New for this lesson: an interactive simulation" })).toHaveTextContent("Not added.");
+  const declined = screen.getByRole("region", { name: "New for this lesson: an interactive simulation" });
+  expect(declined).toHaveTextContent("Not added.");
+  expect(declined.querySelector(".cc-ai-offer-outcome")).toHaveFocus();
   // Added, but the server found it lapsed: the plan did not move.
   fireEvent.click(screen.getByRole("button", { name: "Add it to this lesson" }));
   rerender(<Offer items={[{ ...ready, pendingId: "w2", kind: "append_teaching" }]} pending plan={place(1)} />);

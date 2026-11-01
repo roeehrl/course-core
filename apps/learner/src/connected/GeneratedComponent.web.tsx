@@ -132,6 +132,7 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
   const shown = outcome === "badOutput" ? null : result ?? (atStart && component.start ? component.start.outputs : null);
   const value = (item: number | string | undefined) =>
     item === undefined ? t("generatedComponent.notRun") : typeof item === "number" ? i18n.number(item, { maximumFractionDigits: 6 }) : String(item);
+  const showValues = outcome !== "badOutput" && outcome !== "unavailable";
   const bdi = { bdi: (children: React.ReactNode, key: string | number) => <bdi key={key}>{children}</bdi> };
   return (
     <section className="connected-component" aria-labelledby={`${id}-title`}>
@@ -192,8 +193,10 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
             <span>{t("generatedComponent.badOutput")}</span>
           </p>
         )}
-        {result === null && shown && <p className="cc-ai-model-status">{t("generatedComponent.startChecked")}</p>}
-        {outcome !== "badOutput" && outcome !== "unavailable" && (
+        {/* No values at all when the output looked wrong or the browser cannot run the model; the
+            description above has them. */}
+        {showValues && result === null && shown && <p className="cc-ai-model-status">{t("generatedComponent.startChecked")}</p>}
+        {showValues && (
           <dl className="connected-component-results" aria-label={t("generatedComponent.results")}>
             {component.outputs.map((output) => (
               <div key={output.name}>

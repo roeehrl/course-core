@@ -194,6 +194,8 @@ test.describe("new material for this lesson", () => {
     await readParts(page, [1, 2]);
     await card.getByRole("button", { name: "Add it to this lesson" }).click();
     await expect(card.getByText("Added to the end of this lesson.", { exact: true })).toBeVisible();
+    // The pressed button is gone: the line that says what happened has the focus.
+    await expect(card.locator(".cc-ai-offer-outcome")).toBeFocused();
     await accessible(page);
     await page.screenshot({ path: info.outputPath("new-material-added.png"), fullPage: true });
     await card.getByRole("button", { name: "Go to it" }).click();
@@ -265,6 +267,9 @@ test("a generated model keeps its button and results in place, and says when thi
   await expect(line).toHaveText("This browser can't run models. The description above has the same information.");
   await expect(line).toBeFocused();
   await expect(panel.getByRole("button", { name: "Run the model" })).toHaveCount(0);
+  // The results box keeps its room, with no values: the description above has them.
+  expect((await results.boundingBox())!.height).toBeGreaterThanOrEqual(96);
+  await expect(results.getByText(/values at the starting position/)).toHaveCount(0);
   await expect(panel.getByText("This runs in your browser, offline, and never counts as an answer.")).toBeVisible();
   await accessible(page);
 });

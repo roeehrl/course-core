@@ -92,6 +92,10 @@ describe("server gate decision panel", () => {
     expect(appeal).toHaveAttribute("aria-expanded", "true");
     const send = screen.getByRole("button", { name: "Send review request" });
     expect(send).toBeDisabled();
+    // Sending is the step forward a usability study times; the line about a short reason has its
+    // live region from the start, so it is announced when it appears.
+    expect(send).toHaveAttribute("data-usability", "next");
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
     const field = screen.getByLabelText("Why should a staff member look at this decision again?");
     // The long-answer composer: the reason is described by what asking does.
     expect(field).toHaveAccessibleDescription(/A reviewer reads your reason and the record above/);
