@@ -125,12 +125,12 @@ for (const locale of ["en", "he"] as const) {
     const answer = [
       locale === "he" ? "נניח מודל של שתי שכבות: $h = w_1 \\cdot x$ ולאחר מכן $\\text{prediction} = w_2 \\cdot h$." : "Take two layers: $h = w_1 \\cdot x$ and then $\\text{prediction} = w_2 \\cdot h$.",
       "",
-      "$$w_{\\text{new}} = w - \\eta \\frac{\\partial L}{\\partial w} = 2 - 0.1 \\cdot (-6) = 2 + 0.6 = 2.6 \\quad \\text{and the next forward gives } 7.8$$",
+      "$$w_{\\text{new}} = w - \\eta \\frac{\\partial L}{\\partial w} = 2 - 0.1 \\cdot (-6) = 2 + 0.6 = 2.6 \\quad \\text{and the next forward gives } 7.8 \\quad \\text{so the loss falls from } 2 \\text{ to } 0.02$$",
       "",
-      "| Stage | w | Prediction (w·x) | Loss | Gradient dL/dw | Learning rate η |",
-      "| --- | --- | --- | --- | --- | --- |",
-      "| After forward | 2 | 6 | 2 | not yet computed | 0.1 (fixed for the run) |",
-      "| After update | 2.6 | 7.8 (on next forward) | 0.02 | not yet computed | 0.1 (fixed for the run) |",
+      "| Stage | w | Prediction (w·x) | Loss | Gradient dL/dw | Learning rate η | Momentum β | Weight decay λ | Epoch |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| After forward | 2 | 6 | 2 | not yet computed | 0.1 (fixed for the run) | 0.9 | 0.0001 | 1 of 10 |",
+      "| After update | 2.6 | 7.8 (on next forward) | 0.02 | not yet computed | 0.1 (fixed for the run) | 0.9 | 0.0001 | 1 of 10 |",
     ].join("\n");
     expect((await (await page.request.post("/test/companion-job", { data: { question, state: "applied", answer } })).json()).updated).toBe(true);
     const table = pane.locator(".markdown-table");
@@ -141,8 +141,8 @@ for (const locale of ["en", "he"] as const) {
     // A short inline formula is one piece, never split across lines.
     const inline = pane.getByRole("math").first();
     expect(await inline.evaluate((el) => el.querySelectorAll("math").length)).toBe(1);
-    // The table and the display formula are wider than the companion: they scroll sideways, and a
-    // line under each says so.
+    // The table and the display formula are wider than the companion (the tablet sheet's 640 px
+    // included): they scroll sideways, and a line under each says so.
     for (const frame of [table, pane.locator(".math-formula.is-display")]) {
       await frame.scrollIntoViewIfNeeded();
       expect(await frame.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);

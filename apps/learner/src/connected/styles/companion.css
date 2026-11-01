@@ -24,29 +24,6 @@
   --cc-turn-gap: var(--space-6);
 }
 
-/* The dock as it is before the shell's panel and sheet land: it gives the conversation a fixed
- * height (the thread scrolls inside, the composer stays at the bottom) and leaves the padding to
- * the conversation's own parts. */
-.connected-companion-dock:has(> .cc-chat) {
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-}
-.connected-companion-dock.is-panel:has(> .cc-chat) {
-  block-size: calc(100dvh - var(--connected-header-height, 75px) - 40px - var(--connected-status-offset, 0px));
-}
-.connected-companion-dock:has(> .cc-chat) > .cc-chat {
-  flex: 1 0 0;
-  min-block-size: 0;
-}
-.connected-companion-dock:has(> .cc-chat) > .connected-dock-title {
-  inset-block-start: 0;
-  margin: 0;
-  padding-block: var(--space-2);
-  padding-inline: var(--space-4) var(--space-1);
-  border-block-end: 1px solid var(--line);
-}
-
 /* Thread (§3.8): the only scroller; padding 16 inline, 16 top, 24 bottom. */
 .cc-chat-thread-wrap {
   position: relative;
@@ -92,10 +69,12 @@
   align-items: flex-end;
   gap: var(--space-1);
 }
+/* `start`, not `flex-start` (the bottom under wrap-reverse): actions taller than the bubble that
+ * show beside it once the question is saved never move the bubble off its anchored line. */
 .cc-chat-bubble-row {
   display: flex;
   flex-wrap: wrap-reverse;
-  align-items: flex-start;
+  align-items: start;
   justify-content: flex-end;
   gap: var(--space-1);
   inline-size: 100%;
