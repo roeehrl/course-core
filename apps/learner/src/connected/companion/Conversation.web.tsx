@@ -297,6 +297,10 @@ function ConversationBody({
   useEffect(() => {
     const waits = [...views.values()].map(({ clock, draft: replyDraft }) => nextReplyChange({ clock, now, ...(replyDraft ? { draft: replyDraft } : {}) }));
     if (locals.some((item) => item.status === "rateLimited")) waits.push(1000 - (now % 1000));
+    // A question not yet read back shows its preparing line at 400 ms and its slow line at 8 s too.
+    for (const item of locals)
+      if (item.status === "sending" || item.status === "sent")
+        for (const at of [item.sentAt + REPLY_MS.preparing, item.sentAt + REPLY_MS.slow]) if (at > now) waits.push(at - now);
     const wait = waits.filter((ms): ms is number => ms !== undefined).sort((a, b) => a - b)[0];
     if (wait === undefined) return;
     const timer = setTimeout(() => setTick((tick) => tick + 1), Math.max(16, wait + 5));
@@ -625,6 +629,12 @@ function ConversationBody({
   const askAgain = (text: string) => fill(text);
   const sendChip = (text: string) => void submit(text, { fromBox: false });
 
+  // What the conversation held when it was first read: those replies are there, not arriving, so
+  // they do not fade in (M1, M7 are for what arrives).
+  const firstRead = useRef<ReadonlySet<string> | null>(null);
+  if (loaded && firstRead.current === null) firstRead.current = new Set(messages.map((message) => message.id));
+  const arriving = (id: string) => firstRead.current !== null && !firstRead.current.has(id);
+
   // The thread's items, in order: dividers, turns and their reply rows.
   const conversation = { enrollmentId: context.enrollmentId, episodeTitles };
   const latestQuestion = shown.findLast((message) => message.role === "learner")?.id;
@@ -701,6 +711,7 @@ function ConversationBody({
           asks={asksLearner(message)}
           yourTurn={latestOne && turn.yourTurn}
           hint={isWithheldHint(message)}
+          fresh={arriving(message.id)}
           {...(latestOne && inLesson && !blocked ? { onContinue: () => sendChip(continueText(t)) } : {})}
           actions={
             <div className="cc-chat-reply-actions">
@@ -715,7 +726,7 @@ function ConversationBody({
             />
             </div>
           }
-          chips={chipsShown ? <ChipRow chips={replyChips(turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} label={t("conversation.suggestions")} /> : undefined}
+          chips={chipsShown ? <ChipRow chips={replyChips(turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} fresh={arriving(message.id)} label={t("conversation.suggestions")} /> : undefined}
         />,
       );
     }

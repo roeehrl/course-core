@@ -31,16 +31,16 @@
   display: flex;
   flex-direction: column;
   padding: 0;
-  overflow: hidden;
 }
 .connected-companion-dock.is-panel:has(> .cc-chat) {
   block-size: calc(100dvh - var(--connected-header-height, 75px) - 40px - var(--connected-status-offset, 0px));
 }
 .connected-companion-dock:has(> .cc-chat) > .cc-chat {
-  flex: 1;
+  flex: 1 0 0;
+  min-block-size: 0;
 }
 .connected-companion-dock:has(> .cc-chat) > .connected-dock-title {
-  position: static;
+  inset-block-start: 0;
   margin: 0;
   padding-block: var(--space-2);
   padding-inline: var(--space-4) var(--space-1);
@@ -192,6 +192,11 @@ button.cc-chat-anchor:focus-visible {
   flex-direction: column;
   gap: var(--space-2);
   max-inline-size: 65ch;
+}
+/* A reply row, or a reply that arrives while the conversation is open, fades in (M1); replies that
+ * were there when it was read do not. */
+.cc-chat-turn.is-companion.is-fresh,
+.cc-chat-row {
   animation: cc-chat-in var(--motion-m1-duration) var(--motion-m1-easing);
 }
 [data-view="focus"] .cc-chat-turn.is-companion,
@@ -309,6 +314,8 @@ button.cc-chat-anchor:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+.cc-chat-chips.is-fresh {
   animation: cc-chat-in var(--motion-m7-duration) var(--motion-m7-easing);
 }
 .cc-chat-chips-folded {
@@ -608,10 +615,10 @@ button.cc-chat-anchor:focus-visible {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cc-chat-turn.is-companion,
+  .cc-chat-turn.is-companion.is-fresh,
   .cc-chat-row,
   .cc-chat-row-body,
-  .cc-chat-chips,
+  .cc-chat-chips.is-fresh,
   .cc-chat-send > * {
     animation: none;
   }

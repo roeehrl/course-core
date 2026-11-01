@@ -63,7 +63,8 @@ test("a message while a counted question is open asks first and sends only with 
     page.getByText("Explain how to compare these values.", { exact: true }),
   ).toBeVisible();
   expect(JSON.parse(requests[0]!).allowAssessmentAssistance).toBe(true);
-  await expect(page.getByText(/^From: Minimum/)).toBeVisible();
+  // The conversation names the lesson once, in a divider (conversation §3.4), not on each message.
+  await expect(page.locator("#connected-companion .cc-chat-divider").filter({ hasText: /^Minimum$/ })).toBeVisible();
   const a11y = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();

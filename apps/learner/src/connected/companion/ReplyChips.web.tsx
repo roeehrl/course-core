@@ -46,12 +46,15 @@ export function ChipRow({
   onSend,
   onFill,
   folded = false,
+  fresh = false,
   label,
 }: {
   chips: readonly SuggestedChip[];
   onSend(text: string): void;
   onFill(text: string): void;
   folded?: boolean;
+  /** Under a reply that just arrived: the chips fade in with it (M7). */
+  fresh?: boolean;
   /** The group's name ("Suggested answers"). */
   label: string;
 }) {
@@ -60,7 +63,7 @@ export function ChipRow({
   const id = useId();
   if (!chips.length) return null;
   const row = (
-    <div className="cc-chat-chips" role="group" aria-label={label} id={id}>
+    <div className={`cc-chat-chips${fresh ? " is-fresh" : ""}`} role="group" aria-label={label} id={id}>
       {chips.map((chip) => (
         <Chip
           key={`${chip.kind}:${chip.label}`}

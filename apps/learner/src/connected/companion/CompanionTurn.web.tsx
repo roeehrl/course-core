@@ -21,6 +21,8 @@ export interface CompanionTurnProps {
   yourTurn: boolean;
   /** A hint in place of a counted check's answer: drawn as a normal reply in its own language. */
   hint: boolean;
+  /** It arrived while the conversation was open: it fades in once (M1). */
+  fresh?: boolean;
   /** The latest reply: "Continue" after a reply that reached its length limit. */
   onContinue?: () => void;
   /** The action row (actions' slot) and the chips under it. */
@@ -32,12 +34,12 @@ export interface CompanionTurnProps {
  * A settled companion reply (§3.3): no box and no fill, prose at the chat type (reading type in
  * the focus view), the label line on the first block after a learner turn, the closing question
  * at weight 600 with "Your turn" while the learner has not answered, then the action row and the
- * chips. It fades in once (M1). Memoized: a reply re-renders only when it changes.
+ * chips. One that arrives fades in once (M1). Memoized: a reply re-renders only when it changes.
  */
-export const CompanionTurn = memo(function CompanionTurn({ message, label, asks, yourTurn, hint, onContinue, actions, chips }: CompanionTurnProps) {
+export const CompanionTurn = memo(function CompanionTurn({ message, label, asks, yourTurn, hint, fresh, onContinue, actions, chips }: CompanionTurnProps) {
   const t = useT();
   return (
-    <CompanionTurnFrame author="companion" label={label} className="cc-chat-turn is-companion" data-message-id={message.id}>
+    <CompanionTurnFrame author="companion" label={label} className={`cc-chat-turn is-companion${fresh ? " is-fresh" : ""}`} data-message-id={message.id}>
       <div className="cc-chat-prose" {...(hint ? { lang: hintLanguage(message.content) } : {})}>
         <MarkdownContent
           markdown={message.content}
