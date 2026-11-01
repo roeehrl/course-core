@@ -114,13 +114,21 @@ export function anchorsFound(anchors: readonly string[], text: string): string[]
 /** Where a clause starts: sentence punctuation, a comma, or a contrasting conjunction. */
 const CLAUSE_START = /[.!?;:,\n](?!\d)|\b(?:but|however|although|though|yet|whereas|instead)\b|(?<!\p{L})(?:אבל|אך|אולם|אלא|למרות)(?!\p{L})/giu;
 const NEGATION = /(?:\b(?:not|no|never|nor|neither|cannot|without|unlikely)\b|n't\b|\bcant\b|(?<!\p{L})[ושכה]?(?:לא|אין|אינ\p{L}*|אי[\s-]אפשר|ללא|בלי|מבלי|אסור)(?!\p{L}))(?!\s+(?:doubt|question|only)\b)/iu;
-/** Whether the match at `index` is denied in its own clause ("you cannot conclude your plant shrank",
- * "לא נכון ש…") or only asked about (its sentence ends with a question mark). */
-function deniedOrAsked(text: string, index: number, length: number) {
+/** Whether the match at `index` is denied in its own clause, before it ("you cannot conclude your plant shrank",
+ * "not a sign that you are bad at math", "לא נכון ש…"). */
+function deniedInClause(text: string, index: number) {
   const before = text.slice(Math.max(0, index - 160), index), cut = [...before.matchAll(CLAUSE_START)].at(-1);
-  const clause = cut ? before.slice(cut.index + cut[0].length) : before;
-  if (NEGATION.test(clause)) return true;
-  return /[.!?\n](?!\d)/u.exec(text.slice(index + length))?.[0] === "?";
+  return NEGATION.test(cut ? before.slice(cut.index + cut[0].length) : before);
+}
+/** Whether the match is denied in its own clause or only asked about (its sentence ends with a question mark). */
+function deniedOrAsked(text: string, index: number, length: number) {
+  return deniedInClause(text, index) || /[.!?\n](?!\d)/u.exec(text.slice(index + length))?.[0] === "?";
+}
+/** The first match of a label pattern that labels the learner. One denied in its own clause is reassurance
+ * ("not a sign that you are bad at math", "that doesn't mean you're confused"); a negation inside the
+ * label itself ("you're not good enough", "you don't understand") is still the label, and so is a question. */
+export function assertedLabel(source: string, text: string): string | null {
+  return allMatches(source, text).find((m) => !deniedInClause(text, m.index))?.[0] ?? null;
 }
 /** The first match of a known false claim that the answer asserts: one it denies or only asks about is not the claim. */
 export function assertedClaim(source: string, text: string): string | null {
@@ -202,23 +210,35 @@ export function patternGrounding(dialogue: Dialogue, text: string): string[] {
   rule.unsupportedPatterns.forEach((p, i) => { if (matches(p, text)) findings.push(`unsupported_reference:${i}`); });
   return findings;
 }
+/** The supplied material a quotation may come from: the whole context (lesson, learner turns, question)
+ * and, for a tool loop, what its tools answered, in the normalized form the reply is read in. */
+export function quoteCorpus(dialogue: Dialogue) {
+  return normalize(strings([dialogue.context, dialogue.expect.tools?.results ?? null]).join("\n")).toLowerCase();
+}
+/** Quotation marks pair in order: the first with the second, the third with the fourth. A short quotation
+ * ("Buenos días") is skipped, never re-paired with the next one, so the words between two quotations
+ * (and them replying) are not taken for a quotation. */
+const quotations = (text: string) => [...text.matchAll(/"([^"]*)"/g)].map((m) => m[1]!.trim()).filter((q) => q.length >= 12 && q.length <= 400);
+/** The first quotation (12 to 400 characters) the reply presents that the supplied material does not contain. */
+export function unverifiableQuote(corpus: string, text: string): string | null {
+  const form = (value: string) => value.toLowerCase().replace(/\s+/g, " ").replace(/^[.,;:!?\s]+|[.,;:!?\s]+$/g, "");
+  return quotations(text).find((quote) => !corpus.includes(form(quote))) ?? null;
+}
 /** The structural part of grounding, deterministic even when judged: quotations presented as the
  * material's must be in it, and a plan names only objectives it was given. */
 function structuralGrounding(dialogue: Dialogue, text: string, output: EvalOutput): string[] {
   const findings: string[] = [];
   // Every quotation presented as coming from the material must be in the supplied context (for a
   // tool loop, that includes what its tools answered).
-  const corpus = normalize(strings([dialogue.context, dialogue.expect.tools?.results ?? null]).join("\n")).toLowerCase();
   // A media prompt is Core's own assembled request (instructions and JSON), not a model's quotation.
-  if (output.kind !== "media_prompt") for (const quote of text.matchAll(/"([^"]{12,400})"/g))
-    if (!corpus.includes(quote[1]!.trim().toLowerCase().replace(/[.,;:!?]+$/, ""))) { findings.push("unverifiable_quote"); break; }
+  if (output.kind !== "media_prompt" && unverifiableQuote(quoteCorpus(dialogue), text) !== null) findings.push("unverifiable_quote");
   if (output.kind === "plan" && output.needs.some((n) => !dialogue.context.episode.objectives.some((o) => o.id === n.objectiveId)))
     findings.push("objective_not_supplied");
   return findings;
 }
 function diagnosisRestraint(dialogue: Dialogue, text: string, output: EvalOutput): string[] {
-  const findings = LABEL_PATTERNS.flatMap((p, i) => (matches(p, text) ? [`label:${i}`] : []));
-  dialogue.expect.diagnosisRestraint.extraLabelPatterns.forEach((p, i) => { if (matches(p, text)) findings.push(`label:extra:${i}`); });
+  const findings = LABEL_PATTERNS.flatMap((p, i) => (assertedLabel(p, text) !== null ? [`label:${i}`] : []));
+  dialogue.expect.diagnosisRestraint.extraLabelPatterns.forEach((p, i) => { if (assertedLabel(p, text) !== null) findings.push(`label:extra:${i}`); });
   const max = dialogue.expect.diagnosisRestraint.maxNeeds;
   if (output.kind === "plan" && max !== undefined && output.needs.length > max) findings.push(`too_many_needs:${output.needs.length}/${max}`);
   return findings;
@@ -273,7 +293,10 @@ function checkMode(dialogue: Dialogue, text: string): string[] {
 /** A judged grader's findings: the judge's fail (`judge_failed`), or `judge_unavailable:<reason>`
  * when it could not run. Codes only; the judge's reasons and quotes stay with its judgement. */
 function judged(judgement: MeaningJudgement, grader: JudgedGrader, structural: string[]): { findings: string[]; undetermined?: true } {
-  if (judgement.state === "judged") return { findings: [...structural, ...(judgement.verdicts[grader].passed ? [] : ["judge_failed"])] };
+  // A quotation Core cannot find in the material is evidence for a judge's fail, never a fail of its
+  // own once the judge read the reply and passed it (live finding: a pass failed by `unverifiable_quote`).
+  if (judgement.state === "judged") return judgement.verdicts[grader].passed
+    ? { findings: structural.filter((f) => f !== "unverifiable_quote") } : { findings: [...structural, "judge_failed"] };
   // A structural failure stands on its own; otherwise the judge's silence decides nothing.
   return structural.length ? { findings: structural } : { findings: [`judge_unavailable:${judgement.reason}`.slice(0, 120)], undetermined: true };
 }
