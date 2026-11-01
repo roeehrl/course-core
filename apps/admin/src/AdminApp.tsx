@@ -314,6 +314,23 @@ function CourseWorkspace({
   useEffect(() => {
     if (layout === "wide") setDrawerOpen(false);
   }, [layout]);
+  // The sidebar's own scroll keeps the current section in sight: on load, and when a link or a
+  // notification opens a section further down the list.
+  const sidebarScroll = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = sidebarScroll.current;
+    const current = list?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!list || !current) return;
+    const box = current.getBoundingClientRect();
+    const top = box.top - list.getBoundingClientRect().top + list.scrollTop;
+    const bottom = top + box.height;
+    // A small margin, so the item's focus ring is not cut off at the edge either.
+    const margin = 12;
+    if (top - margin < list.scrollTop)
+      list.scrollTop = Math.max(0, top - margin);
+    else if (bottom + margin > list.scrollTop + list.clientHeight)
+      list.scrollTop = bottom + margin - list.clientHeight;
+  }, [view, layout]);
   const openView = (id: ViewId) => {
     setView(id);
     actions.clear();
@@ -407,16 +424,21 @@ function CourseWorkspace({
       {layout === "wide" && (
         <aside className="sidebar">
           <Brand />
-          <div className="workspace-label">
-            <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
+          {/* The brand and the signed-in person stay put; the navigation between them scrolls on
+              its own, so every section can be reached in a short window. */}
+          <div className="sidebar-scroll" ref={sidebarScroll}>
+            <div className="workspace-label">
+              <PanelTop size={15} aria-hidden="true" />{" "}
+              {t("adminApp.workspace")}
+            </div>
+            {navList(openView)}
+            <div className="sidebar-tagline">
+              <ListChecks size={22} aria-hidden="true" />
+              <strong>{t("adminApp.tagline.title")}</strong>
+              <p>{t("adminApp.tagline.body")}</p>
+            </div>
           </div>
-          {navList(openView)}
-          <div className="sidebar-bottom">
-            <ListChecks size={22} aria-hidden="true" />
-            <strong>{t("adminApp.tagline.title")}</strong>
-            <p>{t("adminApp.tagline.body")}</p>
-            {actor}
-          </div>
+          {actor}
         </aside>
       )}
       {drawerShown && (

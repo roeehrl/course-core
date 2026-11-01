@@ -293,3 +293,34 @@ for (const locale of ["en", "he"] as const)
       expect(badge.y).toBeGreaterThanOrEqual(bar.y);
     }
   });
+
+test("a short wide window scrolls the sidebar's navigation, not the page, to its last section @desktop-window", async ({
+  page,
+  context,
+}) => {
+  await mockConnectedAdmin(page, context);
+  for (const locale of ["en", "he"] as const) {
+    await page.setViewportSize({ width: 1440, height: 600 });
+    await open(page, locale);
+    const sidebar = page.locator(".sidebar");
+    const links = sidebar.locator(".nav-links button");
+    const last = links.last();
+    // The sidebar fits the window, with the signed-in person at its bottom.
+    expect((await box(sidebar)).height).toBeLessThanOrEqual(600);
+    await expect(sidebar.locator(".actor")).toBeInViewport({ ratio: 1 });
+    await expect(sidebar.locator(".brand")).toBeInViewport({ ratio: 1 });
+    await expect(last).not.toBeInViewport({ ratio: 1 });
+    // The wheel over the navigation scrolls the navigation; the page stays where it is.
+    const nav = await box(sidebar.locator(".nav-links"));
+    await page.mouse.move(nav.x + nav.width / 2, 300);
+    await page.mouse.wheel(0, 2000);
+    await expect(last).toBeInViewport({ ratio: 1 });
+    expect(await scrollY(page)).toBe(0);
+    await expect(sidebar.locator(".brand")).toBeInViewport({ ratio: 1 });
+    await expect(sidebar.locator(".actor")).toBeInViewport({ ratio: 1 });
+    await last.click();
+    await expect(last).toHaveAttribute("aria-current", "page");
+    await expect(last).toBeInViewport({ ratio: 1 });
+    await expectNoHorizontalOverflow(page);
+  }
+});
