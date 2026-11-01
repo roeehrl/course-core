@@ -188,9 +188,10 @@ describe("real pilot replies, judged", () => {
 
   it("passes the correct replies the pattern graders failed on paraphrase, Hebrew and negation, and still fails a vague one", () => {
     const [english, hebrew, negation, vague, invented] = replay.paraphrases;
+    // The patterns still miss these two (#268's synonyms now catch the negation one offline too).
+    for (const c of [english!, hebrew!]) expect(rule(gradeDialogue(dialogue(c.dialogueId), c.output), "factuality").passed, c.dialogueId).toBe(false);
     for (const c of [english!, hebrew!, negation!]) {
       const d = dialogue(c.dialogueId);
-      expect(rule(gradeDialogue(d, c.output), "factuality").passed, c.dialogueId).toBe(false);
       expect(gradeDialogue(d, c.output, judged(c.judgeAnswer, replyOf(c.output))).passed, replyOf(c.output)).toBe(true);
     }
     const lazy = gradeDialogue(dialogue(vague!.dialogueId), vague!.output, judged(vague!.judgeAnswer, replyOf(vague!.output)));
