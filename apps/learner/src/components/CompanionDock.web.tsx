@@ -124,8 +124,8 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
   const enterFocus = () => companionOpen.setView("focus");
   const leaveFocus = () => {
     companionOpen.setView("docked");
-    // The button that left is gone; focus stays in the companion's header.
-    requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>('[data-companion-control][title]')?.focus({ preventScroll: true }));
+    // The button that left is gone; focus goes to Expand, which took its place in the header.
+    requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>("[data-companion-expand]")?.focus({ preventScroll: true }));
   };
   // M11: the companion's content crossfades between focus view and beside the lesson.
   const viewSeen = useRef(view);

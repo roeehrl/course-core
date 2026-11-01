@@ -118,6 +118,12 @@ test("599/600/839/840/1024: phone sheet, tablet sheet, docked panel", {
   await expect(host(page)).toHaveAttribute("data-window-class", "compact");
   await expect(host(page)).toHaveClass(/is-compact/);
   await expect(page.locator(".connected-header .connected-companion-trigger")).toBeVisible();
+  // The product name stays in the header beside its buttons; the section name gives way.
+  await expect(page.locator(".connected-brand > span").first()).toBeVisible();
+  expect((await page.locator(".connected-brand").boundingBox())!.width).toBeGreaterThan(40);
+  // The learning pane never scrolls sideways, with a classic scrollbar's gutter too (in Hebrew
+  // such a scroll cut the start of every line).
+  expect(await page.locator(".connected-main").evaluate((pane) => pane.scrollWidth - pane.clientWidth)).toBeLessThanOrEqual(0);
   await page.screenshot({ path: info.outputPath("compact-599.png") });
   await toggle.click();
   await expect(companion).toHaveClass(/is-phone/);

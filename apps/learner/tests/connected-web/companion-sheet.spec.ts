@@ -163,7 +163,9 @@ test("a drag on the handle moves the sheet between heights and down past Collaps
   // Down a little, slowly: back to Full.
   await dragBy(40, 30);
   await expect(sheet).toHaveAttribute("data-detent", "full");
-  // Down to the window's bottom: past a quarter below Collapsed, so it closes.
+  // Down to the window's bottom: past a quarter below Collapsed, so it closes. Measured once the
+  // sheet has slid back to Full (it is lower while it does).
+  await settled(sheet);
   const handleTop = (await handle.boundingBox())!.y;
   await dragBy(viewport.height - handleTop - 30, 30);
   await expect(sheet).toBeHidden();

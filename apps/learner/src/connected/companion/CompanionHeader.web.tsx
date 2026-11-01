@@ -64,6 +64,7 @@ export function CompanionHeader({
           aria-label={t("companionHeader.expand")}
           title={t("companionHeader.expand.tooltip")}
           data-companion-control=""
+          data-companion-expand=""
           onClick={onExpand}
         >
           <Icon name="maximize-2" size={20} />

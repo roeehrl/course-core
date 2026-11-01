@@ -50,6 +50,8 @@ test("Expand gives the companion the page, and the lesson comes back where it wa
   // Back beside the lesson: the lesson shows again at the place it was left.
   await companion(page).getByRole("button", { name: "Show lesson beside", exact: true }).click();
   await expect(companion(page)).toHaveAttribute("data-view", "docked");
+  // Focus goes to Expand, the button that took the place of the one pressed.
+  await expect(companion(page).getByRole("button", { name: "Expand", exact: true })).toBeFocused();
   await expect(main).toBeVisible();
   expect(await main.evaluate((element) => (element as HTMLElement).inert)).toBe(false);
   expect(Math.abs((await page.evaluate(() => window.scrollY)) - scrolled)).toBeLessThanOrEqual(2);

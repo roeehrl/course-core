@@ -233,17 +233,16 @@
 .connected-main[hidden] {
   display: none;
 }
+/* The connection status is drawn inside the hidden lesson, so focus view takes the whole height
+ * (the companion's own lines say when it is offline). */
 .connected-companion-dock.is-focus {
   grid-column: 1 / -1;
   position: sticky;
   top: var(--connected-header-height, 74px);
-  height: calc(
-    100dvh - var(--connected-header-height, 74px) -
-      var(--connected-status-offset, 0px)
-  );
+  height: calc(100dvh - var(--connected-header-height, 74px));
 }
 .cc-shell-header.is-focus .connected-dock-title {
-  padding-inline: 24px 16px;
+  padding-inline: 24px;
 }
 .cc-shell-header.is-focus .cc-ui-panel-titles {
   display: flex;
@@ -457,10 +456,16 @@ html:has(.connected-host:not(.is-compact) #connected-companion.is-sheet:not([hid
   }
 }
 /* A phone's header holds the brand, the bell, the trigger and the account menu from 360 px: the
- * brand gives way first (connected.css cuts it with an ellipsis). */
+ * brand gives way first (connected.css cuts it with an ellipsis). The product name stays; only the
+ * section name after it is dropped (connected.css hides every span in the brand on phones, the
+ * product name's included). */
 @media (max-width: 599px) {
   .connected-header .connected-header-actions {
     gap: 6px;
+  }
+  .connected-header .connected-brand > span:first-child {
+    display: inline;
+    margin-inline-start: 0;
   }
 }
 
@@ -506,6 +511,12 @@ html:has(.connected-host.is-compact) body {
   scrollbar-gutter: stable;
   scroll-padding-block: 16px;
   padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+/* The pane never scrolls sideways: the back link's row ends at the pane's end (connected.css pulls
+ * it 8 px past both edges on phones; past the end that made the pane scroll sideways, which cut the
+ * start of every line in Hebrew). Its start still lines the link's text up with the lesson. */
+.connected-host.is-compact .connected-main > .connected-navigation {
+  margin-inline-end: 0;
 }
 
 /* Window classes (see src/domain/windowClass.ts): compact < 600, medium 600–839,
