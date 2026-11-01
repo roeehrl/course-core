@@ -59,7 +59,9 @@
           "id": "ten-mm-per-cm",
           "anyOf": [
             "(?:one|1) centimet(?:re|er) is (?:ten|10) millimet(?:re|er)s?",
-            "10 mm (?:per|in a|in one) (?:cm|centimet)"
+            "10 mm (?:per|in a|in one) (?:cm|centimet)",
+            "(?:one|1|a|each|every) (?:cm|centimet(?:re|er)) (?:is|equals|=|has|contains|makes) (?:ten|10) (?:mm|millimet(?:re|er)s?)\\b",
+            "(?:ten|10) (?:mm|millimet(?:re|er)s?) (?:make|makes|equal|equals|=|is|are|in|per) (?:(?:one|1|a|each|every) )?(?:cm|centimet(?:re|er))\\b"
           ]
         },
         {

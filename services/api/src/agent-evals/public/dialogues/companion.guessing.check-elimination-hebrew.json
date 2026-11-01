@@ -102,7 +102,12 @@
       "anchors": [
         "record",
         "cause",
-        "measurement"
+        "measurement",
+        "נרשם",
+        "רשומ",
+        "מדיד",
+        "סיבה",
+        "גורם"
       ],
       "minAnchors": 2,
       "unsupportedPatterns": [

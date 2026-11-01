@@ -81,7 +81,7 @@
         },
         {
           "id": "travel-equals-distance",
-          "pattern": "total travel (?:always )?equals (?:the )?(?:endpoint )?distance",
+          "pattern": "(?<!(?:\\bnot|n't|\\bnever)\\b[^.]{0,30})total travel (?:always )?equals (?:the )?(?:endpoint )?distance(?![^.;]{0,60}\\b(?:only|unless|if|when)\\b)",
           "reason": "Travel exceeds the gap when a route doubles back."
         }
       ]
