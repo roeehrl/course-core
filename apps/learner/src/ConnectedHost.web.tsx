@@ -167,6 +167,38 @@ function useHeaderHeight(hostRef: React.RefObject<HTMLDivElement | null>) {
   }, [hostRef]);
 }
 
+/**
+ * Scrolls a part of the profile to the top and focuses it once it shows. The panels above it may
+ * still be reading and grow after that, so for a few seconds it is scrolled to again whenever one
+ * of its containers changes size, until the learner scrolls, touches or presses a key.
+ */
+function showProfilePart(id: string) {
+  let tries = 0;
+  const show = () => {
+    const target = document.getElementById(id);
+    if (!target) {
+      if (++tries < 40) setTimeout(show, 50);
+      return;
+    }
+    target.scrollIntoView({ block: "start" });
+    target.focus({ preventScroll: true });
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => {
+      if (target.isConnected) target.scrollIntoView({ block: "start" });
+    });
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const stop = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, stop, true);
+    };
+    const timer = setTimeout(stop, 3000);
+    for (const name of events) window.addEventListener(name, stop, { capture: true, passive: true });
+    for (let box = target.parentElement; box && box !== document.body; box = box.parentElement) observer.observe(box);
+  };
+  setTimeout(show, 0);
+}
+
 /** Refusals whose message already says nothing ran and the request is kept to send again. */
 const RETRY_IN_ERROR = new Set(["CODE_SANDBOX_SETUP_SLOW"]);
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
@@ -464,15 +496,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   /** Opens "Your personal changes" at the change that added generated content. */
   function reviewChange(proposalId: string) {
     setView("profile");
-    let tries = 0;
-    const show = () => {
-      const target = document.getElementById(`personal-change-${proposalId}`);
-      if (target) {
-        target.scrollIntoView({ block: "start" });
-        target.focus({ preventScroll: true });
-      } else if (++tries < 40) setTimeout(show, 50);
-    };
-    setTimeout(show, 0);
+    showProfilePart(`personal-change-${proposalId}`);
   }
   const answerConflict = drafts.conflict(answerKey);
   const titles = useMemo(
@@ -813,7 +837,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setError("");
     setNotice(null);
     setView("learn");
-  }  // Where the companion can send the learner (bridge.ts): a section of the profile (scrolled to and
+  }
+  // Where the companion can send the learner (bridge.ts): a section of the profile (scrolled to and
   // focused once it shows, like reviewChange), a lesson, or the course page.
   const navigation = useRef({ openEpisode, setView, setEpisodeId, setPlacement });
   navigation.current = { openEpisode, setView, setEpisodeId, setPlacement };
@@ -822,16 +847,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       companionBridge.registerNavigate({
         profile(section) {
           navigation.current.setView("profile");
-          if (!section) return;
-          let tries = 0;
-          const show = () => {
-            const target = document.getElementById(`profile-${section}`);
-            if (target) {
-              target.scrollIntoView({ block: "start" });
-              target.focus({ preventScroll: true });
-            } else if (++tries < 40) setTimeout(show, 50);
-          };
-          setTimeout(show, 0);
+          if (section) showProfilePart(`profile-${section}`);
         },
         lesson: (id) => navigation.current.openEpisode(id),
         course() {

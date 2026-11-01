@@ -116,6 +116,12 @@ test("a decision waiting on the learner adds a line to the companion's thread, a
   await expect(line).toBeVisible();
   await accessible(page);
   await companion.screenshot({ path: info.outputPath("decision-line.png") });
+  // The waiting decision also marks the trigger with its dot, and its name says why.
+  const trigger = page.locator(".connected-companion-trigger:visible");
+  await closeCompanion(page);
+  await expect(trigger).toHaveAccessibleName("Companion, a suggestion to review");
+  await expect(trigger.locator(".cc-shell-trigger-dot")).toBeVisible();
+  await openCompanion(page);
   await companion.getByRole("button", { name: "Review", exact: true }).click();
   const section = page.locator("#profile-decisions");
   await expect(section).toBeFocused();
@@ -130,6 +136,8 @@ test("a decision waiting on the learner adds a line to the companion's thread, a
   await expect(section.getByText("You kept your goal. Nothing changed.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "← Back to learning", exact: true }).click();
   await page.getByRole("button", { name: resume }).click();
+  await expect(trigger).toHaveAccessibleName("Companion");
+  await expect(trigger.locator(".cc-shell-trigger-dot")).toHaveCount(0);
   await openCompanion(page);
   await expect(companionPanel(page).getByText("Your companion suggests a new goal.", { exact: true })).toHaveCount(0);
 });
