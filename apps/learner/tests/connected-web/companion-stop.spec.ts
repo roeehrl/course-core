@@ -60,3 +60,28 @@ for (const how of ["the round button", "Esc"] as const)
     await expect(after).not.toContainText("wasn't checked");
     await expect(after).not.toContainText("Part 1 of the reply.");
   });
+
+test("Stop pressed while the question is still being sent cancels it once it is saved, and its text goes back to the box", async ({ page, request }) => {
+  await startLesson(page, request);
+  // The send's answer is slow, so Stop comes before it: the cancel waits for the send and must
+  // then use the revision the send moved on to (never a stale one).
+  await page.route(/\/companion$/, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await route.fulfill({ response });
+  });
+  const question = `Stop while sending ${Date.now()}`;
+  await box(page).fill(question);
+  await roundButton(page).click();
+  await expect(thread(page).getByText(question, { exact: true })).toBeVisible();
+  await expect(roundButton(page)).toHaveAccessibleName("Stop reply");
+  const cancelled = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/cancel"));
+  await roundButton(page).click();
+  expect((await cancelled).status()).toBe(200);
+  await expect(box(page)).toHaveValue(question);
+  await expect(thread(page).getByText(question, { exact: true })).toHaveCount(0, { timeout: 15_000 });
+  await expect(thread(page).getByText("Couldn't stop the reply. Try again, or delete the question.")).toHaveCount(0);
+  await expect(announcer(page)).toHaveText("Question cancelled. Your text is back in the box.");
+  await expect(roundButton(page)).toHaveAccessibleName("Send");
+});

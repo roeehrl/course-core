@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { CourseApiError, type CourseApi, type ServerSnapshot } from "../../client/apiClient";
 import type { CompanionContext, CompanionReceipt, ContextualCompanionClient } from "../../client/companionClient";
 import { CompanionDock } from "../../components/CompanionDock";
@@ -115,6 +115,14 @@ export function CompanionRegion({
     return () => controller.abort();
   }, [api, availabilityEnrollment, open]);
   const availability = companionReady?.enrollmentId === server.enrollmentId && companionReady?.status !== "not_offered" ? companionReady?.status : undefined;
+  // The newest snapshot this region knows. A question's commands wait for each other (the quiet
+  // lock): a Stop pressed while its question is being sent runs once the send has moved the
+  // revision on, before the page has drawn the new snapshot, so it takes the revision from here.
+  const newest = useRef(server);
+  if (server.enrollmentId !== newest.current.enrollmentId || server.revision >= newest.current.revision) newest.current = server;
+  const learn = (snapshot: ServerSnapshot | undefined) => {
+    if (snapshot && snapshot.enrollmentId === newest.current.enrollmentId && snapshot.revision >= newest.current.revision) newest.current = snapshot;
+  };
   async function sendCompanion(content: string, consent?: true): Promise<CompanionReceipt> {
     try {
       return await sendCompanionNow(content, consent);
@@ -132,7 +140,7 @@ export function CompanionRegion({
     if (!episode) throw new Error("Open a lesson first");
     const interactiveContext = visualContext();
     return transactQuiet(async () => {
-      const result = await chat.send(server, {
+      const result = await chat.send(newest.current, {
         episodeId: episode.id,
         ...(context.blockId ? { blockId: context.blockId } : {}),
         content,
@@ -154,7 +162,8 @@ export function CompanionRegion({
       );
       // The message is saved: a progress read that fails now is retried by the page's next read,
       // and the conversation reads itself over its event stream.
-      await refresh(server.enrollmentId).catch(() => undefined);
+      learn({ ...newest.current, revision: Math.max(newest.current.revision, result.revision) });
+      learn(await refresh(server.enrollmentId).catch(() => undefined));
       return result;
     });
   }
@@ -193,8 +202,9 @@ export function CompanionRegion({
                 chat.cancelQuestion
                   ? (messageId) =>
                       transactQuiet(async () => {
-                        await chat.cancelQuestion!(server, messageId);
-                        await refresh(server.enrollmentId).catch(() => undefined);
+                        const result = await chat.cancelQuestion!(newest.current, messageId);
+                        learn({ ...newest.current, revision: Math.max(newest.current.revision, result.revision) });
+                        learn(await refresh(server.enrollmentId).catch(() => undefined));
                       })
                   : undefined
               }
