@@ -1,152 +1,90 @@
 import { test, expect, type Page } from "./health";
-import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
-import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
-import enJob from "../../src/i18n/messages/en/companionStates.json";
-import heJob from "../../src/i18n/messages/he/companionStates.json";
-import enHost from "../../src/i18n/messages/en/connectedHost.json";
-import heHost from "../../src/i18n/messages/he/connectedHost.json";
-import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
-import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
-import enDock from "../../src/i18n/messages/en/companionDock.json";
-import heDock from "../../src/i18n/messages/he/companionDock.json";
+import { announcer, ask, box, roundButton, startLesson, stream, thread } from "./conversation-helpers";
+import enRow from "../../src/i18n/messages/en/replyRow.json";
+import heRow from "../../src/i18n/messages/he/replyRow.json";
+import enTurn from "../../src/i18n/messages/en/learnerTurn.json";
+import heTurn from "../../src/i18n/messages/he/learnerTurn.json";
+import enNotice from "../../src/i18n/messages/en/noticeSlot.json";
+import heNotice from "../../src/i18n/messages/he/noticeSlot.json";
+import enStop from "../../src/i18n/messages/en/sendStopButton.json";
+import heStop from "../../src/i18n/messages/he/sendStopButton.json";
 
-// The companion's question states in the real app, over the real event stream, in English and
-// Hebrew: a queued question offers "Stop waiting"; the moment its reply's call is sent (the draft
-// opens) it offers Stop instead, within a second of the first draft text at the latest; a question
-// held by a spending limit says that help is paused, why, and that staff were told; a reply that
-// arrives below the fold is brought into view; a stopped question can be asked again. The model is
-// scripted by the test host; no provider is called.
-const text = {
-  en: { companion: enCompanion, job: enJob, host: enHost, preview: enPreview, dock: enDock },
-  he: { companion: heCompanion, job: heJob, host: heHost, preview: hePreview, dock: heDock },
-} as const;
-type Locale = keyof typeof text;
-
-async function openCompanion(page: Page, locale: Locale, token: string, phone: boolean) {
-  const t = text[locale];
-  await page.goto(`/?locale=${locale}#signin=${token}`);
-  await expect(page.locator("html")).toHaveAttribute("dir", locale === "he" ? "rtl" : "ltr");
-  await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
-    .getByRole("button", { name: t.host["library.open"], exact: true }).click();
-  await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-  await page.getByTestId("next-step").getByRole("button").click();
-  if (phone) await page.getByRole("button", { name: t.dock.open, exact: true }).click();
-}
-async function ask(page: Page, locale: Locale, question: string) {
-  const t = text[locale].companion;
-  await page.getByRole("textbox", { name: t["draft.label"], exact: true }).fill(question);
-  await page.getByRole("button", { name: t["send.send"], exact: true }).click();
-  // Read from the saved conversation: while it sends, the (read-only) box still holds the same text.
-  await expect(page.getByRole("log", { name: t.log }).getByText(question, { exact: true })).toBeVisible();
-}
-/** The card of one saved question in the conversation log. */
-const card = (page: Page, locale: Locale, question: string) =>
-  page.getByRole("log", { name: text[locale].companion.log }).locator("div").filter({ hasText: question })
-    .filter({ has: page.getByRole("button") }).last();
+/*
+ * The states of a question in the real app, over the real event stream, in English and Hebrew
+ * (final design §3.5): the round button is "Stop reply" from the moment a question is accepted,
+ * within a second of the dispatch frame at the latest, and never with queued controls beside a
+ * draft; a question held by a spending limit waits to send, with Cancel on the question and the
+ * paused banner above the composer (no status line); replies grow from the anchored question; a
+ * question stopped after its call was sent says so and can be asked again. Scripted by the test
+ * host; no provider is called.
+ */
+const text = { en: { row: enRow, turn: enTurn, notice: enNotice, stop: enStop }, he: { row: heRow, turn: heTurn, notice: heNotice, stop: heStop } } as const;
+const statusLine = (page: Page) => page.locator("#connected-companion").getByText(/^(Companion|המנחה): /);
 
 for (const locale of ["en", "he"] as const) {
-  test(`the reply's Stop replaces the queued controls within a second of the first draft, and a held question says help is paused (${locale})`, async ({ page, request }, info) => {
+  const t = text[locale];
+  test(`Stop is the round button within a second of the dispatch frame, never beside queued controls, and a held question waits to send (${locale})`, async ({ page, request }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    const t = text[locale];
-    const token = (await (await request.post("/test/session")).json()).token;
-    await openCompanion(page, locale, token, !info.project.name.endsWith("desktop"));
-
-    // Queued: nothing is sent yet, so the learner may stop waiting (it costs nothing).
+    await startLesson(page, request, { locale });
     const question = `State question ${locale} ${Date.now()}`;
-    await ask(page, locale, question);
-    const questionCard = card(page, locale, question);
-    await expect(questionCard.getByText(t.job["job.queued"], { exact: true })).toBeVisible();
-    await expect(questionCard.getByRole("button", { name: t.companion.cancel, exact: true })).toBeVisible();
-    await expect(questionCard.getByRole("button", { name: t.companion["stop.start"], exact: true })).toHaveCount(0);
-
-    // Time the first draft text and the Stop button in the page itself, as the learner sees them.
-    await page.evaluate(({ stop, region }) => {
-      const marks: { draft?: number; stop?: number; stopWaitingWithDraft?: boolean } = {};
+    // Time the first draft text and the Stop name in the page itself, as the learner sees them.
+    await page.evaluate(({ stop }) => {
+      const marks: { draft?: number; stop?: number; cancelWithDraft?: boolean } = {};
       (window as unknown as { __marks: typeof marks }).__marks = marks;
       const check = () => {
         const now = performance.now();
-        const buttons = [...document.querySelectorAll<HTMLElement>("button,[role=button]")].map((b) => b.textContent?.trim());
-        if (marks.stop === undefined && buttons.includes(stop.start)) marks.stop = now;
-        const draft = [...document.querySelectorAll<HTMLElement>("[aria-label]")].find((e) => e.getAttribute("aria-label") === region);
+        const button = document.querySelector(".cc-chat-send");
+        if (marks.stop === undefined && button?.getAttribute("aria-label") === stop) marks.stop = now;
+        const draft = document.querySelector('[data-reply-state="streaming"]');
         if (marks.draft === undefined && draft?.textContent?.includes("Picture both values")) marks.draft = now;
-        if (draft && buttons.includes(stop.waiting)) marks.stopWaitingWithDraft = true;
+        if (draft && document.querySelector("#connected-companion [role=log] .cc-chat-footer")) marks.cancelWithDraft = true;
       };
-      new MutationObserver(check).observe(document.body, { subtree: true, childList: true, characterData: true });
-    }, { stop: { start: t.companion["stop.start"], waiting: t.companion.cancel }, region: t.companion["reply.region"] });
-    await expect.poll(async () => (await (await request.post("/test/companion-draft", { data: { question,
-      pieces: ["Picture both values on a number line. ", "The one farther left ", "is smaller."], end: "complete", gapMs: 400 } })).json()).reason ?? "opened").toBe("opened");
-    const draft = page.getByLabel(t.companion["reply.region"], { exact: true });
-    await expect(draft).toContainText("Picture both values on a number line.");
-    await expect(questionCard.getByRole("button", { name: t.companion["stop.start"], exact: true })).toBeVisible();
-    const marks = await page.evaluate(() => (window as unknown as { __marks: { draft?: number; stop?: number; stopWaitingWithDraft?: boolean } }).__marks);
+      new MutationObserver(check).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    }, { stop: t.stop.stop });
+    await ask(page, question);
+    // Accepted: nothing is under the question, and the round button stops it.
+    await expect(roundButton(page)).toHaveAccessibleName(t.stop.stop);
+    await expect(thread(page).locator(".cc-chat-footer")).toHaveCount(0);
+    await stream(request, question, ["Picture both values on a number line. ", "The one farther left ", "is smaller."], { end: "complete", gapMs: 400 });
+    const draft = thread(page).locator('[data-reply-state="streaming"]');
+    await expect(draft).toContainText("is smaller.");
+    const marks = await page.evaluate(() => (window as unknown as { __marks: { draft?: number; stop?: number; cancelWithDraft?: boolean } }).__marks);
     expect(marks.draft, "the first draft text was seen").toBeDefined();
     expect(marks.stop, "Stop was seen").toBeDefined();
-    // Within 1 s of the first draft (in practice before it: the call's dispatch shows first).
     expect(marks.stop! - marks.draft!).toBeLessThan(1000);
-    expect(marks.stopWaitingWithDraft ?? false, "never the queued controls beside a draft").toBe(false);
-    await expect(questionCard.getByRole("button", { name: t.companion.cancel, exact: true })).toHaveCount(0);
-    await expect(questionCard.getByRole("button", { name: t.companion.retry, exact: true })).toHaveCount(0);
-    await info.attach(`timing-${locale}`, { body: JSON.stringify({ stopAfterDraftMs: marks.stop! - marks.draft! }), contentType: "application/json" });
-    await expect(draft).toContainText("is smaller.");
-
-    // Held by a spending limit: the workspace total in English, the learner's own limit in Hebrew.
+    expect(marks.cancelWithDraft ?? false, "never the queued controls beside a draft").toBe(false);
+    await expect(statusLine(page)).toHaveCount(0);
+    // The reply is stored; then a question held by a spending limit.
+    expect((await (await request.post("/test/companion-job", { data: { question, state: "applied", answer: "Compare positions on the line." } })).json()).updated).toBe(true);
+    await expect(thread(page).getByText("Compare positions on the line.", { exact: true })).toBeVisible({ timeout: 15_000 });
     const held = `Held question ${locale} ${Date.now()}`;
-    await ask(page, locale, held);
+    await ask(page, held);
     const ceiling = locale === "en" ? "workspace" : "enrollment";
     expect((await (await request.post("/test/companion-job", { data: { question: held, state: "budget_wait", ceiling } })).json()).updated).toBe(true);
-    const heldCard = card(page, locale, held);
-    const notice = t.job[ceiling === "workspace" ? "job.pausedWorkspace" : "job.pausedLearner"];
-    await expect(heldCard.getByText(notice, { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("status").filter({ hasText: t.companion["state.paused"] })).toBeVisible();
-    await expect(heldCard.getByRole("button", { name: t.companion.retry, exact: true })).toBeVisible();
-    // The notice fits: no sideways scrolling at this size, in either direction.
+    const banner = page.locator("#connected-companion .cc-chat-notice");
+    await expect(banner).toContainText(t.notice[ceiling === "workspace" ? "paused.workspace" : "paused.enrollment"], { timeout: 15_000 });
+    const heldTurn = thread(page).locator(".cc-chat-turn.is-learner").filter({ hasText: held });
+    await expect(heldTurn.getByText(t.turn.held, { exact: true })).toBeVisible();
+    await expect(heldTurn.getByRole("button", { name: t.turn.cancel, exact: true })).toBeVisible();
+    await expect(statusLine(page)).toHaveCount(0);
+    await expect(announcer(page)).toHaveText(t.turn.held);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     expect(errors).toEqual([]);
   });
 
-  test(`replies arrive in view in the panel or sheet, and a stopped question can be asked again (${locale})`, async ({ page, request }, info) => {
-    const errors: string[] = [];
-    page.on("pageerror", (e) => errors.push(e.message));
-    const t = text[locale];
-    const token = (await (await request.post("/test/session")).json()).token;
-    await openCompanion(page, locale, token, !info.project.name.endsWith("desktop"));
-    const log = page.getByRole("log", { name: t.companion.log });
-    // The question sits at the bottom edge of what the learner sees, so its reply starts below the fold.
-    const toBottom = (q: string) => card(page, locale, q).evaluate((element) => element.scrollIntoView({ block: "end" }));
-
-    // A streaming draft is brought into view when its first text arrives, and kept there while it grows.
-    const streamed = `In view question ${locale} ${Date.now()}`;
-    await ask(page, locale, streamed);
-    await toBottom(streamed);
-    expect((await (await request.post("/test/companion-draft", { data: { question: streamed,
-      pieces: ["Picture both values on a number line. ", "The one farther left is smaller. ", "So compare positions."], end: "complete", gapMs: 300 } })).json()).opened).toBe(true);
-    const draft = page.getByLabel(t.companion["reply.region"], { exact: true });
-    await expect(draft).toContainText("Picture both values on a number line.");
-    await expect(draft).toBeInViewport({ ratio: 0.9 });
-    await expect(draft).toContainText("So compare positions.");
-    await expect(draft).toBeInViewport({ ratio: 0.9 });
-
-    // A stored reply that arrives (here without a draft) is brought into view too.
-    const answered = `Answered question ${locale} ${Date.now()}`, answer = `The stored reply for ${locale}: compare the positions on the line.`;
-    await ask(page, locale, answered);
-    await toBottom(answered);
-    expect((await (await request.post("/test/companion-job", { data: { question: answered, state: "applied", answer } })).json()).updated).toBe(true);
-    const reply = log.getByText(answer, { exact: true });
-    await expect(reply).toBeVisible({ timeout: 15_000 });
-    await expect(reply).toBeInViewport({ ratio: 0.9 });
-
-    // A question stopped after its call was sent offers Ask again, which puts its text back.
+  test(`a question stopped after its call was sent says so and can be asked again (${locale})`, async ({ page, request }) => {
+    await startLesson(page, request, { locale });
     const stopped = `Stopped question ${locale} ${Date.now()}`;
-    await ask(page, locale, stopped);
+    await ask(page, stopped);
     expect((await (await request.post("/test/companion-job", { data: { question: stopped, state: "cancelled" } })).json()).updated).toBe(true);
-    const stoppedCard = card(page, locale, stopped);
-    await expect(stoppedCard.getByText(t.job["job.cancelledSent"], { exact: true })).toBeVisible({ timeout: 15_000 });
-    // Nothing still says a reply is on its way (live 0.1.58: the notice stayed after Stop).
-    await expect(page.getByText(t.companion["sent.waiting"], { exact: true })).toHaveCount(0);
-    await stoppedCard.getByRole("button", { name: t.companion.askAgain, exact: true }).click();
-    await expect(page.getByRole("textbox", { name: t.companion["draft.label"], exact: true })).toHaveValue(stopped);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-    expect(errors).toEqual([]);
+    const row = thread(page).locator('[data-reply-state="stopped"]');
+    await expect(row).toContainText(t.row.stopped, { timeout: 15_000 });
+    // Not an error: no alert icon on the learner's own Stop.
+    await expect(row.locator(".cc-ui-status.is-error")).toHaveCount(0);
+    await box(page).fill("");
+    await row.getByRole("button", { name: t.row.askAgain, exact: true }).click();
+    await expect(box(page)).toHaveValue(stopped);
+    await expect(box(page)).toBeFocused();
   });
 }

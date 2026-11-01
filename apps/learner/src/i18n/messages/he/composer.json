@@ -1,1 +1,5 @@
-{}
+{
+  "over": "{count, plural, one {חריגה של תו אחד} two {חריגה של שני תווים} other {חריגה של # תווים}}",
+  "count": "{count} / {max}",
+  "keyHint": "<key>Enter</key> לשליחה · <key>Shift+Enter</key> לשורה חדשה"
+}

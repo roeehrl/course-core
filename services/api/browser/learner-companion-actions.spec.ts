@@ -52,8 +52,8 @@ test("a learner deletes one question with its answer, then erases their whole ac
   await page.getByRole("button", { name: "Delete this question", exact: true }).nth(1).click();
   await expect(page.getByText(/Suggestions based on it are revoked/)).toBeVisible();
   await page.getByRole("button", { name: "Delete question", exact: true }).click();
-  await expect(page.getByText("You deleted this question.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Removed with the question you deleted.", { exact: true })).toBeVisible();
+  // The question and its reply become one line (conversation §3.4).
+  await expect(page.getByText("You deleted a question.", { exact: true })).toBeVisible();
   await expect(page.getByText("Why does it say no greater than?", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toHaveCount(0);
   if (!info.project.name.endsWith("desktop")) await page.getByRole("button", { name: "Close companion", exact: true }).click();

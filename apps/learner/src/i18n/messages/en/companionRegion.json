@@ -1,7 +1,1 @@
-{
-  "closedHelp.exhausted": "This course is closed and every question it allows after closing has been used. Your saved conversation and the course material stay available to read.",
-  "closedHelp.remaining": "This course is closed. You can still ask {remaining, plural, one {# more question} other {# more questions}} about its material. Questions never change your results.",
-  "closedHelp.remainingOfBudget": "This course is closed. You can still ask {remaining, plural, one {# more question} other {# more questions}} about its material ({used, number} of {budget, number} used). Questions never change your results.",
-  "draft.message": "Your message",
-  "error.queuedRefreshFailed": "Your message is saved and queued, but progress could not refresh. Refresh before continuing."
-}
+{}

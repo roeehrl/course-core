@@ -1,7 +1,4 @@
 {
-  "example": "Example",
-  "codeRegion": "{language} code, scrollable",
-  "exampleRegion": "Example code, scrollable",
   "tableRegion": "Table, scrollable",
   "scrollHint": "Scroll sideways to see the rest"
 }

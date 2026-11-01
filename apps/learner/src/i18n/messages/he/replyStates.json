@@ -1,1 +1,18 @@
-{}
+{
+  "announce.replied": "תשובת המנחה: {text}",
+  "announce.repliedLong": "התקבלה תשובה מהמנחה. אפשר לקרוא אותה בניווט בין כותרות.",
+  "announce.replying": "תשובה בהכנה",
+  "announce.slow": "עדיין בהכנה. אפשר להמשיך לקרוא או לעצור.",
+  "announce.stalled": "התשובה אולי לא תסתיים. אפשר לשאול שוב.",
+  "announce.offline": "החיבור אבד. התשובה תמשיך כשהחיבור יחזור.",
+  "announce.stopped": "התשובה נעצרה",
+  "announce.stopFailed": "לא ניתן היה לעצור את התשובה. אפשר לנסות שוב או למחוק את השאלה.",
+  "announce.ended": "לא התקבלה תשובה. אפשר לשאול שוב.",
+  "announce.cancelled": "השאלה בוטלה. הטקסט חזר לתיבה.",
+  "announce.held": "בהמתנה לשליחה",
+  "announce.backOnline": "החיבור חזר. השאלה נשלחת.",
+  "announce.notSent": "לא ניתן היה לשלוח את השאלה. אפשר לערוך ולנסות שוב.",
+  "announce.sendFailed": "השליחה נכשלה. הטקסט חזר לתיבה.",
+  "announce.unconfirmed": "לא ניתן היה לוודא שההודעה נשמרה. כדאי לבדוק את השיחה לפני שליחה חוזרת.",
+  "announce.canAskAgain": "אפשר לשאול שוב"
+}

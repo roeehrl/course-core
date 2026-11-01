@@ -1,1 +1,14 @@
-{}
+{
+  "lesson.notRecorded": "Lesson not recorded",
+  "lesson.gone": "A lesson no longer in this course",
+  "today": "Today {time}",
+  "yesterday": "Yesterday",
+  "deleted": "You deleted a question.",
+  "version": "Your course moved to a newer version. Earlier messages stay here.",
+  "lengthLimit": "This reply reached its length limit.",
+  "continue": "Continue",
+  "continueMessage": "Please continue.",
+  "refreshFailed": "Couldn't refresh the conversation. Your draft is safe.",
+  "tryAgain": "Try again",
+  "loading": "Loading conversation"
+}
