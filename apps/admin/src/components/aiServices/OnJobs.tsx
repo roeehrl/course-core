@@ -285,10 +285,18 @@ export function OnJobs(props: Props) {
                 )}
                 {runnable && !blocked && (
                   <p className="ai-muted">
-                    {t("aiServices.check.flag.estimate", {
-                      amount: text.money(plan.estimateMicroUsd ?? 0),
-                      count: plan.conversations,
-                    })}
+                    {t(
+                      plan.judge
+                        ? plan.judge.self
+                          ? "aiServices.check.flag.estimateJudgedSelf"
+                          : "aiServices.check.flag.estimateJudged"
+                        : "aiServices.check.flag.estimate",
+                      {
+                        amount: text.money(plan.estimateMicroUsd ?? 0),
+                        count: plan.conversations,
+                        model: plan.judge?.remoteModel ?? "",
+                      },
+                    )}
                   </p>
                 )}
                 {((runnable && !blocked) || canTurnOff) && (
