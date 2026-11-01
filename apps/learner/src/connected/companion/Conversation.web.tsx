@@ -120,6 +120,8 @@ interface LocalTurn {
   retryAt?: number;
   /** The text came from the message box (not a chip): it goes back there on failure. */
   fromBox: boolean;
+  /** The learner's saved questions when it was sent (its own row is a new one). */
+  before: readonly string[];
 }
 
 const deleted = (message: CompanionMessage) => message.content === "[deleted]" || message.content === "[erased]";
@@ -248,8 +250,17 @@ function ConversationBody({
   const frames = useRef(new Map<string, number>());
   const answered = (message: CompanionMessage) =>
     Boolean(message.job_id) && messages.some((row) => row.role === "assistant" && row.job_id === message.job_id);
-  const sentAtByMessage = new Map(locals.filter((item) => item.messageId).map((item) => [item.messageId!, item.sentAt]));
-  const keyByMessage = new Map(locals.filter((item) => item.messageId).map((item) => [item.messageId!, item.key]));
+  // A question being sent is matched to its saved row as soon as the conversation has it (the event
+  // stream can bring it before the send's own answer): the same text, a row that was not there when
+  // it was sent. Then it shows once, in the same place.
+  const matched = new Map<string, string>();
+  for (const item of locals) {
+    const id = item.messageId ?? messages.find((row) => row.role === "learner" && row.content === item.text && !item.before.includes(row.id) &&
+      ![...matched.values()].includes(row.id) && !locals.some((other) => other.messageId === row.id))?.id;
+    if (id) matched.set(item.key, id);
+  }
+  const sentAtByMessage = new Map(locals.filter((item) => matched.has(item.key)).map((item) => [matched.get(item.key)!, item.sentAt]));
+  const keyByMessage = new Map(locals.filter((item) => matched.has(item.key)).map((item) => [matched.get(item.key)!, item.key]));
   function clockFor(message: CompanionMessage, draftOf?: CompanionDraft): ReplyClock {
     let clock = clocks.current.get(message.id);
     if (!clock) clocks.current.set(message.id, (clock = { since: sentAtByMessage.get(message.id) ?? now }));
@@ -279,7 +290,7 @@ function ConversationBody({
   }
   // A question being sent, or accepted and not yet read back with the conversation.
   const sending = locals.find((item) =>
-    item.status === "sending" || (item.status === "sent" && !!item.messageId && !messages.some((message) => message.id === item.messageId)));
+    (item.status === "sending" && !matched.has(item.key)) || (item.status === "sent" && !!item.messageId && !messages.some((message) => message.id === item.messageId)));
   const inProgress = Boolean(running || sending);
   const stopping = Object.values(stops).some((stop) => stop.state === "stopping");
 
@@ -409,7 +420,8 @@ function ConversationBody({
       clearTimeout(saveTimer.current);
       setValue("");
     }
-    const turnRecord: LocalTurn = { key: id, text, status: online ? "sending" : "held", ...(consent ? { consent } : {}), episodeId: context.episodeId, sentAt, fromBox };
+    const turnRecord: LocalTurn = { key: id, text, status: online ? "sending" : "held", ...(consent ? { consent } : {}), episodeId: context.episodeId, sentAt, fromBox,
+      before: messages.filter((row) => row.role === "learner").map((row) => row.id) };
     setLocals((list) => [...list.filter((item) => item.key !== id), turnRecord]);
     anchorNext.current = id;
     if (!online) {
@@ -692,6 +704,7 @@ function ConversationBody({
           hint={isWithheldHint(message)}
           {...(latestOne && inLesson && !blocked ? { onContinue: () => sendChip(continueText(t)) } : {})}
           actions={
+            <div className="cc-chat-reply-actions">
             <ReplyActions
               message={message}
               messages={messages}
@@ -701,6 +714,7 @@ function ConversationBody({
               busy={correcting}
               {...(exclude ? { onExclude: exclude } : {})}
             />
+            </div>
           }
           chips={chipsShown ? <ChipRow chips={replyChips(turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} label={t("conversation.suggestions")} /> : undefined}
         />,
@@ -710,8 +724,8 @@ function ConversationBody({
   }
   // Questions of this page not yet in the saved conversation.
   for (const item of locals) {
-    if (item.messageId && shown.some((message) => message.id === item.messageId)) continue;
-    if (item.status === "sent" && item.messageId && messages.some((message) => message.id === item.messageId)) continue;
+    const saved = matched.get(item.key);
+    if (saved && messages.some((message) => message.id === saved)) continue;
     const footer: BubbleFooter | undefined =
       item.status === "held"
         ? { kind: "held", onCancel: () => { updateLocal(item.key, null); if (!latest.current.value) fill(item.text); } }

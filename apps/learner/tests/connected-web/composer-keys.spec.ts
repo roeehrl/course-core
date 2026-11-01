@@ -1,5 +1,6 @@
 import { test, expect } from "./health";
 import { box, roundButton, startLesson, thread } from "./conversation-helpers";
+import { closeCompanion, openCompanion } from "./companion-helpers";
 
 /*
  * The composer's keys in a real browser (final design §3.6, §5; the owner's "you can't press Enter
@@ -69,7 +70,9 @@ test("in Hebrew the round button sits at the bottom left of the pill, and an att
   expect(button.x).toBeLessThan(text.x);
   expect(button.x - pill.x).toBeLessThan(16);
   expect(pill.y + pill.height - (button.y + button.height)).toBeLessThan(12);
-  // A lesson selection attaches to the next message as a chip inside the pill.
+  // A lesson selection attaches to the next message as a chip inside the pill (made with the
+  // companion closed, where today's phone sheet would cover the lesson).
+  await closeCompanion(page, "he");
   await page.evaluate(() => {
     const walker = document.createTreeWalker(document.querySelector("[data-reading-part]")!, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -84,6 +87,7 @@ test("in Hebrew the round button sits at the bottom left of the pill, and an att
       return;
     }
   });
+  await openCompanion(page);
   const remove = page.locator(".cc-chat-attachment button");
   await expect(remove).toBeVisible();
   await field.focus();

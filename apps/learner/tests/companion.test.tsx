@@ -155,6 +155,21 @@ describe("persisted companion integration", () => {
     expect(status()).toHaveTextContent("Couldn't send. Your text is back in the box.");
   });
 
+  it("shows a question once when the conversation brings it back before its send is confirmed", async () => {
+    let confirm: (value: typeof receipt) => void = () => {};
+    const send = vi.fn(() => new Promise<typeof receipt>((resolve) => { confirm = resolve; }));
+    const { again } = show({ draft: "Only once", onSend: send });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const log = screen.getByRole("log");
+    expect(within(log).getAllByText("Only once")).toHaveLength(1);
+    // The event stream is faster than the send's answer.
+    again({ draft: "Only once", onSend: send, messages: [{ ...message, id: "saved", content: "Only once", job_state: "queued" }] });
+    expect(within(log).getAllByText("Only once")).toHaveLength(1);
+    await act(async () => confirm({ ...receipt, messageId: "saved", downgradedChallengeIds: [] }));
+    expect(within(log).getAllByText("Only once")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Stop reply" })).toBeVisible();
+  });
+
   it("says a save it could not confirm on the question, with Refresh, and keeps the text out of the box", async () => {
     const send = vi.fn().mockRejectedValue(new CourseApiError("NETWORK_UNCERTAIN", 0));
     const refresh = vi.fn();

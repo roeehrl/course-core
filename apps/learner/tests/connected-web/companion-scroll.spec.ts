@@ -127,10 +127,10 @@ for (const locale of ["en", "he"] as const) {
       "",
       "$$w_{\\text{new}} = w - \\eta \\frac{\\partial L}{\\partial w} = 2 - 0.1 \\cdot (-6) = 2 + 0.6 = 2.6 \\quad \\text{and the next forward gives } 7.8$$",
       "",
-      "| Stage | w | Prediction (w·x) | Loss | Gradient dL/dw |",
-      "| --- | --- | --- | --- | --- |",
-      "| After forward | 2 | 6 | 2 | not yet computed |",
-      "| After update | 2.6 | 7.8 (on next forward) | 0.02 | not yet computed |",
+      "| Stage | w | Prediction (w·x) | Loss | Gradient dL/dw | Learning rate η |",
+      "| --- | --- | --- | --- | --- | --- |",
+      "| After forward | 2 | 6 | 2 | not yet computed | 0.1 (fixed for the run) |",
+      "| After update | 2.6 | 7.8 (on next forward) | 0.02 | not yet computed | 0.1 (fixed for the run) |",
     ].join("\n");
     expect((await (await page.request.post("/test/companion-job", { data: { question, state: "applied", answer } })).json()).updated).toBe(true);
     const table = pane.locator(".markdown-table");
