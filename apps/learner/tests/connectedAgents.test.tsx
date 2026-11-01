@@ -56,6 +56,9 @@ describe("connected agents", () => {
     expect(within(scopes).getByRole("checkbox", { name: "Your question history" })).toBeChecked();
     expect(within(scopes).getByRole("checkbox", { name: "Your stated preferences" })).not.toBeChecked();
     expect(within(scopes).getByRole("checkbox", { name: "Your question history" })).toBeDisabled();
+    // Read-only, so the boxes are drawn, not greyed-out controls: one ticked box for each of the three granted scopes.
+    expect(scopes.querySelectorAll('.cc-prof-scope-box[aria-hidden="true"]')).toHaveLength(5);
+    expect(scopes.querySelectorAll(".cc-prof-scope-box.is-on")).toHaveLength(3);
     await pressWhenReady(screen.getByRole("button", { name: "I saved it" }));
     expect(screen.queryByLabelText("Access key")).toBeNull();
   });

@@ -283,11 +283,12 @@ describe("learner-owned memory panel through HTTP", () => {
       }),
     );
     expect(screen.getByText("Evidence: evidence-1")).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: `Show source references for suggestion ${proposalId}`,
-      }),
-    );
+    const sources = screen.getByRole("button", {
+      name: `Show source references for suggestion ${proposalId}`,
+    });
+    // The id is in the button's name for assistive technology, never in its visible words.
+    expect(sources).toHaveTextContent(/^Show source references$/);
+    fireEvent.click(sources);
     expect(screen.getByText("Source event: source-event")).toBeVisible();
     expect(screen.getByText(`Recorded digest: ${source.digest}`)).toBeVisible();
     expect(h.posts()).toHaveLength(0);

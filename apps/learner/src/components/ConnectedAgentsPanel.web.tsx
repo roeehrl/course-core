@@ -105,8 +105,13 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
                         <fieldset className="cc-prof-scopes" disabled>
                           <legend className="cc-prof-detail">{t("connectedAgentsPanel.grant.scopes", { label: grant.label })}</legend>
                           {SCOPES.map(scope => (
+                            // Read-only: the native box (for assistive technology) is hidden and a
+                            // drawn one shows the grant, so it does not look greyed out.
                             <label key={scope} className="cc-prof-scope">
-                              <input type="checkbox" checked={grant.scopes.includes(scope)} readOnly />
+                              <input type="checkbox" className="cc-ui-sr-only" checked={grant.scopes.includes(scope)} readOnly />
+                              <span aria-hidden="true" className={grant.scopes.includes(scope) ? "cc-prof-scope-box is-on" : "cc-prof-scope-box"}>
+                                {grant.scopes.includes(scope) && <Icon name="check" size={16} />}
+                              </span>
                               <span>{scopeName(scope)}</span>
                             </label>
                           ))}

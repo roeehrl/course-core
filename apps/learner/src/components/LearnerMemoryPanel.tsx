@@ -30,8 +30,8 @@ import { useReservedHeight } from "./reservedHeight";
 import { DeclaredProfileFields } from "./DeclaredProfileFields";
 import { Icon } from "./icons/Icon";
 import type { IconName } from "./icons/icons";
+import { PillButton } from "../connected/ui/PillButton";
 import { Tag } from "../connected/ui/Tag";
-import { colors as tokens } from "../theme/colors";
 
 /** Ids and digests stay left to right inside right-to-left text. */
 function useLtr() {
@@ -1285,6 +1285,9 @@ function ProposalCard({
         </Text>
       )}
       <Disclosure
+        // The id stays in the accessible name only; the visible label is plain words.
+        showText={t("learnerMemoryPanel.sourceRefs.showShort")}
+        hideText={t("learnerMemoryPanel.sourceRefs.hideShort")}
         showLabel={t("learnerMemoryPanel.sourceRefs.show", {
           id: ltr(proposal.proposalId),
         })}
@@ -1346,15 +1349,15 @@ function ProposalCard({
         style={styles.row}
       >
         {proposal.status === "pending" || proposal.status === "disputed" ? (
-          <Button
+          <PillButton
             label={t("learnerMemoryPanel.proposal.accept")}
-            kind="primary"
+            variant="accent"
             disabled={locked || !!editing}
             onPress={() => void decide({ action: "accept" })}
           />
         ) : null}
         {proposal.status !== "expired" && (
-          <Button
+          <PillButton
             label={t("learnerMemoryPanel.proposal.correct")}
             disabled={locked || !!editing}
             onPress={() => {
@@ -1365,10 +1368,9 @@ function ProposalCard({
           />
         )}
         {proposal.status !== "disputed" && (
-          <Button
+          <PillButton
             label={t("learnerMemoryPanel.proposal.dispute")}
             disabled={locked || !!editing}
-            kind="quiet"
             onPress={() => {
               setEditingRevision(proposal.decisionId);
               setEditing("dispute");
@@ -1642,19 +1644,26 @@ function Section({
 function Disclosure({
   showLabel,
   hideLabel,
+  showText,
+  hideText,
   children,
 }: {
   showLabel: string;
   hideLabel: string;
+  /** Shorter visible words, contained in the label (which then names the button). */
+  showText?: string;
+  hideText?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={local.stack}>
       <Button
-        label={open ? hideLabel : showLabel}
+        label={(open ? hideText : showText) ?? (open ? hideLabel : showLabel)}
+        accessibilityLabel={open ? hideLabel : showLabel}
         selected={open}
         kind="quiet"
+        style={local.start}
         onPress={() => setOpen((value) => !value)}
       />
       {open && children}
@@ -1703,7 +1712,11 @@ const local = StyleSheet.create({
     opacity: 0,
   },
   stack: { gap: 12, minWidth: 0 },
-  proposal: { backgroundColor: tokens.surface, borderColor: tokens.line, borderRadius: 12, gap: 8 },
+  // Text buttons start at the reading edge, never centred across the column.
+  start: { alignSelf: "flex-start" },
+  // The card holds the shared form controls and text styles of ui.tsx, so it takes their surface
+  // and hairline (ui.tsx's colours follow the theme tokens) and never a darker fill under them.
+  proposal: { backgroundColor: colors.white, borderColor: colors.line, borderRadius: 12, gap: 8 },
   proposalHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
   proposalTitle: { flexShrink: 1, flexBasis: 220, flexGrow: 1 },
   source: { flexDirection: "row", alignItems: "center", gap: 6 },

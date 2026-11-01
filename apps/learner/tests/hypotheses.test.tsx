@@ -178,7 +178,8 @@ describe("teaching hypotheses panel through HTTP", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Show ask for a quick check" }));
     await userEvent.type(screen.getByRole("textbox", { name: "What do you think is confusing you? (optional)" }), "I read the first number.");
     await userEvent.click(screen.getByRole("button", { name: "Ask for a check" }));
-    expect(await screen.findByText("A quick check is ready above.")).toBeVisible();
+    // A confirmation is one status line, not a coloured notice box.
+    expect((await screen.findByText("A quick check is ready above.")).closest(".cc-ui-status")).not.toBeNull();
     expect(h.posts[0]!.body).toMatchObject({ objectiveId: connected.course.objectives[0]!.id, note: "I read the first number." });
     await userEvent.click(screen.getByRole("button", { name: "I don't know yet" }));
     expect(await screen.findByText(/nothing was marked wrong/)).toBeVisible();

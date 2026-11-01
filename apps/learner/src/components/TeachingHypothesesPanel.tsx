@@ -9,12 +9,13 @@ import type {
   ProbeRun,
   TeachingHypothesis,
 } from "../client/hypothesisClient";
-import { Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
+import { Button, ChoiceList, colors, Field, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
 import { Icon } from "./icons/Icon";
 import type { IconName } from "./icons/icons";
 import { LongAnswerComposer } from "../connected/ui/LongAnswerComposer";
 import { PillButton } from "../connected/ui/PillButton";
+import { StatusLine } from "../connected/ui/StatusLine";
 import { Tag } from "../connected/ui/Tag";
 import { colors as tokens } from "../theme/colors";
 import {
@@ -193,8 +194,17 @@ export function TeachingHypothesesPanel({
           {t("teachingHypothesesPanel.automaticOff")}
         </Text>
       )}
-      {!!error && <Notice error>{error}</Notice>}
-      {!!notice && <Notice>{notice}</Notice>}
+      {/* One status line each: a failure (announced at once) and a confirmation, never a coloured box. */}
+      {!!error && (
+        <View accessibilityRole="alert" aria-live="assertive">
+          <StatusLine tone="error" icon="alert-circle" text={error} />
+        </View>
+      )}
+      {!!notice && (
+        <View accessibilityLiveRegion="polite" aria-live="polite">
+          <StatusLine tone="ink" icon="check" text={notice} />
+        </View>
+      )}
       {snapshot && client.pending(enrollment.enrollmentId) && (
         <Button
           label={t("teachingHypothesesPanel.retry")}
@@ -605,10 +615,10 @@ function ProbeCard({
     question.type === "numeric" && question.unit
       ? t("teachingHypothesesPanel.probe.answerUnit", { unit: question.unit })
       : t("teachingHypothesesPanel.probe.answer");
+  // A pill of the quick check's own (token) colours, readable on its surface in both themes.
   const dontKnow = (
-    <Button
+    <PillButton
       label={t("teachingHypothesesPanel.probe.dontKnow")}
-      kind="quiet"
       disabled={disabled}
       onPress={() => void onAnswer({ abstain: true })}
     />
@@ -625,7 +635,7 @@ function ProbeCard({
         </View>
         <Tag className="cc-prof-chip cc-prof-unverified" icon="info" label={t("teachingHypothesesPanel.probe.unverified")} />
       </View>
-      <Text accessibilityRole="header" style={styles.heading}>
+      <Text accessibilityRole="header" style={[styles.heading, local.probeText]}>
         {question.prompt}
       </Text>
       {question.type === "choice" ? (
@@ -638,13 +648,13 @@ function ProbeCard({
             onChange={setValue}
           />
           <View style={local.probeActions}>
+            {dontKnow}
             <PillButton
               variant="accent"
               label={t("teachingHypothesesPanel.probe.submit")}
               disabled={disabled || !ready}
               onPress={() => void onAnswer({ answer: answer! })}
             />
-            {dontKnow}
           </View>
         </>
       ) : (
@@ -660,7 +670,7 @@ function ProbeCard({
               if (ready) void onAnswer({ answer: answer! });
             }}
           />
-          {dontKnow}
+          <View style={local.probeActions}>{dontKnow}</View>
         </View>
       )}
     </View>
@@ -733,6 +743,7 @@ function Disclosure({
         label={open ? hide : show}
         selected={open}
         kind="quiet"
+        style={local.start}
         onPress={() => setOpen((v) => !v)}
       />
       {open && children}
@@ -764,6 +775,9 @@ const local = StyleSheet.create({
     gap: 12,
     minWidth: 0,
   },
+  probeText: { color: tokens.ink },
+  // Text buttons start at the reading edge, never centred across the panel.
+  start: { alignSelf: "flex-start" },
   probeHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   probeBadge: { color: tokens.ink, fontSize: 13, lineHeight: 20, fontWeight: "600" },
   probeActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

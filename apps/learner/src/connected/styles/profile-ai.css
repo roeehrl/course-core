@@ -87,6 +87,11 @@
   color: var(--ink-muted);
   font: 400 var(--text-meta) var(--font-sans);
 }
+/* A source's link in a detail line: the accent, as every link. */
+.cc-prof-detail a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
 .cc-prof-rows {
   margin: 0;
   padding: 0;
@@ -337,7 +342,7 @@
   display: flex;
   align-items: center;
   min-block-size: var(--target-touch);
-  padding-block-end: var(--space-3);
+  padding-block: var(--space-2);
   border-block-end: 1px solid var(--line);
   color: var(--ink);
   font: 600 var(--text-heading) var(--font-sans);
@@ -380,6 +385,7 @@
   padding: 0;
 }
 .cc-prof-scope {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -387,11 +393,22 @@
   color: var(--ink);
   font: 400 var(--text-button) var(--font-sans);
 }
-.cc-prof-scope input {
+.cc-prof-scope-box {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
   inline-size: 20px;
   block-size: 20px;
-  margin: 0;
-  accent-color: var(--accent);
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+}
+.cc-prof-scope-box.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .cc-prof-token-line {
   display: flex;
@@ -477,8 +494,9 @@
   border-block-start: 1px solid var(--line);
 }
 
-/* Your data: the erase progress line with the preparing dots. */
+/* Your data: the erase progress line with the preparing dots, under the erase button. */
 .cc-prof-progress {
+  margin: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -501,8 +519,14 @@
 @media (forced-colors: active) {
   .cc-prof-chip,
   .cc-prof-card,
-  .cc-prof-confirm {
+  .cc-prof-confirm,
+  .cc-prof-scope-box {
     border: 1px solid CanvasText;
+  }
+  .cc-prof-scope-box.is-on {
+    background: CanvasText;
+    color: Canvas;
+    forced-color-adjust: none;
   }
 }
 
@@ -511,7 +535,8 @@
   display: grid;
   gap: 14px;
 }
-.connected-data .connected-button {
+.connected-data .connected-button,
+.connected-data > .cc-ui-pill {
   justify-self: start;
 }
 .connected-staff-views {
@@ -607,6 +632,10 @@
 }
 .connected-agents-form {
   padding: 12px 0 14px;
+}
+/* Its button keeps its own width at the start edge, never the form's. */
+.connected-agents-form > .cc-ui-pill {
+  justify-self: start;
 }
 .connected-agents-form input[type="text"],
 .connected-agents-form input:not([type]),

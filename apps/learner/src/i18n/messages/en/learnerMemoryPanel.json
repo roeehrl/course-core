@@ -224,5 +224,7 @@
   "thoughts.private": "Course staff can't read them either, in the app or in a copy of your data they download; only your own download under Your data includes them.",
   "proposal.disputedNote": "Disputed, so your companion doesn't use it.",
   "context.includeLabel": "Let your companion use this: {item}",
-  "context.excludeLabel": "Don't let your companion use this: {item}"
+  "context.excludeLabel": "Don't let your companion use this: {item}",
+  "sourceRefs.showShort": "Show source references",
+  "sourceRefs.hideShort": "Hide source references"
 }

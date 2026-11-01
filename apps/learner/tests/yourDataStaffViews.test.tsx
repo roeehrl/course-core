@@ -186,6 +186,9 @@ describe("your data in your companion's words", () => {
         await pressWhenReady(document.querySelector(".connected-data-erase .connected-danger")!);
         const status = await screen.findByText(stopping);
         expect(status.closest("p")!.querySelector(".cc-ui-dots")).not.toBeNull();
+        // Under the erase button that started it, in a live region of its own.
+        expect(status.closest(".connected-data-erase")).not.toBeNull();
+        expect(status.closest('[aria-live="polite"]')).not.toBeNull();
       } finally {
         vi.useRealTimers();
       }

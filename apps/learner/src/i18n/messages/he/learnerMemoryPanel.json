@@ -224,5 +224,7 @@
   "thoughts.private": "גם צוות הקורס לא יכול לקרוא אותם, לא באפליקציה ולא בעותק של הנתונים שהצוות מוריד; רק ההורדה האישית דרך “הנתונים שלך” כוללת אותם.",
   "proposal.disputedNote": "יש ערעור, ולכן זה לא בשימוש המנחה.",
   "context.includeLabel": "לאפשר למנחה להשתמש בזה: {item}",
-  "context.excludeLabel": "לא לאפשר למנחה להשתמש בזה: {item}"
+  "context.excludeLabel": "לא לאפשר למנחה להשתמש בזה: {item}",
+  "sourceRefs.showShort": "הצגת הפניות המקור",
+  "sourceRefs.hideShort": "הסתרת הפניות המקור"
 }
