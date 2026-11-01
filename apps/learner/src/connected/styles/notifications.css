@@ -181,3 +181,108 @@ li.unread .cc-note-dot {
   }
 }
 
+/* The demo's companion (components/Companion.web.tsx, final design §4.19): the panel header, the
+ * line that says no AI is connected, authored guidance as a companion turn with its label line,
+ * the hint chip, and notes in the long-answer composer with "Saved on this device." on the
+ * composer's meta row. */
+.cc-note-demo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-note-demo .cc-note-demo-header {
+  min-block-size: 48px;
+}
+.cc-note-demo-thread {
+  display: flex;
+  flex-direction: column;
+  padding-block: var(--space-2) var(--space-5);
+}
+.cc-note-demo-intro,
+.cc-note-demo-place {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-note-demo-place {
+  margin-block-start: var(--space-1);
+}
+/* Authored guidance is there from the start: it does not fade in as a reply would (M1). */
+.cc-note-demo-turn {
+  margin-block-start: var(--space-4);
+}
+@keyframes cc-note-enter {
+  from {
+    opacity: 0;
+  }
+}
+.cc-note-demo-prose {
+  max-inline-size: 65ch;
+  margin: var(--space-2) 0 0;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-note-demo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+.cc-note-demo-chips .cc-ui-chip {
+  padding-inline: 12px 14px;
+}
+.cc-note-demo-chips .cc-ui-chip .cc-ui-icon {
+  color: var(--ink-muted);
+}
+.cc-note-demo-chips .cc-ui-chip[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cc-note-demo-hint .cc-note-demo-prose {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  animation: cc-note-enter var(--motion-m17-duration) var(--motion-m17-easing) both;
+}
+/* The composer's label, field and meta row join this grid, so the saved line sits at the start
+ * of the meta row. */
+.cc-note-demo-notes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  padding-block-start: var(--space-2);
+}
+.cc-note-demo-notes .cc-note-demo-composer {
+  display: contents;
+}
+.cc-note-demo-notes .cc-ui-long-label,
+.cc-note-demo-notes .cc-ui-long-field {
+  grid-column: 1 / -1;
+}
+.cc-note-demo-notes .cc-ui-long-field {
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding: var(--space-3) var(--space-4);
+  resize: none;
+}
+.cc-note-demo-notes .cc-ui-long-meta {
+  grid-column: 2;
+  grid-row: 3;
+  justify-content: flex-end;
+}
+.cc-note-demo-saved {
+  grid-column: 1;
+  grid-row: 3;
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-micro) var(--font-sans);
+}
+@media (forced-colors: active) {
+  .cc-note-demo-hint .cc-note-demo-prose {
+    border: 1px solid CanvasText;
+  }
+}

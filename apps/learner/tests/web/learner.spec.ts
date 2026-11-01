@@ -103,15 +103,30 @@ test("effective-window adaptation preserves drafts and companion notes", async (
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(page.getByTestId("companion-pane")).toBeVisible();
+  const pane = page.getByTestId("companion-pane");
+  await expect(pane).toBeVisible();
+  // The demo companion on the real companion's parts (final design §4.19): 400 px beside the
+  // page, its title, one line that no AI is connected, and the guidance as a companion turn.
+  expect(Math.round((await pane.boundingBox())!.width)).toBe(400);
+  const companion = page.getByRole("region", { name: "Your companion" });
+  await expect(companion.getByRole("heading", { level: 2, name: "Companion" })).toBeVisible();
+  await expect(companion.getByText("Demo · authored guidance. No live AI is connected.")).toHaveCount(1);
+  await expect(companion.getByRole("article", { name: "Companion said" })).toContainText("One clear path, at your pace.");
   await page.screenshot({ path: testInfo.outputPath("roadmap-desktop.png") });
-  await page
-    .getByRole("textbox", { name: "Notes to yourself" })
-    .fill("Look for neighbors.");
+  const notes = page.getByRole("textbox", { name: "Notes to yourself" });
+  await notes.fill("Look for neighbors.");
+  // Cmd/Ctrl+Enter saves the note on this device, and says so.
+  await notes.press("ControlOrMeta+Enter");
+  await expect(pane.getByRole("status")).toHaveText("Saved on this device.");
+  await page.reload();
+  await expect(notes).toHaveValue("Look for neighbors.");
   await page.setViewportSize({ width: 768, height: 1024 });
   await expect(page.getByTestId("companion-pane")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("roadmap-tablet.png") });
-  await page.getByRole("button", { name: "Companion", exact: true }).click();
+  // The way to the companion keeps its glyph on narrower windows.
+  const opener = page.getByRole("button", { name: "Companion", exact: true });
+  await expect(opener.locator('svg[data-icon="sparkle"]')).toHaveCount(1);
+  await opener.click();
   await expect(
     page.getByRole("textbox", { name: "Notes to yourself" }),
   ).toHaveValue("Look for neighbors.");
@@ -166,6 +181,13 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(lessonIssues.violations).toEqual([]);
+  // In a lesson the companion offers the step's hint as a chip that shows it in place.
+  if (await page.getByTestId("companion-pane").isVisible()) {
+    const hint = page.getByRole("button", { name: "Show a hint", exact: true });
+    await expect(hint).toHaveAttribute("aria-expanded", "false");
+    await hint.click();
+    await expect(page.getByRole("button", { name: "Hide hint", exact: true })).toHaveAttribute("aria-expanded", "true");
+  }
 });
 
 test("blocked device storage is explicit and learning still works", async ({
