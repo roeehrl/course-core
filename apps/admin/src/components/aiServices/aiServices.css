@@ -1168,3 +1168,16 @@
     max-inline-size: 100%;
   }
 }
+
+/* Jobs that are on (OnJobs): one card per job, then checking all of them at once. */
+.ai-on-jobs {
+  display: grid;
+  gap: 16px;
+}
+.ai-on-all {
+  display: grid;
+  gap: 8px;
+}
+.ai-on-all > p {
+  margin: 0;
+}

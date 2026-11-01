@@ -11,6 +11,7 @@ import {
   currentDraftSchema,
   draftSchema,
   qualityCheckSchema,
+  turnOffReceiptSchema,
   qualityDetailsSchema,
   qualityStatusSchema,
   modelListSchema,
@@ -1347,6 +1348,8 @@ export function createFetchAdminClient(
         ),
       startQualityCheck: (id, input) =>
         ai(`${setupPath(id)}/quality-check`, qualityCheckSchema, "POST", input),
+      turnOff: (id, input) =>
+        ai(`${setupPath(id)}/turn-off`, turnOffReceiptSchema, "POST", input),
       qualityCheck: (id, checkId, signal) =>
         ai(
           `${setupPath(id)}/quality-check/${encodeURIComponent(checkId)}`,

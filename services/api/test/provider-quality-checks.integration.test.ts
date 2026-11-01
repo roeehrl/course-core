@@ -605,17 +605,21 @@ describe("upgrade from a release where only the companion and the plan superviso
     expect(approved.statusCode, approved.body).toBe(200);
     expect((await evalStatus(owner, workspace)).reviewer).toEqual(["override", true]);
 
-    // With no draft open, the page is offered a check of the jobs that are on and still need one.
+    // With no draft open, the page is offered a check of the jobs that are on, since some still need
+    // one. It checks every job that is on, the approved reviewer included; the flagged ones are listed.
     const status = (await call(owner, "GET", checks(workspace))).json();
-    const suite = publicSuite(), expected = { companion: 0, supervisor: 0, research: 0 } as Record<string, number>;
-    const strategies = { companion: "core.companion.tutor", supervisor: "core.supervisor.tool-loop", research: "core.research.public-topic" } as const;
+    const suite = publicSuite(), expected = { companion: 0, supervisor: 0, research: 0, reviewer: 0 } as Record<string, number>;
+    const strategies = { companion: "core.companion.tutor", supervisor: "core.supervisor.tool-loop", research: "core.research.public-topic",
+      reviewer: "core.reviewer.rubric-assist" } as const;
     const pricing = { inputMicroUsdPerMillionTokens: 1_000_000, outputMicroUsdPerMillionTokens: 5_000_000 } as Parameters<typeof estimateMicroUsd>[0];
-    for (const role of ["companion", "supervisor", "research"] as const)
+    for (const role of ["companion", "supervisor", "research", "reviewer"] as const)
       expected[role] = estimateMicroUsd(pricing, dialoguesFor(suite, role, strategies[role]).map((d) => typicalUsage(d, role === "supervisor" ? 6 : undefined)));
-    const total = ["companion", "supervisor", "research"].reduce((n, role) => n + dialoguesFor(suite, role, strategies[role as keyof typeof strategies]).length, 0);
+    const total = Object.keys(strategies).reduce((n, role) => n + dialoguesFor(suite, role, strategies[role as keyof typeof strategies]).length, 0);
     expect(status).toMatchObject({ target: "active", draftId: null, blocked: null, conversations: total, reserveMicroUsd: total * 100000,
-      estimateMicroUsd: expected.companion! + expected.supervisor! + expected.research! });
-    expect(status.roles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research"]);
+      estimateMicroUsd: expected.companion! + expected.supervisor! + expected.research! + expected.reviewer! });
+    expect(status.roles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research", "reviewer"]);
+    expect(status.activeRoles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research"]);
+    expect(status.onAll).toMatchObject({ conversations: total, blocked: null });
     // The tool loop's several rounds make its conversations cost more than one call each.
     expect(expected.supervisor!).toBeGreaterThan(dialoguesFor(suite, "supervisor", strategies.supervisor).length * 6000);
 
@@ -623,18 +627,18 @@ describe("upgrade from a release where only the companion and the plan superviso
     const idempotencyKey = key();
     const started = await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active" });
     expect(started.statusCode, started.body).toBe(200);
-    expect(started.json()).toMatchObject({ target: "active", draftId: null, roles: ["companion", "supervisor", "research"], total });
+    expect(started.json()).toMatchObject({ target: "active", draftId: null, roles: ["companion", "supervisor", "research", "reviewer"], total });
     expect((await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active" })).json().id).toBe(started.json().id);
     const done = await finished(owner, workspace, started.json().id);
     expect(done.state, JSON.stringify(done.outcome)).toBe("passed");
     expect(await evalStatus(owner, workspace)).toEqual({ companion: ["passed", true], supervisor: ["passed", true],
-      research: ["passed", true], reviewer: ["override", true] });
+      research: ["passed", true], reviewer: ["passed", true] });
     expect((await used(workspace)).usd).toBe(done.chargedMicroUsd);
-    // Nothing on needs a check now, and the jobs were never turned off.
-    expect((await call(owner, "GET", checks(workspace))).json()).toMatchObject({ target: null, blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" } });
-    const refused = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active" });
-    expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toBe("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
+    // Nothing on needs a check now, and the jobs were never turned off. Each can still be checked again.
+    const after = (await call(owner, "GET", checks(workspace))).json();
+    expect(after).toMatchObject({ target: null, blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" }, activeRoles: [], onAll: { conversations: total, blocked: null } });
+    expect(after.onRoles.map((r: { role: string; blocked: unknown }) => [r.role, r.blocked])).toEqual(
+      ["companion", "supervisor", "research", "reviewer"].map((role) => [role, null]));
     expect((await providers.resolve(workspace)).availability("supervisor").status).toBe("ready");
   });
 
@@ -684,12 +688,10 @@ describe("upgrade from a release where only the companion and the plan superviso
     const runtime = await providers.resolve(workspace);
     for (const role of ["companion", "supervisor", "research", "reviewer"] as const) expect(runtime.availability(role).status, role).toBe("ready");
 
-    // A job that no longer needs a check, or is not on, is refused and says so; an unknown job is invalid.
-    for (const role of ["research", "media"]) {
-      const refused = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active", role });
-      expect(refused.statusCode, role).toBe(409);
-      expect(refused.json().error, role).toBe("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
-    }
+    // A job that is not on is refused and says so; an unknown job is invalid.
+    const refused = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active", role: "media" });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
     for (const payload of [{ target: "active", role: "wizard" }, { target: "active", role: "" }, { draftId: randomUUID(), role: "research" }])
       expect((await call(owner, "POST", checks(workspace), { idempotencyKey: key(), ...payload })).statusCode, JSON.stringify(payload)).toBe(400);
     // Only owners and administrators run one.
@@ -717,5 +719,85 @@ describe("upgrade from a release where only the companion and the plan superviso
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json().error).toBe("PROVIDER_QUALITY_CHECK_LIMIT_MISSING");
     expect(Number((await db.query("SELECT count(*) FROM provider_quality_checks WHERE workspace_id=$1", [workspace])).rows[0].count)).toBe(0);
+  });
+});
+
+describe("jobs approved without checking", () => {
+  /** The owner's case: both jobs turned on with "Approve without checking", no check ever run. */
+  async function approvedWithoutChecking() {
+    const { workspace, owner, draftId } = await prepared({ limitMicroUsd: 50_000_000 });
+    for (const role of ["companion", "supervisor"]) {
+      const r = await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-evals/overrides`, { idempotencyKey: key(), role, draftId,
+        reason: "Owner turned these on before running any check." });
+      expect(r.statusCode, r.body).toBe(200);
+    }
+    const on = await call(owner, "POST", `${setup(workspace)}/drafts/${draftId}/activate`, { expectedRevision: 1, idempotencyKey: key(), confirmCancelRunning: false });
+    expect(on.statusCode, on.body).toBe(200);
+    return { workspace, owner, revision: on.json().revision as number };
+  }
+  const standing = async (owner: Session, workspace: string) => Object.fromEntries(
+    (await call(owner, "GET", `/api/admin/workspaces/${workspace}/provider-evals`)).json().roles.map((r: { role: string; status: string }) => [r.role, r.status]));
+
+  it("checks them again on request, all of them or one, and a failed check leaves them on", async () => {
+    const { workspace, owner } = await approvedWithoutChecking();
+    expect(await standing(owner, workspace)).toEqual({ companion: "override", supervisor: "override" });
+    // Nothing needs a check, yet every job that is on is offered one, with what it costs.
+    const status = (await call(owner, "GET", checks(workspace))).json();
+    expect(status).toMatchObject({ target: null, activeRoles: [], onAll: { conversations, blocked: null, reserveMicroUsd: conversations * 100000 } });
+    expect(status.onRoles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor"]);
+    // The check of all of them runs both, whatever their approval says.
+    mode = "known-bad";
+    const all = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active" });
+    expect(all.statusCode, all.body).toBe(200);
+    expect(all.json()).toMatchObject({ target: "active", roles: ["companion", "supervisor"], total: conversations });
+    const failed = await finished(owner, workspace, all.json().id);
+    expect(failed.state).toBe("failed");
+    // A failed check records a failure but turns nothing off: the approval still stands.
+    expect(await standing(owner, workspace)).toEqual({ companion: "override", supervisor: "override" });
+    const runtime = await providers.resolve(workspace);
+    for (const role of ["companion", "supervisor"] as const) expect(runtime.availability(role).status, role).toBe("ready");
+    // One job alone, again.
+    mode = "reference";
+    const one = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active", role: "companion" });
+    expect(one.statusCode, one.body).toBe(200);
+    expect(one.json().roles).toEqual(["companion"]);
+    expect((await finished(owner, workspace, one.json().id)).state).toBe("passed");
+    expect(await standing(owner, workspace)).toEqual({ companion: "passed", supervisor: "override" });
+  });
+
+  it("turns a job off for owners and administrators: learners lose it at once, idempotent and audited", async () => {
+    const { workspace, owner, revision } = await approvedWithoutChecking();
+    const turnOff = (who: Session, body: object) => call(who, "POST", `${setup(workspace)}/turn-off`, body);
+    for (const role of ["author", "instructor", "learner"]) {
+      const who = await login(role, workspace);
+      expect((await turnOff(who, { idempotencyKey: key(), expectedRevision: revision, role: "companion" })).statusCode, role).toBe(403);
+    }
+    expect((await turnOff(owner, { idempotencyKey: key(), expectedRevision: revision, role: "wizard" })).statusCode).toBe(400);
+    const stale = await turnOff(owner, { idempotencyKey: key(), expectedRevision: revision - 1, role: "companion" });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toBe("STALE_PROVIDER_REVISION");
+
+    const admin = await login("admin", workspace), idempotencyKey = key();
+    const off = await turnOff(admin, { idempotencyKey, expectedRevision: revision, role: "companion" });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(off.json()).toEqual({ role: "companion", revision: revision + 1, turnedOff: true, cancelledPendingJobs: 0 });
+    // The same request again is the same answer, and no new version.
+    const again = await turnOff(admin, { idempotencyKey, expectedRevision: revision, role: "companion" });
+    expect(again.json()).toEqual(off.json());
+    const conflict = await turnOff(admin, { idempotencyKey, expectedRevision: revision, role: "supervisor" });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error).toBe("IDEMPOTENCY_CONFLICT");
+    // Learners get no tutor now, as before it was on; the planner keeps working.
+    const runtime = await providers.resolve(workspace);
+    expect(runtime.availability("companion").status).not.toBe("ready");
+    expect(runtime.availability("supervisor").status).toBe("ready");
+    expect(await standing(owner, workspace)).toEqual({ supervisor: "override" });
+    expect((await call(owner, "GET", checks(workspace))).json().onRoles.map((r: { role: string }) => r.role)).toEqual(["supervisor"]);
+    // A job already off changes nothing.
+    const already = await turnOff(owner, { idempotencyKey: key(), expectedRevision: revision + 1, role: "companion" });
+    expect(already.json()).toEqual({ role: "companion", revision: revision + 1, turnedOff: false, cancelledPendingJobs: 0 });
+    const audit = (await db.query("SELECT actor_id,payload FROM learning_events WHERE workspace_id=$1 AND event_type='provider.role.turned_off'", [workspace])).rows;
+    expect(audit).toEqual([{ actor_id: admin.id, payload: { role: "companion", modelId: expect.any(String), previousRevision: revision,
+      revision: revision + 1, cancelledPendingJobs: 0 } }]);
   });
 });

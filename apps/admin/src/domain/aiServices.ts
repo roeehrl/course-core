@@ -444,8 +444,44 @@ export const qualityStatusSchema = z.object({
     )
     .max(5)
     .default([]),
+  /**
+   * Every job that is on and the check covers, whatever its standing (checked, approved without
+   * checking or flagged), with what checking it alone runs: any of them can be checked again.
+   * Older servers omit it.
+   */
+  onRoles: z
+    .array(
+      z.object({
+        role: job,
+        remoteModel: z.string().max(2048).nullable(),
+        conversations: z.number().int().nonnegative(),
+        priced: z.boolean(),
+        estimateMicroUsd: micro.nullable(),
+        reserveMicroUsd: micro,
+        blocked: qualityBlockedSchema.nullable(),
+      }),
+    )
+    .max(5)
+    .default([]),
+  /** What checking all the jobs that are on runs; null when none is on (or an older server). */
+  onAll: z
+    .object({
+      conversations: z.number().int().nonnegative(),
+      estimateMicroUsd: micro,
+      reserveMicroUsd: micro,
+      blocked: qualityBlockedSchema.nullable(),
+    })
+    .nullable()
+    .default(null),
 });
 export type ActiveRoleCheck = QualityStatus["activeRoles"][number];
+/** The answer to turning one job off. `turnedOff` is false when it was already off. */
+export const turnOffReceiptSchema = z.object({
+  role: job,
+  revision: z.number().int().nonnegative(),
+  turnedOff: z.boolean(),
+  cancelledPendingJobs: z.number().int().nonnegative(),
+});
 export type QualityStatus = z.infer<typeof qualityStatusSchema>;
 export type AiPricing = z.infer<typeof aiPricingSchema>;
 
@@ -561,6 +597,11 @@ export interface AiServicesPort {
           reason: string;
         },
   ): Promise<z.infer<typeof overrideReceiptSchema>>;
+  /** Turns one job of the active setup off: learners lose it until it is turned on again. Older servers lack it. */
+  turnOff?(
+    workspace: string,
+    input: { expectedRevision: number; idempotencyKey: string; role: Job },
+  ): Promise<z.infer<typeof turnOffReceiptSchema>>;
   pricing(workspace: string, signal?: AbortSignal): Promise<AiPricing>;
   savePrice(
     workspace: string,

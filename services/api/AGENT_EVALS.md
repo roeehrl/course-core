@@ -343,16 +343,19 @@ every role and changes the suite digest. After the upgrade:
   or an owner override of its new revision is recorded;
 - the quality check (`POST .../provider-setup/quality-check`) accepts
   `{ idempotencyKey, target: "active" }` besides `{ idempotencyKey, draftId }`. It checks
-  the active version's covered roles that lack a pass or an override for their current
-  revision and suite, with the active job policy and stored keys, and records the run
-  through the same `ProviderEvaluations.record`. `GET` reports `target: "active"` and the
-  estimate when no draft is open and such roles exist. The owner override for an active
+  every covered role of the active version, whatever its standing (a pass, an owner's
+  approval without a check, or neither), with the active job policy and stored keys, and
+  records the run through the same `ProviderEvaluations.record`. A failed result never turns
+  a role off and never removes an approval. `GET` reports `target: "active"` and the
+  estimate when no draft is open and some role on lacks a pass or an override; `onRoles`
+  (each covered role that is on, with what checking it alone runs) and `onAll` (all of
+  them) are reported whenever roles are on, so any of them can be checked again. The owner override for an active
   role takes the revision digest the status reports. The admin AI services page offers
   both. `test/provider-quality-checks.integration.test.ts` rehearses the exact 0.1.50
   shape;
 - `{ idempotencyKey, target: "active", role }` checks that one job only (409
-  `PROVIDER_QUALITY_CHECK_NOT_NEEDED` when it is not on or already has a pass or an
-  override; 400 for an unknown job). `GET` lists every such job in `activeRoles`, draft open
+  `PROVIDER_QUALITY_CHECK_NOT_NEEDED` when it is not on or the suite does not cover it; 400
+  for an unknown job). `GET` lists every such job in `activeRoles`, draft open
   or not, each with what checking it alone runs and costs and why it cannot start now
   (`blocked`, the same codes as the whole check). The AI services page and the course
   overview (for people who can set up AI services) flag each job that needs a check with
