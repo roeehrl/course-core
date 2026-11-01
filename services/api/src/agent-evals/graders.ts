@@ -70,8 +70,11 @@ const LATEX: Record<string, string> = { times: "×", cdot: "×", div: "÷", dots
 /** Typography-insensitive form for matching: smart quotes, the minus sign, Markdown emphasis, LaTeX
  * maths delimiters and common commands ($-1$ reads as -1, \times as ×, \left| as |), whitespace,
  * and the padding inside absolute-value bars ($| \text{b} - a |$ reads as |b - a|). */
+/** A numbered list's markers ("1. ", "2) " starting a line, two or more of them) are numbering, not numbers the reply states. */
+const LIST_MARKER = /^[ \t]*\d{1,2}[.)][ \t]+(?=\S)/gmu;
+const dropListMarkers = (text: string) => ((text.match(LIST_MARKER)?.length ?? 0) >= 2 ? text.replace(LIST_MARKER, "") : text);
 export function normalize(text: string) {
-  return text.normalize("NFKC").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[−–]/g, "-")
+  return dropListMarkers(text.normalize("NFKC")).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[−–]/g, "-")
     .replace(/\\(?:text|mathrm|mathit|mathbf|textbf|textit|operatorname)\{([^{}]*)\}/g, "$1").replace(/\\([a-z]+)\b/gi, (all, name: string) => LATEX[name] ?? LATEX[name.toLowerCase()] ?? all)
     .replace(/\\[()[\],;:! ]|\$/g, "")
     .replace(/[*_`]/g, "").replace(/\s+/g, " ").replace(/\|\s*([^|]{1,60}?)\s*\|/g, "|$1|").trim();
@@ -134,10 +137,14 @@ function statedAsResult(text: string, index: number, length: number) {
   // Alone in its sentence: the whole reply or a line that is just the number.
   return (before === "" || /[.!?](?!\d)$/u.test(before)) && /^(?:[.!?](?!\d)|$)/u.test(after);
 }
+/** Immediately before an unsigned number: its own sign (a minus after no operand, as in "= -2" or
+ * "ל--2", or the word), so the number is a different, negative one. Subtraction ("5 - 2", "x-2") is not. */
+const SIGN_BEFORE = /(?:(?:^|[^\p{L}\p{N})\]\s])\s*-\s?|(?<!\p{L})(?:minus|negative|מינוס)\s+)$/iu;
+const negated = (text: string, m: RegExpMatchArray) => !/^[+-]|^(?:minus|negative|מינוס)\b/iu.test(m[0].trim()) && SIGN_BEFORE.test(text.slice(Math.max(0, m.index! - 20), m.index));
 /** The first match of a protected-answer pattern that reveals it. A bare number counts only where it
- * is stated as a result; a pattern with its own context (a unit, a phrase) always counts. */
+ * is stated as a result and with its own sign; a pattern with its own context (a unit, a phrase) always counts. */
 export function revealingMatch(source: string, text: string): string | null {
-  return allMatches(source, text).find((m) => !BARE_NUMBER.test(m[0].trim()) || statedAsResult(text, m.index, m[0].length))?.[0] ?? null;
+  return allMatches(source, text).find((m) => !BARE_NUMBER.test(m[0].trim()) || (!negated(text, m) && statedAsResult(text, m.index, m[0].length)))?.[0] ?? null;
 }
 /** Sentences, for facts whose parts may come in any order. */
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?!\d)|\n/u);
