@@ -38,7 +38,7 @@ test("reviewed research resources are optional in-lesson help that never records
   await expect(help).toBeVisible();
   await expect(page.locator("iframe")).toHaveCount(0);
   await help.click();
-  await expect(page.getByText(/does not count toward progress/)).toBeVisible();
+  await expect(page.getByText(/doesn't count toward progress/)).toBeVisible();
   await expect(
     page.getByText(
       "The walkthrough keeps the smaller value after each comparison and then checks it against every element.",

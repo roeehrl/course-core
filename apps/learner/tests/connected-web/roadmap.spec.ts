@@ -106,3 +106,21 @@ test("a fresh enrollment says start, the lesson's details are in the next step, 
   await expect(lessons.getByRole("button", { name: "Lesson 1: Minimum, Current" })).toContainText("In progress · 1 of 1 parts read");
   expect(errors).toEqual([]);
 });
+
+test("an optional lesson reads as an optional detour on the path, and its lesson says so", async ({ page }) => {
+  await signIn(page, "/test/content-lesson-session");
+  const next = page.getByTestId("next-step");
+  await expect(async () => {
+    if (await next.isVisible()) return;
+    await page.getByRole("button", { name: "Continue learning →", exact: true }).click({ timeout: 2_000 });
+    await expect(next).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  // The path's next step is the required lesson; the optional one is a detour beside it.
+  await expect(next.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+  const lessons = page.getByRole("list", { name: "Lessons in Order" });
+  const aside = lessons.getByRole("button", { name: "Lesson 1: A closer look, Optional detour" });
+  await expect(aside).toContainText("Optional detour");
+  expect((await axe(page)).violations).toEqual([]);
+  await aside.click();
+  await expect(page.getByTestId("detour-return")).toContainText("You're on an optional detour.");
+});
