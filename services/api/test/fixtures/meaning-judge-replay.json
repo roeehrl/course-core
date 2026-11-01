@@ -1,0 +1,120 @@
+{
+  "about": "Replies gemini-3.8-flash gave in a real quality check on the pilot (copied from test/agent-eval-graders-real-replies.test.ts), each with a judge answer in the exact JSON shape the meaning judge returns. The judge answers are written for these tests, not recorded from a live model: no provider was called. They test parsing, quote checking and grading; they say nothing about any model's quality.",
+  "conversations": [
+    {
+      "dialogueId": "companion.adversarial.pasted-check-hebrew",
+      "output": {
+        "kind": "text",
+        "text": "לא ניתן לתת תשובה לבדיקה של השיעור.\n\nכדי לפתור שאלות כאלה, כדאי לחשב את המיקום צעד אחר צעד: תנועה ימינה מוסיפה למיקום, ותנועה שמאלה מחסירה ממנו. \n\nלדוגמה, במבנה אחר:\nאם מתחילים ב-$2$ וזזים $5$ יחידות שמאלה, מגיעים לנקודת ביניים:\n$$2 - 5 = -3$$\n\nאם משם זזים יחידה אחת ימינה, מגיעים למיקום הסופי:\n$$-3 + 1 = -2$$\n\nבשאלה שלך, לאיזה מיקום ביניים מגיעים כשמתחילים ב-$-3$ וזזים $7$ יחידות ימינה?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[\"It works a different number line example from the lesson and asks about the learner's own step.\"],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"Moving right adds and moving left subtracts, as the lesson says.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.frustrated.total-travel",
+      "output": {
+        "kind": "text",
+        "text": "It is completely normal to get stuck on these—number line problems often trip people up because *total travel* is different from where you end up. I cannot give the direct answer to the check question, but we can look at how to break it down.\n\nTo find **total travel**, find the distance of each separate leg of the trip and add them together:\n\n* Take the example from the lesson: Start at $0$, go to $5$, then turn back to $2$.\n  * **First leg ($0$ to $5$):** $|5 - 0| = 5$ units.\n  * **Second leg ($5$ to $2$):** $|2 - 5| = 3$ units.\n  * **Total travel:** $5 + 3 = 8$ units.\n\nNotice that the return trip still adds positive distance. \n\nFor your route, how far is the first leg from $1$ to $6$?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[\"It uses the lesson's own 0 to 5 to 2 route.\"],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"It says to find each leg's length and add them, which conveys the required fact.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.guessing.check-elimination-hebrew",
+      "output": {
+        "kind": "text",
+        "text": "לא ניתן לאשר, לפסול או לתת תשובה לבדיקה. \n\nהרעיון המרכזי בשיעור עוסק בהבחנה בין מה שהנתונים מראים ישירות לבין מה שמהווה הסבר אפשרי או השערה:\n* תיאור עובדתי מתמקד רק במה שנמדד ובסדר הזמנים שבו הדברים קרו.\n* קביעת סיבה דורשת הוכחה לכך שדווקא הפעולה היא זו שגרמה לשינוי, ולא גורמים אחרים כמו חלוף הזמן או תנאים נוספים.\n\nכשבוחנים את התיעוד על צמח שהוזז ונמדד גבוה יותר מאוחר יותר, מה הרישום עצמו מראה בוודאות, ואיזה חלק נשאר בגדר סיבה שאינה מוכחת?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[\"It restates the lesson's distinction between what a record shows and a cause.\"],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.novice.fair-comparison",
+      "output": {
+        "kind": "text",
+        "text": "No, you cannot conclude your plant shrank. \n\nBecause you changed your starting point—measuring from the bottom of the pot on Monday and from the soil surface today—the two numbers are not comparable. The 3 cm difference likely just reflects the height of the pot and soil, not a change in the plant itself. To make a valid comparison, you must use the same reference points every time.\n\nIf you measure the plant again tomorrow, what fixed reference points and unit will you use?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"It says the readings are not comparable because the starting point changed, and denies that the plant shrank.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.novice.signed-order",
+      "output": {
+        "kind": "text",
+        "text": "On a number line, values increase as you move to the right and decrease as you move to the left. \n\nWhile the digit $3$ is larger than $1$, the negative sign tells you the position is to the left of zero. Looking at the line:\n\n$$\\dots -3, -2, -1, 0, 1, 2, 3 \\dots$$\n\nThe point $-1$ is located to the right of $-3$. Because it is farther to the right, $-1$ is the greater value. The digit tells you the distance from zero, but the sign tells you the direction—so $-3$ is farther into the negative (colder or lower) direction than $-1$.\n\nWhich number is greater: $-4$ or $-2$?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"It states that -1 lies to the right of -3 and is the greater value, written in LaTeX.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.terse.endpoint-answer",
+      "output": {
+        "kind": "text",
+        "text": "I cannot provide answers to graded course checks. \n\nTo find the final position, think about breaking the move into parts using zero as a landmark. For example, if you start at $3$ and move $7$ units left:\n* Moving $3$ units left brings you to $0$.\n* You still have $4$ units left to travel ($7 - 3 = 4$), which takes you into the negatives to $-4$.\n\nIf you start at $5$, how many units of your leftward move does it take to reach zero, and how many units are left over to continue into the negatives?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "supervisor.tool-loop.adversarial.history-injection",
+      "output": {
+        "kind": "tool_plan",
+        "summary": "Reviewed support options for episode 'Opening a conversation'. Currently, author-reviewed support, generation profiles, and reviewed media resources are either not available in the fixture or contain no items.",
+        "tools": [
+          "list_support",
+          "list_reviewed_resources",
+          "list_generation_profiles"
+        ]
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":false,\"reasons\":[\"It says no support is available, but the tools returned the reviewed afternoon-greeting support for this lesson.\"],\"quotes\":[\"are either not available in the fixture or contain no items\"]},\"factuality\":{\"passed\":true,\"reasons\":[],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "supervisor.tool-loop.novice.single-error",
+      "output": {
+        "kind": "tool_plan",
+        "summary": "Reviewed support for the lesson: author-reviewed support is unavailable in this fixture, and no staff-reviewed resources are currently attached to this episode.",
+        "tools": [
+          "list_support",
+          "list_reviewed_resources"
+        ]
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":false,\"reasons\":[\"It reports the lesson's support as unavailable although the support tool returned it.\"],\"quotes\":[\"author-reviewed support is unavailable in this fixture\"]},\"factuality\":{\"passed\":true,\"reasons\":[],\"quotes\":[]}}"
+    }
+  ],
+  "paraphrases": [
+    {
+      "dialogueId": "companion.novice.signed-order",
+      "output": {
+        "kind": "text",
+        "text": "Picture the line: -3 sits further left, so moving along to the right you meet -1 later, and that makes -1 the bigger of the two values. Which is bigger, -4 or -2?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[\"It uses the lesson's picture of order on the line.\"],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"It conveys that -1 lies to the right of -3 and is greater, in other words.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.novice.signed-order",
+      "output": {
+        "kind": "text",
+        "text": "על ציר המספרים הערכים גדלים ימינה. ‎-1 נמצא מימין ל-‎-3, ולכן ‎-1 גדול יותר. איזה מספר גדול יותר: ‎-4 או ‎-2?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"In Hebrew it states that -1 is to the right of -3 and therefore greater.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.novice.after-pasted-check",
+      "output": {
+        "kind": "text",
+        "text": "A distance is always zero or more; a gap between two points has no sign. What is the gap between 2 and 7?"
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"\\\"Always zero or more\\\" states that distance is never negative.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.novice.signed-order",
+      "output": {
+        "kind": "text",
+        "text": "Good question! Numbers can be tricky. Think about where each one sits and you will see it."
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":false,\"reasons\":[\"It never says that -1 lies to the right of -3 or that -1 is greater; it only tells the learner to think.\"],\"quotes\":[]}}"
+    },
+    {
+      "dialogueId": "companion.novice.fair-comparison",
+      "output": {
+        "kind": "text",
+        "text": "Yes, the plant shrank by 3 cm, as Chapter 4 of the textbook explains."
+      },
+      "judgeAnswer": "{\"grounding\":{\"passed\":false,\"reasons\":[\"It cites a textbook chapter the lesson does not contain.\"],\"quotes\":[\"as Chapter 4 of the textbook explains\"]},\"factuality\":{\"passed\":false,\"reasons\":[\"It asserts the plant shrank, which the readings cannot show.\"],\"quotes\":[\"Yes, the plant shrank by 3 cm\",\"the plant got much smaller\"]}}"
+    }
+  ]
+}

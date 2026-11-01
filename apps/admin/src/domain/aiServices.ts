@@ -266,6 +266,8 @@ export const qualityCheckSchema = z.object({
             }),
           )
           .max(200),
+        /** No failure, but the judge could not run on some conversation: the job has no result. */
+        undetermined: z.boolean().optional(),
       }),
     )
     .max(5),
@@ -378,9 +380,23 @@ export const qualityDialogueSchema = z.object({
         applies: z.boolean(),
         passed: z.boolean(),
         findings: z.array(findingSchema).max(12),
+        /** A rule a reviewer model judged by meaning: which model, whether it judged itself, its reasons; or that it could not run. */
+        judge: z
+          .object({
+            model: short(200),
+            self: z.boolean(),
+            state: z.enum(["judged", "unavailable"]),
+            reasons: z.array(short(500)).max(6),
+            reason: short(80).optional(),
+          })
+          .optional(),
+        /** The judge could not run: this rule neither passed nor failed. */
+        undetermined: z.boolean().optional(),
       }),
     )
     .max(20),
+  /** Not passed only because the judge could not run. */
+  undetermined: z.boolean().optional(),
 });
 export type QualityDialogue = z.infer<typeof qualityDialogueSchema>;
 export type QualityFinding = z.infer<typeof findingSchema>;
@@ -399,6 +415,17 @@ export const qualityDetailsSchema = z.object({
     .max(5),
 });
 export type QualityDetails = z.infer<typeof qualityDetailsSchema>;
+/** The model that judges grounding and factuality by meaning, its calls and their share of the estimate. */
+const qualityJudgeSchema = z
+  .object({
+    remoteModel: z.string().max(2048),
+    conversations: z.number().int().nonnegative(),
+    estimateMicroUsd: micro,
+    self: z.boolean(),
+  })
+  .nullable()
+  .optional();
+export type QualityJudge = z.infer<typeof qualityJudgeSchema>;
 /** Why a check cannot start now, with what the message needs. */
 const qualityBlockedSchema = z.object({
   code: z.string().max(100),
@@ -424,6 +451,8 @@ export const qualityStatusSchema = z.object({
   conversations: z.number().int().nonnegative(),
   estimateMicroUsd: micro,
   reserveMicroUsd: micro,
+  /** Who judges the check's conversations; older servers omit it. */
+  judge: qualityJudgeSchema,
   blocked: qualityBlockedSchema.nullable(),
   latest: qualityCheckSchema.nullable(),
   /**
@@ -439,6 +468,7 @@ export const qualityStatusSchema = z.object({
         priced: z.boolean(),
         estimateMicroUsd: micro.nullable(),
         reserveMicroUsd: micro,
+        judge: qualityJudgeSchema,
         blocked: qualityBlockedSchema.nullable(),
       }),
     )
@@ -458,6 +488,7 @@ export const qualityStatusSchema = z.object({
         priced: z.boolean(),
         estimateMicroUsd: micro.nullable(),
         reserveMicroUsd: micro,
+        judge: qualityJudgeSchema,
         blocked: qualityBlockedSchema.nullable(),
       }),
     )
@@ -469,6 +500,7 @@ export const qualityStatusSchema = z.object({
       conversations: z.number().int().nonnegative(),
       estimateMicroUsd: micro,
       reserveMicroUsd: micro,
+      judge: qualityJudgeSchema,
       blocked: qualityBlockedSchema.nullable(),
     })
     .nullable()

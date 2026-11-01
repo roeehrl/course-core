@@ -27,11 +27,15 @@ interface Session { id: string; cookie: string; csrf: string }
 const jobPolicy = { ...defaultJobPolicy, allowance: { microUsd: 100000, tokens: 1_000_000 } };
 // The draft binds the companion tutor and the supervisor's plan strategy: their dialogues only.
 const conversations = publicSuite().dialogues.filter((d) => ["core.companion.tutor", "core.supervisor.plan"].includes(dialogueStrategy(d) ?? "")).length;
+/** Each conversation's answer is judged by meaning in its own paid call: 4000 input tokens at $1/M + 1500 output tokens at $5/M. */
+const JUDGE_CALL = 11500, calls = conversations * 2;
 
 /** What the scripted provider does next: answer from a table, refuse the key, or answer in full with
  * output the adapter refuses (empty text, or structured output that is not JSON). */
 let mode: "reference" | "known-bad" | "reject" | "malformed" = "reference";
-const models = { reference: new ScriptedModel(PUBLIC_SCRIPTED_MODELS.reference), "known-bad": new ScriptedModel(PUBLIC_SCRIPTED_MODELS["known-bad"]) };
+// Each answers the check's meaning judge with the scripted judge (Core's pattern graders), so the result stays deterministic.
+const judged = { judgeSuite: publicSuite() };
+const models = { reference: new ScriptedModel(PUBLIC_SCRIPTED_MODELS.reference, judged), "known-bad": new ScriptedModel(PUBLIC_SCRIPTED_MODELS["known-bad"], judged) };
 let sent = 0;
 const scriptedFetch: typeof fetch = async (input, init) => {
   sent++;
@@ -150,16 +154,19 @@ describe("quality check from the AI services page", () => {
     await price(o, w);
     status = (await call(o, "GET", checks(w))).json();
     expect(status.blocked).toEqual({ code: "PROVIDER_QUALITY_CHECK_LIMIT_MISSING" });
-    // conversations × (3000 input tokens at $1/M + 600 output tokens at $5/M) = $0.006 each.
-    expect(status.estimateMicroUsd).toBe(conversations * 6000);
-    expect(status.reserveMicroUsd).toBe(conversations * 100000);
+    // conversations × (3000 input tokens at $1/M + 600 output tokens at $5/M) = $0.006 each, plus each one's judge call.
+    expect(status.estimateMicroUsd).toBe(conversations * (6000 + JUDGE_CALL));
+    // Every answer and every judge call reserves the per-request allowance.
+    expect(status.reserveMicroUsd).toBe(calls * 100000);
+    // The setup has one model: it judges itself, and the page says so.
+    expect(status.judge).toEqual({ remoteModel: "course-core-eval-reference", conversations, estimateMicroUsd: conversations * JUDGE_CALL, self: true });
     expect((await call(o, "POST", checks(w), { idempotencyKey: key(), draftId })).json().error).toBe("PROVIDER_QUALITY_CHECK_LIMIT_MISSING");
 
     await limit(o, w, 1_000_000);
     const short = await call(o, "POST", checks(w), { idempotencyKey: key(), draftId });
     expect(short.statusCode).toBe(409);
     expect(short.json()).toEqual({ error: "PROVIDER_QUALITY_CHECK_BUDGET_REACHED",
-      details: { neededMicroUsd: conversations * 100000, availableMicroUsd: 1_000_000 } });
+      details: { neededMicroUsd: calls * 100000, availableMicroUsd: 1_000_000 } });
     // Nothing was reserved, sent or recorded by a refusal.
     expect(await ledger(w)).toEqual([]);
     expect(Number((await db.query("SELECT count(*) FROM provider_quality_checks WHERE workspace_id=$1", [w])).rows[0].count)).toBe(0);
@@ -178,10 +185,10 @@ describe("quality check from the AI services page", () => {
     const started = await call(owner, "POST", checks(workspace), { idempotencyKey, draftId });
     expect(started.statusCode, started.body).toBe(200);
     expect(started.json()).toMatchObject({ state: "running", total: conversations, completed: 0, roles: ["companion", "supervisor"],
-      estimateMicroUsd: conversations * 6000, reservedMicroUsd: conversations * 100000 });
+      estimateMicroUsd: conversations * (6000 + JUDGE_CALL), reservedMicroUsd: calls * 100000 });
     const id = started.json().id;
     // While it runs: the full reservation is held, a retry returns the same check, another start is refused.
-    expect((await used(workspace)).usd).toBe(conversations * 100000);
+    expect((await used(workspace)).usd).toBe(calls * 100000);
     expect((await call(owner, "POST", checks(workspace), { idempotencyKey, draftId })).json().id).toBe(id);
     expect((await call(owner, "POST", checks(workspace), { idempotencyKey, draftId: randomUUID() })).json().error).toBe("IDEMPOTENCY_CONFLICT");
     const again = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId });
@@ -195,10 +202,12 @@ describe("quality check from the AI services page", () => {
     expect(done).toMatchObject({ state: "passed", reason: null, completed: conversations });
     expect(done.outcome.map((o: { role: string; passed: boolean; failed: unknown[] }) => [o.role, o.passed, o.failed.length]))
       .toEqual([["companion", true, 0], ["supervisor", true, 0]]);
-    expect(sent - before).toBe(conversations);
+    // Each conversation's answer, then its judge call (the scripted judge answers with Core's pattern graders).
+    expect(sent - before).toBe(calls);
+    expect(models.reference.judgeRequests.filter((r) => r.structured)).toHaveLength(models.reference.judgeRequests.length);
     // Every call settled at its reported usage and price; the rest of each reservation came back.
     const rows = await ledger(workspace);
-    expect(rows).toHaveLength(conversations);
+    expect(rows).toHaveLength(calls);
     for (const row of rows) {
       expect(row).toMatchObject({ state: "reconciled", enrollment_id: null, reserved: 100000 });
       expect(row.charged).toBe(row.actual);
@@ -333,9 +342,11 @@ describe("quality check from the AI services page", () => {
     const grades = (await db.query("SELECT grades FROM provider_eval_results WHERE workspace_id=$1", [workspace])).rows
       .flatMap((r) => r.grades as { graders: { findings: string[] }[] }[]);
     expect(grades.every((g) => g.graders.every((x) => x.findings[0] === "no_answer:provider_output_invalid"))).toBe(true);
-    // Paid at the reported usage and price, never held as uncertain at the full reservation.
-    const rows = await ledger(workspace);
+    // Paid at the reported usage and price, never held as uncertain at the full reservation. With no
+    // answer there is nothing to judge: each judge call's reservation came back unspent.
+    const all = await ledger(workspace), rows = all.filter((r) => r.state !== "not_started");
     expect(rows).toHaveLength(conversations);
+    expect(all.filter((r) => r.state === "not_started" && r.charged === 0)).toHaveLength(conversations);
     for (const row of rows) {
       expect(row).toMatchObject({ state: "reconciled", reserved: 100000 });
       expect(row.charged).toBe(row.actual);
@@ -492,21 +503,22 @@ describe("quality check from the AI services page", () => {
     expect(media).toBeGreaterThan(0);
     const status = (await call(owner, "GET", checks(workspace))).json();
     expect(status).toMatchObject({ target: "draft", blocked: null, conversations: conversations + media,
-      estimateMicroUsd: conversations * 6000, reserveMicroUsd: conversations * 100000 });
+      estimateMicroUsd: conversations * (6000 + JUDGE_CALL), reserveMicroUsd: calls * 100000 });
     expect(status.roles.find((r: { role: string }) => r.role === "media")).toEqual({ role: "media", remoteModel: "course-core-eval-reference-image",
       conversations: media, priced: true, estimateMicroUsd: 0 });
     mode = "reference";
     const before = sent;
     const started = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId: draft.json().id });
     expect(started.statusCode, started.body).toBe(200);
-    expect(started.json()).toMatchObject({ total: conversations + media, reservedMicroUsd: conversations * 100000 });
+    expect(started.json()).toMatchObject({ total: conversations + media, reservedMicroUsd: calls * 100000 });
     const id = started.json().id, done = await finished(owner, workspace, id);
     expect(done).toMatchObject({ state: "passed", completed: conversations + media });
     expect(done.outcome.map((o: { role: string; passed: boolean }) => [o.role, o.passed])).toEqual([["companion", true], ["supervisor", true], ["media", true]]);
-    // The media conversations sent nothing and hold no ledger row; each paid call settled its own row.
-    expect(sent - before).toBe(conversations);
+    // The media conversations sent nothing, are not judged and hold no ledger row; each paid call
+    // and its judge call settled its own row.
+    expect(sent - before).toBe(calls);
     const refs = (await db.query("SELECT source_ref,role,state FROM provider_spend_ledger WHERE workspace_id=$1 AND source='quality_check'", [workspace])).rows;
-    expect(refs.map((r) => r.source_ref).sort()).toEqual(Array.from({ length: conversations }, (_, n) => `${id}:${n}`).sort());
+    expect(refs.map((r) => r.source_ref).sort()).toEqual(Array.from({ length: conversations }, (_, n) => [`${id}:${n}`, `${id}:j${n}`]).flat().sort());
     expect(refs.every((r) => r.role !== "media" && r.state === "reconciled")).toBe(true);
     expect((await used(workspace)).usd).toBe(done.chargedMicroUsd);
   });
@@ -615,8 +627,10 @@ describe("upgrade from a release where only the companion and the plan superviso
     for (const role of ["companion", "supervisor", "research", "reviewer"] as const)
       expected[role] = estimateMicroUsd(pricing, dialoguesFor(suite, role, strategies[role]).map((d) => typicalUsage(d, role === "supervisor" ? 6 : undefined)));
     const total = Object.keys(strategies).reduce((n, role) => n + dialoguesFor(suite, role, strategies[role as keyof typeof strategies]).length, 0);
-    expect(status).toMatchObject({ target: "active", draftId: null, blocked: null, conversations: total, reserveMicroUsd: total * 100000,
-      estimateMicroUsd: expected.companion! + expected.supervisor! + expected.research! + expected.reviewer! });
+    // Every paid conversation is also judged, by the reviewer job's model (bound here): one judge call each.
+    expect(status).toMatchObject({ target: "active", draftId: null, blocked: null, conversations: total, reserveMicroUsd: total * 2 * 100000,
+      estimateMicroUsd: expected.companion! + expected.supervisor! + expected.research! + expected.reviewer! + total * JUDGE_CALL,
+      judge: { remoteModel: "course-core-eval-reference", conversations: total, estimateMicroUsd: total * JUDGE_CALL, self: true } });
     expect(status.roles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research", "reviewer"]);
     expect(status.activeRoles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research"]);
     expect(status.onAll).toMatchObject({ conversations: total, blocked: null });
@@ -653,7 +667,7 @@ describe("upgrade from a release where only the companion and the plan superviso
     expect(flagged.map((r) => r.role)).toContain("research");
     for (const r of flagged) {
       expect(r.blocked, r.role).toBeNull();
-      expect(r.reserveMicroUsd, r.role).toBe(r.conversations * 100000);
+      expect(r.reserveMicroUsd, r.role).toBe(r.conversations * 2 * 100000);
     }
     const research = flagged.find((r) => r.role === "research")!;
     expect(research.conversations).toBe(dialoguesFor(suite, "research", "core.research.public-topic").length);
@@ -743,7 +757,7 @@ describe("jobs approved without checking", () => {
     expect(await standing(owner, workspace)).toEqual({ companion: "override", supervisor: "override" });
     // Nothing needs a check, yet every job that is on is offered one, with what it costs.
     const status = (await call(owner, "GET", checks(workspace))).json();
-    expect(status).toMatchObject({ target: null, activeRoles: [], onAll: { conversations, blocked: null, reserveMicroUsd: conversations * 100000 } });
+    expect(status).toMatchObject({ target: null, activeRoles: [], onAll: { conversations, blocked: null, reserveMicroUsd: calls * 100000 } });
     expect(status.onRoles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor"]);
     // The check of all of them runs both, whatever their approval says.
     mode = "known-bad";

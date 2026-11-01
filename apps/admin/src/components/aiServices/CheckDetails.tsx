@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronRight, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleHelp, XCircle } from "lucide-react";
 import type {
   AiServicesPort,
   QualityCheck,
@@ -8,6 +8,7 @@ import type {
   QualityFinding,
 } from "../../domain/aiServices";
 import { Ltr, jobName, useAiText, type AiKey, type AiText } from "./shared";
+import { useI18n } from "../../i18n";
 
 /** Where the page reads a check's conversation details. */
 export interface DetailsSource {
@@ -70,7 +71,12 @@ const FINDINGS = new Set([
   "check_not_coached",
   "over_refusal",
   "no_answer",
+  "judge_failed",
+  "judge_unavailable",
 ]);
+/** The check's own error when its judge could not run: it kept the conversations to show why. */
+export const JUDGE_UNAVAILABLE = "PROVIDER_QUALITY_CHECK_JUDGE_UNAVAILABLE";
+type QualityRule = QualityDialogue["graders"][number];
 const CHECK_LEAKS = new Set([
   "check_answer_stated",
   "check_option_named",
@@ -197,8 +203,22 @@ function Quote({ children }: { children: string }) {
   );
 }
 
-function Pill({ passed }: { passed: boolean }) {
+/** Passed, failed, or (`undetermined`) neither, because the judge could not run. */
+function Pill({
+  passed,
+  undetermined,
+}: {
+  passed: boolean;
+  undetermined?: boolean | undefined;
+}) {
   const { t } = useAiText();
+  if (!passed && undetermined)
+    return (
+      <span className="ai-pill muted">
+        <CircleHelp size={15} aria-hidden="true" />
+        {t("aiServices.check.details.notJudged")}
+      </span>
+    );
   return (
     <span className={`ai-pill ${passed ? "ok" : "bad"}`}>
       {passed ? (
@@ -243,7 +263,12 @@ export function CheckDetails({
       });
     return () => controller.abort();
   }, [open, load, check.id, source.workspaceId, details, attempt]);
-  if (!load || (check.state !== "passed" && check.state !== "failed"))
+  if (
+    !load ||
+    (check.state !== "passed" &&
+      check.state !== "failed" &&
+      check.reason !== JUDGE_UNAVAILABLE)
+  )
     return null;
   const ready = details?.checkId === check.id ? details : null;
   return (
@@ -325,7 +350,8 @@ function JobDialogues({
 function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
   const text = useAiText();
   const { t } = text;
-  const broken = dialogue.graders.filter((g) => !g.passed);
+  const broken = dialogue.graders.filter((g) => !g.passed && !g.undetermined);
+  const unjudged = dialogue.graders.filter((g) => g.undetermined);
   const noAnswer =
     broken.length > 0 &&
     broken.every((g) =>
@@ -340,12 +366,12 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
     : dialogue.purpose.persona;
   return (
     <details
-      className={`ai-dialogue ${dialogue.passed ? "passed" : "failed"}`}
+      className={`ai-dialogue ${dialogue.passed ? "passed" : dialogue.undetermined ? "undetermined" : "failed"}`}
       data-dialogue={dialogue.dialogueId}
     >
       <summary>
         <span className="ai-dialogue-head">
-          <Pill passed={dialogue.passed} />
+          <Pill passed={dialogue.passed} undetermined={dialogue.undetermined} />
           <span className="ai-tag">{persona}</span>
           <ChevronRight
             size={18}
@@ -356,7 +382,7 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
         <span className="ai-dialogue-purpose" dir="auto">
           {dialogue.purpose.description}
         </span>
-        {!dialogue.passed && (
+        {!dialogue.passed && broken.length > 0 && (
           <span className="ai-dialogue-broken">
             <span>
               {noAnswer
@@ -369,6 +395,16 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
                   {ruleName(t, g.grader)}
                 </span>
               ))}
+          </span>
+        )}
+        {!noAnswer && unjudged.length > 0 && (
+          <span className="ai-dialogue-broken">
+            <span>{t("aiServices.check.details.notJudgedList")}</span>
+            {unjudged.map((g) => (
+              <span key={g.grader} className="ai-pill muted">
+                {ruleName(t, g.grader)}
+              </span>
+            ))}
           </span>
         )}
       </summary>
@@ -406,14 +442,31 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
           ) : (
             <ul className="ai-rule-results">
               {shownRules.map((g) => (
-                <li key={g.grader} className={g.passed ? "passed" : "failed"}>
+                <li
+                  key={g.grader}
+                  className={
+                    g.passed
+                      ? "passed"
+                      : g.undetermined
+                        ? "undetermined"
+                        : "failed"
+                  }
+                >
                   <div className="ai-rule-result-head">
-                    <Pill passed={g.passed} />
+                    <Pill passed={g.passed} undetermined={g.undetermined} />
                     <span>{ruleName(t, g.grader)}</span>
                   </div>
-                  {!g.passed && (
+                  {g.judge && <JudgedBy rule={g} />}
+                  {!g.passed && !g.undetermined && (
                     <ul className="ai-findings">
-                      {groupFindings(text, g.findings).map((group) => (
+                      {groupFindings(
+                        text,
+                        g.findings.filter(
+                          (f) =>
+                            !f.code.startsWith("judge_failed") &&
+                            !f.code.startsWith("judge_unavailable"),
+                        ),
+                      ).map((group) => (
                         <Finding key={group.sentence} {...group} />
                       ))}
                     </ul>
@@ -432,6 +485,65 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
         </div>
       </div>
     </details>
+  );
+}
+
+/**
+ * A rule a reviewer model judged by meaning: which model judged (labelled when it judged its own
+ * reply), and for a fail its reasons and the passages it quoted, which are marked in the reply.
+ * When it could not run, says so: the rule has no result.
+ */
+function JudgedBy({ rule }: { rule: QualityRule }) {
+  const { t } = useAiText();
+  const i18n = useI18n();
+  const judge = rule.judge!;
+  const model = {
+    model: (children: ReactNode, key: string | number) => (
+      <Ltr key={key} className="mono">
+        {children}
+      </Ltr>
+    ),
+  };
+  if (judge.state === "unavailable")
+    return (
+      <p className="ai-judged ai-judged-by">
+        {i18n.rich(
+          "aiServices.check.details.judgeUnavailable",
+          { model: judge.model, reason: judge.reason ?? "" },
+          model,
+        )}
+      </p>
+    );
+  const quotes = rule.findings.flatMap((f) =>
+    f.code === "judge_failed" && f.match ? [f.match] : [],
+  );
+  return (
+    <div className="ai-judged">
+      <p className="ai-judged-by ai-muted">
+        {i18n.rich(
+          judge.self
+            ? "aiServices.check.details.judgedBySelf"
+            : "aiServices.check.details.judgedBy",
+          { model: judge.model },
+          model,
+        )}
+      </p>
+      {!rule.passed && judge.reasons.length > 0 && (
+        <div className="ai-evidence">
+          <span>{t("aiServices.check.details.judgeReasons")}</span>
+          <ul className="ai-judge-reasons">
+            {judge.reasons.map((reason, i) => (
+              <li key={i} dir="auto">
+                {reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!rule.passed && (
+        <Evidence label={t("aiServices.check.details.wrote")} quotes={quotes} />
+      )}
+    </div>
   );
 }
 

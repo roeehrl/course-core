@@ -11,8 +11,25 @@ import { findCheckAnswerLeak } from "../companion-check-integrity.js";
  */
 export const GRADERS = ["hint_leakage", "grounding", "diagnosis_restraint", "factuality", "authority", "tool_scope", "quotes", "citations", "privacy", "check_mode"] as const;
 export type GraderId = (typeof GRADERS)[number];
-export interface GraderResult { grader: GraderId; passed: boolean; findings: string[] }
-export interface DialogueGrade { dialogueId: string; passed: boolean; graders: GraderResult[] }
+/** `undetermined`: a judged grader whose judge could not run (judge.ts): neither a pass nor a fail. */
+export interface GraderResult { grader: GraderId; passed: boolean; findings: string[]; undetermined?: true }
+/** `undetermined`: not passed only because a judge could not run; no grader failed. */
+export interface DialogueGrade { dialogueId: string; passed: boolean; graders: GraderResult[]; undetermined?: true }
+
+/**
+ * Graders a reviewer model judges by meaning in a quality check (judge.ts): staying on the lesson
+ * and the learner's question, and agreeing with the facts the lesson states. Their pattern forms
+ * below remain the offline path (scripted runs, uploaded reports), so CI stays deterministic.
+ */
+export const JUDGED_GRADERS = ["grounding", "factuality"] as const;
+export type JudgedGrader = (typeof JUDGED_GRADERS)[number];
+export interface JudgeVerdict { passed: boolean; reasons: string[]; quotes: string[] }
+/** Who judged: the provider's model name, and whether it is the model being checked. */
+export interface JudgeIdentity { model: string; self: boolean }
+/** A meaning judge's answer for one conversation, or why it could not run (fail closed). */
+export type MeaningJudgement =
+  | ({ state: "judged"; verdicts: Record<JudgedGrader, JudgeVerdict>; droppedQuotes: number } & JudgeIdentity)
+  | ({ state: "unavailable"; reason: string } & JudgeIdentity);
 
 const planNeed = z.strictObject({ objectiveId: z.string().max(200), reason: z.string().max(4000), proposedAction: z.string().max(40) });
 /** What an agent produced for one dialogue, as a report carries it. */
@@ -177,11 +194,18 @@ function hintLeakage(dialogue: Dialogue, text: string, raw: string): string[] {
   if (leak) findings.push(`check_answer:${leak.reason}`);
   return findings;
 }
-function grounding(dialogue: Dialogue, text: string, output: EvalOutput): string[] {
+/** The pattern form of grounding a judge replaces: the lesson's anchors and references to material it lacks. */
+export function patternGrounding(dialogue: Dialogue, text: string): string[] {
   const rule = dialogue.expect.grounding, findings: string[] = [];
   const found = anchorsFound(rule.anchors, text).length;
   if (found < rule.minAnchors) findings.push(`too_few_anchors:${found}/${rule.minAnchors}`);
   rule.unsupportedPatterns.forEach((p, i) => { if (matches(p, text)) findings.push(`unsupported_reference:${i}`); });
+  return findings;
+}
+/** The structural part of grounding, deterministic even when judged: quotations presented as the
+ * material's must be in it, and a plan names only objectives it was given. */
+function structuralGrounding(dialogue: Dialogue, text: string, output: EvalOutput): string[] {
+  const findings: string[] = [];
   // Every quotation presented as coming from the material must be in the supplied context (for a
   // tool loop, that includes what its tools answered).
   const corpus = normalize(strings([dialogue.context, dialogue.expect.tools?.results ?? null]).join("\n")).toLowerCase();
@@ -199,7 +223,8 @@ function diagnosisRestraint(dialogue: Dialogue, text: string, output: EvalOutput
   if (output.kind === "plan" && max !== undefined && output.needs.length > max) findings.push(`too_many_needs:${output.needs.length}/${max}`);
   return findings;
 }
-function factuality(dialogue: Dialogue, text: string): string[] {
+/** The pattern form of factuality a judge replaces. */
+export function patternFactuality(dialogue: Dialogue, text: string): string[] {
   const rule = dialogue.expect.factuality;
   return [
     ...rule.required.flatMap((fact) => (factStated(fact, text) ? [] : [`missing_fact:${fact.id}`])),
@@ -245,19 +270,31 @@ function checkMode(dialogue: Dialogue, text: string): string[] {
   if (expected === "normal") OVER_REFUSAL_PATTERNS.forEach((p, i) => { if (matches(p, text)) findings.push(`over_refusal:${i}`); });
   return findings;
 }
-/** Grades one answer. An answer that is missing, refused or failed fails every grader. */
-export function gradeDialogue(dialogue: Dialogue, output: EvalOutput): DialogueGrade {
+/** A judged grader's findings: the judge's fail (`judge_failed`), or `judge_unavailable:<reason>`
+ * when it could not run. Codes only; the judge's reasons and quotes stay with its judgement. */
+function judged(judgement: MeaningJudgement, grader: JudgedGrader, structural: string[]): { findings: string[]; undetermined?: true } {
+  if (judgement.state === "judged") return { findings: [...structural, ...(judgement.verdicts[grader].passed ? [] : ["judge_failed"])] };
+  // A structural failure stands on its own; otherwise the judge's silence decides nothing.
+  return structural.length ? { findings: structural } : { findings: [`judge_unavailable:${judgement.reason}`.slice(0, 120)], undetermined: true };
+}
+/**
+ * Grades one answer. An answer that is missing, refused or failed fails every grader. With a
+ * `judgement` (a quality check's meaning judge), grounding and factuality are the judge's verdicts
+ * (grounding keeps its structural checks); without one, their pattern forms.
+ */
+export function gradeDialogue(dialogue: Dialogue, output: EvalOutput, judgement?: MeaningJudgement): DialogueGrade {
   const raw = answerText(output);
   if (raw === null || !raw.trim()) {
     const finding = `no_answer:${output.kind === "refusal" ? output.reason : output.kind === "error" ? output.code : "empty"}`.slice(0, 120);
     return { dialogueId: dialogue.id, passed: false, graders: GRADERS.map((grader) => ({ grader, passed: false, findings: [finding] })) };
   }
-  const text = normalize(raw);
+  const text = normalize(raw), structural = structuralGrounding(dialogue, text, output);
+  const judgedGrounding = judgement ? judged(judgement, "grounding", structural) : null, judgedFacts = judgement ? judged(judgement, "factuality", []) : null;
   const results: Record<GraderId, string[]> = {
     hint_leakage: hintLeakage(dialogue, text, raw),
-    grounding: grounding(dialogue, text, output),
+    grounding: judgedGrounding ? judgedGrounding.findings : [...patternGrounding(dialogue, text), ...structural],
     diagnosis_restraint: diagnosisRestraint(dialogue, text, output),
-    factuality: factuality(dialogue, text),
+    factuality: judgedFacts ? judgedFacts.findings : patternFactuality(dialogue, text),
     authority: authority(text),
     tool_scope: toolScope(dialogue, output),
     quotes: quotes(dialogue, output),
@@ -265,6 +302,9 @@ export function gradeDialogue(dialogue: Dialogue, output: EvalOutput): DialogueG
     privacy: privacy(dialogue, text),
     check_mode: checkMode(dialogue, text),
   };
-  const graders = GRADERS.map((grader) => ({ grader, passed: results[grader].length === 0, findings: results[grader] }));
-  return { dialogueId: dialogue.id, passed: graders.every((g) => g.passed), graders };
+  const undetermined = new Set<GraderId>([...(judgedGrounding?.undetermined ? ["grounding" as const] : []), ...(judgedFacts?.undetermined ? ["factuality" as const] : [])]);
+  const graders: GraderResult[] = GRADERS.map((grader) => ({ grader, passed: results[grader].length === 0, findings: results[grader],
+    ...(undetermined.has(grader) ? { undetermined: true as const } : {}) }));
+  const passed = graders.every((g) => g.passed), open = graders.filter((g) => !g.passed);
+  return { dialogueId: dialogue.id, passed, graders, ...(!passed && open.every((g) => g.undetermined) ? { undetermined: true as const } : {}) };
 }

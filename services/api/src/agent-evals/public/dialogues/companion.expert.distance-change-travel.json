@@ -58,6 +58,7 @@
       "required": [
         {
           "id": "distance-nonnegative",
+          "statement": "Distance, the gap between two positions, is never negative.",
           "anyOf": [
             "never (?:be )?negative",
             "non-?negative",
@@ -72,6 +73,7 @@
         },
         {
           "id": "travel-needs-route",
+          "statement": "Total travel cannot be read from the endpoints alone: it needs the route, adding every leg, because a route can double back.",
           "anyOf": [
             "need(?:s)? the route",
             "(?:each|every) leg",

@@ -8,7 +8,7 @@ import { transaction, type Database } from "../database.js";
 import { ApiError, requireCondition } from "../errors.js";
 import { composeProviders, providerConfigurationSchema } from "../provider-composition.js";
 import type { WorkspaceProviders } from "../provider-setup.js";
-import { gradeDialogue } from "./graders.js";
+import { gradeDialogue, type MeaningJudgement } from "./graders.js";
 import { roleRevisions, strategyRevision, type ConfigurationShape } from "./revision.js";
 import { courseStrategiesFor } from "../course-strategies.js";
 import type { RuntimeStrategy } from "../agent-strategies.js";
@@ -298,8 +298,11 @@ export class ProviderEvaluations {
    * Records a runner report (`npm run eval:agents -- --report FILE`). Core does not trust the
    * report's own grades: it recomputes the revision digest from the report's configuration and
    * regrades every answer with its own graders and suite. Failed results are recorded too.
+   * `judgements` (keyed `role:dialogueId`) come only from Core's own quality check, in process: the
+   * meaning judge's verdicts for grounding and factuality. A report's own `judgement` fields are
+   * ignored; an uploaded report is graded by the pattern graders.
    */
-  async record(actor: Actor, workspace: string, raw: unknown) {
+  async record(actor: Actor, workspace: string, raw: unknown, judgements?: ReadonlyMap<string, MeaningJudgement>) {
     // Authorize before parsing and regrading a report of up to 1 MB; the transaction below checks again.
     await transaction(this.db, (client) => this.member(client, actor, workspace, ["owner", "admin"]));
     const parsed = recordSchema.safeParse(raw);
@@ -323,7 +326,7 @@ export class ProviderEvaluations {
       const outputs = new Map(run.dialogues.map((d) => [d.dialogueId, d.output]));
       requireCondition(outputs.size === run.dialogues.length && outputs.size === dialogues.length && dialogues.every((d) => outputs.has(d.id)),
         "PROVIDER_EVAL_REPORT_INCOMPLETE", 400);
-      const grades = dialogues.map((d) => gradeDialogue(d, outputs.get(d.id)!));
+      const grades = dialogues.map((d) => gradeDialogue(d, outputs.get(d.id)!, judgements?.get(`${run.role}:${d.id}`)));
       return { role: run.role, revisionDigest: run.revisionDigest, grades, outcome: grades.every((g) => g.passed) ? "passed" as const : "failed" as const };
     });
     const requestDigest = sha256(canonicalJson({ workspace, report }));

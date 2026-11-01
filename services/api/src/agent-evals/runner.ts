@@ -4,14 +4,18 @@ import { ProviderError, type Json, type UsageReceipt } from "@course-core/provid
 import type { SupervisorToolPort } from "../supervisor-tool-loop.js";
 import type { ProviderRuntime } from "../provider-runtime.js";
 import { EVAL_ROLES, GRADER_VERSION, REPORT_SCHEMA, dialoguesFor, sha256, teachingContext, type Dialogue, type EvalRole, type EvalSuite } from "./suite.js";
-import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput } from "./graders.js";
+import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput, type MeaningJudgement } from "./graders.js";
+import { judgeable } from "./judge.js";
 import { roleRevisions } from "./revision.js";
 import { answeredRefusalReason } from "../output-refusal.js";
 
 /** Advisory LLM-judge verdict. Never part of `passed`, never accepted as gate evidence. */
 export interface AdvisoryJudgement { kind: "llm_judge_advisory"; state: "judged" | "refused" | "failed"; criteria: { id: string; met: boolean }[]; reason?: string }
 export type AdvisoryJudge = (dialogue: Dialogue, output: EvalOutput, signal: AbortSignal) => Promise<AdvisoryJudgement>;
-export interface DialogueRun { dialogueId: string; output: EvalOutput; grade: DialogueGrade; advisory?: AdvisoryJudgement }
+/** A quality check's meaning judge (judge.ts): judges grounding and factuality of one answer; never throws. */
+export type MeaningJudge = (role: EvalRole, dialogue: Dialogue, output: EvalOutput, signal: AbortSignal) => Promise<MeaningJudgement>;
+/** `judgement`: the meaning judge's, when the run had one. A recorded report's judgement is never trusted (gate.ts). */
+export interface DialogueRun { dialogueId: string; output: EvalOutput; grade: DialogueGrade; advisory?: AdvisoryJudgement; judgement?: MeaningJudgement }
 /** One tool call a tool-loop run made: the tool's name and the arguments the model gave it. */
 export interface ToolCallRecord { name: string; args: unknown }
 /** What one model call returned, for the host's cost accounting: the provider's usage receipt and
@@ -65,6 +69,8 @@ export async function runSuite(options: {
   /** Called after each dialogue's model call with its usage, before grading continues. */
   afterCall?: (call: CallRecord) => void | Promise<void>;
   judge?: AdvisoryJudge; signal?: AbortSignal;
+  /** Judges grounding and factuality by meaning after each answer (a quality check); absent: their pattern graders. */
+  meaningJudge?: MeaningJudge;
 }): Promise<EvalReport> {
   const { suite, runtime } = options, signal = options.signal ?? new AbortController().signal;
   const bound = runtime.strategyContracts().bound as Partial<Record<string, string>>;
@@ -101,7 +107,8 @@ export async function runSuite(options: {
         output = refused ? { kind: "refusal", reason: refused } : { kind: "error", code: error instanceof ProviderError ? error.code : "UNEXPECTED" };
       }
       await options.afterCall?.({ role, dialogue, usage, error: failure, toolCalls });
-      const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output) };
+      const judgement = options.meaningJudge && judgeable(output) ? await options.meaningJudge(role, dialogue, output, signal) : undefined;
+      const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output, judgement), ...(judgement ? { judgement } : {}) };
       if (options.judge && dialogue.judge && answerText(output) !== null) run.advisory = await options.judge(dialogue, output, signal);
       runs.push(run);
     }
@@ -158,7 +165,8 @@ export const reportSchema = z.strictObject({
   configuration: z.unknown(),
   roles: z.array(z.strictObject({
     role: z.enum(EVAL_ROLES as [EvalRole, ...EvalRole[]]), strategy: z.string().max(200), revisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
-    dialogues: z.array(z.strictObject({ dialogueId: z.string().max(120), output: evalOutputSchema, grade: z.unknown().optional(), advisory: z.unknown().optional() })).max(200),
+    dialogues: z.array(z.strictObject({ dialogueId: z.string().max(120), output: evalOutputSchema, grade: z.unknown().optional(), advisory: z.unknown().optional(),
+      judgement: z.unknown().optional() })).max(200),
     passed: z.boolean(),
   })).min(1).max(EVAL_ROLES.length),
   skipped: z.array(z.unknown()).max(10),

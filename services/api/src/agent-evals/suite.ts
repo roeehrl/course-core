@@ -104,7 +104,10 @@ export const dialogueSchema = z.strictObject({
     factuality: z.strictObject({
       /** Each fact must be stated: by one of its patterns, or by one sentence holding a term from every
        * synonym set of `together`, in any order (["leg", "segment"] with ["add", "sum", "+"]). */
-      required: z.array(z.strictObject({ id: slug, anyOf: z.array(pattern).max(10).default([]),
+      required: z.array(z.strictObject({ id: slug,
+        /** The fact in plain words, for the meaning judge of a quality check (judge.ts). */
+        statement: shortText(300).optional(),
+        anyOf: z.array(pattern).max(10).default([]),
         together: z.array(z.array(pattern).min(1).max(12)).min(2).max(4).optional() })
         .refine((fact) => fact.anyOf.length > 0 || !!fact.together, "fact_needs_a_form")).max(10).default([]),
       /** Known false claims for this context. A match the answer denies in its own clause ("you cannot

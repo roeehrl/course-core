@@ -116,6 +116,7 @@
       "required": [
         {
           "id": "distance-nonnegative",
+          "statement": "Distance is never negative.",
           "anyOf": [
             "never (?:be )?negative",
             "non-?negative",

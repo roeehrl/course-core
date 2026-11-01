@@ -227,8 +227,10 @@ const anthropicMetadata = anthropicMetadataAdapter(async (input, init) => {
 // nothing it says reflects a real model's quality.
 const { googleAdapterFactory } =
   await import("../../../services/api/src/provider-composition.ts");
-const { PUBLIC_SCRIPTED_MODELS } =
+const { PUBLIC_SCRIPTED_MODELS, publicSuite } =
   await import("../../../services/api/src/agent-evals/public-suite.ts");
+const { scriptedJudgeAnswer } =
+  await import("../../../services/api/src/agent-evals/judge.ts");
 let scriptedDialogue: string | undefined;
 const scriptedRounds = new Map<string, number>();
 const syntheticGemini: typeof fetch = async (input, init) => {
@@ -239,9 +241,24 @@ const syntheticGemini: typeof fetch = async (input, init) => {
     !url.pathname.endsWith(":generateContent")
   )
     throw Error("Synthetic Gemini permits only generateContent");
-  const output = scriptedDialogue
-    ? PUBLIC_SCRIPTED_MODELS.reference[scriptedDialogue]
-    : undefined;
+  // The check's meaning judge gets the scripted judge's verdict (Core's pattern graders).
+  const request = JSON.parse(String(init.body)) as {
+    systemInstruction?: { parts: { text: string }[] };
+    contents?: { parts: { text?: string }[] }[];
+  };
+  const judged = scriptedJudgeAnswer(
+    publicSuite(),
+    request.systemInstruction?.parts.map((p) => p.text).join(""),
+    (request.contents ?? [])
+      .flatMap((c) => c.parts.map((p) => p.text ?? ""))
+      .join("\n"),
+  );
+  const output =
+    judged !== null
+      ? ({ kind: "text", text: judged } as const)
+      : scriptedDialogue
+        ? PUBLIC_SCRIPTED_MODELS.reference[scriptedDialogue]
+        : undefined;
   if (!output || output.kind === "error" || output.kind === "refusal")
     return new Response(
       JSON.stringify({
@@ -250,8 +267,9 @@ const syntheticGemini: typeof fetch = async (input, init) => {
       { status: 500, headers: { "content-type": "application/json" } },
     );
   // A tool-loop conversation answers round by round (every agent role is evaluated, N07).
-  const round = (scriptedRounds.get(scriptedDialogue!) ?? 0) + 1;
-  scriptedRounds.set(scriptedDialogue!, round);
+  const round =
+    (scriptedRounds.get(scriptedDialogue!) ?? 0) + (judged === null ? 1 : 0);
+  if (judged === null) scriptedRounds.set(scriptedDialogue!, round);
   const text =
     output.kind === "text"
       ? output.text

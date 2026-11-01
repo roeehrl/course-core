@@ -75,6 +75,7 @@
       "required": [
         {
           "id": "dias-morning",
+          "statement": "Buenos días is the morning greeting.",
           "anyOf": [
             "buenos d[ií]as[^.?!]{0,40}morning",
             "morning[^.?!]{0,40}buenos d[ií]as"
@@ -82,6 +83,7 @@
         },
         {
           "id": "noches-evening",
+          "statement": "Buenas noches is the evening or night greeting.",
           "anyOf": [
             "buenas noches[^.?!]{0,40}(?:evening|night)",
             "(?:evening|night)[^.?!]{0,40}buenas noches"

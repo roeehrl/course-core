@@ -156,3 +156,80 @@ test("a check from before details were kept says how to see them", async ({
   await expect(panel).toContainText(ai["check.details.notRecorded"]!);
   await expect(panel.locator(".ai-dialogue")).toHaveCount(0);
 });
+
+for (const locale of ["en", "he"] as const)
+  test(`${locale}: a rule the judge decided shows who judged, why, and its quotes marked in the reply`, async ({
+    page,
+    context,
+  }, info) => {
+    await mockConnectedAdmin(page, context);
+    await stubQualityCheck(page, { judged: true });
+    const { section, ai } = await openCheck(page, locale);
+    const panel = section.locator(".ai-dialogues");
+    await panel.getByText(ai["check.details.title"]!, { exact: true }).click();
+    const travel = panel.locator(
+      '[data-dialogue="companion.frustrated.total-travel"]',
+    );
+    await travel.locator("summary").click();
+    // The message's own words around its arguments (each isolated in its own direction).
+    const words = (key: string) =>
+      ai[key]!.split(/<model>\{model\}<\/model>|\{reason\}/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+    const grounding = travel.locator(".ai-rule-results > li.failed", {
+      hasText: ai["check.details.rule.grounding"]!,
+    });
+    for (const part of [...words("check.details.judgedBy"), "gemini-2.5-pro"])
+      await expect(grounding.locator(".ai-judged-by")).toContainText(part);
+    await expect(grounding.locator(".ai-judge-reasons")).toContainText(
+      "Chapter 7 that the lesson does not contain",
+    );
+    await expect(grounding.locator(".ai-evidence .ai-quote")).toHaveText(
+      "as covered in Chapter 7",
+    );
+    // The judged passages are marked in the reply, as the fixed rules' evidence is.
+    for (const quote of ["as covered in Chapter 7", "Total travel is 9"])
+      await expect(
+        travel.locator(".ai-reply mark.ai-flagged", { hasText: quote }),
+      ).toHaveCount(1);
+    // A judged fail has no fixed-rule sentence ("Finding: judge_failed").
+    await expect(travel).not.toContainText("judge_failed");
+
+    // The judge that could not run: the rule has no result, neither passed nor failed.
+    const order = panel.locator(
+      '[data-dialogue="companion.novice.signed-order"]',
+    );
+    await expect(order).toHaveClass(/undetermined/);
+    await expect(order.locator("summary")).toContainText(
+      ai["check.details.notJudged"]!,
+    );
+    await order.locator("summary").click();
+    const facts = order.locator(".ai-rule-results > li.undetermined", {
+      hasText: ai["check.details.rule.factuality"]!,
+    });
+    for (const part of [
+      ...words("check.details.judgeUnavailable"),
+      "gemini-2.5-pro",
+      "timeout",
+    ])
+      await expect(facts.locator(".ai-judged-by")).toContainText(part);
+    await expect(facts).not.toContainText(ai["check.details.fail"]!);
+
+    const width = page.viewportSize()!.width;
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .include(".ai-dialogues")
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+          .analyze()
+      ).violations.map((v) => `${v.id} ${v.nodes[0]?.target}`),
+    ).toEqual([]);
+    await travel.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`judged-${locale}.png`),
+      fullPage: false,
+    });
+  });

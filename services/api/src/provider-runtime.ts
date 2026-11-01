@@ -13,6 +13,28 @@ export const CHECK_JUDGE_ROLES = ['reviewer', 'supervisor', 'companion'] as cons
 export interface CheckJudgePlan { role: (typeof CHECK_JUDGE_ROLES)[number]; modelId: string; capability: 'structured_assessment' | 'tutoring';
   maxInputCharacters: number; maxOutputTokens: number; firstByteTimeoutMs?: number }
 
+/** A model that may judge a quality check by meaning, and how it is asked (ProviderRuntime.meaningJudgeCandidates). */
+export interface MeaningJudgePlan { modelId: string; remoteModel: string; providerId: string; source: 'reviewer' | 'strongest' | 'tutor' | 'checked';
+  capability: 'structured_assessment' | 'tutoring'; maxOutputTokens: number }
+export const MEANING_JUDGE_OUTPUT_TOKENS = 8192;
+/** Previews, experiments and non-text variants never judge by default (as provider-suggestions.ts never suggests them). */
+const UNSTABLE_MODEL = /preview|experimental|(^|[-.])exp([-.]|$)|latest|tts|audio|image|embedding|live/;
+/**
+ * How strong a text model is by its family name, for choosing a default judge: Gemini pro over flash
+ * over flash-lite, Claude opus over sonnet over haiku. A naming rule, not a quality claim; unknown
+ * names rank lowest (the tutor's model is the last resort anyway).
+ */
+export function meaningJudgeRank(remoteModel: string) {
+  const id = remoteModel.toLowerCase();
+  return /opus|(^|[-.])pro([-.]|$)|ultra/.test(id) ? 3 : /sonnet|flash(?!-lite)/.test(id) ? 2 : /haiku|lite|nano|mini/.test(id) ? 1 : 0;
+}
+/** Version numbers in a model name, newest first (gemini-2.5-pro over gemini-2.0-pro); same numbers: the shorter, canonical name. */
+function newerModel(a: string, b: string) {
+  const x = (a.match(/\d+/g) ?? []).map(Number), y = (b.match(/\d+/g) ?? []).map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? -1) - (y[i] ?? -1); if (d) return d; }
+  return b.length - a.length;
+}
+
 /** Neutral composition target; no vendor protocol, key, endpoint or model-name logic. */
 export class ProviderRuntime {
   private readonly router: ProviderRouter;
@@ -123,6 +145,52 @@ export class ProviderRuntime {
     const base = { modelId: plan.modelId, accounting: { accountingKey }, systemInstruction: request.systemInstruction, messages, maxOutputTokens: plan.maxOutputTokens };
     if (plan.capability === 'structured_assessment') {
       const result = await router.assess({ ...base, outputSchema: CHECK_JUDGE_SCHEMA }, options);
+      return { output: result.output, usage: result.usage };
+    }
+    const result = await router.tutor(base, options);
+    return { output: result.output.text, usage: result.usage };
+  }
+  /**
+   * The models that may judge a quality check by meaning (agent-evals/judge.ts), best first: the
+   * reviewer job's model when it is bound; then the setup's other text models on the same connection
+   * as the tutor (or the first checked job), strongest first (meaningJudgeRank), previews and
+   * experiments left out; then the tutor's model and the checked jobs' own models as a last resort.
+   * Only ready models are listed: their connection has a key and they take text requests.
+   */
+  meaningJudgeCandidates(checked: readonly AgentRole[]): MeaningJudgePlan[] {
+    const models = this.registry.list(), plans: MeaningJudgePlan[] = [];
+    const add = (modelId: string | undefined, source: MeaningJudgePlan['source']) => {
+      const model = modelId ? models.find(m => m.id === modelId) : undefined;
+      if (!model || !model.enabled || !this.configured(model.providerId) || plans.some(p => p.modelId === model.id)) return;
+      let capability: MeaningJudgePlan['capability'] = 'structured_assessment';
+      try { this.registry.port(model.id, 'structured_assessment'); }
+      catch { try { this.registry.port(model.id, 'tutoring'); capability = 'tutoring'; } catch { return; } }
+      plans.push({ modelId: model.id, remoteModel: model.remoteModel, providerId: model.providerId, source, capability,
+        maxOutputTokens: Math.min(model.limits.maxOutputTokens ?? MEANING_JUDGE_OUTPUT_TOKENS, MEANING_JUDGE_OUTPUT_TOKENS) });
+    };
+    const reviewer = this.bindings.reviewer;
+    if (reviewer && !reviewer.mediaKind) add(reviewer.modelId, 'reviewer');
+    const anchor = this.bindings.companion?.modelId ?? checked.map(r => this.bindings[r]?.modelId).find(Boolean);
+    const connection = models.find(m => m.id === anchor)?.providerId;
+    const media = new Set(Object.values(this.bindings).flatMap(b => (b?.mediaKind ? [b.modelId, b.imageModel?.modelId] : [])));
+    const text = models.filter(m => m.providerId === connection && !media.has(m.id) && !UNSTABLE_MODEL.test(m.remoteModel.toLowerCase())
+      && m.capabilities.some(c => c === 'structured_assessment' || c === 'tutoring'));
+    for (const m of text.sort((a, b) => meaningJudgeRank(b.remoteModel) - meaningJudgeRank(a.remoteModel) || newerModel(b.remoteModel, a.remoteModel))) add(m.id, 'strongest');
+    add(this.bindings.companion?.modelId, 'tutor');
+    for (const role of checked) if (role !== 'media') add(this.bindings[role]?.modelId, 'checked');
+    return plans;
+  }
+  /** One meaning-judge call (agent-evals/judge.ts), bounded like every model request (MAX_MODEL_CONTEXT_BYTES) and by the call bound. */
+  async judgeMeaning(plan: MeaningJudgePlan, request: { systemInstruction: string; prompt: string; outputSchema: OutputSchema }, accountingKey: string,
+    signal: AbortSignal): Promise<{ output: unknown; usage: UsageReceipt }> {
+    const model = this.registry.list().find(m => m.id === plan.modelId);
+    if (!model || !this.configured(model.providerId)) throw new ProviderError('MISSING_CREDENTIAL', { submission: 'not_sent' });
+    if (request.systemInstruction.length + request.prompt.length > model.limits.maxInputCharacters) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
+    const router = capped(this.router), options = { signal, timeoutMs: 60000 };
+    const base = { modelId: plan.modelId, accounting: { accountingKey }, systemInstruction: request.systemInstruction,
+      messages: [{ role: 'user' as const, text: request.prompt }], maxOutputTokens: plan.maxOutputTokens };
+    if (plan.capability === 'structured_assessment') {
+      const result = await router.assess({ ...base, outputSchema: request.outputSchema }, options);
       return { output: result.output, usage: result.usage };
     }
     const result = await router.tutor(base, options);

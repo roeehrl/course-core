@@ -7,11 +7,13 @@ import { issueLoginCode } from "../src/auth.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders, defaultJobPolicy } from "../src/provider-setup.js";
 import { googleAdapterFactory } from "../src/provider-composition.js";
+import { JUDGE_INSTRUCTION_HEAD } from "../src/agent-evals/judge.js";
 
 // Quality checks on a Gemini setup, over HTTP and real PostgreSQL, with the real Google adapter
 // and a local `fetch` that answers like generateContent (success and Google's documented error
 // bodies). No provider is contacted and no key exists. What is proven: the request shape the
 // supervisor sends, and the reason a stopped check records and shows; not any model's quality.
+// The meaning judge's requests get recorded verdicts (`verdictFor`), never a real model's judgement.
 const schema = "quality_refusals_" + randomUUID().replaceAll("-", ""), origin = "http://localhost:4310";
 let db: Database, testDatabase: TestDatabase | undefined, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { id: string; cookie: string; csrf: string }
@@ -37,11 +39,21 @@ const answer = (text: string) => new Response(JSON.stringify({ candidates: [{ fi
 
 /** What the local Gemini does: behave like Google (refuse the old structured-output shape), or refuse every call with one error. */
 let refusal: (() => Response) | null = null, structuredRefusal: (() => Response) | null = null;
-const bodies: Record<string, unknown>[] = [];
+const bodies: Record<string, unknown>[] = [], judgeBodies: Record<string, unknown>[] = [];
+const pass = { passed: true, reasons: [], quotes: [] };
+/** The judge's recorded answer for one conversation (by its id in the judge's prompt): both rules pass unless a test says otherwise. */
+let verdictFor: (dialogueId: string) => unknown = () => ({ grounding: pass, factuality: pass });
 const googleFetch = (async (_input: string, init: RequestInit) => {
-  const body = JSON.parse(String(init.body)) as { generationConfig?: Record<string, unknown> };
+  const body = JSON.parse(String(init.body)) as { generationConfig?: Record<string, unknown>; systemInstruction?: { parts: { text: string }[] };
+    contents?: { parts: { text: string }[] }[] };
   bodies.push(body);
   if (refusal) return refusal();
+  if (body.systemInstruction?.parts[0]?.text.startsWith(JUDGE_INSTRUCTION_HEAD) && !structuredRefusal) {
+    judgeBodies.push(body);
+    const id = /^Conversation: (\S+)$/m.exec(body.contents?.[0]?.parts[0]?.text ?? "")?.[1] ?? "";
+    const verdict = verdictFor(id);
+    return answer(typeof verdict === "string" ? verdict : JSON.stringify(verdict));
+  }
   const generation = body.generationConfig ?? {};
   if (structuredRefusal && generation.responseJsonSchema) return structuredRefusal();
   // Google's answer to the shape Core sent before: responseFormat.text.mimeType is an enum.
@@ -81,8 +93,11 @@ async function prepared() {
   expect(limited.statusCode, limited.body).toBe(200);
   return { workspace, session, draftId: draft.json().id as string };
 }
+const sessions = new Map<string, Session>();
+const owner = async (workspace: string) => sessions.get(workspace)!;
 async function run() {
   const { workspace, session, draftId } = await prepared();
+  sessions.set(workspace, session);
   const started = await call(session, "POST", checks(workspace), { idempotencyKey: key(), draftId });
   expect(started.statusCode, started.body).toBe(200);
   for (let i = 0; i < 400; i++) {
@@ -160,5 +175,58 @@ describe("quality check on Gemini", () => {
       expect(stored).not.toContain("private-echo");
       expect(stored).not.toContain(SECRET);
     }
+  }, 60000);
+  it("judges grounding and factuality with the model's structured verdict, keeps its reasons and the reply's own quotes, and charges each judge call", async () => {
+    const reply = "Let's look at the first step together: what does the question ask you to compare?";
+    judgeBodies.length = 0;
+    verdictFor = (id) => id === "companion.novice.signed-order"
+      ? { grounding: pass, factuality: { passed: false, reasons: ["It never says that -1 lies to the right of -3."],
+        quotes: ["what does the question ask you to compare", "an invented passage that is not in the reply"] } }
+      : { grounding: pass, factuality: pass };
+    const { check, workspace } = await run();
+    verdictFor = () => ({ grounding: pass, factuality: pass });
+    // One judge call per conversation, on Google's structured-output path, with the lesson's stated fact.
+    expect(judgeBodies).toHaveLength(check.total);
+    for (const b of judgeBodies) {
+      const generation = b.generationConfig as Record<string, unknown>;
+      expect(generation.responseMimeType).toBe("application/json");
+      expect(Object.keys((generation.responseJsonSchema as { properties: object }).properties).sort()).toEqual(["factuality", "grounding"]);
+    }
+    const prompt = (judgeBodies.map((b) => (b.contents as { parts: { text: string }[] }[])[0]!.parts[0]!.text)).find((t) => t.includes("Conversation: companion.novice.signed-order"))!;
+    expect(prompt).toContain("-1 lies to the right of -3 on the number line, so -1 is the greater number.");
+    expect(prompt).toContain(`<<<REPLY\n${reply}\nREPLY>>>`);
+    const signed = check.outcome.find((o: { role: string }) => o.role === "companion").failed.find((f: { dialogueId: string }) => f.dialogueId === "companion.novice.signed-order");
+    expect(signed.graders).toContain("factuality");
+    expect(signed.graders).not.toContain("grounding");
+    const details = (await call((await owner(workspace)), "GET", `${checks(workspace)}/${check.id}/details`)).json();
+    const dialogue = details.roles.flatMap((r: { dialogues: unknown[] }) => r.dialogues).find((d: { dialogueId: string }) => d.dialogueId === "companion.novice.signed-order");
+    const factuality = dialogue.graders.find((g: { grader: string }) => g.grader === "factuality");
+    // Judged by the only model there is, which is the model being checked: labelled as judging itself.
+    expect(factuality).toMatchObject({ passed: false, judge: { model: "gemini-3.8-flash", self: true, state: "judged", reasons: ["It never says that -1 lies to the right of -3."] } });
+    // The invented quote is dropped; the real one is the evidence marked in the reply.
+    expect(factuality.findings).toEqual([{ code: "judge_failed", match: "what does the question ask you to compare" }]);
+    expect(dialogue.graders.find((g: { grader: string }) => g.grader === "grounding")).toMatchObject({ passed: true, judge: { state: "judged" } });
+    // Each judge call has its own ledger row, settled at its reported usage (300 input + 40 output tokens).
+    const judged = (await db.query("SELECT state,actual_micro_usd::int AS actual FROM provider_spend_ledger WHERE source='quality_check' AND source_ref LIKE $1",
+      [check.id + ":j%"])).rows;
+    expect(judged).toHaveLength(check.total);
+    expect(judged.every((r) => r.state === "reconciled" && r.actual === 500)).toBe(true);
+  }, 60000);
+
+  it("says the judge could not run when its verdict is not valid JSON: no pass, no fail, nothing recorded", async () => {
+    verdictFor = () => "{\"grounding\": {\"passed\": true";
+    const { check, workspace } = await run();
+    verdictFor = () => ({ grounding: pass, factuality: pass });
+    const recorded = (await db.query("SELECT count(*)::int AS n FROM provider_eval_results WHERE workspace_id=$1", [workspace])).rows[0].n;
+    const details = (await call((await owner(workspace)), "GET", `${checks(workspace)}/${check.id}/details`)).json();
+    const graders = details.roles.flatMap((r: { dialogues: { graders: { grader: string }[] }[] }) => r.dialogues.flatMap((d) => d.graders));
+    const judgedGraders = graders.filter((g: { grader: string }) => g.grader === "grounding" || g.grader === "factuality");
+    // No other rule fails these replies, so no job has a result: the check says the judge could not run.
+    expect(check).toMatchObject({ state: "error", reason: "PROVIDER_QUALITY_CHECK_JUDGE_UNAVAILABLE" });
+    expect(recorded).toBe(0);
+    expect(check.outcome.map((o: { role: string; undetermined?: boolean }) => [o.role, o.undetermined])).toEqual([["companion", true], ["supervisor", true]]);
+    expect(judgedGraders).toHaveLength(check.total * 2);
+    for (const g of judgedGraders) expect(g).toMatchObject({ passed: false, undetermined: true, judge: { state: "unavailable", reason: "verdict_invalid" },
+      findings: [{ code: "judge_unavailable:verdict_invalid" }] });
   }, 60000);
 });

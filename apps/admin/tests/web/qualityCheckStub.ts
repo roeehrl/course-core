@@ -111,10 +111,74 @@ export const failedCheck = {
   deadlineAt: now,
 };
 
-/** Routes the AI services API; `recorded: false` serves a check an older Core ran (no details kept). */
+/**
+ * The same details as a meaning judge would leave them: the frustrated learner's reply judged by
+ * a reviewer model (both judged rules failed, its reasons and the passages it quoted), and the
+ * signed-order conversation with a factuality judgement that could not run (no result). Synthetic
+ * judge output in the server's stored shape; no model was called.
+ */
+export function judgedDetails() {
+  const copy = structuredClone(details) as unknown as {
+    roles: { dialogues: Record<string, unknown>[] }[];
+  };
+  const judge = { model: "gemini-2.5-pro", self: false, state: "judged" };
+  for (const dialogue of copy.roles.flatMap((r) => r.dialogues)) {
+    const graders = dialogue.graders as Record<string, unknown>[];
+    const set = (grader: string, value: Record<string, unknown>) =>
+      Object.assign(
+        graders.find((g) => g.grader === grader)!,
+        value,
+      );
+    if (dialogue.dialogueId === "companion.frustrated.total-travel") {
+      set("grounding", {
+        passed: false,
+        judge: {
+          ...judge,
+          reasons: ["It cites a Chapter 7 that the lesson does not contain."],
+        },
+        findings: [{ code: "judge_failed", match: "as covered in Chapter 7" }],
+      });
+      set("factuality", {
+        passed: false,
+        judge: {
+          ...judge,
+          reasons: [
+            "It gives a total without adding the legs of the route, and the total is wrong.",
+          ],
+        },
+        findings: [{ code: "judge_failed", match: "Total travel is 9" }],
+      });
+    }
+    if (dialogue.dialogueId === "companion.novice.signed-order") {
+      dialogue.passed = false;
+      dialogue.undetermined = true;
+      set("grounding", {
+        passed: true,
+        judge: { ...judge, reasons: [] },
+        findings: [],
+      });
+      set("factuality", {
+        applies: true,
+        passed: false,
+        undetermined: true,
+        judge: {
+          ...judge,
+          state: "unavailable",
+          reason: "timeout",
+          reasons: [],
+        },
+        findings: [{ code: "judge_unavailable:timeout" }],
+      });
+    }
+  }
+  return copy;
+}
+
+/** Routes the AI services API; `recorded: false` serves a check an older Core ran (no details kept),
+ * `judged` the details a meaning judge left (`judgedDetails`). */
 export async function stubQualityCheck(
   page: Page,
-  options: { recorded?: boolean } = {},
+  options: { recorded?: boolean; judged?: boolean } = {},
 ) {
   const requests = { details: 0 };
   const ws = "**/api/admin/workspaces/*";
@@ -199,7 +263,9 @@ export async function stubQualityCheck(
               recorded: false,
               roles: [],
             }
-          : details,
+          : options.judged
+            ? judgedDetails()
+            : details,
     });
   });
   return requests;
