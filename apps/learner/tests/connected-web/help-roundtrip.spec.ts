@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
-import { closeCompanion } from "./companion-helpers";
+import { closeCompanion, openCompanion } from "./companion-helpers";
 
 /* P04: optional help never costs the learner their place. Opening the
  * companion, or the profile from "Your course", and coming back restores the
@@ -21,6 +21,21 @@ async function scrollState(page: Page) {
       ? main.scrollTop
       : window.scrollY;
   });
+}
+
+/** Opens the companion as a learner does, with presses where its controls are (a locator click
+ * first scrolls the page to the control, which a pointer user never does), full height on a sheet. */
+async function pressOpen(page: Page) {
+  const press = async (selector: string) => {
+    const box = (await page.locator(selector).first().boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  const panel = page.locator("#connected-companion");
+  if (!(await panel.isVisible())) await press(".connected-header .connected-companion-trigger");
+  await expect(panel).toBeVisible();
+  await panel.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+  if (await panel.locator('[data-detent="full"]').count()) await press('#connected-companion [data-detent="full"]');
+  return openCompanion(page);
 }
 
 test("help round trip keeps the step, draft, anchor, focus, open help and media", async ({
@@ -61,16 +76,18 @@ test("help round trip keeps the step, draft, anchor, focus, open help and media"
   const anchor = await scrollState(page);
   expect(anchor).toBeGreaterThan(0);
 
-  // 1. The companion: a sheet, a collapsed pane or an open pane depending on size.
+  // 1. The companion: a sheet over the lesson, or a panel beside it, depending on size. Its
+  // button is in the header on every size.
   const trigger = page.locator(".connected-companion-trigger");
-  if (await trigger.isVisible()) await trigger.click();
+  await expect(page.locator(".connected-header .connected-companion-trigger")).toBeVisible();
+  await pressOpen(page);
   const draft = page.getByRole("textbox", {
     name: "Message to your companion",
     exact: true,
   });
   await draft.fill("Why is 2 the smaller value?");
   // Over the lesson (a sheet) the companion is closed before the lesson is used again.
-  if (await page.locator(".connected-host.is-compact").count()) await closeCompanion(page);
+  if (await page.locator('#connected-companion[data-placement="sheet"]').count()) await closeCompanion(page);
   else await answer.focus();
   await expect(answer).toBeChecked();
   // Opening a side pane narrows the lesson and may reflow it; the answer stays in view.
@@ -113,7 +130,8 @@ test("help round trip keeps the step, draft, anchor, focus, open help and media"
   await expect(page.locator('[aria-current="step"]')).toContainText(
     "Check your understanding",
   );
-  if (await trigger.isVisible()) await trigger.click();
+  await pressOpen(page);
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
   await expect(draft).toHaveValue("Why is 2 the smaller value?");
   expect(
     (

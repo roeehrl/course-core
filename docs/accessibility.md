@@ -15,7 +15,8 @@ All in `apps/learner/tests/connected-web/` against the real API and database
 | Browser zoom 200% and 400% | `accessibility.spec.ts` ("browser zoom") | The page lays out as Chromium does at that zoom: devicePixelRatio 2 or 4 on a 1280 px window, 640 or 320 CSS px wide. No horizontal page scroll, the answer actions, menu and companion stay reachable, a focused option is not hidden behind sticky actions, and axe passes | Text-only zoom (Firefox "Zoom text only", Safari text size), OS magnifiers, Safari and Firefox page zoom |
 | Control targets | `accessibility.spec.ts` ("control targets") | Every control in the lesson, header, companion and menu is at least 24×24 CSS px with a fine pointer and 44×44 with a coarse one (the phone and tablet projects emulate touch; inline links exempt); under a coarse pointer the companion's Send and Stop, Close, Expand, sheet handle, Jump to latest and height buttons are 44×44 at least | Touch accuracy on a real device |
 | Forced colours | `accessibility.spec.ts` | Every control keeps a border and the current step a 3 px outline in Windows high-contrast emulation | Every Windows contrast theme |
-| On-screen keyboard | `accessibility.spec.ts`, `keyboard-layout.spec.ts` | The answer actions stay above a simulated keyboard (a shrunk `visualViewport`) | A physical device keyboard |
+| On-screen keyboard | `accessibility.spec.ts`, `keyboard-layout.spec.ts`, `companion-sheet.spec.ts` | The answer actions stay above a simulated keyboard (a shrunk `visualViewport`); the companion sheet keeps its message box above it and leaves a 48 px strip of lesson | A physical device keyboard |
+| Companion frame | `companion-panel.spec.ts`, `companion-sheet.spec.ts`, `companion-focus-view.spec.ts`, `companion-responsive.spec.ts`, `layout-room.spec.ts` | The companion is a complementary region named "Your companion" at every size, never a dialog, with nothing behind it inert; the panel's separator follows the WAI-ARIA window splitter pattern (←/→ 16 px, Shift 64, Home/End, Enter 400 ↔ 560, arrows in screen direction in Hebrew); the sheet's handle takes ↑/↓; Escape stops a reply, then leaves focus view, then closes, and focus returns to the trigger; axe passes at every sheet height, in English and Hebrew | How a reader voices a region that appears beside or below the lesson; a real touch drag |
 | Line length | `accessibility.spec.ts` ("readable line length") | Lesson prose is at most about 70 characters per line on desktop and uses the card width on phone and tablet | Long words or unusual fonts in a course's own language |
 | IME composition | `apps/admin/tests/web/ime.spec.ts`, `apps/{learner,admin}/tests/imeGuard.test.tsx` | An Enter that commits IME composition never submits a form (a real Chromium composition through the DevTools protocol) | Every OS input method |
 | Screen-reader order and focus (S12) | `screen-reader.spec.ts` | The accessibility tree a reader's browse mode follows, through a whole lesson: banner and main landmarks; each course an article with its heading before its button; focus on the lesson's level-1 heading on entry; the current step marked; the reading part an article named "Reading part 1" with no TeX source; every control named; after "Mark this part read" and after "Check" focus moves to what comes next (never to the page); the answer's result in a live region; Tab stops in reading order, all visible and named | How VoiceOver or NVDA actually voices each item, verbosity, rotor and gesture behaviour: run the manual script below |
@@ -78,11 +79,18 @@ Do each step with the screen reader only: no mouse, screen off or not looked at 
    message once.
 10. **Gate.** Continue until a checkpoint. Expect its status and what is still needed to be read
     as text, and every action as a button with a full name.
-11. **Companion.** Open the companion (the "Companion" button, or the side pane on desktop).
-    Expect a dialog named "Your companion" on phone, with focus inside it. Type a question and
-    send it with Enter; with an IME (for example Japanese), the Enter that commits the text must
-    not send the message. The reply is announced when it is complete, not word by word. Escape
-    closes the dialog and returns focus to the button that opened it.
+11. **Companion.** Open the companion with the "Companion" button in the header (on every
+    size), or with Ctrl+Shift+. (⌘⇧. on a Mac) from anywhere outside a text field. Expect the
+    button to be announced as expanded, and a complementary region named "Your companion"
+    ("המנחה" in Hebrew), never a dialog: beside the lesson on desktop, a sheet over the lower part
+    of the lesson on a phone or tablet, with focus moved into it. The lesson stays readable and
+    reachable behind the sheet: browse back into it, and focus moved there lands in the visible
+    strip above the sheet. Type a question and send it with Enter; with an IME (for example
+    Japanese), the Enter that commits the text must not send the message. The reply is announced
+    when it is complete, not word by word. On desktop, the "Resize companion" separator announces
+    its width; ←/→ change it. On a sheet, the "Resize companion" handle changes its height with ↑/↓,
+    and "Full height" / "Half height" name the height they go to. Escape closes the companion and
+    returns focus to the "Companion" button (in focus view, the first Escape returns to the panel).
 12. **Menu and sign out.** Open the "Your course" menu: expect an expanded button followed by
     grouped buttons (Tab or the arrow keys move between them), the view on screen announced as
     the current page, and Escape to close it. Choose
@@ -92,3 +100,32 @@ Do each step with the screen reader only: no mouse, screen off or not looked at 
 
 A step fails if something is silent, announced twice, read out of visual order, named only by
 an icon, or if focus is lost (moves to the page top or to nothing).
+
+## Keyboard shortcut collision check
+
+The companion's shortcut is Ctrl+Shift+. on Windows and Linux and ⌘⇧. on macOS (final design §3.1,
+Q8). It is matched on the physical key (`event.code` "Period"), so it is the same key on a Hebrew
+or any other layout, it never includes Alt (Alt+Shift switches the keyboard layout on Windows), and
+it does nothing while focus is in a text field, where the keys belong to the field
+(`src/connected/companion/shortcut.ts`, `tests/shortcut.test.ts`, `companion-shortcut.spec.ts`). The
+trigger announces it with `aria-keyshortcuts` and shows it in its tooltip.
+
+| Where | Ctrl+Shift+. / ⌘⇧. already means | Result |
+| --- | --- | --- |
+| Chrome, Edge (Windows, Linux, ChromeOS) | nothing by default | free |
+| Firefox (Windows, Linux) | nothing by default | free |
+| Safari, Chrome, Firefox (macOS) | nothing in the browser; ⌘⇧. shows hidden files only in Finder's file dialogs, which are not open over a page | free |
+| macOS system | ⌘⇧. has no system binding | free |
+| Windows system | Ctrl+Shift alone switches the keyboard layout on some setups; with "." it is not a system shortcut | free (the layout switch fires on Ctrl+Shift without a third key) |
+| ChromeOS | Ctrl+Shift+. has no default binding (the launcher and accessibility shortcuts use Search or Alt) | free |
+| NVDA (Windows) | NVDA's own keys use the NVDA modifier (Insert or Caps Lock); none is Ctrl+Shift+. | free |
+| JAWS (Windows) | JAWS uses the Insert modifier; none is Ctrl+Shift+. | free |
+| Narrator (Windows) | Narrator uses Caps Lock or Insert; none is Ctrl+Shift+. | free |
+| VoiceOver (macOS) | VoiceOver uses Control+Option; ⌘⇧. is not a VoiceOver command | free |
+| Orca (Linux) | Orca uses Insert or Caps Lock; none is Ctrl+Shift+. | free |
+| Hebrew layout | the period key types ץ; `event.code` is still "Period" | works |
+| Inside a text field (the message box, an answer) | the field's own keys | the shortcut is not taken |
+
+The check above is from each product's published shortcut lists and must be repeated on real
+devices before the shortcut stops being provisional (Q8); a collision found there is reported to
+the owner rather than worked around with Alt.

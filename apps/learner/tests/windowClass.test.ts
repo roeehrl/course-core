@@ -6,6 +6,7 @@ import {
   windowClass,
 } from "../src/domain/windowClass";
 import { effectiveLayout } from "../src/domain/session";
+import { companionLayout } from "../src/domain/companionLayout";
 
 describe("window classes", () => {
   it("uses exactly the compact <600, medium 600–839 and expanded ≥840 boundaries", () => {
@@ -27,12 +28,16 @@ describe("window classes", () => {
     expect(windowClass(900, Number.NaN)).toBe("expanded");
     expect(windowClass(Number.NaN)).toBe("compact");
   });
-  it("puts the companion beside the lesson only when the window is wide and tall enough", () => {
+  it("keeps the public demo's companion placement (the connected learner's is companionLayout)", () => {
     expect(companionPlacement("compact", 1000)).toBe("sheet");
     expect(companionPlacement("medium", 1112)).toBe("pane");
     expect(companionPlacement("expanded", 960)).toBe("pane");
     // A phone in landscape is wide but too short for a side pane.
     expect(companionPlacement(windowClass(844), 390)).toBe("sheet");
+  });
+  it("gives the connected learner's layout its window class", () => {
+    for (const [width, height] of [[599, 900], [600, 1112], [839, 900], [840, 900], [1024, 900], [844, 390]] as const)
+      expect(companionLayout(width, height).windowClass, `${width}×${height}`).toBe(windowClass(width));
   });
   it("is the same function the public demo uses", () => {
     for (const width of [599, 600, 839, 840, 1024])

@@ -3,7 +3,10 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   isEditable,
+  keyboardHeight,
+  keyboardInset,
   nextLayoutSize,
+  useKeyboardInset,
   useLayoutViewport,
 } from "../src/connected/layoutViewport";
 
@@ -87,5 +90,55 @@ describe("useLayoutViewport", () => {
     act(() => window.dispatchEvent(new Event("resize")));
     await frame();
     expect(screen.getByTestId("size").textContent).toBe("800x420");
+  });
+});
+
+describe("useKeyboardInset", () => {
+  const frame = () => act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+  /** A visual viewport a keyboard can shrink, as on iOS and current Android Chrome. */
+  function fakeVisualViewport(height: number) {
+    const fake = Object.assign(new EventTarget(), { height, offsetTop: 0, width: 390 });
+    const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, get: () => fake });
+    return {
+      fake,
+      restore: () => (original ? Object.defineProperty(window, "visualViewport", original) : delete (window as { visualViewport?: unknown }).visualViewport),
+    };
+  }
+  it("measures what a keyboard covers from the visual viewport", () => {
+    expect(keyboardInset(844, 844, { height: 508, offsetTop: 0 })).toBe(336);
+    expect(keyboardInset(700, 844, { height: 508, offsetTop: 0 })).toBe(192);
+    expect(keyboardInset(844, 844, { height: 900, offsetTop: 0 })).toBe(0);
+    expect(keyboardInset(844, 844, null)).toBe(0);
+  });
+  it("writes --keyboard-inset and --kb on the host, never through React state", async () => {
+    const viewport = fakeVisualViewport(window.innerHeight);
+    let renders = 0;
+    function Host() {
+      renders++;
+      const ref = React.useRef<HTMLDivElement>(null);
+      useKeyboardInset(ref, () => null);
+      return <div ref={ref} data-testid="host" />;
+    }
+    try {
+      render(<Host />);
+      await frame();
+      const host = screen.getByTestId("host");
+      expect(host.style.getPropertyValue("--kb")).toBe("0px");
+      const before = renders;
+      viewport.fake.height = window.innerHeight - 336;
+      await act(async () => viewport.fake.dispatchEvent(new Event("resize")));
+      await frame();
+      expect(keyboardHeight()).toBe(336);
+      expect(host.style.getPropertyValue("--kb")).toBe("336px");
+      expect(host.style.getPropertyValue("--keyboard-inset")).toBe("336px");
+      expect(renders).toBe(before);
+      viewport.fake.height = window.innerHeight;
+      await act(async () => viewport.fake.dispatchEvent(new Event("resize")));
+      await frame();
+      expect(host.style.getPropertyValue("--kb")).toBe("0px");
+    } finally {
+      viewport.restore();
+    }
   });
 });

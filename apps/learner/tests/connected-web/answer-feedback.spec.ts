@@ -77,7 +77,7 @@ test("the sticky answer bar is opaque: lesson text under it never shows through"
   // rgb(...) is opaque; rgba(..., a) and color(... / a) carry an alpha below 1.
   expect(style.background).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
   // The reading folds away, so a tall window can hold the whole check; a short one makes the bar stick.
-  await page.setViewportSize({ width: page.viewportSize()!.width, height: 480 });
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 470 });
   // The layout settles after the resize; scroll only once the lesson column scrolls on its own.
   await expect
     .poll(() => page.locator(".connected-main").evaluate((el) => el.scrollHeight > el.clientHeight + 1))

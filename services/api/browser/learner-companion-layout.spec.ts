@@ -19,17 +19,23 @@ test("compact companion reserves space without covering reading or activity, inc
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
   await openCurrentLesson(page);
+  const trigger = page.locator(".connected-header .connected-companion-trigger");
+  const companion = page.getByRole("complementary", { name: "Your companion", exact: true });
+  // The button that opens the companion is in the header on every layout: the learning pane
+  // starts under the header and keeps the window to its end, so the button never covers it.
   const checkGeometry = async () => {
     const pane = await page
       .getByRole("main", { name: "Learning content" })
       .boundingBox();
-    const companion = await page
-      .getByRole("button", { name: "Companion", exact: true })
-      .boundingBox();
+    const header = await page.locator(".connected-header").boundingBox();
+    const button = await trigger.boundingBox();
     expect(pane).not.toBeNull();
-    expect(companion).not.toBeNull();
-    expect(pane!.y + pane!.height).toBeLessThanOrEqual(companion!.y);
-    expect(companion!.y + companion!.height).toBeLessThanOrEqual(
+    expect(header).not.toBeNull();
+    expect(button).not.toBeNull();
+    expect(button!.y).toBeGreaterThanOrEqual(header!.y - 0.5);
+    expect(button!.y + button!.height).toBeLessThanOrEqual(header!.y + header!.height + 0.5);
+    expect(pane!.y).toBeGreaterThanOrEqual(header!.y + header!.height - 0.5);
+    expect(pane!.y + pane!.height).toBeLessThanOrEqual(
       await page.evaluate(() => innerHeight),
     );
     expect(
@@ -40,6 +46,25 @@ test("compact companion reserves space without covering reading or activity, inc
       ),
     ).toBe(true);
   };
+  /** The sheet over the lesson: nonmodal, never inert behind it, and at Half the learning pane ends
+   * above it. */
+  const checkSheet = async (detent: string) => {
+    await expect(companion).toBeVisible();
+    await expect(companion).toHaveAttribute("data-placement", "sheet");
+    await expect(companion).toHaveAttribute("data-detent", detent);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await page.locator("[inert]").count()).toBe(0);
+    await expect(async () => {
+      const sheet = (await companion.boundingBox())!;
+      // A short window's Full leaves 48 px of the window's top; otherwise the learning pane ends
+      // above the sheet.
+      if (detent === "full") expect(Math.round(sheet.y)).toBe(48);
+      else {
+        const pane = (await page.getByRole("main", { name: "Learning content" }).boundingBox())!;
+        expect(pane.y + pane.height).toBeLessThanOrEqual(sheet.y + 1);
+      }
+    }).toPass({ timeout: 10_000 });
+  };
   // Force a compact window on the desktop project too, then test a short wide
   // landscape window where width-only CSS would otherwise leave the old overlay.
   await page.setViewportSize({ width: 390, height: 844 });
@@ -49,6 +74,9 @@ test("compact companion reserves space without covering reading or activity, inc
     name: "Mark this part read",
     exact: true,
   });
+  // With the sheet open at Half, the lesson above it is still read and used.
+  await trigger.click();
+  await checkSheet("half");
   await read.scrollIntoViewIfNeeded();
   expect(
     await read.evaluate((el) => {
@@ -59,6 +87,8 @@ test("compact companion reserves space without covering reading or activity, inc
     }),
   ).toBe(true);
   await read.click();
+  await page.getByRole("button", { name: "Close companion" }).click();
+  await expect(trigger).toBeFocused();
   await chooseFromMenu(page, "Learning record");
   const rejected = page.getByText(
     "Draft rejected by reference checks · revision needed",
@@ -75,19 +105,17 @@ test("compact companion reserves space without covering reading or activity, inc
       );
     }),
   ).toBe(true);
-  await page.setViewportSize({ width: 1280, height: 500 });
+  // A short landscape window (under 480 px high): the sheet opens at Full.
+  await page.setViewportSize({ width: 1280, height: 460 });
   // Layout settles after a resize; wait for it rather than sampling one frame.
   await expect(checkGeometry).toPass({ timeout: 10_000 });
-  await page.getByRole("button", { name: "Companion", exact: true }).click();
-  await expect(
-    page.getByRole("dialog", { name: "Your companion" }),
-  ).toBeVisible();
+  await trigger.click();
+  await checkSheet("full");
   await page.getByRole("button", { name: "Close companion" }).click();
-  await expect(
-    page.getByRole("button", { name: "Companion", exact: true }),
-  ).toBeFocused();
-  // 599 px is the widest compact window (see windowClass); 600 and up keep the
-  // companion beside the lesson instead.
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  // 599 px is the widest phone window (see companionLayout); 600 and up use the
+  // tablet's sheet.
   await page.setViewportSize({ width: 599, height: 1112 });
   // Layout settles after a resize; wait for it rather than sampling one frame.
   await expect(checkGeometry).toPass({ timeout: 10_000 });

@@ -264,10 +264,15 @@ for (const width of [390, 1280]) {
     await host(page, "he");
     await enterCourse(page, "he");
     await openLesson(page, "he");
-    // The companion starts closed beside the lesson too; its button opens it.
-    await page.getByRole("button", { name: t("companionDock.open"), exact: true }).click();
-    const companion = page.getByRole(width < 600 ? "dialog" : "complementary", { name: t("companionDock.label") });
+    // The companion starts closed beside the lesson too; its button in the header opens it, as the
+    // panel beside the lesson or as a sheet over it, which is never a dialog.
+    const trigger = page.locator(".connected-header").getByRole("button", { name: t("companionTrigger.name"), exact: true });
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const companion = page.getByRole("complementary", { name: t("companionDock.label"), exact: true });
     await expect(companion).toBeVisible();
+    await expect(companion).toHaveAttribute("data-placement", width < 600 ? "sheet" : "docked");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(companion.getByRole("textbox", { name: t("connectedCompanion.draft.label") })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expectNoHorizontalOverflow(page);

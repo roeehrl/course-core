@@ -1,1 +1,7 @@
-{}
+{
+  "title": "Companion",
+  "about": "About your companion",
+  "expand": "Expand",
+  "expand.tooltip": "Expand to a wide view",
+  "beside": "Show lesson beside"
+}

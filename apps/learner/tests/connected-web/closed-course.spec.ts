@@ -43,7 +43,7 @@ test("a closed course counts down its read-only questions and says when none rem
   await page.getByRole("button", { name: /^Lesson 1: Minimum, / }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   const trigger = page.locator(".connected-companion-trigger");
-  if (await trigger.isVisible()) await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   const budget = page.locator(".connected-closed-help");
   await expect(budget).toHaveText(/You can still ask 1 more question about its material \(0 of 1 used\)/);
   expect((await axe(page)).violations).toEqual([]);
@@ -68,7 +68,7 @@ test("a closed course answers its read-only question, and a refused question is 
   await page.getByRole("button", { name: /^Lesson 1: Minimum, / }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   const trigger = page.locator(".connected-companion-trigger");
-  if (await trigger.isVisible()) await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   const budget = page.locator(".connected-closed-help");
   const message = page.getByRole("textbox", { name: "Message to your companion", exact: true });
   const sendButton = page.getByRole("button", { name: "Send", exact: true });
