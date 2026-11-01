@@ -16,8 +16,10 @@ export const AskCompanionButton = forwardRef<
     candidate: AskCandidate;
     onPress: (event: React.MouseEvent<HTMLButtonElement>) => void;
     onKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
+    onFocus?: (event: React.FocusEvent<HTMLButtonElement>) => void;
+    onBlur?: (event: React.FocusEvent<HTMLButtonElement>) => void;
   }
->(function AskCompanionButton({ candidate, onPress, onKeyDown }, ref) {
+>(function AskCompanionButton({ candidate, onPress, onKeyDown, onFocus, onBlur }, ref) {
   const t = useT();
   const own = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
@@ -55,6 +57,8 @@ export const AskCompanionButton = forwardRef<
       onMouseDown={(event) => event.preventDefault()}
       onClick={onPress}
       onKeyDown={onKeyDown}
+      onFocus={onFocus}
+      onBlur={onBlur}
     >
       <Icon name="sparkle" size={16} />
       <span>{t("askCompanionButton.label")}</span>

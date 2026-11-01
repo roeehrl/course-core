@@ -12,6 +12,7 @@ import type { LessonSelection } from "./useLessonSelection";
 export type { LessonSelection } from "./useLessonSelection";
 
 const COMPANION = "#connected-companion";
+const SELECTING_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 
 /**
  * Follows what the learner selects in the open lesson (text, or lines of their own code) and
@@ -92,8 +93,11 @@ export function useLessonSelection(enabled: boolean): LessonSelection {
       if (timer) clearTimeout(timer);
       timer = setTimeout(settle, ASK_STABLE_MS);
     };
+    // Keys that make or extend a selection (caret browsing, a code field, select all); a copy
+    // or another shortcut after a pointer selection does not make it a keyboard one.
     const key = (event: KeyboardEvent) => {
-      if (!["Tab", "Escape", "Shift", "Control", "Meta", "Alt"].includes(event.key)) keyboard.current = true;
+      if (SELECTING_KEYS.has(event.key) || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a"))
+        keyboard.current = true;
     };
     // After the page's own Esc handlers (a menu or the companion that took it comes first).
     const escape = (event: KeyboardEvent) => {

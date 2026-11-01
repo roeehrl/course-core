@@ -10,6 +10,8 @@ import {
   codeCandidate,
   codeSelection,
   focusAfterAsk,
+  focusSelectionEnd,
+  isAskShortcut,
   tabbableNeighbour,
   textCandidate,
 } from "../src/connected/companion/selectionAttach";
@@ -190,5 +192,34 @@ describe("Tab order around the floating button", () => {
     expect(tabbableNeighbour(document.getElementById("before")!, true)?.id).toBe("after");
     expect(tabbableNeighbour(document.getElementById("after")!, false)?.id).toBe("before");
     expect(tabbableNeighbour(document.getElementById("lesson")!.firstChild!, false)).toBeNull();
+  });
+});
+
+describe("the companion shortcut and coming back from the button", () => {
+  it("matches Ctrl+Shift+. or Cmd+Shift+. by key position (any layout), never with Alt", () => {
+    const key = (init: Partial<KeyboardEvent>) => ({ code: "Period", shiftKey: true, ctrlKey: false, metaKey: false, altKey: false, ...init });
+    expect(isAskShortcut(key({ ctrlKey: true }))).toBe(true);
+    expect(isAskShortcut(key({ metaKey: true }))).toBe(true);
+    expect(isAskShortcut(key({ ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isAskShortcut(key({ ctrlKey: true, shiftKey: false }))).toBe(false);
+    expect(isAskShortcut(key({ ctrlKey: true, code: "Comma" }))).toBe(false);
+  });
+
+  it("puts focus on the block the selection ends in, focusable only while it has focus", () => {
+    const candidate = textCandidate(select("lesson", 31, 47))!;
+    focusSelectionEnd(candidate);
+    const paragraph = document.getElementById("lesson")!;
+    expect(paragraph).toHaveFocus();
+    expect(paragraph.getAttribute("tabindex")).toBe("-1");
+    document.getElementById("after")!.focus();
+    expect(paragraph.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("puts focus back in the code field for code", () => {
+    document.body.insertAdjacentHTML("beforeend", '<div class="connected-lesson"><textarea id="code">a = 1\nb = 2</textarea></div>');
+    const field = document.getElementById("code") as HTMLTextAreaElement;
+    field.setSelectionRange(0, 5);
+    focusSelectionEnd(codeCandidate(field)!);
+    expect(field).toHaveFocus();
   });
 });

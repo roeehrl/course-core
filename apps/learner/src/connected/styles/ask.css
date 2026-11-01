@@ -82,6 +82,10 @@
   min-block-size: 44px;
   font: 400 var(--text-button) var(--font-sans);
 }
+/* The focus ring stays inside the menu's edge. */
+.cc-ask-part-item:focus-visible {
+  outline-offset: -2px;
+}
 .cc-ask-part-item > span {
   min-inline-size: 0;
   overflow-wrap: anywhere;

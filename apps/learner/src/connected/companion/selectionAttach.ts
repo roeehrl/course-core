@@ -233,6 +233,35 @@ export function isAskButton(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest(`.${ASK_BUTTON_CLASS}`);
 }
 
+/**
+ * The companion shortcut, Ctrl+Shift+. or ⌘⇧. (final design §5), matched on `event.code` so a
+ * Hebrew keyboard layout gives the same key. No Alt.
+ */
+export function isAskShortcut(event: Pick<KeyboardEvent, "code" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey">): boolean {
+  return event.code === "Period" && event.shiftKey && (event.ctrlKey || event.metaKey) && !event.altKey;
+}
+
+const BLOCK = "p,li,dd,dt,blockquote,pre,figcaption,td,th,h1,h2,h3,h4,h5,h6";
+/**
+ * Puts focus back where the selection is once the floating button goes away while it has focus
+ * (Esc, a scroll): the code field for code; for lesson text, the block the selection ends in,
+ * made focusable for as long as it keeps focus. Tab then carries on from the selection, not from
+ * the top of the page.
+ */
+export function focusSelectionEnd(candidate: AskCandidate): void {
+  if (candidate.kind === "code") {
+    if (candidate.origin.isConnected) candidate.origin.focus({ preventScroll: true });
+    return;
+  }
+  const block = (elementOf(candidate.endNode)?.closest(BLOCK) ?? candidate.origin) as HTMLElement;
+  if (!block.isConnected) return;
+  if (!block.hasAttribute("tabindex")) {
+    block.setAttribute("tabindex", "-1");
+    block.addEventListener("blur", () => block.removeAttribute("tabindex"), { once: true });
+  }
+  block.focus({ preventScroll: true });
+}
+
 const TABBABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 /** The next (or previous) control in Tab order after (before) `node`, skipping the floating button. */

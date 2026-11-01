@@ -227,14 +227,32 @@ describe("the floating Ask companion button", () => {
     expect(companionBridge.attachSelection()).toBe(false);
   });
 
-  it("says nothing for a selection made with the pointer", () => {
+  it("says nothing for a selection made with the pointer, even after a copy shortcut", () => {
     render(<Lesson />);
     fireEvent.pointerDown(document.getElementById("lesson")!);
     selectLesson();
     fireEvent.pointerUp(document.getElementById("lesson")!);
+    fireEvent.keyDown(document, { key: "c", ctrlKey: true });
     wait(ASK_STABLE_MS);
     expect(floating()).toBeVisible();
     expect(status()).toHaveTextContent("");
+  });
+
+  it("Esc on the focused button puts focus back at the selection, so Tab carries on from there", () => {
+    render(<Lesson />);
+    fireEvent.keyDown(document, { key: "ArrowRight", shiftKey: true });
+    selectLesson();
+    wait(ASK_STABLE_MS);
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    expect(floating()).toHaveFocus();
+    fireEvent.keyDown(floating()!, { key: "Escape" });
+    expect(floating()).toBeNull();
+    const paragraph = document.getElementById("lesson")!;
+    expect(paragraph).toHaveFocus();
+    expect(paragraph).toHaveAttribute("tabindex", "-1");
+    // The paragraph is focusable only while it has focus.
+    act(() => (document.getElementById("next") as HTMLElement).focus());
+    expect(paragraph).not.toHaveAttribute("tabindex");
   });
 
   it("offers selected code lines through the same button", async () => {
@@ -262,6 +280,37 @@ describe("the floating Ask companion button", () => {
     expect(companionFocus.get().selection).toMatchObject({ kind: "code", lineStart: 2, lineEnd: 3, excerpt: "b = 2\nc = 3" });
     // The editor keeps its error and protocol lines.
     expect(document.querySelector(".connected-code-protocol")).not.toBeNull();
+  });
+
+  it("in a code field, where the shell leaves the shortcut alone, Ctrl+Shift+. attaches the selected lines", async () => {
+    render(
+      <Lesson>
+        <CodeEditor language="python" value={"a = 1\nb = 2\nc = 3\n"} onChange={() => {}} />
+      </Lesson>,
+    );
+    const field = screen.getByRole("textbox", { name: "Your code" }) as HTMLTextAreaElement;
+    field.focus();
+    fireEvent.keyDown(field, { key: "ArrowDown", shiftKey: true });
+    field.setSelectionRange(0, 5);
+    fireEvent.select(field);
+    wait(ASK_STABLE_MS);
+    // The status region names the shortcut, and the shortcut works where focus is.
+    expect(status()).toHaveTextContent("Ask companion is available: Ctrl+Shift+period");
+    const event = new KeyboardEvent("keydown", { key: ">", code: "Period", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+    act(() => void field.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    await act(async () => {
+      await vi.waitFor(() => expect(requests).toEqual([{ source: "code", focus: true }]));
+    });
+    expect(companionFocus.get().selection).toMatchObject({ kind: "code", lineStart: 1, lineEnd: 1, excerpt: "a = 1" });
+    // Esc from the code button returns to the field, not the page.
+    field.setSelectionRange(6, 11);
+    fireEvent.select(field);
+    wait(ASK_STABLE_MS);
+    fireEvent.keyDown(field, { key: "Tab" });
+    expect(floating()).toHaveFocus();
+    fireEvent.keyDown(floating()!, { key: "Escape" });
+    expect(field).toHaveFocus();
   });
 
   it("a code selection is withdrawn when it collapses or focus leaves the field", () => {

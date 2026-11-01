@@ -5,7 +5,14 @@ import { Announcer, useAnnounce } from "../ui/Announcer.web";
 import { useCoarsePointer } from "../ui/media";
 import { AskCompanionButton } from "./AskCompanionButton.web";
 import { companionBridge, useCompanionAvailable } from "./bridge";
-import { attachCandidate, focusAfterAsk, tabbableNeighbour, type AskCandidate } from "./selectionAttach";
+import {
+  attachCandidate,
+  focusAfterAsk,
+  focusSelectionEnd,
+  isAskShortcut,
+  tabbableNeighbour,
+  type AskCandidate,
+} from "./selectionAttach";
 
 /** Where Tab belongs to the control that has focus, not to a selection in the lesson text. */
 const OUTSIDE_TEXT = "input,textarea,select,[contenteditable]:not([contenteditable='false']),#connected-companion";
@@ -32,7 +39,10 @@ function AskFromSelection({ enabled, episodeId }: { enabled: boolean; episodeId?
   const coarse = useCoarsePointer();
   const { candidate, viaKeyboard, current, dismiss } = useLessonSelection(enabled);
   const button = useRef<HTMLButtonElement | null>(null);
+  /** While the button has focus: the selection it stands for and where focus came from. */
+  const focusedFrom = useRef<{ candidate: AskCandidate; element: HTMLElement | null } | null>(null);
   const attach = (target: AskCandidate, focus: boolean) => {
+    focusedFrom.current = null;
     dismiss();
     // On a touch screen a tap keeps the keyboard down, so the sheet opens at Half.
     attachCandidate(target, { focus });
@@ -54,6 +64,32 @@ function AskFromSelection({ enabled, episodeId }: { enabled: boolean; episodeId?
       return true;
     });
   }, [enabled, current]);
+
+  // A code field is an editable field, where the shell leaves the shortcut alone: with lines
+  // selected there, the shortcut attaches them here.
+  useEffect(() => {
+    if (!enabled) return;
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isAskShortcut(event)) return;
+      const target = current();
+      if (target?.kind !== "code" || document.activeElement !== target.origin) return;
+      event.preventDefault();
+      attachRef.current(target, true);
+    };
+    document.addEventListener("keydown", shortcut, true);
+    return () => document.removeEventListener("keydown", shortcut, true);
+  }, [enabled, current]);
+
+  // The button went away while it had focus (Esc, a scroll): focus goes back to where it came
+  // from, or to the selection, so Tab carries on from there and not from the top of the page.
+  useEffect(() => {
+    if (candidate) return;
+    const from = focusedFrom.current;
+    focusedFrom.current = null;
+    if (!from || (document.activeElement && document.activeElement !== document.body)) return;
+    if (from.element?.isConnected && from.element !== document.body) from.element.focus({ preventScroll: true });
+    else focusSelectionEnd(from.candidate);
+  }, [candidate]);
 
   // Said once for a selection made with the keyboard; a new selection may say it again.
   const said = useRef(false);
@@ -99,6 +135,12 @@ function AskFromSelection({ enabled, episodeId }: { enabled: boolean; episodeId?
       ref={button}
       candidate={candidate}
       onPress={(event) => attach(candidate, focusAfterAsk(event, coarse))}
+      onFocus={(event) => {
+        focusedFrom.current = { candidate, element: event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null };
+      }}
+      onBlur={() => {
+        focusedFrom.current = null;
+      }}
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
         // From the button, Tab carries on after the selection (Shift+Tab goes back to it).

@@ -156,9 +156,20 @@ test("keyboard: the shortcut is named once, Tab reaches the button and Enter att
   await expect(status).toHaveAttribute("role", "status");
   await page.keyboard.press("Tab");
   await expect(ask).toBeFocused();
+  // Esc hides it and gives focus back to where it came from, not to the top of the page.
+  await page.keyboard.press("Escape");
+  await expect(ask).toHaveCount(0);
+  expect(await page.evaluate(() => !!document.activeElement?.closest(".connected-lesson"))).toBe(true);
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.evaluate(() => document.getSelection()!.modify("extend", "forward", "character"));
+  }
+  await expect(ask).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(ask).toBeFocused();
   await page.keyboard.press("Enter");
   const panel = companionPanel(page);
-  await expect(panel.getByText("Selected: “any other”", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Selected: “any other m”", { exact: true })).toBeVisible();
   await expect(composerBox(page)).toBeFocused();
 });
 
