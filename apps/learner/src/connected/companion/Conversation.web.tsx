@@ -199,7 +199,9 @@ function ConversationBody({
   }, [draft]);
   const save = useCallback((text: string) => {
     clearTimeout(saveTimer.current);
-    written.current = text;
+    // The drafts store keeps at most a message's length; text over it stays in the box (and says
+    // how far over it is) instead of being cut when the stored copy comes back.
+    written.current = text.slice(0, MESSAGE_MAX);
     latest.current.onDraftChange(text);
   }, []);
   const change = (text: string) => {
@@ -453,6 +455,8 @@ function ConversationBody({
         throw new Error("Unconfirmed companion response");
       clocks.current.set(receipt.messageId, { since: sentAt });
       updateLocal(id, { status: "sent", messageId: receipt.messageId });
+      // A recovered message was there to check before sending another; one was sent now.
+      dismissRecovered();
       if (fromBox && latest.current.draft === text) save("");
       if (stopAfterSend.current.delete(id)) void stopQuestion(receipt.messageId, text, true);
     } catch (cause) {
@@ -606,6 +610,9 @@ function ConversationBody({
     };
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+    // The zone grows on its own too (a notice, an attachment, more lines).
+    const zone = node.querySelector<HTMLElement>(".cc-chat-composer");
+    if (zone) observer.observe(zone);
     measure();
     return () => observer.disconnect();
   }, []);
@@ -645,7 +652,13 @@ function ConversationBody({
 
   // The thread's items, in order: dividers, turns and their reply rows.
   const conversation = { enrollmentId: context.enrollmentId, episodeTitles };
-  const latestQuestion = shown.findLast((message) => message.role === "learner")?.id;
+  // A question of this page not yet read back is the latest: the saved one before it gives up
+  // "Ask again" in the same frame as the new bubble shows, so nothing moves once it is anchored.
+  const unsaved = locals.some((item) => {
+    const saved = matched.get(item.key);
+    return !saved || !messages.some((message) => message.id === saved);
+  });
+  const latestQuestion = unsaved ? undefined : shown.findLast((message) => message.role === "learner")?.id;
   const latestReply = lastReply?.id;
   const items: React.ReactNode[] = [];
   let previous: CompanionMessage | undefined;
@@ -781,11 +794,12 @@ function ConversationBody({
   }
 
   return (
-    <div ref={root} className="cc-chat" data-in-progress={inProgress ? "true" : undefined}>
+    <div ref={root} className="cc-chat" data-in-progress={inProgress ? "true" : undefined} data-sheet={layout?.placement === "sheet" ? (layout.sheet ?? "phone") : undefined}>
       <Thread ref={thread} loaded={loaded} failed={Boolean(error)} {...(onRefresh ? { onRetry: onRefresh } : {})} onShown={openAtStart}>
         <EarlierMessages conversation={conversation} />
         {items}
-        {emptyThread && (
+        {/* A conversation that could not be read is not an empty one. */}
+        {emptyThread && !error && (
           <EmptyState
             {...(context.episodeTitle ? { lesson: context.episodeTitle } : {})}
             {...(context.blockTitle ? { part: context.blockTitle } : {})}

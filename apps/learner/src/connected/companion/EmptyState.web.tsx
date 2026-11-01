@@ -1,5 +1,5 @@
 import React from "react";
-import { useT } from "../../i18n";
+import { useI18n, useT } from "../../i18n";
 import { ChipRow, starterChips } from "./ReplyChips.web";
 
 /**
@@ -25,6 +25,7 @@ export function EmptyState({
   showChips: boolean;
 }) {
   const t = useT();
+  const i18n = useI18n();
   if (!inLesson)
     return (
       <section className="cc-chat-empty" aria-labelledby="cc-chat-empty-title">
@@ -35,7 +36,7 @@ export function EmptyState({
     <section className="cc-chat-empty" aria-labelledby="cc-chat-empty-title">
       {lesson && (
         <p className="cc-chat-empty-context">
-          {part ? t("emptyState.context", { lesson, part }) : <bdi>{lesson}</bdi>}
+          {part ? i18n.rich("emptyState.context", { lesson, part }, { lesson: (children, key) => <bdi key={key}>{children}</bdi> }) : <bdi>{lesson}</bdi>}
         </p>
       )}
       <h3 id="cc-chat-empty-title" className="cc-chat-empty-title">{t("emptyState.title")}</h3>

@@ -227,6 +227,40 @@ describe("persisted companion integration", () => {
     expect(box).toHaveValue("From another tab");
   });
 
+  it("keeps text over the length limit in the box when the saved draft comes back cut to the limit", () => {
+    vi.useFakeTimers();
+    const long = "x".repeat(4212);
+    const change = vi.fn();
+    const { again } = show({ onDraftChange: change });
+    const box = screen.getByRole("textbox", { name: "Message to your companion" });
+    fireEvent.change(box, { target: { value: long } });
+    act(() => void vi.advanceTimersByTime(300));
+    expect(change).toHaveBeenCalledWith(long);
+    // The drafts store keeps a message's length at most (drafts.ts).
+    again({ onDraftChange: change, draft: long.slice(0, 4000) });
+    expect(box).toHaveValue(long);
+    expect(screen.getByText("212 characters over")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("a new question takes Ask again from the one before in the same frame it shows, so nothing moves after it is anchored", async () => {
+    const send = vi.fn(() => new Promise<never>(() => {}));
+    show({ onSend: send, messages: [{ ...message, job_state: "waiting", job_reason: "provider_uncertain", job_stalled: true }] });
+    expect(screen.getByRole("button", { name: "Ask again" })).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message to your companion" }), { target: { value: "And now?" } });
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Send" })));
+    expect(send).toHaveBeenCalled();
+    expect(screen.getByText("And now?")).toBeVisible();
+    expect(screen.getByText("No reply came through.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Ask again" })).toBeNull();
+  });
+
+  it("a conversation that could not be read is not shown as an empty one", () => {
+    show({ error: "unavailable", onRefresh: () => {} });
+    expect(screen.getByText("Couldn't refresh the conversation. Your draft is safe.")).toBeVisible();
+    expect(screen.queryByText("Ask anything about this lesson")).toBeNull();
+  });
+
   it("derives truthful companion states from saved jobs and the browser", () => {
     const at = (job_state: string | null, job_reason: string | null = null): CompanionMessage => ({ ...message, job_state, job_reason });
     expect(companionState([at("running")], { online: false, awaitingChoice: true })).toBe("offline");

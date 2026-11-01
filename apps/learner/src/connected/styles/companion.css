@@ -256,8 +256,20 @@ button.cc-chat-anchor:focus-visible {
   color: var(--ink-muted);
   font: 400 var(--text-meta) var(--font-sans);
 }
-.cc-chat-row .cc-ui-status .cc-ui-icon {
+/* A status line that wraps keeps its icon beside the first line, the text running on under itself. */
+.cc-chat-row .cc-ui-status,
+.cc-chat-refresh .cc-ui-status {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.cc-chat-row .cc-ui-status .cc-ui-icon,
+.cc-chat-refresh .cc-ui-status .cc-ui-icon {
   flex: none;
+  margin-block-start: calc((var(--text-meta-line) - 16px) / 2);
+}
+.cc-chat-row .cc-ui-status-text,
+.cc-chat-refresh .cc-ui-status-text {
+  min-inline-size: 0;
 }
 .cc-chat-row .cc-ui-status.is-muted .cc-ui-icon,
 .cc-chat-footnote .cc-ui-icon {
@@ -408,11 +420,28 @@ button.cc-chat-anchor:focus-visible {
   padding-inline: var(--space-4);
   background: var(--surface);
 }
+/* In a sheet the composer zone keeps 12 px from the edges (§2.4). */
+.cc-chat[data-sheet] .cc-chat-composer {
+  padding-inline: var(--space-3);
+}
 .cc-chat-notice:empty {
   display: none;
 }
 .cc-chat-notice .cc-ui-notice {
   padding-block: var(--space-2);
+}
+/* "Go to {lesson}" carries a lesson title of any length: it takes its own line under the text,
+ * aligned with it, instead of squeezing the sentence beside it. */
+.cc-chat-notice[data-notice="outsideLesson"] .cc-ui-notice {
+  flex-wrap: wrap;
+}
+.cc-chat-notice[data-notice="outsideLesson"] .cc-ui-notice > .cc-ui-text-button {
+  flex-basis: calc(100% - 16px - var(--space-2));
+  justify-content: flex-start;
+  margin-block-start: calc(-1 * var(--space-2));
+  margin-inline-start: calc(16px + var(--space-2));
+  padding-inline: 0;
+  text-align: start;
 }
 .cc-chat-conflict-actions {
   display: flex;
@@ -588,10 +617,12 @@ button.cc-chat-anchor:focus-visible {
 }
 .cc-chat-count {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: var(--space-1);
   margin-inline-start: auto;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .cc-chat-count.is-over {
   color: var(--ink);
