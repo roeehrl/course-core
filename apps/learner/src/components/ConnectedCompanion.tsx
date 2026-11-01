@@ -32,8 +32,9 @@ import { BubbleActions } from "../connected/companion/BubbleActions.web";
 import { EarlierMessages } from "../connected/companion/EarlierMessages.web";
 import { DecisionLine } from "../connected/companion/DecisionLine.web";
 import { SendConfirm } from "../connected/credit/SendConfirm.web";
-import { CreditNotice } from "../connected/credit/CreditNotice.web";
-import { CreditLineAfter, CreditThreadEnd } from "../connected/credit/CreditThreadLines.web";
+import { CREDIT_LINE_ID, CreditNotice, useCreditLineShown } from "../connected/credit/CreditNotice.web";
+import { CreditLineAfter, CreditLineBeforeDivider, CreditThreadEnd } from "../connected/credit/CreditThreadLines.web";
+import { creditScope } from "../connected/credit/creditScope";
 export interface ConnectedCompanionProps {
   context: CompanionContext;
   messages: readonly CompanionMessage[];
@@ -199,13 +200,13 @@ export function ConnectedCompanion({
     held.current = null;
     setHeldOffline(null);
   }, [context.enrollmentId, context.episodeId]);
-  async function send(allow?: true) {
+  async function send(allow?: true, text?: string) {
     if (!online) {
       held.current = { draft, episodeId: context.episodeId, ...(allow ? { consent: allow } : {}) };
       setHeldOffline(allow ? { consent: allow } : {});
       return;
     }
-    const submitted = current.current.draft,
+    const submitted = text ?? current.current.draft,
       scope = context.episodeId;
     // The reply to this question is brought into view when it arrives (useReveal).
     reveal.follow();
@@ -222,11 +223,12 @@ export function ConnectedCompanion({
       setSent(receipt.messageId);
     } catch (cause) {
       if (current.current.context.episodeId !== scope) return;
-      if (
-        cause instanceof CourseApiError &&
-        cause.code === "ASSESSMENT_HELP_CONSENT_REQUIRED"
-      )
+      // The server asks for the learner's choice: the same inline confirm, with no extra paragraph.
+      if (cause instanceof CourseApiError && cause.code === "ASSESSMENT_HELP_CONSENT_REQUIRED") {
+        if (text !== undefined) onDraftChange(text);
         setConsent(true);
+        return;
+      }
       setSendError(
         cause instanceof CourseApiError
           ? cause.message
@@ -257,6 +259,22 @@ export function ConnectedCompanion({
     [],
   );
   const conversation = { enrollmentId: context.enrollmentId, episodeTitles };
+  // Credit (connected/credit): whether the next message would turn an open counted question into
+  // practice, so the learner is asked first; the credit line moves under the composer while a
+  // limitation takes the notice slot.
+  const needsConsent = server ? creditScope(server, context.episodeId, now, focus.check?.challengeId).length > 0 : context.independentChallengeIds.length > 0;
+  const creditShown = useCreditLineShown(server, context.episodeId, now);
+  const creditPlacement = !online || unavailable ? "meta" : "notice";
+  /** A question saved for after the check, sent now: asked first like any message. */
+  async function sendSaved(text: string) {
+    if (needsConsent) {
+      onDraftChange(text);
+      setConsent(true);
+      return false;
+    }
+    await send(undefined, text);
+    return true;
+  }
   const latestReply = messages.findLast((row) => row.role === "assistant")?.id;
   const latestQuestion = messages.findLast((row) => row.role === "learner")?.id;
   return (
@@ -297,14 +315,17 @@ export function ConnectedCompanion({
         style={{ gap: 16 }}
       >
         <EarlierMessages conversation={conversation} />
-        {messages.map((message) => {
+        {messages.map((message, index) => {
           // The reply being written for this question, newer than the saved job: once its call
           // is sent (the draft opens), the question offers Stop instead of "Stop waiting".
           const replyDraft = companionDraftFor(message, messages, drafts);
           const jobLabel = companionJobLabel(message, t, replyDraft);
           const withheldNote = companionWithheldNote(message);
+          const lesson = message.context_used?.episodeId ?? message.context.episodeId;
+          const before = index > 0 ? (messages[index - 1]!.context_used?.episodeId ?? messages[index - 1]!.context.episodeId) : undefined;
           return (
           <React.Fragment key={message.id}>
+          {before && before !== lesson && <CreditLineBeforeDivider episodeId={before} server={server} />}
           <View
             ref={message.role === "assistant" ? reveal.node(`reply:${message.id}`) : undefined}
             {...(Platform.OS === "web" ? ({ dataSet: { messageId: message.id } } as object) : {})}
@@ -426,7 +447,7 @@ export function ConnectedCompanion({
           );
         })}
         <DecisionLine api={api} server={server} />
-        <CreditThreadEnd />
+        <CreditThreadEnd onSend={sendSaved} server={server} episodeId={context.episodeId} />
       </View>
       {sentNotice && <Notice>{t(sentNotice)}</Notice>}
       {sendError && <Notice error>{sendError}</Notice>}
@@ -479,6 +500,7 @@ export function ConnectedCompanion({
           composer shows only to keep a draft started in a lesson. */}
       {(inLesson || draft.trim().length > 0) && (
       <>
+      {creditPlacement === "notice" && <CreditNotice server={server} episodeId={context.episodeId} now={now} placement="notice" />}
       <Field
         label={t("connectedCompanion.draft.label")}
         multiline
@@ -487,6 +509,7 @@ export function ConnectedCompanion({
         maxLength={4000}
         placeholder={t("connectedCompanion.draft.placeholder")}
         editable={!pending}
+        {...(creditShown && !(creditPlacement === "meta" && consent) ? { "aria-describedby": CREDIT_LINE_ID } : {})}
       />
       {!context.episodeId && (
         <Text style={styles.small}>
@@ -498,7 +521,6 @@ export function ConnectedCompanion({
           {t("connectedCompanion.unavailable")}
         </Text>
       )}
-      <CreditNotice server={server} episodeId={context.episodeId} now={now} placement="notice" />
       {consent ? (
         <SendConfirm
           server={server}
@@ -508,6 +530,11 @@ export function ConnectedCompanion({
           sendDisabled={!draft.trim() || unavailable}
           onKeep={() => setConsent(false)}
           onSendAsPractice={() => void send(true)}
+          draft={draft}
+          onSaveForLater={() => {
+            onDraftChange("");
+            setConsent(false);
+          }}
         />
       ) : (
         <Button
@@ -529,11 +556,12 @@ export function ConnectedCompanion({
             !!heldOffline
           }
           onPress={() => {
-            if (context.independentChallengeIds.length) setConsent(true);
+            if (needsConsent) setConsent(true);
             else void send();
           }}
         />
       )}
+      {creditPlacement === "meta" && !consent && <CreditNotice server={server} episodeId={context.episodeId} now={now} placement="meta" />}
       <Text style={styles.small}>
         {t(storageUnavailable ? "connectedCompanion.draft.tabOnly" : "connectedCompanion.draft.saved")}
       </Text>

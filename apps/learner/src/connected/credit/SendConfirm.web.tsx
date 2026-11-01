@@ -1,8 +1,10 @@
-import React from "react";
-import { Text, View } from "react-native";
+import React, { useRef } from "react";
 import type { ServerSnapshot } from "../../client/apiClient";
-import { Button, styles } from "../../components/ui";
 import { useT } from "../../i18n";
+import { InlineConfirm } from "../ui/InlineConfirm.web";
+import { useAttachedCheckId } from "./CreditNotice.web";
+import { scopedQuestion } from "./creditScope";
+import { deferredQuestion } from "./deferredQuestion";
 
 export interface SendConfirmProps {
   server?: ServerSnapshot;
@@ -13,22 +15,62 @@ export interface SendConfirmProps {
   /** Sending is not possible now (an empty message, or the companion is unavailable). */
   sendDisabled?: boolean;
   onSendAsPractice: () => void;
+  /** Keep the question counted: nothing is sent and the draft stays; focus goes back to the message box. */
   onKeep: () => void;
-  /** Keep the message to send after the question. Not offered yet. */
+  /** The message is set aside for after the question (deferredQuestion.ts): the composer clears its draft. */
   onSaveForLater?: () => void;
+  /** The message, saved by "Save for after the question". */
+  draft?: string;
 }
 
-/** Asked before a message that would turn an open check into practice. */
-export function SendConfirm({ pending, sendDisabled, onSendAsPractice, onKeep }: SendConfirmProps) {
+/**
+ * Asked in place of the meta line when a message would turn an open counted question into
+ * practice (final design §3.11, "at the moment"), also when the server answers
+ * ASSESSMENT_HELP_CONSENT_REQUIRED: one sentence, "Send as practice" and "Keep it counted" as two
+ * equal outline buttons, and "Save for after the question". Nothing is sent before the choice;
+ * focus starts on "Keep it counted", and Esc keeps it counted. Asked again for every newly opened
+ * counted question, never remembered.
+ */
+export function SendConfirm({ server, episodeId, now, pending, sendDisabled, onSendAsPractice, onKeep, onSaveForLater, draft }: SendConfirmProps) {
   const t = useT();
+  const root = useRef<HTMLDivElement>(null);
+  const attached = useAttachedCheckId();
+  const question = scopedQuestion(server, episodeId, now, attached);
+  // The server asked for a choice on a question the preview does not know yet: name the lesson's.
+  const ordinal = question?.ordinal ?? 1;
+  /** Back to the message box the confirm answers, once the row has gone. */
+  const refocus = () => {
+    const field = root.current?.closest("#connected-companion")?.querySelector<HTMLTextAreaElement>("textarea");
+    requestAnimationFrame(() => field?.isConnected && field.focus({ preventScroll: true }));
+  };
   return (
-    <View style={[styles.card, { padding: 16, backgroundColor: "#FCF3DF" }]}>
-      <Text accessibilityRole="header" style={styles.heading}>
-        {t("sendConfirm.title")}
-      </Text>
-      <Text style={styles.body}>{t("sendConfirm.body")}</Text>
-      <Button label={t("sendConfirm.keep")} disabled={pending} onPress={onKeep} />
-      <Button label={t("sendConfirm.switch")} kind="primary" disabled={pending || sendDisabled} onPress={onSendAsPractice} />
-    </View>
+    <div ref={root} className="cc-credit-confirm-row" aria-busy={pending || undefined}>
+      <InlineConfirm
+        className="cc-credit-confirm"
+        sentence={t("sendConfirm.sentence", { ordinal })}
+        confirmLabel={t("sendConfirm.switch")}
+        onConfirm={() => {
+          if (!pending && !sendDisabled) onSendAsPractice();
+        }}
+        cancelLabel={t("sendConfirm.keep")}
+        onCancel={() => {
+          onKeep();
+          refocus();
+        }}
+        {...(onSaveForLater
+          ? {
+              tertiary: {
+                label: t("sendConfirm.later"),
+                onPress: () => {
+                  if (pending || !server || !episodeId || !draft?.trim()) return;
+                  deferredQuestion.save(server.enrollmentId, episodeId, draft, question?.challengeIds ?? [], now);
+                  onSaveForLater();
+                  refocus();
+                },
+              },
+            }
+          : {})}
+      />
+    </div>
   );
 }

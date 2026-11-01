@@ -1,21 +1,131 @@
-/* Credit honesty: whether the open question counts (connected/credit). Moved from connected.css. */
+/* Credit honesty (connected/credit, final design §3.11): quiet lines in neutral colours, the
+   Counts/Practice icons told apart by shape, and the inline confirm. No fill, no warning colour. */
 
-/* Whether the open question counts, said before the question. */
-.connected-question-kind {
+/* The credit line: in the notice slot above the composer, or in the meta line below it. */
+.cc-credit-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-block: 0;
+  padding-inline: var(--space-1);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-credit-line.is-meta {
+  padding-inline: 0;
+}
+.cc-credit-line-icon {
+  flex: none;
+  margin-block-start: 2px;
+}
+.cc-credit-line-text {
+  flex: 1;
+  min-inline-size: 0;
   margin: 0;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid #dce6e2;
-  border-inline-start-width: 4px;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #183237 !important;
-  background: #fff;
+  text-wrap: pretty;
 }
-.connected-question-kind.is-counted {
-  border-inline-start-color: #087b69;
+/* The ⓘ: a 24 px target with a fine pointer, 44 px with a coarse one. */
+.cc-ui-icon-button.cc-credit-info {
+  flex: none;
+  min-inline-size: var(--target);
+  min-block-size: var(--target);
+  margin-block: -2px;
 }
-.connected-question-kind.is-practice {
-  border-inline-start-color: #80601e;
-  background: #fcf3df;
+.cc-credit-popover-text {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+
+/* The inline confirm, in place of the meta line: a 14/20 sentence (15/22 in Hebrew), two equal
+   outline buttons, the text button on its own line when it does not fit. */
+.cc-credit-confirm-row {
+  padding-block: var(--space-1) 0;
+  padding-inline: var(--space-1);
+}
+.cc-credit-confirm .cc-ui-confirm-sentence {
+  color: var(--ink);
+  font: 400 var(--text-button) var(--font-sans);
+}
+.cc-credit-confirm .cc-ui-confirm-actions {
+  margin-block-start: var(--space-1);
+}
+.cc-credit-confirm .cc-ui-text-button {
+  margin-inline-start: calc(-1 * var(--space-1));
+}
+
+/* Thread lines (§3.4): start-aligned, muted, a 1 px rule from 8 px after the text to the end. */
+.cc-credit-thread-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-credit-thread-icon {
+  flex: none;
+}
+.cc-credit-thread-text {
+  min-inline-size: 0;
+}
+.cc-credit-thread-action {
+  flex: none;
+}
+.cc-credit-thread-rule {
+  flex: 1;
+  min-inline-size: var(--space-4);
+  block-size: 1px;
+  background: var(--line);
+}
+
+/* The kind line at the top of a check, with the reason line and the path back under it. */
+.cc-credit-kind {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.cc-credit-kind-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.cc-credit-kind-icon {
+  flex: none;
+  margin-block-start: 2px;
+}
+.cc-credit-kind-text {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-credit-kind-text strong {
+  font-weight: 600;
+}
+.cc-credit-kind-reason {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-credit-kind-back {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+  padding-inline-start: var(--space-5);
+}
+.cc-credit-kind-back-text {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-credit-fresh {
+  padding-inline: var(--space-3);
+}
+
+@media (forced-colors: active) {
+  .cc-credit-thread-rule {
+    background: CanvasText;
+  }
 }
