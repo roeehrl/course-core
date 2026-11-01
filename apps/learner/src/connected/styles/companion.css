@@ -94,6 +94,7 @@
 }
 .cc-chat-bubble-row {
   display: flex;
+  flex-wrap: wrap-reverse;
   align-items: flex-start;
   justify-content: flex-end;
   gap: var(--space-1);
@@ -130,13 +131,12 @@
 .cc-chat-bubble-text + .cc-chat-bubble-text {
   margin-block-start: var(--space-2);
 }
-/* The bubble's actions (actions' slot) sit at its inline start and give way before it does. */
+/* The bubble's actions (actions' slot) sit at its inline start, or under it when there is no room. */
 .cc-chat-bubble-actions {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
   align-items: flex-end;
-  min-inline-size: 0;
 }
 /* The anchor chip above a bubble: one muted line, icon and label (§3.3). */
 .cc-chat-anchor {
@@ -196,7 +196,7 @@ button.cc-chat-anchor:focus-visible {
 /* A reply row, or a reply that arrives while the conversation is open, fades in (M1); replies that
  * were there when it was read do not. */
 .cc-chat-turn.is-companion.is-fresh,
-.cc-chat-row {
+.cc-chat-row.is-fresh {
   animation: cc-chat-in var(--motion-m1-duration) var(--motion-m1-easing);
 }
 [data-view="focus"] .cc-chat-turn.is-companion,
@@ -235,6 +235,8 @@ button.cc-chat-anchor:focus-visible {
   flex-direction: column;
   gap: var(--space-2);
   align-items: flex-start;
+}
+.cc-chat-row.is-fresh .cc-chat-row-body {
   animation: cc-chat-in var(--motion-m8-duration) var(--motion-m8-easing);
 }
 .cc-chat-row-body > .cc-chat-prose {
@@ -476,9 +478,10 @@ button.cc-chat-anchor:focus-visible {
 .cc-chat-field {
   flex: 1;
   min-inline-size: 0;
-  min-block-size: 36px;
+  /* As tall as the round button: 36 px, 44 under a coarse pointer (the 24 px line centred). */
+  min-block-size: max(36px, var(--target));
   max-block-size: min(var(--cc-composer-max, 216px), var(--cc-composer-cap, 216px));
-  padding-block: 6px;
+  padding-block: calc((max(36px, var(--target)) - 24px) / 2);
   padding-inline: 0;
   border: 0;
   background: transparent;
@@ -616,8 +619,8 @@ button.cc-chat-anchor:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   .cc-chat-turn.is-companion.is-fresh,
-  .cc-chat-row,
-  .cc-chat-row-body,
+  .cc-chat-row.is-fresh,
+  .cc-chat-row.is-fresh .cc-chat-row-body,
   .cc-chat-chips.is-fresh,
   .cc-chat-send > * {
     animation: none;

@@ -41,6 +41,7 @@ test("the companion takes a lesson selection with the next question", async ({ p
   expect(response.status()).toBe(200);
   expect(response.request().postDataJSON()).toMatchObject({ selection: { kind: "text", excerpt: "any other member" }, uiRevision: expect.any(Number) });
   expect(await response.json()).toMatchObject({ selectedAnchor: { kind: "text" } });
-  await expect(page.getByText("Selected: “any other member”", { exact: true })).toHaveCount(0);
+  // The attachment left the composer; the sent question shows it as its anchor (conversation §3.3).
+  await expect(page.locator("#connected-companion .cc-chat-attachments")).toHaveCount(0);
   await expect(log.getByText("And what about this part?", { exact: true })).toBeVisible();
 });

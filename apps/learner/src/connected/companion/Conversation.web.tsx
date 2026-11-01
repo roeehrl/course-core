@@ -246,6 +246,7 @@ function ConversationBody({
   // Each question's clock: when it was sent (or first seen waiting), its draft's last frame, and
   // when its checking began. Kept for this page only.
   const clocks = useRef(new Map<string, ReplyClock>());
+  const cancelledHere = useRef(new Set<string>());
   const frames = useRef(new Map<string, number>());
   const answered = (message: CompanionMessage) =>
     Boolean(message.job_id) && messages.some((row) => row.role === "assistant" && row.job_id === message.job_id);
@@ -276,8 +277,12 @@ function ConversationBody({
   }
 
   // The reply view of every question, and the one whose reply is on its way.
-  const shown = messages.filter((message) => !(message.role === "learner" && cancelledBeforeSent(message, companionDraftFor(message, messages, drafts))));
+  // A question the learner cancelled here before its call was sent was never asked: it leaves the
+  // thread (its text went back to the box). One cancelled earlier stays, as the learner's own text.
+  const shown = messages.filter((message) =>
+    !(message.role === "learner" && cancelledHere.current.has(message.id) && cancelledBeforeSent(message, companionDraftFor(message, messages, drafts))));
   const views = new Map<string, { view: ReplyView; draft?: CompanionDraft; clock: ReplyClock }>();
+  const newestQuestion = shown.findLast((message) => message.role === "learner" && !deleted(message))?.id;
   let running: CompanionMessage | undefined;
   for (const message of shown) {
     if (message.role !== "learner" || deleted(message)) continue;
@@ -285,7 +290,9 @@ function ConversationBody({
     const clock = clockFor(message, replyDraft);
     const view = replyView({ message, draft: replyDraft, answered: answered(message), stop: stops[message.id], clock, now, connected: streamConnected });
     views.set(message.id, { view, ...(replyDraft ? { draft: replyDraft } : {}), clock });
-    if (replyInProgress(message, view, stops[message.id])) running = message;
+    // Only the newest question holds the round button: an older one still waiting (a reply that
+    // never came) shows its own row and never locks the composer.
+    if (message.id === newestQuestion && replyInProgress(message, view, stops[message.id])) running = message;
   }
   // A question being sent, or accepted and not yet read back with the conversation.
   const sending = locals.find((item) =>
@@ -494,6 +501,7 @@ function ConversationBody({
     try {
       await onCancelQuestion(messageId);
       if (beforeSent) {
+        cancelledHere.current.add(messageId);
         setStops(({ [messageId]: _, ...rest }) => rest);
         if (!latest.current.value) fill(text);
         announce(replyAnnouncement("cancelled", t));
@@ -696,7 +704,12 @@ function ConversationBody({
               />
             }
           />
-          <ReplyRow view={view} latest={message.id === latestQuestion} onAskAgain={() => askAgain(message.content)} />
+          <ReplyRow
+            view={view}
+            latest={message.id === latestQuestion}
+            onAskAgain={() => askAgain(message.content)}
+            fresh={arriving(message.id)}
+          />
           <CreditLineAfter message={message} />
         </div>,
       );

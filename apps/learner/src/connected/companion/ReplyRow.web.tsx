@@ -41,6 +41,9 @@ export interface ReplyRowProps {
   rateLimited?: number;
   /** Shows the companion's label line (the first block after a learner turn). */
   label?: boolean;
+  /** It appears while the conversation is open (not an ending read with the conversation): it
+   * fades in (M1) and its states crossfade (M8). */
+  fresh?: boolean;
 }
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.ceil(seconds)) % 60).padStart(2, "0")}`;
@@ -51,7 +54,7 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.ma
  * lines, the learner's own Stop (the partial text muted, never saved), and the ends that offer
  * "Ask again". Errors are `--ink` with an icon, never red; a learner's own Stop is never an error.
  */
-export function ReplyRow({ view, latest, onAskAgain, rateLimited, label = true }: ReplyRowProps) {
+export function ReplyRow({ view, latest, onAskAgain, rateLimited, label = true, fresh = true }: ReplyRowProps) {
   const t = useT();
   const streamed = useBatchedText(view.kind === "streaming" ? view.text : view.kind === "stopped" ? (view.partial ?? "") : "");
   const askAgain = latest && onAskAgain
@@ -59,7 +62,7 @@ export function ReplyRow({ view, latest, onAskAgain, rateLimited, label = true }
     : null;
   if (rateLimited !== undefined)
     return (
-      <CompanionTurnFrame author="companion" label={label} className="cc-chat-row">
+      <CompanionTurnFrame author="companion" label={label} className={`cc-chat-row${fresh ? " is-fresh" : ""}`}>
         <StatusLine icon="clock" text={rateLimited > 0 ? t("replyRow.rateLimited", { time: clock(rateLimited) }) : t("replyRow.rateReady")} />
       </CompanionTurnFrame>
     );
@@ -122,7 +125,7 @@ export function ReplyRow({ view, latest, onAskAgain, rateLimited, label = true }
       break;
   }
   return (
-    <CompanionTurnFrame author="companion" label={label} className="cc-chat-row" data-reply-state={view.kind}>
+    <CompanionTurnFrame author="companion" label={label} className={`cc-chat-row${fresh ? " is-fresh" : ""}`} data-reply-state={view.kind}>
       <div className="cc-chat-row-body" key={view.kind === "streaming" || view.kind === "stopped" ? "text" : view.kind}>
         {body}
       </div>
