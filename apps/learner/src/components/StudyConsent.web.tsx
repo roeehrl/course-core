@@ -1,6 +1,9 @@
 import React, { useEffect, useId, useState } from "react";
 import type { CourseApi, ServerSnapshot } from "../client/apiClient";
 import type { StudyConsentProps } from "./StudyConsent";
+import { Icon } from "./icons/Icon.web";
+import { StatusLine } from "../connected/ui/StatusLine.web";
+import { Tag } from "../connected/ui/Tag.web";
 import { useI18n, type MessageKey } from "../i18n";
 import { useFirstLoadDone } from "../connected/firstLoad";
 
@@ -105,7 +108,7 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
         ))}
       </ul>
       <p className="connected-muted">{t("studyConsent.join.choice")}</p>
-      <label className="connected-check">
+      <label className="cc-prof-checkbox">
         <input type="checkbox" checked={agree} disabled={busy} onChange={(e) => setAgree(e.target.checked)} />
         {t("studyConsent.join.agree")}
       </label>
@@ -130,8 +133,8 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
     </>
   );
   return (
-    <section className="connected-reading-card connected-study" aria-labelledby={`${id}-title`}>
-      <h2 id={`${id}-title`}>{t(mode === "prompt" ? "studyConsent.title.prompt" : "studyConsent.title.settings", { title: study.title })}</h2>
+    <section className="connected-reading-card connected-study cc-prof-section" aria-labelledby={`${id}-title`}>
+      <h2 id={`${id}-title`} className="cc-prof-title">{t(mode === "prompt" ? "studyConsent.title.prompt" : "studyConsent.title.settings", { title: study.title })}</h2>
       {undecided && joinForm(false)}
       {participation?.consent === "consented" && (
         <>
@@ -142,8 +145,41 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
               { strong: (children, key) => <strong key={key} dir="ltr">{children}</strong> },
             )}
           </p>
-          {participation.version && <p>{t("studyConsent.taking.version", { explanation: word("version", participation.version.behaviour) })}</p>}
-          {participation.version && study.usabilityMeasures && <p>{t("studyConsent.taking.usability")}</p>}
+          {participation.version && (
+            <div className="cc-prof-study-block">
+              <h3 className="cc-prof-label">{t("studyConsent.taking.version")}</h3>
+              <p>{word("version", participation.version.behaviour)}</p>
+            </div>
+          )}
+          {participation.version && study.usabilityMeasures && <p className="cc-prof-detail">{t("studyConsent.taking.usability")}</p>}
+          {study.neverCollected.length > 0 && (
+            <div className="cc-prof-study-block">
+              <h3 className="cc-prof-label">{t("studyConsent.taking.neverCollected")}</h3>
+              <ul className="cc-prof-never">
+                {study.neverCollected.map((v) => (
+                  <li key={v}>
+                    <Icon name="eye-off" size={16} />
+                    <span>{word("neverCollected", v)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {study.versions.length > 0 && (
+            <details className="cc-prof-versions">
+              <summary>{t("studyConsent.taking.versions")}</summary>
+              <ul>
+                {study.versions.map((v) => (
+                  <li key={v}>
+                    <span>{word("version", v)}</span>
+                    {participation.version?.behaviour === v && (
+                      <Tag variant="accent" className="cc-prof-chip cc-prof-chip-accent" label={t("studyConsent.taking.yours")} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           {!confirmLeave ? (
             <button type="button" className="connected-secondary" disabled={busy} onClick={() => setConfirmLeave(true)}>
               {t("studyConsent.leave.button")}
@@ -170,7 +206,7 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
           {study.state === "recruiting" && joinForm(true)}
         </>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <div role="alert"><StatusLine tone="error" text={error} /></div>}
     </section>
   );
 }

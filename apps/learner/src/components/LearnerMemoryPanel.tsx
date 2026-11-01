@@ -28,6 +28,10 @@ import {
 import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles, Heading } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
 import { DeclaredProfileFields } from "./DeclaredProfileFields";
+import { Icon } from "./icons/Icon";
+import type { IconName } from "./icons/icons";
+import { Tag } from "../connected/ui/Tag";
+import { colors as tokens } from "../theme/colors";
 
 /** Ids and digests stay left to right inside right-to-left text. */
 function useLtr() {
@@ -605,6 +609,7 @@ function MemoryPanel({
                       )}
                       <EvidenceControls
                         evidenceId={ref.evidenceId}
+                        item={objectiveTitle(row.objectiveId)}
                         disputed={!!ref.disputed}
                         excluded={!!ref.excluded}
                         disabled={disabled}
@@ -793,7 +798,8 @@ function MemoryPanel({
                   onChangeText={(thoughts) => edit({ ...draft, thoughts })}
                 />
                 <Text style={styles.small}>
-                  {t("learnerMemoryPanel.thoughts.note")}
+                  {t("learnerMemoryPanel.thoughts.note")}{" "}
+                  {t("learnerMemoryPanel.thoughts.private")}
                 </Text>
                 {compared && dirty && (
                   <Disclosure
@@ -832,10 +838,7 @@ function MemoryPanel({
               </Section>
             </View>
             <View style={local.column}>
-              <Section
-                eyebrow={t("learnerMemoryPanel.suggestions.eyebrow")}
-                title={t("learnerMemoryPanel.suggestions.title")}
-              >
+              <Section title={t("learnerMemoryPanel.suggestions.title")}>
                 <Text style={styles.body}>
                   {t("learnerMemoryPanel.suggestions.body")}
                 </Text>
@@ -1007,6 +1010,7 @@ function MemoryPanel({
                               </Text>
                               <EvidenceControls
                                 evidenceId={ref.evidenceId}
+                                item={itemName(item.text, ref.evidenceId)}
                                 disputed={!!ref.disputed}
                                 excluded={!!ref.excluded}
                                 invalidated={ref.invalidated}
@@ -1183,6 +1187,21 @@ function suggestionLabel(
     objective: title(value.objectiveId),
   });
 }
+/** A proposal's status chip icon: waiting, decided, disputed, gone. */
+const PROPOSAL_ICONS: Record<MemoryProposal["status"], IconName> = {
+  pending: "clock",
+  accepted: "check",
+  corrected: "pencil",
+  disputed: "alert-circle",
+  source_revoked: "trash-2",
+  expired: "clock",
+};
+/** A history result is named by its question, shortened, or by its id when there is no text. */
+function itemName(text: string | null | undefined, evidenceId: string) {
+  const value = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return evidenceId.slice(0, 8);
+  return value.length > 60 ? `${value.slice(0, 59)}…` : value;
+}
 function ProposalCard({
   proposal,
   disabled,
@@ -1229,27 +1248,35 @@ function ProposalCard({
   const status = t(
     `learnerMemoryPanel.proposal.status.${proposal.status}` as MessageKey,
   );
+  const fromCompanion = proposal.origin?.kind !== "connected_agent";
   return (
-    <View style={local.inset}>
-      <Badge
-        label={status}
-        tone={proposal.status === "pending" ? "lilac" : "neutral"}
-      />
-      <Text accessibilityRole="header" style={styles.heading}>
-        {suggestionLabel(proposal.suggestion, objectiveTitle, t)}
-      </Text>
-      <Text style={styles.small}>
-        {proposal.origin?.kind !== "connected_agent"
-          ? t("learnerMemoryPanel.proposal.fromCourse")
-          : proposal.origin.label
-            ? t("learnerMemoryPanel.proposal.fromAgent", {
-                agent: proposal.origin.label,
-              })
-            : t("learnerMemoryPanel.proposal.fromAgentUnnamed")}
-      </Text>
+    <View style={[local.inset, local.proposal]}>
+      <View style={local.proposalHead}>
+        <Text accessibilityRole="header" style={[styles.heading, local.proposalTitle]}>
+          {suggestionLabel(proposal.suggestion, objectiveTitle, t)}
+        </Text>
+        <Tag className="cc-prof-chip" icon={PROPOSAL_ICONS[proposal.status]} label={status} />
+      </View>
+      <View style={local.source}>
+        {fromCompanion && <Icon name="sparkle" size={16} />}
+        <Text style={styles.small}>
+          {fromCompanion
+            ? t("learnerMemoryPanel.proposal.fromCourse")
+            : proposal.origin?.kind === "connected_agent" && proposal.origin.label
+              ? t("learnerMemoryPanel.proposal.fromAgent", {
+                  agent: proposal.origin.label,
+                })
+              : t("learnerMemoryPanel.proposal.fromAgentUnnamed")}
+        </Text>
+      </View>
       {proposal.uncertainty && (
         <Text style={styles.small}>
           {t(`learnerMemoryPanel.proposal.uncertainty.${proposal.uncertainty}` as MessageKey)}
+        </Text>
+      )}
+      {proposal.status === "disputed" && (
+        <Text style={styles.small}>
+          {t("learnerMemoryPanel.proposal.disputedNote")}
         </Text>
       )}
       {proposal.status === "pending" && proposal.expiresAt && (
@@ -1321,6 +1348,7 @@ function ProposalCard({
         {proposal.status === "pending" || proposal.status === "disputed" ? (
           <Button
             label={t("learnerMemoryPanel.proposal.accept")}
+            kind="primary"
             disabled={locked || !!editing}
             onPress={() => void decide({ action: "accept" })}
           />
@@ -1421,6 +1449,7 @@ function ProposalCard({
  * companion and supervisor are given. Neither changes credit. */
 function EvidenceControls({
   evidenceId,
+  item,
   disputed,
   excluded,
   invalidated = false,
@@ -1428,6 +1457,8 @@ function EvidenceControls({
   onControl,
 }: {
   evidenceId: string;
+  /** What the result is about, named by the "use this" control. */
+  item: string;
   disputed: boolean;
   excluded: boolean;
   invalidated?: boolean;
@@ -1512,7 +1543,12 @@ function EvidenceControls({
               excluded
                 ? "learnerMemoryPanel.context.include"
                 : "learnerMemoryPanel.context.exclude",
-              { id: short },
+            )}
+            accessibilityLabel={t(
+              excluded
+                ? "learnerMemoryPanel.context.includeLabel"
+                : "learnerMemoryPanel.context.excludeLabel",
+              { item },
             )}
             disabled={disabled}
             onPress={() =>
@@ -1589,13 +1625,13 @@ function Section({
   title,
   children,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   children: React.ReactNode;
 }) {
   return (
     <View style={[styles.card, local.section]}>
-      <Eyebrow>{eyebrow}</Eyebrow>
+      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
       <Text accessibilityRole="header" style={styles.heading}>
         {title}
       </Text>
@@ -1667,6 +1703,10 @@ const local = StyleSheet.create({
     opacity: 0,
   },
   stack: { gap: 12, minWidth: 0 },
+  proposal: { backgroundColor: tokens.surface, borderColor: tokens.line, borderRadius: 12, gap: 8 },
+  proposalHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  proposalTitle: { flexShrink: 1, flexBasis: 220, flexGrow: 1 },
+  source: { flexDirection: "row", alignItems: "center", gap: 6 },
   inset: {
     padding: 16,
     borderRadius: 14,

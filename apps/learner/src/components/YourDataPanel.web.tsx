@@ -4,6 +4,8 @@ import type { YourDataPanelProps } from "./YourDataPanel";
 import { LoadingLine } from "./loadingLine.web";
 import { useReservedBlock } from "./reservedHeight";
 import { isolateLtr, isSupportedLocale } from "@course-core/i18n";
+import { PreparingDots } from "../connected/ui/PreparingDots.web";
+import { StatusLine } from "../connected/ui/StatusLine.web";
 import { englishTranslator, useI18n, type MessageKey } from "../i18n";
 
 interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
@@ -39,6 +41,8 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   };
   const [busy, setBusy] = useState<"" | "export" | "erase">("");
   const [status, setStatus] = useState("");
+  // Erasing waits while the companion's work stops: the status line shows the preparing dots.
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
@@ -108,6 +112,7 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         } catch (cause) {
           if (cause instanceof CourseApiError && cause.code === "ERASURE_WAITING_FOR_SUPERVISION") {
             setStatus(t("yourDataPanel.erase.stopping"));
+            setStopping(true);
             await pause(2500);
             continue;
           }
@@ -123,6 +128,7 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       );
     } finally {
       setBusy("");
+      setStopping(false);
     }
   }
   /** Every course and the account itself; the server stops supervision first. */
@@ -148,7 +154,8 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           return;
         } catch (cause) {
           if (cause instanceof CourseApiError && cause.code === "ERASURE_WAITING_FOR_SUPERVISION") {
-            setStatus(t("yourDataPanel.account.stopping"));
+            setStatus(t("yourDataPanel.erase.stopping"));
+            setStopping(true);
             await pause(2500);
             continue;
           }
@@ -164,12 +171,15 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       );
     } finally {
       setBusy("");
+      setStopping(false);
     }
   }
   return (
-    <section className="connected-reading-card connected-data" aria-labelledby={id + "-title"}>
-      <h2 id={id + "-title"}>{t("yourDataPanel.title")}</h2>
+    <section className="connected-reading-card connected-data cc-prof-section" aria-labelledby={id + "-title"}>
+      <h2 id={id + "-title"} className="cc-prof-title">{t("yourDataPanel.title")}</h2>
+      <h3 className="cc-prof-group-title">{t("yourDataPanel.export.title")}</h3>
       <p>{t("yourDataPanel.export.intro")}</p>
+      <p className="cc-prof-detail">{t("yourDataPanel.export.excluded")}</p>
       <button type="button" className="connected-button" disabled={Boolean(busy)} onClick={() => void download()}>
         {busy === "export" ? t("yourDataPanel.export.preparing") : t("yourDataPanel.export.download")}
       </button>
@@ -243,8 +253,16 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         )}
       </section>
       <div aria-live="polite">
-        {status && <p className="connected-muted">{status}</p>}
-        {error && <p role="alert" className="connected-error-text">{error}</p>}
+        {status &&
+          (stopping ? (
+            <p className="cc-prof-progress">
+              <PreparingDots />
+              <span>{status}</span>
+            </p>
+          ) : (
+            <p className="connected-muted">{status}</p>
+          ))}
+        {error && <div role="alert"><StatusLine tone="error" text={error} /></div>}
       </div>
     </section>
   );

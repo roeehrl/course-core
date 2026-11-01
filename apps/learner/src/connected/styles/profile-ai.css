@@ -1,6 +1,512 @@
-/* AI on the profile and record: connected agents, your data, studies, reviews and personal
- * changes. Moved from connected.css. */
+/* AI on the profile and record (final design §4.9-§4.17): personal changes, decisions, personal
+ * lesson support, learning memory, ideas and quick checks, reviews, connected agents, studies and
+ * your data. One name for the helper, statuses as chips with one detail line, no `·` chains.
+ * Colours are tokens (tokens.css); new classes use the `cc-prof-` prefix. */
 
+/* A panel's head: a 20/28 title and a 16/26 muted intro. */
+.connected-reading-card.cc-prof-section {
+  gap: var(--space-4);
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+.cc-prof-head {
+  display: grid;
+  gap: var(--space-2);
+}
+.connected-reading-card .cc-prof-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-empty) var(--font-sans);
+  letter-spacing: 0;
+}
+.connected-reading-card .cc-prof-intro {
+  max-inline-size: 45rem;
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-prof-group {
+  display: grid;
+  gap: var(--space-2);
+}
+.cc-prof-group-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+}
+.cc-prof-label {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 600 var(--text-meta) var(--font-sans);
+}
+
+/* Cards and rows: surface, a 1 px hairline, radius 12. */
+.cc-prof-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cc-prof-card {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.cc-prof-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-prof-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+.connected-reading-card .cc-prof-card-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.cc-prof-time {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+  white-space: nowrap;
+}
+.connected-reading-card .cc-prof-detail,
+.cc-prof-detail {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-prof-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.cc-prof-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-block-size: 56px;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-4);
+  box-sizing: border-box;
+  color: var(--ink);
+  font: 400 var(--text-button) var(--font-sans);
+}
+.cc-prof-row + .cc-prof-row {
+  border-block-start: 1px solid var(--line);
+}
+.cc-prof-row-text {
+  min-inline-size: 0;
+}
+.cc-prof-row-details {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 2px;
+}
+.cc-prof-row-details:empty {
+  display: none;
+}
+
+/* Status chips (Tag with `cc-prof-chip`): a 16 px icon and two to four words, 13/20. */
+.cc-prof-chip {
+  gap: 6px;
+  align-self: center;
+  justify-self: start;
+  min-block-size: 24px;
+  box-sizing: border-box;
+  padding-block: 2px;
+  padding-inline: 10px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-prof-chip.is-muted {
+  color: var(--ink);
+}
+.cc-prof-chip-wrap {
+  white-space: normal;
+}
+.cc-prof-chip.cc-prof-chip-accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.cc-prof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Personal changes: the compact check list and the actions under a card. */
+.cc-prof-checks {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-start: var(--space-1);
+}
+.cc-prof-checks ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cc-prof-checks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-prof-checks li > .cc-ui-icon {
+  color: var(--accent);
+}
+.cc-prof-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-inline-start: calc(-1 * var(--space-3));
+}
+.cc-prof-text-button {
+  min-block-size: max(36px, var(--target));
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-pill);
+}
+.cc-prof-text-button:hover {
+  background: var(--surface-2);
+  text-decoration: none;
+}
+.cc-prof-danger {
+  color: var(--danger);
+}
+.cc-prof-confirm {
+  justify-items: start;
+  padding-block: var(--space-3) var(--space-4);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+}
+.cc-prof-confirm .cc-ui-confirm-sentence {
+  font: 400 var(--text-button) var(--font-sans);
+}
+.cc-prof-confirm .cc-ui-confirm-actions > .cc-ui-pill {
+  flex: none;
+}
+.cc-prof-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+/* Decisions: a waiting goal starts with the companion's glyph. */
+.cc-prof-decision {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+}
+.cc-prof-decision > .cc-ui-icon {
+  margin-block-start: 4px;
+}
+.cc-prof-decision-body {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+.cc-prof-row-action {
+  justify-self: end;
+}
+/* The thread's line for a waiting decision (DecisionLine). */
+.cc-prof-decision-line {
+  padding-block: var(--space-2);
+}
+
+/* Personal lesson support and "What your companion did" (React Native views on the web). The
+ * placeholder holds a pill button's place, unseen, while the choice loads. */
+.cc-prof-placeholder {
+  visibility: hidden;
+}
+[data-prof="timeline-row"] .cc-prof-chip {
+  max-inline-size: 100%;
+}
+
+/* Learning memory and quick checks: the long-answer composer inside a quick check. */
+.cc-prof-composer .cc-ui-long-field {
+  background: var(--surface);
+}
+.cc-prof-unverified {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+/* Reviews of written answers: the status chip, a person's note and the criteria. */
+.connected-reviews .cc-prof-reviews {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cc-prof-reviews > li {
+  display: grid;
+  gap: var(--space-2);
+}
+.cc-prof-reviews > li + li {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--line);
+}
+.cc-prof-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.cc-prof-note {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.connected-reviews .cc-prof-criteria {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cc-prof-criteria li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.cc-prof-criteria li > .cc-ui-icon {
+  margin-block-start: 3px;
+  color: var(--ink-muted);
+}
+.cc-prof-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--target-touch);
+  color: var(--ink);
+  font: 400 var(--text-button) var(--font-sans);
+}
+.cc-prof-checkbox input {
+  inline-size: 20px;
+  block-size: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.cc-prof-legend {
+  display: grid;
+  gap: var(--space-2);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--line);
+}
+.cc-prof-legend dl {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.cc-prof-legend dl > div {
+  display: grid;
+  grid-template-columns: minmax(12rem, auto) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+.cc-prof-legend dt,
+.cc-prof-legend dd {
+  margin: 0;
+}
+
+/* Connected agents behind "Advanced". */
+/* The host draws every disclosure's chevron (connected.css); here it marks "Advanced". */
+.cc-prof-advanced > .cc-prof-advanced-summary {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--target-touch);
+  padding-block-end: var(--space-3);
+  border-block-end: 1px solid var(--line);
+  color: var(--ink);
+  font: 600 var(--text-heading) var(--font-sans);
+  list-style: none;
+  cursor: pointer;
+}
+.cc-prof-advanced > .cc-prof-advanced-summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-prof-advanced > .connected-agents {
+  margin-block-start: var(--space-4);
+}
+.cc-prof-agent-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cc-prof-agent-head > .cc-prof-danger {
+  margin-inline-start: auto;
+}
+.cc-prof-agent-when {
+  display: grid;
+}
+.cc-prof-scopes {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  margin-block-start: var(--space-2);
+  padding: 0;
+  padding-block-start: var(--space-3);
+  border: 0;
+  border-block-start: 1px solid var(--line);
+}
+.cc-prof-scopes legend {
+  float: inline-start;
+  inline-size: 100%;
+  margin-block-end: var(--space-1);
+  padding: 0;
+}
+.cc-prof-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: 28px;
+  color: var(--ink);
+  font: 400 var(--text-button) var(--font-sans);
+}
+.cc-prof-scope input {
+  inline-size: 20px;
+  block-size: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.cc-prof-token-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.cc-prof-token-line > .cc-ui-icon {
+  margin-block-start: 2px;
+  color: var(--accent);
+}
+.cc-prof-code-line code {
+  padding-inline: var(--space-1);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 12px/20px var(--font-mono);
+}
+.cc-prof-scope-name {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+}
+/* "Connect an agent" is a pill button: no chevron. */
+.cc-prof-connect > summary {
+  inline-size: fit-content;
+  list-style: none;
+}
+.connected-host .cc-prof-connect > summary {
+  padding-inline: var(--space-4);
+}
+.connected-host .cc-prof-connect > summary::before {
+  content: none;
+}
+
+/* Research study: the version, what is never collected and every version. */
+.cc-prof-study-block {
+  display: grid;
+  gap: var(--space-1);
+}
+.cc-prof-never {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connected-study .cc-prof-never {
+  padding-inline-start: 0;
+}
+.cc-prof-never li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cc-prof-never li > .cc-ui-icon {
+  color: var(--ink-muted);
+}
+.cc-prof-versions > summary {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--target);
+  color: var(--accent);
+  font: 600 var(--text-button) var(--font-sans);
+  list-style: none;
+  cursor: pointer;
+}
+.cc-prof-versions > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.connected-study .cc-prof-versions ul {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cc-prof-versions li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-block: 10px;
+  border-block-start: 1px solid var(--line);
+}
+
+/* Your data: the erase progress line with the preparing dots. */
+.cc-prof-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+
+@media (max-width: 599px) {
+  .cc-prof-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cc-prof-row-action {
+    justify-self: start;
+  }
+  .cc-prof-legend dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}
+@media (forced-colors: active) {
+  .cc-prof-chip,
+  .cc-prof-card,
+  .cc-prof-confirm {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* Moved from connected.css, colours as tokens. */
 .connected-data {
   display: grid;
   gap: 14px;
@@ -11,7 +517,7 @@
 .connected-staff-views {
   display: grid;
   gap: 6px;
-  border-top: 1px solid #d8e4e0;
+  border-top: 1px solid var(--line);
   padding-top: 12px;
   overflow-wrap: anywhere;
 }
@@ -35,7 +541,7 @@
   margin: 0 0 6px;
 }
 .connected-data-erase label {
-  color: #183237;
+  color: var(--ink);
   font-weight: 600;
 }
 .connected-data-erase input,
@@ -43,7 +549,7 @@
   min-height: 44px;
   width: 100%;
   max-width: 36rem;
-  border: 1px solid #b9cbc6;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
@@ -66,7 +572,7 @@
   line-height: 1.6;
 }
 .connected-reviews {
-  border: 1px solid #dce6e2;
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px 18px;
 }
@@ -75,36 +581,18 @@
   font-size: 15px;
 }
 .connected-reviews q {
-  color: #087b69;
+  color: var(--accent);
 }
-/* A reply or appeal box under a reviewed answer: label, full-width text, then the action. */
+/* A reply or appeal box under a reviewed answer: the long-answer composer. */
 .connected-reply {
   display: grid;
   gap: 6px;
   margin-top: 8px;
 }
-.connected-reply textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 84px;
-  padding: 8px 10px;
-  font: inherit;
-  border: 1px solid #b9cbc4;
-  border-radius: 10px;
-}
-.connected-reply button {
-  justify-self: start;
-}
 .connected-changes ul {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: grid;
-  gap: 14px;
-}
-.connected-changes li p {
-  margin: 4px 0;
-  font-size: 14px;
 }
 
 .connected-agents {
@@ -116,28 +604,30 @@
 .connected-agents-token {
   display: grid;
   gap: 10px;
-  padding: 8px 0 14px;
 }
-.connected-agents-token {
-  border: 1px solid #b9cbc6;
-  border-radius: 12px;
-  padding: 12px;
-  background: #f3f8f6;
+.connected-agents-form {
+  padding: 12px 0 14px;
 }
 .connected-agents-form input[type="text"],
 .connected-agents-form input:not([type]),
 .connected-agents-form select,
 .connected-agents-token input {
   min-height: 44px;
-  border: 1px solid #b9cbc6;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
   max-width: 100%;
   box-sizing: border-box;
+  background: var(--surface);
+  color: var(--ink);
 }
 .connected-agents-token input {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex: 1 1 14rem;
+  min-inline-size: 0;
+  border-color: var(--line);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
   font-size: 14px;
 }
 .connected-agents-form fieldset {
@@ -154,26 +644,11 @@
 .connected-agents-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 .connected-agents .connected-button {
   justify-self: start;
-}
-.connected-agents-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-}
-.connected-agents-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-top: 1px solid #d8e4e0;
-  padding-top: 10px;
 }
 .connected-agents-scope {
   display: flex;
@@ -186,6 +661,7 @@
   height: 22px;
   margin-top: 2px;
   flex: none;
+  accent-color: var(--accent);
 }
 .connected-study ul {
   margin: 0;
@@ -195,6 +671,13 @@
 .connected-study h3 {
   margin: 12px 0 4px;
   font-size: 16px;
+}
+.connected-study .cc-prof-label {
+  margin: 0;
+  font-size: var(--text-meta-size);
+}
+.connected-study > button {
+  align-self: flex-start;
 }
 .connected-study-actions {
   display: flex;

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 import { CourseApiError, type ServerSnapshot } from "../client/apiClient";
 import type {
   HypothesisClient,
@@ -9,8 +9,14 @@ import type {
   ProbeRun,
   TeachingHypothesis,
 } from "../client/hypothesisClient";
-import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles } from "./ui";
+import { Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
+import { Icon } from "./icons/Icon";
+import type { IconName } from "./icons/icons";
+import { LongAnswerComposer } from "../connected/ui/LongAnswerComposer";
+import { PillButton } from "../connected/ui/PillButton";
+import { Tag } from "../connected/ui/Tag";
+import { colors as tokens } from "../theme/colors";
 import {
   englishTranslator,
   useI18n,
@@ -36,6 +42,13 @@ function statusLabel(h: TeachingHypothesis, t: Translate) {
           : "teachingHypothesesPanel.status.rejectedByTutor",
     );
   return t(`teachingHypothesesPanel.status.${h.status}` as MessageKey);
+}
+/** A status chip's icon: being checked, supported, set aside or ruled out. */
+function statusIcon(h: TeachingHypothesis): IconName {
+  if (h.status === "rejected") return h.rejectedBy === "supervisor" ? "pause-circle" : "x";
+  if (h.status === "confirmed" || h.status === "resolved") return "check";
+  if (h.status === "expired") return "clock";
+  return "clock";
 }
 const active = (h: TeachingHypothesis) =>
   ["proposed", "probing", "confirmed"].includes(h.status);
@@ -164,7 +177,6 @@ export function TeachingHypothesesPanel({
       style={[styles.card, local.panel, { minHeight: reserve.minHeight }]}
       onLayout={reserve.onLayout}
     >
-      <Eyebrow>{t("teachingHypothesesPanel.eyebrow")}</Eyebrow>
       <Text accessibilityRole="header" style={styles.heading}>
         {t("teachingHypothesesPanel.title")}
       </Text>
@@ -304,7 +316,9 @@ export function TeachingHypothesesPanel({
         >
           {past.map((h) => (
             <View key={h.hypothesisId} style={local.inset}>
-              <Badge label={statusLabel(h, t)} tone="neutral" />
+              <View style={styles.row}>
+                <Tag className="cc-prof-chip" icon={statusIcon(h)} label={statusLabel(h, t)} />
+              </View>
               <Text style={styles.body}>
                 {h.learnerCorrection ?? h.statement}
               </Text>
@@ -372,13 +386,14 @@ function HypothesisCard({
       })}
     >
       <View style={styles.row}>
-        <Badge
+        <Tag
+          className="cc-prof-chip"
+          icon="lightbulb"
           label={t(`teachingHypothesesPanel.kind.${h.kind}` as MessageKey)}
-          tone="lilac"
         />
-        <Badge label={statusLabel(h, t)} tone="neutral" />
+        <Tag className="cc-prof-chip" icon={statusIcon(h)} label={statusLabel(h, t)} />
         {h.pinned && (
-          <Badge label={t("teachingHypothesesPanel.card.pinned")} tone="sand" />
+          <Tag className="cc-prof-chip" icon="lock" label={t("teachingHypothesesPanel.card.pinned")} />
         )}
       </View>
       <Text selectable style={styles.heading}>
@@ -391,16 +406,29 @@ function HypothesisCard({
           })}
         </Text>
       )}
+      <View style={local.meta}>
+      <View style={local.source}>
+        {h.source === "supervisor" && <Icon name="sparkle" size={16} />}
+        <Text style={styles.small}>
+          {t(`teachingHypothesesPanel.source.${h.source}` as MessageKey)}
+        </Text>
+      </View>
       <Text style={styles.small}>
-        {t("teachingHypothesesPanel.card.meta", {
-          source: t(`teachingHypothesesPanel.source.${h.source}` as MessageKey),
+        {t("teachingHypothesesPanel.card.basis", {
           certainty: t(
             `teachingHypothesesPanel.certainty.${h.uncertainty}` as MessageKey,
           ),
           count: h.observations,
-          objectives: h.objectiveIds.map(objectiveTitle).join(", "),
         })}
       </Text>
+      {h.objectiveIds.length > 0 && (
+        <Text style={styles.small}>
+          {t("teachingHypothesesPanel.card.about", {
+            objectives: i18n.list(h.objectiveIds.map(objectiveTitle), "unit"),
+          })}
+        </Text>
+      )}
+      </View>
       {h.pinned ? (
         <Text style={styles.small}>
           {t("teachingHypothesesPanel.card.keptPinned")}
@@ -547,6 +575,11 @@ function HypothesisCard({
   );
 }
 
+/**
+ * A quick check the companion prepared (final design §4.13): it never counts toward progress and,
+ * written by AI, it carries the Unverified pill. A number is answered in the long-answer composer
+ * (Enter adds a line, Cmd/Ctrl+Enter or "Submit check" submits); a choice with its options.
+ */
 function ProbeCard({
   probe,
   disabled,
@@ -564,52 +597,72 @@ function ProbeCard({
   const answer =
     question.type === "choice"
       ? value
-      : value.trim() !== "" && Number.isFinite(Number(value))
-        ? Number(value)
+      : value.trim() !== "" && Number.isFinite(Number(value.trim()))
+        ? Number(value.trim())
         : null;
+  const ready = answer !== null && answer !== "";
+  const label =
+    question.type === "numeric" && question.unit
+      ? t("teachingHypothesesPanel.probe.answerUnit", { unit: question.unit })
+      : t("teachingHypothesesPanel.probe.answer");
+  const dontKnow = (
+    <Button
+      label={t("teachingHypothesesPanel.probe.dontKnow")}
+      kind="quiet"
+      disabled={disabled}
+      onPress={() => void onAnswer({ abstain: true })}
+    />
+  );
   return (
-    <View style={[local.inset, local.probe]}>
-      <Badge label={t("teachingHypothesesPanel.probe.badge")} tone="sand" />
+    <View
+      style={local.probe}
+      {...(Platform.OS === "web" ? { dataSet: { prof: "quick-check" } } : {})}
+    >
+      <View style={local.probeHead}>
+        <View style={local.source}>
+          <Icon name="practice" size={16} />
+          <Text style={local.probeBadge}>{t("teachingHypothesesPanel.probe.badge")}</Text>
+        </View>
+        <Tag className="cc-prof-chip cc-prof-unverified" icon="info" label={t("teachingHypothesesPanel.probe.unverified")} />
+      </View>
       <Text accessibilityRole="header" style={styles.heading}>
         {question.prompt}
       </Text>
       {question.type === "choice" ? (
-        <ChoiceList
-          label={t("teachingHypothesesPanel.probe.answer")}
-          options={question.options.map((o) => ({ id: o.id, label: o.text }))}
-          value={value}
-          disabled={disabled}
-          onChange={setValue}
-        />
+        <>
+          <ChoiceList
+            label={label}
+            options={question.options.map((o) => ({ id: o.id, label: o.text }))}
+            value={value}
+            disabled={disabled}
+            onChange={setValue}
+          />
+          <View style={local.probeActions}>
+            <PillButton
+              variant="accent"
+              label={t("teachingHypothesesPanel.probe.submit")}
+              disabled={disabled || !ready}
+              onPress={() => void onAnswer({ answer: answer! })}
+            />
+            {dontKnow}
+          </View>
+        </>
       ) : (
-        <Field
-          label={
-            question.unit
-              ? t("teachingHypothesesPanel.probe.answerUnit", {
-                  unit: question.unit,
-                })
-              : t("teachingHypothesesPanel.probe.answer")
-          }
-          keyboardType="numeric"
-          value={value}
-          editable={!disabled}
-          onChangeText={setValue}
-        />
+        <View style={local.probeComposer}>
+          <LongAnswerComposer
+            className="cc-prof-composer"
+            label={label}
+            value={value}
+            onChange={setValue}
+            disabled={disabled}
+            submitLabel={t("teachingHypothesesPanel.probe.submit")}
+            onSubmit={() => {
+              if (ready) void onAnswer({ answer: answer! });
+            }}
+          />
+          {dontKnow}
+        </View>
       )}
-      <View style={styles.row}>
-        <Button
-          label={t("teachingHypothesesPanel.probe.submit")}
-          kind="primary"
-          disabled={disabled || answer === null || answer === ""}
-          onPress={() => void onAnswer({ answer: answer! })}
-        />
-        <Button
-          label={t("teachingHypothesesPanel.probe.dontKnow")}
-          kind="quiet"
-          disabled={disabled}
-          onPress={() => void onAnswer({ abstain: true })}
-        />
-      </View>
     </View>
   );
 }
@@ -704,7 +757,19 @@ const local = StyleSheet.create({
     gap: 12,
     minWidth: 0,
   },
-  probe: { borderColor: colors.gold },
+  probe: {
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: tokens.surface2,
+    gap: 12,
+    minWidth: 0,
+  },
+  probeHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  probeBadge: { color: tokens.ink, fontSize: 13, lineHeight: 20, fontWeight: "600" },
+  probeActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  probeComposer: { gap: 4, alignItems: "stretch" },
+  source: { flexDirection: "row", alignItems: "center", gap: 6 },
+  meta: { gap: 2 },
   reference: {
     color: colors.muted,
     fontSize: 12,

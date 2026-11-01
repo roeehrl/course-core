@@ -70,8 +70,8 @@ async function clickEnabled(name: string) {
 }
 it("shows a supervisor preference as pending learner review and records the learner correction without credit", async () => {
   for (const [delivery, label] of [
-    ["pending_learner_review", "Ready for your review · open Learning memory"],
-    ["learner_corrected", "Corrected by you · no completion credit granted"],
+    ["pending_learner_review", "Ready for your review in Learning memory."],
+    ["learner_corrected", "You corrected it. It doesn't count toward your progress."],
   ] as const) {
     const api = client();
     api.tools = vi.fn().mockResolvedValue(
@@ -105,7 +105,7 @@ it("shows a supervisor preference as pending learner review and records the lear
     );
     const view = mount(api, vi.fn(), "timeline");
     expect(
-      await screen.findByText("Suggest a learning preference"),
+      await screen.findByText("Suggested a learning preference"),
     ).toBeVisible();
     expect(await screen.findByText(label)).toBeVisible();
     view.unmount();
@@ -121,40 +121,48 @@ it("holds the badge and button footprint while the permission loads, without a p
   expect(
     screen.getAllByLabelText("Loading your companion's work"),
   ).toHaveLength(1);
-  // Only the refresh control is offered; the reserved button is inert and hidden.
+  // Only the disclosure and refresh controls are offered; the reserved button is inert and hidden.
   expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
-    "Refresh supervisor information",
+    "What this shares",
+    "Refresh",
   ]);
-  const hidden = container.querySelectorAll('[aria-hidden="true"]');
-  expect(hidden).toHaveLength(1);
-  expect(hidden[0]!.textContent?.trim()).toBe("");
+  // Icons are drawn aria-hidden; the reserved chip and button are the only other hidden elements,
+  // and neither says anything a screen reader could reach.
+  const hidden = container.querySelectorAll('[aria-hidden="true"]:not(svg)');
+  expect(hidden).toHaveLength(2);
+  expect(hidden[1]!.textContent?.trim()).toBe("");
+  expect(hidden[0]!.querySelector(".cc-prof-placeholder")).not.toBeNull();
   await act(async () => resolve(permission()));
   expect(screen.getByText("Off")).toBeVisible();
-  expect(
-    screen.getByRole("button", { name: "Enable personal support" }),
-  ).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Turn on" })).toBeEnabled();
   expect(screen.queryByLabelText("Loading your companion's work")).toBeNull();
-  expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
+  expect(container.querySelectorAll('[aria-hidden="true"]:not(svg)')).toHaveLength(0);
 });
 it("requires an explicit choice and shows confirmed saved permission without granting completion", async () => {
   const api = client(),
     revised = vi.fn();
   mount(api, revised);
-  await screen.findByRole("button", { name: "Enable personal support" });
+  await screen.findByRole("button", { name: "Turn on" });
   expect(api.setPermission).not.toHaveBeenCalled();
   expect(
     screen.getByText(
-      /independent checks and completion requirements stay the same/,
+      "While this is on, your companion can add reviewed explanations and practice for you, within your course's limits. You can turn it off at any time.",
     ),
   ).toBeVisible();
-  // The consent names what reaches the model: the learner's open ideas, their own words included.
+  // "What this shares" names what reaches the model: the open ideas, the learner's own words included.
+  const shares = screen.getByRole("button", { name: "What this shares" });
+  expect(shares).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByText(/also sees your open ideas/)).toBeNull();
+  await pressWhenReady(shares);
+  expect(shares).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("While it's on, your companion also sees your open ideas.")).toBeVisible();
   expect(
     screen.getByText(
-      /the AI model your course uses also receives your open ideas about what may help you, including ones you wrote and your corrections.*Ideas you reject or that lapse are not sent, and nothing from other learners is included/,
+      /includes ideas you wrote and your corrections\. Ideas you reject or that lapse aren't shared, nothing from other learners is included, and your checks and what finishing the course needs stay the same/,
     ),
   ).toBeVisible();
-  await clickEnabled("Enable personal support");
-  await screen.findByRole("button", { name: "Turn off personal support" });
+  await clickEnabled("Turn on");
+  await screen.findByRole("button", { name: "Turn off" });
   expect(api.setPermission).toHaveBeenCalledWith(
     expect.objectContaining({ revision: 3 }),
     true,
@@ -180,23 +188,21 @@ it("retries a lost permission acknowledgement with exactly the original id and r
     }),
   );
   mount(api);
-  await clickEnabled("Enable personal support");
-  await clickEnabled("Retry permission change");
-  await screen.findByRole("button", { name: "Turn off personal support" });
+  await clickEnabled("Turn on");
+  await clickEnabled("Try again");
+  await screen.findByRole("button", { name: "Turn off" });
   expect(payloads).toHaveLength(2);
   expect(payloads[1]).toEqual(payloads[0]);
 });
 it("does not retry an acknowledged write when refreshing course progress fails", async () => {
   const api = client();
   mount(api, vi.fn().mockRejectedValue(Error("GET failed")));
-  await clickEnabled("Enable personal support");
+  await clickEnabled("Turn on");
   await screen.findByText(
-    "Permission was saved. Refresh your course to see its current progress.",
+    "Your choice was saved. Refresh your course to see its current progress.",
   );
   expect(api.setPermission).toHaveBeenCalledTimes(1);
-  expect(
-    screen.queryByRole("button", { name: "Retry permission change" }),
-  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 });
 it("clears private state on account switch even if the old read ignores cancellation", async () => {
   let resolve!: (v: SupervisionPermission) => void;
@@ -218,11 +224,9 @@ it("clears private state on account switch even if the old read ignores cancella
       onRevision={() => {}}
     />,
   );
-  await screen.findByRole("button", { name: "Enable personal support" });
+  await screen.findByRole("button", { name: "Turn on" });
   await act(async () => resolve(permission(true)));
-  expect(
-    screen.queryByRole("button", { name: "Turn off personal support" }),
-  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull();
 });
 it("leaves a stale write refreshable instead of silently resubmitting and rejects malformed receipts", async () => {
   const api = client();
@@ -230,12 +234,10 @@ it("leaves a stale write refreshable instead of silently resubmitting and reject
     .fn()
     .mockRejectedValue(new CourseApiError("STALE_REVISION", 409));
   mount(api);
-  await clickEnabled("Enable personal support");
+  await clickEnabled("Turn on");
   await screen.findByText(/changed on another request/);
-  expect(
-    screen.queryByRole("button", { name: "Retry permission change" }),
-  ).toBeNull();
-  await clickEnabled("Refresh supervisor information");
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  await clickEnabled("Refresh");
   await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
   expect(api.setPermission).toHaveBeenCalledTimes(1);
   expect(() =>
@@ -274,7 +276,9 @@ it("shows actual delivery status without rendering provider or hidden text", asy
   const api = client();
   api.tools = vi.fn().mockResolvedValue(calls);
   mount(api, vi.fn(), "timeline");
-  await screen.findByText("Added to your lesson · plan 2");
+  await screen.findByText("Added to your lesson.");
+  // One row: an icon, the line, the status chip and the time.
+  expect(screen.getByText("Picked a reviewed explanation for you")).toBeVisible();
   expect(screen.queryByText("HIDDEN_CONTENT")).toBeNull();
   expect(api.setPermission).not.toHaveBeenCalled();
 });
@@ -307,7 +311,7 @@ it("reference feedback remains distinct from lesson delivery and cannot smuggle 
   mount(api, vi.fn(), "timeline");
   expect(
     await screen.findByText(
-      "Draft rejected by reference checks · revision needed",
+      "The draft didn't pass the course's checks, so it needs revising.",
     ),
   ).toBeVisible();
   expect(screen.queryByText(/Added to your lesson/)).toBeNull();
@@ -332,15 +336,13 @@ it("does not refresh while a permission write is pending, then permits explicit 
       }),
   );
   mount(api);
-  await clickEnabled("Enable personal support");
-  const refresh = screen.getByRole("button", {
-    name: "Refresh supervisor information",
-  });
+  await clickEnabled("Turn on");
+  const refresh = screen.getByRole("button", { name: "Refresh" });
   expect(refresh).toBeDisabled();
   fireEvent.click(refresh);
   expect(api.permission).toHaveBeenCalledTimes(1);
   await act(async () => reject(new CourseApiError("STALE_REVISION", 409)));
-  await clickEnabled("Refresh supervisor information");
+  await clickEnabled("Refresh");
   await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
   expect(api.setPermission).toHaveBeenCalledTimes(1);
 });
@@ -370,9 +372,9 @@ it("a research request that ended without running says so instead of looking que
   const api = client();
   api.tools = vi.fn().mockResolvedValue(parsed);
   mount(api, vi.fn(), "timeline");
-  expect(await screen.findByText("Research request could not run · nothing was collected")).toBeVisible();
-  expect(screen.getByText("Research request ended · nothing will be collected")).toBeVisible();
-  expect(screen.queryByText(/Public-source research queued/)).toBeNull();
+  expect(await screen.findByText("Couldn't look for sources, so nothing was collected.")).toBeVisible();
+  expect(screen.getByText("Stopped looking for sources. Nothing will be collected.")).toBeVisible();
+  expect(screen.queryByText(/Looking for public sources/)).toBeNull();
 });
 it("shows the receipts of a run that ended without delivery as ended, never as pending", async () => {
   const receipt = (id: string, tool: string, jobState: string, outcome: Record<string, unknown>) => ({
@@ -381,8 +383,8 @@ it("shows the receipts of a run that ended without delivery as ended, never as p
     contextRefs: { messageIds: [], sourceIds: [], modelSourceEventIds: [] },
   });
   for (const [jobState, research, check, selection] of [
-    ["failed", "Research request was not sent · nothing was collected", "Reference checks passed · this draft was not delivered", "Selection was not delivered"],
-    ["running", "Research request staged · final plan review required", "Reference checks passed · final review still required", "Selected · awaiting verification and delivery"],
+    ["failed", "Didn't look for sources, so nothing was collected.", "The draft passed the course's checks but wasn't added.", "This choice wasn't added."],
+    ["running", "Getting ready to look for sources. This needs a review first.", "The draft passed the course's checks. It still needs a final review.", "Picked. It's checked before it's added."],
   ] as const) {
     const api = client();
     api.tools = vi.fn().mockResolvedValue(parseToolCalls({ calls: [
@@ -400,13 +402,44 @@ it("shows the receipts of a run that ended without delivery as ended, never as p
 
 it("says what paid supervisor work still runs while personal support is off, and that it changes nothing", async () => {
   mount(client());
-  await screen.findByRole("button", { name: "Enable personal support" });
+  await screen.findByRole("button", { name: "Turn on" });
+  await pressWhenReady(screen.getByRole("button", { name: "What this shares" }));
   // Supervisor review is admitted by the course's settings and spending limits, not by this opt-in.
   expect(
     screen.getByText(
-      /Even while this is off, your course's AI supervisor may review your recorded answers, results and saved questions.*within the AI spending limits your course staff set.*It cannot change your lessons while this is off/,
+      /Even while it's off, your companion may review your answers, results and saved questions, within the AI spending limits your course team set.*It can't change your lessons while it's off/,
     ),
   ).toBeVisible();
   mount(client(), vi.fn(), "timeline");
-  expect(screen.getAllByText(/Even while this is off/)).toHaveLength(1);
+  expect(screen.getAllByText(/Even while it's off/)).toHaveLength(1);
+});
+
+it("names the panel and its states in Hebrew: one name for the helper, chips and verbal-noun buttons", async () => {
+  const { I18nProvider, createLearnerTranslator } = await import("../src/i18n");
+  const api = client();
+  api.tools = vi.fn().mockResolvedValue(
+    parseToolCalls({
+      calls: [
+        {
+          id: "receipt", jobId: "job", step: 1, tool: "get_history", createdAt: "2026-01-01T00:00:00Z", jobState: "applied", appliedPlanRevision: null,
+          outcome: { available: null, reason: "independent_assessment_active", selected: false, profileId: null, entryId: null, delivery: null },
+          contextRefs: { messageIds: ["m1"], sourceIds: [] },
+        },
+      ],
+    }),
+  );
+  render(
+    <I18nProvider value={createLearnerTranslator("he")}>
+      <SupervisionPanel accountId="one" enrollment={snapshot()} client={api} mode="settings" onRevision={() => {}} />
+      <SupervisionPanel accountId="one" enrollment={snapshot()} client={api} mode="timeline" onRevision={() => {}} />
+    </I18nProvider>,
+  );
+  expect(await screen.findByRole("heading", { name: "תמיכה אישית בשיעורים" })).toBeVisible();
+  expect(await screen.findByText("כבויה")).toBeVisible();
+  expect(screen.getByRole("button", { name: "הפעלה" })).toBeEnabled();
+  expect(screen.getByRole("heading", { name: "פעולות המנחה" })).toBeVisible();
+  expect(await screen.findByText("קריאת השיחה השמורה")).toBeVisible();
+  expect(screen.getByText("אין שינוי בזמן בדיקה.")).toBeVisible();
+  // No jargon counts of what was read.
+  expect(screen.queryByText(/הקשר:/)).toBeNull();
 });
