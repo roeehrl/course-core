@@ -145,7 +145,7 @@ for (const locale of ["en", "he"] as const) {
     // The sandbox takes too long to start: the API refuses before running anything (#236).
     const answers = /\/api\/enrollments\/[^/]+\/answers$/;
     await page.route(answers, (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CODE_SANDBOX_SETUP_SLOW" }) }));
-    await page.getByRole("button", { name: t.check["answer.runCode"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["answer.check"], exact: true }).click();
     // One state, where the learner pressed: the connection status says why nothing ran, with the
     // retry; no notice at the top of the lesson says it again, and no "Not recorded yet" beside it.
     const status = page.locator(".connected-connection");

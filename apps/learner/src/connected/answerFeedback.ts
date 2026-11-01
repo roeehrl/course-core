@@ -17,8 +17,22 @@ function coreMessage(message: unknown, t: Translate): string | undefined {
   if (code === "code_limit" && !CODE_LIMITS.includes(String(values.limit))) return undefined;
   return t(`answerFeedback.message.${code as string}` as MessageKey, values as Record<string, string | number>);
 }
-/** Format only a structurally valid server receipt; never infer a grade from source/output. */
-export function answerFeedback(receipt: unknown, code = false, t: Translate = englishTranslator().t): string {
+/** What a check's feedback says first (the verdict line). */
+export type AnswerVerdict = "correct" | "revisit" | "codePassed" | "codeFailed" | "submitted" | "abstained";
+/** A server receipt read for the check's feedback: the verdict, then what explains it. */
+export interface AnswerResult {
+  verdict: AnswerVerdict;
+  passed: boolean;
+  /** The answer counted toward the lesson (false: it was practice). */
+  independent: boolean;
+  /** The author's explanation (Markdown), or Core's coded message worded in the reader's language. */
+  explanation: string;
+  /** The explanation is Core's coded message, not the author's text. */
+  coded: boolean;
+}
+
+/** Read only a structurally valid server receipt; never infer a grade from source/output. */
+export function answerResult(receipt: unknown, code = false, t: Translate = englishTranslator().t): AnswerResult {
   const result =
     receipt && typeof receipt === "object"
       ? (receipt as { result?: unknown }).result
@@ -31,6 +45,8 @@ export function answerFeedback(receipt: unknown, code = false, t: Translate = en
     message?: unknown;
     independent?: unknown;
     execution?: unknown;
+    abstained?: unknown;
+    pendingReview?: unknown;
   };
   // Core's own feedback arrives as a code; an author's or extension's explanation as its text.
   const coded = value.message === undefined ? undefined : coreMessage(value.message, t);
@@ -55,17 +71,22 @@ export function answerFeedback(receipt: unknown, code = false, t: Translate = en
     )
       throw new CourseApiError("INVALID_RESPONSE", 502);
   }
-  const explanation = coded ?? (value.explanation as string);
-  if ((value as { abstained?: unknown }).abstained === true)
-    return t("answerFeedback.abstained", { explanation });
-  if ((value as { pendingReview?: unknown }).pendingReview === true)
-    return value.independent
-      ? t("answerFeedback.pendingReview", { explanation })
-      : t("answerFeedback.pendingReviewPractice", { explanation });
-  const verdict = code ? (value.passed ? "codePassed" : "codeFailed") : value.passed ? "correct" : "revisit";
-  return value.independent
-    ? t(`answerFeedback.verdict.${verdict}`, { explanation })
-    : t(`answerFeedback.verdictPractice.${verdict}`, { explanation });
+  const verdict: AnswerVerdict =
+    value.abstained === true ? "abstained"
+    : value.pendingReview === true ? "submitted"
+    : code ? (value.passed ? "codePassed" : "codeFailed")
+    : value.passed ? "correct" : "revisit";
+  return { verdict, passed: value.passed, independent: value.independent, explanation: coded ?? (value.explanation as string), coded: coded !== undefined };
+}
+
+/** A receipt in one sentence run (the host's notice for a recovered submission): the verdict, the
+ * explanation and, on practice, that it counted as practice. The check itself shows `answerResult`. */
+export function answerFeedback(receipt: unknown, code = false, t: Translate = englishTranslator().t): string {
+  const result = answerResult(receipt, code, t);
+  const practice = !result.independent && result.verdict !== "abstained";
+  return [t(`answerFeedback.verdict.${result.verdict}`), result.explanation, practice ? t("answerFeedback.practice") : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** The notice tone for a receipt `answerFeedback` words: an answer that did not pass (wrong, or

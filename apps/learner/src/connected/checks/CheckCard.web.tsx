@@ -1,19 +1,28 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import type { Episode, NextAction } from "@course-core/sdk";
-import { Text, View } from "react-native";
 import type { Challenge, GateView, ServerSnapshot } from "../../client/apiClient";
+import { companionFocus } from "../../client/companionFocus";
 import { MarkdownContent } from "../../components/MarkdownContent";
-import { Button, Notice, styles } from "../../components/ui";
+import { Icon } from "../../components/icons/Icon.web";
+import { Button, Notice } from "../../components/ui";
 import { courseContentAttributes } from "../../domain/contentLanguage";
 import { useT } from "../../i18n";
+import { answerResult } from "../answerFeedback";
 import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } from "../AssessmentInput.web";
 import { browserRunsAllowed, codeSubmissionError } from "../code";
+import { questionOrdinal } from "../checkOrdinal";
+import { companionBridge, lessonNavigator } from "../companion/bridge";
+import { KindLine } from "../credit/KindLine.web";
 import { GateDecisionPanel } from "../GateDecision.web";
 import { FreshCheckButton, QuestionsExhausted } from "../lessonRecovery.web";
-import { UnverifiedBadge, type UnverifiedContent } from "../unverified.web";
-import { KindLine } from "../credit/KindLine.web";
-import { lessonNavigator } from "../companion/bridge";
+import { InlineConfirm } from "../ui/InlineConfirm.web";
 import { highlightBlock } from "../ui/highlight";
+import { UnverifiedBadge, type UnverifiedContent } from "../unverified.web";
+import { CheckFeedback } from "./CheckFeedback.web";
+import { ExplanationPanel, SolutionViewed } from "./ExplanationPanel.web";
+import { HelpRow } from "./HelpRow.web";
+import { HintArea, HintButton, NO_HINTS, hintLevels, type HintProgress } from "./HintLadder.web";
+import { ReplyNudge } from "./ReplyNudge.web";
 import type { CheckCommands } from "./useCheckCommands";
 
 type Recovery = NonNullable<ServerSnapshot["recovery"]>[number];
@@ -46,7 +55,17 @@ export interface CheckCardProps {
   onQuestionsExhausted?: (episodeId: string) => Promise<boolean>;
 }
 
-/** The lesson's check: the question, its answer and actions, the feedback, and the decision. */
+/** Item types whose explanation the server can show before an answer (assessment-routes.ts). */
+const EXPLAINED = ["choice", "numeric", "prediction", "trace"];
+/** The first control of a group, for moving focus into it. */
+const firstControl = (root: HTMLElement | null) =>
+  root?.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [role='radio']") ?? null;
+
+/**
+ * The lesson's check (§4.1): the question, its answer and "Check", the help bar, the feedback in
+ * place, the help row, hints, the explanation and the decision. Everything the check says about an
+ * answer stays in it, under the question, and is announced once by its status region.
+ */
 export function CheckCard({
   server,
   episode,
@@ -72,22 +91,27 @@ export function CheckCard({
   onQuestionsExhausted,
 }: CheckCardProps) {
   const t = useT();
+  const ids = useId();
   const progress = server.lessons.find((row) => row.id === episode.id);
   // The learner answered (or chose "I don't know yet") in this lesson while on the page: the
   // checkpoint's suggestions are then relevant even before the server has any evidence.
   const [answeredHere, setAnsweredHere] = useState(false);
-  // The check just answered: its form goes away with the server's result, so focus moves to the
-  // check's heading, right above the result and what to do next.
-  const answered = useRef<string | null>(null);
-  // Set when an answer is sent: its result is brought into view once it arrives. On a phone the
-  // answer actions sit far below the check's heading, so the result would otherwise appear out of
-  // sight. The heading and the result scroll only as far as needed to be seen (block "nearest"),
-  // never to the top of the page.
-  const revealResult = useRef(false);
+  // The check just answered: once the server has its result, focus moves to the check's heading
+  // (or, after "I don't know yet", into the help that opens), and the result is brought into view.
+  const answered = useRef<{ id: string; abstain: boolean } | null>(null);
   const checkHead = useRef<HTMLDivElement>(null);
   const section = useRef<HTMLElement>(null);
-  const reveal = () =>
-    requestAnimationFrame(() => checkHead.current?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+  const feedbackSlot = useRef<HTMLDivElement>(null);
+  const helpRow = useRef<HTMLDivElement>(null);
+  const questionBlock = useRef<HTMLDivElement>(null);
+  // The help row of a question (by challenge id): "Get help" toggles it; a wrong answer and "I
+  // don't know yet" open it.
+  const [helpOpen, setHelpOpen] = useState<Record<string, boolean>>({});
+  // What waits for "Show hint as practice" / "Show as practice" on a counted question.
+  const [confirming, setConfirming] = useState<{ id: string; what: "hint" | "explanation" } | null>(null);
+  // Explanations folded open per question, and hints shown per question (by question id).
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [hintProgress, setHintProgress] = useState<Record<string, HintProgress>>({});
   useEffect(() => {
     setAnsweredHere(false);
   }, [episode.id]);
@@ -96,21 +120,55 @@ export function CheckCard({
     (!Number.isFinite(Date.parse(challenge.expiresAt)) ||
       Date.parse(challenge.expiresAt) <= now),
   );
+  // The question in view: the open one, or the one just answered (kept until the next arrives).
+  const attempt = check.attempts?.[episode.id];
+  const kept = attempt && (!challenge || challenge.challengeId === attempt.challenge.challengeId) ? attempt : undefined;
+  const shown = challenge ?? kept?.challenge;
+  const settled = kept && kept.status === "answered" ? kept : undefined;
+  const result = settled ? answerResult(settled.receipt, settled.code, t) : undefined;
+  /** The question can still be answered here. */
+  const open = Boolean(challenge) && !settled;
+  const checking = kept?.status === "checking";
   const challengeId = challenge?.challengeId;
+  const shownId = shown?.challengeId;
+  const ordinal = questionOrdinal(server, episode.id);
+  const reveal = (target: HTMLElement | null) =>
+    requestAnimationFrame(() => target?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
   useEffect(() => {
-    const id = answered.current;
-    if (!id || challengeId === id) return;
+    const done = answered.current;
+    if (!done || !settled || settled.challenge.challengeId !== done.id) return;
     answered.current = null;
+    // After "I don't know yet" the help row opens with focus on its first control (§4.2).
+    if (done.abstain) {
+      requestAnimationFrame(() => {
+        firstControl(helpRow.current)?.focus({ preventScroll: true });
+        reveal(helpRow.current);
+      });
+      return;
+    }
     const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected) return;
-    document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus({ preventScroll: true });
-    reveal();
-  }, [challengeId]);
+    if (!active || active === document.body || !active.isConnected || section.current?.contains(active))
+      document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus({ preventScroll: true });
+    reveal(checkHead.current);
+    reveal(feedbackSlot.current);
+  }, [settled]);
+  // A wrong answer and "I don't know yet" open the help row; on a practice question with hints,
+  // "I don't know yet" also opens the first hint (§4.2).
+  const settledId = settled?.challenge.challengeId;
   useEffect(() => {
-    if (!check.answerFeedback || !revealResult.current) return;
-    revealResult.current = false;
-    reveal();
-  }, [check.answerFeedback?.text]);
+    if (!settled || !result) return;
+    const id = settled.challenge.challengeId, questionId = settled.challenge.question.id;
+    if (result.verdict === "revisit" || result.verdict === "codeFailed" || result.verdict === "abstained")
+      setHelpOpen((all) => ({ ...all, [id]: true }));
+    if (result.verdict !== "abstained") {
+      // One more try counts toward the third hint.
+      setHintProgress((all) => {
+        const current = all[questionId];
+        return current && current.shown >= 2 ? { ...all, [questionId]: { ...current, triesAfterSecond: current.triesAfterSecond + 1 } } : all;
+      });
+    } else if (!settled.challenge.independentEligible && hintLevels(settled.challenge.question.hints).length)
+      setHintProgress((all) => (all[questionId]?.shown ? all : { ...all, [questionId]: { shown: 1, triesAfterSecond: 0 } }));
+  }, [settledId]);
   // "Show me the question" from elsewhere (bridge.ts): the check comes into view, highlighted, and
   // its first answer control takes focus when asked.
   useEffect(
@@ -134,13 +192,253 @@ export function CheckCard({
     (gate.criterionResults ?? []).some((criterion) => criterion.met !== false)));
   // Why "Check" is not available yet, said next to it.
   const answerHint = (() => {
-    if (!challenge || pending) return undefined;
+    if (!challenge || pending || !open) return undefined;
     const payload = answerPayload(challenge.question, answer, t);
     if (!("error" in payload)) return undefined;
     if (challenge.question.type === "choice" && !answer.trim()) return t("checkCard.answer.chooseFirst");
     if (!answer.trim()) return t("checkCard.answer.enterFirst");
     return challenge.question.type === "trace" ? payload.error : undefined;
   })();
+  const canSubmit = Boolean(
+    challenge && open && !pending &&
+    !("error" in answerPayload(challenge.question, answer, t)) &&
+    !((challenge.question.type === "code" || challenge.question.type === "code_repair") && codeSubmissionError(challenge.question.language, answer, t)),
+  );
+  const submit = () => {
+    if (!challenge || !canSubmit) return;
+    answered.current = { id: challenge.challengeId, abstain: false };
+    setAnsweredHere(true);
+    setConfirming(null);
+    check.onAnswer(challenge);
+  };
+  // A new question can be started from here (the lesson is not finished and has questions left).
+  const canStart = !challenge && !progress?.gate?.passed && !(recovery?.required && !recovery.freshCheck);
+  const fieldError = challenge ? check.fieldErrors?.[challenge.challengeId] : undefined;
+  const fieldErrorId = `${ids}-field-error`;
+  const explanationId = `${ids}-explanation`;
+  const helpId = `${ids}-help`;
+
+  /** The question block: the open question, or the one just answered with what follows it. */
+  const question = (() => {
+    if (!shown) return null;
+    if (challenge && expired && !kept)
+      return (
+        <Notice error>
+          {t("checkCard.check.expired")}
+          <Button label={t("checkCard.check.refresh")} onPress={onRefresh} disabled={pending} />
+        </Notice>
+      );
+    const shownAnswer = challenge && !settled ? answer : kept?.answer ?? "";
+    const locked = !open || (check.savingAnswer ?? pending);
+    const code = isCode(shown.question), written = isWritten(shown.question);
+    // The explanation the server returned for this question (it is practice from then on), or, after
+    // "I don't know yet", the author's explanation that came with the receipt.
+    const served = check.explanations?.[shown.challengeId];
+    const abstainedWith = result?.verdict === "abstained" && !result.coded ? result.explanation : undefined;
+    // After an answer the explanation is already in the feedback: it is not offered twice.
+    const explanation = settled && result?.verdict !== "abstained" ? undefined : served ?? abstainedWith;
+    const canExplain = open && EXPLAINED.includes(shown.question.type);
+    const isExpanded = Boolean(expanded[shown.challengeId] && explanation);
+    const counted = open && shown.independentEligible;
+    const hints = hintLevels(shown.question.hints);
+    // Hints on a counted question would need the server to record them (onHint); without that
+    // route the ladder is offered on practice questions and on questions already answered only.
+    const hintsOffered = hints.length > 0 && (!counted || Boolean(check.onHint));
+    const progressOfHints = hintProgress[shown.question.id] ?? NO_HINTS;
+    const showHint = (level: number) =>
+      setHintProgress((all) => {
+        const current = all[shown.question.id] ?? NO_HINTS;
+        return { ...all, [shown.question.id]: { ...current, shown: level, ...(level === 2 ? { secondShownAt: Date.now() } : {}) } };
+      });
+    const openHint = () => {
+      const level = progressOfHints.shown + 1;
+      if (counted && progressOfHints.shown === 0) setConfirming({ id: shown.challengeId, what: "hint" });
+      else showHint(level);
+    };
+    const toggleExplanation = () => {
+      if (explanation) {
+        setExpanded((all) => ({ ...all, [shown.challengeId]: !all[shown.challengeId] }));
+        return;
+      }
+      if (counted) {
+        setConfirming({ id: shown.challengeId, what: "explanation" });
+        return;
+      }
+      setExpanded((all) => ({ ...all, [shown.challengeId]: true }));
+      check.onSolution(shown);
+    };
+    const keepCounted = () => {
+      setConfirming(null);
+      firstControl(questionBlock.current?.querySelector<HTMLElement>(".cc-check-answer") ?? null)?.focus({ preventScroll: true });
+    };
+    const wrong = result?.verdict === "revisit" || result?.verdict === "codeFailed";
+    const helpShown = Boolean(helpOpen[shown.challengeId]) && (open || Boolean(settled));
+    const confirm = confirming?.id === shown.challengeId ? confirming.what : null;
+    const ask = () => {
+      // An open question goes with the next message as its chip ("Question 1"); nothing is sent.
+      if (open) companionFocus.setCheck({ challengeId: shown.challengeId, ordinal });
+      companionBridge.compose({ source: "check" });
+    };
+    const checkLabel = written
+      ? check.savingAnswer ?? pending ? t("checkCard.answer.submitting") : t("checkCard.answer.submitForReview")
+      : t("checkCard.answer.check");
+    return (
+      <div className="cc-check-question" ref={questionBlock}>
+        <KindLine challenge={shown} server={server} episodeId={episode.id} onFreshCheck={() => check.onStart()} />
+        {unverified?.questions.has(shown.question.id) && (
+          <UnverifiedBadge
+            what="question"
+            {...(onReviewChange
+              ? { onReview: () => onReviewChange!(unverified!.questions.get(shown.question.id)!) }
+              : {})}
+          />
+        )}
+        <div className="cc-check-prompt" {...courseContentAttributes(server.course)}>
+          <MarkdownContent markdown={shown.question.prompt} />
+        </div>
+        <div className={`cc-check-answer${settled ? " is-answered" : ""}`}>
+          <AssessmentInput
+            key={shown.challengeId}
+            question={shown.question}
+            answer={shownAnswer}
+            pending={locked}
+            onChange={onAnswerChange}
+            practiceRuns={open && browserRunsAllowed(shown.mode)}
+            onSubmit={submit}
+            {...(fieldError ? { describedBy: fieldErrorId } : {})}
+            actions={
+              open || checking ? (
+                <button
+                  type="button"
+                  className={`cc-check-submit${checking && !written ? " is-checking" : ""}`}
+                  data-usability="next"
+                  aria-describedby={answerHint ? "connected-answer-hint" : undefined}
+                  disabled={!canSubmit || checking}
+                  onClick={submit}
+                >
+                  {/* Both labels take the same cell, so the button keeps its width while it checks. */}
+                  <span className="cc-check-submit-label" aria-hidden={checking && !written ? true : undefined}>{checkLabel}</span>
+                  {!written && (
+                    <span className="cc-check-submit-busy" aria-hidden={checking ? undefined : true}>
+                      <span className="cc-check-spinner" />
+                      {t("checkCard.answer.checking")}
+                    </span>
+                  )}
+                </button>
+              ) : null
+            }
+          />
+        </div>
+        {open && (
+          <ConfidenceInput
+            question={shown.question}
+            value={check.confidence ?? null}
+            pending={locked}
+            onChange={(value) => check.onConfidenceChange?.(value)}
+          />
+        )}
+        {answerHint && (
+          <p className="connected-input-hint" id="connected-answer-hint">{answerHint}</p>
+        )}
+        {fieldError && open && (
+          <p className="cc-check-field-error" id={fieldErrorId}>
+            <Icon name="alert-circle" size={16} />
+            <span>{t(fieldError === "copied" ? "checkCard.error.copied" : "checkCard.error.attemptRequired")}</span>
+          </p>
+        )}
+        {/* Before an attempt: "I don't know yet" and "Get help", after "Check" in the Tab order. */}
+        {open && !checking && (
+          <div className="cc-check-help-bar">
+            {shown.question.allowAbstain !== false && check.onAbstain && (
+              <button
+                type="button"
+                className="cc-check-quiet"
+                aria-label={t("checkCard.abstain.accessibilityLabel")}
+                disabled={check.savingAnswer ?? pending}
+                onClick={() => {
+                  answered.current = { id: shown.challengeId, abstain: true };
+                  setAnsweredHere(true);
+                  setConfirming(null);
+                  check.onAbstain!(shown);
+                }}
+              >
+                {t("checkCard.abstain.label")}
+              </button>
+            )}
+            <button
+              type="button"
+              className="cc-check-quiet"
+              aria-expanded={helpShown}
+              aria-controls={helpShown ? helpId : undefined}
+              onClick={() => {
+                setHelpOpen((all) => ({ ...all, [shown.challengeId]: !all[shown.challengeId] }));
+                if (helpShown) setConfirming(null);
+              }}
+            >
+              {t("checkCard.help.getHelp")}
+              <Icon name={helpShown ? "chevron-up" : "chevron-down"} size={16} />
+            </button>
+          </div>
+        )}
+        {/* Always mounted with the question, so a screen reader announces each result as it arrives. */}
+        <div
+          ref={feedbackSlot}
+          className={`connected-answer-feedback${kept ? " is-filled" : ""}${checking ? " is-checking" : ""}`}
+          role="status"
+          aria-atomic="true"
+        >
+          {kept && <CheckFeedback attempt={kept} course={server.course} onRetry={() => check.onRetry?.(kept.challenge)} />}
+        </div>
+        {helpShown && (
+          <HelpRow
+            ref={helpRow}
+            id={helpId}
+            ordinal={ordinal}
+            counted={counted}
+            {...(wrong && canStart ? { onTryAgain: () => check.onStart() } : {})}
+            hint={hintsOffered ? <HintButton hints={hints} progress={progressOfHints} onOpen={openHint} /> : undefined}
+            onAsk={ask}
+            {...(canExplain || explanation
+              ? { explanation: { expanded: isExpanded || (expanded[shown.challengeId] === true && check.explaining === shown.challengeId), controls: explanationId, disabled: check.explaining === shown.challengeId, onToggle: toggleExplanation } }
+              : {})}
+          />
+        )}
+        {confirm === "hint" && (
+          <InlineConfirm
+            className="cc-check-confirm"
+            sentence={t("hintLadder.confirm", { ordinal })}
+            confirmLabel={t("hintLadder.showAsPractice")}
+            cancelLabel={t("hintLadder.keepCounted")}
+            onConfirm={() => {
+              setConfirming(null);
+              void check.onHint?.(shown).then(() => showHint(1), () => {});
+            }}
+            onCancel={keepCounted}
+          />
+        )}
+        {confirm === "explanation" && (
+          <InlineConfirm
+            className="cc-check-confirm"
+            sentence={t("helpRow.confirm.explanation", { ordinal })}
+            confirmLabel={t("helpRow.confirm.showAsPractice")}
+            cancelLabel={t("helpRow.confirm.keepCounted")}
+            onConfirm={() => {
+              setConfirming(null);
+              setExpanded((all) => ({ ...all, [shown.challengeId]: true }));
+              check.onSolution(shown);
+              requestAnimationFrame(() => helpRow.current?.querySelector<HTMLElement>(".cc-check-explain")?.focus({ preventScroll: true }));
+            }}
+            onCancel={keepCounted}
+          />
+        )}
+        {hintsOffered && <HintArea hints={hints} shown={progressOfHints.shown} course={server.course} />}
+        {isExpanded && explanation && <ExplanationPanel id={explanationId} explanation={explanation} course={server.course} />}
+        {(served !== undefined || shown.practiceReason === "solution") && <SolutionViewed />}
+        <ReplyNudge challengeId={shownId} />
+      </div>
+    );
+  })();
+
   return (
     <section
       ref={section}
@@ -157,11 +455,8 @@ export function CheckCard({
               ? t("checkCard.check.doneIntro")
               : t("checkCard.check.introCount", { count: questionsLeft || questionsTotal })}
         </p>
-        {/* Always mounted, so a screen reader announces each result as it arrives. */}
-        <div className="connected-answer-feedback" role="status" aria-atomic="true">
-          {check.answerFeedback && <p data-tone={check.answerFeedback.tone}>{check.answerFeedback.text}</p>}
-        </div>
       </div>
+      {question}
       {!waitingForReading && engaged && gate?.status && onGateAction && (
         <GateDecisionPanel gate={gate} pending={pending} onAction={onGateAction} omitFreshCheck {...(onGateReview ? { onRequestReview: onGateReview } : {})} />
       )}
@@ -180,127 +475,9 @@ export function CheckCard({
           ))}
         </ul>
       )}
-      {challenge ? (
-        expired ? (
-          <Notice error>
-            {t("checkCard.check.expired")}
-            <Button
-              label={t("checkCard.check.refresh")}
-              onPress={onRefresh}
-              disabled={pending}
-            />
-          </Notice>
-        ) : (
-          <View style={{ gap: 18 }}>
-            <KindLine challenge={challenge} server={server} episodeId={episode.id} />
-            {unverified?.questions.has(challenge.question.id) && (
-              <UnverifiedBadge
-                what="question"
-                {...(onReviewChange
-                  ? { onReview: () => onReviewChange!(unverified!.questions.get(challenge.question.id)!) }
-                  : {})}
-              />
-            )}
-            <div {...courseContentAttributes(server.course)}>
-              <MarkdownContent markdown={challenge.question.prompt} />
-            </div>
-            <AssessmentInput
-              key={challenge.challengeId}
-              question={challenge.question}
-              answer={answer}
-              pending={check.savingAnswer ?? pending}
-              onChange={onAnswerChange}
-              practiceRuns={browserRunsAllowed(challenge.mode)}
-            />
-            <ConfidenceInput
-              question={challenge.question}
-              value={check.confidence ?? null}
-              pending={check.savingAnswer ?? pending}
-              onChange={(value) => check.onConfidenceChange?.(value)}
-            />
-            <div className="connected-answer-actions">
-            <Button
-              label={
-                isCode(challenge.question)
-                  ? check.checkingAnswer
-                    ? t("checkCard.answer.checkingCode")
-                    : t("checkCard.answer.runCode")
-                  : isWritten(challenge.question)
-                    ? pending
-                      ? t("checkCard.answer.submitting")
-                      : t("checkCard.answer.submitForReview")
-                  : pending
-                    ? t("checkCard.answer.saving")
-                    : t("checkCard.answer.check")
-              }
-              kind="primary"
-              usability="next"
-              {...(answerHint ? { describedBy: "connected-answer-hint" } : {})}
-              disabled={
-                pending ||
-                "error" in answerPayload(challenge.question, answer, t) ||
-                ((challenge.question.type === "code" || challenge.question.type === "code_repair") &&
-                  Boolean(
-                    codeSubmissionError(
-                      challenge.question.language,
-                      answer,
-                      t,
-                    ),
-                  ))
-              }
-              onPress={() => {
-                answered.current = challenge.challengeId;
-                revealResult.current = true;
-                setAnsweredHere(true);
-                check.onAnswer(challenge);
-              }}
-            />
-            {challenge.question.allowAbstain !== false && check.onAbstain && (
-              <Button
-                label={t("checkCard.abstain.label")}
-                kind="secondary"
-                disabled={pending}
-                accessibilityLabel={t("checkCard.abstain.accessibilityLabel")}
-                onPress={() => {
-                  answered.current = challenge.challengeId;
-                  revealResult.current = true;
-                  setAnsweredHere(true);
-                  check.onAbstain!(challenge);
-                }}
-              />
-            )}
-            </div>
-            {answerHint && (
-              <p className="connected-input-hint" id="connected-answer-hint">{answerHint}</p>
-            )}
-            {challenge.question.allowAbstain !== false && check.onAbstain && (
-              <p className="connected-input-hint">
-                {t("checkCard.abstain.hint")}
-              </p>
-            )}
-            {isCode(challenge.question) &&
-              check.checkingAnswer && (
-                <Text
-                  accessibilityRole="text"
-                  accessibilityLiveRegion="polite"
-                  style={styles.small}
-                >
-                  {t("checkCard.answer.waitingForGrader")}
-                </Text>
-              )}
-            {["choice", "numeric", "prediction", "trace"].includes(challenge.question.type) && (
-              <Button
-                label={challenge.independentEligible ? t("checkCard.answer.showExplanationCounted") : t("checkCard.answer.showExplanation")}
-                kind="quiet"
-                disabled={pending}
-                onPress={() => check.onSolution(challenge)}
-              />
-            )}
-          </View>
-        )
-      ) : progress?.gate?.passed ? (
+      {challenge ? null : progress?.gate?.passed ? (
         <Notice>{t("checkCard.check.complete")}</Notice>
-      ) : waitingForReading ? null : recovery?.required&&!recovery.freshCheck ? (
+      ) : waitingForReading ? null : recovery?.required && !recovery.freshCheck ? (
         <QuestionsExhausted episodeId={episode.id} onReport={onQuestionsExhausted} />
       ) : (
         recovery?.freshCheck ? (
@@ -309,5 +486,6 @@ export function CheckCard({
           <Button label={t("checkCard.check.start")} kind="primary" usability="next" disabled={pending || blockedMedia} onPress={() => check.onStart()} />
         )
       )}
-    </section>  );
+    </section>
+  );
 }

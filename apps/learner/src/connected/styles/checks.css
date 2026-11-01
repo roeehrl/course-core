@@ -1,102 +1,432 @@
-/* Checks: the question, its answer actions, feedback and confidence (connected/checks). Moved
- * from connected.css. */
+/* Checks: the question, its answer actions, feedback, help, hints and confidence
+ * (connected/checks, final design §4.1-§4.4). Colours, type, spacing and motion are tokens. */
 
+/* The check card: surface, hairline, radius 18, padding 24 (16 on phones), rows 12 apart. */
 .connected-check {
-  background: #e8f6ed;
-  border: 1px solid #dce6e2;
-  border-radius: 20px;
-  padding: 26px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--space-3);
+  color: var(--ink);
 }
 .connected-check h2 {
-  font-size: 25px;
-  line-height: 1.3;
-  letter-spacing: -0.7px;
-  margin: 0 0 10px;
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-empty) var(--font-sans);
 }
 .connected-check p {
-  color: #526a70;
-  font-size: 15px;
   margin: 0;
 }
-/* The result of the answer just checked, under the check's heading (ConnectedLesson.web.tsx). */
-.connected-check .connected-answer-feedback p {
-  margin: 14px 0 0;
-  padding: 14px 16px;
-  border: 1px solid #dce6e2;
-  border-inline-start: 4px solid #087b69;
-  border-radius: 12px;
-  background: #fff;
-  color: #183237;
-  font-size: 15px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+.connected-check-head {
+  display: grid;
+  gap: var(--space-1);
 }
-/* An answer to revisit: amber, like the notice it replaces (words carry the meaning). */
-.connected-check .connected-answer-feedback p[data-tone="warning"] {
-  border-inline-start-color: #80601e;
-  background: #fcf3df;
+.connected-check-head > p {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
 }
 .connected-check-progress {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
 }
 .connected-check-progress li {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   justify-content: space-between;
   flex-wrap: wrap;
 }
 .connected-check-progress strong {
-  font-weight: 650;
-  color: #087b69;
+  font-weight: 600;
+  color: var(--accent);
 }
 @media (max-width: 599px) {
   .connected-check {
-    padding: 20px;
-    border-radius: 18px;
-  }
-  .connected-check h2 {
-    font-size: 24px;
+    padding: var(--space-4);
   }
   .connected-check-progress li {
     display: block;
   }
   .connected-check-progress strong {
     display: block;
-    margin-top: 3px;
+    margin-block-start: 3px;
   }
 }
-.connected-answer-actions {
+
+/* The question and what follows it, 12 px apart. */
+.cc-check-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+.cc-check-prompt {
+  color: var(--ink);
+  font: 500 var(--text-reading) var(--font-sans);
+}
+/* Markdown paragraphs (react-native-web text) in the check: the prompt at 18/30 500, the
+ * explanation, hints and the opened explanation at 16/26, all in ink. Code and math keep theirs. */
+.connected-check .cc-check-prompt > div > div[dir="auto"] {
+  color: var(--ink);
+  font-size: var(--text-reading-size);
+  line-height: var(--text-reading-line);
+  font-weight: 500;
+}
+.connected-check .cc-check-explanation > div > div[dir="auto"],
+.connected-check .cc-check-hint > div > div > div[dir="auto"],
+.connected-check .cc-check-explanation-panel > div > div > div[dir="auto"] {
+  color: var(--ink);
+  font-size: var(--text-chat-size);
+  line-height: var(--text-chat-line);
+}
+/* The answer controls lay out in the question's own column, so the sticky answer bar can stay in
+ * view over the whole question, its prompt included. */
+.cc-check-answer {
+  display: contents;
+}
+
+/* Answer fields: 48 px, radius 12, a 1 px strong border, 16/24. */
+.cc-check-field {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  block-size: 48px;
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 16px/24px var(--font-sans);
+}
+.cc-check-field::placeholder {
+  color: var(--ink-muted);
+  opacity: 1;
+}
+.cc-check-field:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-check-field:read-only {
+  background: var(--surface-2);
+}
+.cc-check-textarea {
+  inline-size: 100%;
+  block-size: auto;
+  min-block-size: 112px;
+  padding-block: var(--space-3);
+  resize: vertical;
+}
+.cc-check-written {
+  display: grid;
+  gap: var(--space-2);
+}
+.cc-check-label {
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+}
+/* A one-line field and "Check" share a row. */
+.cc-check-answer-row > .cc-check-field {
+  flex: 0 1 240px;
+}
+
+/* "Check": 40 px, accent, 14/20 600. Its label and "Checking…" share one cell, so it keeps its
+ * width while the grader works. */
+.cc-check-submit {
+  display: inline-grid;
+  align-items: center;
+  justify-items: center;
+  min-block-size: max(40px, var(--target));
+  padding-block: 0;
+  padding-inline: var(--space-5);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 var(--text-button) var(--font-sans);
+  cursor: pointer;
+}
+.cc-check-submit > span {
+  grid-area: 1 / 1;
+}
+.cc-check-submit:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+.cc-check-submit:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-check-submit:disabled {
+  cursor: default;
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--ink-muted);
+}
+.cc-check-submit.is-checking:disabled {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.cc-check-submit-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  visibility: hidden;
+}
+.cc-check-submit.is-checking .cc-check-submit-busy {
+  visibility: visible;
+}
+.cc-check-submit.is-checking .cc-check-submit-label {
+  visibility: hidden;
+}
+/* A 16 px spinner in the button's text colour; still with reduced motion. */
+.cc-check-spinner {
+  box-sizing: border-box;
+  inline-size: 16px;
+  block-size: 16px;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: cc-check-spin 900ms linear infinite;
+}
+@keyframes cc-check-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The help bar before an attempt: two quiet text buttons in one 36 px row (44 px hits on touch). */
+.cc-check-help-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
   align-items: center;
+  gap: var(--space-4);
+  min-block-size: 36px;
 }
-.connected-input-hint { margin: 0 !important; font-size: 13px !important; color: #526a70 !important; line-height: 1.5; }
+.cc-check-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-block-size: max(36px, var(--target));
+  padding-block: 0;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 var(--text-button) var(--font-sans);
+  cursor: pointer;
+}
+.cc-check-quiet:hover {
+  text-decoration: underline;
+}
+.cc-check-quiet:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-check-quiet:disabled {
+  cursor: default;
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+/* A refusal under the field (copied companion words, an attempt required): ink with an icon, the
+ * field's border unchanged. */
+.cc-check-field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-check-field-error > svg {
+  flex: none;
+  margin-block-start: 2px;
+}
+
+/* The feedback slot (TUT-7): no box. Reserved while it has something to say (M17). */
+/* Empty, it stays in the page (a live region added with its text is often not read) without
+ * adding a row gap. */
+.connected-answer-feedback:empty {
+  margin-block-start: calc(-1 * var(--space-3));
+}
+.connected-answer-feedback.is-filled {
+  animation: cc-check-reveal var(--motion-m17-duration) var(--motion-m17-easing);
+}
+.connected-answer-feedback.is-checking {
+  min-block-size: 72px;
+}
+.cc-check-feedback {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.cc-check-verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.cc-check-verdict-icon {
+  flex: none;
+}
+.cc-check-verdict-icon.is-check {
+  color: var(--accent);
+}
+.cc-check-explanation {
+  align-self: stretch;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-check-suffix {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-check-noted {
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-check-failed {
+  font: 400 var(--text-chat) var(--font-sans);
+  align-items: flex-start;
+}
+.cc-check-failed > svg {
+  margin-block-start: 5px;
+}
+.cc-check-retry {
+  margin-block-start: var(--space-2);
+}
+.cc-check-dots {
+  min-block-size: 24px;
+}
+
+/* The help row: a line on a counted question, then a wrapping row of 36 px buttons (44 coarse). */
+.cc-check-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: cc-check-reveal var(--motion-m17-duration) var(--motion-m17-easing);
+}
+.cc-check-help-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-check-help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cc-check-help-actions .cc-ui-pill {
+  font: 600 var(--text-button) var(--font-sans);
+}
+.cc-check-explain.is-expanded {
+  background: var(--surface-2);
+}
+.cc-check-hint-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cc-check-hint-button[aria-disabled="true"] {
+  cursor: default;
+  border-color: var(--line);
+  color: var(--ink-muted);
+}
+.cc-check-hint-locked {
+  max-inline-size: 16ch;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+
+/* The inline confirm under the help row: the sentence and its two buttons on one line when they fit. */
+.cc-check-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+}
+.cc-check-confirm .cc-ui-confirm-sentence {
+  font: 400 var(--text-button) var(--font-sans);
+}
+
+/* Hints and the explanation, in place (M17). */
+.cc-check-hints {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+  animation: cc-check-reveal var(--motion-m17-duration) var(--motion-m17-easing);
+}
+.cc-check-hint {
+  display: grid;
+  gap: var(--space-1);
+}
+.cc-check-hint-label {
+  color: var(--ink-muted);
+  font: 600 var(--text-meta) var(--font-sans);
+}
+.cc-check-explanation-panel {
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+  animation: cc-check-reveal var(--motion-m17-duration) var(--motion-m17-easing);
+}
+.cc-check-solution-viewed {
+  align-self: flex-start;
+  min-block-size: 24px;
+  font-weight: 400;
+}
+
+/* The reply-ready nudge at the end of the card. */
+.cc-check-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+@keyframes cc-check-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.connected-input-hint { margin: 0 !important; font: 400 var(--text-meta) var(--font-sans) !important; color: var(--ink-muted) !important; }
 .connected-confidence {
-  border: 1px solid #dce6e2;
-  border-radius: 14px;
-  padding: 12px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  padding: var(--space-3) var(--space-4) var(--space-4);
   margin: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
-.connected-confidence legend { font-size: 14px; font-weight: 600; color: #183237; padding: 0 6px; }
-@media (max-width: 599px) {
-  .connected-answer-actions { flex-direction: column; align-items: stretch; }
-}
+.connected-confidence legend { font: 600 var(--text-button) var(--font-sans); color: var(--ink); padding: 0 6px; }
 .connected-confidence-scale {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .connected-confidence-scale label {
   position: relative;
@@ -107,15 +437,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid #dce6e2;
-  border-radius: 12px;
-  background: #fff;
-  color: #183237;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
   font-weight: 600;
   cursor: pointer;
 }
-.connected-confidence-scale label.selected { border-color: #087b69; background: #e8f6ed; color: #087b69; }
-.connected-confidence-scale label:focus-within { outline: 3px solid #183237; outline-offset: 2px; }
+.connected-confidence-scale label.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.connected-confidence-scale label:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 .connected-confidence-scale input {
   position: absolute;
   inset: 0;
@@ -133,38 +463,58 @@
     var(--keyboard-inset, 0px) + 8px + var(--connected-status-offset, 0px)
   );
   z-index: 10;
+  display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px;
-  margin: 0 -10px;
-  border-radius: 16px;
-  /* Opaque, the check's own colour: lesson text scrolling under the bar never shows through it
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+  /* Opaque, the card's own colour: lesson text scrolling under the bar never shows through it
    * (a translucent bar let it show through on phones), and the buttons keep their contrast. */
-  background: #e8f6ed;
-  box-shadow: 0 -6px 16px #18323712;
+  background: var(--surface);
+}
+.cc-check-answer-row {
+  flex-wrap: nowrap;
+}
+@media (max-width: 599px) {
+  .cc-check-answer-row > .cc-check-field {
+    flex: 1 1 auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connected-answer-feedback.is-filled,
+  .cc-check-help,
+  .cc-check-hints,
+  .cc-check-explanation-panel {
+    animation: none;
+  }
+  .cc-check-spinner {
+    animation: none;
+    border-inline-end-color: currentColor;
+    opacity: 0.6;
+  }
 }
 @media (forced-colors: active) {
   .connected-check,
-  .connected-answer-actions {
+  .connected-answer-actions,
+  .cc-check-hints {
     border: 1px solid CanvasText !important;
   }
-}
-.connected-check h2:lang(he) {
-  letter-spacing: 0;
-  text-transform: none;
+  .cc-check-help-actions .cc-ui-pill,
+  .cc-check-submit,
+  .cc-check-field {
+    border: 1px solid CanvasText;
+  }
+  .cc-check-spinner {
+    border-color: CanvasText;
+    border-inline-end-color: transparent;
+  }
 }
 /* The check before every part is read: how many questions follow, and when they open. */
 .connected-check.is-waiting {
-  background: #fff;
-  border-style: dashed;
-  padding: 20px 26px;
-}
-.connected-check.is-waiting h2 {
-  font-size: 19px;
-  margin-bottom: 6px;
+  padding: var(--space-4) var(--space-5);
 }
 @media (max-width: 599px) {
   .connected-check.is-waiting {
-    padding: 18px 20px;
+    padding: var(--space-4);
   }
 }

@@ -1,12 +1,34 @@
-import { useState } from "react";
-import type { Challenge, ServerSnapshot } from "../../client/apiClient";
+import { useEffect, useState } from "react";
+import { CourseApiError, type Challenge, type ServerSnapshot } from "../../client/apiClient";
 import { useT, type Translate } from "../../i18n";
-import { answerFeedback, answerFeedbackTone } from "../answerFeedback";
-import { answerPayload } from "../AssessmentInput.web";
+import { answerResult } from "../answerFeedback";
+import { answerPayload, isCode } from "../AssessmentInput.web";
 import { codeSubmissionError } from "../code";
 
 /** A page notice, rendered at display time so it follows a language switch while it shows. */
 export type PageNotice = { render: (t: Translate) => string; tone?: "info" | "warning"; answer?: true };
+
+/**
+ * The last answer (or "I don't know yet") sent to a lesson's check. The server stops listing a
+ * question once it is answered, so the card keeps it here to show the answer given, the feedback
+ * and the help that follows in place, until the next question of the lesson arrives.
+ */
+export interface CheckAttempt {
+  /** The question as it was asked. */
+  challenge: Challenge;
+  /** The answer as it was sent (empty for "I don't know yet"). */
+  answer: string;
+  kind: "answer" | "abstain";
+  /** `checking` while the server grades; `failed` when it could not (the answer is kept). */
+  status: "checking" | "answered" | "failed";
+  /** The server's receipt, worded at display time (answerResult) so it follows a language switch. */
+  receipt?: unknown;
+  /** The question is a code exercise (its verdict is a code check's). */
+  code?: boolean;
+}
+
+/** A refusal said under the answer field, where the learner can fix it: nothing was recorded. */
+export type CheckFieldError = "copied" | "attemptRequired";
 
 /**
  * What the lesson's check can do, as one value the host hands to the lesson and the lesson hands
@@ -18,22 +40,51 @@ export interface CheckCommands {
   onAnswer: (challenge: Challenge) => void;
   /** "I don't know yet": an explicit abstention that records no evidence. */
   onAbstain?: (challenge: Challenge) => void;
+  /** Asks the server for the question's explanation (on a counted question it becomes practice). */
   onSolution: (challenge: Challenge) => void;
+  /** Sends the answer again after the grader could not check it, or starts the next question
+   * when the last one was recorded meanwhile. */
+  onRetry?: (challenge: Challenge) => void;
+  /**
+   * Records with the server that a hint was shown on a counted question (it becomes practice).
+   * Absent while the API has no such route: hints on a counted question are then not offered.
+   */
+  onHint?: (challenge: Challenge) => Promise<void>;
   /** A code answer is being graded. */
   checkingAnswer?: boolean;
   /** An answer to the open check is being saved; its options are locked only then. Defaults to `pending`. */
   savingAnswer?: boolean;
   confidence?: number | null;
   onConfidenceChange?: (value: number | null) => void;
-  /** The server's feedback on the answer just checked, shown in the check beside its heading. */
+  /** The last answer per lesson (episode id), with its feedback. */
+  attempts?: Readonly<Record<string, CheckAttempt>>;
+  /** A refusal to show under the answer field, per question (challenge id). */
+  fieldErrors?: Readonly<Record<string, CheckFieldError>>;
+  /** Explanations the learner opened, per question (challenge id), in Markdown. */
+  explanations?: Readonly<Record<string, string>>;
+  /** The question whose explanation is being fetched. */
+  explaining?: string | null;
+  /** Feedback the host still holds in its page notice, if any (no longer set by the check). */
   answerFeedback?: { text: string; tone: "info" | "warning" };
 }
 
 type Transact = <T>(action: () => Promise<T>) => Promise<T>;
 
+/** Refusals that belong to the answer field; the request recorded nothing. */
+const FIELD_ERRORS: Record<string, CheckFieldError> = {
+  AGENT_AUTHORED_ANSWER: "copied",
+  ABSTAIN_NOT_ALLOWED: "attemptRequired",
+};
+/** The grader could not check the answer: said in the check's feedback with a retry. Other
+ * failures (offline, a slow sandbox start, a stale page) keep the host's page message and the
+ * connection status, which hold the saved request and its retry. */
+const GRADER_FAILED = new Set(["EVALUATOR_NOT_CONFIGURED", "INVALID_RESPONSE"]);
+
 /**
- * The check's commands: answering, "I don't know yet", the explanation and starting a check,
- * each through the host's request lock, with the feedback kept in the page notice.
+ * The check's commands: answering, "I don't know yet", the explanation and starting a check, each
+ * through the host's request lock. What the check says about an answer stays in the check: the
+ * feedback, a refusal of the answer and a grader that could not run are kept here, per lesson and
+ * question, and never put in the page notice.
  */
 export function useCheckCommands({
   server,
@@ -43,7 +94,6 @@ export function useCheckCommands({
   answer,
   command,
   run,
-  setNotice,
   setError,
   answerFeedback: feedback,
 }: {
@@ -69,13 +119,80 @@ export function useCheckCommands({
   const [savingAnswer, setSavingAnswer] = useState(false);
   /** Optional confidence per open check. Never sent unless the learner chose a level. */
   const [confidence, setConfidence] = useState<Record<string, number | null>>({});
+  const [attempts, setAttempts] = useState<Record<string, CheckAttempt>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, CheckFieldError>>({});
+  const [explanations, setExplanations] = useState<Record<string, string>>({});
+  const [explaining, setExplaining] = useState<string | null>(null);
+  // A lesson's next question replaces the answer kept for it.
+  const open = server?.activeChallenges;
+  useEffect(() => {
+    if (!open) return;
+    setAttempts((all) => {
+      const stale = Object.entries(all).filter(([lesson, kept]) =>
+        open.some((row) => row.episodeId === lesson && row.challengeId !== kept.challenge.challengeId));
+      if (!stale.length) return all;
+      const next = { ...all };
+      for (const [lesson] of stale) delete next[lesson];
+      return next;
+    });
+  }, [open]);
+  const keep = (lesson: string, attempt: CheckAttempt | null) =>
+    setAttempts((all) => {
+      const next = { ...all };
+      if (attempt) next[lesson] = attempt;
+      else delete next[lesson];
+      return next;
+    });
+  const refuse = (challengeId: string, error: CheckFieldError | null) =>
+    setFieldErrors((all) => {
+      if ((all[challengeId] ?? null) === error) return all;
+      const next = { ...all };
+      if (error) next[challengeId] = error;
+      else delete next[challengeId];
+      return next;
+    });
+  /** Sends the answer or "I don't know yet"; the check's own refusals and a grader that could not
+   * run are kept for the card, everything else goes to the host as before. */
+  async function send(item: Challenge, kind: CheckAttempt["kind"], value: unknown) {
+    const chosen = confidence[item.challengeId], code = kind === "answer" && isCode(item.question);
+    const base = { challenge: item, answer: kind === "answer" ? answer : "", kind, ...(code ? { code } : {}) } as const;
+    keep(item.episodeId, { ...base, status: "checking" });
+    refuse(item.challengeId, null);
+    if (code) setCheckingAnswer(true);
+    setSavingAnswer(true);
+    try {
+      const receipt = await command("answers", { challengeId: item.challengeId, ...(kind === "abstain" ? { abstain: true } : { answer: value }), ...(chosen ? { confidence: chosen } : {}) });
+      // An unreadable receipt is the grader's failure, said in the check, never a guess at the grade.
+      try {
+        answerResult(receipt, code);
+        keep(item.episodeId, { ...base, status: "answered", receipt });
+      } catch {
+        keep(item.episodeId, { ...base, status: "failed" });
+      }
+    } catch (cause) {
+      const field = cause instanceof CourseApiError ? FIELD_ERRORS[cause.code] : undefined;
+      if (field) {
+        keep(item.episodeId, null);
+        refuse(item.challengeId, field);
+        return;
+      }
+      if (cause instanceof CourseApiError && GRADER_FAILED.has(cause.code)) {
+        keep(item.episodeId, { ...base, status: "failed" });
+        return;
+      }
+      keep(item.episodeId, null);
+      throw cause;
+    } finally {
+      setCheckingAnswer(false);
+      setSavingAnswer(false);
+    }
+  }
   async function submitAnswer(item: Challenge) {
     const payload = answerPayload(item.question, answer, t);
     if ("error" in payload) {
       setError(payload.error);
       return;
     }
-    const value = payload.value, chosen = confidence[item.challengeId];
     if (item.question.type === "code" || item.question.type === "code_repair") {
       const problem = codeSubmissionError(item.question.language, answer, t);
       if (problem) {
@@ -83,28 +200,7 @@ export function useCheckCommands({
         return;
       }
     }
-    setCheckingAnswer(true);
-    setSavingAnswer(true);
-    try {
-      const result = await command<{
-        result: { passed: boolean; explanation: string; independent: boolean };
-      }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t), tone: answerFeedbackTone(result), answer: true });
-    } finally {
-      setCheckingAnswer(false);
-      setSavingAnswer(false);
-    }
-  }
-  /** "I don't know yet": records no answer and no evidence; confidence stays optional. */
-  async function abstain(item: Challenge) {
-    const chosen = confidence[item.challengeId];
-    setSavingAnswer(true);
-    try {
-      const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, false, t), tone: answerFeedbackTone(result), answer: true });
-    } finally {
-      setSavingAnswer(false);
-    }
+    await send(item, "answer", payload.value);
   }
   function startCheck(assessmentId?: string) {
     return run(() => {
@@ -120,16 +216,29 @@ export function useCheckCommands({
     check: {
       onStart: (assessmentId) => startCheck(assessmentId),
       onAnswer: (item) => run(() => submitAnswer(item)),
-      onAbstain: (item) => run(() => abstain(item)),
+      onAbstain: (item) => run(() => send(item, "abstain", undefined)),
       onSolution: (item) =>
         run(async () => {
-          const result = await command<{ explanation: string }>("solution", { challengeId: item.challengeId });
-          setNotice({ render: () => result.explanation });
+          setExplaining(item.challengeId);
+          try {
+            const result = await command<{ explanation: string }>("solution", { challengeId: item.challengeId });
+            setExplanations((all) => ({ ...all, [item.challengeId]: result.explanation }));
+          } finally {
+            setExplaining(null);
+          }
         }),
+      onRetry: (item) => {
+        if (server?.activeChallenges.some((row) => row.challengeId === item.challengeId)) run(() => submitAnswer(item));
+        else startCheck();
+      },
       checkingAnswer,
       savingAnswer,
       confidence: challenge ? confidence[challenge.challengeId] ?? null : null,
       onConfidenceChange: (value) => challenge && setConfidence((all) => ({ ...all, [challenge.challengeId]: value })),
+      attempts,
+      fieldErrors,
+      explanations,
+      explaining,
       ...(feedback ? { answerFeedback: feedback } : {}),
     },
   };
