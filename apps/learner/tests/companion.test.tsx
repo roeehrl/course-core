@@ -449,6 +449,17 @@ describe("persisted companion integration", () => {
     expect(next).not.toHaveProperty("media");
     expect(selectedLines("a\nbb\nccc", 2, 6)).toEqual({ lineStart: 2, lineEnd: 3 });
   });
+  it("sends an attached check as the next message's challengeId, once", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify(receipt)));
+    const client = createCompanionClient(createCourseApi({ fetch: fetcher, csrf: () => "csrf" }));
+    const snapshot = connectedSnapshot();
+    companionFocus.setCheck({ challengeId: "c1", ordinal: 2 });
+    await client.send(snapshot, { episodeId: "intro", content: "About question 2?" });
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({ challengeId: "c1" });
+    expect(companionFocus.get()).toEqual({});
+    await client.send({ ...snapshot, revision: 3 }, { episodeId: "intro", content: "Next" });
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).not.toHaveProperty("challengeId");
+  });
   it("shows what an answer used, attached to its own lesson, and lets the learner stop reusing a message", async () => {
     companionFocus.setSelection({ kind: "visual_node", blockId: "diagram", nodeId: "meter", label: "Meter bar" });
     const exclude = vi.fn().mockResolvedValue(undefined);

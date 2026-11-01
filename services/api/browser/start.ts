@@ -8,6 +8,7 @@ import { createDatabase, transaction } from "../src/database.js";
 import { appendEvent } from "../src/events.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { replyDrafts } from "../src/reply-drafts.js";
+import { replyAsksLearner } from "../src/companion-turn.js";
 import {
   configureSupervisorBudget,
   createPostgresSupervisorBridge,
@@ -44,6 +45,7 @@ import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
 import { notifyUser } from "../src/notifications.js";
+import { registerFixtures } from "./fixtures/index.js";
 import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
 import { generatedContentFixture, lineScene, LINE_COMPONENT_SOURCE, syntheticCodeEvaluator } from "../test/generated-content-fixture.js";
 import { recoveryFixture } from "../test/recovery-fixture.js";
@@ -1355,7 +1357,9 @@ app.post("/test/companion-job", async (request) => {
   await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
   if (state === "applied")
     await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
-      [randomUUID(), row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null }), jobId]);
+      [randomUUID(), row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null,
+        // As a real reply is stored (supervisor-bridge.ts): written only when the reply asks the learner something.
+        ...(replyAsksLearner(String(body.answer ?? "A stored reply.")) ? { asksLearner: true } : {}) }), jobId]);
   return { updated: true, jobId };
 });
 app.post("/test/session", async () => {
@@ -1554,6 +1558,15 @@ app.post("/test/model-session", async (request) => {
       throw Error("Model fixture delivery failed");
   }
   return { token: await issueLoginCode(db, userId) };
+});
+// The learner AI fixtures, one module per part (fixtures/index.ts), on the same host.
+await registerFixtures({
+  app, db, hostOrigin, issueLoginCode, replyDrafts, notifyUser, companionOff,
+  workspaceId, releaseId, contextReleaseId, contextWorkspaceId, hebrewReleaseId, hebrewWorkspaceId,
+  async signIn(userId) {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin: hostOrigin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { origin: hostOrigin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  },
 });
 // WebAuthn refuses IP-address relying parties, so passkey journeys run against a
 // second loopback server whose public origin is http://localhost:<passkeyPort>. It

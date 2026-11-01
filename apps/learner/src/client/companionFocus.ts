@@ -22,9 +22,15 @@ export interface FocusMedia {
   label: string;
   playbackSeconds?: number;
 }
+/** An open check attached to the next message, with its number in the lesson ("Question 2"). */
+export interface FocusCheck {
+  challengeId: string;
+  ordinal: number;
+}
 export interface CompanionFocusState {
   selection?: FocusSelection;
   media?: FocusMedia;
+  check?: FocusCheck;
 }
 let state: CompanionFocusState = {};
 const listeners = new Set<(value: CompanionFocusState) => void>();
@@ -40,8 +46,12 @@ export const companionFocus = {
   setMedia(media: FocusMedia | undefined) {
     publish({ ...state, media });
   },
+  /** Attaches an open check to the next message (sent as its `challengeId`), or removes it. */
+  setCheck(check: FocusCheck | undefined) {
+    publish({ ...state, check });
+  },
   clear() {
-    if (state.selection || state.media) publish({});
+    if (state.selection || state.media || state.check) publish({});
   },
   subscribe(listener: (value: CompanionFocusState) => void) {
     listeners.add(listener);

@@ -74,7 +74,21 @@ export interface CompanionMessage {
     /** Assistant messages: Core's hint stands in for a reply it did not keep, because the reply gave
      * away a graded check's answer or could not be checked (a reason code only). */
     checkAnswerWithheld?: string;
+    /** Assistant messages: the reply ends by asking the learner something (Core decides, from the
+     * stored text; services/api/src/companion-turn.ts). Absent on older rows. */
+    asksLearner?: boolean;
+    /** Learner messages: the check the learner attached, with its number in the lesson ("Question 2"). */
+    attachedCheck?: { challengeId: string; ordinal: number };
+    /** Learner messages: what the learner pointed at in the lesson, as the server resolved it. */
+    selectedAnchor?: { kind: string; blockId?: string; excerpt?: string; lineStart?: number; lineEnd?: number };
+    /** Learner messages: the course video and position the learner sent with the question. */
+    mediaRef?: { mediaId: string; playbackSeconds?: number | null };
+    /** Learner messages: the open checks this message turned into practice, with their numbers. */
+    downgraded?: { challengeId: string; ordinal: number }[];
+    downgradedChallengeIds?: string[];
   };
+  /** Assistant messages: the learner's vote on the reply and whether they reported it (null: none). */
+  feedback?: { vote: "helpful" | "not_helpful" | null; reported: boolean } | null;
   /** Assistant messages: the capsule its answer was built from (null if not recorded). */
   context_used?: CompanionContextUsed | null;
   /** Learner messages: the learner asked the companion not to use it again. */
@@ -167,8 +181,22 @@ export interface ContextualCompanionClient {
       content: string;
       allowAssessmentAssistance?: true;
       interactiveContext?: VisualInteractionContext;
+      /** An open check the message is about (the check's own "Ask the companion"). */
+      challengeId?: string;
     },
   ): Promise<CompanionReceipt>;
+  /** The learner's vote on a reply, an optional comment, or a report of a problem. */
+  vote?(
+    snapshot: ServerSnapshot,
+    messageId: string,
+    input: { vote: "helpful" | "not_helpful" | null; comment?: string; report?: boolean },
+  ): Promise<{ messageId: string; feedback: { vote: "helpful" | "not_helpful" | null; reported: boolean } }>;
+  /** Messages older than the ones loaded: a page of them and whether more remain. */
+  loadEarlier?(
+    enrollmentId: string,
+    before: string,
+    signal?: AbortSignal,
+  ): Promise<{ messages: readonly CompanionMessage[]; earlier: boolean }>;
   /** Delete one of the learner's questions, its answer and what was derived from it. */
   deleteMessage?(
     snapshot: ServerSnapshot,
@@ -246,6 +274,8 @@ export function createCompanionClient(
       const focus = companionFocus.get();
       const result = await api.command<CompanionReceipt>(snapshot, "companion", {
         ...input,
+        // A check attached in the companion goes with this message, unless the caller named one.
+        ...(focus.check && !input.challengeId ? { challengeId: focus.check.challengeId } : {}),
         uiRevision: snapshot.revision,
         ...(focus.selection
           ? {

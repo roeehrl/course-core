@@ -8,7 +8,11 @@ import { randomId, randomTraceparent } from "./webCrypto";
 
 /** What every learner-visible question may carry: "I don't know" is offered unless the author
  * turned it off, and confidence is captured only when the item declares a scale. */
-interface QuestionCommon { id: string; prompt: string; allowAbstain?: boolean; confidence?: ConfidenceCapture }
+interface QuestionCommon {
+  id: string; prompt: string; allowAbstain?: boolean; confidence?: ConfidenceCapture;
+  /** Hints, easiest first. Not sent by the API until the SDK declares hints. */
+  hints?: readonly string[];
+}
 export type Criterion = { id: string; description: string; required: boolean };
 export type Question = QuestionCommon & (
   | { type: "choice"; options: { id: string; text: string }[] }
@@ -45,6 +49,10 @@ export interface Challenge {
   independentEligible: boolean;
   mode: string;
   expiresAt?: string;
+  /** Why the question counts as practice: help from the companion, a hint or the explanation, a
+   * fresh question, or a question seen before. Null or absent when it counts, or when the reason
+   * was not recorded (older questions). */
+  practiceReason?: "companion" | "hint" | "solution" | "fresh_question" | "seen_before" | null;
 }
 export interface ClosedRecordNotice {
   evidenceId: string;
@@ -96,6 +104,8 @@ export interface ServerSnapshot {
   /** The research-study version in force, when the learner joined one; null or absent otherwise. */
   studyArm?: { label: string; behaviour: "fixed" | "chat_only" | "supervisor"; companion: boolean; supervision: boolean; measuresUsability?: boolean } | null;
   activeChallenges: Challenge[];
+  /** Per lesson, how many of its check's answers counted (on your own) and how many were practice. */
+  checkSummaries?: Readonly<Record<string, { own: number; practice: number }>>;
   lessons: {
     id: string;
     status: "available" | "locked" | "completed" | "placed";
