@@ -194,6 +194,8 @@ test.describe("new material for this lesson", () => {
     await readParts(page, [1, 2]);
     await card.getByRole("button", { name: "Add it to this lesson" }).click();
     await expect(card.getByText("Added to the end of this lesson.", { exact: true })).toBeVisible();
+    // Said once, in the card: no page notice repeats it.
+    await expect(page.getByText("Added to the end of this lesson.", { exact: true })).toHaveCount(1);
     // The pressed button is gone: the line that says what happened has the focus.
     await expect(card.locator(".cc-ai-offer-outcome")).toBeFocused();
     await accessible(page);
@@ -215,6 +217,7 @@ test.describe("new material for this lesson", () => {
     const card = page.getByRole("region", { name: "New for this lesson: an interactive simulation" });
     await card.getByRole("button", { name: "No thanks" }).click();
     await expect(card.getByText("Not added.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Not added.", { exact: true })).toHaveCount(1);
     await readParts(page, [1, 2]);
     await expect(page.getByRole("article", { name: "Reading part 3" })).toHaveCount(0);
   });
@@ -232,6 +235,7 @@ test.describe("new material for this lesson", () => {
     const card = page.getByRole("region", { name: "New for this lesson: an interactive simulation" });
     await card.getByRole("button", { name: "Add it to this lesson" }).click();
     await expect(card.getByText("This is no longer available, so nothing was added.", { exact: true })).toBeVisible();
+    await expect(page.getByText("This is no longer available, so nothing was added.", { exact: true })).toHaveCount(1);
     await expect(card.getByRole("button", { name: "Go to it" })).toHaveCount(0);
   });
 });

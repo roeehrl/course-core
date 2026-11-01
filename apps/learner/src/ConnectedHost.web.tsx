@@ -1536,16 +1536,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   onAdd={(pendingId) =>
                     run(async () => {
                       // The addition lands at the end of the lesson; the learner stays where they were.
+                      // The card says what happened and takes the focus, so no page notice repeats it.
                       const restore = keepLessonPlace(scroller);
-                      const result = await command<{ status: string }>("personal-changes/pending/apply", { pendingId });
+                      await command("personal-changes/pending/apply", { pendingId });
                       restore();
-                      setNotice({ render: (t) => result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed") });
                     })
                   }
                   onDecline={(pendingId) =>
                     run(async () => {
                       await command("personal-changes/pending/decline", { pendingId });
-                      setNotice({ render: (t) => t("pendingChanges.declined") });
                     })
                   }
                 />
