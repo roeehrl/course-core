@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Icon } from "../components/icons/Icon.web";
 import { useI18n } from "../i18n";
 
 /** How often the count is refreshed while the page is open. */
@@ -13,6 +14,11 @@ export interface LearnerNotification {
   createdAt: string;
   updatedAt: string;
   read: boolean;
+  /** `reply_ready`, read by the server when listed: the lesson's title in the course version the
+   * learner follows now (null: that version no longer has the lesson, or the row names none). */
+  lessonTitle?: string | null;
+  /** `reply_ready`: the start of the learner's question (null once it was deleted or erased). */
+  questionExcerpt?: string | null;
 }
 export interface LearnerNotificationPage {
   unread: number;
@@ -21,29 +27,70 @@ export interface LearnerNotificationPage {
 }
 type Request = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 
-/** Where a learner notification points: a course, optionally its companion. */
-export function learnerNotificationTarget(link: string | null): { enrollmentId: string; companion: boolean } | null {
+/** Where a learner notification points: a course, optionally its companion and, for a reply, the
+ * lesson, the part and the reply it is about (absent on older rows). */
+export interface NotificationTarget {
+  enrollmentId: string;
+  companion: boolean;
+  episodeId?: string;
+  blockId?: string;
+  replyMessageId?: string;
+  /** The reply's lesson is no longer in the course: it opens on the course page. */
+  lessonGone?: boolean;
+}
+
+const COURSE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const param = (item: Pick<LearnerNotification, "params"> | undefined, name: string, shape: RegExp) => {
+  const value = item?.params[name];
+  return typeof value === "string" && shape.test(value) ? value : undefined;
+};
+
+/** Where a learner notification points: only the learner's own course pages, and for a reply the
+ * ids the server sent with it (anything else in its parameters is ignored). */
+export function learnerNotificationTarget(
+  link: string | null,
+  item?: Pick<LearnerNotification, "kind" | "params" | "lessonTitle">,
+): NotificationTarget | null {
   const match = link ? /^\/enrollments\/([0-9a-f-]{36})(\/companion)?$/.exec(link) : null;
-  return match ? { enrollmentId: match[1]!, companion: Boolean(match[2]) } : null;
+  if (!match) return null;
+  const target: NotificationTarget = { enrollmentId: match[1]!, companion: Boolean(match[2]) };
+  if (!target.companion || item?.kind !== "reply_ready") return target;
+  const episodeId = param(item, "episodeId", COURSE_ID),
+    blockId = param(item, "blockId", COURSE_ID),
+    replyMessageId = param(item, "replyMessageId", UUID);
+  if (replyMessageId) target.replyMessageId = replyMessageId;
+  if (!episodeId) return target;
+  if (item.lessonTitle === null) return { ...target, lessonGone: true };
+  return { ...target, episodeId, ...(blockId ? { blockId } : {}) };
+}
+
+/** The time of a notification: the time alone today, the date and time before. */
+function when(i18n: ReturnType<typeof useI18n>, value: string, now = new Date()) {
+  const at = new Date(value);
+  return at.toDateString() === now.toDateString() ? i18n.time(at, "short") : i18n.dateTime(at);
 }
 
 /**
  * The learner's notifications (owner decision 8): the course was updated, a newer version is
  * offered, the companion answered while they were away. A bell with the count in the header; the
- * list is a disclosure like the course menu. Opening one marks it read and goes to the course.
+ * list is a disclosure like the course menu (final design §4.8). Each row is one button: its icon,
+ * what happened, a second line and a dot while it is new. A reply's row names its lesson and
+ * quotes the question; opening it marks it read and goes to that lesson with the companion open at
+ * the reply (openNotification.ts), or to the course page when the lesson left the course.
  */
 export function LearnerNotifications({
   request,
   onOpen,
 }: {
   request: Request;
-  onOpen: (target: { enrollmentId: string; companion: boolean }) => void;
+  onOpen: (target: NotificationTarget) => void;
 }) {
   const i18n = useI18n(),
     t = i18n.t;
   const [page, setPage] = useState<LearnerNotificationPage | null>(null);
   const [failed, setFailed] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const id = useId();
   const root = useRef<HTMLDivElement>(null),
@@ -65,14 +112,14 @@ export function LearnerNotifications({
     return () => clearInterval(timer);
   }, [load]);
   useEffect(() => {
-    if (!open) return;
+    if (!expanded) return;
     const outside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node)) setExpanded(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setOpen(false);
+      setExpanded(false);
       // The bell is in the sticky header: focus goes back without scrolling the page.
       toggle.current?.focus({ preventScroll: true });
     };
@@ -82,7 +129,7 @@ export function LearnerNotifications({
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", escape);
     };
-  }, [open]);
+  }, [expanded]);
 
   const markRead = async (ids?: string[]) => {
     setBusy(true);
@@ -101,8 +148,14 @@ export function LearnerNotifications({
     if (item.kind === "course_updated") return t("notifications.kind.course_updated", { from, to });
     if (item.kind === "move_offer") return t("notifications.kind.move_offer", { to });
     if (item.kind === "move_forced") return t("notifications.kind.move_forced", { from, to });
-    if (item.kind === "reply_ready") return t("notifications.kind.reply_ready");
+    if (item.kind === "reply_ready")
+      return item.lessonTitle ? t("notifications.reply.about", { lesson: item.lessonTitle }) : t("notifications.kind.reply_ready");
     return t("notifications.kind.unknown");
+  };
+  const open = (item: LearnerNotification, target: NotificationTarget) => {
+    if (!item.read) void markRead([item.id]);
+    setExpanded(false);
+    onOpen(target);
   };
   const unread = page?.unread ?? 0;
   return (
@@ -111,12 +164,12 @@ export function LearnerNotifications({
         ref={toggle}
         type="button"
         className="connected-bell"
-        aria-expanded={open}
+        aria-expanded={expanded}
         aria-controls={`${id}-panel`}
         aria-label={unread ? t("notifications.bell.labelUnread", { count: unread }) : t("notifications.bell.label")}
         onClick={() => {
-          setOpen((value) => !value);
-          if (!open) void load();
+          setExpanded((value) => !value);
+          if (!expanded) void load();
         }}
       >
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -129,12 +182,12 @@ export function LearnerNotifications({
           </span>
         )}
       </button>
-      <div id={`${id}-panel`} className="connected-notifications-panel" hidden={!open}>
+      <div id={`${id}-panel`} className="connected-notifications-panel" hidden={!expanded}>
         <h2 className="connected-notifications-heading">{t("notifications.panel.title")}</h2>
         {failed && (
           <p className="connected-notifications-note" role="alert">
             {t("notifications.panel.error")}{" "}
-            <button type="button" onClick={() => void load()}>
+            <button type="button" className="cc-note-retry" onClick={() => void load()}>
               {t("notifications.panel.retry")}
             </button>
           </p>
@@ -142,28 +195,60 @@ export function LearnerNotifications({
         {!page && !failed && <p className="connected-notifications-note">{t("notifications.panel.loading")}</p>}
         {page && page.items.length === 0 && <p className="connected-notifications-note">{t("notifications.panel.empty")}</p>}
         {page && page.items.length > 0 && (
-          <ul>
+          <ul className="cc-note-list">
             {page.items.map((item) => {
-              const target = learnerNotificationTarget(item.link);
+              const target = learnerNotificationTarget(item.link, item);
+              const reply = item.kind === "reply_ready";
+              const row = `${id}-${item.id}`;
+              const lines = (
+                <>
+                  <span className="cc-note-icon">
+                    <Icon name={reply ? "sparkle" : "bell"} size={20} />
+                  </span>
+                  <span className="cc-note-text">
+                    {!item.read && (
+                      <span id={`${row}-new`} className="cc-ui-sr-only">
+                        {t("notifications.row.new")}
+                      </span>
+                    )}
+                    <span id={`${row}-what`} className="cc-note-what" dir="auto">
+                      {text(item)}
+                    </span>
+                    <span id={`${row}-meta`} className="cc-note-meta">
+                      {reply && item.questionExcerpt ? (
+                        t("notifications.row.excerpt", { question: item.questionExcerpt, time: when(i18n, item.updatedAt) })
+                      ) : (
+                        <time dateTime={item.updatedAt}>{when(i18n, item.updatedAt)}</time>
+                      )}
+                    </span>
+                    {target?.lessonGone && (
+                      <span id={`${row}-gone`} className="cc-note-meta">
+                        {t("notifications.reply.lessonGone")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="cc-note-dot" aria-hidden="true" />
+                </>
+              );
+              const describedBy = [!item.read && "new", "what", "meta", target?.lessonGone && "gone"]
+                .filter(Boolean)
+                .map((part) => `${row}-${part}`)
+                .join(" ");
               return (
                 <li key={item.id} className={item.read ? "read" : "unread"}>
-                  <p dir="auto">
-                    {!item.read && <strong>{t("notifications.panel.new")} · </strong>}
-                    {text(item)}
-                  </p>
-                  <small>{i18n.dateTime(item.updatedAt)}</small>
-                  {target && (
+                  {target ? (
                     <button
                       type="button"
+                      className="cc-note-row"
+                      aria-label={reply ? t("notifications.row.openReply") : t("notifications.panel.open")}
+                      aria-describedby={describedBy}
                       disabled={busy}
-                      onClick={() => {
-                        if (!item.read) void markRead([item.id]);
-                        setOpen(false);
-                        onOpen(target);
-                      }}
+                      onClick={() => open(item, target)}
                     >
-                      {t("notifications.panel.open")}
+                      {lines}
                     </button>
+                  ) : (
+                    <div className="cc-note-row">{lines}</div>
                   )}
                 </li>
               );
@@ -171,7 +256,7 @@ export function LearnerNotifications({
           </ul>
         )}
         {unread > 0 && (
-          <button type="button" disabled={busy} onClick={() => void markRead()}>
+          <button type="button" className="cc-note-mark" disabled={busy} onClick={() => void markRead()}>
             {t("notifications.panel.markAll")}
           </button>
         )}
