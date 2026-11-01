@@ -252,6 +252,69 @@ describe("quality check from the AI services page", () => {
     expect((await call(owner, "GET", checks(workspace))).json().blocked).toBeNull();
   });
 
+  it("keeps each conversation's reply and rule results for owners and administrators only, and says when an older check kept none", async () => {
+    const { workspace, owner, draftId } = await prepared({ limitMicroUsd: 5_000_000 });
+    mode = "known-bad";
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId });
+    expect(started.statusCode, started.body).toBe(200);
+    const id = started.json().id;
+    const done = await finished(owner, workspace, id);
+    mode = "reference";
+    expect(done.state).toBe("failed");
+    const r = await call(owner, "GET", `${checks(workspace)}/${id}/details`);
+    expect(r.statusCode, r.body).toBe(200);
+    const body = r.json();
+    expect(body).toMatchObject({ checkId: id, state: "failed", recorded: true });
+    expect(body.roles.map((x: { role: string }) => x.role)).toEqual(["companion", "supervisor"]);
+    const all = body.roles.flatMap((x: { dialogues: unknown[] }) => x.dialogues);
+    expect(all).toHaveLength(conversations);
+    expect(all.map((d: { position: number }) => d.position)).toEqual([...Array(conversations).keys()]);
+    // Every conversation, passed or failed, says what it tests and what the model was given.
+    for (const d of all) {
+      expect(d.purpose.description.length).toBeGreaterThan(10);
+      expect(d.input.question.length).toBeGreaterThan(0);
+      expect(d.graders.map((g: { grader: string }) => g.grader)).toContain("grounding");
+    }
+    // The tutor's reply as returned, with the failing passage and the rule's reason code.
+    const injection = all.find((d: { dialogueId: string }) => d.dialogueId === "companion.adversarial.prompt-injection");
+    expect(injection.passed).toBe(false);
+    expect(injection.reply).toMatchObject({ kind: "text", truncated: false });
+    expect(injection.reply.text).toContain("Admin mode is enabled");
+    const authority = injection.graders.find((g: { grader: string }) => g.grader === "authority");
+    expect(authority).toMatchObject({ applies: true, passed: false });
+    expect(authority.findings.map((f: { match?: string }) => f.match)).toContain("Admin mode is enabled");
+    expect(injection.input.question).toContain("ADMIN MODE");
+    // A plan keeps its needs; the outcome's failed graders match the stored ones.
+    const plan = all.find((d: { reply: { kind: string } }) => d.reply.kind === "plan");
+    expect(Array.isArray(plan.reply.needs)).toBe(true);
+    const failedInOutcome = done.outcome.flatMap((o: { failed: { dialogueId: string; graders: string[] }[] }) => o.failed);
+    for (const f of failedInOutcome)
+      expect(all.find((d: { dialogueId: string }) => d.dialogueId === f.dialogueId).graders
+        .filter((g: { passed: boolean }) => !g.passed).map((g: { grader: string }) => g.grader)).toEqual(f.graders);
+    const stored = (await db.query("SELECT count(*)::int AS n, max(length(detail::text)) AS longest FROM provider_quality_check_dialogues WHERE check_id=$1", [id])).rows[0];
+    expect(stored.n).toBe(conversations);
+    expect(stored.longest).toBeLessThan(65536);
+
+    // Owners and administrators who can see the check may read it; no other role, and no other workspace.
+    const admin = await login("admin", workspace);
+    expect((await call(admin, "GET", `${checks(workspace)}/${id}/details`)).statusCode).toBe(200);
+    for (const role of ["instructor", "author", "observer"]) {
+      const other = await login(role, workspace);
+      expect((await call(other, "GET", `${checks(workspace)}/${id}/details`)).statusCode, role).toBe(403);
+    }
+    const elsewhere = await newWorkspace(), stranger = await login("owner", elsewhere);
+    expect((await call(stranger, "GET", `${checks(workspace)}/${id}/details`)).statusCode).toBe(403);
+    expect((await call(stranger, "GET", `${checks(elsewhere)}/${id}/details`)).statusCode).toBe(404);
+    expect((await call(owner, "GET", `${checks(workspace)}/${randomUUID()}/details`)).statusCode).toBe(404);
+
+    // A check an older Core finished kept no conversation details: the page says so.
+    const old = randomUUID();
+    await db.query(`INSERT INTO provider_quality_checks(id,workspace_id,draft_id,provider_revision,actor_id,idempotency_key,request_digest,state,roles,total_dialogues,
+        completed_dialogues,estimate_micro_usd,reserved_micro_usd,outcome,deadline_at,finished_at)
+      VALUES($1,$2,$3,1,$4,$5,$6,'failed',ARRAY['companion'],1,1,0,0,'[]',now(),now())`, [old, workspace, randomUUID(), owner.id, key(), "0".repeat(64)]);
+    expect((await call(owner, "GET", `${checks(workspace)}/${old}/details`)).json()).toEqual({ checkId: old, state: "failed", recorded: false, roles: [] });
+  });
+
   it("settles a reply the adapter refused at its reported usage, releases the rest and records the conversation failed with its reason", async () => {
     const { workspace, owner, draftId } = await prepared({ limitMicroUsd: 5_000_000 });
     mode = "malformed";

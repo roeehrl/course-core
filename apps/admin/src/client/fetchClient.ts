@@ -11,6 +11,7 @@ import {
   currentDraftSchema,
   draftSchema,
   qualityCheckSchema,
+  qualityDetailsSchema,
   qualityStatusSchema,
   modelListSchema,
   serviceKeyReceiptSchema,
@@ -1350,6 +1351,14 @@ export function createFetchAdminClient(
         ai(
           `${setupPath(id)}/quality-check/${encodeURIComponent(checkId)}`,
           qualityCheckSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      qualityCheckDetails: (id, checkId, signal) =>
+        ai(
+          `${setupPath(id)}/quality-check/${encodeURIComponent(checkId)}/details`,
+          qualityDetailsSchema,
           "GET",
           undefined,
           signal,

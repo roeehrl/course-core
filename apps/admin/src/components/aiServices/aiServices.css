@@ -843,3 +843,328 @@
 .ai-actions.ai-actions-start {
   justify-content: flex-start;
 }
+/* "Details of each conversation" under a quality check result: closed until opened, then every
+   practice conversation by job. Each conversation is its own disclosure: pass or fail, the kind of
+   practice learner and what it tests; open, the messages, the model's reply and each rule. */
+.ai-dialogues > summary {
+  min-block-size: 44px;
+  font-size: 14px;
+}
+.ai-dialogues-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 0;
+}
+.ai-dialogues-state p {
+  margin: 0;
+}
+.ai-dialogue-job {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-inline-size: 0;
+}
+.ai-dialogue-job h4 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin: 8px 0 0;
+  font-size: 15px;
+}
+.ai-dialogue-job h4 .ai-muted {
+  font-weight: 400;
+}
+.ai-dialogue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.ai-dialogue {
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--green);
+  border-radius: 10px;
+  background: var(--card);
+  min-inline-size: 0;
+}
+.ai-dialogue.failed {
+  border-inline-start-color: var(--red);
+}
+.ai-dialogue > summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-block-size: 44px;
+  padding-block: 12px;
+  padding-inline: 14px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 400;
+  list-style: none;
+}
+.ai-dialogue > summary::-webkit-details-marker {
+  display: none;
+}
+.ai-dialogue > summary:hover .ai-dialogue-purpose {
+  text-decoration: underline;
+}
+.ai-dialogue-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+/* Closed, the purpose is two lines at most; open, the body repeats it in full. */
+.ai-dialogue-purpose {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.ai-dialogue[open] > summary .ai-dialogue-purpose {
+  display: none;
+}
+.ai-dialogue-broken {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.ai-dialogue-head .ai-chevron {
+  margin-inline-start: auto;
+  color: var(--blue);
+}
+.ai-dialogue[open] > summary .ai-chevron {
+  transform: rotate(90deg);
+}
+.ai-dialogue[open] > summary .ai-chevron:dir(rtl) {
+  transform: scaleX(-1) rotate(90deg);
+}
+.ai-dialogue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-block: 0 16px;
+  padding-inline: 14px;
+  min-inline-size: 0;
+}
+.ai-dialogue-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--line);
+  min-inline-size: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ai-dialogue-block h5 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.ai-dialogue-block p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ai-lesson-summary {
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--line);
+}
+/* The conversation as chat bubbles: the learner's messages at the start, earlier replies at the end. */
+.ai-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.ai-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-inline-size: min(100%, 640px);
+  padding-block: 8px;
+  padding-inline: 12px;
+  border-radius: 14px;
+  min-inline-size: 0;
+}
+.ai-bubble.learner {
+  align-self: flex-start;
+  background: var(--ice);
+  border-start-start-radius: 4px;
+}
+.ai-bubble.assistant {
+  align-self: flex-end;
+  background: #f4f6f7;
+  border-start-end-radius: 4px;
+}
+.ai-bubble-who {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.ai-bubble p {
+  white-space: pre-wrap;
+}
+/* The model's reply, as returned: a readable block, never wider than a comfortable line. */
+.ai-reply {
+  max-inline-size: 72ch;
+  margin: 0;
+  padding-block: 12px;
+  padding-inline: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfc;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-reply-none {
+  color: var(--muted);
+  white-space: normal;
+}
+/* A passage a rule failed the reply for. */
+.ai-flagged {
+  padding-inline: 2px;
+  border-radius: 3px;
+  background: #f6d9d4;
+  color: #6e2320;
+  box-shadow: inset 0 -2px 0 var(--red);
+}
+.ai-redacted {
+  display: inline-block;
+  padding-inline: 6px;
+  border-radius: 4px;
+  background: #e7ebee;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.6;
+}
+/* A quoted passage, its marks inside its own direction (an English quote in a Hebrew sentence). */
+.ai-quote {
+  overflow-wrap: anywhere;
+}
+.ai-quote::before {
+  content: "“";
+}
+.ai-quote::after {
+  content: "”";
+}
+.ai-tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-inline-start: 24px;
+  margin: 0;
+}
+.ai-tool-calls li {
+  padding-block: 4px;
+}
+.ai-tool-calls li.failed {
+  color: var(--red);
+}
+.ai-tool-name {
+  font-size: 13px;
+  font-weight: 650;
+}
+.ai-tool-calls .ai-pill {
+  margin-inline-start: 8px;
+}
+.ai-tool-args {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ai-attempts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.ai-rubric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-rule-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.ai-rule-results > li.failed {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--rose);
+}
+.ai-rule-result-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 600;
+}
+.ai-rule-result-head > span:last-child {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.ai-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-inline-start: 20px;
+  margin-block: 8px 0;
+}
+.ai-findings p + p {
+  margin-block-start: 2px;
+}
+/* The passages a finding is about: whole chips that wrap, never reordered word by word. */
+.ai-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: baseline;
+  margin-block-start: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ai-evidence .ai-quote {
+  padding-block: 1px;
+  padding-inline: 6px;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid #ecc9c3;
+  max-inline-size: 100%;
+}
+@media (max-width: 600px) {
+  .ai-dialogue > summary,
+  .ai-dialogue-body {
+    padding-inline: 12px;
+  }
+  .ai-bubble {
+    max-inline-size: 100%;
+  }
+}

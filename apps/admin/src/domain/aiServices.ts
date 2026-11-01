@@ -274,6 +274,131 @@ export const qualityCheckSchema = z.object({
   deadlineAt: z.string().nullable(),
 });
 export type QualityCheck = z.infer<typeof qualityCheckSchema>;
+/** One rule's finding about a practice conversation: the grader's code, the passage of the reply it is about and the facts that explain it. */
+const findingSchema = z.object({
+  code: z.string().max(200),
+  match: z.string().max(400).optional(),
+  detail: z
+    .record(
+      z.string().max(40),
+      z.union([
+        z.string().max(500),
+        z.number(),
+        z.boolean(),
+        z.array(z.string().max(300)).max(40),
+      ]),
+    )
+    .optional(),
+});
+const short = (max: number) => z.string().max(max);
+/** What one practice conversation of a finished check tested, was given and answered, and each rule's result. */
+export const qualityDialogueSchema = z.object({
+  position: z.number().int().nonnegative(),
+  dialogueId: short(120),
+  passed: z.boolean(),
+  purpose: z.object({
+    description: short(800),
+    persona: short(40),
+    strategy: short(120).nullable(),
+  }),
+  lesson: z.object({
+    course: short(400),
+    title: short(400),
+    summary: short(600),
+    objectives: z.array(short(400)).max(10),
+  }),
+  input: z.object({
+    history: z
+      .array(
+        z.object({
+          speaker: z.enum(["learner", "assistant"]),
+          text: short(1200),
+        }),
+      )
+      .max(20),
+    question: short(1600),
+    attempts: z
+      .array(
+        z.object({
+          prompt: short(500),
+          passed: z.boolean(),
+          feedback: short(500),
+        }),
+      )
+      .max(10),
+    rubric: z
+      .object({
+        prompt: short(800),
+        criteria: z
+          .array(z.object({ id: short(200), description: short(400) }))
+          .max(12),
+        response: short(2000),
+      })
+      .nullable(),
+    topic: short(800).nullable(),
+  }),
+  reply: z.object({
+    kind: short(40),
+    text: short(4200).nullable(),
+    needs: z
+      .array(
+        z.object({
+          objectiveId: short(300),
+          proposedAction: short(100),
+          reason: short(800),
+        }),
+      )
+      .max(6)
+      .optional(),
+    tools: z
+      .array(
+        z.object({ name: short(64), args: short(400), allowed: z.boolean() }),
+      )
+      .max(16)
+      .optional(),
+    criteria: z
+      .array(
+        z.object({
+          criterionId: short(200),
+          met: z.boolean(),
+          quote: short(600),
+          note: short(600),
+        }),
+      )
+      .max(13)
+      .optional(),
+    sources: z.number().int().nonnegative().optional(),
+    reason: short(120).optional(),
+    truncated: z.boolean(),
+  }),
+  graders: z
+    .array(
+      z.object({
+        grader: short(100),
+        applies: z.boolean(),
+        passed: z.boolean(),
+        findings: z.array(findingSchema).max(12),
+      }),
+    )
+    .max(20),
+});
+export type QualityDialogue = z.infer<typeof qualityDialogueSchema>;
+export type QualityFinding = z.infer<typeof findingSchema>;
+/** Every practice conversation of one check, by job. `recorded` is false when the check kept none (an older one). */
+export const qualityDetailsSchema = z.object({
+  checkId: z.string().uuid(),
+  state: z.enum(["running", "passed", "failed", "error"]),
+  recorded: z.boolean(),
+  roles: z
+    .array(
+      z.object({
+        role: job,
+        dialogues: z.array(qualityDialogueSchema).max(200),
+      }),
+    )
+    .max(5),
+});
+export type QualityDetails = z.infer<typeof qualityDetailsSchema>;
 /** Why a check cannot start now, with what the message needs. */
 const qualityBlockedSchema = z.object({
   code: z.string().max(100),
@@ -491,6 +616,12 @@ export interface AiServicesPort {
     id: string,
     signal?: AbortSignal,
   ): Promise<QualityCheck>;
+  /** What each practice conversation of a finished check said (older servers have no such route). */
+  qualityCheckDetails?(
+    workspace: string,
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<QualityDetails>;
   spend(
     workspace: string,
     period: "day" | "month",

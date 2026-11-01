@@ -28,6 +28,7 @@ import {
   type AiText,
   type FieldError,
 } from "./shared";
+import { CheckDetails, type DetailsSource } from "./CheckDetails";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 const MIN_REASON = 20;
@@ -165,7 +166,11 @@ export function CheckSection(props: Props) {
         </>
       ) : passedForDraft ? (
         <>
-          <CheckResult check={latest!} service={serviceOf(t, data, draft!)} />
+          <CheckResult
+            check={latest!}
+            service={serviceOf(t, data, draft!)}
+            source={props}
+          />
           <Message tone="ok">
             {t("aiServices.check.run.passedTurnOn")}
             <span className="ai-actions">
@@ -186,7 +191,11 @@ export function CheckSection(props: Props) {
       )}
       <h3>{t("aiServices.check.onTitle")}</h3>
       {activeDone && !needing.length && (
-        <CheckResult check={activeDone} service={activeService(t, data)} />
+        <CheckResult
+          check={activeDone}
+          service={activeService(t, data)}
+          source={props}
+        />
       )}
       {activeApproved && !needing.length && (
         <Message tone="ok">{t("aiServices.check.active.approved")}</Message>
@@ -640,7 +649,11 @@ export function RoleChecks({
             )}
             {jobResult?.roles[0] === r.role && !(mine && running) && (
               <div className="ai-role-check-own">
-                <CheckResult check={jobResult} service={service} />
+                <CheckResult
+                  check={jobResult}
+                  service={service}
+                  source={{ port, workspaceId }}
+                />
               </div>
             )}
             {message?.role === r.role && (
@@ -651,7 +664,11 @@ export function RoleChecks({
       })}
       {after && (
         <li className="ai-role-check-result">
-          <CheckResult check={after} service={service} />
+          <CheckResult
+            check={after}
+            service={service}
+            source={{ port, workspaceId }}
+          />
         </li>
       )}
     </ul>
@@ -854,7 +871,9 @@ function RunCheck(
         </div>
       ) : (
         <>
-          {check && <CheckResult check={check} service={service} />}
+          {check && (
+            <CheckResult check={check} service={service} source={props} />
+          )}
           {blocked ? (
             <Message tone="warn">
               {blockedText(text, blocked.code, blocked)}
@@ -904,9 +923,12 @@ function RunCheck(
 function CheckResult({
   check,
   service,
+  source,
 }: {
   check: QualityCheck;
   service: string;
+  /** Where the conversation details are read. */
+  source: DetailsSource;
 }) {
   const text = useAiText();
   const { t } = text;
@@ -959,64 +981,67 @@ function CheckResult({
       </Message>
     );
   return (
-    <Message tone={check.state === "passed" ? "ok" : "warn"}>
-      <strong>
-        {check.state === "passed"
-          ? t("aiServices.check.run.passed")
-          : t("aiServices.check.run.failed")}
-      </strong>
-      <ul className="ai-list">
-        {check.outcome.map((o) => {
-          const rules = brokenRules(o.failed);
-          return (
-            <li key={o.role}>
-              {o.passed
-                ? t("aiServices.check.run.jobPassed", {
-                    job: jobName(t, o.role),
-                    count: o.dialogues,
-                  })
-                : t("aiServices.check.run.jobFailed", {
-                    job: jobName(t, o.role),
-                    failed: o.failed.length,
-                    count: o.dialogues,
-                  })}
-              {rules.length > 0 && (
-                <ul>
-                  {rules.map((r) => (
-                    <li key={r.rule}>
-                      <span>
-                        {r.known
-                          ? t(`aiServices.check.rule.${r.rule}` as AiKey, {
-                              count: r.count,
-                            })
-                          : t("aiServices.check.rule.other", {
-                              count: r.count,
-                              rule: r.rule,
-                            })}
-                      </span>
-                      <span className="ai-muted ai-rule-explain">
-                        {t(
-                          (r.known
-                            ? `aiServices.check.ruleExplain.${r.rule}`
-                            : "aiServices.check.ruleExplain.other") as AiKey,
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {check.chargedMicroUsd !== null && (
-        <span className="ai-muted">
-          {t("aiServices.check.run.charged", {
-            amount: text.money(check.chargedMicroUsd),
+    <>
+      <Message tone={check.state === "passed" ? "ok" : "warn"}>
+        <strong>
+          {check.state === "passed"
+            ? t("aiServices.check.run.passed")
+            : t("aiServices.check.run.failed")}
+        </strong>
+        <ul className="ai-list">
+          {check.outcome.map((o) => {
+            const rules = brokenRules(o.failed);
+            return (
+              <li key={o.role}>
+                {o.passed
+                  ? t("aiServices.check.run.jobPassed", {
+                      job: jobName(t, o.role),
+                      count: o.dialogues,
+                    })
+                  : t("aiServices.check.run.jobFailed", {
+                      job: jobName(t, o.role),
+                      failed: o.failed.length,
+                      count: o.dialogues,
+                    })}
+                {rules.length > 0 && (
+                  <ul>
+                    {rules.map((r) => (
+                      <li key={r.rule}>
+                        <span>
+                          {r.known
+                            ? t(`aiServices.check.rule.${r.rule}` as AiKey, {
+                                count: r.count,
+                              })
+                            : t("aiServices.check.rule.other", {
+                                count: r.count,
+                                rule: r.rule,
+                              })}
+                        </span>
+                        <span className="ai-muted ai-rule-explain">
+                          {t(
+                            (r.known
+                              ? `aiServices.check.ruleExplain.${r.rule}`
+                              : "aiServices.check.ruleExplain.other") as AiKey,
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
           })}
-        </span>
-      )}
-    </Message>
+        </ul>
+        {check.chargedMicroUsd !== null && (
+          <span className="ai-muted">
+            {t("aiServices.check.run.charged", {
+              amount: text.money(check.chargedMicroUsd),
+            })}
+          </span>
+        )}
+      </Message>
+      <CheckDetails check={check} source={source} />
+    </>
   );
 }
 
