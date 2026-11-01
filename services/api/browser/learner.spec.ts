@@ -404,7 +404,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
@@ -412,7 +412,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     page.getByRole("textbox", { name: "Your numeric answer", exact: true }),
     "4",
   );
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
@@ -421,11 +421,11 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     "def solve(values):\n    return max(values)\n",
   );
   await page
-    .getByRole("button", { name: "Run code & check", exact: true })
+    .getByRole("button", { name: "Check", exact: true })
     .click();
   await expect(
     page.getByRole("button", {
-      name: "Get a fresh check · 2 min →",
+      name: "Get a fresh check · 2 min",
       exact: true,
     }),
   ).toBeVisible();
@@ -433,7 +433,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page
-    .getByRole("button", { name: "Get a fresh check · 2 min →", exact: true })
+    .getByRole("button", { name: "Get a fresh check · 2 min", exact: true })
     .click();
   await expect(
     page.getByText(
@@ -472,7 +472,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
     page.getByRole("textbox", { name: "Your code", exact: true }),
   ).toHaveValue("def solve(values):\n    return values.index(min(values))\n");
   await page
-    .getByRole("button", { name: "Run code & check", exact: true })
+    .getByRole("button", { name: "Check", exact: true })
     .click();
   await expect(
     page.getByText("Your independent checks are complete.", { exact: true }),
@@ -508,7 +508,7 @@ test("wrong first answer recovers through a fresh qualified family check without
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
   await page.getByRole("radio", { name: "5", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
@@ -519,9 +519,9 @@ test("wrong first answer recovers through a fresh qualified family check without
     page.getByRole("textbox", { name: "Your numeric answer", exact: true }),
     "4",
   );
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page
-    .getByRole("button", { name: "Get a fresh check · 2 min →", exact: true })
+    .getByRole("button", { name: "Get a fresh check · 2 min", exact: true })
     .click();
   await expect(
     page.getByText("Which value is smaller: 7 or 11?", { exact: true }),
@@ -530,7 +530,7 @@ test("wrong first answer recovers through a fresh qualified family check without
     page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
   await page.getByRole("radio", { name: "7", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();
@@ -658,7 +658,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByText("Which is smaller?", { exact: true }),
   ).toBeVisible();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByText("Correct. 2 is below 5.", { exact: true }),
   ).toBeVisible();
@@ -672,7 +672,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByRole("textbox", { name: "Your numeric answer", exact: true }),
     "4",
   );
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();
@@ -704,7 +704,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     (r) =>
       r.method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"),
   );
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   const capsule = (await sent).postDataJSON();
   expect(capsule.interactiveContext).toMatchObject({
     schemaVersion: 1,
@@ -771,7 +771,7 @@ test("reviewed research resources are optional in-lesson help that never records
   ).toBeVisible();
   const progressText = page.locator("#connected-steps-summary");
   const before = await progressText.textContent();
-  const help = page.getByText("2 reviewed resources for this episode");
+  const help = page.getByText("2 reviewed resources for this lesson");
   await expect(help).toBeVisible();
   await expect(page.locator("iframe")).toHaveCount(0);
   await help.click();
@@ -813,7 +813,7 @@ test("reviewed research resources are optional in-lesson help that never records
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
   await expect(progressText).toHaveText(before!);
-  await expect(page.getByText("2 reviewed resources for this episode")).toBeVisible();
+  await expect(page.getByText("2 reviewed resources for this lesson")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -832,7 +832,7 @@ test("an unavailable or blocked YouTube video becomes a written route without le
     await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
     const progressText = page.locator("#connected-steps-summary");
     const before = await progressText.textContent();
-    await page.getByText("2 reviewed resources for this episode").click();
+    await page.getByText("2 reviewed resources for this lesson").click();
     await page.getByRole("button", { name: /Load video player/ }).click();
     await expect(page.getByText(message)).toBeVisible();
     await expect(page.getByText("This video can’t play here.")).toBeVisible();
@@ -861,7 +861,7 @@ test("approved course-made video is optional help with captions and a transcript
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
   const progressText = page.locator("#connected-steps-summary");
   const before = await progressText.textContent();
-  const help = page.getByText("1 reviewed resource for this episode");
+  const help = page.getByText("1 reviewed resource for this lesson");
   await expect(help).toBeVisible();
   await help.click();
   await expect(page.getByRole("heading", { name: "Running minimum in motion" })).toBeVisible();
@@ -1166,7 +1166,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await expect(page.getByText("A REVIEWER WILL LOOK FOR")).toBeVisible();
   await expect(page.getByText("States the invariant: the kept value is never greater than any element seen.")).toBeVisible();
@@ -1235,7 +1235,7 @@ test("a slower, older progress refresh never removes the check a learner is answ
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   const answer = page.getByRole("textbox", { name: "Your explanation" });
   await fillAnswer(answer, "I keep the smallest value seen so far");
@@ -1266,7 +1266,7 @@ test("a reviewer's neutral question continues the written answer as a conversati
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await fillAnswer(page.getByRole("textbox", { name: "Your explanation" }), "I keep the smallest value seen so far and compare every next element with it.");
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
@@ -1285,7 +1285,7 @@ test("a reviewer's neutral question continues the written answer as a conversati
   await openCurrentLesson(page);
   await expect(page.getByText("Reviewer: Why does the kept value end up being the minimum?")).toBeVisible();
   await page.getByRole("textbox", { name: "Your reply to the reviewer" }).fill("Each comparison keeps the smaller value, so the kept value is never greater than any element seen.");
-  await page.getByRole("button", { name: "Send reply for review", exact: true }).click();
+  await page.getByRole("button", { name: "Send reply", exact: true }).click();
   await expect(page.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
   const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
@@ -1334,7 +1334,7 @@ test("placement: the learner replies to a reviewer's question about a written an
   expect((await (await page.request.get(`/api/enrollments/${(await (await page.request.get("/api/enrollments")).json())[0].id}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await fillAnswer(answers.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
-  await answers.getByRole("button", { name: "Send reply for review", exact: true }).click();
+  await answers.getByRole("button", { name: "Send reply", exact: true }).click();
   await expect(answers.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
   await expect(answers.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
   // The reply used no placement question: the fourth one is still available.
@@ -1445,7 +1445,7 @@ test("placement: after accepting a start point, an open reviewer question about 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("placement-accepted-question.png"), fullPage: true });
   await fillAnswer(open.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
-  await open.getByRole("button", { name: "Send reply for review", exact: true }).click();
+  await open.getByRole("button", { name: "Send reply", exact: true }).click();
   // The reply stays visible, waiting for review, until the reviewer closes the conversation.
   await expect(open.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
   await expect(open.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
@@ -1476,7 +1476,7 @@ test("a due delayed check is optional, fresh and records retention without chang
   await panel.getByRole("button", { name: "Take the delayed check" }).click();
   await expect(page.getByText("Minimum of 12 and 7?")).toBeVisible();
   await fillAnswer(page.getByRole("textbox", { name: "Your numeric answer", exact: true }), "7");
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(page.getByText(/Correct\./)).toBeVisible();
   await page.getByRole("button", { name: /Course roadmap/ }).click();
   await expect(page.getByRole("region", { name: "Delayed checks" }).getByText("Retained")).toBeVisible();
@@ -1518,7 +1518,7 @@ test("a learner sees why their course changed and can hide and restore an option
   await panel.getByRole("button", { name: "Keep it", exact: true }).click();
   await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
-  await panel.getByRole("button", { name: "Yes, undo", exact: true }).click();
+  await panel.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(panel.getByText(/^Undone/)).toBeVisible();
   await expect(panel.getByRole("button", { name: /^(Undo|Hide|Restore)/ })).toHaveCount(0);
   snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
@@ -1641,7 +1641,7 @@ test("an optional confidence rating with a declared item reaches the teaching id
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).exclude("iframe").analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("answer-confidence.png") });
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ answer: "nine", confidence: 5 });
   // The confident wrong answer is observed against the open idea; no credit appears.
@@ -1730,7 +1730,7 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   // A new question carries the selection; the server accepts it against this course version.
   await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("And what about this part?");
   const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   const response = await sent;
   expect(response.status()).toBe(200);
   expect(response.request().postDataJSON()).toMatchObject({ selection: { kind: "text", excerpt: "any other member" }, uiRevision: expect.any(Number) });
@@ -1782,7 +1782,7 @@ test("a question whose reply Core refused says it couldn't be answered and can b
   const box = page.getByRole("textbox", { name: "Message to your companion", exact: true });
   await expect(box).toHaveValue("Can you list every minimum rule at once?");
   const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   expect((await sent).status()).toBe(200);
   await expect(log.getByText("Can you list every minimum rule at once?", { exact: true })).toHaveCount(2);
 });

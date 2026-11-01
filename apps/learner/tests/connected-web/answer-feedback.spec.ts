@@ -10,7 +10,7 @@ import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
 import enCheck from "../../src/i18n/messages/en/checkCard.json";
 import heCheck from "../../src/i18n/messages/he/checkCard.json";
 
-// The result of "Check answer" shows in the check, beside the answer just given, and is in the
+// The result of "Check" shows in the check, beside the answer just given, and is in the
 // window afterwards at every size (on a phone the notice above the lesson was out of sight); it is
 // announced through a live region that was already on the page. The sticky answer bar is opaque,
 // so lesson text scrolling under it never shows through.
@@ -37,7 +37,7 @@ async function openCheck(page: Page, locale: Locale) {
 }
 
 for (const locale of ["en", "he"] as const) {
-  test(`the result of Check answer is in the window beside the check and announced (${locale})`, async ({ page }) => {
+  test(`the result of Check is in the window beside the check and announced (${locale})`, async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await openCheck(page, locale);

@@ -119,7 +119,7 @@ it("holds the badge and button footprint while the permission loads, without a p
   );
   const { container } = mount(api);
   expect(
-    screen.getAllByLabelText("Loading supervisor information"),
+    screen.getAllByLabelText("Loading your companion's work"),
   ).toHaveLength(1);
   // Only the refresh control is offered; the reserved button is inert and hidden.
   expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
@@ -133,7 +133,7 @@ it("holds the badge and button footprint while the permission loads, without a p
   expect(
     screen.getByRole("button", { name: "Enable personal support" }),
   ).toBeEnabled();
-  expect(screen.queryByLabelText("Loading supervisor information")).toBeNull();
+  expect(screen.queryByLabelText("Loading your companion's work")).toBeNull();
   expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
 });
 it("requires an explicit choice and shows confirmed saved permission without granting completion", async () => {

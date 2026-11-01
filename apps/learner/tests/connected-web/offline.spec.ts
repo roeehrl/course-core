@@ -64,7 +64,7 @@ test("offline: the answer waits on this device, is sent once on reconnect and re
     .getByRole("status")
     .filter({ hasText: "You’re offline." });
   await expect(status).toBeVisible();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByText(/You’re offline\. Nothing was recorded yet/),
   ).toBeVisible();
@@ -112,7 +112,7 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
     await route.fetch();
     await route.abort("connectionreset");
   });
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page
       .getByRole("status")
@@ -166,7 +166,7 @@ test("an answer that is still being sent is not reported as waiting on this devi
     },
     { times: 1 },
   );
-  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  const check = page.getByRole("button", { name: "Check", exact: true });
   await check.click();
   await arrived;
   // The request is saved on the device before it is sent, so the page is now in exactly the
@@ -212,7 +212,7 @@ test("slow network: a slow answer says the server is slow, is never sent twice, 
     },
     { times: 1 },
   );
-  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  const check = page.getByRole("button", { name: "Check", exact: true });
   await check.click();
   const status = page.locator(".connected-connection");
   await expect(status).toContainText("The server is slow to answer.", {

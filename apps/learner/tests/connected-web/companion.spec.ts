@@ -69,12 +69,12 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     if (r.method() === "POST" && r.url().endsWith("/companion"))
       requests.push(r.postData()!);
   });
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Switch to practice & send" }),
+    page.getByRole("button", { name: "Send as practice" }),
   ).toBeVisible();
   expect(requests).toHaveLength(0);
-  await page.getByRole("button", { name: "Keep independent attempt" }).click();
+  await page.getByRole("button", { name: "Keep it counted" }).click();
   expect(requests).toHaveLength(0);
   await page.getByRole("button", { name: "Close companion" }).click();
   await expect(
@@ -82,11 +82,11 @@ test("real saved companion, explicit consent, replay and responsive draft preser
   ).toBeChecked();
   await page.getByRole("button", { name: "Companion", exact: true }).click();
   await expect(draft).toHaveValue("Explain how to compare these values.");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   const sent = page.waitForResponse(
     (r) => r.request().method() === "POST" && r.url().endsWith("/companion"),
   );
-  await page.getByRole("button", { name: "Switch to practice & send" }).click();
+  await page.getByRole("button", { name: "Send as practice" }).click();
   expect((await sent).status()).toBe(200);
   await expect(draft).toHaveValue("");
   await expect(

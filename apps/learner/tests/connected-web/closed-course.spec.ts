@@ -48,11 +48,11 @@ test("a closed course counts down its read-only questions and says when none rem
   await expect(budget).toHaveText(/You can still ask 1 more question about its material \(0 of 1 used\)/);
   expect((await axe(page)).violations).toEqual([]);
   await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("Why is the minimum unique?");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(budget).toHaveText(/every question it allows after closing has been used/);
   await expect(budget).toHaveClass(/is-exhausted/);
   await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("One more?");
-  await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
   expect((await axe(page)).violations).toEqual([]);
   await page.screenshot({ path: info.outputPath("closed-help.png") });
 });
@@ -71,7 +71,7 @@ test("a closed course answers its read-only question, and a refused question is 
   if (await trigger.isVisible()) await trigger.click();
   const budget = page.locator(".connected-closed-help");
   const message = page.getByRole("textbox", { name: "Message to your companion", exact: true });
-  const sendButton = page.getByRole("button", { name: "Send message", exact: true });
+  const sendButton = page.getByRole("button", { name: "Send", exact: true });
   await message.fill("Why is the minimum unique?");
   await sendButton.click();
   await expect(budget).toHaveText(/every question it allows after closing has been used/);

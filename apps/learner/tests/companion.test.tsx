@@ -81,18 +81,18 @@ describe("persisted companion integration", () => {
         loaded
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(send).not.toHaveBeenCalled();
     fireEvent.click(
-      screen.getByRole("button", { name: "Keep independent attempt" }),
+      screen.getByRole("button", { name: "Keep it counted" }),
     );
     expect(send).not.toHaveBeenCalled();
     expect(
       screen.getByRole("textbox", { name: "Message to your companion" }),
     ).toHaveValue("Question");
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Switch to practice & send" }),
+      screen.getByRole("button", { name: "Send as practice" }),
     );
     await waitFor(() => expect(send).toHaveBeenCalledWith("Question", true));
     await waitFor(() => expect(change).toHaveBeenCalledWith(""));
@@ -239,7 +239,7 @@ describe("persisted companion integration", () => {
         loaded
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() =>
       expect(send).toHaveBeenCalledWith("Keep me", undefined),
     );
@@ -1225,7 +1225,7 @@ describe("the companion's state comes from the server's availability", () => {
     expect(screen.queryByText("Your saved conversation")).toBeNull();
     expect(screen.queryByText("Following your place")).toBeNull();
     expect(screen.queryByText("Course roadmap")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     expect(screen.queryByText(/Open a lesson before sending/)).toBeNull();
     expect(screen.getByText(/Ask from inside a lesson/)).toBeVisible();
   });

@@ -68,7 +68,7 @@ test("a lesson read in document order: landmarks, headings, named controls, focu
   await expect(option).toBeChecked();
   const live = page.locator('[aria-live="polite"], [role="status"], [role="alert"]');
   const before = await live.allInnerTexts();
-  await page.getByRole("button", { name: "Check answer", exact: true }).focus();
+  await page.getByRole("button", { name: "Check", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await live.allInnerTexts()).join(" ").trim().length > before.join(" ").trim().length)

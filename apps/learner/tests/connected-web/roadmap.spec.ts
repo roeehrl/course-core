@@ -150,9 +150,9 @@ test("a lesson shows one progress indicator, and its check opens neutral after t
   await expect(page.getByTestId("gate-decision")).toHaveCount(0);
   await expect(page.getByText("Not complete yet")).toHaveCount(0);
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
-  // Whether the question counts, said before it; why "Check answer" waits, said beside it.
-  await expect(page.getByTestId("question-kind")).toHaveText("Counts toward this lesson. Answer on your own, without help.");
-  const checkAnswer = page.getByRole("button", { name: "Check answer", exact: true });
+  // Whether the question counts, said before it; why "Check" waits, said beside it.
+  await expect(page.getByTestId("question-kind")).toHaveText("Counts toward this lesson. Answer on your own.");
+  const checkAnswer = page.getByRole("button", { name: "Check", exact: true });
   await expect(checkAnswer).toBeDisabled();
   await expect(page.locator("#connected-answer-hint")).toHaveText(/^(Choose an|Enter your) answer to check it\.$/);
   await expect(checkAnswer).toHaveAttribute("aria-describedby", "connected-answer-hint");
@@ -192,7 +192,7 @@ for (const [session, status] of [
     // Outside a lesson: no empty "saved conversation", no place labels, no disabled send.
     for (const gone of ["Your saved conversation", "Following your place", "Course roadmap", "Open a lesson before sending"])
       await expect(pane.getByText(gone)).toHaveCount(0);
-    await expect(pane.getByRole("button", { name: "Send message" })).toHaveCount(0);
+    await expect(pane.getByRole("button", { name: "Send", exact: true })).toHaveCount(0);
     await expect(pane).toContainText("Ask from inside a lesson");
     // In a lesson it asks about that lesson, and it stays as the learner left it.
     await page.getByRole("button", { name: "Close companion" }).click();
@@ -202,6 +202,6 @@ for (const [session, status] of [
     await page.locator(".connected-companion-trigger:visible").click();
     await expect(pane.getByRole("status")).toHaveText(`Companion: ${status}`);
     await expect(pane.getByTestId("companion-place")).toContainText("Asking about");
-    await expect(pane.getByRole("button", { name: "Send message" })).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Send", exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath("companion.png") });
   });

@@ -165,7 +165,7 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(screen.getByText(/Your confidence never changes your result/)).toBeVisible();
     fireEvent.click(screen.getByRole("radio", { name: "5" }));
     expect(p.check.onConfidenceChange).toHaveBeenCalledWith(5);
-    expect(screen.getByRole("button", { name: "Check answer" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
     expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
     expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();
@@ -218,7 +218,7 @@ describe("gate decision text in the learner's language", () => {
     expect(gateText({ code: "action.viewGaps", params: { focusKind: "objectives", focus: ["Find a minimum", "Find a maximum"] } }, "", en))
       .toBe("See what is still missing");
     expect(gateText({ code: "action.askCompanion", params: { focusKind: "objectives", focus: ["Find a minimum"] } }, "", en))
-      .toBe("Ask the companion to explain this another way");
+      .toBe("Ask your companion to explain this another way");
     expect(gateText({ code: "action.appeal", params: { reviewer: "staff", days: 14 } }, "", en)).toBe("Request a staff review of this decision within 14 days");
     expect(gateText({ code: "reason.needs_evidence.detail", params: { more: 1 }, detail: { code: "criterion.families.unmet", params: { required: 2, objectives: ["Find a minimum"] } } }, "", en))
       .toBe("Answer 2 different kinds of question correctly on your own. (1 more thing still needed.)");

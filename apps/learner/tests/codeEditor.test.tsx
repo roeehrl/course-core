@@ -95,12 +95,12 @@ describe("connected practical exercise editor", () => {
       screen.queryByRole("textbox", { name: "Your numeric answer" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Run code & check" }),
+      screen.getByRole("button", { name: "Check" }),
     ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Run code & check" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
     expect(p.check.onAnswer).not.toHaveBeenCalled();
     expect(screen.queryByText(/passed/)).not.toBeInTheDocument();
   });
@@ -108,7 +108,7 @@ describe("connected practical exercise editor", () => {
     const p = lesson();
     const { rerender } = render(<ConnectedLesson {...p} />);
     expect(p.check.onAnswer).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Run code & check" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
     expect(p.check.onAnswer).toHaveBeenCalledWith(p.server.activeChallenges[0]);
     rerender(<ConnectedLesson {...p} pending check={{ ...p.check, checkingAnswer: true }} />);
     expect(

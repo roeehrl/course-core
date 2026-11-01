@@ -88,7 +88,7 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await editor.focus();
   await page.keyboard.press("Tab");
   await expect(
-    page.getByRole("button", { name: "Run code & check" }),
+    page.getByRole("button", { name: "Check", exact: true }),
   ).toBeFocused();
   await page.setViewportSize({ width: 834, height: 1112 });
   await expect(editor).toHaveValue(solution);
@@ -106,14 +106,14 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await page
     .getByRole("textbox", { name: "Message to your companion" })
     .fill("Help me with this code.");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Switch to practice & send" }),
+    page.getByRole("button", { name: "Send as practice" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Keep independent attempt" }).click();
+  await page.getByRole("button", { name: "Keep it counted" }).click();
   await page.getByRole("button", { name: "Close companion" }).click();
   await expect(editor).toHaveValue(solution);
-  await page.getByRole("button", { name: "Run code & check" }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Checking code…" }),
   ).toBeDisabled();
@@ -144,7 +144,7 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await open();
   await expect(editor).toHaveValue("");
   await expect(
-    page.getByRole("button", { name: "Run code & check" }),
+    page.getByRole("button", { name: "Check", exact: true }),
   ).toBeDisabled();
   expect(errors).toEqual([]);
 });
@@ -154,7 +154,7 @@ test("unknown language cannot submit or claim success; oversized imports preserv
   const { submissions } = await codeHost(page, "javascript");
   const editor = page.getByRole("textbox", { name: "Your code" });
   await expect(
-    page.getByRole("button", { name: "Run code & check" }),
+    page.getByRole("button", { name: "Check", exact: true }),
   ).toBeDisabled();
   await expect(
     page.getByText(/exercise uses an unsupported language/),

@@ -90,7 +90,7 @@ test("the personal lesson support panel keeps its height while its permission lo
   const read = await hold(page, supervisionRead);
   await chooseFromMenu(page, "My profile");
   const below = headings(page).memory;
-  const loadingStatus = page.getByLabel("Loading supervisor information", {
+  const loadingStatus = page.getByLabel("Loading your companion's work", {
     exact: true,
   });
   await expect(loadingStatus).toHaveCount(1);
@@ -169,7 +169,7 @@ test("a failed permission read shows its notice in the reserved space", async ({
   await chooseFromMenu(page, "My profile");
   const below = headings(page).memory;
   await expect(
-    page.getByLabel("Loading supervisor information", { exact: true }),
+    page.getByLabel("Loading your companion's work", { exact: true }),
   ).toHaveCount(1);
   for (const label of ["Loading learning memory", "Loading teaching ideas"])
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
@@ -197,7 +197,7 @@ test("reopened learning memory and teaching ideas keep their height while they r
   await chooseFromMenu(page, "My profile");
   const { changes } = headings(page);
   for (const label of [
-    "Loading supervisor information",
+    "Loading your companion's work",
     "Loading learning memory",
     "Loading teaching ideas",
   ])
@@ -223,7 +223,7 @@ test("reopened learning memory and teaching ideas keep their height while they r
     page.getByLabel("Loading teaching ideas", { exact: true }),
   ).toHaveCount(1);
   await expect(
-    page.getByLabel("Loading supervisor information", { exact: true }),
+    page.getByLabel("Loading your companion's work", { exact: true }),
   ).toHaveCount(0);
   const pending = await documentTop(changes);
   expect(Math.abs(pending - settled)).toBeLessThanOrEqual(MAX_SHIFT);
@@ -245,7 +245,7 @@ async function holdLowerPanel(page: Page, path: RegExp, below: string) {
   const read = await hold(page, path);
   await chooseFromMenu(page, "My profile");
   for (const label of [
-    "Loading supervisor information",
+    "Loading your companion's work",
     "Loading learning memory",
     "Loading teaching ideas",
   ])

@@ -235,7 +235,7 @@ for (const [zoom, factor, physical] of [
     });
     expect(overflow).toEqual([]);
     for (const control of [
-      page.getByRole("button", { name: "Check answer", exact: true }),
+      page.getByRole("button", { name: "Check", exact: true }),
       page.locator(".connected-menu-toggle"),
       page.locator(".connected-companion-trigger"),
     ]) {
@@ -326,7 +326,7 @@ test("the answer actions stay above an on-screen keyboard", async ({
   if (info.project.name.endsWith("desktop"))
     await page.setViewportSize({ width: 390, height: 844 });
   await openCheck(page);
-  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  const check = page.getByRole("button", { name: "Check", exact: true });
   // The learner is at the question; a keyboard then covers where the actions
   // would naturally be.
   await page

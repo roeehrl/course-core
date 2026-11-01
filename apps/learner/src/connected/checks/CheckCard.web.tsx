@@ -132,7 +132,7 @@ export function CheckCard({
     (gate.status && gate.status !== "needs_evidence") || gate.passed || gate.review || gate.exception ||
     gate.objectives.some((objective) => objective.families.length > 0) ||
     (gate.criterionResults ?? []).some((criterion) => criterion.met !== false)));
-  // Why "Check answer" is not available yet, said next to it.
+  // Why "Check" is not available yet, said next to it.
   const answerHint = (() => {
     if (!challenge || pending) return undefined;
     const payload = answerPayload(challenge.question, answer, t);

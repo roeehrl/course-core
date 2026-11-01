@@ -36,7 +36,7 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "5", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   const steps = page.getByRole("group", { name: "Next steps" });
   await expect(steps.getByRole("button", { name: /Review “Minimum”/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /companion/i })).toHaveCount(0);

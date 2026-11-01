@@ -17,7 +17,7 @@ test("a streaming reply shows as an unchecked draft and a refused one is withdra
   const drafts = page.getByLabel("Reply being written, not yet checked");
   for (const [index, question, end] of [[0, `Streamed question ${Date.now()}`, "complete"], [1, `Refused question ${Date.now()}`, "withdrawn"]] as const) {
     await draft.fill(question);
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByRole("button", { name: "Send", exact: true }).click();
     // Read from the saved conversation: while it sends, the (read-only) box still holds the same text.
     await expect(page.getByRole("log", { name: "Saved companion messages" }).getByText(question, { exact: true })).toBeVisible();
     // The question is saved by the time the host can find it; then the scripted model plays.

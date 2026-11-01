@@ -20,7 +20,7 @@ const BUDGETS = {
   /** Median press of the roadmap button in a lesson until the roadmap is back: the T01
    * navigation target (slowest: 3x). */
   roadmapNavigationMs: 200,
-  /** Median press of "Check answer" until the result is on screen, over the measured answers
+  /** Median press of "Check" until the result is on screen, over the measured answers
    * after one unmeasured warm-up answer: the T01 feedback target (slowest: 3x). */
   feedbackMs: 300,
   /** Press of a lesson command (mark a part read, start a check) until the server's
@@ -188,13 +188,13 @@ test("the connected learner stays within its load, navigation and memory budgets
   await expect(page.getByText("Which is smaller?", { exact: true })).toBeVisible();
   // Warm-up: a wrong answer, so the lesson offers its second check and then a fresh one.
   await page.getByRole("radio", { name: "5", exact: true }).click();
-  const warmUpFeedback = await timedFeedback(page, /^Check answer$/, "Let’s revisit this. 2 is below 5.");
+  const warmUpFeedback = await timedFeedback(page, /^Check$/, "Let’s revisit this. 2 is below 5.");
   ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
   await numeric("4");
-  feedback.push(await timedFeedback(page, /^Check answer$/, "Correct. 4 is below 9."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct. 4 is below 9."));
   await page.getByRole("button", { name: /^Get a fresh check/ }).click();
   await page.getByRole("radio", { name: "7", exact: true }).click();
-  feedback.push(await timedFeedback(page, /^Check answer$/, "Correct. 7 is below 11."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct. 7 is below 11."));
   // The second lesson: its reading (with any personal extra part), then its two checks.
   await page.getByRole("button", { name: "Finish this lesson →", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
@@ -208,10 +208,10 @@ test("the connected learner stays within its load, navigation and memory budgets
   }).toPass({ timeout: 20_000 });
   ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
   await numeric("9");
-  feedback.push(await timedFeedback(page, /^Check answer$/, "Correct. 9 is above 4."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct. 9 is above 4."));
   ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
   await numeric("-3");
-  feedback.push(await timedFeedback(page, /^Check answer$/, "Correct. -3 is above -8."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct. -3 is above -8."));
 
   // The median is the budgeted figure; the worst case is bounded at three times the budget.
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? Number.NaN;

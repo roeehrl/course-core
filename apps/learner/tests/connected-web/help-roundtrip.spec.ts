@@ -48,7 +48,7 @@ test("help round trip keeps the step, draft, anchor, focus, open help and media"
     .click();
   const answer = page.getByRole("radio", { name: "2", exact: true });
   await answer.click();
-  const help = page.getByText("1 reviewed resource for this episode");
+  const help = page.getByText("1 reviewed resource for this lesson");
   await help.click();
   const video = page.locator("video");
   await expect(video).toHaveCount(1);

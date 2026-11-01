@@ -78,7 +78,7 @@ it("does not duplicate an acknowledged message when refreshing progress fails", 
     screen.getByRole("textbox", { name: "Message to your companion" }),
     { target: { value: "Save this once" } },
   );
-  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(client.send).toHaveBeenCalledTimes(1));
   expect(client.send).toHaveBeenCalledWith(
     expect.anything(),
@@ -231,5 +231,5 @@ it("a slower, older progress refresh never replaces the check the learner is typ
   expect(screen.getByRole("textbox", { name: "Your numeric answer" })).toBe(box);
   expect(box).toHaveValue("4");
   expect(screen.queryByRole("button", { name: "Mark this part read" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Check answer" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Check" })).toBeEnabled();
 });

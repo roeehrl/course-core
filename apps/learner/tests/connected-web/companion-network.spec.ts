@@ -54,8 +54,8 @@ test("the open companion pane reads on events, keeps one stream across revisions
   // quietly (at most one slow safety read in this window).
   await page.getByRole("radio", { name: "2", exact: true }).click();
   await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("Why is 2 the smallest?");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await page.getByRole("button", { name: "Switch to practice & send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Send as practice" }).click();
   await expect(page.getByText("Why is 2 the smallest?", { exact: true })).toBeVisible();
   await page.waitForTimeout(1500);
   const waiting = seen.reads;

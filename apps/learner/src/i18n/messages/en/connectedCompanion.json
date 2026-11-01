@@ -49,7 +49,7 @@
   "send.saving": "Saving…",
   "send.waiting": "Waiting for connection…",
   "send.offline": "Send when back online",
-  "send.send": "Send message",
+  "send.send": "Send",
   "draft.tabOnly": "Draft kept in this tab only because browser storage is unavailable.",
   "draft.saved": "Draft saved on this device. It is sent only when you choose Send.",
   "state.replying": "Writing a reply · it is checked before it is kept",

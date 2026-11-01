@@ -58,9 +58,9 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   // A second unsuccessful attempt: the decision puts help first.
   await nextCheck(page);
   await fill(page.getByRole("textbox", { name: "Your numeric answer" }), "9");
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(panel(page).getByRole("heading", { name: "Let's get you some help" })).toBeVisible();
-  await expect(panel(page).getByRole("button").first()).toHaveText(/^Ask the companion to explain/);
+  await expect(panel(page).getByRole("button").first()).toHaveText(/^Ask your companion to explain/);
   await expect(panel(page).locator(".connected-gate-reason")).toHaveText("Your last few tries did not succeed.");
 
   // Prediction with its unit and optional confidence (which never changes the result).
@@ -70,11 +70,11 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   // Another unit is pointed out before anything is sent; the declared unit is accepted.
   await fill(page.getByRole("textbox", { name: "Your prediction (cm)" }), "126 mm");
   await expect(page.getByText("Give your answer in cm, not mm.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Check answer", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Check", exact: true })).toBeDisabled();
   await fill(page.getByRole("textbox", { name: "Your prediction (cm)" }), "12.6 cm");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await noHorizontalScroll(page);
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(page.getByText(/^Correct\./)).toBeVisible();
   await expect(panel(page).getByRole("heading", { name: "Not complete yet" })).toBeVisible();
 
@@ -83,7 +83,7 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await fill(page.getByRole("textbox", { name: "After 6" }), "6");
   await fill(page.getByRole("textbox", { name: "After 4" }), "4");
   await fill(page.getByRole("textbox", { name: "After 9" }), "4");
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(page.getByText(/^Correct\./)).toBeVisible();
 
   // Two families plus a production transfer task: the server says ready and offers to continue.

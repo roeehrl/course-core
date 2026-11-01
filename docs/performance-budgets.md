@@ -20,7 +20,7 @@ attaches its measurements as `budgets.json` and prints them in a `budgets {…}`
 | Cold course list | After a full reload, time from navigation start until the course card's heading is in the DOM. That heading needs the signed-in course list from the API, so the empty shell does not count |
 | Roadmap → lesson | In the page, from the press of "Continue learning →" to the first animation frame where the lesson heading has replaced the roadmap. The lesson heading needs the lesson data |
 | Lesson → roadmap | The same measurement for the roadmap button |
-| Answer feedback | From the press of "Check answer" to the first animation frame where that answer's result text (for example "Correct. 4 is below 9.") is on the page. The result needs the graded answer from the API |
+| Answer feedback | From the press of "Check" to the first animation frame where that answer's result text (for example "Correct. 4 is below 9.") is on the page. The result needs the graded answer from the API |
 | Command acknowledgement | From the press of a lesson command ("Mark this part read", "Start the next check →") to `responseEnd` of that command's POST in Resource Timing, so the server's acknowledgement has fully arrived |
 | JS heap (Chromium only) | `JSHeapUsedSize` from the DevTools protocol after a forced garbage collection: once after the first lesson opens, and again after the round trips |
 

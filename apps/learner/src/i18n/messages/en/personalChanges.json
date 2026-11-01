@@ -29,7 +29,7 @@
   "required": "Required for your path. Ask your companion or course team if you disagree.",
   "undo.confirmLabel": "Confirm undo: {label}",
   "undo.question": "Undo this change? Your answers and progress stay.",
-  "undo.yes": "Yes, undo",
+  "undo.yes": "Undo",
   "undo.keep": "Keep it",
   "undo.failed": "That change could not be undone. Nothing changed.",
   "undo.label": "Undo: {label}",

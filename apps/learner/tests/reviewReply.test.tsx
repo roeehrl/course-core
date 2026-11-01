@@ -12,7 +12,7 @@ describe("replying to a reviewer's clarification request", () => {
     const onReply = vi.fn(async () => {});
     render(<ReviewStatus loader={async () => [asked]} enrollmentId="e" episodeId="min" revision={1} onReply={onReply} />);
     expect(await screen.findByText("Reviewer: Why is the kept value the minimum?")).toBeVisible();
-    const send = screen.getByRole("button", { name: "Send reply for review" });
+    const send = screen.getByRole("button", { name: "Send reply" });
     expect(send).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Your reply to the reviewer"), "Each comparison keeps the smaller value, so nothing seen is smaller.");
     await userEvent.click(send);
@@ -87,6 +87,6 @@ describe("written answers in Hebrew", () => {
     expect(screen.getByText((_, el) => el?.tagName === "STRONG" && stripBidiControls(el.textContent ?? "") === "התשובה שלך · ממתינה לבדיקה")).toBeVisible();
     // The field keeps the interface's direction (its caret starts at the right); typed text shows in its own.
     expect(screen.getByLabelText("התשובה שלך לבודק/ת")).not.toHaveAttribute("dir");
-    expect(screen.getByRole("button", { name: "שליחת התשובה לבדיקה" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "שליחת התגובה" })).toBeDisabled();
   });
 });

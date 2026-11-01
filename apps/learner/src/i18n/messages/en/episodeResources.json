@@ -6,7 +6,7 @@
   "native.openSource": "Open source",
   "summary": "Optional help",
   "unavailable": "Reviewed resources are unavailable right now",
-  "count": "{total, plural, one {# reviewed resource for this episode} other {# reviewed resources for this episode}}",
+  "count": "{total, plural, one {# reviewed resource for this lesson} other {# reviewed resources for this lesson}}",
   "failed": "Your lesson and progress are unaffected. Try again later.",
   "intro": "Chosen and reviewed by your course team for this episode. Opening them is optional and does not count toward progress or your understanding checks. A review checks relevance and rights; it is not a guarantee that every claim is correct.",
   "generated": "<label>Course-made video. </label>Generated for this lesson, then checked by your course team against the lesson before it was shared.",
