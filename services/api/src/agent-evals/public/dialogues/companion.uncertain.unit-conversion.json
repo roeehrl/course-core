@@ -57,6 +57,7 @@
       "required": [
         {
           "id": "ten-mm-per-cm",
+          "statement": "One centimetre is ten millimetres.",
           "anyOf": [
             "(?:one|1) centimet(?:re|er) is (?:ten|10) millimet(?:re|er)s?",
             "10 mm (?:per|in a|in one) (?:cm|centimet)",
@@ -66,6 +67,7 @@
         },
         {
           "id": "same-length",
+          "statement": "The two measurements describe the same length.",
           "anyOf": [
             "same length",
             "(?:are|is) equal",

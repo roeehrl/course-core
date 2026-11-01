@@ -57,6 +57,7 @@
       "required": [
         {
           "id": "minus-one-right-of-minus-three",
+          "statement": "-1 lies to the right of -3 on the number line, so -1 is the greater number.",
           "anyOf": [
             "-1 (?:is|lies|sits|appears)(?: located| positioned| placed| found)? (?:further |farther )?(?:to the )?right of -3",
             "-1 is (?:the )?(?:greater|bigger|larger)",

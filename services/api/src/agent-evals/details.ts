@@ -1,5 +1,5 @@
 import { findCheckAnswerLeak } from "../companion-check-integrity.js";
-import { AUTHORITY_PATTERNS, GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, normalize, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId } from "./graders.js";
+import { AUTHORITY_PATTERNS, GRADERS, JUDGED_GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, normalize, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId, type JudgedGrader, type MeaningJudgement } from "./graders.js";
 import { dialogueCheckMatches, dialogueStrategy, type Dialogue } from "./suite.js";
 import type { ToolCallRecord } from "./runner.js";
 
@@ -30,7 +30,14 @@ export interface FindingDetail {
   /** Facts for the sentence that explains the finding (what the rule allows, the missing anchors…). */
   detail?: Record<string, string | number | boolean | string[]>;
 }
-export interface GraderDetail { grader: string; applies: boolean; passed: boolean; findings: FindingDetail[] }
+/**
+ * Who judged a judged grader (judge.ts) and what it said: the model's name, whether it judged
+ * itself, its reasons; or that it could not run (`unavailable`, with the reason code). The judge's
+ * quotes are this grader's findings' `match` passages.
+ */
+export interface JudgeDetail { model: string; self: boolean; state: "judged" | "unavailable"; reasons: string[]; reason?: string }
+/** `undetermined`: the judge could not run, so this grader neither passed nor failed. */
+export interface GraderDetail { grader: string; applies: boolean; passed: boolean; findings: FindingDetail[]; judge?: JudgeDetail; undetermined?: true }
 export interface DialogueDetail {
   v: typeof DETAIL_VERSION;
   purpose: { description: string; persona: string; strategy: string | null };
@@ -56,6 +63,8 @@ export interface DialogueDetail {
     truncated: boolean;
   };
   graders: GraderDetail[];
+  /** Not passed only because the judge could not run. */
+  undetermined?: true;
 }
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -193,7 +202,8 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
  * answer as returned (bounded) and every rule's result with its evidence, private test strings
  * removed. `grade` is Core's own regrade of the answer.
  */
-export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: DialogueGrade, toolCalls: readonly ToolCallRecord[] = []): DialogueDetail {
+export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: DialogueGrade, toolCalls: readonly ToolCallRecord[] = [],
+  judgement?: MeaningJudgement): DialogueDetail {
   const redact = redactor(dialogue);
   let truncated = false;
   const s = (value: string, max: number) => clip(redact(value), max).text;
@@ -232,9 +242,17 @@ export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: Di
   const graders: GraderDetail[] = [...GRADERS, ...grade.graders.map((g) => g.grader).filter((g) => !GRADERS.includes(g))].map((grader) => {
     const result = findings.get(grader);
     const passed = result?.passed ?? true;
-    return { grader, applies: applies(dialogue, grader) || !passed, passed,
-      findings: (result?.findings ?? []).slice(0, 12).map((code) => {
-        const found = evidenceOf(dialogue, output, code);
+    const judgedBy = judgement && (JUDGED_GRADERS as readonly string[]).includes(grader) ? judgement : undefined;
+    const verdict = judgedBy?.state === "judged" ? judgedBy.verdicts[grader as JudgedGrader] : undefined;
+    const judge: JudgeDetail | undefined = judgedBy && { model: s(judgedBy.model, 120), self: judgedBy.self, state: judgedBy.state,
+      reasons: (verdict?.reasons ?? []).slice(0, 6).map((r) => s(r, 400)), ...(judgedBy.state === "unavailable" ? { reason: judgedBy.reason.slice(0, 60) } : {}) };
+    // The judge's fail is shown with its quotes as the passages, marked in the reply.
+    const evidence = (code: string): FindingDetail[] => code === "judge_failed"
+      ? (verdict?.quotes.length ? verdict.quotes.map((match) => ({ code, match })) : [{ code }])
+      : [evidenceOf(dialogue, output, code)];
+    return { grader, applies: applies(dialogue, grader) || !passed || !!judgedBy, passed,
+      ...(judge ? { judge } : {}), ...(result?.undetermined ? { undetermined: true as const } : {}),
+      findings: (result?.findings ?? []).flatMap(evidence).slice(0, 12).map((found) => {
         return { code: found.code.slice(0, 200),
           ...(found.match ? { match: s(found.match, 300) } : {}),
           ...(found.detail ? { detail: Object.fromEntries(Object.entries(found.detail).map(([k, v]) =>
@@ -259,6 +277,7 @@ export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: Di
     },
     reply,
     graders,
+    ...(grade.undetermined ? { undetermined: true as const } : {}),
   };
   // The bounds above keep a detail far below the cap; drop the earlier turns before ever exceeding it.
   if (JSON.stringify(detail).length > DETAIL_LIMIT) { detail.input.history = []; detail.input.attempts = []; }

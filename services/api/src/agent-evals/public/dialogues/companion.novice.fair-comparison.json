@@ -59,6 +59,7 @@
       "required": [
         {
           "id": "not-comparable",
+          "statement": "The two readings are not a fair comparison, because they were taken with different methods or starting points.",
           "anyOf": [
             "\\bnot (?:a |really |directly |truly |yet )?(?:fair|comparable)",
             "(?:isn't|aren't|wasn't|weren't) (?:a |really |directly |truly |yet )?(?:fair|comparable)",

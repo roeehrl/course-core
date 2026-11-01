@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { evalOutputSchema } from "./graders.js";
 import { anthropicAdapterFactory, composeProviders } from "../provider-composition.js";
+import { JUDGE_INSTRUCTION_HEAD, scriptedJudgeAnswer } from "./judge.js";
+import type { EvalSuite } from "./suite.js";
 
 /**
  * An offline scripted model behind the real Anthropic Messages adapter. Core's adapter builds
@@ -74,13 +76,25 @@ export class ScriptedModel {
   /** The dialogue being answered; the runner sets it before each call. */
   current: string | undefined;
   readonly requests: ScriptedRequest[] = [];
-  constructor(private readonly outputs: Readonly<Record<string, ScriptedAnswer>>) {}
+  /** Meaning-judge requests (judge.ts) it answered, kept apart from the conversation's own requests. */
+  readonly judgeRequests: ScriptedRequest[] = [];
+  /** With `judgeSuite`, a quality check's judge requests get the scripted judge's verdict (the pattern
+   * graders' answer, judge.ts `scriptedJudgeAnswer`), so a scripted check stays deterministic. */
+  constructor(private readonly outputs: Readonly<Record<string, ScriptedAnswer>>, private readonly options: { judgeSuite?: EvalSuite } = {}) {}
 
   readonly fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     if (url.origin !== "https://api.anthropic.com" || url.pathname !== "/v1/messages" || init?.method !== "POST")
       throw new Error("scripted model: unexpected request");
     const body = JSON.parse(String(init.body)) as { system?: string; messages: { role: string; content: string }[]; output_config?: { format?: unknown }; model: string };
+    if (this.options.judgeSuite && body.system?.startsWith(JUDGE_INSTRUCTION_HEAD)) {
+      this.judgeRequests.push({ dialogueId: this.current, system: body.system, messages: body.messages, structured: Boolean(body.output_config?.format) });
+      const prompt = body.messages.map((m) => typeof m.content === "string" ? m.content
+        : (m.content as { type: string; text?: string }[]).map((c) => c.text ?? "").join("")).join("\n");
+      const text = scriptedJudgeAnswer(this.options.judgeSuite, body.system, prompt) ?? "{}";
+      return json({ id: "msg_scripted_judge", type: "message", role: "assistant", model: body.model, content: [{ type: "text", text }],
+        stop_reason: "end_turn", usage: { input_tokens: Math.ceil(String(init.body).length / 4), output_tokens: Math.max(1, Math.ceil(text.length / 4)) } });
+    }
     this.requests.push({ dialogueId: this.current, system: body.system, messages: body.messages, structured: Boolean(body.output_config?.format) });
     const output = this.current === undefined ? undefined : this.outputs[this.current];
     if (!output || output.kind === "error") return json({ type: "error", error: { type: "api_error", message: "scripted failure" } }, 500);

@@ -126,6 +126,7 @@
       "required": [
         {
           "id": "observation-is-checkable",
+          "statement": "An observation is something that can be seen or checked directly.",
           "anyOf": [
             "(?:see|seen|check|checked|visible|look)"
           ]

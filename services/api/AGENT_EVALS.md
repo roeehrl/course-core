@@ -106,8 +106,10 @@ answer then.
 
 ## Graders
 
-All graders are deterministic. They read only the dialogue and the answer and
-report codes, never the answer text. An answer that is missing, refused by Core or
+The graders below are deterministic. In the admin quality check, `grounding` and
+`factuality` are instead judged by meaning (next section); everywhere else (the CLI, CI,
+the scripted models and uploaded reports) they use the patterns described here. They read
+only the dialogue and the answer and report codes, never the answer text. An answer that is missing, refused by Core or
 failed fails every grader. Answers are read in a typography-insensitive form: smart
 quotes, minus signs, Markdown emphasis and LaTeX maths (`$-1$` reads as -1, `\times` as ×,
 `$\left| \text{b} - a \right|$` as |b - a|). Grounding anchors also ignore the spacing
@@ -161,6 +163,45 @@ around maths operators.
   אוכל לענות על בדיקות...").
 
 Grader version `core.agent-eval-graders/5`; results recorded under earlier versions are stale.
+
+### The meaning judge (admin quality checks)
+
+Patterns kept missing correct replies that paraphrase, negate, write maths in LaTeX or answer
+in Hebrew. The quality check run from the AI services page (`provider-quality-checks.ts`)
+therefore has a reviewer model judge `grounding` (the reply stays with the lesson material and
+the learner's question) and `factuality` (it agrees with what the lesson states, conveys every
+required fact, asserts none of the known false claims) by meaning
+([`agent-evals/judge.ts`](src/agent-evals/judge.ts)). Every other grader stays fixed, and
+grounding keeps its structural checks (quotations must be in the material, a plan names only
+supplied objectives).
+
+- **Input**: the lesson material (course, lesson, objectives, teaching; a rubric, research
+  topic or the tool loop's tool results where the dialogue has them), each required fact in
+  plain words (`factuality.required[].statement`), the known false claims with the truth, the
+  learner's turns and the reply. The prompt asks for a strict, semantic judgement: paraphrase,
+  negation, notation and other languages count by meaning; a vague reply does not convey a
+  required fact.
+- **Output**: `{grounding, factuality}`, each `{passed, reasons[], quotes[]}`, through the
+  provider's structured-output path (Gemini `responseMimeType` + `responseJsonSchema`, the
+  Messages API's JSON-schema format) or one JSON object in text for a model without it. It is
+  parsed strictly; a fail must give a reason. Each quote must be a passage of the reply
+  (verbatim, or the same words with other spacing); invented quotes are dropped.
+- **Fail closed**: a judge call that fails or answers anything else leaves the rule
+  `judge_unavailable:<reason>`, neither passed nor failed. A job with no failure but such a
+  conversation is not recorded, and the check ends `PROVIDER_QUALITY_CHECK_JUDGE_UNAVAILABLE`
+  ("the judge could not run").
+- **Which model**: the Answer review drafts (reviewer) job's model when it is set; otherwise
+  the strongest stable text model of the setup on the tutor's connection (Gemini pro over
+  flash over flash-lite, Claude opus over sonnet over haiku; previews and experiments never),
+  else the tutor's model. The first of these with a saved token price judges. Judging a model
+  with itself is allowed and labelled. The page says which model judged each rule.
+- **Cost**: one judge call per paid conversation, estimated at 4,000 input and 1,500 output
+  tokens at the judge model's saved price, included in the check's "About $X", reserving the
+  per-request allowance like every paid call (ledger ref `<check>:j<n>`) and settled from its
+  reported usage.
+- **Offline**: a scripted provider answers judge requests with `scriptedJudgeAnswer`, the
+  verdicts of the pattern graders, so scripted checks stay deterministic. Neither proves any
+  real model's judgement.
 
 The **LLM judge** is optional and advisory (`--judge`, live mode only). It sends the
 dialogue's `judge.criteria` and the answer through the configured `reviewer` role

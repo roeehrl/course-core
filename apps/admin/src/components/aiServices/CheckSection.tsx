@@ -35,7 +35,11 @@ import {
   type AiText,
   type FieldError,
 } from "./shared";
-import { CheckDetails, type DetailsSource } from "./CheckDetails";
+import {
+  CheckDetails,
+  JUDGE_UNAVAILABLE,
+  type DetailsSource,
+} from "./CheckDetails";
 import { OnJobs } from "./OnJobs";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
@@ -556,10 +560,18 @@ export function RoleChecks({
             ) : (
               <div className="ai-actions ai-actions-start">
                 <span>
-                  {t("aiServices.check.flag.estimate", {
-                    amount: text.money(plan.estimateMicroUsd ?? 0),
-                    count: plan.conversations,
-                  })}
+                  {t(
+                    plan.judge
+                      ? plan.judge.self
+                        ? "aiServices.check.flag.estimateJudgedSelf"
+                        : "aiServices.check.flag.estimateJudged"
+                      : "aiServices.check.flag.estimate",
+                    {
+                      amount: text.money(plan.estimateMicroUsd ?? 0),
+                      count: plan.conversations,
+                      model: plan.judge?.remoteModel ?? "",
+                    },
+                  )}
                 </span>
                 <button
                   type="button"
@@ -671,6 +683,8 @@ function errorReason(
           : t("aiServices.check.run.requestRefusedGeneric", { service });
     case "PROVIDER_QUALITY_CHECK_TIMEOUT":
       return t("aiServices.check.run.timeout");
+    case JUDGE_UNAVAILABLE:
+      return t("aiServices.check.run.judgeUnavailable");
     case "PROVIDER_QUALITY_CHECK_INTERRUPTED":
       return t("aiServices.check.run.interrupted");
     case "PROVIDER_QUALITY_CHECK_SCOPE_CHANGED":
@@ -800,10 +814,18 @@ function RunCheck(
             current && (
               <>
                 <p>
-                  {t("aiServices.check.run.estimate", {
-                    amount: text.money(status.estimateMicroUsd),
-                    count: status.conversations,
-                  })}
+                  {t(
+                    status.judge
+                      ? status.judge.self
+                        ? "aiServices.check.run.estimateJudgedSelf"
+                        : "aiServices.check.run.estimateJudged"
+                      : "aiServices.check.run.estimate",
+                    {
+                      amount: text.money(status.estimateMicroUsd),
+                      count: status.conversations,
+                      model: status.judge?.remoteModel ?? "",
+                    },
+                  )}
                 </p>
                 <p className="ai-muted">
                   {t("aiServices.check.run.reserve", {
@@ -898,60 +920,66 @@ export function CheckResult({
   const { t } = text;
   if (check.state === "error")
     return (
-      <Message tone="error">
-        {t("aiServices.check.run.errorTitle")}{" "}
-        {errorReason(text, check.reason, service, check.reasonDetail)}
-        {check.total > 0 && check.completed < check.total && (
-          <>
-            {" "}
-            {t("aiServices.check.run.stoppedAt", {
-              done: check.completed,
-              total: check.total,
-            })}
-          </>
-        )}
-        {check.chargedMicroUsd !== null && (
-          <>
-            {" "}
-            {t("aiServices.check.run.charged", {
-              amount: text.money(check.chargedMicroUsd),
-            })}
-          </>
-        )}
-        {check.reason && (
-          <details className="ai-technical">
-            <summary>{t("aiServices.connect.technical")}</summary>
-            <p>
-              {t("aiServices.connect.technicalCode")}:{" "}
-              <Ltr className="mono">{check.reason}</Ltr>
-            </p>
-            {check.reasonDetail && (
-              <>
-                <p>
-                  {t("aiServices.check.run.technicalJob")}:{" "}
-                  {jobName(t, check.reasonDetail.role)}
-                </p>
-                {check.reasonDetail.status !== null && (
+      <>
+        <Message tone={check.reason === JUDGE_UNAVAILABLE ? "warn" : "error"}>
+          {t("aiServices.check.run.errorTitle")}{" "}
+          {errorReason(text, check.reason, service, check.reasonDetail)}
+          {check.total > 0 && check.completed < check.total && (
+            <>
+              {" "}
+              {t("aiServices.check.run.stoppedAt", {
+                done: check.completed,
+                total: check.total,
+              })}
+            </>
+          )}
+          {check.chargedMicroUsd !== null && (
+            <>
+              {" "}
+              {t("aiServices.check.run.charged", {
+                amount: text.money(check.chargedMicroUsd),
+              })}
+            </>
+          )}
+          {check.reason && (
+            <details className="ai-technical">
+              <summary>{t("aiServices.connect.technical")}</summary>
+              <p>
+                {t("aiServices.connect.technicalCode")}:{" "}
+                <Ltr className="mono">{check.reason}</Ltr>
+              </p>
+              {check.reasonDetail && (
+                <>
                   <p>
-                    {t("aiServices.check.run.technicalStatus")}:{" "}
-                    <Ltr className="mono">{check.reasonDetail.status}</Ltr>
+                    {t("aiServices.check.run.technicalJob")}:{" "}
+                    {jobName(t, check.reasonDetail.role)}
                   </p>
-                )}
-                <p>
-                  {t("aiServices.check.run.technicalProviderReason", {
-                    service,
-                  })}
-                  :{" "}
-                  <Ltr className="mono">
-                    {check.reasonDetail.providerReason ??
-                      check.reasonDetail.providerCode}
-                  </Ltr>
-                </p>
-              </>
-            )}
-          </details>
+                  {check.reasonDetail.status !== null && (
+                    <p>
+                      {t("aiServices.check.run.technicalStatus")}:{" "}
+                      <Ltr className="mono">{check.reasonDetail.status}</Ltr>
+                    </p>
+                  )}
+                  <p>
+                    {t("aiServices.check.run.technicalProviderReason", {
+                      service,
+                    })}
+                    :{" "}
+                    <Ltr className="mono">
+                      {check.reasonDetail.providerReason ??
+                        check.reasonDetail.providerCode}
+                    </Ltr>
+                  </p>
+                </>
+              )}
+            </details>
+          )}
+        </Message>
+        {/* The judge could not run: its conversations were kept, to show which rules have no result. */}
+        {check.reason === JUDGE_UNAVAILABLE && (
+          <CheckDetails check={check} source={source} />
         )}
-      </Message>
+      </>
     );
   return (
     <>
@@ -963,19 +991,24 @@ export function CheckResult({
         </strong>
         <ul className="ai-list">
           {check.outcome.map((o) => {
-            const rules = brokenRules(o.failed);
+            const rules = o.undetermined ? [] : brokenRules(o.failed);
             return (
               <li key={o.role}>
-                {o.passed
-                  ? t("aiServices.check.run.jobPassed", {
+                {o.undetermined
+                  ? t("aiServices.check.run.jobUndetermined", {
                       job: jobName(t, o.role),
-                      count: o.dialogues,
+                      count: o.failed.length,
                     })
-                  : t("aiServices.check.run.jobFailed", {
-                      job: jobName(t, o.role),
-                      failed: o.failed.length,
-                      count: o.dialogues,
-                    })}
+                  : o.passed
+                    ? t("aiServices.check.run.jobPassed", {
+                        job: jobName(t, o.role),
+                        count: o.dialogues,
+                      })
+                    : t("aiServices.check.run.jobFailed", {
+                        job: jobName(t, o.role),
+                        failed: o.failed.length,
+                        count: o.dialogues,
+                      })}
                 {rules.length > 0 && (
                   <ul>
                     {rules.map((r) => (
