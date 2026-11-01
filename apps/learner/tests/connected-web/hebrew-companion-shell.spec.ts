@@ -30,8 +30,8 @@ import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
 /*
  * Learner findings of the 0.1.60 qualification, on every device project and both engines, in
  * English and Hebrew, on the real connected host (the Hebrew course is test/hebrew-reading-fixture.ts):
- * - opening or closing the companion beside the lesson keeps the text being read where it was
- *   (on a WebKit tablet it moved about 100 px);
+ * - opening or closing the companion (the panel beside the lesson, or the sheet over it) keeps the
+ *   text being read where it was (on a WebKit tablet it moved about 100 px);
  * - the erase forms stack label, field and action in reading order (they ran onto one row);
  * - after erasing the account the sign-in page keeps the language and confirms the erasure (it
  *   came back in English, saying nothing);
@@ -136,8 +136,10 @@ for (const locale of ["en", "he"] as const) {
     const before = await top();
     const trigger = page.locator(".connected-companion-trigger");
     const close = page.getByRole("button", { name: t.dock.close, exact: true });
-    // Desktop starts with the pane open: close it first, then open it again.
-    const steps = (await trigger.isVisible()) ? [trigger, close] : [close, trigger];
+    // Desktop starts with the panel open: close it first, then open it again. The trigger is in the
+    // header on every size and says whether the companion shows.
+    await expect(page.locator(".connected-header .connected-companion-trigger")).toBeVisible();
+    const steps = (await trigger.getAttribute("aria-expanded")) === "true" ? [close, trigger] : [trigger, close];
     for (const control of steps) {
       await press(page, control);
       await page.waitForTimeout(500);

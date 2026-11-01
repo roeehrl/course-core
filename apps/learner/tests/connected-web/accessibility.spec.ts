@@ -115,7 +115,7 @@ test("control targets across the connected lesson, header and companion: 24 px, 
     await smallTargets(page, ".connected-header, .connected-lesson-keeper"),
   ).toEqual([]);
   const trigger = page.locator(".connected-companion-trigger");
-  if (await trigger.isVisible()) await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   await expect(page.locator("#connected-companion")).toBeVisible();
   expect(
     await smallTargets(

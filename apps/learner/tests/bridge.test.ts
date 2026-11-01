@@ -154,9 +154,9 @@ describe("companion open state", () => {
 
   it("docks the companion beside the lesson in a wide, tall window and uses a sheet otherwise", () => {
     expect(companionLayout(1440, 960)).toMatchObject({ placement: "docked", sheet: null, compactPage: false, windowClass: "expanded" });
-    expect(companionLayout(834, 1112)).toMatchObject({ placement: "docked", compactPage: false, windowClass: "medium" });
+    expect(companionLayout(834, 1112)).toMatchObject({ placement: "sheet", sheet: "tablet", compactPage: false, windowClass: "medium" });
     expect(companionLayout(390, 844)).toMatchObject({ placement: "sheet", sheet: "phone", compactPage: true });
-    expect(companionLayout(1024, 500)).toMatchObject({ placement: "sheet", sheet: "short", compactPage: true });
+    expect(companionLayout(1024, 470)).toMatchObject({ placement: "sheet", sheet: "short", compactPage: true });
     expect(companionLayout(700, 500)).toMatchObject({ placement: "sheet", sheet: "tablet" });
     // Text scaled up: the effective width decides.
     expect(companionLayout(900, 960, 2)).toMatchObject({ placement: "sheet", windowClass: "compact" });

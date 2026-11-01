@@ -12,6 +12,9 @@ export interface CompanionDockProps {
   /** Web: beside the lesson, the element (in the header) the show-companion button is drawn in,
    * so it never floats over the lesson. Without one it floats at the window's end. */
   headerSlot?: HTMLElement | null;
+  /** Web: the lesson's title, shown in focus view's header from 1024 px (read from the lesson's
+   * heading when not given). */
+  lessonTitle?: string;
   children: React.ReactNode;
 }
 /** Portable presentation fallback; native connected auth/media are still deferred. */

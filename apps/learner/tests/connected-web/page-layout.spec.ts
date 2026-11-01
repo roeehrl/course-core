@@ -2,8 +2,9 @@ import { expect, test, type Page } from "./health";
 
 /* The page frame on every engine and device project, in English and Hebrew: the page is never
  * taller than its content (a phone never scrolls the window to a blank screen, a desktop never
- * shows a white band below the app), nothing overflows sideways, the floating companion button
- * never covers the last content, and the next-step button keeps a button's shape on a phone. */
+ * shows a white band below the app), nothing overflows sideways, the companion button is in the
+ * header on every size (so it never covers the last content), and the next-step button keeps a
+ * button's shape on a phone. */
 
 const LABELS = {
   en: { open: "Open course", start: "Start course", next: "Start the course →", close: "Close companion", lesson: "Minimum" },
@@ -66,13 +67,16 @@ async function longLessonStaysInItsPane(page: Page) {
   expect.soft(heights.document, "a long lesson made the page taller than the screen").toBeLessThanOrEqual(heights.window);
 }
 
-/** Scrolls to the end and checks the floating companion button covers none of the last content. */
+/** Scrolls to the end and checks the companion button covers none of the last content: it is in
+ * the header, open or closed, on every size. */
 async function buttonClearsContent(page: Page, where: string) {
   const trigger = page.locator(".connected-companion-trigger");
-  if (!(await trigger.isVisible())) {
-    // Desktop: the companion is a pane; collapse it so its floating button shows.
+  await expect(trigger).toBeVisible();
+  expect(await trigger.evaluate((el) => el.closest(".connected-header") !== null), `${where}: the button is in the header`).toBe(true);
+  // With the companion closed, the lesson has the whole window.
+  if ((await trigger.getAttribute("aria-expanded")) === "true") {
     await page.getByRole("button", { name: /^(Close companion|סגירת המנחה)$/ }).click();
-    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
   }
   const overlap = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".connected-main")!;

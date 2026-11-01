@@ -85,3 +85,11 @@ export function restoreReadingAnchor(anchor: ReadingAnchor) {
   const shift = top - anchor.top;
   if (Math.abs(shift) >= 1) window.scrollBy({ top: shift, behavior: "instant" as ScrollBehavior });
 }
+
+/** The line being read in the lesson column now (`.connected-main`, below the app header), to put
+ * back after the layout beside it changes: the companion opening or closing, or its panel resized. */
+export function lessonReadingAnchor(): ReadingAnchor | null {
+  if (typeof document === "undefined") return null;
+  const header = document.querySelector(".connected-header")?.getBoundingClientRect().bottom ?? 0;
+  return readingAnchor(document.querySelector(".connected-main"), header);
+}

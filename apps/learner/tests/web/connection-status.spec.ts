@@ -8,7 +8,8 @@ import { connectedSnapshot } from "../connectedFixtures";
  * It now sits at the bottom of the window: nothing on the page moves when it appears or goes.
  * On a phone it is a card the learning pane ends above; beside the companion pane it is a band
  * across the window's end (tests/connected-web/layout-room.spec.ts checks that it never covers
- * the lesson's buttons). The "Your course" menu marks the view on screen without English words,
+ * the lesson's buttons). With the companion open it stays clear of it: above the sheet on a phone,
+ * under the docked panel's end beside the lesson. The "Your course" menu marks the view on screen without English words,
  * so it reads the same in Hebrew.
  */
 const TEXT = {
@@ -281,3 +282,38 @@ test("a slow answer from the server is reported over the page without moving it"
   held.release!();
   await expect(page.locator(".connected-connection")).toHaveCount(0);
 });
+
+for (const locale of ["en", "he"] as const) {
+  test(`${locale}: with the companion open the status stays clear of it`, async ({ page, context }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await openCourse(page, locale);
+    await page.getByTestId("next-step").getByRole("button").click();
+    const trigger = page.locator(".connected-header .connected-companion-trigger");
+    await trigger.click();
+    const companion = page.locator("#connected-companion");
+    await expect(companion).toBeVisible();
+    await context.setOffline(true);
+    const status = page.locator(".connected-connection");
+    await expect(status).toBeVisible();
+    await status.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    await companion.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    const band = (await status.boundingBox())!;
+    const box = (await companion.boundingBox())!;
+    if ((await companion.getAttribute("data-placement")) === "sheet") {
+      // A phone: the card floats just above the sheet, never over it, and the learning pane ends
+      // above the sheet.
+      expect(band.y + band.height, "the status is above the sheet").toBeLessThanOrEqual(box.y + 1);
+      const pane = (await page.locator(".connected-main").boundingBox())!;
+      expect(pane.y + pane.height, "the learning pane ends above the sheet").toBeLessThanOrEqual(box.y + 1);
+    } else {
+      // Beside the lesson: the band crosses the window's end and the panel ends above it.
+      expect(band.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 1);
+      expect(box.y + box.height, "the panel ends above the status").toBeLessThanOrEqual(band.y + 1);
+    }
+    await expectAccessible(page);
+    await context.setOffline(false);
+    await expect(status).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
