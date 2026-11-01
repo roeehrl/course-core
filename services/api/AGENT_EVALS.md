@@ -304,7 +304,11 @@ The decision for every role is stored on the new version
 (`workspace_provider_versions.evaluation`). The revision probe captures the first
 request of the tool loop (before any tool answers), research (with a probe topic) and
 the reviewer (with a probe rubric) too, so a prompt change in any of them is a new
-revision.
+revision. The companion is also probed in each prompt mode it adds to its instruction:
+check coaching (a matched check, and one where which check is meant is not certain)
+and a Hebrew question. A change to the check-coaching or Hebrew rule is therefore a new
+companion revision, as is a change to the concise reply rule for a binding whose
+`replyStyle` is concise (a detailed binding is never asked with it).
 
 ### Routes
 
