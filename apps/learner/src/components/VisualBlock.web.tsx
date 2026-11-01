@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { fromVisualExperience, type Frame, type VisualRuntime } from "@course-core/visuals/headless";
 import { LazyVisualPlayer, type VisualCompletion } from "@course-core/visuals/react";
 import "@course-core/visuals/styles.css";
@@ -6,6 +6,9 @@ import type { VisualBlockProps, VisualContextChange, VisualInteractionContext } 
 import { Text, View } from "react-native";
 import { styles } from "./ui";
 import { companionFocus } from "../client/companionFocus";
+import { companionBridge, useCompanionAvailable } from "../connected/companion/bridge";
+import { useCoarsePointer } from "../connected/ui/media";
+import { PartMenu } from "./PartMenu.web";
 import { registerVisualRuntime, useInspectorOpen } from "../client/inspectorBridge";
 import { useT } from "../i18n";
 import { useVisualMessages } from "./visualMessages";
@@ -26,6 +29,9 @@ export type { VisualBlockProps, VisualContextSource, VisualContextChange, Visual
 
 export function VisualBlock({ experience, source, onContextChange, onComplete, companionAvailable = true }: VisualBlockProps) {
   const t = useT();
+  const offered = useCompanionAvailable() && companionAvailable;
+  const coarse = useCoarsePointer();
+  const focus = useSyncExternalStore(companionFocus.subscribe, companionFocus.get, companionFocus.get);
   const { messages, locale } = useVisualMessages();
   // While the debug inspector is open every visual loads and stays loaded, so staff see live state.
   const inspecting = useInspectorOpen();
@@ -118,27 +124,18 @@ export function VisualBlock({ experience, source, onContextChange, onComplete, c
     </View>
   );
   const parts = useMemo(() => (prepared ? labelledParts(prepared.scene.nodes) : []), [prepared]);
-  const pointer = companionAvailable && identity && parts.length ? (
-    <label style={{ display: "grid", gap: 6, maxWidth: "100%", fontSize: 14 }}>
-      <span>{t("visualBlock.pointer")}</span>
-      <select
-        style={{ minHeight: 44, maxWidth: "100%", fontSize: 16, padding: "6px 10px", borderRadius: 10 }}
-        defaultValue=""
-        onChange={(event) => {
-          const part = parts.find((row) => row.id === event.currentTarget.value);
-          companionFocus.setSelection(
-            part ? { kind: "visual_node", blockId: identity.blockId, nodeId: part.id, label: part.label } : undefined,
-          );
-        }}
-      >
-        <option value="">{t("visualBlock.noPart")}</option>
-        {parts.map((part) => (
-          <option key={part.id} value={part.id} dir="auto">
-            {part.label}
-          </option>
-        ))}
-      </select>
-    </label>
+  // The part asked about last (checked in the menu) while it is still attached.
+  const asked =
+    focus.selection?.kind === "visual_node" && focus.selection.blockId === identity?.blockId ? focus.selection.nodeId : undefined;
+  const pointer = offered && identity && parts.length ? (
+    <PartMenu
+      parts={parts}
+      current={asked}
+      onChoose={(part, byKeyboard) => {
+        companionFocus.setSelection({ kind: "visual_node", blockId: identity.blockId, nodeId: part.id, label: part.label });
+        companionBridge.compose({ source: "illustration", focus: byKeyboard || !coarse });
+      }}
+    />
   ) : null;
   return (
     <View style={{ gap: 12 }}>
