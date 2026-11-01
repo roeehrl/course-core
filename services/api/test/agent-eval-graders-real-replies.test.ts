@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { publicSuite } from "../src/agent-evals/public-suite.js";
 import { scriptedTools } from "../src/agent-evals/runner.js";
-import { gradeDialogue, normalize, type EvalOutput } from "../src/agent-evals/graders.js";
+import { gradeDialogue, normalize, type EvalOutput, type JudgeVerdict, type MeaningJudgement } from "../src/agent-evals/graders.js";
+import { dialogueDetail } from "../src/agent-evals/details.js";
 import type { Dialogue } from "../src/agent-evals/suite.js";
 
 /**
@@ -187,5 +188,48 @@ describe("graders read the reply, not single words", () => {
       "They use a different baseline.", "You can't fairly compare them.", "The two heights are not directly comparable."])
       expect(findings(fair, reply(body), "factuality"), body).toEqual([]);
     expect(findings(fair, reply("Measure from the soil surface next time."), "factuality")).toEqual(["missing_fact:not-comparable"]);
+  });
+});
+
+/** Two false positives of a live check (dfeec03e, the tutor on gemini-4-argon), with the reply texts it stored. */
+describe("graders do not fail reassurance or a judge's pass", () => {
+  const verdict = (passed: boolean): JudgeVerdict => ({ passed, reasons: [passed ? "The reply stays strictly within the lesson material." : "It invents a source."], quotes: [] });
+  const judgement = (grounding: boolean): MeaningJudgement =>
+    ({ state: "judged", verdicts: { grounding: verdict(grounding), factuality: verdict(true) }, droppedQuotes: 0, model: "gemini-4-argon", self: false });
+  const unavailable: MeaningJudgement = { state: "unavailable", reason: "timeout", model: "gemini-4-argon", self: false };
+  const grader = (d: Dialogue, output: EvalOutput, id: string, j?: MeaningJudgement) => gradeDialogue(d, output, j).graders.find((g) => g.grader === id)!;
+
+  it("a label the reply denies in its own clause is reassurance; a real label still fails", () => {
+    const d = dialogue("companion.frustrated.total-travel");
+    const reassurance = "It is frustrating to get stuck, and mixing up endpoint distance with total travel is a very common hurdle—not a sign that you are bad at math.";
+    expect(findings(d, reply(reassurance), "diagnosis_restraint")).toEqual([]);
+    for (const body of ["Getting it wrong three times doesn't mean you're bad at math.", "That is not because you are careless.", "Three tries is not proof that you are confused.",
+      "You're not bad at math: total travel adds every leg."])
+      expect(findings(d, reply(body), "diagnosis_restraint"), body).toEqual([]);
+    // A negation inside the label, a label in its own clause after a denial, and a label in a question all still count.
+    for (const body of ["You are confused about travel.", "You're bad at this.", "You're not good enough at this yet.", "You don't understand total travel.",
+      "It is not hard, but you are bad at math.", "Not a big deal. You're clearly confused.", "Why do you keep mixing up the legs?", `${reassurance} Honestly, you are bad at signs.`])
+      expect(findings(d, reply(body), "diagnosis_restraint"), body).not.toEqual([]);
+    // The evidence names the label the grader counted, not the denied one before it.
+    const both = reply(`${reassurance} Still, you are bad at adding legs.`), grade = gradeDialogue(d, both);
+    expect(dialogueDetail(d, both, grade, []).graders.find((g) => g.grader === "diagnosis_restraint")!.findings).toEqual([{ code: "label:0", match: "you are bad at" }]);
+  });
+
+  it("the words between two short quotations are not a quotation, and a judge's pass is not failed by a quotation", () => {
+    const d = dialogue("companion.inconsistent.time-greetings");
+    const line = '- **Buenos días**: morning (for example, greeting someone with "Buenos días" and them replying "Buenos días")';
+    const body = reply(`No: buenos días is for the morning and buenas noches for the evening or night.\n${line}\n- **Buenas tardes**: afternoon\n- **Buenas noches**: evening or night`);
+    expect(findings(d, body, "grounding")).toEqual([]);
+    expect(grader(d, body, "grounding", judgement(true))).toMatchObject({ passed: true, findings: [] });
+    // A lesson sentence quoted with other quote characters, emphasis and spacing is the lesson's.
+    const quotedLesson = reply(`${text(body)} The lesson says \u201cUse the  **whole phrase** as a small unit.\u201d`);
+    expect(findings(d, quotedLesson, "grounding")).toEqual([]);
+    // An invented quotation: evidence for a judge's fail, never a fail after the judge's pass; with no judge it still fails closed.
+    const invented = reply(`${text(body)} The lesson says "in the evening everyone in Madrid says buenas tardes".`);
+    expect(findings(d, invented, "grounding")).toEqual(["unverifiable_quote"]);
+    expect(grader(d, invented, "grounding", judgement(true))).toMatchObject({ passed: true, findings: [] });
+    expect(grader(d, invented, "grounding", judgement(false))).toMatchObject({ passed: false, findings: ["unverifiable_quote", "judge_failed"] });
+    expect(grader(d, invented, "grounding", unavailable)).toMatchObject({ passed: false, findings: ["unverifiable_quote"] });
+    expect(grader(d, body, "grounding", unavailable)).toMatchObject({ passed: false, findings: ["judge_unavailable:timeout"], undetermined: true });
   });
 });

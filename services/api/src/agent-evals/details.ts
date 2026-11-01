@@ -1,5 +1,5 @@
 import { findCheckAnswerLeak } from "../companion-check-integrity.js";
-import { AUTHORITY_PATTERNS, GRADERS, JUDGED_GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, normalize, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId, type JudgedGrader, type MeaningJudgement } from "./graders.js";
+import { AUTHORITY_PATTERNS, GRADERS, JUDGED_GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, assertedLabel, normalize, quoteCorpus, unverifiableQuote, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId, type JudgedGrader, type MeaningJudgement } from "./graders.js";
 import { dialogueCheckMatches, dialogueStrategy, type Dialogue } from "./suite.js";
 import type { ToolCallRecord } from "./runner.js";
 
@@ -124,11 +124,6 @@ function applies(dialogue: Dialogue, grader: GraderId): boolean {
     default: return true;
   }
 }
-const corpusOf = (dialogue: Dialogue) => {
-  const strings = (value: unknown): string[] =>
-    typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
-  return normalize(strings([dialogue.context, dialogue.expect.tools?.results ?? null]).join("\n")).toLowerCase();
-};
 /** The concrete evidence of one finding, from the fixture and the full (unclipped) answer. */
 function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): FindingDetail {
   const raw = answerText(output) ?? "", text = normalize(raw), expect = dialogue.expect;
@@ -147,13 +142,12 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
     case "unsupported_reference": return indexed(expect.grounding.unsupportedPatterns);
     case "authority": return indexed(AUTHORITY_PATTERNS);
     case "over_refusal": return indexed(OVER_REFUSAL_PATTERNS);
-    case "label":
-      if (rest[0] === "extra") {
-        const pattern = expect.diagnosisRestraint.extraLabelPatterns[Number(rest[1])];
-        const match = pattern ? firstMatch(pattern, raw, text) : undefined;
-        return match ? { code, match } : { code };
-      }
-      return indexed(LABEL_PATTERNS);
+    case "label": {
+      // The label the grader counted: not a denied one earlier in the reply ("not a sign that you are bad at").
+      const pattern = rest[0] === "extra" ? expect.diagnosisRestraint.extraLabelPatterns[Number(rest[1])] : LABEL_PATTERNS[Number(arg)];
+      const match = pattern ? assertedLabel(pattern, text) ?? firstMatch(pattern, raw, text) : undefined;
+      return match ? { code, match } : { code };
+    }
     case "check_answer": {
       const checks = dialogueCheckMatches(dialogue).map((m) => m.check);
       const leak = findCheckAnswerLeak(raw, checks, dialogue.context.question, { lessonText: dialogue.context.episode.teaching });
@@ -171,10 +165,8 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
       return { code, detail: { found: found.slice(0, 12), missing: anchors.filter((a) => !found.includes(a)).slice(0, 12), needed: expect.grounding.minAnchors } };
     }
     case "unverifiable_quote": {
-      const corpus = corpusOf(dialogue);
-      for (const quote of text.matchAll(/"([^"]{12,400})"/g))
-        if (!corpus.includes(quote[1]!.trim().toLowerCase().replace(/[.,;:!?]+$/, ""))) return { code, match: quote[1]!.trim() };
-      return { code };
+      const match = unverifiableQuote(quoteCorpus(dialogue), text);
+      return match ? { code, match } : { code };
     }
     case "objective_not_supplied": {
       const supplied = dialogue.context.episode.objectives.map((o) => o.id);
