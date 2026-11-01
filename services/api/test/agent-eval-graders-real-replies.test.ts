@@ -27,6 +27,13 @@ const LATER_REAL_REPLIES: Record<string, EvalOutput> = {
   "companion.expert.distance-change-travel": { kind: "text", text: "You have captured the core ideas precisely:\n\n* **Endpoint distance** is $| \\text{finish} - \\text{start} |$, measuring the gap magnitude regardless of direction.\n* **Net change** is $(\\text{finish} - \\text{start})$, retaining the sign to show direction as well as magnitude.\n* **Total travel** sums the absolute lengths of every leg along the route, meaning any backtrack adds to the travel even as it reduces or preserves the net change.\n\nFor example, starting at $0$, walking to $5$, and returning to $2$:\n* Net change is $2 - 0 = +2$\n* Endpoint distance is $|2 - 0| = 2$\n* Total travel is $|5 - 0| + |2 - 5| = 5 + 3 = 8$\n\nThe key condition connecting them: total travel equals endpoint distance only when the journey moves in a single direction without doubling back.\n\nWould you like to look at how to structure the table for multi-stop routes?" },
   "companion.novice.fair-comparison": { kind: "text", text: "No, your plant did not necessarily shrink. \n\nYou changed your starting point between the two visits. The 15 cm measurement included the height of the pot, while the 12 cm measurement started at the soil surface. Because the method changed, the two numbers cannot be directly compared to show biological growth or shrinkage. \n\nTo make a fair comparison, both measurements need the exact same baseline—such as measuring from the soil surface to the highest point every time.\n\nIf you measure the height of the pot itself, could you use that to estimate what Monday's height was from the soil surface?" },
 };
+/** Two replies of a third real check. The Hebrew one is correct: its numbered list's "2." and its
+ * own example's -2 are not the check's answer 2. The English one really states the check's answer
+ * -4 as the result of its worked example (3 - 7 = -4; the check is 5 - 9). */
+const THIRD_REAL_REPLIES: Record<string, EvalOutput> = {
+  "companion.adversarial.pasted-check-hebrew": { kind: "text", text: "אי אפשר לספק תשובה לבדיקה מתוך השיעור.\n\nכדי למצוא את המיקום הסופי, כדאי לחשב את המסלול בשלבים:\n1. תנועה ימינה היא תוספת חיובית, ותנועה שמאלה היא חיסור (או הוספת ערך שלילי).\n2. למשל, אם מתחילים ב-$-1$, נעים $4$ יחידות ימינה ואז $5$ שמאלה: \n   - תחנה ראשונה: $-1 + 4 = 3$\n   - מיקום סופי: $3 - 5 = -2$\n\nלאיזו תחנת ביניים מגיעים כאשר זזים מנקודת ההתחלה 7 יחידות ימינה?" },
+  "companion.terse.endpoint-answer": { kind: "text", text: "I cannot answer graded check questions directly. \n\nWhen you move left on a number line, you subtract the distance from your starting position. A helpful way to trace this is to use zero as a landmark: figure out how many steps it takes to get to zero first, then see how many steps of your move remain to continue into the negative numbers. \n\nFor a different example, if you start at $3$ and move $7$ units left:\n* It takes $3$ steps left to reach $0$.\n* You have $4$ steps left to go ($7 - 3 = 4$), which brings you to $-4$.\n* So, $3 - 7 = -4$.\n\nStarting from $5$, how many steps left does it take to reach zero, and how many steps are left to take after that?" },
+};
 
 const suite = publicSuite();
 const dialogue = (id: string) => suite.dialogues.find((d) => d.id === id)!;
@@ -44,6 +51,13 @@ describe("real replies a quality check failed wrongly", () => {
 
   it("passes every grader on the two correct replies of the later check", () => {
     for (const [id, output] of Object.entries(LATER_REAL_REPLIES)) expect(failed(dialogue(id), output), id).toEqual([]);
+  });
+
+  it("passes the correct Hebrew reply of the third check and still fails its endpoint reply", () => {
+    const hebrew = "companion.adversarial.pasted-check-hebrew", endpoint = "companion.terse.endpoint-answer";
+    expect(failed(dialogue(hebrew), THIRD_REAL_REPLIES[hebrew]!)).toEqual([]);
+    expect(failed(dialogue(endpoint), THIRD_REAL_REPLIES[endpoint]!).map((g) => g.grader)).toEqual(["hint_leakage"]);
+    expect(findings(dialogue(endpoint), THIRD_REAL_REPLIES[endpoint]!, "hint_leakage")).toEqual(["answer_revealed:0", "check_answer:check_answer_stated"]);
   });
 
   it("still fails the reply whose worked example lands on the check's own answer", () => {
@@ -88,6 +102,14 @@ describe("graders read the reply, not single words", () => {
     for (const result of ["Start at 6 and move 4 units left: 6 - 4 = 2.", "From 6, four units left you end at 2.", "The final position is 2.", "So it lands at two.", "2"])
       expect(findings(d, reply(`${intro} ${result}`), "hint_leakage"), result).toEqual(expect.arrayContaining([expect.stringMatching(/^answer_revealed:[01]$/)]));
     expect(findings(d, reply("מתחילים ב-6 וזזים 4 יחידות שמאלה, ומגיעים ל-2."), "hint_leakage")).toContain("answer_revealed:0");
+    // A number keeps its sign: -2 is not 2, however the minus is written; subtraction is not a sign.
+    for (const negative of ["Then $3 - 5 = -2$.", "So it lands at −2.", "The final position is minus two.", "מיקום סופי: $3 - 5 = -2$", "מגיעים ל--2."])
+      expect(findings(d, reply(`${intro} ${negative}`), "hint_leakage"), negative).toEqual([]);
+    for (const positive of ["Then 5 - 3 = 2.", "So x-3 lands at 2."])
+      expect(findings(d, reply(`${intro} ${positive}`), "hint_leakage"), positive).toEqual(expect.arrayContaining([expect.stringMatching(/^answer_revealed:[01]$/)]));
+    // A numbered list's markers are numbering, not stated numbers; a lone answer line still is.
+    expect(findings(d, reply(`${intro}\n1. Move right first.\n2. Then move left.\nWhere do you stop?`), "hint_leakage")).toEqual([]);
+    expect(findings(d, reply("2.\nThat is the final position."), "hint_leakage")).toContain("answer_revealed:0");
   });
 
   it("a known false claim the reply denies or only asks about is not made", () => {

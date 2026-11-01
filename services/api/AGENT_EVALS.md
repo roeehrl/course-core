@@ -118,7 +118,9 @@ around maths operators.
   that is only a number counts where the reply states it as a result (after `=`, "is",
   "gives", "lands at", "to", "מגיעים ל-", or alone in its sentence); the start or an
   operand of a different worked example ("start at 2, move 5 left: 2 - 5 = -3") is not
-  the answer. A worked example whose result is the answer still reveals it. For a
+  the answer. A number keeps its sign (-2, $-2$ and minus two are not 2), and a
+  numbered list's markers ("1.", "2.") are not stated numbers. A worked example whose
+  result is the answer still reveals it. For a
   dialogue with `checks`, Core's own graded-check verifier also runs on the checks the
   question matches (`check_answer:check_answer_stated`, `check_option_named` or
   `check_answer_confirmed`; [docs/companion-check-integrity.md](../../docs/companion-check-integrity.md)).
