@@ -1,22 +1,39 @@
+/* Every colour here is a design token from styles/tokens.css (final design §1): the base app
+ * follows the light or dark theme with the AI surfaces, and the forced-colours rules below hand
+ * borders and focus to the system. A value the tokens do not hold is a local custom property mixed
+ * from them, so it follows the theme too. */
+.connected-host {
+  /* The progress bar's track and the under-review stripe, mixed from tokens. */
+  --connected-track: color-mix(in srgb, var(--line-strong) 45%, transparent);
+  --connected-current-step: color-mix(in srgb, var(--accent) 45%, var(--page));
+  --connected-warning-line: color-mix(in srgb, var(--warning) 35%, var(--warning-soft));
+  /* The practice runner's console is a dark stage in both themes. */
+  --connected-console-error: color-mix(in srgb, var(--danger) 35%, var(--on-stage));
+  --connected-console-quiet: color-mix(in srgb, var(--on-stage) 70%, var(--stage));
+}
 /* The app owns the whole page: the page background is the app's, so no scroll position, overscroll
- * bounce or band below short content ever shows a white page around it. */
+ * bounce or band below short content ever shows a white page around it, in either theme. The
+ * root also tells the browser which themes the page draws, so its own controls and scrollbars
+ * follow. */
 html:has(.connected-host),
 html:has(.connected-host) body {
-  background: #f8f8f2;
+  background: var(--page);
+  color-scheme: light dark;
+}
+html[data-theme="light"]:has(.connected-host) {
+  color-scheme: light;
+}
+html[data-theme="dark"]:has(.connected-host) {
+  color-scheme: dark;
 }
 .connected-host {
   min-height: 100dvh;
   /* A flex item of the full-height root: it grows with its content and never shrinks below it, so
    * its background covers everything the page scrolls through. */
   flex: 1 0 auto;
-  background: #f8f8f2;
-  color: #183237;
-  font:
-    15px/1.6 system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.6 var(--font-sans);
 }
 .connected-host * {
   box-sizing: border-box;
@@ -38,15 +55,16 @@ html:has(.connected-host) body {
  * of at least 4.5:1, which fading the whole button did not (tests/disabledContrast.test.ts). */
 .connected-host :where(button:disabled) {
   cursor: default;
-  color: #4f6863;
+  color: var(--ink-muted);
 }
 .connected-navigation button:disabled,
 .connected-link-button:disabled {
-  color: #4f6863;
+  color: var(--ink-muted);
 }
+/* Focus is a 2 px --focus outline, never a box-shadow alone, so forced colours keep it (§6). */
 .connected-host :where(button, input, textarea, select, summary, a):focus-visible {
-  outline: 3px solid #183237;
-  outline-offset: 4px;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 /* Free-text fields keep the interface's direction (an empty field's caret and placeholder start
    at the reading edge, the right in Hebrew); typed text is shown in its own direction, per
@@ -58,8 +76,8 @@ html:has(.connected-host) body {
   outline: none;
 }
 .connected-header {
-  background: #ffffffdf;
-  border-bottom: 1px solid #dce6e2;
+  background: var(--header);
+  border-bottom: 1px solid var(--line);
 }
 .connected-header-inner {
   max-width: 1344px;
@@ -83,7 +101,7 @@ html:has(.connected-host) body {
   text-overflow: ellipsis;
 }
 .connected-brand span {
-  color: #087b69;
+  color: var(--accent);
   font-weight: 450;
   margin-inline-start: 6px;
 }
@@ -93,7 +111,7 @@ html:has(.connected-host) body {
   gap: 8px;
 }
 .connected-account > span {
-  color: #526a70;
+  color: var(--ink-muted);
   font-size: 12px;
   margin-inline-end: 8px;
 }
@@ -102,41 +120,45 @@ html:has(.connected-host) body {
 .connected-link-button {
   background: transparent;
   border: 0;
-  color: #087b69;
+  color: var(--accent);
   min-height: 44px;
   padding: 8px 10px;
   font-size: 13px;
   font-weight: 650;
   border-radius: 8px;
 }
+/* The first button's text lines up with the column's start edge. Only the start side is pulled
+ * out: a negative end margin made the lesson's scroll box scroll sideways at 200 % and 400 % zoom. */
 .connected-navigation {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: -8px -10px 0;
+  margin-block: -8px 0;
+  margin-inline: -10px 0;
 }
 .connected-lesson {
   display: flex;
   flex-direction: column;
   gap: 22px;
 }
+/* The lesson title (final design §1.2): 32/40 bold, drawn a little tighter in Latin script. */
 .connected-lesson-heading h1 {
   margin: 7px 0 8px;
-  font-size: clamp(30px, 4vw, 42px);
-  line-height: 1.14;
-  letter-spacing: -1.3px;
+  font-size: var(--text-title-size);
+  line-height: var(--text-title-line);
+  letter-spacing: var(--text-title-tracking);
 }
 .connected-lesson-heading > p {
-  color: #526a70;
+  color: var(--ink-muted);
   margin: 0;
   max-width: 70ch;
   font-size: 15px;
 }
 .connected-reading-card {
   min-width: 0;
-  background: #fff;
-  border: 1px solid #dce6e2;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 20px;
   padding: 26px;
   display: flex;
@@ -154,8 +176,10 @@ html:has(.connected-host) body {
 /* I04: lesson prose keeps a readable measure (about 70 characters) on wide
  * screens; the card and any visual keep the full column. 1em = the body text
  * size, so 70ch is measured in body-text characters. */
+/* Lesson body text: 18/30 (final design §1.2). */
 .connected-prose {
-  font-size: 16px;
+  font-size: var(--text-reading-size);
+  line-height: var(--text-reading-line);
   max-width: 70ch;
   min-width: 0;
 }
@@ -179,21 +203,23 @@ html:has(.connected-host) body {
 .connected-prose {
   inline-size: 100%;
 }
+/* Small labels above a heading are sentence-case meta text, never tracked capitals (final design
+ * §1.2, COPY-9): 13/20 muted, 14/22 in Hebrew through the meta token. */
 .connected-part-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  color: #087b69;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
+  color: var(--ink-muted);
+  font-size: var(--text-meta-size);
+  line-height: var(--text-meta-line);
+  font-weight: 400;
 }
 .connected-eyebrow {
-  font-size: 10px !important;
-  letter-spacing: 1.5px;
-  font-weight: 700;
-  color: #087b69 !important;
+  font-size: var(--text-meta-size) !important;
+  line-height: var(--text-meta-line);
+  font-weight: 400;
+  color: var(--ink-muted) !important;
   margin: 0 0 7px !important;
 }
 .connected-complete {
@@ -203,13 +229,13 @@ html:has(.connected-host) body {
 }
 .connected-complete p {
   font-size: 12px;
-  color: #526a70;
+  color: var(--ink-muted);
   margin: 0;
   text-align: center;
 }
 .connected-review {
   font-size: 13px;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-review summary {
   cursor: pointer;
@@ -225,8 +251,8 @@ html:has(.connected-host) body {
   max-width: 520px;
   margin: 35px auto;
   padding: 30px;
-  background: #fff;
-  border: 1px solid #dce6e2;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 24px;
   display: flex;
   flex-direction: column;
@@ -241,7 +267,7 @@ html:has(.connected-host) body {
 }
 .connected-signin p {
   margin: 0;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-library {
   display: flex;
@@ -255,15 +281,14 @@ html:has(.connected-host) body {
   margin-top: 8px;
 }
 .connected-sources {
-  border-top: 1px solid #dce6e2;
+  border-top: 1px solid var(--line);
   padding-top: 16px;
   font-size: 13px;
 }
 .connected-sources p {
-  font-size: 10px !important;
-  text-transform: uppercase;
-  letter-spacing: 1.4px;
-  color: #526a70;
+  font-size: var(--text-meta-size) !important;
+  font-weight: 600;
+  color: var(--ink-muted);
 }
 /* Each source title keeps its own direction, and so does its bullet: room on both sides keeps
    the bullet of an English title in a Hebrew page (or the reverse) inside the card. */
@@ -275,7 +300,7 @@ html:has(.connected-host) body {
 }
 .connected-sources a,
 .connected-media a {
-  color: #087b69;
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
   overflow-wrap: anywhere;
@@ -290,7 +315,7 @@ html:has(.connected-host) body {
   margin: 0 0 10px;
 }
 .connected-muted {
-  color: #526a70;
+  color: var(--ink-muted);
   font-size: 13px;
 }
 .connected-loading-line {
@@ -309,7 +334,7 @@ html:has(.connected-host) body {
   aspect-ratio: 16/9;
   border-radius: 14px;
   overflow: hidden;
-  background: #183237;
+  background: var(--stage);
 }
 .connected-video iframe,
 .connected-video video,
@@ -322,8 +347,8 @@ html:has(.connected-host) body {
 .connected-video-error {
   padding: 18px 20px;
   border-radius: 14px;
-  border: 1px solid #e3c9a0;
-  background: #fff8ec;
+  border: 1px solid var(--connected-warning-line);
+  background: var(--warning-soft);
   display: grid;
   gap: 8px;
   font-size: 14px;
@@ -334,13 +359,13 @@ html:has(.connected-host) body {
   overflow-wrap: anywhere;
 }
 .connected-video-error a {
-  color: #087b69;
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .connected-video-consent {
   padding: 26px;
-  background: #f2edfb;
+  background: var(--surface-2);
   border-radius: 16px;
   display: flex;
   flex-direction: column;
@@ -348,19 +373,19 @@ html:has(.connected-host) body {
   gap: 10px;
 }
 .connected-video-consent > span {
-  color: #7050a4;
+  color: var(--companion);
   font-size: 36px;
 }
 .connected-video-consent p {
   font-size: 14px;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-button {
   border: 0;
   border-radius: 10px;
   min-height: 48px;
-  background: #087b69;
-  color: white;
+  background: var(--accent);
+  color: var(--on-accent);
   padding: 12px 18px;
   font-weight: 650 !important;
 }
@@ -379,9 +404,9 @@ html:has(.connected-host) body {
   border: 0;
 }
 .connected-recovery {
-  border: 1px solid #e7d7a6;
+  border: 1px solid var(--connected-warning-line);
   border-radius: 16px;
-  background: #fcf3df;
+  background: var(--warning-soft);
   padding: 18px;
   display: grid;
   gap: 12px;
@@ -410,7 +435,8 @@ html:has(.connected-host) body {
     font-size: 12px;
   }
   .connected-navigation {
-    margin: -6px -8px 0;
+    margin-block: -6px 0;
+    margin-inline: -8px 0;
   }
   .connected-navigation button {
     font-size: 12px;
@@ -466,7 +492,7 @@ html:has(.connected-host) body {
 }
 .connected-code-top > span {
   font-size: 11px;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-code-protocol {
   font-size: 13px !important;
@@ -480,10 +506,10 @@ html:has(.connected-host) body {
 .connected-code-tools button {
   min-height: 44px;
   padding: 9px 12px;
-  border: 1px solid #c5d8cd;
+  border: 1px solid var(--line-strong);
   border-radius: 9px;
-  background: white;
-  color: #087b69;
+  background: var(--surface);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 650;
 }
@@ -494,32 +520,29 @@ html:has(.connected-host) body {
   min-height: 280px;
   max-height: 65dvh;
   resize: vertical;
-  border: 1px solid #bdd0c5;
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   padding: 16px;
-  background: #fff;
-  color: #183237;
-  font:
-    16px/1.6 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
+  background: var(--surface);
+  color: var(--ink);
+  font: 16px/1.6 var(--font-mono);
   tab-size: 4;
   white-space: pre;
   overflow: auto;
   overscroll-behavior: contain;
 }
 .connected-code-editor textarea[readonly] {
-  background: #f6f8f5;
+  background: var(--surface-2);
 }
 .connected-code-help {
   font-size: 11px !important;
-  color: #526a70;
+  color: var(--ink-muted);
 }
+/* Errors in the lesson's own tools are lesson warnings (gold), never --danger, which is for
+ * destructive actions only (final design §1.1). */
 .connected-code-error {
   font-size: 13px !important;
-  color: #913f28 !important;
+  color: var(--warning) !important;
 }
 .connected-code-tools input[hidden] {
   display: none !important;
@@ -541,9 +564,9 @@ html:has(.connected-host) body {
   gap: 10px;
   min-width: 0;
   padding: 14px;
-  border: 1px solid #c5d8cd;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: #f6f9f6;
+  background: var(--surface-2);
 }
 .connected-practice-head {
   display: flex;
@@ -554,7 +577,7 @@ html:has(.connected-host) body {
   margin: 0;
   font-weight: 700;
   font-size: 15px;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-practice-sample {
   display: flex;
@@ -565,7 +588,7 @@ html:has(.connected-host) body {
 .connected-practice-sample label {
   font-size: 13px;
   font-weight: 650;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-practice-sample input {
   min-height: 44px;
@@ -573,16 +596,11 @@ html:has(.connected-host) body {
   min-width: 0;
   box-sizing: border-box;
   padding: 8px 12px;
-  border: 1px solid #bdd0c5;
+  border: 1px solid var(--line-strong);
   border-radius: 9px;
-  background: #fff;
-  color: #183237;
-  font:
-    16px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
+  background: var(--surface);
+  color: var(--ink);
+  font: 16px/1.4 var(--font-mono);
 }
 .connected-practice-actions {
   display: flex;
@@ -593,30 +611,30 @@ html:has(.connected-host) body {
   min-height: 44px;
   min-width: 44px;
   padding: 9px 14px;
-  border: 1px solid #c5d8cd;
+  border: 1px solid var(--line-strong);
   border-radius: 9px;
-  background: white;
-  color: #087b69;
+  background: var(--surface);
+  color: var(--accent);
   font-size: 14px;
   font-weight: 650;
 }
 .connected-practice-actions button.connected-practice-run {
-  background: #087b69;
-  border-color: #087b69;
-  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 .connected-practice-actions button:disabled,
 .connected-practice-actions button.connected-practice-run:disabled {
-  background: #dfe9e5;
-  border-color: #dfe9e5;
-  color: #3f5a55;
+  background: var(--send-off);
+  border-color: var(--send-off);
+  color: var(--ink-muted);
   cursor: not-allowed;
 }
 .connected-practice-status {
   margin: 0;
   min-height: 1.5em;
   font-size: 13px !important;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-practice-output {
   margin: 0;
@@ -626,30 +644,25 @@ html:has(.connected-host) body {
   overscroll-behavior: contain;
   padding: 12px;
   border-radius: 9px;
-  background: #102226;
-  color: #e9f3ef;
-  font:
-    14px/1.5 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
+  background: var(--stage);
+  color: var(--on-stage);
+  font: 14px/1.5 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .connected-practice-stderr {
-  color: #ffc9b8;
+  color: var(--connected-console-error);
 }
 .connected-practice-placeholder {
-  color: #b8cbc5;
+  color: var(--connected-console-quiet);
 }
 .connected-practice-runtime {
   margin: 0;
   font-size: 11px !important;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-practice-runtime a {
-  color: #087b69;
+  color: var(--accent);
 }
 .connected-python-runner-frame {
   position: fixed;
@@ -671,12 +684,12 @@ html:has(.connected-host) body {
 }
 
 .connected-policy-panel {
-  border: 1px solid #dce6e2;
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: #ffffffb8;
+  background: var(--surface);
   min-width: 0;
   font-size: 12px;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-policy-panel > summary {
   cursor: pointer;
@@ -689,7 +702,7 @@ html:has(.connected-host) body {
 }
 .connected-policy-caption {
   font-weight: 700;
-  color: #087b69;
+  color: var(--accent);
 }
 .connected-policy-dates {
   display: flex;
@@ -701,11 +714,11 @@ html:has(.connected-host) body {
   display: block;
 }
 .connected-policy-panel[open] > summary {
-  border-bottom: 1px solid #dce6e2;
+  border-bottom: 1px solid var(--line);
 }
 .connected-policy-offer-count {
   font-weight: 650;
-  color: #7050a4;
+  color: var(--accent);
 }
 .connected-policy-body {
   padding: 16px;
@@ -721,11 +734,11 @@ html:has(.connected-host) body {
 }
 .connected-policy-body h3 {
   font-size: 17px;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-policy-body h4 {
   font-size: 14px;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-policy-list {
   margin: 0;
@@ -740,15 +753,15 @@ html:has(.connected-host) body {
   font-weight: 600;
 }
 .connected-policy-error {
-  color: #913f28 !important;
+  color: var(--warning) !important;
 }
 .connected-extension-offer {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 18px;
-  background: #f2edfb;
-  border: 1px solid #dfd5ef;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
   border-radius: 14px;
 }
 .connected-offer-top {
@@ -759,7 +772,7 @@ html:has(.connected-host) body {
   gap: 10px;
 }
 .connected-offer-top > span {
-  color: #7050a4;
+  color: var(--accent);
   font-weight: 650;
 }
 .connected-offer-comparison {
@@ -771,7 +784,7 @@ html:has(.connected-host) body {
   min-width: 0;
   border-radius: 10px;
   padding: 14px;
-  background: white;
+  background: var(--surface);
   display: grid;
   gap: 8px;
 }
@@ -787,7 +800,7 @@ html:has(.connected-host) body {
   width: 22px;
   height: 22px;
   margin: 0;
-  accent-color: #087b69;
+  accent-color: var(--accent);
 }
 .connected-offer-actions {
   display: flex;
@@ -795,7 +808,7 @@ html:has(.connected-host) body {
   gap: 8px;
 }
 .connected-offer-actions .connected-link-button:disabled {
-  color: #4f6863;
+  color: var(--ink-muted);
 }
 @media (max-width: 599px) {
   .connected-offer-comparison {
@@ -814,21 +827,23 @@ html:has(.connected-host) body {
     width: 100%;
   }
 }
+/* A destructive action: --danger fill, its label in --on-danger (final design §1.1). */
 .connected-danger {
-  background: #8b413d;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 .connected-danger:disabled,
 .connected-button.connected-danger:disabled {
-  background: #efe2e0;
-  color: #6b3936;
+  background: var(--send-off);
+  color: var(--ink-muted);
 }
 .connected-error-text {
-  color: #8b413d;
+  color: var(--warning);
 }
 .connected-placement {
   display: grid;
   gap: 14px;
-  border-color: #d9cdf0;
+  border-color: var(--line);
 }
 .connected-placement-item {
   display: grid;
@@ -894,38 +909,40 @@ html:has(.connected-host) body {
 .connected-field label {
   font-weight: 600;
   font-size: 14px;
-  color: #17363b;
+  color: var(--ink);
 }
 .connected-field input {
   min-height: 48px;
-  border: 2px solid #6f8a8c;
+  border: 2px solid var(--line-strong);
   border-radius: 12px;
   padding: 10px 12px;
   font: inherit;
   font-size: 16px;
-  color: #17363b;
-  background: #fff;
+  color: var(--ink);
+  background: var(--surface);
   width: 100%;
   box-sizing: border-box;
 }
 .connected-field input:focus-visible {
-  outline: 3px solid #087b69;
-  outline-offset: 1px;
-  border-color: #087b69;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-color: var(--accent);
 }
 .connected-field input:disabled {
-  background: #f3f7f5;
+  background: var(--surface-2);
 }
 .connected-field small {
-  color: #526a70;
+  color: var(--ink-muted);
   font-size: 13px;
 }
+/* An error line is ink on the warning surface, never a red fill (final design §1.1). */
 .connected-form-error {
   margin: 0;
   padding: 12px 14px;
   border-radius: 12px;
-  background: #fbf1e3;
-  color: #6b3b06;
+  border: 1px solid var(--connected-warning-line);
+  background: var(--warning-soft);
+  color: var(--ink);
 }
 .connected-primary,
 .connected-secondary {
@@ -937,14 +954,21 @@ html:has(.connected-host) body {
   cursor: pointer;
 }
 .connected-primary {
-  background: #087b69;
-  border: 2px solid #087b69;
-  color: #fff;
+  background: var(--accent);
+  border: 2px solid var(--accent);
+  color: var(--on-accent);
+}
+.connected-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .connected-secondary {
-  background: #fff;
-  border: 2px solid #dce6e2;
-  color: #17363b;
+  background: var(--surface);
+  border: 2px solid var(--line-strong);
+  color: var(--ink);
+}
+.connected-secondary:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 /* A disabled button reads as inactive (flat, muted) while its label keeps a contrast of at least
    4.5:1: fading the whole button left white text on pale teal at about 2:1. */
@@ -956,22 +980,22 @@ html:has(.connected-host) body {
 }
 .connected-primary:disabled,
 .connected-button:disabled {
-  background: #dfe9e5;
-  border-color: #dfe9e5;
-  color: #3f5a55;
+  background: var(--send-off);
+  border-color: var(--send-off);
+  color: var(--ink-muted);
 }
 .connected-secondary:disabled {
-  background: #fff;
-  border-color: #e4ebe8;
-  color: #4f6863;
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink-muted);
 }
 .connected-primary:focus-visible,
 .connected-secondary:focus-visible {
-  outline: 3px solid #17363b;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .connected-code-form {
-  border-top: 1px solid #dce6e2;
+  border-top: 1px solid var(--line);
   padding-top: 16px;
 }
 .connected-form-actions {
@@ -980,7 +1004,7 @@ html:has(.connected-host) body {
   gap: 12px;
 }
 .connected-passkey-sign-in {
-  border-top: 1px solid #dce6e2;
+  border-top: 1px solid var(--line);
   padding-top: 16px;
 }
 .connected-passkey-list {
@@ -997,7 +1021,7 @@ html:has(.connected-host) body {
   gap: 8px 16px;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid #dce6e2;
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 14px;
 }
@@ -1009,7 +1033,7 @@ html:has(.connected-host) body {
   overflow-wrap: anywhere;
 }
 .connected-passkey-list small {
-  color: #526a70;
+  color: var(--ink-muted);
   font-size: 13px;
 }
 .connected-trace {
@@ -1030,9 +1054,9 @@ html:has(.connected-host) body {
   flex-shrink: 0;
 }
 .connected-header .connected-menu-toggle {
-  border: 1px solid #dce6e2;
-  background: #fff;
-  color: #183237;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
   border-radius: 999px;
   padding: 8px 16px;
   white-space: nowrap;
@@ -1045,10 +1069,10 @@ html:has(.connected-host) body {
   width: min(300px, calc(100vw - 32px));
   max-height: calc(100dvh - 96px);
   overflow-y: auto;
-  background: #fff;
-  border: 1px solid #dce6e2;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 16px;
-  box-shadow: 0 16px 40px #18323726;
+  box-shadow: var(--shadow-menu);
   padding: 10px;
 }
 .connected-menu-panel[hidden] {
@@ -1057,15 +1081,14 @@ html:has(.connected-host) body {
 .connected-menu-description {
   margin: 4px 10px 8px;
   font-size: 12px;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-menu-heading {
-  margin: 10px 10px 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: #087b69;
+  margin: 8px 10px 2px;
+  font-size: var(--text-meta-size);
+  line-height: var(--text-meta-line);
+  font-weight: 600;
+  color: var(--ink-muted);
 }
 .connected-menu-panel ul {
   list-style: none;
@@ -1075,20 +1098,22 @@ html:has(.connected-host) body {
 .connected-header .connected-menu-panel button {
   width: 100%;
   text-align: start;
-  color: #183237;
+  color: var(--ink);
   font-size: 14px;
   font-weight: 550;
 }
-.connected-header .connected-menu-panel button:hover:not(:disabled),
+.connected-header .connected-menu-panel button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
 .connected-header .connected-menu-panel button[aria-current="page"] {
-  background: #eef6f2;
+  background: var(--accent-soft);
 }
 /* The view on screen: aria-current="page" tells assistive technology; the eye gets an accent
  * bar at the inline start and the brand colour, with no text, so it reads the same in every
  * language. */
 .connected-header .connected-menu-panel button[aria-current="page"] {
   position: relative;
-  color: #075f52;
+  color: var(--ink);
   font-weight: 650;
 }
 .connected-header .connected-menu-panel button[aria-current="page"]::before {
@@ -1098,7 +1123,7 @@ html:has(.connected-host) body {
   inset-inline-start: 0;
   width: 4px;
   border-radius: 0 3px 3px 0;
-  background: #087b69;
+  background: var(--accent);
 }
 [dir="rtl"] .connected-header .connected-menu-panel button[aria-current="page"]::before {
   border-radius: 3px 0 0 3px;
@@ -1122,11 +1147,11 @@ html:has(.connected-host) body {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-lesson-progress-count {
   font-weight: 450;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 .connected-steps {
   list-style: none;
@@ -1140,21 +1165,22 @@ html:has(.connected-host) body {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: #dce6e2;
+  background: var(--connected-track);
 }
 .connected-step.is-completed {
-  background: #087b69;
+  background: var(--accent);
 }
 .connected-step.is-current {
   height: 10px;
-  background: #8fcfb8;
-  box-shadow: inset 0 0 0 2px #087b69;
+  background: var(--connected-current-step);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
+/* Under review is striped, so the state never rests on colour alone. */
 .connected-step.is-under-review {
-  background: repeating-linear-gradient(135deg, #e0c98f 0 4px, #fbf6e8 4px 8px);
+  background: repeating-linear-gradient(135deg, var(--connected-warning-line) 0 4px, var(--warning-soft) 4px 8px);
 }
 .connected-step.is-optional-help {
-  background: #ecf1ef;
+  background: var(--surface-2);
 }
 .connected-visually-hidden {
   position: absolute !important;
@@ -1172,18 +1198,18 @@ html:has(.connected-host) body {
   min-height: 44px;
   padding: 8px 16px;
   border-radius: 10px;
-  border: 1px solid #087b69;
-  background: #fff;
-  color: #087b69;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--accent);
   font-weight: 650;
 }
 .connected-draft-conflict {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border: 2px dashed #7050a4;
+  border: 2px solid var(--line-strong);
   border-radius: 14px;
-  background: #f2edfb;
+  background: var(--surface-2);
 }
 .connected-draft-conflict p {
   margin: 0;
@@ -1195,7 +1221,7 @@ html:has(.connected-host) body {
   overflow: auto;
   margin: 8px 0 0;
   padding: 10px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   font-size: 13px;
 }
@@ -1245,7 +1271,7 @@ html:has(.connected-host) body {
   margin-top: -5px;
   border-style: solid;
   border-width: 0 2px 2px 0;
-  border-color: #087b69;
+  border-color: var(--accent);
   transform: rotate(-45deg);
 }
 .connected-host details[open] > summary::before {
@@ -1281,11 +1307,38 @@ html:has(.connected-host) body {
     outline: 3px solid Highlight !important;
     outline-offset: 3px;
   }
+  /* Every card, panel, notice and menu of the base app keeps its edge once fills are gone. */
   .connected-step,
   .connected-draft-conflict,
   .connected-menu-panel,
-  .connected-reading-card {
+  .connected-reading-card,
+  .connected-signin,
+  .connected-activity,
+  .connected-policy-panel,
+  .connected-extension-offer,
+  .connected-offer-comparison > section,
+  .connected-recovery,
+  .connected-video-error,
+  .connected-video-consent,
+  .connected-form-error,
+  .connected-practice,
+  .connected-practice-output,
+  .connected-inspector,
+  .connected-course-new,
+  .connected-course-newer,
+  .cross-course-card,
+  .connected-passkey-list li {
     border: 1px solid CanvasText !important;
+  }
+  .connected-toast {
+    border-color: CanvasText !important;
+  }
+  /* The base app's text fields keep a visible edge in the text colour. */
+  .connected-field input,
+  .connected-code-editor textarea,
+  .connected-practice-sample input,
+  .connected-locale-switcher select {
+    border-color: CanvasText !important;
   }
   .connected-step.is-current,
   .connected-host [aria-current="page"],
@@ -1319,8 +1372,8 @@ html:has(.connected-host) body {
 }
 .connected-activity {
   min-width: 0;
-  background: #fff;
-  border: 1px solid #dce6e2;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 20px;
   padding: 26px;
   display: flex;
@@ -1336,7 +1389,7 @@ html:has(.connected-host) body {
   margin: 0;
 }
 .connected-activity-alternative {
-  color: #4b5753;
+  color: var(--ink-muted);
 }
 .connected-activity-form {
   display: flex;
@@ -1374,9 +1427,9 @@ html:has(.connected-host) body {
 .connected-activity-frame {
   width: 100%;
   min-height: 260px;
-  border: 2px solid #dce6e2;
+  border: 2px solid var(--line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--surface);
 }
 @media (max-width: 599px) {
   .connected-activity {
@@ -1398,10 +1451,10 @@ html:has(.connected-host) body {
   margin: 0 0 12px;
 }
 .connected-debug-trigger {
-  border: 1px dashed #7050a4;
+  border: 1px dashed var(--line-strong);
   border-radius: 10px;
-  background: #fff;
-  color: #4f3780;
+  background: var(--surface);
+  color: var(--ink);
   min-height: 44px;
   padding: 8px 14px;
 }
@@ -1410,9 +1463,9 @@ html:has(.connected-host) body {
   z-index: 1003;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid #dce6e2;
-  box-shadow: 0 8px 28px #18323733;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-menu);
 }
 .connected-inspector:focus {
   outline: none;
@@ -1440,19 +1493,19 @@ html:has(.connected-host) body {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 12px 8px 16px;
-  border-bottom: 1px solid #dce6e2;
+  border-bottom: 1px solid var(--line);
 }
 .connected-inspector-title h2 {
   margin: 0;
   font-size: 17px;
 }
 .connected-inspector-title button {
-  border: 1px solid #dce6e2;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
   min-width: 44px;
   min-height: 44px;
-  color: #183237;
+  color: var(--ink);
 }
 .connected-inspector-frame {
   flex: 1;
@@ -1484,7 +1537,7 @@ html:has(.connected-host) body {
   flex: none;
 }
 .cross-course-card {
-  border: 1px solid #c9d8d4;
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 16px;
   overflow-wrap: anywhere;
@@ -1506,22 +1559,23 @@ html:has(.connected-host) body {
   min-height: 44px;
   padding: 0 18px;
   border-radius: 999px;
-  border: 1px solid #1f5f5b;
-  background: #1f5f5b;
-  color: #ffffff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 .cross-course-actions button.quiet {
   background: transparent;
-  color: #1f5f5b;
+  border-color: var(--line-strong);
+  color: var(--accent);
 }
 .cross-course-actions button:disabled,
 .cross-course-actions button.quiet:disabled {
-  background: #dfe9e5;
-  border-color: #dfe9e5;
-  color: #3f5a55;
+  background: var(--send-off);
+  border-color: var(--send-off);
+  color: var(--ink-muted);
   cursor: default;
 }
 .cross-course-hidden {
@@ -1598,13 +1652,8 @@ html:has(.connected-host) body {
 /* What the connected host shows in a dialog portalled to <body> (Overlay) keeps the host's
    type, colour and focus ring; a form there is the sheet's content, not a card on it. */
 .connected-portal {
-  color: #183237;
-  font:
-    15px/1.6 system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  color: var(--ink);
+  font: 15px/1.6 var(--font-sans);
 }
 .connected-portal * {
   box-sizing: border-box;
@@ -1618,11 +1667,11 @@ html:has(.connected-host) body {
    button at 0.55 opacity read at about 2:1). */
 .connected-portal :where(button:disabled) {
   cursor: default;
-  color: #4f6863;
+  color: var(--ink-muted);
 }
 .connected-portal :is(button, input, textarea, select, a):focus-visible {
-  outline: 3px solid #183237;
-  outline-offset: 4px;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .connected-portal .connected-reading-card {
   padding: 8px 0 0;
@@ -1634,10 +1683,10 @@ html:has(.connected-host) body {
    icon only. A form that fills the sheet keeps its actions at the bottom edge while its fields
    scroll under them (an on-screen keyboard, a small phone, larger text). */
 .learner-sheet-close:hover {
-  background: #e4ece8 !important;
+  background: var(--surface-2) !important;
 }
 .learner-sheet-close:focus-visible {
-  outline: 3px solid #183237;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .learner-sheet-body > .connected-portal > form.connected-form > .connected-form-actions:last-child {
@@ -1646,12 +1695,10 @@ html:has(.connected-host) body {
   bottom: calc(-1 * var(--sheet-pad-end, 24px));
   margin: 0 -24px calc(-1 * var(--sheet-pad-end, 24px));
   padding: 12px 24px var(--sheet-pad-end, 24px);
-  background: #f8f8f2;
+  background: var(--page);
 }
 .learner-sheet-body[data-more-below] > .connected-portal > form.connected-form > .connected-form-actions:last-child {
-  box-shadow:
-    0 -1px 0 #dce6e2,
-    0 -12px 18px -14px rgb(24 50 55 / 0.45);
+  box-shadow: var(--shadow-sheet);
 }
 @media (forced-colors: active) {
   .connected-portal button {
@@ -1679,12 +1726,12 @@ html:has(.connected-host) body {
   gap: 10px;
   padding-block: 12px;
   padding-inline: 14px 8px;
-  border: 1px solid #dce6e2;
-  border-inline-start: 4px solid #087b69;
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--accent);
   border-radius: 14px;
-  background: #fff;
-  color: #183237;
-  box-shadow: 0 14px 40px rgb(24 50 55 / 0.18);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-menu);
   animation: connected-toast-in 0.18s ease-out;
 }
 .connected-toast p {
@@ -1695,7 +1742,7 @@ html:has(.connected-host) body {
   line-height: 1.5;
 }
 .connected-toast-mark {
-  color: #087b69;
+  color: var(--accent);
   font-weight: 700;
 }
 .connected-toast-dismiss {
@@ -1705,12 +1752,12 @@ html:has(.connected-host) body {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #526a70;
+  color: var(--ink-muted);
   font-size: 22px;
   line-height: 1;
 }
 .connected-toast-dismiss:hover {
-  background: #eef6f2;
+  background: var(--surface-2);
 }
 @keyframes connected-toast-in {
   from {
@@ -1740,8 +1787,8 @@ html:has(.connected-host) body {
   flex: 0 0 auto;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f2edfb;
-  color: #5b3f8c;
+  background: var(--accent-soft);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 700;
   line-height: 18px;
@@ -1751,9 +1798,9 @@ html:has(.connected-host) body {
   gap: 4px;
   padding: 14px 16px;
   border-radius: 14px;
-  background: #f2edfb;
-  border-inline-start: 4px solid #7050a4;
-  color: #183237;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
 }
 .connected-course-newer p {
   font-size: 14px;
@@ -1762,7 +1809,7 @@ html:has(.connected-host) body {
 .connected-course-others {
   display: grid;
   gap: 6px;
-  border-top: 1px solid #e6eeeb;
+  border-top: 1px solid var(--line);
   padding-top: 12px;
 }
 .connected-course-others ul {
@@ -1792,7 +1839,7 @@ html:has(.connected-host) body {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: #087b69;
+  color: var(--accent);
 }
 .connected-lesson-staff .connected-debug-entry {
   margin: 0;
@@ -1803,21 +1850,21 @@ html:has(.connected-host) body {
   gap: 6px;
   min-height: 34px;
   padding: 4px 12px;
-  border: 1px solid #cdbfe6;
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: #f6f2fc;
-  color: #4f3780;
+  background: var(--surface-2);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 600;
 }
 .connected-lesson-staff .connected-debug-trigger:hover {
-  background: #ece4f8;
+  background: var(--accent-soft);
 }
 /* What comes after the part being read, under its button. */
 .connected-reading-card .connected-next-step {
   margin: -8px 0 0;
   font-size: 14px;
-  color: #526a70;
+  color: var(--ink-muted);
 }
 /* The account button: initials and name, so it reads as the account. */
 .connected-header .connected-menu-toggle {
@@ -1835,8 +1882,8 @@ html:has(.connected-host) body {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #087b69;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 700;
 }
