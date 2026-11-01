@@ -61,7 +61,7 @@ test("compact companion reserves space without covering reading or activity, inc
   await read.click();
   await chooseFromMenu(page, "Learning record");
   const rejected = page.getByText(
-    "Draft rejected by reference checks · revision needed",
+    "The draft didn't pass the course's checks, so it needs revising.",
     { exact: true },
   );
   await rejected.scrollIntoViewIfNeeded();

@@ -62,7 +62,8 @@ test("independently verified new teaching is visible on the linear lesson and su
   // A required personal change is explained but cannot be hidden, in the UI or the API.
   await openProfile(page);
   const changes = page.getByRole("region", { name: "Your personal changes" });
-  await expect(changes.getByText("Required for your path. Ask your companion or course team if you disagree.")).toBeVisible();
+  await expect(changes.getByText("Required for your path", { exact: true })).toBeVisible();
+  await expect(changes.getByText("Ask your companion or course team if you disagree.", { exact: true })).toBeVisible();
   await expect(changes.getByRole("button", { name: /this addition/ })).toHaveCount(0);
   const id = (await (await page.request.get("/api/enrollments")).json())[0].id;
   const listed = (await (await page.request.get(`/api/enrollments/${id}/personal-changes`)).json()).changes[0];
@@ -98,17 +99,24 @@ test("rejected teaching is repaired and its optional activity record distinguish
   ).toBeDisabled();
   await chooseFromMenu(page, "Learning record");
   await expect(
-    page.getByText("Draft rejected by reference checks · revision needed", {
+    page.getByRole("heading", { name: "What your companion did", exact: true }),
+  ).toBeVisible();
+  // Each row: the line, then its status chip; feedback on a draft is not a delivery.
+  await expect(
+    page.getByText("Checked a draft against the course", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByText("The draft didn't pass the course's checks, so it needs revising.", {
       exact: true,
     }),
   ).toBeVisible();
   await expect(
-    page.getByText("Another option was selected for your lesson", {
+    page.getByText("Another option was picked for your lesson.", {
       exact: true,
     }),
   ).toBeVisible();
   await expect(
-    page.getByText("Added to your lesson · plan 1", { exact: true }),
+    page.getByText("Added to your lesson.", { exact: true }),
   ).toHaveCount(1);
   await expect(
     page.getByText("Minimum of [31, -14, 9] is 9.", { exact: true }),
@@ -145,14 +153,15 @@ test("supervisor preference proposal is corrected and disputed by its learner th
     .click();
   await openProfile(page);
   await expect(
-    page.getByText("Awaiting your review", { exact: true }),
+    page.locator(".cc-prof-chip", { hasText: "Waiting for you" }),
   ).toBeVisible();
+  await expect(page.getByText("From your companion", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Suggested explanation: Step by step", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Correct suggestion", exact: true })
+    .getByRole("button", { name: "Correct", exact: true })
     .click();
   await page
     .getByRole("radiogroup", { name: "Corrected suggestion", exact: true })
@@ -162,7 +171,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
     .getByRole("button", { name: "Save correction", exact: true })
     .click();
   await expect(
-    page.getByText("Corrected by you", { exact: true }),
+    page.locator(".cc-prof-chip", { hasText: "Corrected" }),
   ).toBeVisible();
   await page.reload();
   await page
@@ -173,13 +182,13 @@ test("supervisor preference proposal is corrected and disputed by its learner th
     page.getByText("Suggested explanation: Worked examples", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Dispute suggestion", exact: true })
+    .getByRole("button", { name: "Dispute", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Confirm dispute", exact: true })
     .click();
   await expect(
-    page.getByText("Disputed · excluded from AI context", { exact: true }),
+    page.getByText("Disputed, so your companion doesn't use it.", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Suggested explanation: Worked examples", { exact: true }),
@@ -274,6 +283,8 @@ test("a learner connects an external agent with a scoped key, and disconnecting 
   await enterNextLesson(page);
   await expect(page.getByRole("button", { name: "Mark this part read", exact: true })).toBeVisible();
   await openProfile(page);
+  // Connected agents wait behind "Advanced" in My profile.
+  await page.getByText("Advanced", { exact: true }).click();
   const panel = page.getByRole("region", { name: "Connected agents" });
   await expect(panel.getByText("No agents are connected.")).toBeVisible();
   await panel.getByText("Connect an agent").click();
@@ -284,7 +295,7 @@ test("a learner connects an external agent with a scoped key, and disconnecting 
   await expect(key).toBeVisible();
   const token = await key.inputValue();
   expect(token).toMatch(/^ccat_[A-Za-z0-9_-]{43}$/);
-  await expect(panel.getByRole("list", { name: "Agents connected now" }).getByText("Synthetic desk agent")).toBeVisible();
+  await expect(panel.getByRole("list", { name: "Agents connected now" }).getByText("Synthetic desk agent", { exact: true })).toBeVisible();
   expect(
     (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations,
   ).toEqual([]);
@@ -389,7 +400,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
   await expect(page.getByText(/Submitted for review\./)).toBeVisible();
-  await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your written answers" }).getByText("Waiting for review", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeDisabled();
   // A separate reviewer (the course owner) records quoted findings through the real API.
   const course = (await (await page.request.get("/api/enrollments")).json())[0];
@@ -411,7 +422,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   expect(saved.ok(), await saved.text()).toBeTruthy();
   await page.reload();
   await openCurrentLesson(page);
-  await expect(page.getByText("Reviewed · criteria met")).toBeVisible();
+  await expect(page.getByText("Criteria met", { exact: true })).toBeVisible();
   await expect(page.getByText("Empty list not discussed.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Finish this lesson →", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -435,7 +446,7 @@ test("a reviewer's neutral question continues the written answer as a conversati
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await fillAnswer(page.getByRole("textbox", { name: "Your explanation" }), "I keep the smallest value seen so far and compare every next element with it.");
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
-  await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your written answers" }).getByText("Waiting for review", { exact: true })).toBeVisible();
   const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
   const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
   const question = await request.post(`/api/admin/rubric-reviews/${opening.attemptId}`, { headers: fixture.reviewer, data: {
@@ -451,7 +462,8 @@ test("a reviewer's neutral question continues the written answer as a conversati
   await expect(page.getByText("Reviewer: Why does the kept value end up being the minimum?")).toBeVisible();
   await page.getByRole("textbox", { name: "Your reply to the reviewer" }).fill("Each comparison keeps the smaller value, so the kept value is never greater than any element seen.");
   await page.getByRole("button", { name: "Send reply", exact: true }).click();
-  await expect(page.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+  // The reply is labelled and carries its own status chip.
+  await expect(page.locator(".cc-prof-review-status").filter({ hasText: "Your reply" }).getByText("Waiting for review", { exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
   const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
   expect(reply.thread).toHaveLength(1);
@@ -472,7 +484,8 @@ test("a learner sees why their course changed and can hide and restore an option
   await openProfile(page);
   const panel = page.getByRole("region", { name: "Your personal changes" });
   await expect(panel.getByText("Added explanation or example")).toBeVisible();
-  await expect(panel.getByText(/· optional ·/)).toBeVisible();
+  // Its status is a chip; no "·" chains.
+  await expect(panel.getByText("Added to your lesson", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: /^Hide this addition/ }).click();
   await expect(panel.getByRole("button", { name: /^Restore this addition/ })).toBeVisible();
@@ -492,9 +505,12 @@ test("a learner sees why their course changed and can hide and restore an option
   await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
   await panel.getByRole("button", { name: "Keep it", exact: true }).click();
   await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
+  // The confirmation fades in (M17); its colours are checked once it has.
+  await expect(panel.getByRole("button", { name: "Keep it", exact: true })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length)).toBe(0);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(panel.getByText(/^Undone/)).toBeVisible();
+  await expect(panel.getByText("Undone", { exact: true })).toBeVisible();
   await expect(panel.getByRole("button", { name: /^(Undo|Hide|Restore)/ })).toHaveCount(0);
   snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
   expect(JSON.stringify(snapshot.course)).not.toContain("Minimum of [31, -14, 9] is -14.");
@@ -514,15 +530,17 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   await expect(page.getByText(statement, { exact: true })).toBeVisible();
   await expect(page.getByText("Possible mix-up", { exact: true })).toBeVisible();
   await expect(page.getByText("An idea to check", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Noticed from a check answer · Tentative · based on 1 observation/)).toBeVisible();
+  await expect(page.getByText("Noticed from a check answer", { exact: true })).toBeVisible();
+  await expect(page.getByText("Tentative: based on 1 observation", { exact: true })).toBeVisible();
 
   // A quick check: answered, and stated never to count toward progress.
   await page.getByRole("button", { name: "Ask for a quick check of this idea", exact: true }).click();
   await expect(page.getByText("Which is the smallest of 4, 9 and 2?", { exact: true })).toBeVisible();
-  await expect(page.getByText("Quick check · does not count toward progress", { exact: true })).toBeVisible();
-  await page.getByRole("radiogroup", { name: "Quick check answer", exact: true }).getByRole("radio", { name: "9", exact: true }).click();
+  await expect(page.getByText("Quick check · doesn't count toward progress", { exact: true })).toBeVisible();
+  await expect(page.locator(".cc-prof-unverified")).toHaveText("Unverified");
+  await page.getByRole("radiogroup", { name: "Your answer", exact: true }).getByRole("radio", { name: "9", exact: true }).click();
   await page.getByRole("button", { name: "Submit check", exact: true }).click();
-  await expect(page.getByText(/it does not count toward your progress/)).toBeVisible();
+  await expect(page.getByText("Thanks. This helps your companion; it doesn't count toward your progress.", { exact: true })).toBeVisible();
   await expect(page.getByText("Supported by your answers", { exact: true })).toBeVisible();
   await page.getByText(statement, { exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath("teaching-hypothesis-checked.png") });
@@ -545,7 +563,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   answer();
   expect((await saved).ok()).toBe(true);
   await page.unroute(decision);
-  await expect(page.getByText("Your correction is saved and replaces the original wording for your tutor.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your correction is saved and replaces the original wording for your companion.", { exact: true })).toBeVisible();
   // The idea's card now carries the saved wording. The editor's own box holds the same text while
   // it is open, so the assertion names the card, and the editor has closed.
   const corrected = page.locator(`[aria-label="Teaching idea: ${correction}"]`);
@@ -633,7 +651,7 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   await openProfile(page);
   await page.getByRole("button", { name: "Search history", exact: true }).click();
   await page.getByRole("button", { name: /^Show history references / }).first().click();
-  await expect(page.getByText("Your companion and supervisor may use this result.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your companion may use this result.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^Dispute result / }).click();
   const send = page.getByRole("button", { name: "Send dispute", exact: true });
   await expect(send).toBeDisabled();
@@ -641,8 +659,8 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   await send.click();
   await expect(page.getByText("Change saved. Assessment evidence is unchanged.", { exact: true })).toBeVisible();
   await expect(page.getByText("Disputed", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /^Exclude .+ from AI context$/ }).click();
-  await expect(page.getByText("Disputed · a review is open. Not used by your companion or supervisor.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^Don't let your companion use this: / }).click();
+  await expect(page.getByText("Disputed, and a review is open. Your companion doesn't use this result.", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("evidence-controls.png"), fullPage: true });
@@ -653,8 +671,8 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   await expect(page.getByText("Disputed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Search history", exact: true }).click();
   await page.getByRole("button", { name: /^Show history references / }).first().click();
-  await expect(page.getByText("Disputed · a review is open. Not used by your companion or supervisor.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Disputed, and a review is open. Your companion doesn't use this result.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^Withdraw dispute / }).click();
-  await expect(page.getByText("Not used by your companion or supervisor.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your companion doesn't use this result.", { exact: true })).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
 });

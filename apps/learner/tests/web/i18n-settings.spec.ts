@@ -223,8 +223,11 @@ async function openProfile(page: Page, locale: Locale) {
   await enterCourse(page, locale);
   await page.locator(".connected-menu-toggle").click();
   await page.getByRole("button", { name: t("connectedHost.menu.profile") }).click();
-  for (const key of HEADINGS)
+  for (const key of HEADINGS) {
+    // Connected agents wait behind the "Advanced" disclosure.
+    if (key === "connectedAgentsPanel.title") await page.getByText(t("connectedAgentsPanel.advanced"), { exact: true }).click();
     await expect(page.getByRole("heading", { name: t(key), exact: true })).toBeVisible();
+  }
 }
 
 async function expectNoHorizontalOverflow(page: Page) {

@@ -19,7 +19,8 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   const prompt = page.getByRole("region", { name: "Join a research study? Ordering study" });
   await expect(prompt).toBeVisible();
   await expect(prompt.getByText(/A fair, random draw places you/)).toBeVisible();
-  await expect(prompt.getByText(/conversations with the AI companion/)).toBeVisible();
+  await expect(prompt.getByText("Your conversations with your companion", { exact: true })).toBeVisible();
+  await expect(prompt.getByText("The fixed lesson path: your companion is off.", { exact: true })).toBeVisible();
   // Before joining, the course is the standard one.
   await expect(companion(page).first()).toBeAttached();
   await expect(prompt.getByRole("button", { name: "Join the study" })).toBeDisabled();
@@ -48,7 +49,11 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   await chooseFromMenu(page, "My profile");
   const settings = page.getByRole("region", { name: "Research study: Ordering study" });
   await expect(settings.getByText(/Your study code is P[0-9A-F]{10}/)).toBeVisible();
-  await expect(settings.getByText(/Your version: The fixed lesson path/)).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Your version of the course", exact: true })).toBeVisible();
+  await expect(settings.getByText("The fixed lesson path: your companion is off.", { exact: true }).first()).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Never collected", exact: true })).toBeVisible();
+  await settings.getByText("What each version includes", { exact: true }).click();
+  await expect(settings.getByText("Your version", { exact: true })).toBeVisible();
   await expect(page.getByText(/has no personal support\. Leave the study to turn it on\./)).toBeVisible();
   await accessible(page);
   await settings.getByRole("button", { name: "Leave the study" }).click();
