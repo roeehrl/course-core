@@ -17,6 +17,8 @@ export interface HelpRowProps {
   onAsk: () => void;
   /** "Show explanation" / "Hide explanation", when the question has one to show. */
   explanation?: { expanded: boolean; controls: string; disabled?: boolean; onToggle: () => void };
+  /** Fade in (M17): the learner opened it. Opened with an answer's feedback, it shows at once. */
+  reveal?: boolean;
 }
 
 /**
@@ -25,11 +27,11 @@ export interface HelpRowProps {
  * then a wrapping row of buttons: "Try again" (after a wrong answer), the hint, "Ask the
  * companion" (only when the study offers the companion, §4.16) and "Show explanation".
  */
-export const HelpRow = forwardRef<HTMLDivElement, HelpRowProps>(function HelpRow({ id, ordinal, counted, onTryAgain, hint, onAsk, explanation }, ref) {
+export const HelpRow = forwardRef<HTMLDivElement, HelpRowProps>(function HelpRow({ id, ordinal, counted, onTryAgain, hint, onAsk, explanation, reveal }, ref) {
   const t = useT();
   const companion = useCompanionAvailable();
   return (
-    <div ref={ref} id={id} className="cc-check-help" role="group" aria-label={t("helpRow.label", { ordinal })}>
+    <div ref={ref} id={id} className={`cc-check-help${reveal ? " is-revealed" : ""}`} role="group" aria-label={t("helpRow.label", { ordinal })}>
       {counted && (
         <p className="cc-check-help-line">
           <Icon name="practice" size={16} />

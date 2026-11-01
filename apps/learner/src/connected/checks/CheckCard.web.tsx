@@ -109,6 +109,9 @@ export function CheckCard({
   // The help row of a question (by challenge id): "Get help" toggles it; a wrong answer and "I
   // don't know yet" open it.
   const [helpOpen, setHelpOpen] = useState<Record<string, boolean>>({});
+  // Help rows the learner opened ("Get help"): those fade in (M17). A row that opens with the
+  // server's answer appears with it, at once.
+  const [helpAsked, setHelpAsked] = useState<Record<string, boolean>>({});
   // What waits for "Show hint as practice" / "Show as practice" on a counted question.
   const [confirming, setConfirming] = useState<{ id: string; what: "hint" | "explanation" } | null>(null);
   // Explanations folded open per question, and hints shown per question (by question id).
@@ -385,6 +388,7 @@ export function CheckCard({
               aria-controls={helpShown ? helpId : undefined}
               onClick={() => {
                 setHelpOpen((all) => ({ ...all, [shown.challengeId]: !all[shown.challengeId] }));
+                setHelpAsked((all) => ({ ...all, [shown.challengeId]: true }));
                 if (helpShown) setConfirming(null);
               }}
             >
@@ -406,6 +410,7 @@ export function CheckCard({
           <HelpRow
             ref={helpRow}
             id={helpId}
+            reveal={Boolean(helpAsked[shown.challengeId])}
             ordinal={ordinal}
             counted={counted}
             {...(wrong && canStart ? { onTryAgain: () => check.onStart() } : {})}
