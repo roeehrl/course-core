@@ -17,38 +17,43 @@ import {
   useRequestKeys,
   type AiKey,
 } from "./shared";
-import { CheckResult, POLL_MS, blockedText, isJobCheck } from "./CheckSection";
+import {
+  CheckProgress,
+  CheckResult,
+  POLL_MS,
+  blockedText,
+  isJobCheck,
+} from "./CheckSection";
 
 type Props = SectionProps & {
   /** The jobs of the active setup. */
   active: ActiveRole[];
-  /** Jobs that are on and flagged above with their own "Run check" (ActiveNeedsCheck). */
+  /** Jobs that are on without a passing check or approval for the current checks. */
   needing: ActiveCheck[];
-  /** The flagged list above shows its own "check all of them at once". */
-  allAtOnceShown: boolean;
+  /** The latest check of any kind (null: none yet). */
+  latest: QualityCheck | null;
+  /** The id of a check the open draft's part of the section already shows, not repeated here. */
+  shownAbove: string | null;
   /** The service the jobs that are on use, for key messages. */
   service: string;
 };
 
 /**
- * "Jobs that are on": each job with its model and how it was turned on (passed the check, or
- * approved without checking, and when), and two actions: run the quality check again for that
- * job (or for all of them), and turn it off. A check never turns a job off by itself: when one
- * fails, the result says the job is still on and offers to turn it off. Turning a job off asks
- * first, in plain words, since learners lose that help until it is turned on again.
+ * "Jobs that are on", read top to bottom: one card per job (its model, how it stands — checked on
+ * a date, approved without checking, didn't pass the latest check, needs a new check — and "Run
+ * check" and "Turn off"), then "Check all jobs that are on" with its cost, then the latest check:
+ * its progress while it runs, and once it ends its result, cost, date and the details of each
+ * conversation. The latest check shows here on every visit, not only right after a run. A check
+ * never turns a job off by itself: when one fails, the result says the job is still on and offers
+ * to turn it off. Turning a job off asks first, in plain words.
  */
 export function OnJobs(props: Props) {
   const text = useAiText();
   const { t } = text;
   const { data, port, workspaceId, reload, active, needing, service } = props;
   const quality = data.quality;
-  const latest = quality?.latest ?? null;
   const keys = useRequestKeys();
-  const [check, setCheck] = useState<QualityCheck | null>(
-    latest?.target === "active" ? latest : null,
-  );
-  // Checks started here: their result shows here even while the flagged list above is shown.
-  const [mine, setMine] = useState<ReadonlySet<string>>(new Set());
+  const [check, setCheck] = useState<QualityCheck | null>(props.latest);
   const [starting, setStarting] = useState<Job | "all" | null>(null);
   const [message, setMessage] = useState<{
     scope: Job | "all";
@@ -58,13 +63,16 @@ export function OnJobs(props: Props) {
   const [turning, setTurning] = useState(false);
   const [turnedOff, setTurnedOff] = useState<Job | null>(null);
   const [turnError, setTurnError] = useState<{ role: Job; text: string }>();
-  useEffect(() => {
-    if (latest?.target === "active") setCheck(latest);
-  }, [latest]);
-  const running = check?.state === "running";
-  const checkId = check?.id;
+  // The page's status names the latest check; a reload (after a check ends, or anything else)
+  // brings its newest state.
+  useEffect(() => setCheck(props.latest), [props.latest]);
+  const shown = check && check.id !== props.shownAbove ? check : null;
+  const running = shown?.state === "running";
+  const checkId = shown?.id;
   const changed = useRef(reload);
   changed.current = reload;
+  // Poll a running check (as the draft's check does); once it ends, reload the page data, which
+  // names it as the latest check with its result.
   useEffect(() => {
     if (!running || !checkId) return;
     const controller = new AbortController();
@@ -84,16 +92,35 @@ export function OnJobs(props: Props) {
   }, [running, checkId, port, workspaceId]);
 
   const canTurnOff = !!port.turnOff;
-  const flagged = (role: string) => needing.some((r) => r.role === role);
-  // A finished check shows here once: always when it was started here, otherwise only when the
-  // flagged list above (which shows its own results) is not on the page.
-  const ended =
-    check && !running && (mine.has(check.id) || !needing.length) ? check : null;
-  const onAll = quality?.onAll ?? null;
-  const showAll =
-    !props.allAtOnceShown && !!onAll && (quality?.onRoles.length ?? 0) > 1;
+  const isRunning = (blocked: { code: string } | null | undefined) =>
+    blocked?.code === "PROVIDER_QUALITY_CHECK_RUNNING";
+  const blockedFor = <B extends { code: string }>(
+    blocked: B | null | undefined,
+  ): B | null => (blocked && !isRunning(blocked) ? blocked : null);
+  // What checking one job alone runs: every job that is on and the check covers (`onRoles`), or,
+  // from an older server, the flagged ones (`activeRoles`).
+  const planOf = (role: Job) =>
+    quality?.onRoles.find((r) => r.role === role) ??
+    quality?.activeRoles.find((r) => r.role === role);
+  // What checking all of them runs; an older server names it as the active target.
+  const all =
+    quality?.onAll ??
+    (quality?.target === "active"
+      ? {
+          conversations: quality.conversations,
+          estimateMicroUsd: quality.estimateMicroUsd,
+          reserveMicroUsd: quality.reserveMicroUsd,
+          blocked: quality.blocked,
+        }
+      : null);
+  const checkable = active.filter((r) => !!planOf(r.role)).length;
+  const showAll = !!all && checkable > 1;
+  const allBlocked = blockedFor(all?.blocked);
   const anyRunning =
-    running || quality?.blocked?.code === "PROVIDER_QUALITY_CHECK_RUNNING";
+    running ||
+    isRunning(quality?.blocked) ||
+    isRunning(all?.blocked) ||
+    active.some((r) => isRunning(planOf(r.role)?.blocked));
 
   async function start(scope: Job | "all") {
     setMessage(undefined);
@@ -108,7 +135,6 @@ export function OnJobs(props: Props) {
         idempotencyKey: keys.key(request),
       });
       keys.settle();
-      setMine((current) => new Set(current).add(started.id));
       setCheck(started);
     } catch (error) {
       keys.settle(error);
@@ -185,35 +211,7 @@ export function OnJobs(props: Props) {
       />
     );
   }
-  function progress(value: QualityCheck, label: string) {
-    return (
-      <div role="status" aria-live="polite" className="ai-run-progress">
-        <p>
-          {t("aiServices.check.run.progress", {
-            done: value.completed,
-            total: value.total,
-          })}
-        </p>
-        <progress
-          max={value.total}
-          value={value.completed}
-          aria-label={label}
-        />
-        <p className="ai-muted">{t("aiServices.check.run.canLeave")}</p>
-      </div>
-    );
-  }
-  const blockedFor = <B extends { code: string }>(
-    blocked: B | null | undefined,
-  ): B | null =>
-    blocked && blocked.code !== "PROVIDER_QUALITY_CHECK_RUNNING"
-      ? blocked
-      : null;
-  const allBlocked = blockedFor(onAll?.blocked);
-  const allCheck =
-    check && !isJobCheck(check) && (mine.has(check.id) || !needing.length)
-      ? check
-      : null;
+  const when = shown?.finishedAt ?? shown?.createdAt ?? null;
 
   return (
     <div className="ai-on-jobs">
@@ -225,16 +223,17 @@ export function OnJobs(props: Props) {
         </Message>
       )}
       {active.length ? (
-        <ul className="ai-role-checks">
+        <ul
+          className="ai-role-checks"
+          aria-label={t("aiServices.check.onTitle")}
+        >
           {active.map((role) => {
             const job = jobName(t, role.role);
             const state = data.evals?.roles.find((r) => r.role === role.role);
-            const plan = quality?.onRoles.find((r) => r.role === role.role);
-            const own =
-              !!check && isJobCheck(check) && check.roles[0] === role.role;
+            const flagged = needing.some((r) => r.role === role.role);
+            const plan = planOf(role.role);
             const blocked = blockedFor(plan?.blocked);
-            // Flagged jobs have their own "Run check" in the list above.
-            const runnable = !!plan && !flagged(role.role);
+            const runnable = !!plan && state?.status !== "not_covered";
             return (
               <li
                 key={role.role}
@@ -251,7 +250,7 @@ export function OnJobs(props: Props) {
                     <span className="ai-pill warn">
                       {t("aiServices.check.state.override")}
                     </span>
-                  ) : state ? (
+                  ) : state && flagged ? (
                     <span
                       className={`ai-pill ${state.status === "failed" ? "bad" : "warn"}`}
                     >
@@ -279,61 +278,49 @@ export function OnJobs(props: Props) {
                         : t(`aiServices.check.state.${state.status}` as AiKey)}
                   </p>
                 )}
-                {own && running ? (
-                  progress(
-                    check,
-                    t("aiServices.check.flag.progressLabel", { job }),
-                  )
-                ) : (
-                  <>
-                    {runnable && !blocked && (
-                      <p className="ai-muted">
-                        {t("aiServices.check.flag.estimate", {
-                          amount: text.money(plan.estimateMicroUsd ?? 0),
-                          count: plan.conversations,
-                        })}
-                      </p>
-                    )}
-                    {runnable && blocked && (
-                      <Message tone="warn">
-                        {blockedText(text, blocked.code, blocked)}
-                      </Message>
-                    )}
-                    {(runnable || canTurnOff) && (
-                      <div className="ai-actions ai-actions-start">
-                        {runnable && !blocked && (
-                          <button
-                            type="button"
-                            className="button primary"
-                            disabled={starting !== null || anyRunning}
-                            aria-label={t("aiServices.check.on.runFor", {
-                              job,
-                            })}
-                            onClick={() => void start(role.role)}
-                          >
-                            {starting === role.role
-                              ? t("aiServices.check.run.starting")
-                              : t("aiServices.check.on.run")}
-                          </button>
-                        )}
-                        {canTurnOff && (
-                          <button
-                            type="button"
-                            className="button secondary"
-                            disabled={turning}
-                            aria-label={t("aiServices.check.on.turnOffFor", {
-                              job,
-                            })}
-                            onClick={() => setConfirming(role.role)}
-                          >
-                            {t("aiServices.check.on.turnOff")}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </>
+                {runnable && blocked && (
+                  <Message tone="warn">
+                    {blockedText(text, blocked.code, blocked)}
+                  </Message>
                 )}
-                {own && ended && result(ended)}
+                {runnable && !blocked && (
+                  <p className="ai-muted">
+                    {t("aiServices.check.flag.estimate", {
+                      amount: text.money(plan.estimateMicroUsd ?? 0),
+                      count: plan.conversations,
+                    })}
+                  </p>
+                )}
+                {((runnable && !blocked) || canTurnOff) && (
+                  <div className="ai-actions ai-actions-start">
+                    {runnable && !blocked && (
+                      <button
+                        type="button"
+                        className="button primary"
+                        disabled={starting !== null || anyRunning}
+                        aria-label={t("aiServices.check.flag.runFor", { job })}
+                        onClick={() => void start(role.role)}
+                      >
+                        {starting === role.role
+                          ? t("aiServices.check.run.starting")
+                          : t("aiServices.check.flag.run")}
+                      </button>
+                    )}
+                    {canTurnOff && (
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={turning}
+                        aria-label={t("aiServices.check.on.turnOffFor", {
+                          job,
+                        })}
+                        onClick={() => setConfirming(role.role)}
+                      >
+                        {t("aiServices.check.on.turnOff")}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {message?.scope === role.role && (
                   <Message tone="error">{message.text}</Message>
                 )}
@@ -347,51 +334,77 @@ export function OnJobs(props: Props) {
       ) : (
         <p className="ai-muted">{t("aiServices.check.noneOn")}</p>
       )}
-      {(showAll || allCheck) && (
+      {showAll && (
         <div className="ai-on-all">
-          {allCheck?.state === "running" ? (
-            progress(allCheck, t("aiServices.check.run.progressLabel"))
+          {allBlocked ? (
+            <Message tone="warn">
+              {blockedText(text, allBlocked.code, allBlocked)}
+            </Message>
           ) : (
             <>
-              {showAll &&
-                (allBlocked ? (
-                  <Message tone="warn">
-                    {blockedText(text, allBlocked.code, allBlocked)}
-                  </Message>
-                ) : (
-                  <>
-                    <p>
-                      {t("aiServices.check.on.allEstimate", {
-                        amount: text.money(onAll.estimateMicroUsd),
-                        count: onAll.conversations,
-                      })}
-                    </p>
-                    <p className="ai-muted">
-                      {t("aiServices.check.run.reserve", {
-                        amount: text.money(onAll.reserveMicroUsd),
-                      })}
-                    </p>
-                    <div className="ai-actions ai-actions-start">
-                      <button
-                        type="button"
-                        className="button primary"
-                        disabled={starting !== null || anyRunning}
-                        onClick={() => void start("all")}
-                      >
-                        {starting === "all"
-                          ? t("aiServices.check.run.starting")
-                          : t("aiServices.check.on.runAll")}
-                      </button>
-                    </div>
-                  </>
-                ))}
-              {allCheck && result(allCheck)}
+              <p>
+                {t("aiServices.check.on.allEstimate", {
+                  amount: text.money(all.estimateMicroUsd),
+                  count: all.conversations,
+                })}
+              </p>
+              <p className="ai-muted">
+                {t("aiServices.check.run.reserve", {
+                  amount: text.money(all.reserveMicroUsd),
+                })}
+              </p>
+              <div className="ai-actions ai-actions-start">
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={starting !== null || anyRunning}
+                  onClick={() => void start("all")}
+                >
+                  {starting === "all"
+                    ? t("aiServices.check.run.starting")
+                    : t("aiServices.check.on.runAll")}
+                </button>
+              </div>
             </>
           )}
           {message?.scope === "all" && (
             <Message tone="error">{message.text}</Message>
           )}
         </div>
+      )}
+      {(checkable > 0 || shown) && (
+        <p className="ai-muted">{t("aiServices.check.disclaimer")}</p>
+      )}
+      {shown && (
+        <section
+          className="ai-latest"
+          aria-label={t("aiServices.check.latest.title")}
+        >
+          <h4>{t("aiServices.check.latest.title")}</h4>
+          {running ? (
+            <CheckProgress
+              check={shown}
+              label={
+                isJobCheck(shown)
+                  ? t("aiServices.check.flag.progressLabel", {
+                      job: jobName(t, shown.roles[0]!),
+                    })
+                  : t("aiServices.check.run.progressLabel")
+              }
+            />
+          ) : (
+            <>
+              {when && (
+                <p className="ai-muted">
+                  {t("aiServices.check.on.checkedOn", {
+                    date: text.date(when),
+                  })}
+                </p>
+              )}
+              {result(shown)}
+            </>
+          )}
+        </section>
       )}
       {confirming && (
         <Confirm

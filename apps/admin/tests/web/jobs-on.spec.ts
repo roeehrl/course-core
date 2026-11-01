@@ -61,7 +61,7 @@ for (const locale of ["en", "he"] as const) {
     await expect(tutor).toContainText(ai["check.state.override"]!);
     await expect(
       tutor.getByRole("button", {
-        name: fill(locale, ai["check.on.runFor"]!, { job }),
+        name: fill(locale, ai["check.flag.runFor"]!, { job }),
       }),
     ).toBeVisible();
     await expect(
@@ -124,5 +124,54 @@ for (const locale of ["en", "he"] as const) {
     await list.screenshot({
       path: info.outputPath(`jobs-on-failed-${locale}.png`),
     });
+  });
+
+  test(`${locale}: after a reload, the latest failed check and its details show under the one list of jobs`, async ({
+    page,
+    context,
+  }, info) => {
+    if (info.project.name === "desktop")
+      await page.setViewportSize({ width: 1568, height: 773 });
+    await mockConnectedAdmin(page, context);
+    await stubJobsOn(page, { tutorFailed: true });
+    const job = catalog(locale, "aiServices")["role.companion.name"]!;
+    for (const visit of ["first visit", "after reload"]) {
+      if (visit === "after reload") await page.reload();
+      const { section, list, ai } = await openOnJobs(page, locale);
+      // One list: each job once, with its status and its own Run check and Turn off.
+      await expect(
+        section.getByRole("list", { name: ai["check.onTitle"]! }),
+      ).toHaveCount(1);
+      await expect(section.locator('[data-role="companion"]')).toHaveCount(1);
+      await expect(section.locator('[data-role="supervisor"]')).toHaveCount(1);
+      const tutor = list.locator('[data-role="companion"]');
+      await expect(tutor).toContainText(ai["check.state.failed"]!);
+      await expect(
+        tutor.getByRole("button", {
+          name: fill(locale, ai["check.flag.runFor"]!, { job }),
+        }),
+      ).toBeVisible();
+      await expect(
+        list.getByRole("button", { name: ai["check.on.runAll"]!, exact: true }),
+      ).toBeVisible();
+      // The latest check, under the list: its result, cost and the details of each conversation.
+      const latest = section.getByRole("region", {
+        name: ai["check.latest.title"]!,
+      });
+      await expect(latest.getByText(ai["check.run.failed"]!)).toBeVisible();
+      const panel = latest.locator(".ai-dialogues");
+      await panel
+        .getByText(ai["check.details.title"]!, { exact: true })
+        .click();
+      await expect(panel.locator(".ai-dialogue").first()).toBeVisible();
+      // Then the owner's approval without a check, last.
+      await expect(
+        section.getByText(ai["check.active.approveTitle"]!, { exact: true }),
+      ).toBeVisible();
+      await noSidewaysScroll(page);
+    }
+    await page
+      .locator("#ai-check")
+      .screenshot({ path: info.outputPath(`jobs-on-latest-${locale}.png`) });
   });
 }

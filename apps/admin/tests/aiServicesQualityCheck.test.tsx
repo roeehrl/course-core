@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -141,7 +142,8 @@ const check = (over: Partial<QualityCheck> = {}): QualityCheck => ({
   outcome: [],
   createdAt: new Date().toISOString(),
   finishedAt: null,
-  deadlineAt: new Date().toISOString(),
+  // The server gives a check ten minutes.
+  deadlineAt: new Date(Date.now() + 10 * 60_000).toISOString(),
   ...over,
 });
 const status = (over: Partial<QualityStatus> = {}): QualityStatus => ({
@@ -281,6 +283,9 @@ function fakePort(overrides: Partial<Record<keyof AiServicesPort, unknown>>) {
 }
 const checkRegion = () =>
   screen.findByRole("region", { name: t("section.check") });
+/** The latest check, under the list of jobs that are on. */
+const latestCheck = (region: HTMLElement) =>
+  within(region).findByRole("region", { name: t("check.latest.title") });
 
 describe("running the quality check from the page", () => {
   it("shows the estimate, starts the check for the draft, shows progress, then the result and turns the models on", async () => {
@@ -1455,11 +1460,11 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     ).not.toBeInTheDocument();
     expect(
       within(region).getByText(
-        t("check.run.estimate", { count: 11, amount: usd(96000) }),
+        t("check.on.allEstimate", { count: 11, amount: usd(96000) }),
       ),
     ).toBeInTheDocument();
     fireEvent.click(
-      within(region).getByRole("button", { name: t("check.run.button") }),
+      within(region).getByRole("button", { name: t("check.on.runAll") }),
     );
     expect(
       await within(region).findByText(
@@ -1495,9 +1500,9 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
     const region = await checkRegion();
     const flags = await within(region).findByRole("list", {
-      name: t("check.flag.list"),
+      name: t("check.onTitle"),
     });
-    // Two jobs need a check, one an owner's approval: each is flagged on its own.
+    // Two jobs need a check, one an owner's approval: each is flagged on its own, in the one list.
     expect(within(flags).getAllByText(t("check.flag.needsCheck"))).toHaveLength(
       2,
     );
@@ -1505,8 +1510,9 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       within(flags).getByText(t("check.flag.needsApproval")),
     ).toBeVisible();
     expect(
-      within(flags).getByText(t("check.flag.approveInstead")),
-    ).toBeVisible();
+      within(region).getAllByRole("list", { name: t("check.onTitle") }),
+    ).toHaveLength(1);
+    expect(flags.querySelectorAll('li[data-role="companion"]')).toHaveLength(1);
     expect(
       within(flags).getByText(
         t("check.flag.estimate", { count: 2, amount: usd(42000) }),
@@ -1528,13 +1534,15 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       role: "supervisor",
       idempotencyKey: expect.stringMatching(/^ai-services:/),
     });
+    // Its progress shows in one place, where its result will show: the latest check.
     expect(
-      await within(flags).findByRole("progressbar", {
+      await within(await latestCheck(region)).findByRole("progressbar", {
         name: t("check.flag.progressLabel", {
           job: t("role.supervisor.name"),
         }),
       }),
     ).toBeInTheDocument();
+    expect(within(region).getAllByRole("progressbar")).toHaveLength(1);
     // Nothing else can start while it runs.
     expect(
       within(flags).getByRole("button", {
@@ -1542,7 +1550,7 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       }),
     ).toBeDisabled();
     expect(
-      await within(flags).findByText(
+      await within(region).findByText(
         t("check.run.jobPassed", {
           job: t("role.supervisor.name"),
           count: 2,
@@ -1553,9 +1561,9 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     ).toBeInTheDocument();
   });
 
-  // A check's result shows once, in its place: a job's own check with that job, the check of all
-  // of them at once under "Run the quality check". A job's result used to show a second time
-  // under "Run the quality check", with "Run the check again", as if every job had been checked.
+  // The latest check shows once, under the list of jobs, after every page load (not only right
+  // after a run in the same visit), whether it checked one job or all of them, with its result,
+  // cost, date and the details of each conversation.
   const failedFor = (roles: ("companion" | "supervisor")[]) =>
     check({
       id: "00000000-0000-4000-8000-0000000000c9",
@@ -1566,7 +1574,7 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       total: 11,
       completed: 11,
       chargedMicroUsd: 10000,
-      finishedAt: new Date().toISOString(),
+      finishedAt: "2026-10-31T09:30:00.000Z",
       outcome: roles.map((role) => ({
         role,
         passed: role !== "companion",
@@ -1582,59 +1590,56 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     failed: 1,
     count: 9,
   });
-  const runSection = (region: HTMLElement) =>
-    within(region)
-      .getByRole("heading", { name: t("check.run.title") })
-      .closest(".ai-run") as HTMLElement;
 
-  it("shows a job's own check result once, with that job", async () => {
-    const port = upgraded({
-      qualityStatus: vi.fn().mockResolvedValue({
-        ...activeStatus(),
-        latest: failedFor(["companion"]),
-      }),
+  for (const roles of [["companion"], ["companion", "supervisor"]] as const)
+    it(`shows the latest check of ${roles.join(" and ")} after a page load, once, with its date, cost and details`, async () => {
+      const port = upgraded({
+        qualityStatus: vi.fn().mockResolvedValue({
+          ...activeStatus(),
+          latest: failedFor([...roles]),
+        }),
+        qualityCheckDetails: vi.fn().mockResolvedValue({
+          checkId: "00000000-0000-4000-8000-0000000000c9",
+          state: "failed",
+          recorded: true,
+          roles: [],
+        }),
+      });
+      render(
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+      );
+      const region = await checkRegion();
+      const latest = await within(region).findByRole("region", {
+        name: t("check.latest.title"),
+      });
+      expect(within(latest).getByText(companionFailed)).toBeVisible();
+      expect(within(latest).getByText(t("check.run.failed"))).toBeVisible();
+      expect(
+        within(latest).getByText(
+          t("check.on.checkedOn", {
+            date: english.date("2026-10-31T09:30:00.000Z", "medium"),
+          }),
+        ),
+      ).toBeVisible();
+      expect(
+        within(latest).getByText(
+          t("check.run.charged", { amount: usd(10000) }),
+        ),
+      ).toBeVisible();
+      expect(
+        within(latest).getByText(t("check.details.title")),
+      ).toBeInTheDocument();
+      // The jobs it failed that are still on can be turned off right there.
+      expect(
+        within(latest).getByText(t("check.on.failedStillOn", { count: 1 })),
+      ).toBeVisible();
+      expect(within(region).getAllByText(companionFailed)).toHaveLength(1);
+      expect(within(region).getAllByText(t("check.run.failed"))).toHaveLength(
+        1,
+      );
     });
-    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
-    const region = await checkRegion();
-    const flags = await within(region).findByRole("list", {
-      name: t("check.flag.list"),
-    });
-    expect(await within(region).findAllByText(companionFailed)).toHaveLength(1);
-    const row = flags.querySelector<HTMLElement>('li[data-role="companion"]')!;
-    expect(within(row).getByText(companionFailed)).toBeVisible();
-    expect(within(row).getByText(t("check.run.failed"))).toBeVisible();
-    // "Run the quality check" (all jobs) shows no result and offers the first run, not a re-run.
-    const all = runSection(region);
-    expect(within(all).queryByText(t("check.run.failed"))).toBeNull();
-    expect(
-      within(all).getByRole("button", { name: t("check.run.button") }),
-    ).toBeVisible();
-    expect(
-      within(all).queryByRole("button", { name: t("check.run.again") }),
-    ).toBeNull();
-    expect(within(region).getAllByText(t("check.run.failed"))).toHaveLength(1);
-  });
 
-  it("shows the result of the check of all jobs at once once, under Run the quality check", async () => {
-    const port = upgraded({
-      qualityStatus: vi.fn().mockResolvedValue({
-        ...activeStatus(),
-        latest: failedFor(["companion", "supervisor"]),
-      }),
-    });
-    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
-    const region = await checkRegion();
-    await within(region).findByRole("list", { name: t("check.flag.list") });
-    const all = runSection(region);
-    expect(await within(all).findByText(companionFailed)).toBeVisible();
-    expect(
-      within(all).getByRole("button", { name: t("check.run.again") }),
-    ).toBeVisible();
-    expect(within(region).getAllByText(companionFailed)).toHaveLength(1);
-    expect(within(region).getAllByText(t("check.run.failed"))).toHaveLength(1);
-  });
-
-  it("shows a job's check that finishes while the page is open once, in that job's row", async () => {
+  it("shows a check that finishes while the page is open where its progress was, without a reload", async () => {
     const running = check({
       target: "active",
       draftId: null,
@@ -1656,22 +1661,85 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
     const region = await checkRegion();
     const flags = await within(region).findByRole("list", {
-      name: t("check.flag.list"),
+      name: t("check.onTitle"),
     });
     fireEvent.click(
       within(flags).getByRole("button", {
         name: t("check.flag.runFor", { job: t("role.companion.name") }),
       }),
     );
-    const row = flags.querySelector<HTMLElement>('li[data-role="companion"]')!;
     expect(
-      await within(row).findByText(companionFailed, {}, { timeout: 4000 }),
+      await within(await latestCheck(region)).findByText(
+        t("check.run.progress", { done: 1, total: 9 }),
+      ),
+    ).toBeVisible();
+    expect(
+      await within(await latestCheck(region)).findByText(
+        companionFailed,
+        {},
+        { timeout: 4000 },
+      ),
     ).toBeVisible();
     await waitFor(() => expect(statusNow.mock.calls.length).toBeGreaterThan(1));
     expect(within(region).getAllByText(companionFailed)).toHaveLength(1);
+  });
+
+  it("says a check past its deadline didn't finish in time, not that it is still checking", async () => {
+    const stuck = check({
+      target: "active",
+      draftId: null,
+      roles: ["companion", "supervisor"],
+      total: 20,
+      completed: 19,
+      deadlineAt: new Date(Date.now() - 30_000).toISOString(),
+    });
+    const port = upgraded({
+      qualityStatus: vi.fn().mockResolvedValue({
+        ...activeStatus(),
+        blocked: { code: "PROVIDER_QUALITY_CHECK_RUNNING" },
+        latest: stuck,
+      }),
+      qualityCheck: vi.fn().mockResolvedValue(stuck),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const latest = await within(region).findByRole("region", {
+      name: t("check.latest.title"),
+    });
     expect(
-      within(runSection(region)).queryByText(t("check.run.failed")),
+      within(latest).getByText(t("check.run.overdue", { done: 19, total: 20 })),
+    ).toBeVisible();
+    expect(
+      within(region).queryByText(
+        t("check.run.progress", { done: 19, total: 20 }),
+      ),
     ).toBeNull();
+    // Once the server ends it (its deadline a minute past), it says so in plain words.
+    cleanup();
+    const ended = {
+      ...stuck,
+      state: "error" as const,
+      reason: "PROVIDER_QUALITY_CHECK_INTERRUPTED",
+      finishedAt: new Date().toISOString(),
+    };
+    render(
+      <AiServicesPage
+        workspaceId={workspace}
+        port={upgraded({
+          qualityStatus: vi
+            .fn()
+            .mockResolvedValue({ ...activeStatus(), latest: ended }),
+        })}
+        role="owner"
+      />,
+    );
+    const after = await within(await checkRegion()).findByRole("region", {
+      name: t("check.latest.title"),
+    });
+    expect(after).toHaveTextContent(t("check.run.interrupted"));
+    expect(after).toHaveTextContent(
+      t("check.run.stoppedAt", { done: 19, total: 20 }),
+    );
   });
 
   it("says why a flagged job's check can't start, in plain language", async () => {
@@ -1694,7 +1762,7 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
     const region = await checkRegion();
     const flags = await within(region).findByRole("list", {
-      name: t("check.flag.list"),
+      name: t("check.onTitle"),
     });
     expect(within(flags).getByText(t("check.run.limitMissing"))).toBeVisible();
     expect(
@@ -1874,7 +1942,7 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("asks an administrator to get an owner's approval, and asks to finish an open draft before checking", async () => {
+  it("asks an administrator to get an owner's approval while a draft is open", async () => {
     const port = upgraded({
       currentDraft: vi.fn().mockResolvedValue(draft(false)),
       qualityStatus: vi
@@ -1886,10 +1954,7 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     render(<AiServicesPage workspaceId={workspace} port={port} role="admin" />);
     const region = await checkRegion();
     expect(
-      await within(region).findByText(t("check.active.draftOpen")),
-    ).toBeInTheDocument();
-    expect(
-      within(region).getByText(t("check.approveOwnersOnly")),
+      await within(region).findByText(t("check.approveOwnersOnly")),
     ).toBeInTheDocument();
     expect(
       within(region).queryByRole("button", { name: t("check.run.button") }),
@@ -1913,7 +1978,7 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
       await within(region).findByText(he("check.active.note", { count: 3 })),
     ).toBeInTheDocument();
     expect(
-      within(region).getByRole("button", { name: he("check.run.button") }),
+      within(region).getByRole("button", { name: he("check.on.runAll") }),
     ).toBeInTheDocument();
   });
 });
@@ -2056,11 +2121,11 @@ describe("jobs that are on: check again and turn off", () => {
     ).toBeInTheDocument();
     fireEvent.click(
       within(tutor).getByRole("button", {
-        name: t("check.on.runFor", { job: t("role.companion.name") }),
+        name: t("check.flag.runFor", { job: t("role.companion.name") }),
       }),
     );
     expect(
-      await within(tutor).findByText(
+      await within(await latestCheck(region)).findByText(
         t("check.run.progress", { done: 1, total: 9 }),
       ),
     ).toBeInTheDocument();

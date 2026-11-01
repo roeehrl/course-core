@@ -121,8 +121,18 @@ export function CheckSection(props: Props) {
     !waiting.length &&
     (!draft || draft.id === approvedDraft);
   const needing = activeNeedingCheck(data.evals);
-  // Kept here: an approval of the jobs that are on removes the list it was made in. (A finished
-  // check of them shows with "Jobs that are on", OnJobs.)
+  const uncovered = needing.filter((r) => r.status === "not_covered");
+  // The latest check shows once: with the open draft when it is that draft's check (its run and
+  // result are there), otherwise under "Jobs that are on", whatever it checked.
+  const shownAbove =
+    latest &&
+    draft &&
+    latest.target !== "active" &&
+    latest.draftId === draft.id &&
+    (waiting.length > 0 || passedForDraft)
+      ? latest.id
+      : null;
+  // Kept here: an approval of the jobs that are on removes the list it was made in.
   const [activeApproved, setActiveApproved] = useState(false);
   const [turning, setTurning] = useState(false);
   const [turnError, setTurnError] = useState<string>();
@@ -202,19 +212,32 @@ export function CheckSection(props: Props) {
         <Message tone="ok">{t("aiServices.check.active.approved")}</Message>
       )}
       {needing.length > 0 && (
-        <ActiveNeedsCheck
-          {...props}
-          needing={needing}
-          onApproved={() => setActiveApproved(true)}
-        />
+        <Message tone="warn">
+          {t("aiServices.check.active.note", { count: needing.length })}
+        </Message>
       )}
       <OnJobs
         {...props}
         active={active}
         needing={needing}
-        allAtOnceShown={allAtOnceShown(data, needing)}
+        latest={latest}
+        shownAbove={shownAbove}
         service={activeService(t, data)}
       />
+      {uncovered.length > 0 && (
+        <p>
+          {t("aiServices.check.active.notCheckable", {
+            jobs: text.list(uncovered.map((r) => jobName(t, r.role))),
+          })}
+        </p>
+      )}
+      {needing.length > 0 && (
+        <ApproveActive
+          {...props}
+          needing={needing}
+          onApproved={() => setActiveApproved(true)}
+        />
+      )}
       <HostFileRoles {...props} />
       <CourseSetups {...props} />
     </Section>
@@ -398,83 +421,6 @@ function activeService(t: AiText["t"], data: Props["data"]) {
   );
 }
 
-/** Whether the flagged list shows "Or check all of them at once" (it checks every job that is on). */
-function allAtOnceShown(data: Props["data"], needing: ActiveCheck[]) {
-  const uncovered = needing.filter((r) => r.status === "not_covered");
-  return (
-    needing.length > 0 &&
-    !data.draft &&
-    data.quality?.target === "active" &&
-    needing.length - uncovered.length > 1
-  );
-}
-
-/**
- * Jobs that are on but have no passing check or approval for the current checks: they keep
- * working; the check of the active setup (when no draft is open) and the owner's approval.
- */
-function ActiveNeedsCheck(
-  props: Props & {
-    needing: ActiveCheck[];
-    onFinished?: (check: QualityCheck) => void;
-    onApproved: () => void;
-  },
-) {
-  const text = useAiText();
-  const { t } = text;
-  const { data, needing } = props;
-  const uncovered = needing.filter((r) => r.status === "not_covered");
-  const quality = data.quality;
-  // "Check all of them at once" shows the result of that check itself.
-  const allAtOnce = allAtOnceShown(data, needing);
-  return (
-    <div className="ai-sub ai-active-check">
-      <Message tone="warn">
-        {t("aiServices.check.active.note", { count: needing.length })}
-      </Message>
-      <RoleChecks
-        port={props.port}
-        workspaceId={props.workspaceId}
-        needing={needing}
-        quality={quality}
-        service={activeService(t, data)}
-        onChanged={props.reload}
-        onFinished={props.onFinished}
-        allAtOnceShown={!!allAtOnce}
-      />
-      {uncovered.length > 0 && (
-        <p>
-          {t("aiServices.check.active.notCheckable", {
-            jobs: text.list(uncovered.map((r) => jobName(t, r.role))),
-          })}
-        </p>
-      )}
-      {data.draft
-        ? needing.length > uncovered.length && (
-            <p className="ai-muted">{t("aiServices.check.active.draftOpen")}</p>
-          )
-        : allAtOnce && (
-            <>
-              <h4>{t("aiServices.check.flag.allTitle")}</h4>
-              {!!quality && quality.conversations > 0 && (
-                <p>
-                  {t("aiServices.check.explain", {
-                    dialogues: quality.conversations,
-                  })}
-                </p>
-              )}
-              <RunCheck
-                {...props}
-                target={{ kind: "active" }}
-                onFinished={props.onFinished}
-              />
-              <p className="ai-muted">{t("aiServices.check.disclaimer")}</p>
-            </>
-          )}
-      <ApproveActive {...props} />
-    </div>
-  );
-}
 /**
  * Each job that is on and needs a check, flagged on its own with a "Run check" that checks that
  * job only (its estimated cost first, then progress and the result). The job keeps working
@@ -489,7 +435,6 @@ export function RoleChecks({
   service,
   onChanged,
   onFinished,
-  allAtOnceShown = false,
 }: {
   port: AiServicesPort;
   workspaceId: string;
@@ -499,8 +444,6 @@ export function RoleChecks({
   onChanged: () => void | Promise<void>;
   /** Told when a check started here ends: the page keeps showing its result once the job is no longer flagged. */
   onFinished?: ((check: QualityCheck) => void) | undefined;
-  /** "Check all of them at once" is on the page and shows that check's result itself. */
-  allAtOnceShown?: boolean;
 }) {
   const text = useAiText();
   const { t } = text;
@@ -519,15 +462,13 @@ export function RoleChecks({
   const running = check?.state === "running";
   const checkId = check?.id;
   // Each result shows once. A job's own check shows in that job's row while the job is still
-  // flagged, and after the list once it passed (and left the list). The check of all jobs at
-  // once shows under "Run the quality check" when that is on the page, else after the list.
+  // flagged, and after the list once it passed (and left the list); a check of all jobs at once
+  // that finished here shows after the list.
   const ended = done ?? (check && !running ? check : null);
   const jobResult = ended && isJobCheck(ended) ? ended : null;
   const listed = (role: string) => needing.some((r) => r.role === role);
   const after =
-    done && (isJobCheck(done) ? !listed(done.roles[0]!) : !allAtOnceShown)
-      ? done
-      : null;
+    done && (isJobCheck(done) ? !listed(done.roles[0]!) : true) ? done : null;
   // The page's reload changes on every render; polling must not restart with it.
   const changed = useRef(onChanged),
     finished = useRef(onFinished);
@@ -602,20 +543,10 @@ export function RoleChecks({
               {t(`aiServices.check.state.${r.status}` as AiKey)}
             </p>
             {mine && running ? (
-              <div role="status" aria-live="polite" className="ai-run-progress">
-                <p>
-                  {t("aiServices.check.run.progress", {
-                    done: check.completed,
-                    total: check.total,
-                  })}
-                </p>
-                <progress
-                  max={check.total}
-                  value={check.completed}
-                  aria-label={t("aiServices.check.flag.progressLabel", { job })}
-                />
-                <p className="ai-muted">{t("aiServices.check.run.canLeave")}</p>
-              </div>
+              <CheckProgress
+                check={check}
+                label={t("aiServices.check.flag.progressLabel", { job })}
+              />
             ) : r.status === "not_covered" ? (
               <p>{t("aiServices.check.flag.approveInstead")}</p>
             ) : !plan ? null : plan.blocked && !(running && mine) ? (
@@ -851,20 +782,10 @@ function RunCheck(
     <div className="ai-sub ai-run">
       <h3>{t("aiServices.check.run.title")}</h3>
       {running && check ? (
-        <div role="status" aria-live="polite" className="ai-run-progress">
-          <p>
-            {t("aiServices.check.run.progress", {
-              done: check.completed,
-              total: check.total,
-            })}
-          </p>
-          <progress
-            max={check.total}
-            value={check.completed}
-            aria-label={t("aiServices.check.run.progressLabel")}
-          />
-          <p className="ai-muted">{t("aiServices.check.run.canLeave")}</p>
-        </div>
+        <CheckProgress
+          check={check}
+          label={t("aiServices.check.run.progressLabel")}
+        />
       ) : (
         <>
           {check && (
@@ -916,6 +837,50 @@ function RunCheck(
   );
 }
 
+/**
+ * A running check's progress. Once its deadline has passed it no longer says "Checking…": it says
+ * the check didn't finish in time and is being stopped. The server ends such a check itself
+ * (PROVIDER_QUALITY_CHECK_TIMEOUT, or PROVIDER_QUALITY_CHECK_INTERRUPTED once its deadline is a
+ * minute past, see services/api/src/provider-quality-checks.ts expire()), and the poll then shows
+ * that result in the same place.
+ */
+export function CheckProgress({
+  check,
+  label,
+}: {
+  check: QualityCheck;
+  label: string;
+}) {
+  const { t } = useAiText();
+  const [now, setNow] = useState(() => Date.now());
+  const deadline = check.deadlineAt ? Date.parse(check.deadlineAt) : NaN;
+  const overdue = Number.isFinite(deadline) && now > deadline;
+  useEffect(() => {
+    if (!Number.isFinite(deadline) || overdue) return;
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(Math.max(deadline - Date.now() + 50, 0), 2 ** 31 - 1),
+    );
+    return () => window.clearTimeout(timer);
+  }, [deadline, overdue]);
+  const values = { done: check.completed, total: check.total };
+  return (
+    <div role="status" aria-live="polite" className="ai-run-progress">
+      {overdue ? (
+        <Message tone="warn">
+          {t("aiServices.check.run.overdue", values)}
+        </Message>
+      ) : (
+        <p>{t("aiServices.check.run.progress", values)}</p>
+      )}
+      <progress max={check.total} value={check.completed} aria-label={label} />
+      {!overdue && (
+        <p className="ai-muted">{t("aiServices.check.run.canLeave")}</p>
+      )}
+    </div>
+  );
+}
+
 export function CheckResult({
   check,
   service,
@@ -936,6 +901,15 @@ export function CheckResult({
       <Message tone="error">
         {t("aiServices.check.run.errorTitle")}{" "}
         {errorReason(text, check.reason, service, check.reasonDetail)}
+        {check.total > 0 && check.completed < check.total && (
+          <>
+            {" "}
+            {t("aiServices.check.run.stoppedAt", {
+              done: check.completed,
+              total: check.total,
+            })}
+          </>
+        )}
         {check.chargedMicroUsd !== null && (
           <>
             {" "}
