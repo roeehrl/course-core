@@ -179,6 +179,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
           exclusions: (await client.query("SELECT message_id,created_at,ended_at FROM companion_context_exclusions WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
         }
       : null,
+    // The learner's votes, comments and problem reports on companion replies: part of the conversation.
+    companionFeedback: mayRead(audience, "companion")
+      ? await rows(client, "SELECT message_id,vote,comment,reported,created_at,updated_at FROM companion_reply_feedback WHERE enrollment_id=$1 ORDER BY created_at,message_id", id)
+      : null,
     learnerModel: mayRead(audience, "learner-model")
       ? {
           profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,
@@ -298,6 +302,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   Object.assign(counts, await eraseCrossCourseWithin(client, enrollmentId));
   await run("companionMessages", "UPDATE companion_messages SET content='[erased]',context='{}'::jsonb WHERE enrollment_id=$1");
   await run("companionContextCapsules", "UPDATE companion_context_capsules SET capsule='{}'::jsonb,digest='erased' WHERE enrollment_id=$1");
+  // Votes, comments and reports on companion replies go entirely.
+  await run("companionReplyFeedback", "DELETE FROM companion_reply_feedback WHERE enrollment_id=$1");
   await run("attempts", `UPDATE attempts SET response='${ERASED}'::jsonb,result='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("evidence", `UPDATE evidence SET result='${ERASED}'::jsonb,invalidation_reason=CASE WHEN invalidation_reason IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1`);
   await run("activityStates", "UPDATE activity_instances SET state='{}'::jsonb WHERE enrollment_id=$1");

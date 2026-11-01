@@ -1,1 +1,8 @@
-{}
+{
+  "more": "More",
+  "label": "More actions",
+  "exclude": "Don't use in later answers",
+  "include": "Use in later answers again",
+  "report": "Report a problem",
+  "basedOn": "Based on…"
+}

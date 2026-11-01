@@ -1,7 +1,8 @@
 import type { ContextCapsule } from "@course-core/sdk";
-import type { CourseApi, ServerSnapshot } from "./apiClient";
+import { CourseApiError, type CourseApi, type ServerSnapshot } from "./apiClient";
 import type { VisualInteractionContext } from "../components/VisualBlock";
 import { companionFocus, type FocusSelection } from "./companionFocus";
+import { randomId } from "./webCrypto";
 export interface CompanionContext extends Pick<
   ContextCapsule,
   "enrollmentId" | "courseDigest"
@@ -88,7 +89,7 @@ export interface CompanionMessage {
     downgradedChallengeIds?: string[];
   };
   /** Assistant messages: the learner's vote on the reply and whether they reported it (null: none). */
-  feedback?: { vote: "helpful" | "not_helpful" | null; reported: boolean } | null;
+  feedback?: CompanionFeedback | null;
   /** Assistant messages: the capsule its answer was built from (null if not recorded). */
   context_used?: CompanionContextUsed | null;
   /** Learner messages: the learner asked the companion not to use it again. */
@@ -168,6 +169,18 @@ export interface CompanionReceipt {
   state: "queued";
   downgradedChallengeIds: string[];
 }
+/** The learner's feedback on a reply, as the conversation reads it (never the comment). */
+export type CompanionFeedback = { vote: "helpful" | "not_helpful" | null; reported: boolean };
+/** A change to it: the vote (null takes it back), and a comment or a report when given. */
+export type CompanionVote = { vote: "helpful" | "not_helpful" | null; comment?: string; report?: boolean };
+/** One page of the conversation, oldest first. */
+export interface CompanionPage {
+  messages: readonly CompanionMessage[];
+  /** Older messages remain. */
+  earlier: boolean;
+  /** The cursor that reads them, or null. */
+  before: string | null;
+}
 export interface ContextualCompanionClient {
   load(
     enrollmentId: string,
@@ -185,18 +198,23 @@ export interface ContextualCompanionClient {
       challengeId?: string;
     },
   ): Promise<CompanionReceipt>;
-  /** The learner's vote on a reply, an optional comment, or a report of a problem. */
+  /** The learner's vote on a reply, an optional comment, or a report of a problem. Only the
+   * enrollment and its revision of the snapshot are used. */
   vote?(
-    snapshot: ServerSnapshot,
+    snapshot: Pick<ServerSnapshot, "enrollmentId" | "revision">,
     messageId: string,
-    input: { vote: "helpful" | "not_helpful" | null; comment?: string; report?: boolean },
-  ): Promise<{ messageId: string; feedback: { vote: "helpful" | "not_helpful" | null; reported: boolean } }>;
-  /** Messages older than the ones loaded: a page of them and whether more remain. */
+    input: CompanionVote,
+  ): Promise<{ messageId: string; feedback: CompanionFeedback }>;
+  /** Messages older than the ones loaded: the page before `before` (a cursor a read returned),
+   * whether more remain and the cursor that reads them. */
   loadEarlier?(
     enrollmentId: string,
     before: string,
     signal?: AbortSignal,
-  ): Promise<{ messages: readonly CompanionMessage[]; earlier: boolean }>;
+  ): Promise<CompanionPage>;
+  /** For messages `load` returned: whether older messages remain and the cursor that reads them
+   * (undefined when the client does not page). */
+  pageOf?(messages: readonly CompanionMessage[]): { earlier: boolean; before: string | null } | undefined;
   /** Delete one of the learner's questions, its answer and what was derived from it. */
   deleteMessage?(
     snapshot: ServerSnapshot,
@@ -239,35 +257,77 @@ const contextUsedValid = (value: unknown): boolean => {
     typeof used.constraints.independentAssessmentActive === "boolean"
   );
 };
+const feedbackValid = (value: unknown): boolean =>
+  value === undefined || value === null ||
+  (typeof value === "object" &&
+    [null, "helpful", "not_helpful"].includes((value as CompanionFeedback).vote) &&
+    typeof (value as CompanionFeedback).reported === "boolean");
 export function createCompanionClient(
   api: CourseApi,
 ): ContextualCompanionClient {
+  // What each read said about older messages, kept with the messages it returned.
+  const pages = new WeakMap<readonly CompanionMessage[], { earlier: boolean; before: string | null }>();
+  async function page(id: string, query: string, signal?: AbortSignal): Promise<CompanionPage> {
+    const result = await api.request<{ messages: CompanionMessage[]; earlier?: unknown; before?: unknown }>(
+      `/api/enrollments/${encodeURIComponent(id)}/companion${query}`,
+      "GET",
+      undefined,
+      { signal },
+    );
+    if (
+      !Array.isArray(result.messages) ||
+      result.messages.some(
+        (m) =>
+          !m ||
+          typeof m.id !== "string" ||
+          !["learner", "assistant"].includes(m.role) ||
+          typeof m.content !== "string" ||
+          m.content.length > 32000 ||
+          !m.context ||
+          typeof m.context !== "object" ||
+          !contextUsedValid(m.context_used) ||
+          (m.excluded !== undefined && typeof m.excluded !== "boolean") ||
+          !feedbackValid(m.feedback),
+      )
+    )
+      // i18n-ignore: malformed-response diagnostic; callers show their own message
+      throw new Error("Invalid companion message response");
+    // An API from before paging sends neither: nothing older can be read.
+    const before = typeof result.before === "string" && result.before.length <= 200 ? result.before : null;
+    return { messages: result.messages, earlier: result.earlier === true && before !== null, before };
+  }
   return {
     async load(id, signal) {
-      const result = await api.request<{ messages: CompanionMessage[] }>(
-        `/api/enrollments/${encodeURIComponent(id)}/companion`,
-        "GET",
-        undefined,
-        { signal },
-      );
-      if (
-        !Array.isArray(result.messages) ||
-        result.messages.some(
-          (m) =>
-            !m ||
-            typeof m.id !== "string" ||
-            !["learner", "assistant"].includes(m.role) ||
-            typeof m.content !== "string" ||
-            m.content.length > 32000 ||
-            !m.context ||
-            typeof m.context !== "object" ||
-            !contextUsedValid(m.context_used) ||
-            (m.excluded !== undefined && typeof m.excluded !== "boolean"),
-        )
-      )
+      const read = await page(id, "", signal);
+      pages.set(read.messages, { earlier: read.earlier, before: read.before });
+      return read.messages;
+    },
+    pageOf: (messages) => pages.get(messages),
+    async loadEarlier(id, before, signal) {
+      return page(id, `?before=${encodeURIComponent(before)}`, signal);
+    },
+    async vote(snapshot, messageId, input) {
+      // A vote is a small upsert that fences nothing: sent straight, not through the command queue
+      // (api.command), so it never holds back a question being sent. A revision that moved on
+      // meanwhile is read again once.
+      const send = (revision: number) =>
+        api.request<{ messageId: string; feedback: CompanionFeedback }>(
+          `/api/enrollments/${encodeURIComponent(snapshot.enrollmentId)}/companion/messages/${encodeURIComponent(messageId)}/feedback`,
+          "POST",
+          { ...input, expectedRevision: revision, idempotencyKey: randomId() },
+        );
+      let result;
+      try {
+        result = await send(snapshot.revision);
+      } catch (error) {
+        if (!(error instanceof CourseApiError) || error.code !== "STALE_REVISION") throw error;
+        const current = await api.request<{ revision: number }>(`/api/enrollments/${encodeURIComponent(snapshot.enrollmentId)}`);
+        result = await send(current.revision);
+      }
+      if (!result || result.messageId !== messageId || !feedbackValid(result.feedback) || !result.feedback)
         // i18n-ignore: malformed-response diagnostic; callers show their own message
-        throw new Error("Invalid companion message response");
-      return result.messages;
+        throw new Error("Invalid companion feedback receipt");
+      return result;
     },
     async send(snapshot, input) {
       // The learner's chosen focus goes with this message only, against this course version.

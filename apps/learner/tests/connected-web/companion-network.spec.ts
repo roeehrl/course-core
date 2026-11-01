@@ -3,16 +3,20 @@ import { companionPanel } from "./companion-helpers";
 
 /* With the companion open beside the lesson, the conversation is read when something happens
  * (an event on the enrollment's stream, a new course revision, the panel opening), not on a
- * timer, and one event stream serves the whole visit. The window size is set here, so the
+ * timer, and one event stream serves the whole visit; earlier pages of a long conversation are read
+ * only on request. The window size is set here, so the
  * test runs once per engine (@desktop-window). */
 
 function watchCompanion(page: Page) {
-  const seen = { streams: 0, reads: 0 };
+  const seen = { streams: 0, reads: 0, earlier: 0 };
   page.on("request", (request) => {
     if (request.method() !== "GET") return;
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url()), path = url.pathname;
     if (/^\/api\/enrollments\/[^/]+\/events\/stream$/.test(path)) seen.streams++;
-    if (/^\/api\/enrollments\/[^/]+\/companion$/.test(path)) seen.reads++;
+    // Earlier pages ("Show earlier messages") are read only when the learner asks.
+    if (!/^\/api\/enrollments\/[^/]+\/companion$/.test(path)) return;
+    if (url.searchParams.has("before")) seen.earlier++;
+    else seen.reads++;
   });
   return seen;
 }
@@ -63,5 +67,6 @@ test("the open companion pane reads on events, keeps one stream across revisions
   await page.waitForTimeout(7000);
   expect(seen.reads - waiting).toBeLessThanOrEqual(1);
   expect(seen.streams).toBe(1);
+  expect(seen.earlier).toBe(0);
   expect(errors).toEqual([]);
 });
