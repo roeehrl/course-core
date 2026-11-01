@@ -48,11 +48,24 @@ describe("disabled buttons", () => {
     // Every stylesheet of the app: rules moved out of connected.css stay covered.
     const css = stylesheets(join(__dirname, "../src")).map((file) => readFileSync(file, "utf8"));
     expect(css.length).toBeGreaterThan(1);
-    const faded: string[] = [], labels = new Set<string>();
+    const faded: string[] = [], labels = new Set<string>(), unfilled = new Set<string>();
+    /** Label colours of rules that paint their own fill under the label, with that fill. */
+    const painted = new Map<string, Set<string>>();
+    const COLOUR = /^(#[0-9a-f]{6}|var\(--[a-z0-9-]+\))$/i;
     for (const sheet of css) postcss.parse(sheet).walkRules((rule: Rule) => {
       if (!rule.selector.includes(":disabled")) return;
       rule.walkDecls("opacity", (decl) => { if (Number(decl.value) < 1) faded.push(`${rule.selector} { opacity: ${decl.value} }`); });
-      rule.walkDecls("color", (decl) => { if (/^(#[0-9a-f]{6}|var\(--[a-z0-9-]+\))$/i.test(decl.value)) labels.add(decl.value.toLowerCase()); });
+      let fill: string | undefined;
+      rule.walkDecls(/^background(-color)?$/, (decl) => { if (COLOUR.test(decl.value)) fill = decl.value.toLowerCase(); });
+      rule.walkDecls("color", (decl) => {
+        if (!COLOUR.test(decl.value)) return;
+        const label = decl.value.toLowerCase();
+        labels.add(label);
+        // A rule that keeps a solid fill while disabled (Check stays accent while the grader
+        // works) draws its label on that fill only.
+        if (fill) painted.set(label, (painted.get(label) ?? new Set()).add(fill));
+        else unfilled.add(label);
+      });
     });
     // The account dialogs (.connected-portal) included: a disabled button there faded to about 2:1.
     expect(faded).toEqual([]);
@@ -65,8 +78,11 @@ describe("disabled buttons", () => {
       for (const theme of THEMES) {
         // A literal colour is written for the light theme; a token is checked in both.
         if (!label.startsWith("var(") && theme === "dark") continue;
-        for (const background of [DISABLED_TOKENS.fill, ...BACKGROUNDS])
-          expect(contrast(drawn[theme], palette[theme][background]), `${label} on ${background} (${theme})`).toBeGreaterThanOrEqual(4.5);
+        if (unfilled.has(label))
+          for (const background of [DISABLED_TOKENS.fill, ...BACKGROUNDS])
+            expect(contrast(drawn[theme], palette[theme][background]), `${label} on ${background} (${theme})`).toBeGreaterThanOrEqual(4.5);
+        for (const fill of painted.get(label) ?? [])
+          expect(contrast(drawn[theme], resolve(fill)[theme]), `${label} on ${fill} (${theme})`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });
