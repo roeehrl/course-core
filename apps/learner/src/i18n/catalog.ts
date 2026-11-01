@@ -7,12 +7,14 @@ import en_answers from "./messages/en/answers.json";
 import en_apiClient from "./messages/en/apiClient.json";
 import en_assessmentInput from "./messages/en/assessmentInput.json";
 import en_changedElsewhere from "./messages/en/changedElsewhere.json";
+import en_chip from "./messages/en/chip.json";
 import en_closureSummary from "./messages/en/closureSummary.json";
 import en_code from "./messages/en/code.json";
 import en_codeEditor from "./messages/en/codeEditor.json";
 import en_companion from "./messages/en/companion.json";
 import en_companionClient from "./messages/en/companionClient.json";
 import en_companionDock from "./messages/en/companionDock.json";
+import en_companionTurnFrame from "./messages/en/companionTurnFrame.json";
 import en_connectedAgentsPanel from "./messages/en/connectedAgentsPanel.json";
 import en_connectedCompanion from "./messages/en/connectedCompanion.json";
 import en_connectedHost from "./messages/en/connectedHost.json";
@@ -35,6 +37,7 @@ import en_lessonFlow from "./messages/en/lessonFlow.json";
 import en_lessonSteps from "./messages/en/lessonSteps.json";
 import en_loadingLine from "./messages/en/loadingLine.json";
 import en_localeSwitcher from "./messages/en/localeSwitcher.json";
+import en_longAnswerComposer from "./messages/en/longAnswerComposer.json";
 import en_markdownContent from "./messages/en/markdownContent.json";
 import en_mathText from "./messages/en/mathText.json";
 import en_notifications from "./messages/en/notifications.json";
@@ -81,12 +84,14 @@ import he_answers from "./messages/he/answers.json";
 import he_apiClient from "./messages/he/apiClient.json";
 import he_assessmentInput from "./messages/he/assessmentInput.json";
 import he_changedElsewhere from "./messages/he/changedElsewhere.json";
+import he_chip from "./messages/he/chip.json";
 import he_closureSummary from "./messages/he/closureSummary.json";
 import he_code from "./messages/he/code.json";
 import he_codeEditor from "./messages/he/codeEditor.json";
 import he_companion from "./messages/he/companion.json";
 import he_companionClient from "./messages/he/companionClient.json";
 import he_companionDock from "./messages/he/companionDock.json";
+import he_companionTurnFrame from "./messages/he/companionTurnFrame.json";
 import he_connectedAgentsPanel from "./messages/he/connectedAgentsPanel.json";
 import he_connectedCompanion from "./messages/he/connectedCompanion.json";
 import he_connectedHost from "./messages/he/connectedHost.json";
@@ -109,6 +114,7 @@ import he_lessonFlow from "./messages/he/lessonFlow.json";
 import he_lessonSteps from "./messages/he/lessonSteps.json";
 import he_loadingLine from "./messages/he/loadingLine.json";
 import he_localeSwitcher from "./messages/he/localeSwitcher.json";
+import he_longAnswerComposer from "./messages/he/longAnswerComposer.json";
 import he_markdownContent from "./messages/he/markdownContent.json";
 import he_mathText from "./messages/he/mathText.json";
 import he_notifications from "./messages/he/notifications.json";
@@ -157,12 +163,14 @@ export const en = {
   apiClient: en_apiClient,
   assessmentInput: en_assessmentInput,
   changedElsewhere: en_changedElsewhere,
+  chip: en_chip,
   closureSummary: en_closureSummary,
   code: en_code,
   codeEditor: en_codeEditor,
   companion: en_companion,
   companionClient: en_companionClient,
   companionDock: en_companionDock,
+  companionTurnFrame: en_companionTurnFrame,
   connectedAgentsPanel: en_connectedAgentsPanel,
   connectedCompanion: en_connectedCompanion,
   connectedHost: en_connectedHost,
@@ -185,6 +193,7 @@ export const en = {
   lessonSteps: en_lessonSteps,
   loadingLine: en_loadingLine,
   localeSwitcher: en_localeSwitcher,
+  longAnswerComposer: en_longAnswerComposer,
   markdownContent: en_markdownContent,
   mathText: en_mathText,
   notifications: en_notifications,
@@ -233,12 +242,14 @@ export const he: PartialCatalog<typeof en> = {
   apiClient: he_apiClient,
   assessmentInput: he_assessmentInput,
   changedElsewhere: he_changedElsewhere,
+  chip: he_chip,
   closureSummary: he_closureSummary,
   code: he_code,
   codeEditor: he_codeEditor,
   companion: he_companion,
   companionClient: he_companionClient,
   companionDock: he_companionDock,
+  companionTurnFrame: he_companionTurnFrame,
   connectedAgentsPanel: he_connectedAgentsPanel,
   connectedCompanion: he_connectedCompanion,
   connectedHost: he_connectedHost,
@@ -261,6 +272,7 @@ export const he: PartialCatalog<typeof en> = {
   lessonSteps: he_lessonSteps,
   loadingLine: he_loadingLine,
   localeSwitcher: he_localeSwitcher,
+  longAnswerComposer: he_longAnswerComposer,
   markdownContent: he_markdownContent,
   mathText: he_mathText,
   notifications: he_notifications,
