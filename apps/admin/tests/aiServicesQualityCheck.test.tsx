@@ -359,6 +359,48 @@ describe("running the quality check from the page", () => {
     );
   });
 
+  it("says the check runs as many conversations as its progress counts to, not the suite's whole coverage", async () => {
+    const port = fakePort({
+      // The suite covers 23 conversations for these jobs; the check of this draft runs 12.
+      evals: vi.fn().mockResolvedValue({
+        suite: {
+          id: "s",
+          version: "1",
+          digest: "a".repeat(64),
+          dialogues: 30,
+          coverage: [
+            { role: "companion", dialogues: 18 },
+            { role: "supervisor", dialogues: 5 },
+          ],
+        },
+        providerRevision: 0,
+        gatedAtActivation: true,
+        roles: [],
+        results: [],
+        overrides: [],
+      }),
+      startQualityCheck: vi.fn().mockResolvedValue(check({ completed: 4 })),
+      qualityCheck: vi.fn().mockResolvedValue(check({ completed: 4 })),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="admin" />);
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(t("check.explain", { dialogues: 12 })),
+    ).toBeInTheDocument();
+    expect(
+      within(region).queryByText(t("check.explain", { dialogues: 23 })),
+    ).toBeNull();
+    expect(he("check.explain", { dialogues: 12 })).toContain("12 שיחות תרגול");
+    fireEvent.click(
+      within(region).getByRole("button", { name: t("check.run.button") }),
+    );
+    expect(
+      await within(region).findByText(
+        t("check.run.progress", { done: 4, total: 12 }),
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("every grader of Core's suite has a label and an explanation in English and Hebrew", () => {
     // The server's list of graders (services/api/src/agent-evals/graders.ts GRADERS) is this page's list.
     const source = readFileSync(

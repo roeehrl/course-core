@@ -90,9 +90,15 @@ export function CheckSection(props: Props) {
     () => activeRoles(data.setup.configuration),
     [data.setup.configuration],
   );
-  const dialogues = (data.evals?.suite.coverage ?? [])
-    .filter((c) => waiting.some((w) => w.role === c.role))
-    .reduce((sum, c) => sum + c.dialogues, 0);
+  // What the check of this draft runs, as the server plans it (the same count its progress counts
+  // to), not the suite's whole coverage: the server runs only the conversations for the course's
+  // teaching strategy of each job.
+  const dialogues =
+    draft &&
+    data.quality?.target === "draft" &&
+    data.quality.draftId === draft.id
+      ? data.quality.conversations
+      : 0;
   const latest = data.quality?.latest ?? null;
   const passedForDraft =
     !!draft &&
