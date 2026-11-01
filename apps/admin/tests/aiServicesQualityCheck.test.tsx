@@ -1357,6 +1357,73 @@ describe("model suggestions", () => {
     ).toBeInTheDocument();
   });
 
+  it("says a check stopped on this workspace's own setup, not the service's model list, in English and Hebrew", async () => {
+    const stopped = (reason: string, providerCode: string) =>
+      check({
+        state: "error",
+        reason,
+        reasonDetail: {
+          role: "supervisor",
+          providerCode,
+          status: null,
+          providerReason: null,
+        },
+        chargedMicroUsd: 0,
+      });
+    for (const [reason, providerCode, key] of [
+      [
+        "PROVIDER_QUALITY_CHECK_MODEL_NOT_CONFIGURED",
+        "UNKNOWN_MODEL",
+        "check.run.modelNotConfigured",
+      ],
+      [
+        "PROVIDER_QUALITY_CHECK_CAPABILITY_MISSING",
+        "CAPABILITY_MISMATCH",
+        "check.run.capabilityMissing",
+      ],
+    ] as const) {
+      const port = fakePort({
+        qualityStatus: vi
+          .fn()
+          .mockResolvedValue(status({ latest: stopped(reason, providerCode) })),
+      });
+      const { unmount } = render(
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+      );
+      const region = await checkRegion();
+      expect(
+        await within(region).findByText(
+          t(key, { job: t("role.supervisor.name") }),
+          { exact: false },
+        ),
+      ).toBeInTheDocument();
+      // Never the service's "model isn't available" message.
+      expect(region.textContent).not.toContain(t("err.modelUnavailable"));
+      expect(region.textContent).not.toContain(
+        t("check.run.modelUnavailable", {
+          service: t("service.google"),
+          job: t("role.supervisor.name"),
+        }),
+      );
+      unmount();
+      render(
+        <I18nProvider value={hebrew}>
+          <AiServicesPage workspaceId={workspace} port={port} role="owner" />
+        </I18nProvider>,
+      );
+      const heRegion = await screen.findByRole("region", {
+        name: he("section.check"),
+      });
+      expect(
+        await within(heRegion).findByText(
+          he(key, { job: he("role.supervisor.name") }).replace(/\s+/g, " "),
+          { exact: false },
+        ),
+      ).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
   it("classifies special-purpose models, keeping image models for the images job", () => {
     for (const id of [
       "gemini-3.5-flash-lite",
