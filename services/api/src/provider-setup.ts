@@ -28,7 +28,8 @@ import type { Actor } from "./auth.js";
 import { workspaceRole } from "./course-access.js";
 import { requireCondition, ApiError } from "./errors.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
-import { activationDecision, type VersionEvaluation } from "./agent-evals/gate.js";
+import { activationDecision, courseStrategyRevisions, revokeApprovals, type VersionEvaluation } from "./agent-evals/gate.js";
+import { roleRevisions, type ConfigurationShape } from "./agent-evals/revision.js";
 import { publicSuite } from "./agent-evals/public-suite.js";
 import { AGENT_ROLES } from "./agent-strategies.js";
 import type { EvalSuite } from "./agent-evals/suite.js";
@@ -703,9 +704,11 @@ export class WorkspaceProviders {
    * Turns one job of the active setup off (owners and administrators): a new active version
    * without that job's binding, so learners get no answer from it from now on, exactly as before
    * it was turned on (the runtime reports it unconfigured). Unfinished jobs are asked to stop, as
-   * after any model change, so none keeps running on the version that had it. Its approval and
-   * check results stay recorded; turning it on again goes through the models and the check as
-   * usual. An open draft is moved onto the new version without the job. Idempotent per key (a
+   * after any model change, so none keeps running on the version that had it. Its check results
+   * stay recorded, but every owner approval ("approved without checking") of the job's revision, and
+   * of the course strategies run on it, is withdrawn (agent-evals/gate.ts `revokeApprovals`):
+   * turning the same model on again needs a passing check or a fresh approval, never the old one.
+   * An open draft is moved onto the new version without the job. Idempotent per key (a
    * provider_setup_receipts row) and recorded in the workspace audit log. A job that is already
    * off changes nothing. 409 PROVIDER_ROLE_IN_USE when another job uses it as its check judge.
    */
@@ -730,6 +733,12 @@ export class WorkspaceProviders {
           .filter(([role, b]) => role !== input.role && (b as { checkJudgeRole?: string } | undefined)?.checkJudgeRole === input.role)
           .map(([role]) => role);
         if (users.length) throw new ApiError(409, "PROVIDER_ROLE_IN_USE", "PROVIDER_ROLE_IN_USE", { roles: users });
+        // The revisions the job ran as, read before it goes: Core's own and each course strategy's.
+        const revisionDigests = [
+          (await roleRevisions(configuration))[input.role]?.digest,
+          ...(await courseStrategyRevisions(client, workspace, configuration as ConfigurationShape))
+            .filter((entry) => entry.role === input.role).map((entry) => entry.revisionDigest),
+        ].filter((digest): digest is string => !!digest);
         const next = structuredClone(configuration);
         delete next.roles[input.role];
         const committed = await this.commitVersion(client, workspace, actor, {
@@ -744,6 +753,8 @@ export class WorkspaceProviders {
           "UPDATE provider_setup_drafts SET base_revision=$3,configuration=configuration #- ARRAY['roles',$4::text],updated_at=clock_timestamp() WHERE workspace_id=$1 AND base_revision=$2",
           [workspace, old.revision, committed.revision, input.role],
         );
+        const withdrawn = await revokeApprovals(client, { workspace, role: input.role, revisionDigests,
+          providerRevision: committed.revision, actorId: actor.id });
         result = { role: input.role, revision: committed.revision, turnedOff: true, cancelledPendingJobs: committed.cancelledPendingJobs };
         await appendEvent(client, {
           workspaceId: workspace,
@@ -751,7 +762,7 @@ export class WorkspaceProviders {
           actorKind: "staff",
           type: "provider.role.turned_off",
           payload: { role: input.role, modelId: binding.modelId, previousRevision: old.revision, revision: committed.revision,
-            cancelledPendingJobs: committed.cancelledPendingJobs },
+            cancelledPendingJobs: committed.cancelledPendingJobs, approvalsWithdrawn: withdrawn.length },
           idempotencyKey: `provider.role.turned_off:${workspace}:${committed.revision}`,
         });
       }

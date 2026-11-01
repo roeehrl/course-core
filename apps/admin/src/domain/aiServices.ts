@@ -90,6 +90,13 @@ export const modelListSchema = z.object({
     )
     .max(400),
   truncated: z.boolean(),
+  /** Models the service answered "not found" for in a quality check: no longer offered (older servers omit it). */
+  unavailable: z
+    .array(
+      z.object({ remoteModel: z.string().max(2048), markedAt: z.string() }),
+    )
+    .max(400)
+    .optional(),
   roles: z.array(
     z.object({
       role: job,
@@ -923,13 +930,22 @@ export type Issue =
   | { section: "spending"; kind: "spending" }
   | { section: "spending"; kind: "learnerLimit" };
 export interface PageStatus {
+  /** Whether learners get AI help now: judged on the active setup only, never on a draft. */
   on: boolean;
   sections: Record<SectionId, SectionState>;
+  /** While off: what is still missing before AI services are on (draft steps included). */
   issues: Issue[];
+  /**
+   * While on: what a saved draft still needs before it replaces the models that are on (a quality
+   * check, a price, turning it on). Learners keep the active models meanwhile.
+   */
+  pending: Issue[];
 }
 /**
  * What the page says: per section a status, and for the page the list of what is still missing
- * before AI services are on (each with the section that fixes it).
+ * before AI services are on (each with the section that fixes it). "On" is the active setup's
+ * state: a draft waiting for a check or a price never turns AI services off, it is listed in
+ * `pending` instead.
  */
 export function pageStatus(input: {
   connections: Connections;
@@ -964,6 +980,11 @@ export function pageStatus(input: {
 
   const active = activeRoles(input.setup.configuration);
   const draft = input.draft;
+  // Learners lose AI help only when the active setup lacks something; the draft's steps don't count.
+  let activeBroken = issues.length > 0;
+  if (NEEDED_JOBS.some((role) => !active.some((a) => a.role === role)))
+    activeBroken = true;
+  const draftIssues: Issue[] = [];
   const missing = NEEDED_JOBS.filter(
     (role) =>
       !active.some((a) => a.role === role) &&
@@ -977,7 +998,7 @@ export function pageStatus(input: {
     models = { tone: "warn", pill: "waitingCheck" };
   else if (draft) {
     models = { tone: "warn", pill: "notOn" };
-    issues.push({ section: "models", kind: "notOn" });
+    draftIssues.push({ section: "models", kind: "notOn" });
   } else models = { tone: "ok", pill: "done" };
 
   let check: SectionState;
@@ -987,7 +1008,7 @@ export function pageStatus(input: {
       pill: "waitingCheck",
       count: draft.waitingForCheck.length,
     };
-    issues.push({
+    draftIssues.push({
       section: "check",
       kind: "check",
       count: draft.waitingForCheck.length,
@@ -1011,8 +1032,15 @@ export function pageStatus(input: {
   if (!groups.length) prices = { tone: "idle", pill: "nothingYet" };
   else if (unpriced) {
     prices = { tone: "warn", pill: "priceNeeded", count: unpriced };
-    issues.push({ section: "prices", kind: "prices", count: unpriced });
+    draftIssues.push({ section: "prices", kind: "prices", count: unpriced });
   } else prices = { tone: "ok", pill: "done" };
+  // The models that are on need their prices; a draft's unpriced model waits with the draft.
+  if (
+    priceGroups(active, null, input.pricing).some(
+      (g) => g.roles.some((r) => r !== "media") && !g.priced,
+    )
+  )
+    activeBroken = true;
 
   const total = Number(input.budgets?.workspace.limit_micro_usd ?? 0),
     perLearner = Number(input.budgets?.defaultEnrollment.limit_micro_usd ?? 0),
@@ -1028,10 +1056,31 @@ export function pageStatus(input: {
     spending = { tone: "warn", pill: "learnerLimitNeeded" };
     issues.push({ section: "spending", kind: "learnerLimit" });
   } else spending = { tone: "ok", pill: "done" };
+  if (issues.some((i) => i.section === "spending")) activeBroken = true;
+  if (activeBroken) {
+    // Off: every step, in page order, including the draft's (they are the way to turn it on).
+    const order: SectionId[] = [
+      "connections",
+      "models",
+      "check",
+      "prices",
+      "spending",
+    ];
+    const all = [...issues, ...draftIssues].sort(
+      (a, b) => order.indexOf(a.section) - order.indexOf(b.section),
+    );
+    return {
+      on: false,
+      sections: { connections, models, prices, spending, check },
+      issues: all,
+      pending: [],
+    };
+  }
   return {
-    on: issues.length === 0,
+    on: true,
     sections: { connections, models, prices, spending, check },
-    issues,
+    issues: [],
+    pending: draftIssues,
   };
 }
 export {

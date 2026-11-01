@@ -32,7 +32,7 @@ const JUDGE_CALL = 11500, calls = conversations * 2;
 
 /** What the scripted provider does next: answer from a table, refuse the key, or answer in full with
  * output the adapter refuses (empty text, or structured output that is not JSON). */
-let mode: "reference" | "known-bad" | "reject" | "malformed" = "reference";
+let mode: "reference" | "known-bad" | "reject" | "malformed" | "not-found" = "reference";
 // Each answers the check's meaning judge with the scripted judge (Core's pattern graders), so the result stays deterministic.
 const judged = { judgeSuite: publicSuite() };
 const models = { reference: new ScriptedModel(PUBLIC_SCRIPTED_MODELS.reference, judged), "known-bad": new ScriptedModel(PUBLIC_SCRIPTED_MODELS["known-bad"], judged) };
@@ -42,6 +42,10 @@ const scriptedFetch: typeof fetch = async (input, init) => {
   if (mode === "reject")
     return new Response(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "synthetic refusal" } }),
       { status: 401, headers: { "content-type": "application/json" } });
+  // The provider no longer has the model, although its model list may still name it (HTTP 404).
+  if (mode === "not-found")
+    return new Response(JSON.stringify({ type: "error", error: { type: "not_found_error", message: "synthetic missing model" } }),
+      { status: 404, headers: { "content-type": "application/json" } });
   if (mode === "malformed") {
     const body = JSON.parse(String(init?.body)) as { model: string; output_config?: { format?: unknown } };
     return new Response(JSON.stringify({ id: "msg_malformed", type: "message", role: "assistant", model: body.model, stop_reason: "end_turn",
@@ -419,6 +423,35 @@ describe("quality check from the AI services page", () => {
     expect((await ledger(workspace)).every((r) => r.state === "not_started" && r.charged === 0)).toBe(true);
     expect((await used(workspace)).usd).toBe(0);
     expect(Number((await db.query("SELECT count(*) FROM provider_eval_results WHERE workspace_id=$1", [workspace])).rows[0].count)).toBe(0);
+  });
+
+  it("records a job's model the provider answered \"not found\" for, so the picker stops offering it", async () => {
+    const { workspace, owner, draftId } = await prepared({ limitMicroUsd: 5_000_000 });
+    mode = "not-found";
+    const before = sent;
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId });
+    expect(started.statusCode, started.body).toBe(200);
+    const done = await finished(owner, workspace, started.json().id);
+    mode = "reference";
+    // The first conversation's 404 stops the run: nothing graded, nothing charged.
+    expect(done).toMatchObject({ state: "error", reason: "PROVIDER_GUIDE_MODEL_UNAVAILABLE", chargedMicroUsd: 0,
+      reasonDetail: { role: "companion", providerCode: "NOT_FOUND", status: 404 } });
+    expect(sent - before).toBe(1);
+    const configuration = scriptedConfiguration("reference") as unknown as { registry: { models: { id: string; providerId: string; remoteModel: string }[] };
+      roles: Record<string, { modelId: string }> };
+    const tutor = configuration.registry.models.find((m) => m.id === configuration.roles.companion!.modelId)!;
+    const marked = (await db.query("SELECT connection_id,remote_model,reason_code,provider_status,check_id FROM provider_unavailable_models WHERE workspace_id=$1",
+      [workspace])).rows;
+    expect(marked).toEqual([{ connection_id: tutor.providerId, remote_model: tutor.remoteModel, reason_code: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+      provider_status: 404, check_id: done.id }]);
+    const audit = (await db.query("SELECT payload FROM learning_events WHERE workspace_id=$1 AND event_type='provider.quality_check.finished'", [workspace])).rows;
+    expect(audit[0].payload.unavailableModel).toEqual({ connectionId: tutor.providerId, remoteModel: tutor.remoteModel });
+    // Any other fault records nothing.
+    const other = await prepared({ limitMicroUsd: 5_000_000 });
+    mode = "reject";
+    await finished(other.owner, other.workspace, (await call(other.owner, "POST", checks(other.workspace), { idempotencyKey: key(), draftId: other.draftId })).json().id);
+    mode = "reference";
+    expect((await db.query("SELECT count(*)::int AS n FROM provider_unavailable_models WHERE workspace_id=$1", [other.workspace])).rows[0].n).toBe(0);
   });
 
   it("ends a check that runs past its deadline as timed out and frees what it never sent", async () => {
@@ -812,6 +845,37 @@ describe("jobs approved without checking", () => {
     expect(already.json()).toEqual({ role: "companion", revision: revision + 1, turnedOff: false, cancelledPendingJobs: 0 });
     const audit = (await db.query("SELECT actor_id,payload FROM learning_events WHERE workspace_id=$1 AND event_type='provider.role.turned_off'", [workspace])).rows;
     expect(audit).toEqual([{ actor_id: admin.id, payload: { role: "companion", modelId: expect.any(String), previousRevision: revision,
-      revision: revision + 1, cancelledPendingJobs: 0 } }]);
+      revision: revision + 1, cancelledPendingJobs: 0, approvalsWithdrawn: 1 } }]);
+  });
+
+  it("withdraws the job's approval when it is turned off, so the same model needs a check or a new approval to come back", async () => {
+    const { workspace, owner, revision } = await approvedWithoutChecking();
+    const off = await call(owner, "POST", `${setup(workspace)}/turn-off`, { idempotencyKey: key(), expectedRevision: revision, role: "companion" });
+    expect(off.statusCode, off.body).toBe(200);
+    // The approval stays in the history, marked withdrawn; the planner's own approval still stands.
+    const evals = (await call(owner, "GET", `/api/admin/workspaces/${workspace}/provider-evals`)).json();
+    const byRole = Object.fromEntries(evals.overrides.map((o: { role: string; revokedAt: string | null }) => [o.role, o.revokedAt]));
+    expect(byRole.companion).toEqual(expect.any(String));
+    expect(byRole.supervisor).toBeNull();
+    expect(await standing(owner, workspace)).toEqual({ supervisor: "override" });
+    // The exact same tutor model again: the draft waits for a check, and turning it on without one is refused.
+    const again = await call(owner, "POST", setup(workspace) + "/drafts/json", { baseRevision: revision + 1, configuration: scriptedConfiguration("reference"), jobPolicy });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json().waitingForCheck).toEqual(["companion"]);
+    const refused = await call(owner, "POST", `${setup(workspace)}/drafts/${again.json().id}/activate`,
+      { expectedRevision: revision + 1, idempotencyKey: key(), confirmCancelRunning: false });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe("PROVIDER_EVAL_REQUIRED");
+    expect(refused.json().details.roles.map((r: { role: string }) => r.role)).toEqual(["companion"]);
+    // Turning it off again withdraws nothing more (each approval once).
+    expect((await db.query("SELECT count(*)::int AS n FROM provider_eval_override_revocations WHERE workspace_id=$1", [workspace])).rows[0].n).toBe(1);
+    // A fresh owner approval brings it back.
+    const approved = await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-evals/overrides`, { idempotencyKey: key(), role: "companion",
+      draftId: again.json().id, reason: "Owner approves the tutor again after turning it off." });
+    expect(approved.statusCode, approved.body).toBe(200);
+    const on = await call(owner, "POST", `${setup(workspace)}/drafts/${again.json().id}/activate`,
+      { expectedRevision: revision + 1, idempotencyKey: key(), confirmCancelRunning: false });
+    expect(on.statusCode, on.body).toBe(200);
+    expect(await standing(owner, workspace)).toEqual({ companion: "override", supervisor: "override" });
   });
 });
