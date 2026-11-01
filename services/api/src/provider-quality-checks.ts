@@ -11,7 +11,9 @@ import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { upgradeLegacyProviderConfiguration } from "./provider-defaults.js";
 import { evaluateActivation, roleChecks, uncheckedRoles, type ProviderEvaluations, type VersionEvaluation } from "./agent-evals/gate.js";
-import { runSuite, type CallRecord, type EvalReport } from "./agent-evals/runner.js";
+import { runSuite, type CallRecord, type EvalReport, type ToolCallRecord } from "./agent-evals/runner.js";
+import { dialogueDetail, type DialogueDetail } from "./agent-evals/details.js";
+import type { DialogueGrade } from "./agent-evals/graders.js";
 import { dialoguesFor, EVAL_ROLES, type Dialogue, type EvalRole } from "./agent-evals/suite.js";
 import { composeProviders, providerConfigurationSchema } from "./provider-composition.js";
 import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-costs.js";
@@ -45,7 +47,11 @@ import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal
  *   A run past its deadline, or left behind by a stopped server, ends as an error and keeps what it
  *   may have spent charged.
  *
- * No model answer, prompt, key or learner data is stored with a check.
+ * A finished check (passed or failed) also keeps, per practice conversation, what it tests, what
+ * the model was given, the model's answer (bounded, `agent-evals/details.ts`) and each rule's result
+ * with its evidence (`provider_quality_check_dialogues`), for the owners and administrators who can
+ * see the check. The conversations are Core's public practice fixtures, so no learner data is
+ * involved; their private test strings are removed. No prompt or key is stored.
  */
 export interface QualityCheckOptions {
   /** How long one check may run. */
@@ -85,6 +91,8 @@ interface RoleOutcome { role: EvalRole; passed: boolean; dialogues: number; fail
  * the provider's documented reason code (`ProviderError.reason`). Codes and numbers only.
  */
 interface FaultDetail { role: EvalRole; providerCode: string; status: number | null; providerReason: string | null }
+/** One practice conversation's stored detail, in the check's order (`position`). */
+interface DialogueRow { position: number; role: EvalRole; dialogueId: string; passed: boolean; detail: DialogueDetail }
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -411,8 +419,10 @@ export class ProviderQualityChecks {
     pricing: Map<EvalRole, ModelPricing>) {
     const signal = AbortSignal.timeout(Math.max(1, row.deadline_at.getTime() - Date.now()));
     let index = 0, fault: string | null = null, detail: FaultDetail | null = null;
+    const toolCalls = new Map<string, readonly ToolCallRecord[]>();
     const settle = async (call: CallRecord) => {
       const ref = `${row.id}:${index++}`, error = call.error;
+      if (call.toolCalls.length) toolCalls.set(`${call.role}:${call.dialogue.id}`, call.toolCalls);
       const code = error instanceof ProviderError ? error.code : error ? "UNEXPECTED" : null;
       if (code && Object.hasOwn(PROVIDER_FAULTS, code) && !(code === "TIMEOUT" && signal.aborted) && !fault) {
         fault = PROVIDER_FAULTS[code]!;
@@ -451,7 +461,37 @@ export class ProviderQualityChecks {
           return { dialogueId: g.dialogueId, graders: g.graders.filter((x) => !x.passed).map((x) => x.grader), ...(reason ? { reason } : {}) };
         }) };
     });
-    return this.finish(actor, workspace, row.id, { state: outcome.every((o) => o.passed) ? "passed" : "failed", reason: null, outcome }, "not_started");
+    // Each conversation's detail, in the order it ran, graded by Core's own regrade.
+    const dialogues: DialogueRow[] = [], suite = this.providers.evalSuite;
+    for (const run of report.roles) {
+      const grades = new Map((recorded.results.find((r) => r.role === run.role)?.grades as DialogueGrade[] | undefined ?? []).map((g) => [g.dialogueId, g]));
+      for (const d of run.dialogues) {
+        const fixture = suite.dialogues.find((x) => x.id === d.dialogueId), grade = grades.get(d.dialogueId);
+        if (!fixture || !grade) continue;
+        dialogues.push({ position: dialogues.length, role: run.role, dialogueId: d.dialogueId, passed: grade.passed,
+          detail: dialogueDetail(fixture, d.output, grade, toolCalls.get(`${run.role}:${d.dialogueId}`)) });
+      }
+    }
+    return this.finish(actor, workspace, row.id, { state: outcome.every((o) => o.passed) ? "passed" : "failed", reason: null, outcome, dialogues }, "not_started");
+  }
+
+  /**
+   * What each practice conversation of a finished check said (owners and administrators, as the
+   * check itself). `recorded` is false for a check that kept no details: one still running, one
+   * that stopped without a result, or one an older Core ran.
+   */
+  async details(actor: Actor, workspace: string, id: string) {
+    await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
+    const check = (await this.db.query<{ id: string; state: CheckRow["state"]; roles: EvalRole[] }>(
+      "SELECT id,state,roles FROM provider_quality_checks WHERE workspace_id=$1 AND id=$2", [workspace, id])).rows[0];
+    requireCondition(check, "PROVIDER_QUALITY_CHECK_NOT_FOUND", 404);
+    const rows = (await this.db.query<{ position: number; role: EvalRole; dialogue_id: string; passed: boolean; detail: DialogueDetail }>(
+      "SELECT position,role,dialogue_id,passed,detail FROM provider_quality_check_dialogues WHERE workspace_id=$1 AND check_id=$2 ORDER BY position",
+      [workspace, id])).rows;
+    const roles = [...check.roles, ...new Set(rows.map((r) => r.role).filter((role) => !check.roles.includes(role)))];
+    return { checkId: check.id, state: check.state, recorded: rows.length > 0,
+      roles: roles.map((role) => ({ role, dialogues: rows.filter((r) => r.role === role)
+        .map((r) => ({ position: r.position, dialogueId: r.dialogue_id, passed: r.passed, ...r.detail })) })).filter((r) => r.dialogues.length > 0) };
   }
 
   /** Settles one conversation's ledger row from what the provider reported, and counts progress. */
@@ -501,7 +541,8 @@ export class ProviderQualityChecks {
   }
 
   private async finish(actor: Actor, workspace: string, id: string,
-    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null }, open: "not_started" | "uncertain") {
+    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null; dialogues?: DialogueRow[] },
+    open: "not_started" | "uncertain") {
     await afterCommitTransaction(this.db, async (client) => {
       const done = await client.query(
         "UPDATE provider_quality_checks SET state=$3,reason_code=$4,outcome=$5,reason_detail=$6,finished_at=clock_timestamp() WHERE id=$1 AND workspace_id=$2 AND state='running'",
@@ -509,6 +550,9 @@ export class ProviderQualityChecks {
       // Conversations never sent (stopped early) release their reservation.
       await this.closeOpenCalls(client, workspace, id, open);
       if (!done.rowCount) return;
+      for (const d of result.dialogues ?? [])
+        await client.query(`INSERT INTO provider_quality_check_dialogues(check_id,workspace_id,position,role,dialogue_id,passed,detail)
+          VALUES($1,$2,$3,$4,$5,$6,$7)`, [id, workspace, d.position, d.role, d.dialogueId, d.passed, JSON.stringify(d.detail)]);
       await appendEvent(client, { workspaceId: workspace, actorId: actor.id, actorKind: "staff", type: "provider.quality_check.finished",
         payload: { checkId: id, state: result.state, reason: result.reason, ...(result.detail ? { reasonDetail: result.detail } : {}), chargedMicroUsd: await this.charged(client, id),
           roles: (result.outcome ?? []).map((o) => ({ role: o.role, passed: o.passed })) },
@@ -564,5 +608,7 @@ export function registerProviderQualityCheckRoutes(app: FastifyInstance, auth: R
     async (request) => service.start(await auth.authenticate(request), p(request).workspaceId, request.body));
   app.get(base + "/:id", { schema: { params: withId }, logLevel: "silent" },
     async (request) => service.get(await auth.authenticate(request), p(request).workspaceId, p(request).id));
+  app.get(base + "/:id/details", { schema: { params: withId }, logLevel: "silent" },
+    async (request) => service.details(await auth.authenticate(request), p(request).workspaceId, p(request).id));
   app.addHook("onClose", async () => service.idle());
 }

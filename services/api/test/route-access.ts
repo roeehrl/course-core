@@ -227,6 +227,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "GET /api/admin/workspaces/:workspaceId/provider-setup/quality-check": "roles:owner,admin",
   "POST /api/admin/workspaces/:workspaceId/provider-setup/quality-check": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/provider-setup/quality-check/:id": "roles:owner,admin",
+  "GET /api/admin/workspaces/:workspaceId/provider-setup/quality-check/:id/details": "roles:owner,admin",
   "PUT /api/admin/workspaces/:workspaceId/provider-setup/service-keys/:id": "roles:owner,admin",
   "POST /api/admin/workspaces/:workspaceId/provider-setup/test-key": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/provider-spend": "roles:owner,admin",

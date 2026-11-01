@@ -12,9 +12,12 @@ import { answeredRefusalReason } from "../output-refusal.js";
 export interface AdvisoryJudgement { kind: "llm_judge_advisory"; state: "judged" | "refused" | "failed"; criteria: { id: string; met: boolean }[]; reason?: string }
 export type AdvisoryJudge = (dialogue: Dialogue, output: EvalOutput, signal: AbortSignal) => Promise<AdvisoryJudgement>;
 export interface DialogueRun { dialogueId: string; output: EvalOutput; grade: DialogueGrade; advisory?: AdvisoryJudgement }
+/** One tool call a tool-loop run made: the tool's name and the arguments the model gave it. */
+export interface ToolCallRecord { name: string; args: unknown }
 /** What one model call returned, for the host's cost accounting: the provider's usage receipt and
- * the error when the call failed. Never stored in a report. */
-export interface CallRecord { role: EvalRole; dialogue: Dialogue; usage: UsageReceipt | null; error: unknown }
+ * the error when the call failed, and the tool calls of a tool-loop run (for the host's
+ * conversation details). Never stored in a report. */
+export interface CallRecord { role: EvalRole; dialogue: Dialogue; usage: UsageReceipt | null; error: unknown; toolCalls: readonly ToolCallRecord[] }
 export interface RoleRun { role: EvalRole; strategy: string; revisionDigest: string; dialogues: DialogueRun[]; passed: boolean }
 export interface EvalReport {
   schema: typeof REPORT_SCHEMA;
@@ -76,6 +79,7 @@ export async function runSuite(options: {
     for (const [index, dialogue] of dialogues.entries()) {
       await options.beforeDialogue?.(dialogue);
       let output: EvalOutput, usage: UsageReceipt | null = null, failure: unknown = null;
+      const toolCalls: ToolCallRecord[] = [];
       try {
         const context = teachingContext(dialogue);
         if (role === "media") {
@@ -84,7 +88,7 @@ export async function runSuite(options: {
           output = request && typeof request.prompt === "string" ? { kind: "media_prompt", prompt: request.prompt.slice(0, 70000) } : { kind: "error", code: "NO_REQUEST" };
         } else {
           const called: string[] = [];
-          const result = await runtime.execute(role, context, `agent-eval-${role}-${index}`, signal, scriptedTools(dialogue, called));
+          const result = await runtime.execute(role, context, `agent-eval-${role}-${index}`, signal, scriptedTools(dialogue, called, toolCalls));
           usage = result.usage;
           output = evalOutput(result.content, called);
         }
@@ -96,7 +100,7 @@ export async function runSuite(options: {
         const refused = answeredRefusalReason(error);
         output = refused ? { kind: "refusal", reason: refused } : { kind: "error", code: error instanceof ProviderError ? error.code : "UNEXPECTED" };
       }
-      await options.afterCall?.({ role, dialogue, usage, error: failure });
+      await options.afterCall?.({ role, dialogue, usage, error: failure, toolCalls });
       const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output) };
       if (options.judge && dialogue.judge && answerText(output) !== null) run.advisory = await options.judge(dialogue, output, signal);
       runs.push(run);
@@ -112,11 +116,12 @@ export async function runSuite(options: {
 
 /** Deterministic tools for a tool-loop dialogue: each answers from the dialogue's fixture and the
  * call is recorded for the tool-scope grader. Undefined for dialogues without tools. */
-function scriptedTools(dialogue: Dialogue, called: string[]): SupervisorToolPort | undefined {
+function scriptedTools(dialogue: Dialogue, called: string[], calls: ToolCallRecord[]): SupervisorToolPort | undefined {
   const rule = dialogue.expect.tools;
   if (!rule) return undefined;
-  return { async invoke(name) {
+  return { async invoke(name, args) {
     called.push(name);
+    calls.push({ name, args });
     const result = rule.results[name] ?? { available: false, reason: "not_in_fixture" };
     return { receiptId: randomUUID(), result: structuredClone(result) as Json };
   } };
