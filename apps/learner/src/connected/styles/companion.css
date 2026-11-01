@@ -99,6 +99,7 @@
   inline-size: 100%;
 }
 .cc-chat-bubble {
+  flex: 0 0 auto;
   max-inline-size: min(85%, 56ch);
   padding-block: 10px;
   padding-inline: 14px;
@@ -128,8 +129,10 @@
 .cc-chat-bubble-text + .cc-chat-bubble-text {
   margin-block-start: var(--space-2);
 }
+/* The bubble's actions (actions' slot) sit at its inline start and give way before it does. */
 .cc-chat-bubble-actions {
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
   align-items: flex-end;
   min-inline-size: 0;

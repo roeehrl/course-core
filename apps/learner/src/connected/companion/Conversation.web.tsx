@@ -629,15 +629,18 @@ function ConversationBody({
       items.push(<DateDivider key={`date-${message.id}`} iso={message.created_at} now={now} />);
     if (previous?.context.courseDigest && message.context.courseDigest && previous.context.courseDigest !== message.context.courseDigest)
       items.push(<VersionLine key={`version-${message.id}`} />);
+    // The lesson a message belongs to: its own, or (a reply saved before replies carried their
+    // lesson) its question's. A divider names it where it changes.
+    const question = message.role === "assistant" && message.job_id ? shown.find((row) => row.role === "learner" && row.job_id === message.job_id) : undefined;
+    const episode = message.context.episodeId ?? question?.context.episodeId ?? null;
+    if (first || episode !== lessonOf) {
+      if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${message.id}`} episodeId={lessonOf} />);
+      const label = lessonLabel(episode, context.episodeId, episodeTitles, t);
+      items.push(<LessonDivider key={`lesson-${message.id}`} label={label} known={Boolean(episode && Object.hasOwn(episodeTitles, episode))} />);
+      lessonOf = episode;
+      first = false;
+    }
     if (message.role === "learner") {
-      const episode = message.context.episodeId ?? null;
-      if (first || episode !== lessonOf) {
-        if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${message.id}`} episodeId={lessonOf} />);
-        const label = lessonLabel(episode, context.episodeId, episodeTitles, t);
-        items.push(<LessonDivider key={`lesson-${message.id}`} label={label} known={Boolean(episode && Object.hasOwn(episodeTitles, episode))} />);
-        lessonOf = episode;
-        first = false;
-      }
       if (deleted(message)) {
         items.push(<DeletedLine key={message.id} />);
         previous = message;

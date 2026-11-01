@@ -6,6 +6,7 @@ import { useT, type Translate } from "../../i18n";
 import { CompanionTurnFrame } from "../ui/CompanionTurnFrame.web";
 import type { LessonTarget } from "./bridge";
 import { CHIP_EXCERPT } from "./AttachmentChips.web";
+import { hasRightToLeft, latinRuns } from "../../components/markdown";
 
 /** What sits under a question that was not (yet) asked: §3.5's bubble footers. */
 export type BubbleFooter =
@@ -63,14 +64,18 @@ export function turnAnchor(message: CompanionMessage, t: Translate): TurnAnchor 
   return undefined;
 }
 
-/** A question's text, a block per paragraph, each taking its own direction (RTL-2). */
+/** A question's text, a block per paragraph, each taking its own direction from its first strong
+ * letter (RTL-2). Inside right-to-left text each Latin run (a pasted formula, a term) is isolated
+ * left to right, as in replies (markdown.ts `latinRuns`), so mixed text keeps its order. */
 function BubbleText({ text }: { text: string }) {
   const paragraphs = text.split(/\n\s*\n/).filter((part) => part.trim());
   return (
     <>
       {(paragraphs.length ? paragraphs : [text]).map((part, index) => (
         <p key={index} dir="auto" className="cc-chat-bubble-text">
-          {part}
+          {hasRightToLeft(part)
+            ? latinRuns(part).map((run, at) => (run.latin ? <span key={at} dir="ltr">{run.text}</span> : run.text))
+            : part}
         </p>
       ))}
     </>

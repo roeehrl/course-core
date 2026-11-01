@@ -3,7 +3,7 @@
 A companion reply is shown to the learner while the model is still writing it, so the first
 words appear in about a second instead of after the whole reply (requirement T01, first token in
 3 s or less). What is stored, verified, charged and exported does not change: the learner first
-sees an unchecked **draft**, and the stored reply replaces it once Core has verified and
+sees the **draft** as it grows, and the stored reply replaces it once Core has verified and
 applied it, exactly as before.
 
 ## Path of one reply
@@ -44,19 +44,23 @@ A question about the answer to one of the course's graded checks is the exceptio
 streams into a hidden buffer in the gateway, so the first-byte and idle bounds still end a stalled
 call at once, but no text of it is relayed, because Core's graded-check verifier and judge can only
 judge the whole reply. Its draft is a *checking* draft: every frame carries `checking: true` and an
-empty text, and the learner's app says "Checking this reply…" ("בודקים את התשובה…") and offers
-Stop. The learner sees the reply once the gateway has checked it; a reply that gave a check's answer
+empty text, and the learner's app shows the preparing line and, once the check has taken more than
+a second, "Checking the reply…" ("התשובה בבדיקה…"), with Stop. The learner sees the reply once the gateway has checked it; a reply that gave a check's answer
 away (or could not be judged) is withheld, its draft is withdrawn with reason
 `check_answer_withheld`, and Core's coaching message is stored instead
 ([companion-check-integrity.md](companion-check-integrity.md)).
 
 Because those last checks cannot be made incrementally, **the design choice is: show text only at
-safe boundaries, label it as not yet checked, and withdraw it when a whole-answer check refuses
-it.** Text is released after a sentence or line end, or at a word boundary once 48 characters are
-waiting (never inside a word or a character), so the learner never sees half a word that might
-not be followed. A withdrawn draft disappears and the learner is told the reply did not pass the
-checks and nothing of it was kept; they can ask again. The draft is plain text (no formatting)
-until the checked reply replaces it.
+safe boundaries, and withdraw it when a whole-answer check refuses it.** The draft carries no "not
+yet checked" label (learner AI redesign, §3.5): it reads like the reply it will become, and when
+the provider has finished and Core verifies it for more than a second, a line under it says
+"Checking the reply…". Text is released after a sentence or line end, or at a word boundary once
+48 characters are waiting (never inside a word or a character), so the learner never sees half a
+word that might not be followed. A withdrawn draft is replaced in place by one line, "This reply
+was removed because it didn't pass the course's checks." (or "The reply stopped partway." when
+the provider stopped), with "Ask again"; nothing of it is kept. The app draws the draft with the
+same Markdown renderer as the stored reply, closing or holding back what is not finished yet, and
+draws arriving text at most every 50 ms, with a caret after the last character.
 
 ## Privacy, erasure, export and limits
 
@@ -83,8 +87,8 @@ until the checked reply replaces it.
 ## Stopping and reconnecting
 
 - **Stop:** `POST /api/enrollments/:id/companion/messages/:messageId/cancel` (the learner's own
-  enrollment only). This is the same route, with the same meaning, as "Stop waiting for this
-  answer" on a question that is still queued: an undelivered request is withdrawn, the job is
+  enrollment only). This is the same route, with the same meaning, as stopping a question that
+  is still queued (the round button before its call was sent): an undelivered request is withdrawn, the job is
   cancelled like any host cancellation (reason `learner_cancelled`: its next step stops it and a
   wake-up reaches a running workflow), a draft being shown stops at once, and nothing the job
   produced is kept. The question stays and reads as cancelled (event
@@ -101,37 +105,47 @@ until the checked reply replaces it.
   provider finished is settled at its reported usage like any refused answer.
 - **Reconnect:** the event stream resumes by `Last-Event-ID` as before, and a (re)connected
   stream first receives every current draft whole, so a draft continues after a dropped
-  connection. While the stream is down the draft says it is reconnecting.
+  connection. While the stream is down the reply row says "Connection lost. The reply continues
+  when you're back online."
 
 ## What the learner is offered, and what it costs
 
-A question's card follows the newest of its saved job and its draft, so it never shows a state
-that is already over:
+All of a reply's states live in its reply row under the question and in the composer's one round
+Send/Stop button (learner AI redesign, final design §3.5); nothing is said in a header, and
+nothing under the question except a send that waits, failed or was refused:
 
 | State | Shown | Controls |
 | --- | --- | --- |
-| Saved, no call sent yet | "Queued · not sent yet" | Stop waiting for this answer, Cancel and ask again (costs nothing) |
-| Call sent (the draft opened, or the saved job runs) | "Sent · a reply is being written", then the draft | Stop this reply |
-| Written, being checked | "Preparing a reply · checking it before it is shown" | Stop this reply |
-| Cancelled before a call was sent | "Cancelled before it was sent · nothing was used" | Ask this question again (puts its text back in the box) |
-| Stopped after its call was sent | "Stopped after it was sent · what that call used still counts toward this course's AI use" | Ask this question again |
-| Held by a spending limit | "Help is paused" with the limit (the course's AI budget, the learner's own allowance, or today's) and that staff were told | Stop waiting, Cancel and ask again |
+| Saved, no call sent yet | the question only; after 400 ms "Preparing a reply…" with three dots | Stop (the round button): the question is cancelled before it is asked and its text goes back to the box (costs nothing) |
+| Call sent (the draft opened, or the saved job runs) | the dots, then the text in their place, growing, with a caret | Stop (the round button, or Esc in the box) |
+| No text for 8 s | a second line: "Still working on it. You can keep reading or stop it." | Stop |
+| No new text for 15 s / 45 s | "Reply paused." / "Reply paused. It may not finish." | Stop; "Ask again" at 45 s |
+| Written, being checked for more than 1 s | "Checking the reply…" under the text | Stop |
+| Stopped by the learner after its call was sent | the text that was on screen, muted, and "You stopped this reply. This part wasn't checked, so it won't be saved." | Ask again |
+| The same after a reload | "You stopped this reply." | Ask again |
+| Held by a spending limit or a companion not yet set up | "Waiting to send" under the question; the reason (the course's limit, the learner's own allowance, or today's) in the notice above the composer, saying staff know | Cancel (puts the text back in the box) |
 
-The switch to Stop comes from the dispatch frame itself (and a read of the conversation it
-triggers), so it shows within a second of the call being sent, not at the next safety read.
-Before the change it waited for that read: about 5 s when the question had no job yet at the
-last read, and the 30 s safety read when it had (qualification 0.1.57). While a question waits to
-start without a draft, the conversation is read at the 5 s fallback pace, so a lost signal also
-shows within seconds. The conversation read reports `job_sent` (a call for the question was
-started: reserved and sent, settled or still unknown) and, for a held question, `job_ceiling`
-(`workspace`, `enrollment`, `daily` or `artifact`). Cancelling keeps its meaning: a call already
-sent is settled from its receipt, never resent.
+**The learner's partial text (owner decision Q10).** When the learner presses Stop, the app keeps
+the text that was on screen at that moment in the page's memory and shows it muted, with "This
+part wasn't checked, so it won't be saved." It is never sent, stored, exported or read again:
+the server clears the draft as before, the conversation read has no reply for the question, and
+after a reload only "You stopped this reply." remains. A reply about a counted check never streams
+text, so no answer to one can be shown this way.
 
-A reply that arrives below the fold is brought into view in the panel and in the phone sheet, with
-the least movement: the draft when its first text arrives and while it grows (until it fills the
-view, when its start stays at the top to read), then the stored reply. Once the learner scrolls
-the panel (wheel, touch or a scrolling key) after asking, their place is kept; the first load of a
-conversation scrolls nothing, and reduced motion is honoured.
+The switch to Stop needs no signal: the round button is Stop from the moment the question is
+accepted. Whether stopping cancels a question before it is asked or stops its reply comes from the
+dispatch frame itself (and a read of the conversation it triggers), so it is right within a second
+of the call being sent, not at the next safety read. While a question waits to start without a
+draft, the conversation is read at the 5 s fallback pace, so a lost signal also shows within
+seconds. The conversation read reports `job_sent` (a call for the question was started: reserved
+and sent, settled or still unknown) and, for a held question, `job_ceiling` (`workspace`,
+`enrollment`, `daily` or `artifact`). Cancelling keeps its meaning: a call already sent is settled
+from its receipt, never resent.
+
+On send the thread anchors the new question 16 px below its top and keeps room under it, so the
+reply grows downward from a fixed point and nothing scrolls while text arrives; a reply that runs
+past the bottom shows "Jump to latest" with a dot instead of moving the view. Only the thread
+scrolls, never the page, and reduced motion is honoured.
 
 A question cancelled or stopped before it was answered is not context for later answers ("Context
 used" does not list it), and "Context used" shows its excerpts as plain words, without Markdown or
@@ -145,7 +159,9 @@ when a limit is raised; the learner asks again.
 
 ## Accessibility
 
-The status line announces "Writing a reply" once (a polite live region). The draft itself is
-not a live region (`aria-live="off"`, `aria-busy` while it grows), so a screen reader is not
-interrupted at every word; the stored reply is announced once when it enters the conversation
-log. The draft is labelled as a reply that is still being written and not yet checked.
+The conversation is a `role="log"` that is never a live region, and the reply being written is
+`aria-busy` while it grows, so a screen reader is not interrupted at every word. One hidden status
+region per conversation says each change once: "Companion is replying" after a second without
+text, "Still working on it…" at 8 s, "The reply may not finish. You can ask again." at 45 s,
+"Reply stopped" after the learner's Stop, and "Companion replied: …" with the stored reply's
+plain text (or a pointer to heading navigation for one over 600 characters).

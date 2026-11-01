@@ -96,15 +96,19 @@ describe("persisted companion integration", () => {
     show({
       messages: [
         { ...message, id: "q-here", job_id: "here", job_state: "applied" }, reply("here", "Reply here"),
-        { ...message, id: "q-there", job_id: "there", content: "Earlier?", context: { episodeId: "before" }, job_state: "applied" }, reply("there", "Reply there"),
+        { ...message, id: "q-there", job_id: "there", content: "Earlier?", context: { episodeId: "before" }, job_state: "applied" }, reply("there", "Reply there", { context: {} }),
         { ...message, id: "q-legacy", job_id: "legacy", content: "Old row?", context: {}, job_state: "applied" }, reply("legacy", "Legacy reply", { context: {} }),
-        { ...message, id: "q-gone", job_id: "gone", content: "Gone?", context: { episodeId: "removed" }, job_state: "applied" }, reply("gone", "Gone reply"),
+        { ...message, id: "q-gone", job_id: "gone", content: "Gone?", context: { episodeId: "removed" }, job_state: "applied" }, reply("gone", "Gone reply", { context: { episodeId: "removed" } }),
+        // A note saved before replies recorded their lesson, with no question.
+        reply("orphan", "A note", { context: {}, job_id: null }),
       ],
       episodeTitles: { intro: "Notice change", before: "Rates of change" },
     });
     const log = screen.getByRole("log");
-    for (const divider of ["Notice change", "Rates of change", "Lesson not recorded", "A lesson no longer in this course"])
+    for (const divider of ["Notice change", "Rates of change", "A lesson no longer in this course"])
       expect(within(log).getAllByText(divider)).toHaveLength(1);
+    // A reply without its own lesson takes its question's; the old row and the note have none.
+    expect(within(log).getAllByText("Lesson not recorded")).toHaveLength(2);
     // Only the course's own titles name a lesson.
     expect(lessonLabel("toString", "intro", {})).toBe("A lesson no longer in this course");
     expect(lessonLabel(null, "intro", { intro: "Notice change" })).toBe("Lesson not recorded");

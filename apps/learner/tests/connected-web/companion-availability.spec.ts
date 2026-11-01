@@ -36,11 +36,11 @@ const axe = (page: Page) =>
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
 
-for (const [session, status] of [
-  ["/test/session", "Available"],
-  ["/test/companion-off-session", "Not turned on for this course yet · a question you send is saved and answered once it is"],
+for (const [session, banner] of [
+  ["/test/session", undefined],
+  ["/test/companion-off-session", "Your companion isn't on for this course yet. You can still ask; questions are saved and answered once it's on."],
 ] as const)
-  test(`the companion is closed on the course page and says the server's state: ${status.split(" ·")[0]}`, async ({ page }, info) => {
+  test(`the companion is closed on the course page and shows the server's state only when it limits asking: ${banner ? "not set up" : "ready"}`, async ({ page }, info) => {
     if (session === "/test/session") await startCourse(page);
     else {
       await signIn(page, session);
@@ -52,20 +52,25 @@ for (const [session, status] of [
     await expect(page.locator(".connected-layout")).not.toHaveClass(/with-companion/);
     await page.locator(".connected-companion-trigger:visible").click();
     await expect(pane).toBeVisible();
-    await expect(pane.getByRole("status")).toHaveText(`Companion: ${status}`);
-    // Outside a lesson: no empty "saved conversation", no place labels, no disabled send.
-    for (const gone of ["Your saved conversation", "Following your place", "Course roadmap", "Open a lesson before sending"])
+    const notice = pane.locator(".cc-chat-notice");
+    // No status line: nothing says "Available" or "Checking whether it is on".
+    for (const gone of [/^Companion: /, /Available/, /Checking whether/, "Your saved conversation", "Following your place", "Course roadmap", "Asking about"])
       await expect(pane.getByText(gone)).toHaveCount(0);
-    await expect(pane.getByRole("button", { name: "Send", exact: true })).toHaveCount(0);
-    await expect(pane).toContainText("Ask from inside a lesson");
+    // Outside a lesson: where the conversation lives, the way into a lesson, no composer.
+    await expect(pane.getByText("Your conversation lives here", { exact: true })).toBeVisible();
+    await expect(notice).toContainText(banner ?? "Open a lesson to ask about it. Your conversation stays here.");
+    await expect(pane.getByRole("textbox")).toHaveCount(0);
     // In a lesson it asks about that lesson, and it stays as the learner left it.
     await page.getByRole("button", { name: "Close companion" }).click();
     await page.getByTestId("next-step").locator('[data-usability="next"]').click();
     await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
     await expect(pane).toBeHidden();
     await page.locator(".connected-companion-trigger:visible").click();
-    await expect(pane.getByRole("status")).toHaveText(`Companion: ${status}`);
-    await expect(pane.getByTestId("companion-place")).toContainText("Asking about");
-    await expect(pane.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+    if (banner) await expect(notice).toHaveText(banner);
+    else await expect(notice).toHaveCount(0);
+    await expect(pane.getByText("Ask anything about this lesson", { exact: true })).toBeVisible();
+    await expect(pane.getByRole("textbox", { name: "Message to your companion", exact: true })).toBeVisible();
+    await expect(pane.locator(".cc-chat-send")).toHaveAccessibleName("Send");
+    expect((await axe(page)).violations).toEqual([]);
     await page.screenshot({ path: info.outputPath("companion.png") });
   });

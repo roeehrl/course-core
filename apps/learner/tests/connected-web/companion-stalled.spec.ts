@@ -1,71 +1,67 @@
 import AxeBuilder from "@axe-core/playwright";
-import { test, expect, type Page } from "./health";
-import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
-import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
-import enJob from "../../src/i18n/messages/en/companionStates.json";
-import heJob from "../../src/i18n/messages/he/companionStates.json";
-import enHost from "../../src/i18n/messages/en/connectedHost.json";
-import heHost from "../../src/i18n/messages/he/connectedHost.json";
-import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
-import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
-import enDock from "../../src/i18n/messages/en/companionDock.json";
-import heDock from "../../src/i18n/messages/he/companionDock.json";
+import { test, expect } from "./health";
+import { announcer, ask, box, roundButton, startLesson, thread } from "./conversation-helpers";
+import enRow from "../../src/i18n/messages/en/replyRow.json";
+import heRow from "../../src/i18n/messages/he/replyRow.json";
+import enStates from "../../src/i18n/messages/en/replyStates.json";
+import heStates from "../../src/i18n/messages/he/replyStates.json";
 
-// A question whose call got no reply (live finding U2): the real learner app on the real API shows
-// "Reply unavailable" with "Ask again" instead of "Still working" forever, in English and Hebrew,
-// on desktop and phone. "Ask again" puts the question back in the draft. The stalled state is set
-// by the test host (/test/companion-stall); no provider is called.
-const text = {
-  en: { companion: enCompanion, job: enJob, host: enHost, preview: enPreview, dock: enDock },
-  he: { companion: heCompanion, job: heJob, host: heHost, preview: hePreview, dock: heDock },
-} as const;
-
-async function openCompanion(page: Page, locale: "en" | "he", token: string, phone: boolean) {
-  const t = text[locale];
-  await page.goto(`/?locale=${locale}#signin=${token}`);
-  await expect(page.locator("html")).toHaveAttribute("dir", locale === "he" ? "rtl" : "ltr");
-  await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
-    .getByRole("button", { name: t.host["library.open"], exact: true }).click();
-  await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-  await page.getByTestId("next-step").getByRole("button").click();
-  if (phone) await page.getByRole("button", { name: t.dock.open, exact: true }).click();
-}
+/*
+ * A reply that does not come (final design §3.5; live finding U2): a question whose call got no
+ * reply says "No reply came through." with "Ask again", never "still working" forever; a reply
+ * that stops arriving part way pauses after 15 s and, after 45 s, says it may not finish, with
+ * "Ask again". "Ask again" puts the question back in the box. In English and Hebrew, on every
+ * device project. The stalled state is set by the test host (/test/companion-stall); time is the
+ * page's own clock, moved forward.
+ */
+const text = { en: { row: enRow, states: enStates }, he: { row: heRow, states: heStates } } as const;
 
 for (const locale of ["en", "he"] as const) {
-  test(`a stalled question reads "Reply unavailable" and can be asked again (${locale})`, async ({ page, request }, info) => {
+  const t = text[locale];
+  test(`no reply came through: the line and Ask again, which restores the question (${locale})`, async ({ page, request }, info) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    const t = text[locale];
-    const token = (await (await request.post("/test/session")).json()).token;
-    await openCompanion(page, locale, token, !info.project.name.endsWith("desktop"));
+    await startLesson(page, request, { locale });
     const question = `Stalled question ${locale} ${Date.now()}`;
-    const box = page.getByRole("textbox", { name: t.companion["draft.label"], exact: true });
-    await box.fill(question);
-    await page.getByRole("button", { name: t.companion["send.send"], exact: true }).click();
-    const log = page.getByRole("log", { name: t.companion.log });
-    await expect(log.getByText(question, { exact: true })).toBeVisible();
-    // The call for it got no reply and nothing can settle it any more.
+    await ask(page, question);
     expect((await (await request.post("/test/companion-stall", { data: { question } })).json()).stalled).toBe(true);
-    await expect(log.getByText(t.job["job.stalled"], { exact: true })).toBeVisible({ timeout: 15_000 });
-    // Not "still working", and no controls for a reply that will never come.
-    await expect(page.getByText(t.job["job.stillWorking"], { exact: true })).toHaveCount(0);
-    await expect(page.getByText(t.companion["state.still_working"], { exact: true })).toHaveCount(0);
-    await expect(page.getByText(t.companion["sent.waiting"], { exact: true })).toHaveCount(0);
-    await expect(log.getByRole("button", { name: t.companion.cancel, exact: true })).toHaveCount(0);
-    await expect(log.getByRole("button", { name: t.companion["stop.start"], exact: true })).toHaveCount(0);
-    const askAgain = log.getByRole("button", { name: t.companion.askAgain, exact: true });
+    const row = thread(page).locator('[data-reply-state="ended"]');
+    await expect(row).toContainText(t.row["ended.noReply"], { timeout: 15_000 });
+    await expect(page.getByText(t.row.slow, { exact: true })).toHaveCount(0);
+    // Over: the round button sends again, nothing offers to stop it.
+    await expect(roundButton(page)).not.toHaveAccessibleName(/Stop|עצירה|עצירת/);
+    await expect(announcer(page)).toHaveText(t.states["announce.ended"]);
+    const askAgain = row.getByRole("button", { name: t.row.askAgain, exact: true });
     await expect(askAgain).toBeVisible();
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`companion-stalled-${locale}.png`) });
-    // "Ask again" restores the question to the draft; sending it is a new question.
-    await box.fill("");
+    await box(page).fill("");
     await askAgain.click();
-    await expect(box).toHaveValue(question);
+    await expect(box(page)).toHaveValue(question);
     const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
-    await page.getByRole("button", { name: t.companion["send.send"], exact: true }).click();
+    await roundButton(page).click();
     expect((await sent).status()).toBe(200);
-    await expect(log.getByText(question, { exact: true })).toHaveCount(2);
+    await expect(thread(page).locator(".cc-chat-bubble").filter({ hasText: question })).toHaveCount(2);
     expect(errors).toEqual([]);
+  });
+
+  test(`a reply that stops arriving pauses at 15 s and may not finish at 45 s, with Ask again (${locale})`, async ({ page, request }) => {
+    await startLesson(page, request, { locale });
+    const question = `Paused reply ${locale} ${Date.now()}`;
+    await ask(page, question);
+    await page.clock.install();
+    await expect.poll(async () => (await (await request.post("/test/conversation-dispatch", { data: { question, pieces: ["Compare the two values. "], gapMs: 50 } })).json()).opened).toBe(true);
+    const row = thread(page).locator('[data-reply-state="streaming"]');
+    await expect(row).toContainText("Compare the two values.", { timeout: 15_000 });
+    await page.clock.fastForward(16_000);
+    await expect(row).toContainText(t.row.paused);
+    await expect(row.locator('[data-cc-caret="still"]')).toHaveCount(1);
+    await page.clock.fastForward(30_000);
+    await expect(row).toContainText(t.row.stalled);
+    await expect(announcer(page)).toHaveText(t.states["announce.stalled"]);
+    await row.getByRole("button", { name: t.row.askAgain, exact: true }).click();
+    await expect(box(page)).toHaveValue(question);
+    expect((await new AxeBuilder({ page }).include("#connected-companion").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   });
 }

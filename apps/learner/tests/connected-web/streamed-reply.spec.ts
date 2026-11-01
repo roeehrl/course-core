@@ -1,43 +1,35 @@
 import { test, expect } from "./health";
+import { ask, startLesson, stream, thread } from "./conversation-helpers";
 
-// A streamed companion reply in the real app, over the real event stream: the draft grows,
-// is labelled as not yet checked, is kept out of the live announcements, and is withdrawn with
-// a notice when the whole-answer checks refuse it. The model is scripted by the test host.
-test("a streaming reply shows as an unchecked draft and a refused one is withdrawn", async ({ page, request }, info) => {
+// A streamed companion reply in the real app, over the real event stream (final design §3.5):
+// the text replaces the preparing line in place and grows with a caret, is never in a live region
+// and carries no "not yet checked" label; a reply the whole-answer checks refuse is replaced in
+// place by why it was removed. The model is scripted by the test host.
+test("a streaming reply grows in place with no unchecked label, and a refused one is replaced by why it was removed", async ({ page, request }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  const token = (await (await request.post("/test/session")).json()).token;
-  await page.goto(`/#signin=${token}`);
-  await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
-    .getByRole("button", { name: "Open course", exact: true }).click();
-  await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
-  if (!info.project.name.endsWith("desktop")) await page.getByRole("button", { name: "Companion", exact: true }).click();
-  const draft = page.getByRole("textbox", { name: "Message to your companion", exact: true });
-  const drafts = page.getByLabel("Reply being written, not yet checked");
-  for (const [index, question, end] of [[0, `Streamed question ${Date.now()}`, "complete"], [1, `Refused question ${Date.now()}`, "withdrawn"]] as const) {
-    await draft.fill(question);
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-    // Read from the saved conversation: while it sends, the (read-only) box still holds the same text.
-    await expect(page.getByRole("log", { name: "Saved companion messages" }).getByText(question, { exact: true })).toBeVisible();
-    // The question is saved by the time the host can find it; then the scripted model plays.
-    await expect.poll(async () => (await (await request.post("/test/companion-draft", { data: { question,
-      pieces: ["Picture both values on a number line. ", "The one farther left ", "is smaller."], end, gapMs: 250 } })).json()).reason ?? "opened").toBe("opened");
-    const region = drafts.nth(index);
-    await expect(region).toContainText("Picture both values on a number line.");
-    await expect(region).toHaveAttribute("aria-live", "off");
-    await expect(page.getByRole("status").filter({ hasText: "Writing a reply" })).toBeVisible();
+  await startLesson(page, request);
+  const log = thread(page);
+  await expect(log).toHaveAttribute("aria-live", "off");
+  for (const [question, end] of [[`Streamed question ${Date.now()}`, "complete"], [`Refused question ${Date.now()}`, "withdrawn"]] as const) {
+    await ask(page, question);
+    await stream(request, question, ["Picture both values on a number line. ", "The one farther left ", "is smaller."], { end, gapMs: 250 });
+    const turn = log.locator(".cc-chat-item").filter({ hasText: question });
     if (end === "complete") {
-      await expect(region).toContainText("Picture both values on a number line. The one farther left is smaller.");
-      await expect(region).toContainText("checking it before it is kept");
+      const row = turn.locator('[data-reply-state="streaming"]');
+      await expect(row).toContainText("Picture both values on a number line. The one farther left is smaller.");
+      await expect(page.getByText(/not yet checked|unchecked|not checked yet/)).toHaveCount(0);
+      // Written and being checked: "Checking the reply…" after a second, under the text.
+      await expect(row).toContainText("Checking the reply…");
+      expect((await (await request.post("/test/companion-job", { data: { question, state: "applied", answer: "Picture both values on a number line. The one farther left is smaller." } })).json()).updated).toBe(true);
+      await expect(turn.locator('[data-reply-state="streaming"]')).toHaveCount(0, { timeout: 15_000 });
     } else {
-      // Said once, by the question's label: why it was not shown.
-      await expect(page.getByText("Reply not shown · it did not pass the checks, so nothing of it was kept", { exact: true })).toBeVisible();
-      // Only the first (completed) draft is left; the withdrawn one kept no text.
-      await expect(drafts).toHaveCount(1);
+      const row = turn.locator('[data-reply-state="ended"]');
+      await expect(row).toHaveText(/This reply was removed because it didn't pass the course's checks\./);
+      // In place: none of the refused text stays.
+      await expect(turn).not.toContainText("Picture both values");
     }
   }
-  // The draft view fits the companion at this size without sideways scrolling.
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   expect(errors).toEqual([]);
 });

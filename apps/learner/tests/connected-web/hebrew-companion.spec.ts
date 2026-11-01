@@ -24,8 +24,10 @@ import enCode from "../../src/i18n/messages/en/codeEditor.json";
 import heCode from "../../src/i18n/messages/he/codeEditor.json";
 import enConnectivity from "../../src/i18n/messages/en/connectivity.json";
 import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
+import { ask, roundButton, startLesson, storeReply, thread } from "./conversation-helpers";
 
-// Split from hebrew-polish.spec.ts: the conversation part (a signed number in a reply, the message box reading edge).
+// Split from hebrew-polish.spec.ts: the conversation part (a signed number in a reply, the message box reading edge),
+// and the RTL-6 text across the conversation's states (final design §7).
 
 /*
  * Learner findings of the 0.1.60 qualification, on every device project and both engines, in
@@ -150,3 +152,54 @@ for (const locale of ["en", "he"] as const) {
     await pane.screenshot({ path: info.outputPath(`companion-box-${locale}.png`) });
   });
 }
+
+/*
+ * RTL-6 (final design §7): mixed text keeps its shape in every state of a turn, in the Hebrew
+ * interface. "9" alone, "Python הוא…", inline code, a fenced block, a numbered list, a URL followed
+ * by a full stop and a signed number, in the learner's bubble, a reply while it streams, the same
+ * text muted after the learner's Stop, and a stored reply.
+ */
+const SIGNED = "הערך הוא -2.";
+const MIXED = `Python הוא שפה. ${SIGNED} הקוד \`x = -2\` עובד.`;
+test("he: RTL-6 text keeps its shape in the bubble, a streaming reply, a stopped one and a stored one", async ({ page, request }, info) => {
+  await startLesson(page, request, { locale: "he" });
+  const log = thread(page);
+  // "9" alone: a bubble at the inline end (the left), its digit whole.
+  await ask(page, "9");
+  const nine = log.locator(".cc-chat-bubble").filter({ hasText: /^9$/ });
+  const view = (await log.boundingBox())!, bubble = (await nine.boundingBox())!;
+  expect(bubble.x - view.x).toBeLessThan(view.width / 2);
+  await expect(nine.locator("p")).toHaveAttribute("dir", "auto");
+  // A reply streams the mixed text; the minus stays before its digit.
+  await expect.poll(async () => (await (await request.post("/test/conversation-dispatch", { data: { question: "9", pieces: [MIXED, " ועוד שורה"], gapMs: 300 } })).json()).opened).toBe(true);
+  const streaming = log.locator('[data-reply-state="streaming"]');
+  await expect(streaming).toContainText("הערך הוא", { timeout: 15_000 });
+  const minusBeforeDigit = async (root: Locator) => {
+    const run = find(await glyphs(root), SIGNED);
+    const at = SIGNED.indexOf("-");
+    expect(mid(run[at]!), "the minus comes before the digit").toBeLessThan(mid(run[at + 1]!));
+  };
+  await minusBeforeDigit(streaming);
+  const code = streaming.locator("[dir=ltr]").filter({ hasText: "x = -2" });
+  await expect(code.first()).toBeVisible();
+  // Stopped: the same text, muted, keeps its shape.
+  await roundButton(page).click();
+  const stopped = log.locator('[data-reply-state="stopped"]');
+  await expect(stopped.locator(".cc-chat-prose.is-muted")).toContainText("הערך הוא");
+  await minusBeforeDigit(stopped);
+  // A stored reply with a fenced block, a numbered list and a URL followed by a full stop.
+  const question = `Python הוא… ${Date.now()}`;
+  await ask(page, question);
+  await storeReply(request, question, ["מסתכלים בכתובת https://example.org/path.", "", "1. ראשון", "2. שני", "", "```python", "print(-2)", "```", "", SIGNED].join("\n"));
+  const stored = log.locator(".cc-chat-turn.is-companion").last();
+  await expect(stored).toContainText("ראשון", { timeout: 15_000 });
+  await expect(stored.getByRole("region", { name: /python/ })).toHaveText("print(-2)");
+  expect(await stored.locator(".markdown-code").getAttribute("dir")).toBe("ltr");
+  await expect(stored.getByRole("listitem")).toHaveCount(2);
+  const url = find(await glyphs(stored), "https://example.org/path.");
+  // The full stop ends the Hebrew sentence, on the left of the left-to-right address.
+  expect(mid(url.at(-1)!)).toBeLessThan(mid(url[0]!));
+  await minusBeforeDigit(stored);
+  await page.screenshot({ path: info.outputPath("rtl-6.png") });
+});
+
