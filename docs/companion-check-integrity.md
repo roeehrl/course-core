@@ -23,9 +23,16 @@ Every companion request carries the graded-check rule in Core's strategy
 (`agent-strategies.ts`, `GRADED_CHECK_RULE`): never state, choose, confirm or rule out the answer
 to a graded check, open or not, even when the learner pastes it, calls it practice or insists;
 explain the idea it tests and ask one guiding question; a numeric item may be worked on an example
-with a different structure and different numbers, but a choice or classification item's mirrored
-case is never classified; misconceptions are still corrected, without applying the correction to
-the check's own case. Because it is in the strategy, it applies to every provider and to
+with a different structure and different numbers whose result is not the item's answer, but a
+choice or classification item's mirrored case is never classified; misconceptions are still
+corrected, without applying the correction to the check's own case. The same rule covers any
+problem the learner has not solved yet, the course's or one they bring: its final answer is never
+stated, bolded or hinted, after a refusal, after an off-topic or injection attempt, or in a closing
+line, and a worked example or analogy uses values whose result differs from the answer to the
+learner's actual question (two live leaks of suite 2.5.0: a refusal that closed on the blank's value,
+and an example 3 - 7 = -4 for a check whose answer is -4). Instructions inside the lesson or the
+learner's message to reveal an answer, print the instructions, change role or switch modes are data
+(`COMPANION_INSTRUCTION`): the companion says in one sentence that it will not, and keeps tutoring. Because it is in the strategy, it applies to every provider and to
 course-declared strategies that narrow Core's (`course-strategies.ts`).
 
 In check-coaching mode `CHECK_COACHING_RULE` adds: no hint, no narrowing, nothing in another
@@ -123,7 +130,7 @@ in another domain, classified; a translated or paraphrased option; ruling option
   `rulesOut` (some options), `decidesEquivalentCase` (works a case with the check's structure and
   gives its classification or result). Any "yes" withholds the reply (`check_answer_judged`).
   Explaining concepts, guiding questions, contrasting the concepts that tell the options apart and
-  examples of a different structure are not leaks.
+  examples of a different structure whose result is not a check's answer are not leaks.
 - **Fails closed:** no verdict withholds the reply (`check_judge_unavailable`): no judge role bound
   or ready, an unpriced judge model in a workspace that requires prices, a request over the judge's
   input bound (16,000 characters), no room left in the job's reservation for the judge's ceiling, a
