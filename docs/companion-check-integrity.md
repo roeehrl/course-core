@@ -17,6 +17,44 @@ another domain, classified; a Hebrew paraphrase of an English option), the wrong
 for three messages after a paste was coached, and the verifier then withheld correct replies that
 repeated the lesson's own numbers or opened with "No,").
 
+## Credit: which open questions a message makes practice
+
+Asking the companion for help on a counted question makes that attempt practice. The server
+decides it (`services/api/src/companion-ask-route.ts`, `companionCreditScope`); the learner app only
+previews the same rule (`apps/learner/src/connected/credit/creditScope.ts`) to ask first.
+
+- **Scope.** A message makes practice of the open counted questions of the lesson it is asked
+  from, plus the question the learner attached to it (`challengeId`, the check's own "Ask the
+  companion"), wherever that question is. Open counted questions in other lessons stay counted and
+  need no consent. Before this, every open counted question of the enrollment was downgraded by any
+  message, so a question about another lesson cost the learner credit they had not chosen to give up.
+- **Consent.** While an in-scope question is open, the message is refused with
+  `ASSESSMENT_HELP_CONSENT_REQUIRED` and nothing is stored, unless it carries
+  `allowAssessmentAssistance: true`. The app asks the learner first in an inline choice ("Send as
+  practice", "Keep it counted", "Save for after the question") and never sets the flag on its own.
+- **Placement.** An open placement item whose author declared it unassisted-only refuses every
+  companion message (`PLACEMENT_UNASSISTED_ONLY`), from any lesson: that rule stays enrollment-wide.
+- **Record.** The downgrade sets `assistance='hint'`, `independent_eligible=false` and
+  `assistance_reason='companion'` (migration 127) on the in-scope questions only. The learner's
+  message stores `downgraded: [{ challengeId, ordinal }]` (the question's number in its lesson,
+  `check-ordinal.ts`), so the conversation can say "Question 1 is now practice." later; the
+  response's `downgradedChallengeIds` and the `companion.requested` event list the same questions.
+  The explanation writes `assistance_reason='solution'` and a fresh question `'fresh_question'`
+  (its own scope is unchanged). The learner snapshot sends the reason as
+  `activeChallenges[].practiceReason`, plus `seen_before` for a question issued not eligible with no
+  help; questions downgraded before migration 127 send `null` and show no reason.
+
+**Why integrity still holds.** Narrowing the credit scope changes only which attempts count; it
+does not loosen what the companion may say. An open counted question in another lesson stays
+counted because the learner received no help on it, and the companion still never gives its
+answer: check coaching reads every open question of the enrollment, not only the lesson's
+(`companion-check-scope.ts`), and the withheld-answer gate below (instruction, matching,
+deterministic verification and the judge) covers every graded check of the course, open or not.
+A learner who asks in lesson A about lesson B's open question without attaching it is coached
+without its answer, and B keeps counting only as long as no answer reached them.
+`services/api/test/companion-credit-scope.integration.test.ts` checks the scope, the placement
+refusal and that B's answer is still withheld.
+
 ## 1. Instruction
 
 Every companion request carries the graded-check rule in Core's strategy

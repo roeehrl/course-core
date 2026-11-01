@@ -895,7 +895,7 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
       operations: [{ id: operationId, type: 'add_assessment_variant', episodeId: episode.id, artifactId }] }, [{ operationId, profileId: profile.id }], runtime);
     const applied = await applyStored(client, loaded, actor, prepared.proposalId, input.expectedPlanRevision, input.idempotencyKey);
     if (pending.length) {
-      await client.query("UPDATE assessment_challenges SET assistance='hint',independent_eligible=false WHERE id=ANY($1::uuid[])", [pending.map(p => p.id)]);
+      await client.query("UPDATE assessment_challenges SET assistance='hint',assistance_reason='fresh_question',independent_eligible=false WHERE id=ANY($1::uuid[])", [pending.map(p => p.id)]);
       await appendEvent(client, { workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id, actorId: actor.id, actorKind: 'learner',
         type: 'assessment.assisted', payload: { reason: 'fresh_question_requested', explicitConsent: true, downgradedChallengeIds: pending.map(p => p.id) },
         idempotencyKey: `adaptation-assistance:${enrollment.id}:${input.idempotencyKey}` });
