@@ -17,6 +17,7 @@ import { CourseApiError } from "../src/client/apiClient";
 import { createConnectedDraftStore } from "../src/connected/drafts";
 import { context, message, receipt } from "./companionFixtures";
 import { companionBridge, resetCompanionBridge } from "../src/connected/companion/bridge";
+import { pressWhenReady } from "./pressWhenReady";
 
 /*
  * The companion's conversation as a familiar chat (final design §3): the saved messages as a
@@ -157,7 +158,7 @@ describe("persisted companion integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await within(screen.getByRole("log")).findByText(/We couldn't confirm your message was saved/)).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Message to your companion" })).toHaveValue("");
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Refresh" }));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 

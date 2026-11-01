@@ -444,13 +444,15 @@ export function splitClosingQuestion(nodes: readonly Inline[]): { lead: Inline[]
     const node = nodes[index]!;
     if (node.kind !== "text") continue;
     // The end of an earlier sentence: a stop, question or exclamation mark (and closing quotes)
-    // followed by a space and more text.
-    const ends = [...node.text.matchAll(/[.!?؟…:;]["'”’»)\]]*\s+(?=\S)/gu)];
+    // followed by a space and more text (here, or in the next node).
+    const ends = [...node.text.matchAll(/[.!?؟…:;]["'”’»)\]]*\s+(?=\S|$)/gu)]
+      .filter((end) => end.index! + end[0].length < node.text.length || index < nodes.length - 1);
     const last = ends.at(-1);
     if (!last) continue;
     const cut = last.index! + last[0].length;
     const lead = [...nodes.slice(0, index), ...(cut > 0 ? [{ kind: "text" as const, text: node.text.slice(0, cut) }] : [])];
-    const question = [{ kind: "text" as const, text: node.text.slice(cut) }, ...nodes.slice(index + 1)];
+    const rest = node.text.slice(cut);
+    const question = [...(rest ? [{ kind: "text" as const, text: rest }] : []), ...nodes.slice(index + 1)];
     return { lead, question };
   }
   return { lead: [], question: [...nodes] };
