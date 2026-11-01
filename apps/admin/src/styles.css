@@ -246,17 +246,62 @@ button svg {
   grid-template-columns: 238px minmax(0, 1fr);
   min-height: calc(100dvh - 63px);
 }
+/* The sidebar is exactly one window tall and stays in place while the page scrolls. The brand
+   and the signed-in person keep their places at the top and bottom; the navigation between them
+   (.sidebar-scroll) scrolls on its own when the window is too short for every section. */
 .sidebar {
   background: #192e3e;
   color: #e8f0f4;
-  padding: 30px 18px 24px;
+  padding-top: 30px;
   display: flex;
   flex-direction: column;
-  gap: 40px;
   align-self: start;
   position: sticky;
   top: 0;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+}
+.sidebar > .brand {
+  flex: none;
+  margin: 0 18px 28px;
+}
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* The wheel at either end of the list does not scroll the page behind it. */
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* Room for a focused item's ring, also when focus scrolls an item into view. */
+  padding: 12px 18px 16px;
+  scroll-padding-block: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #4b6b80 transparent;
+  /* A soft shadow at an edge while more of the list is past it (the covers move with the list
+     and hide the shadow at its ends). */
+  background:
+    linear-gradient(#192e3e 40%, rgb(25 46 62 / 0)) center top,
+    linear-gradient(rgb(25 46 62 / 0), #192e3e 60%) center bottom,
+    radial-gradient(farthest-side at 50% 0, rgb(4 12 18 / 0.55), transparent)
+      center top,
+    radial-gradient(farthest-side at 50% 100%, rgb(4 12 18 / 0.55), transparent)
+      center bottom;
+  background-color: #192e3e;
+  background-repeat: no-repeat;
+  background-size:
+    100% 36px,
+    100% 36px,
+    100% 14px,
+    100% 14px;
+  background-attachment: local, local, scroll, scroll;
+}
+.sidebar-scroll .workspace-label {
+  margin-bottom: 0;
+}
+.sidebar :focus-visible {
+  outline-color: #9cc3dd;
 }
 .brand {
   display: flex;
@@ -325,19 +370,19 @@ button svg {
 .nav-arrow {
   margin-inline-start: auto;
 }
-.sidebar-bottom {
+.sidebar-tagline {
   margin-top: auto;
-  padding: 48px 12px 0;
+  padding: 30px 12px 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
   color: #afc7d6;
 }
-.sidebar-bottom > strong {
+.sidebar-tagline > strong {
   font-size: 12px;
   color: #d9e6ed;
 }
-.sidebar-bottom p {
+.sidebar-tagline p {
   color: #afc1cd;
   font-size: 12px;
 }
@@ -348,6 +393,11 @@ button svg {
   display: flex;
   gap: 11px;
   align-items: center;
+}
+.sidebar > .actor {
+  flex: none;
+  margin: 0 30px;
+  padding-block: 16px calc(20px + env(safe-area-inset-bottom));
 }
 .actor-avatar {
   height: 35px;
