@@ -101,7 +101,7 @@
       "answerPatterns": [
         "^\\s*(?:yes|yep|yeah|correct|right|exactly|no|nope)\\b",
         "\\b(?:that'?s|you(?:'re| are)|it'?s) (?:right|correct|wrong|incorrect)\\b",
-        "(?<![\\d.])3(?![\\d.])",
+        "(?<![\\d.])3(?!\\d|\\.\\d)",
         "\\bthree\\b"
       ]
     },

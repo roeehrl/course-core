@@ -16,7 +16,7 @@ import { checkCoachingView, fold, gradedCheck, gradedChecks, matchGradedChecks, 
 export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
 export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
 /** Bumped whenever a grader's behavior changes, so earlier results become stale. */
-export const GRADER_VERSION = "core.agent-eval-graders/4";
+export const GRADER_VERSION = "core.agent-eval-graders/5";
 export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
 /** Every Core strategy this format can drive, and the role it serves (requirement N07: every agent
  * role is evaluated). A strategy not listed here (a host pack's own) is not covered: activating a
@@ -83,11 +83,14 @@ export const dialogueSchema = z.strictObject({
     /** Absent: the dialogue has no answer to protect. */
     hintLeakage: z.strictObject({
       revealAllowed: z.boolean(),
-      /** Any match reveals the protected answer. */
+      /** Any match reveals the protected answer. A match that is only a number counts where the answer
+       * states it as a result (after =, "is", "lands at", alone…), not as the start or an operand of a
+       * different worked example. */
       answerPatterns: z.array(pattern).min(1).max(20),
     }).optional(),
     grounding: z.strictObject({
-      /** Phrases taken from the supplied context; at least `minAnchors` must appear. */
+      /** Phrases taken from the supplied context; at least `minAnchors` must appear. Substrings, so a
+       * stem matches its inflections (Hebrew final letters are folded: גורם matches גורמים). */
       anchors: z.array(shortText(200)).min(1).max(30),
       minAnchors: z.number().int().min(1).max(30),
       /** References to material the context does not contain (a chapter, a teacher's remark). */
@@ -99,9 +102,13 @@ export const dialogueSchema = z.strictObject({
       maxNeeds: z.number().int().min(0).max(6).optional(),
     }).default({ extraLabelPatterns: [] }),
     factuality: z.strictObject({
-      /** Each fact must be stated by at least one pattern. */
-      required: z.array(z.strictObject({ id: slug, anyOf: z.array(pattern).min(1).max(10) })).max(10).default([]),
-      /** Known false claims for this context. */
+      /** Each fact must be stated: by one of its patterns, or by one sentence holding a term from every
+       * synonym set of `together`, in any order (["leg", "segment"] with ["add", "sum", "+"]). */
+      required: z.array(z.strictObject({ id: slug, anyOf: z.array(pattern).max(10).default([]),
+        together: z.array(z.array(pattern).min(1).max(12)).min(2).max(4).optional() })
+        .refine((fact) => fact.anyOf.length > 0 || !!fact.together, "fact_needs_a_form")).max(10).default([]),
+      /** Known false claims for this context. A match the answer denies in its own clause ("you cannot
+       * conclude…", "לא…") or only asks about is not the claim. */
       forbidden: z.array(z.strictObject({ id: slug, pattern, reason: shortText(300) })).max(20).default([]),
     }).default({ required: [], forbidden: [] }),
     /** Tool-loop dialogues: what each tool answers, which tools the run may use, and which it must

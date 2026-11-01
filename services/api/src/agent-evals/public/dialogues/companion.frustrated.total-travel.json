@@ -93,7 +93,25 @@
           "id": "add-leg-lengths",
           "anyOf": [
             "(?:add|adding|sum)[^.?!]{0,60}\\blegs?\\b",
-            "\\beach leg\\b"
+            "\\beach (?:\\w+ ){0,2}legs?\\b",
+            "\\blegs?\\b[^.?!]{0,80}\\b(?:add|added|adding|sum|plus|together)\\b",
+            "\\btotal (?:travel|distance)\\b[^.?!]{0,30}\\d+\\s*\\+\\s*\\d+"
+          ],
+          "together": [
+            [
+              "\\blegs?\\b",
+              "\\bsegments?\\b",
+              "\\bparts? of the (?:route|trip|journey)\\b",
+              "\\bfirst (?:leg|part|move)\\b"
+            ],
+            [
+              "\\badd",
+              "\\bsum\\b",
+              "\\btogether\\b",
+              "\\bplus\\b",
+              "\\+",
+              "\\bcombined?\\b"
+            ]
           ]
         }
       ],

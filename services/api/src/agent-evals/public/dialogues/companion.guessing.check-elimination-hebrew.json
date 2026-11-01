@@ -103,11 +103,18 @@
         "record",
         "cause",
         "measurement",
+        "measured",
         "נרשם",
         "רשומ",
+        "רישום",
+        "תיעוד",
+        "תועד",
         "מדיד",
+        "נמד",
+        "מדידה",
         "סיבה",
-        "גורם"
+        "גורם",
+        "הוכח"
       ],
       "minAnchors": 2,
       "unsupportedPatterns": [
