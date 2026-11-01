@@ -38,10 +38,23 @@ import { connectedSnapshot } from "./connectedFixtures";
 import { companionFocus, selectedLines } from "../src/client/companionFocus";
 import { pressWhenReady } from "./pressWhenReady";
 import { context, message, receipt } from "./companionFixtures";
+import { companionBridge, resetCompanionBridge } from "../src/connected/companion/bridge";
 afterEach(() => vi.useRealTimers());
 /** A window that docks the companion beside the lesson, or one that shows it as a sheet. */
 const dockLayout = (wide: boolean) => (wide ? companionLayout(1440, 960) : companionLayout(390, 844));
 describe("persisted companion integration", () => {
+  it("takes text from elsewhere in the app into the message box, made before or after it listens", async () => {
+    resetCompanionBridge();
+    companionBridge.compose({ source: "check", text: "Why is 2 the smaller one?", focus: false });
+    const change = vi.fn();
+    render(
+      <ConnectedCompanion context={context} messages={[]} episodeTitles={{}} draft="" onDraftChange={change} onSend={vi.fn()} pending={false} loaded />,
+    );
+    await act(async () => {});
+    expect(change).toHaveBeenCalledWith("Why is 2 the smaller one?");
+    act(() => companionBridge.compose({ source: "nudge", text: "And for three values?" }));
+    expect(change).toHaveBeenLastCalledWith("And for three values?");
+  });
   it("shows actual saved messages, source lesson and configuration state without raw provider reasons", () => {
     render(
       <ConnectedCompanion

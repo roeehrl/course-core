@@ -18,7 +18,6 @@ import {
   createCourseApi,
   CourseApiError,
   useApiErrorLocale,
-  type Challenge,
   type ServerSnapshot,
 } from "./client/apiClient";
 import {

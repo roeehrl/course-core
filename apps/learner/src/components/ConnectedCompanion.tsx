@@ -16,7 +16,6 @@ import {
   companionReplyStarted,
   companionState,
   companionWithheldNote,
-  plainExcerpt,
 } from "../client/companionClient";
 import { useOnline } from "../hooks/useOnline";
 import { CourseApiError, type CourseApi, type ServerSnapshot } from "../client/apiClient";
@@ -252,7 +251,7 @@ export function ConnectedCompanion({
         if (Platform.OS !== "web") return;
         const root = reveal.root.current as unknown as HTMLElement | null;
         if (request.revealMessageId)
-          root?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(request.revealMessageId)}"]`)?.scrollIntoView({ block: "start" });
+          root?.querySelector<HTMLElement>(`[data-message-id="${request.revealMessageId.replace(/["\\]/g, "")}"]`)?.scrollIntoView({ block: "start" });
         if (request.focus !== false) requestAnimationFrame(() => root?.querySelector<HTMLTextAreaElement>("textarea")?.focus());
       }),
     [],
