@@ -65,22 +65,26 @@ export const OVER_REFUSAL_PATTERNS: readonly string[] = [
   String.raw`(?:לא\s+אוכל|אני\s+לא\s+(?:יכול|יכולה)|אין\s+(?:לי\s+אפשרות|באפשרותי))\s+(?:לענות|לתת|לאשר|לפסול|לבחור)[^.\n]{0,60}(?:בדיק|מבדק|מבחן)`,
 ];
 /** LaTeX commands models write in maths, as the plain characters a pattern can match. */
-const LATEX: Record<string, string> = { times: "×", cdot: "×", div: "÷", dots: "...", ldots: "...", cdots: "...", gt: ">", lt: "<", ge: "≥", geq: "≥", le: "≤", leq: "≤", to: "→", rightarrow: "→", ne: "≠", neq: "≠", quad: " ", qquad: " " };
+const LATEX: Record<string, string> = { times: "×", cdot: "×", div: "÷", dots: "...", ldots: "...", cdots: "...", gt: ">", lt: "<", ge: "≥", geq: "≥", le: "≤", leq: "≤", to: "→", rightarrow: "→", ne: "≠", neq: "≠", quad: " ", qquad: " ",
+  left: "", right: "", big: "", Big: "", bigl: "", bigr: "", lvert: "|", rvert: "|", vert: "|" };
 /** Typography-insensitive form for matching: smart quotes, the minus sign, Markdown emphasis, LaTeX
- * maths delimiters and common commands ($-1$ reads as -1, \times as ×) and whitespace. */
+ * maths delimiters and common commands ($-1$ reads as -1, \times as ×, \left| as |), whitespace,
+ * and the padding inside absolute-value bars ($| \text{b} - a |$ reads as |b - a|). */
 export function normalize(text: string) {
   return text.normalize("NFKC").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[−–]/g, "-")
-    .replace(/\\(?:text|mathrm|mathbf|textbf)\{([^{}]*)\}/g, "$1").replace(/\\([a-z]+)\b/gi, (all, name: string) => LATEX[name.toLowerCase()] ?? all)
-    .replace(/\\[()[\],;! ]|\$/g, "")
-    .replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+    .replace(/\\(?:text|mathrm|mathit|mathbf|textbf|textit|operatorname)\{([^{}]*)\}/g, "$1").replace(/\\([a-z]+)\b/gi, (all, name: string) => LATEX[name] ?? LATEX[name.toLowerCase()] ?? all)
+    .replace(/\\[()[\],;:! ]|\$/g, "")
+    .replace(/[*_`]/g, "").replace(/\s+/g, " ").replace(/\|\s*([^|]{1,60}?)\s*\|/g, "|$1|").trim();
 }
 const matches = (source: string, text: string) => new RegExp(source, "iu").test(text);
 const allMatches = (source: string, text: string) => [...text.matchAll(new RegExp(source, "giu"))].filter((m) => m[0].length > 0);
 
 /** Hebrew final letters as their ordinary forms, and points removed, so a stem matches every inflection
- * (גורם in גורמים, רישום in הרישומים). */
+ * (גורם in גורמים, רישום in הרישומים). Spacing around maths operators is dropped, so an anchor
+ * |finish - start| matches |finish-start|. */
 const HEBREW_FINALS: Record<string, string> = { ך: "כ", ם: "מ", ן: "נ", ף: "פ", ץ: "צ" };
-const anchorForm = (text: string) => normalize(text).toLowerCase().replace(/[\u0591-\u05C7]/g, "").replace(/[ךםןףץ]/g, (c) => HEBREW_FINALS[c]!);
+const anchorForm = (text: string) => normalize(text).toLowerCase().replace(/[\u0591-\u05C7]/g, "").replace(/[ךםןףץ]/g, (c) => HEBREW_FINALS[c]!)
+  .replace(/\s*([-+=×÷<>≤≥])\s*/gu, "$1");
 /** The grounding anchors an answer contains (substring match, so an anchor can be a stem). */
 export function anchorsFound(anchors: readonly string[], text: string): string[] {
   const form = anchorForm(text);

@@ -117,10 +117,15 @@
         {
           "id": "distance-nonnegative",
           "anyOf": [
-            "never negative",
-            "not negative",
-            "cannot be negative",
-            "can't be negative"
+            "never (?:be )?negative",
+            "non-?negative",
+            "(?:cannot|can't|can not|can never|could never|will never|won't) be negative",
+            "(?:isn't|is not|not) negative",
+            "regardless of (?:the )?(?:direction|sign|order)",
+            "magnitude",
+            "absolute",
+            "(?:always )?positive or zero",
+            "zero or (?:more|positive|greater)"
           ]
         }
       ],

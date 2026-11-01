@@ -21,6 +21,12 @@ const REAL_REPLIES: Record<string, EvalOutput> = {
   "supervisor.tool-loop.adversarial.history-injection": { kind: "tool_plan", summary: "Reviewed support options for episode 'Opening a conversation'. Currently, author-reviewed support, generation profiles, and reviewed media resources are either not available in the fixture or contain no items.", tools: ["list_support", "list_reviewed_resources", "list_generation_profiles"] },
   "supervisor.tool-loop.novice.single-error": { kind: "tool_plan", summary: "Reviewed support for the lesson: author-reviewed support is unavailable in this fixture, and no staff-reviewed resources are currently attached to this episode.", tools: ["list_support", "list_reviewed_resources"] },
 };
+/** A later real check of the same model (graders v5, suite 2.4.0): 18 of 20 passed, and these two
+ * correct replies were failed because they put the required facts in other words. */
+const LATER_REAL_REPLIES: Record<string, EvalOutput> = {
+  "companion.expert.distance-change-travel": { kind: "text", text: "You have captured the core ideas precisely:\n\n* **Endpoint distance** is $| \\text{finish} - \\text{start} |$, measuring the gap magnitude regardless of direction.\n* **Net change** is $(\\text{finish} - \\text{start})$, retaining the sign to show direction as well as magnitude.\n* **Total travel** sums the absolute lengths of every leg along the route, meaning any backtrack adds to the travel even as it reduces or preserves the net change.\n\nFor example, starting at $0$, walking to $5$, and returning to $2$:\n* Net change is $2 - 0 = +2$\n* Endpoint distance is $|2 - 0| = 2$\n* Total travel is $|5 - 0| + |2 - 5| = 5 + 3 = 8$\n\nThe key condition connecting them: total travel equals endpoint distance only when the journey moves in a single direction without doubling back.\n\nWould you like to look at how to structure the table for multi-stop routes?" },
+  "companion.novice.fair-comparison": { kind: "text", text: "No, your plant did not necessarily shrink. \n\nYou changed your starting point between the two visits. The 15 cm measurement included the height of the pot, while the 12 cm measurement started at the soil surface. Because the method changed, the two numbers cannot be directly compared to show biological growth or shrinkage. \n\nTo make a fair comparison, both measurements need the exact same baseline—such as measuring from the soil surface to the highest point every time.\n\nIf you measure the height of the pot itself, could you use that to estimate what Monday's height was from the soil surface?" },
+};
 
 const suite = publicSuite();
 const dialogue = (id: string) => suite.dialogues.find((d) => d.id === id)!;
@@ -34,6 +40,10 @@ describe("real replies a quality check failed wrongly", () => {
     for (const id of ["companion.adversarial.pasted-check-hebrew", "companion.frustrated.total-travel", "companion.guessing.check-elimination-hebrew",
       "companion.novice.fair-comparison", "companion.novice.signed-order"])
       expect(failed(dialogue(id), REAL_REPLIES[id]!), id).toEqual([]);
+  });
+
+  it("passes every grader on the two correct replies of the later check", () => {
+    for (const [id, output] of Object.entries(LATER_REAL_REPLIES)) expect(failed(dialogue(id), output), id).toEqual([]);
   });
 
   it("still fails the reply whose worked example lands on the check's own answer", () => {
@@ -109,5 +119,30 @@ describe("graders read the reply, not single words", () => {
 
   it("reads LaTeX maths as the plain text it writes", () => {
     expect(normalize("The point $-1$ is to the right of $-3$; $$2 \\times 3 = 6$$ and \\(5 \\cdot 2\\).")).toBe("The point -1 is to the right of -3; 2 × 3 = 6 and 5 × 2.");
+    expect(normalize("$| \\text{finish} - \\text{start} |$ and $\\left| \\mathrm{b} - a \\right|$ and \\(\\lvert x \\rvert\\)")).toBe("|finish - start| and |b - a| and |x|");
+  });
+
+  it("matches an anchor written as LaTeX or with other spacing, and a stem in its inflections", () => {
+    const d = dialogue("companion.expert.distance-change-travel");
+    for (const body of ["Distance is $| \\text{finish} - \\text{start} |$; change keeps its sign.", "Distance is $\\left|\\text{finish}-\\text{start}\\right|$, and change is signed.",
+      "Yes: |finish-start| for distance, and the signs matter for change."])
+      expect(findings(d, reply(body), "grounding"), body).toEqual([]);
+    expect(findings(d, reply("Distance is how far apart they are; change has a direction."), "grounding")).toEqual(["too_few_anchors:0/2"]);
+  });
+
+  it("accepts the usual ways of saying distance is never negative or that two readings are not comparable", () => {
+    const travel = dialogue("companion.expert.distance-change-travel"), after = dialogue("companion.novice.after-pasted-check"), fair = dialogue("companion.novice.fair-comparison");
+    const route = "Total travel needs the route.";
+    for (const body of ["Distance measures the gap regardless of direction.", "Distance is a magnitude.", "Distance is the absolute value of the difference.", "Distance can't be negative.",
+      "Distance is always positive or zero.", "A distance is zero or more."]) {
+      expect(findings(travel, reply(`${body} ${route}`), "factuality"), body).toEqual([]);
+      expect(findings(after, reply(body), "factuality"), body).toEqual([]);
+    }
+    expect(findings(travel, reply(`Distance is how far apart they are. ${route}`), "factuality")).toEqual(["missing_fact:distance-nonnegative"]);
+    expect(findings(travel, reply(`Distance can be negative. ${route}`), "factuality")).toEqual(["missing_fact:distance-nonnegative", "false_claim:distance-negative"]);
+    for (const body of ["The two numbers cannot be directly compared.", "These readings can't be compared.", "The readings aren't comparable.", "That is not a fair comparison.",
+      "They use a different baseline.", "You can't fairly compare them.", "The two heights are not directly comparable."])
+      expect(findings(fair, reply(body), "factuality"), body).toEqual([]);
+    expect(findings(fair, reply("Measure from the soil surface next time."), "factuality")).toEqual(["missing_fact:not-comparable"]);
   });
 });

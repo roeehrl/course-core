@@ -42,7 +42,7 @@
       "anchors": [
         "|finish - start|",
         "route",
-        "signed",
+        "sign",
         "never negative"
       ],
       "minAnchors": 2,
@@ -59,9 +59,15 @@
         {
           "id": "distance-nonnegative",
           "anyOf": [
-            "never negative",
+            "never (?:be )?negative",
             "non-?negative",
-            "cannot be negative"
+            "(?:cannot|can't|can not|can never|could never|will never|won't) be negative",
+            "(?:isn't|is not|not) negative",
+            "regardless of (?:the )?(?:direction|sign|order)",
+            "magnitude",
+            "absolute",
+            "(?:always )?positive or zero",
+            "zero or (?:more|positive|greater)"
           ]
         },
         {
