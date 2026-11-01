@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
-import { closeCompanion } from "./companion-helpers";
+import { closeCompanion, openCompanion } from "./companion-helpers";
 
-/* I04/I05/P05/S12 on the connected lesson: 44 px targets in the lesson and the
- * companion, prose line length, reflow at 200% and 400% browser zoom, forced
+/* I04/I05/P05/S12 on the connected lesson: control targets in the lesson and the
+ * companion (24 px with a fine pointer, 44 px with a coarse one), prose line length, reflow at 200% and 400% browser zoom, forced
  * colours, and the answer actions staying above an on-screen keyboard. The
  * manual screen-reader traversal is in docs/accessibility.md. */
 
@@ -68,7 +68,8 @@ async function openCheck(page: Page) {
   ).toBeVisible();
 }
 
-/** Every visible control in `scope` smaller than 44×44 CSS px. Inline links in
+/** Every visible control in `scope` smaller than its minimum target: 24×24 CSS px under a fine
+ * pointer, 44×44 under a coarse one (touch; the phone and tablet projects emulate it). Inline links in
  * running text are exempt (WCAG 2.5.5/2.5.8 inline exception); a native radio or
  * checkbox counts by its whole label. */
 async function smallTargets(page: Page, scope: string) {
@@ -82,6 +83,7 @@ async function smallTargets(page: Page, scope: string) {
       ),
     );
     const small: string[] = [];
+    const minimum = window.matchMedia("(pointer: coarse)").matches ? 44 : 24;
     for (const control of new Set(controls)) {
       if (control.closest("[hidden]") || control.getClientRects().length === 0)
         continue;
@@ -96,7 +98,7 @@ async function smallTargets(page: Page, scope: string) {
         ? (control.closest("label") ?? control)
         : control;
       const rect = target.getBoundingClientRect();
-      if (rect.width < 44 - 0.5 || rect.height < 44 - 0.5)
+      if (rect.width < minimum - 0.5 || rect.height < minimum - 0.5)
         small.push(
           `${(target.getAttribute("aria-label") ?? target.textContent ?? target.tagName).trim().slice(0, 40)} ${Math.round(rect.width)}×${Math.round(rect.height)}`,
         );
@@ -105,7 +107,7 @@ async function smallTargets(page: Page, scope: string) {
   }, scope);
 }
 
-test("44 px targets across the connected lesson, header and companion", async ({
+test("control targets across the connected lesson, header and companion: 24 px, 44 px on touch", async ({
   page,
 }) => {
   await openCheck(page);
@@ -124,6 +126,25 @@ test("44 px targets across the connected lesson, header and companion", async ({
   if (await page.locator(".connected-host.is-compact").count()) await closeCompanion(page);
   await page.locator(".connected-menu-toggle").click();
   expect(await smallTargets(page, ".connected-menu-panel")).toEqual([]);
+  // Under a coarse pointer the companion's own controls are 44×44 at least (final design §1.3):
+  // Send and Stop, Close, Expand, the sheet handle, Jump to latest and the height buttons.
+  if (await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)) {
+    await page.keyboard.press("Escape");
+    const panel = await openCompanion(page);
+    const sizes = await panel
+      .getByRole("button", { name: /^(Send|Stop reply|Close companion|Expand|Jump to latest)$/ })
+      .or(panel.locator("[data-companion-control]"))
+      .evaluateAll((nodes) => nodes.filter((node) => node.getClientRects().length).map((node) => {
+        const rect = node.getBoundingClientRect();
+        return `${(node.getAttribute("aria-label") ?? node.textContent ?? "").trim()} ${Math.round(rect.width)}×${Math.round(rect.height)}`;
+      }));
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const size of sizes) {
+      const [w, h] = size.split(" ").at(-1)!.split("×").map(Number);
+      expect(Math.min(w!, h!), size).toBeGreaterThanOrEqual(44);
+    }
+    await closeCompanion(page);
+  }
 });
 
 test("lesson prose keeps a readable line length (I04)", async ({ page }, info) => {
