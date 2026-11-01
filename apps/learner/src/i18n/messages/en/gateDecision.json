@@ -7,7 +7,7 @@
   "criterion.met": "Done",
   "criterion.pending": "Waiting for review",
   "criterion.unmet": "Still needed",
-  "eyebrow": "WHERE YOU STAND",
+  "eyebrow": "Where you stand",
   "criteria": "What this checkpoint needs",
   "nextSteps": "Next steps",
   "review.form": "Ask for a review of this decision",
@@ -58,11 +58,14 @@
   "msg.action.continueTo": "Continue to “{title}”",
   "msg.action.continue": "Continue",
   "msg.action.finishPart": "Finish this part of the course",
-  "msg.action.askHelpAfterStruggles": "{focusKind, select, lesson {Ask your companion to explain “{focus}” another way} other {Ask your companion to explain this another way}}",
+  "msg.action.askHelpAfterStruggles": "{focusKind, select, lesson {Ask your companion about “{focus}”} other {Ask your companion to explain this another way}}",
   "msg.action.reviewAfterStruggles": "{titleKind, select, lesson {Review “{title}” before you try again} other {Review the lesson before you try again}}",
   "msg.action.replyFollowUp": "Answer the reviewer's follow-up question in your own words",
   "msg.action.awaitReview": "Wait for a reviewer to read your answer; nothing counts against you meanwhile",
   "msg.action.viewGaps": "See what is still missing",
   "msg.action.appeal": "Request {reviewer, select, staff {a staff} other {an independent}} review of this decision within {days} days",
-  "msg.action.extension": "Check whether an extension is available for {titleKind, select, lesson {“{title}”} other {this course}}"
+  "msg.action.extension": "Check whether an extension is available for {titleKind, select, lesson {“{title}”} other {this course}}",
+  "help.prefill": "Can you explain “{focus}” another way?",
+  "help.prefillGeneric": "Can you explain this another way?",
+  "review.tooShort": "Write a little more: at least {count, number} characters."
 }

@@ -29,10 +29,21 @@ describe("your course was updated (course version moves)", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/version 2\.0\.0 to version 3\.0\.0/);
   });
 
+  it("says on its own line that personal changes were archived, not deleted (§4.18)", () => {
+    render(<CourseVersionNotice server={{ ...connectedSnapshot(), courseVersionNotice: { ...notice, personalChanges: "accepted" as const } }} />);
+    const line = screen.getByText("Your personal changes are archived, not deleted.");
+    expect(line.closest("p")).toHaveClass("cc-ai-version-personal");
+    expect(line.closest("p")!.querySelector('svg[data-icon="info"]')).not.toBeNull();
+    expect(line.closest("li")).toBeNull();
+  });
+
   it("says it in Hebrew, and shows nothing without a recent move", () => {
     const { unmount } = render(<I18nProvider value={createLearnerTranslator("he")}><CourseVersionNotice server={{ ...connectedSnapshot(), courseVersionNotice: notice }} /></I18nProvider>);
     expect(screen.getByRole("status", { name: "הקורס שלך עודכן" })).toHaveTextContent(/הועבר מגרסה \u2068?1\.0\.0\u2069? לגרסה \u2068?2\.0\.0/);
     unmount();
+    const { unmount: archived } = render(<I18nProvider value={createLearnerTranslator("he")}><CourseVersionNotice server={{ ...connectedSnapshot(), courseVersionNotice: { ...notice, id: "00000000-0000-4000-8000-0000000000cc", personalChanges: "accepted" as const } }} /></I18nProvider>);
+    expect(screen.getByText("השינויים האישיים הועברו לארכיון ולא נמחקו.")).toBeVisible();
+    archived();
     const { container } = render(<CourseVersionNotice server={{ ...connectedSnapshot(), courseVersionNotice: null }} />);
     expect(container).toBeEmptyDOMElement();
   });

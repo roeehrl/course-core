@@ -1,123 +1,184 @@
-/* AI in the lesson: unverified and generated content, optional help, gate decisions, detours
- * and exhausted questions. Moved from connected.css. */
+/* AI in the lesson (final design §4.5–§4.7, §4.18): the gate decision and its help pill, the
+ * "Unverified" pill and note, generated models, new-material offers, optional help, detours,
+ * fresh checks and exhausted questions. Every colour is a token (tokens.css). */
 
+/* Optional help (§4.7): the disclosure keeps its chevron; resources are rows of one list. */
 .connected-resources {
-  border: 1px solid #dce6e2;
-  border-radius: 16px;
-  background: #fbfdfc;
-  padding: 4px 18px;
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
 }
 .connected-resources > summary {
   cursor: pointer;
-  min-height: 48px;
+  min-block-size: 44px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
-  padding: 10px 0;
+  padding-block: var(--space-1);
+  border-radius: 8px;
 }
-.connected-resources > summary span {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #526a70;
+.connected-resources-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-heading) var(--font-sans);
 }
-.connected-resources > summary strong {
-  font-size: 15px;
+.connected-resources-count {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-resources > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.connected-resources-intro {
+  margin: 0;
+  padding-inline-start: 22px;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 22px;
 }
 .connected-resources ul {
   list-style: none;
+  margin-block: var(--space-1) 0;
+  margin-inline: 22px 0;
   padding: 0;
-  margin: 0 0 16px;
-  display: grid;
-  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  overflow: hidden;
+}
+.connected-resources.is-unavailable {
+  gap: var(--space-1);
 }
 .connected-resource {
   display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding-top: 14px;
-  border-top: 1px solid #e6eeeb;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: var(--space-3);
+  align-items: start;
+  min-block-size: 44px;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+  color: var(--ink);
+}
+.connected-resource + .connected-resource {
+  border-block-start: 1px solid var(--line);
+}
+.connected-resource > .cc-ui-icon {
+  margin-block-start: 2px;
+  color: var(--ink-muted);
+}
+.connected-resource-body {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  justify-items: start;
 }
 .connected-resource h3,
 .connected-resource h4 {
   margin: 0;
-  font-size: 16px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
 }
 .connected-resource p {
   margin: 0;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 22px;
   overflow-wrap: anywhere;
 }
 .connected-resource blockquote {
   margin: 0;
-  padding: 8px 14px;
-  border-inline-start: 3px solid #087b69;
-  background: #f1f7f5;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
   font-size: 14px;
 }
 .connected-resource-label {
-  font-weight: 650;
+  font-weight: 600;
 }
-.connected-resource-suggested {
-  justify-self: start;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: #e5f3ef;
-  color: #0b4f45;
+.connected-resource .connected-resource-suggested {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 24px;
+  padding-block: 0;
+  padding-inline: var(--space-2) 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 500 var(--text-meta) var(--font-sans);
+  white-space: nowrap;
 }
-.connected-resource-meta {
-  color: #526a70;
+.connected-resource .connected-resource-why,
+.connected-resource .connected-resource-meta {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-resource .connected-resource-made {
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
 }
 .connected-resource-meta a {
-  color: #087b69;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-block-size: var(--target);
+  color: var(--accent);
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.connected-resource .connected-button {
-  justify-self: start;
-}
-/* Server gate decision: status, reason, criteria and the next steps the server allows. */
+
+/* Server gate decision (§4.5): status, reason, criteria and the next steps the server allows. */
 .connected-gate {
-  background: #fff;
-  border: 1px solid #cdddce;
-  border-inline-start: 6px solid #087b69;
-  border-radius: 16px;
-  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 0;
+  align-items: stretch;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  color: var(--ink);
 }
-.connected-gate[data-status="needs_help"] { border-inline-start-color: #a7631b; }
-.connected-gate[data-status="under_review"] { border-inline-start-color: #7050a4; }
-.connected-gate[data-status="closed_with_gaps"] { border-inline-start-color: #8a4b3a; }
-.connected-gate-head .connected-eyebrow { margin-bottom: 4px !important; }
+.connected-gate-head {
+  display: grid;
+  gap: var(--space-1);
+}
+.connected-gate .connected-gate-label {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
 .connected-gate-status {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   margin: 0;
-  font-size: 19px;
-  line-height: 1.35;
-  color: #183237;
+  color: var(--ink);
+  font: 600 var(--text-empty) var(--font-sans);
 }
 .connected-gate-dot {
-  width: 12px;
-  height: 12px;
+  inline-size: 8px;
+  block-size: 8px;
   border-radius: 50%;
   flex: none;
-  background: #087b69;
+  background: var(--accent);
 }
-.connected-gate[data-status="needs_help"] .connected-gate-dot { background: #a7631b; }
-.connected-gate[data-status="under_review"] .connected-gate-dot { background: #7050a4; }
-.connected-gate[data-status="closed_with_gaps"] .connected-gate-dot { background: #8a4b3a; }
-.connected-gate-reason {
-  margin: 0 !important;
-  color: #183237 !important;
-  font-size: 15px !important;
-  line-height: 1.55;
+.connected-gate[data-status="under_review"] .connected-gate-dot {
+  background: var(--ink-muted);
+}
+.connected-gate[data-status="closed_with_gaps"] .connected-gate-dot {
+  background: var(--warning);
+}
+.connected-gate .connected-gate-reason {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
   overflow-wrap: anywhere;
 }
 .connected-gate-criteria {
@@ -125,265 +186,460 @@
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .connected-gate-criteria li {
   display: grid;
   grid-template-columns: minmax(118px, max-content) 1fr;
-  gap: 4px 14px;
+  gap: var(--space-1) 14px;
   font-size: 14px;
-  line-height: 1.5;
-  padding: 8px 0;
-  border-top: 1px solid #e3ece8;
+  line-height: 22px;
+  padding-block: var(--space-2) 0;
+  border-block-start: 1px solid var(--line);
 }
-.connected-gate-criteria strong { color: #087b69; font-weight: 650; }
-.connected-gate-criteria li[data-state="unmet"] strong { color: #8a4b3a; }
-.connected-gate-criteria li[data-state="pending"] strong { color: #7050a4; }
-.connected-gate-criteria span { color: #3c5358; overflow-wrap: anywhere; }
+.connected-gate-criteria strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+.connected-gate-criteria li[data-state="unmet"] strong {
+  color: var(--ink);
+}
+.connected-gate-criteria li[data-state="pending"] strong {
+  color: var(--ink-muted);
+}
+.connected-gate-criteria span {
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
 .connected-gate-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: center;
+  gap: var(--space-2) 20px;
+  margin-block-start: var(--space-1);
 }
 .connected-gate-action {
-  min-height: 48px;
-  max-width: 100%;
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 2px solid #dce6e2;
-  background: #fff;
-  color: #087b69;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
+  max-inline-size: 100%;
   text-align: start;
-  cursor: pointer;
   overflow-wrap: anywhere;
 }
-.connected-gate-action.primary { background: #087b69; border-color: #087b69; color: #fff; }
-.connected-gate-action:hover:not(:disabled) { background: #e8f6ed; }
-.connected-gate-action.primary:hover:not(:disabled) { background: #066a5a; }
-.connected-gate-action:focus-visible { outline: 3px solid #183237; outline-offset: 2px; }
-.connected-gate-action:disabled { border-color: #e4ebe8; color: #4f6863; cursor: not-allowed; }
-.connected-gate-action.primary:disabled { background: #dfe9e5; border-color: #dfe9e5; color: #3f5a55; }
-.connected-gate-wait { margin: 0 !important; font-size: 14px !important; color: #7050a4 !important; }
-.connected-gate-review-form { display: grid; gap: 8px; min-width: 0; }
-.connected-gate-review-form label { font-size: 14px; font-weight: 600; color: #183237; }
-.connected-gate-review-form textarea {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 88px;
-  padding: 10px 12px;
-  border: 2px solid #dce6e2;
-  border-radius: 12px;
-  font: inherit;
-  font-size: 15px;
-  color: #183237;
-  background: #fff;
-  resize: vertical;
+.connected-gate-action.cc-ui-pill {
+  padding-block: var(--space-2);
 }
-.connected-gate-review-form textarea:focus-visible { outline: 3px solid #183237; outline-offset: 2px; }
+.connected-gate-action.cc-ui-text-button {
+  min-block-size: max(40px, var(--target));
+}
+.connected-gate-action.cc-ui-text-button:disabled {
+  text-decoration: none;
+}
+.cc-ai-gate-help > .cc-ui-icon {
+  align-self: center;
+}
+.connected-gate .connected-gate-wait {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.connected-gate-review-form {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.connected-gate-review-form .cc-ui-long-field {
+  inline-size: 100%;
+  box-sizing: border-box;
+}
+.connected-gate .connected-gate-review-short {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
 .connected-gate-review {
   display: grid;
   gap: 6px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #f3f0fa;
-  color: #183237;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
   font-size: 14px;
-  line-height: 1.5;
-  min-width: 0;
+  line-height: 22px;
+  min-inline-size: 0;
 }
-.connected-gate-review[data-state="upheld"] { background: #f6efe9; }
-.connected-gate-review[data-state="exception_granted"] { background: #e8f6ed; }
-.connected-gate-review p { margin: 0 !important; font-size: 14px !important; color: #183237 !important; overflow-wrap: anywhere; }
-.connected-gate-review-note { font-style: italic; }
-.connected-gate-review .connected-gate-action { justify-self: start; }
+.connected-gate-review[data-state="exception_granted"] {
+  background: var(--accent-soft);
+}
+.connected-gate .connected-gate-review p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.connected-gate-review .connected-gate-action {
+  justify-self: start;
+}
 @media (max-width: 599px) {
-  .connected-gate { padding: 16px; border-inline-start-width: 5px; }
-  .connected-gate-criteria li { grid-template-columns: 1fr; }
-  .connected-gate-actions { flex-direction: column; align-items: stretch; }
-  .connected-gate-action { width: 100%; }
-  .connected-gate-review .connected-gate-action { justify-self: stretch; }
+  .connected-gate {
+    padding: var(--space-4);
+  }
+  .connected-gate-criteria li {
+    grid-template-columns: 1fr;
+  }
+  .connected-gate-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .connected-gate-action.cc-ui-pill {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+  .connected-gate-review .connected-gate-action {
+    justify-self: stretch;
+  }
 }
 
-/* "Unverified": generated content, labelled where the learner reads it. */
+/* "Unverified" (§4.6, 18a): a 24 px pill (44 px to touch) that opens a 320 px note. */
 .connected-unverified {
-  font-size: 12px;
+  display: inline-flex;
+  vertical-align: middle;
 }
-.connected-unverified > summary {
+.cc-ai-unverified {
+  display: inline-grid;
+  place-items: center;
+  min-block-size: var(--target);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.cc-ai-unverified-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px dashed #80601e;
-  border-radius: 999px;
-  background: #fcf3df;
-  color: #5c4514;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  list-style: none;
-}
-.connected-unverified > summary::-webkit-details-marker {
-  display: none;
-}
-.connected-unverified[open] > summary {
-  border-style: solid;
-}
-.connected-unverified-body {
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-inline-start: 3px solid #80601e;
-  background: #fffaf0;
-  border-radius: 8px;
-  max-width: 560px;
-}
-.connected-unverified-body p {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: #183237;
-}
-.connected-unverified > summary::marker {
-  content: "";
-}
-.connected-unverified-body,
-.connected-unverified-body p {
-  font-weight: 400;
-  letter-spacing: 0;
+  block-size: 24px;
+  padding-block: 0;
+  padding-inline: var(--space-2) 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 500 var(--text-meta) var(--font-sans);
+  letter-spacing: normal;
   text-transform: none;
+  white-space: nowrap;
 }
-/* "Your course was updated" (course version moves). */
+.cc-ai-unverified:hover .cc-ai-unverified-pill,
+.cc-ai-unverified[aria-expanded="true"] .cc-ai-unverified-pill {
+  background: var(--line);
+}
+.cc-ai-unverified:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-ui-popover.cc-ai-unverified-note {
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+  text-align: start;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-4);
+}
+.cc-ai-unverified-note p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* "Your course was updated": what became of the learner's personal changes (§4.18). */
 .connected-version-notice ul {
   margin: 0 0 12px;
   padding-inline-start: 22px;
   line-height: 1.6;
 }
-.connected-resources > summary span:lang(he),
-.connected-unverified > summary:lang(he) {
-  letter-spacing: 0;
-  text-transform: none;
+.connected-reading-card .cc-ai-version-personal {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.cc-ai-version-personal > .cc-ui-icon {
+  margin-block-start: 3px;
 }
 
-/* Generated additions waiting for a safe point in the lesson (pendingChanges.web.tsx). */
-.connected-pending {
-  margin: 12px 0;
-  padding: 14px 16px;
-  border: 1px solid #80601e;
-  border-inline-start-width: 4px;
-  border-radius: 12px;
-  background: #fffaf0;
-  color: #183237;
-}
-.connected-pending h2 {
-  margin: 0 0 6px;
-  font-size: 16px;
-}
-.connected-pending ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+/* New material for this lesson (§4.6, 18c), at the end of the lesson. */
+.cc-ai-offers {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
-.connected-pending p {
-  margin: 0 0 6px;
+.cc-ai-offer {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  background: var(--surface);
+  color: var(--ink);
+}
+.cc-ai-offer-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.cc-ai-offer-body {
+  margin: 0;
+  color: var(--ink-muted);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 22px;
 }
-.connected-pending-actions {
+.cc-ai-offer-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+}
+.cc-ai-offer[data-state="preparing"] {
+  align-content: center;
+  min-block-size: 120px;
+  box-sizing: border-box;
+}
+.cc-ai-offer-preparing,
+.cc-ai-offer-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.cc-ai-offer-preparing {
+  color: var(--ink-muted);
+}
+.cc-ai-offer-outcome.is-muted {
+  color: var(--ink-muted);
+}
+.cc-ai-offer-outcome > .cc-ui-icon[data-icon="check"] {
+  color: var(--accent);
+}
+.cc-ai-offer-outcome > .cc-ui-text-button {
+  margin-inline-start: auto;
 }
 
-/* A generated interactive component beside its text alternative (GeneratedComponent.web.tsx). */
+/* A generated interactive model beside its text alternative (§4.6, 18b). */
 .connected-component {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid #c9d6d3;
-  border-radius: 12px;
-  background: #ffffff;
+  margin-block-start: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  background: var(--surface);
+  color: var(--ink);
   display: grid;
-  gap: 10px;
+  gap: var(--space-3);
+  justify-items: start;
 }
 .connected-component h3 {
   margin: 0;
-  font-size: 16px;
-}
-.connected-component p {
-  margin: 0;
+  font: 600 var(--text-heading) var(--font-sans);
 }
 .connected-component fieldset {
   margin: 0;
   padding: 0;
   border: 0;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-}
-.connected-component legend {
-  padding: 0 0 6px;
-  font-weight: 600;
-  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-inline-size: 0;
 }
 .connected-component-control {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
   font-size: 14px;
+  font-weight: 600;
 }
 .connected-component-control input {
-  min-height: 44px;
-  padding: 6px 10px;
-  border: 1px solid #6b7893;
-  border-radius: 8px;
-  font: inherit;
-  max-width: 100%;
+  inline-size: 9ch;
+  min-block-size: 40px;
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
   box-sizing: border-box;
+}
+.connected-component-control input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-ai-model-run {
+  min-inline-size: 184px;
+}
+.cc-ai-model-run[aria-disabled="true"] {
+  cursor: progress;
+}
+.cc-ai-spinner {
+  inline-size: 12px;
+  block-size: 12px;
+  border: 2px solid currentColor;
+  border-block-start-color: transparent;
+  border-radius: 50%;
+  animation: cc-ai-spin 1s linear 15;
+}
+@keyframes cc-ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cc-ai-model-results {
+  align-self: stretch;
+  justify-self: stretch;
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-block-size: 96px;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+}
+.connected-component .cc-ai-model-status,
+.connected-component .cc-ai-model-note {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-component .cc-ai-model-line {
+  margin: 0;
 }
 .connected-component-results {
   margin: 0;
   display: grid;
-  gap: 6px;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
 }
 .connected-component-results div {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: 6px;
+  padding-inline: var(--space-3);
+  font-size: 14px;
+  line-height: 20px;
+}
+.connected-component-results div + div {
+  border-block-start: 1px solid var(--line);
 }
 .connected-component-results dt {
-  font-weight: 600;
+  color: var(--ink);
 }
 .connected-component-results dd {
   margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
 }
+
+/* A detour from the learner's path (§4.18): one 40 px row in the lesson header. */
 .connected-detour {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  margin: 0 0 16px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1px dashed #9fb5ae;
+  gap: 0 var(--space-3);
+  min-block-size: 40px;
+  box-sizing: border-box;
+  margin-block-end: var(--space-3);
+  padding-block: var(--space-1);
+  padding-inline: var(--space-3) var(--space-1);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
 }
-.connected-detour p {
+.connected-lesson-heading .connected-detour p {
+  flex: 1 1 auto;
   margin: 0;
-  flex: 1 1 260px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
 }
-/* A lesson that ran out of questions: said plainly, with whether the course team was told. */
-.connected-check .connected-questions-exhausted {
-  display: flex;
-  flex-direction: column;
+.cc-ai-detour-back {
   gap: 6px;
-  padding: 14px 16px;
-  border: 1px solid #dce6e2;
-  border-inline-start: 4px solid #80601e;
-  border-radius: 12px;
-  background: #fcf3df;
+  min-block-size: max(32px, var(--target));
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-pill);
+  text-align: start;
 }
-.connected-check .connected-questions-exhausted p {
-  color: #183237;
+
+/* Personal lessons on the roadmap: a chip, never a colour of their own. */
+.cc-ui-tag.cc-ai-personal {
+  min-block-size: 24px;
+  box-sizing: border-box;
+  padding-inline: 10px;
+  color: var(--ink);
+  font: 500 var(--text-meta) var(--font-sans);
+}
+
+/* A fresh check after the questions ran out of what they could show. */
+.cc-ai-fresh-check {
+  align-self: flex-start;
+}
+
+/* A lesson that ran out of questions: said in place under the check, with whether the course
+ * team was told. */
+.connected-check .connected-questions-exhausted {
+  display: grid;
+  gap: var(--space-3);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--line);
+}
+.connected-check .cc-ai-exhausted-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.connected-check .cc-ai-exhausted-team {
+  font-size: var(--text-meta-size);
+}
+.cc-ai-exhausted-team[data-state="told"] > .cc-ui-icon {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-ai-spinner {
+    animation: none;
+    border-block-start-color: currentColor;
+    border-inline-end-color: transparent;
+  }
+}
+@media (forced-colors: active) {
+  .cc-ai-unverified-pill,
+  .cc-ai-offer,
+  .connected-detour,
+  .cc-ai-model-results {
+    border: 1px solid CanvasText;
+  }
+}
+/* The chevron sits beside the title line, not between the title and the count. */
+.connected-host .connected-resources > summary::before {
+  top: 16px;
 }

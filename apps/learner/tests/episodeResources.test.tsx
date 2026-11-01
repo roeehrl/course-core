@@ -68,7 +68,10 @@ describe("optional reviewed episode resources", () => {
     expect(container.querySelector("details")?.open).toBe(false);
     expect(container.querySelector("iframe")).toBeNull();
     await pressWhenReady(screen.getByText("2 reviewed resources for this lesson"));
-    expect(screen.getByText(/does not count toward progress/)).toBeInTheDocument();
+    expect(screen.getByText("Chosen and reviewed by your course team. Opening them is optional and doesn't count toward progress.")).toBeInTheDocument();
+    // Each resource is a row of one list, named like the disclosure.
+    expect(screen.getByRole("list", { name: "Optional help" }).querySelectorAll(":scope > li")).toHaveLength(2);
+    expect(screen.getAllByText(`Why it may help: ${page.whyUseful}`)).toHaveLength(2);
     expect(screen.getByText("Each comparison keeps the smaller value")).toBeInTheDocument();
     expect(screen.getByText(video.youtube.fallback.text)).toBeInTheDocument();
     expect(youtube.calls).toEqual([]);
@@ -122,7 +125,10 @@ describe("optional reviewed episode resources", () => {
     });
     const { container } = render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
     await pressWhenReady(await screen.findByText("2 reviewed resources for this lesson"));
-    expect(screen.getAllByText(/Suggested for you/)).toHaveLength(1);
+    // The companion's pick: a chip with the companion glyph, once.
+    const chips = screen.getAllByText("Suggested for you");
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.querySelector('svg[data-icon="sparkle"]')).not.toBeNull();
     expect(screen.getByText(/1:15–1:02:05/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /Load video player/ }));
     await waitFor(() => expect(container.querySelector("iframe")).not.toBeNull());
@@ -161,6 +167,7 @@ describe("optional reviewed episode resources", () => {
     const { container } = render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
     await pressWhenReady(await screen.findByText("1 reviewed resource for this lesson"));
     expect(screen.getByText(/Course-made video/)).toBeVisible();
+    expect(screen.getByText(/Course-made video/).closest("p")).toHaveTextContent("Course-made video. Made with AI for this lesson, then checked by your course team.");
     expect(screen.getByText(clip.transcript)).toBeVisible();
     expect(screen.getByText(clip.visualDescription)).toBeVisible();
     const player = container.querySelector("video")!;
@@ -180,6 +187,9 @@ describe("optional reviewed episode resources", () => {
     await waitFor(() => expect(container.innerHTML).toBe(""));
     const failing = createResourcesClient({ request: (async () => { throw new Error("offline"); }) as never });
     render(<EpisodeResources client={failing} enrollmentId="e" episodeId="min" />);
-    await screen.findByText("Reviewed resources are unavailable right now");
+    // Said in one line, with nothing to open.
+    const line = await screen.findByText("Resources aren't available right now. Your lesson and progress aren't affected.");
+    expect(line.closest("section")).toHaveAccessibleName("Optional help");
+    expect(document.querySelector("details")).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentBlock, Episode } from "@course-core/sdk";
 import type { ServerSnapshot } from "../client/apiClient";
 import { MarkdownContent } from "../components/MarkdownContent";
@@ -21,6 +21,8 @@ import type { CheckCommands } from "./checks/useCheckCommands";
 import { lessonNavigator } from "./companion/bridge";
 import { highlightBlock } from "./ui/highlight";
 import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
+import { LessonPlaceContext, type LessonPlace } from "./pendingChanges.web";
+import { Icon } from "../components/icons/Icon.web";
 import { GeneratedComponentPanel, type GeneratedComponent } from "./GeneratedComponent.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, type LessonStepView } from "./lessonSteps";
 import type { ActivityClient } from "../client/activityClient";
@@ -175,11 +177,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   // is highlighted.
   const readingIds = reading.map((block) => block.id).join(" ");
   const completedIds = progress?.completedBlockIds.join(" ") ?? "";
+  // A part can be shown when it was read, or when it is the one to read next (the lesson's parts
+  // open in order).
+  const showable = (blockId: string) => readingIds.split(" ").includes(blockId) && (completedIds.split(" ").includes(blockId) || next?.id === blockId);
   useEffect(
     () =>
       lessonNavigator.register((target) => {
         if (!target.blockId || target.challengeId || (target.episodeId && target.episodeId !== episode.id)) return false;
-        if (!readingIds.split(" ").includes(target.blockId)) return false;
+        if (!showable(target.blockId)) return false;
         const read = completedIds.split(" ").includes(target.blockId);
         setReviewId(read ? target.blockId : undefined);
         requestAnimationFrame(() => {
@@ -191,7 +196,13 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
         });
         return true;
       }),
-    [episode.id, readingIds, completedIds],
+    // (`showable` reads only these.)
+    [episode.id, readingIds, completedIds, next?.id],
+  );
+  // What the new-material offer needs to say whether an addition landed and where (pendingChanges.web.tsx).
+  const place = useMemo<LessonPlace>(
+    () => ({ planRevision: server.planRevision, episodeId: episode.id, blocks: episode.blocks, showable }),
+    [server.planRevision, episode.id, episode.blocks, readingIds, completedIds, next?.id],
   );
   const steps = lessonSteps(server, episode, t);
   const detour = returnPoint(server, episode, placement);
@@ -271,6 +282,18 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   return (
     <div className="connected-lesson">
       <header className="connected-lesson-heading">
+        {/* A detour from the learner's path (§4.18): one row, and the way back to where they were. */}
+        {detour && (
+          <div className="connected-detour" role="note" data-testid="detour-return">
+            <p>{t(detour.kind === "optional" ? "connectedLesson.detour.optional" : "connectedLesson.detour.revisit")}</p>
+            {props.onReturn && (
+              <button type="button" className="cc-ui-text-button cc-ai-detour-back" onClick={() => props.onReturn!(detour.episodeId)}>
+                <span>{t("connectedLesson.detour.return", { title: detour.title })}</span>
+                <Icon name="arrow-right" size={16} />
+              </button>
+            )}
+          </div>
+        )}
         <div className="connected-lesson-topline">
           <p className="connected-lesson-where">
             {placement
@@ -299,22 +322,6 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           <LessonProgress steps={steps} questionsLeft={questionsLeft} questionsTotal={questionsTotal} completed={completed} />
         )}
       </header>
-      {detour && (
-        <div className="connected-detour" role="note" data-testid="detour-return">
-          <p>
-            {t(detour.kind === "optional" ? "connectedLesson.detour.optional" : "connectedLesson.detour.revisit", {
-              title: detour.title,
-              where: detour.where,
-              part: detour.part,
-              total: detour.total,
-            })}
-          </p>
-          {props.onReturn && (
-            <Button label={t("connectedLesson.detour.return", { title: detour.title })} kind="quiet" onPress={() => props.onReturn!(detour.episodeId)} />
-          )}
-        </div>
-      )}
-      {props.pendingChanges}
       {closed ? (
         <Notice error>{t("connectedLesson.accessClosed")}</Notice>
       ) : (
@@ -470,6 +477,8 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               onQuestionsExhausted={props.onQuestionsExhausted}
             />
           )}
+          {/* New material goes at the end of the lesson, so it is offered here (§4.6, 18c). */}
+          <LessonPlaceContext.Provider value={place}>{props.pendingChanges}</LessonPlaceContext.Provider>
           {completed ? (
             <Notice>{t("connectedLesson.saved")}</Notice>
           ) : (

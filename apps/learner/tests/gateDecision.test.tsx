@@ -1,6 +1,6 @@
 import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
 import { stripBidiControls } from "@course-core/i18n";
 import { GateDecisionPanel, GATE_STATUS_LABELS, gateText } from "../src/connected/GateDecision.web";
@@ -10,6 +10,7 @@ import { ConnectedLesson, type ConnectedLessonProps } from "../src/connected/Con
 import type { Challenge, GateView, Question } from "../src/client/apiClient";
 import { answerFeedback } from "../src/connected/answerFeedback";
 import { connectedSnapshot } from "./connectedFixtures";
+import { companionBridge, resetCompanionBridge } from "../src/connected/companion/bridge";
 
 const gate = (status: NonNullable<GateView["status"]>, nextActions: NextAction[]): GateView => ({
   passed: status === "ready", status, objectives: [{ id: "observe", families: [], required: 2, passed: false }], decisionId: "decision-1",
@@ -22,6 +23,7 @@ const gate = (status: NonNullable<GateView["status"]>, nextActions: NextAction[]
 });
 
 describe("server gate decision panel", () => {
+  afterEach(() => resetCompanionBridge());
   it.each([
     ["ready", [{ kind: "continue", label: "Continue to “Compare”", targetId: "compare" }]],
     ["needs_evidence", [{ kind: "attempt_check", label: "Solve a new transfer task: “Predict the next value”", targetId: "predict" }, { kind: "request_help", label: "Ask the companion" }]],
@@ -29,6 +31,9 @@ describe("server gate decision panel", () => {
     ["under_review", [{ kind: "await_review", label: "Wait for a reviewer to look at your answer" }, { kind: "request_help", label: "Ask the companion" }]],
     ["closed_with_gaps", [{ kind: "view_gaps", label: "See what remains unproven" }, { kind: "appeal", label: "Request a staff review within 14 days" }]],
   ] as const)("%s: shows the status, reason, criteria and the server's next steps", (status, actions) => {
+    // The companion is on the page: asking it is offered, and goes to it, not to the host.
+    companionBridge.setAvailable(true);
+    const compose = vi.spyOn(companionBridge, "compose").mockImplementation(() => {});
     const onAction = vi.fn();
     render(<GateDecisionPanel gate={gate(status, [...actions])} pending={false} onAction={onAction} onRequestReview={vi.fn()} />);
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS[status] })).toBeVisible();
@@ -38,8 +43,17 @@ describe("server gate decision panel", () => {
     const buttons = actions.filter((a) => a.kind !== "await_review");
     for (const action of buttons) fireEvent.click(screen.getByRole("button", { name: action.label }));
     // An appeal opens the review form in the panel instead of leaving it.
-    expect(onAction).toHaveBeenCalledTimes(buttons.filter((a) => a.kind !== "appeal").length);
+    expect(onAction).toHaveBeenCalledTimes(buttons.filter((a) => a.kind !== "appeal" && a.kind !== "request_help").length);
+    expect(compose).toHaveBeenCalledTimes(buttons.filter((a) => a.kind === "request_help").length);
     if (status === "under_review") expect(screen.queryByRole("button", { name: /Wait for a reviewer/ })).toBeNull();
+  });
+  it("labels where the learner stands in sentence case, with an accent dot for every status", () => {
+    const { container } = render(<GateDecisionPanel gate={gate("needs_help", [{ kind: "attempt_check", label: "Try a check", targetId: "x" }])} pending={false} onAction={vi.fn()} />);
+    expect(screen.getByText("Where you stand")).toHaveClass("connected-gate-label");
+    expect(container.querySelector(".connected-eyebrow")).toBeNull();
+    expect(container.querySelector(".connected-gate-dot")).toHaveAttribute("aria-hidden", "true");
+    // The first step leads; it is the filled pill.
+    expect(screen.getByRole("button", { name: "Try a check" })).toHaveClass("cc-ui-pill-accent");
   });
   it("says each sentence once: no reason that repeats a criterion, no criterion twice", () => {
     // The live card: the reason was the one unmet criterion's sentence, and the criterion said it again.
@@ -78,10 +92,19 @@ describe("server gate decision panel", () => {
     expect(appeal).toHaveAttribute("aria-expanded", "true");
     const send = screen.getByRole("button", { name: "Send review request" });
     expect(send).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Why should a staff member look at this decision again?"), { target: { value: "  too short " } });
-    expect(send).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Why should a staff member look at this decision again?"), { target: { value: "  I ran out of time because of an illness.  " } });
+    const field = screen.getByLabelText("Why should a staff member look at this decision again?");
+    // The long-answer composer: the reason is described by what asking does.
+    expect(field).toHaveAccessibleDescription(/A reviewer reads your reason and the record above/);
+    fireEvent.change(field, { target: { value: "  too short " } });
     fireEvent.click(send);
+    expect(onRequestReview).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("Write a little more: at least 10 characters.");
+    fireEvent.change(field, { target: { value: "  I ran out of time because of an illness.  " } });
+    expect(screen.queryByText(/Write a little more/)).toBeNull();
+    // Enter makes a new line; Cmd/Ctrl+Enter sends.
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(onRequestReview).not.toHaveBeenCalled();
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true, metaKey: true });
     expect(onRequestReview).toHaveBeenCalledWith("I ran out of time because of an illness.");
     await vi.waitFor(() => expect(screen.queryByRole("form", { name: "Ask for a review of this decision" })).toBeNull());
   });
@@ -134,12 +157,13 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     const onQuestionsExhausted = vi.fn(() => new Promise<boolean>((resolve) => { tell = resolve; }));
     render(<ConnectedLesson {...p} onQuestionsExhausted={onQuestionsExhausted} />);
     const notice = screen.getByTestId("questions-exhausted");
-    expect(notice).toHaveTextContent("No new questions are available for this lesson right now. Your work so far is saved.");
+    expect(notice).toHaveTextContent("No new questions for this lesson right now. Your work is saved.");
     expect(notice).toHaveTextContent("Telling your course team…");
     expect(onQuestionsExhausted).toHaveBeenCalledWith("intro");
     expect(screen.queryByText(/qualified recovery check/)).toBeNull();
     await act(async () => tell(true));
-    expect(notice).toHaveTextContent("Your course team has been told and can add more questions.");
+    expect(notice).toHaveTextContent("Your course team knows and can add more questions.");
+    expect(notice.querySelector('svg[data-icon="check"]')).not.toBeNull();
     expect(onQuestionsExhausted).toHaveBeenCalledTimes(1);
   });
   it("lets the learner complete under a standing staff exception, and not otherwise", () => {
