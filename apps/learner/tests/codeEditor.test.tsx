@@ -110,14 +110,18 @@ describe("connected practical exercise editor", () => {
     expect(p.check.onAnswer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
     expect(p.check.onAnswer).toHaveBeenCalledWith(p.server.activeChallenges[0]);
-    rerender(<ConnectedLesson {...p} pending check={{ ...p.check, checkingAnswer: true }} />);
+    // While the grader works, "Check" keeps its place and width and says "Checking…"; nothing is
+    // said about a result until the server gives one (the dots come only after 400 ms).
+    const challenge = p.server.activeChallenges[0]!;
+    rerender(<ConnectedLesson {...p} pending check={{ ...p.check, checkingAnswer: true, savingAnswer: true,
+      attempts: { [challenge.episodeId]: { challenge, answer: "print(1)", kind: "answer", status: "checking", code: true } } }} />);
     expect(
-      screen.getByRole("button", { name: "Checking code…" }),
+      screen.getByRole("button", { name: "Checking…" }),
     ).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Your code" })).toHaveAttribute(
       "readonly",
     );
-    expect(screen.getByText(/Waiting for the server grader/)).toBeVisible();
+    expect(document.querySelector(".connected-answer-feedback")).toHaveTextContent("");
     expect(
       screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
@@ -217,7 +221,7 @@ it("renders server run failures and refuses inconsistent or malformed pass recei
         execution: { status: "timeout" },
       },
     }),
-  ).toBe("Code check did not pass. Time limit reached. No credit was granted.");
+  ).toBe("Code check didn't pass. Time limit reached. No credit was granted.");
   expect(() =>
     answerFeedback(
       {
@@ -252,7 +256,7 @@ it("words Core's coded answer feedback in English and Hebrew and refuses unknown
     result: { passed, independent: true, message, execution: { status: passed ? "graded" : "timeout" } },
   });
   expect(answerFeedback(code({ code: "code_limit", params: { limit: "time" } }))).toBe(
-    "Code check did not pass. The submission did not finish within the time limit. No credit was granted.",
+    "Code check didn't pass. The submission did not finish within the time limit. No credit was granted.",
   );
   expect(answerFeedback(code({ code: "code_limit", params: { limit: "time" } }), false, he)).toBe(
     "בדיקת הקוד לא עברה. ההרצה לא הסתיימה בתוך מגבלת הזמן. לא ניתן קרדיט.",

@@ -20,7 +20,7 @@ attaches its measurements as `budgets.json` and prints them in a `budgets {…}`
 | Cold course list | After a full reload, time from navigation start until the course card's heading is in the DOM. That heading needs the signed-in course list from the API, so the empty shell does not count |
 | Roadmap → lesson | In the page, from the press of "Continue learning →" to the first animation frame where the lesson heading has replaced the roadmap. The lesson heading needs the lesson data |
 | Lesson → roadmap | The same measurement for the roadmap button |
-| Answer feedback | From the press of "Check" to the first animation frame where that answer's result text (for example "Correct. 4 is below 9.") is on the page. The result needs the graded answer from the API |
+| Answer feedback | From the press of "Check" to the first animation frame where that answer's verdict line (for example "Correct.") and its explanation ("4 is below 9.") are in the check's feedback, in place under the question. The result needs the graded answer from the API |
 | Command acknowledgement | From the press of a lesson command ("Mark this part read", "Start the next check →") to `responseEnd` of that command's POST in Resource Timing, so the server's acknowledgement has fully arrived |
 | JS heap (Chromium only) | `JSHeapUsedSize` from the DevTools protocol after a forced garbage collection: once after the first lesson opens, and again after the round trips |
 
@@ -89,8 +89,8 @@ regression guards.
 ## How feedback is judged
 
 Feedback used to be asserted on each of two answers, so one sample decided the result. The
-first answer is the first time the page runs the answer path: the grading receipt, the result
-notice and the reloads a new course revision starts. On a busy CI runner that single cold
+first answer is the first time the page runs the answer path: the grading receipt, the check's
+feedback and the reloads a new course revision starts. On a busy CI runner that single cold
 sample occasionally exceeded 300 ms on WebKit (690 ms once, PR #208) while the answers after it
 took 30–60 ms. One sample cannot tell a slow machine from a slow app.
 

@@ -1,1 +1,11 @@
-{}
+{
+  "label": "Help with question {ordinal, number}",
+  "countedLine": "Help turns this question into practice.",
+  "tryAgain": "Try again",
+  "askCompanion": "Ask the companion",
+  "showExplanation": "Show explanation",
+  "hideExplanation": "Hide explanation",
+  "confirm.explanation": "Opening the explanation makes question {ordinal, number} practice.",
+  "confirm.showAsPractice": "Show as practice",
+  "confirm.keepCounted": "Keep it counted"
+}

@@ -9,14 +9,17 @@ import enLesson from "../../src/i18n/messages/en/connectedLesson.json";
 import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
 import enCheck from "../../src/i18n/messages/en/checkCard.json";
 import heCheck from "../../src/i18n/messages/he/checkCard.json";
+import enFeedback from "../../src/i18n/messages/en/answerFeedback.json";
+import heFeedback from "../../src/i18n/messages/he/answerFeedback.json";
 
-// The result of "Check" shows in the check, beside the answer just given, and is in the
-// window afterwards at every size (on a phone the notice above the lesson was out of sight); it is
-// announced through a live region that was already on the page. The sticky answer bar is opaque,
-// so lesson text scrolling under it never shows through.
+// The result of "Check" shows in place under the question and the answer just given (§4.1): a
+// verdict line, then the explanation. It is in the window afterwards at every size (on a phone the
+// notice above the lesson was out of sight) and announced once, through the check's own status
+// region, which was already on the page. The sticky answer bar is opaque, so lesson text scrolling
+// under it never shows through.
 const text = {
-  en: { host: enHost, preview: enPreview, roadmap: enRoadmap, lesson: enLesson, check: enCheck },
-  he: { host: heHost, preview: hePreview, roadmap: heRoadmap, lesson: heLesson, check: heCheck },
+  en: { host: enHost, preview: enPreview, roadmap: enRoadmap, lesson: enLesson, check: enCheck, feedback: enFeedback },
+  he: { host: heHost, preview: hePreview, roadmap: heRoadmap, lesson: heLesson, check: heCheck, feedback: heFeedback },
 } as const;
 type Locale = keyof typeof text;
 
@@ -50,10 +53,15 @@ for (const locale of ["en", "he"] as const) {
     // The learner is at the answer actions, as after reading the question to its end.
     await check.scrollIntoViewIfNeeded();
     await check.click();
-    await expect(region).toContainText("2 is below 5.");
+    // The verdict line, then the explanation on its own line, under the question.
+    await expect(region.locator(".cc-check-verdict")).toHaveText(text[locale].feedback["verdict.correct"]);
+    await expect(region.locator(".cc-check-explanation")).toHaveText("2 is below 5.");
+    expect(await page.getByText("Which is smaller?", { exact: true }).evaluate((prompt, slot) =>
+      Boolean(prompt.compareDocumentPosition(slot!) & Node.DOCUMENT_POSITION_FOLLOWING), await region.elementHandle())).toBe(true);
     await expect(region).toBeInViewport({ ratio: 1 });
-    // It is not also shown above the lesson.
+    // It is not also shown above the lesson, and one live region says it.
     await expect(page.getByText(/2 is below 5\./)).toHaveCount(1);
+    await expect(page.locator('[role="status"], [role="alert"], [aria-live]').filter({ hasText: "2 is below 5." })).toHaveCount(1);
     // The check's heading, right above it, is in view too and has focus.
     await expect(page.locator("#connected-check-title")).toBeFocused();
     await expect(page.locator("#connected-check-title")).toBeInViewport();

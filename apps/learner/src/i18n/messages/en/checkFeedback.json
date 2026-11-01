@@ -1,1 +1,5 @@
-{}
+{
+  "abstained": "Noted. This doesn't count against you. Here's a way in:",
+  "graderFailed": "Couldn't check your answer. Your answer is kept; try again.",
+  "tryAgain": "Try again"
+}

@@ -8,18 +8,15 @@
   "check.opensAfter": "{count, plural, =0 {Questions} one {# question} other {# questions}} to answer on your own. The check opens after part {part, number}.",
   "check.introCount": "{count, plural, =0 {Answer on your own to finish this lesson.} one {Answer # question correctly on your own to finish this lesson.} other {Answer # questions correctly on your own to finish this lesson.}} If you ask for help with a question, it becomes practice and does not count.",
   "check.doneIntro": "You finished this lesson's questions.",
-  "answer.checkingCode": "Checking code…",
-  "answer.runCode": "Check",
   "answer.submitting": "Submitting…",
   "answer.submitForReview": "Submit for review",
-  "answer.saving": "Saving…",
   "answer.check": "Check",
-  "answer.waitingForGrader": "Waiting for the server grader. No result has been recorded here yet.",
-  "answer.showExplanation": "Show the explanation",
-  "answer.showExplanationCounted": "Show the explanation (the question then becomes practice and won't count)",
   "answer.chooseFirst": "Choose an answer to check it.",
   "answer.enterFirst": "Enter your answer to check it.",
   "abstain.label": "I don't know yet",
   "abstain.accessibilityLabel": "I don't know yet: record no answer and get help",
-  "abstain.hint": "“I don't know yet” records no wrong answer. You will be offered help and a fresh check."
+  "answer.checking": "Checking…",
+  "help.getHelp": "Get help",
+  "error.copied": "This repeats your companion's words. Write it in your own words; nothing was recorded.",
+  "error.attemptRequired": "This question needs an attempt. A partial answer is fine."
 }

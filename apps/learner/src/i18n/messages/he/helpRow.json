@@ -1,1 +1,11 @@
-{}
+{
+  "label": "עזרה בשאלה {ordinal, number}",
+  "countedLine": "עזרה הופכת את השאלה הזו לתרגול.",
+  "tryAgain": "ניסיון נוסף",
+  "askCompanion": "שאלה למנחה",
+  "showExplanation": "הצגת ההסבר",
+  "hideExplanation": "הסתרת ההסבר",
+  "confirm.explanation": "פתיחת ההסבר תהפוך את שאלה {ordinal, number} לתרגול.",
+  "confirm.showAsPractice": "הצגה כתרגול",
+  "confirm.keepCounted": "להשאיר נספרת"
+}

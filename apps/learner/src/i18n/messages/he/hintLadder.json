@@ -1,1 +1,12 @@
-{}
+{
+  "button": "רמז {level, number} מתוך {count, number}",
+  "heading": "רמז {level, number} מתוך {count, number} · {name}",
+  "name.nudge": "כיוון",
+  "name.nextStep": "הצעד הבא",
+  "name.example": "דוגמה דומה",
+  "locked": "ייפתח אחרי ניסיון נוסף.",
+  "confirm": "רמז יהפוך את שאלה {ordinal, number} לתרגול.",
+  "showAsPractice": "הצגת רמז כתרגול",
+  "keepCounted": "להשאיר נספרת",
+  "area": "רמזים"
+}

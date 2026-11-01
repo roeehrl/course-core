@@ -50,7 +50,7 @@ describe("new item type inputs", () => {
   });
   it("describes an abstention as recording nothing against the learner", () => {
     expect(answerFeedback({ result: { passed: false, abstained: true, independent: true, explanation: "12.5 stays." } }))
-      .toBe("Noted. Nothing was recorded against you, and it does not count as evidence. 12.5 stays.");
+      .toBe("Noted. This doesn't count against you. 12.5 stays.");
   });
 });
 

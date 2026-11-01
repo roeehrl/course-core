@@ -85,7 +85,15 @@ test("a lesson shows one progress indicator, and its check opens neutral after t
   await expect(checkAnswer).toBeDisabled();
   await expect(page.locator("#connected-answer-hint")).toHaveText(/^(Choose an|Enter your) answer to check it\.$/);
   await expect(checkAnswer).toHaveAttribute("aria-describedby", "connected-answer-hint");
-  await expect(page.getByRole("button", { name: "Show the explanation (the question then becomes practice and won't count)" })).toBeVisible();
+  // Help waits behind "Get help": the explanation is in the help row, which says what help costs.
+  const getHelp = page.getByRole("button", { name: "Get help", exact: true });
+  await expect(getHelp).toHaveAttribute("aria-expanded", "false");
+  await getHelp.click();
+  const help = page.getByRole("group", { name: "Help with question 1" });
+  await expect(help).toContainText("Help turns this question into practice.");
+  await expect(help.getByRole("button", { name: "Show explanation", exact: true })).toBeVisible();
+  await getHelp.click();
+  await expect(help).toHaveCount(0);
   // After an answer the decision and its suggestions are relevant, in plain words.
   const option = page.locator(".connected-check").getByRole("radio").first();
   if (await option.count()) await option.click();
