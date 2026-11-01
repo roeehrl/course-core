@@ -169,6 +169,24 @@ describe("persisted companion integration", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const confirm = screen.getByRole("dialog");
     expect(await within(confirm).findByText("Couldn't delete the question. Refresh and try again.")).toBeVisible();
+    // Said once, in the confirm: the thread has no notice of its own for it.
+    expect(screen.getAllByText(/Couldn't delete the question/)).toHaveLength(1);
+  });
+
+  it("says under the reply, once, that a change to what later answers use was not saved", async () => {
+    const exclude = vi.fn().mockRejectedValue(new Error("offline"));
+    const user = userEvent.setup();
+    const reply: CompanionMessage = { id: "a", role: "assistant", content: "Because the minimum may equal another member.", context: {}, created_at: "2026-01-02", job_id: "job" };
+    render(
+      <ConnectedCompanion context={context} messages={[{ ...message, job_state: "applied" }, reply]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
+        onSend={vi.fn()} onExcludeContext={exclude} pending={false} loaded />,
+    );
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("menuitem", { name: "Don't use in later answers" }));
+    await waitFor(() => expect(exclude).toHaveBeenCalledWith("a", true));
+    const reason = await screen.findByText("That change wasn't saved. Refresh and try again.");
+    expect(reason.closest(".cc-act-reply")).not.toBeNull();
+    expect(screen.getAllByText(/That change wasn't saved/)).toHaveLength(1);
   });
 });
 

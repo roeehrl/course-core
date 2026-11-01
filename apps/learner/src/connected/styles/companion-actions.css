@@ -390,6 +390,37 @@
   }
 }
 
+/* In the conversation's bubble row (LearnerTurn's actions slot, `.cc-chat-bubble-actions`), More
+ * sits 4 px from the bubble's inline-start edge, or under it when there is no room. The row is the
+ * menu's box, so the menu opens under the bubble at its inline end and never leaves the thread;
+ * "Not used in later answers" goes under the bubble too, in room the row keeps for it. */
+.cc-chat-bubble-row:has(> .cc-chat-bubble-actions > .cc-act-bubble) {
+  position: relative;
+}
+.cc-chat-bubble-row:has(> .cc-chat-bubble-actions .cc-act-footnote-line) {
+  padding-block-end: calc(var(--space-1) + 24px);
+}
+.cc-chat-bubble-actions > .cc-act-bubble,
+.cc-chat-bubble-actions > .cc-act-bubble .cc-act-bubble-menu {
+  position: static;
+}
+.cc-chat-bubble-actions > .cc-act-bubble .cc-act-bubble-menu > .cc-ui-menu {
+  inset-inline: auto 0;
+  inline-size: min(256px, 100%);
+}
+.cc-chat-bubble-actions > .cc-act-bubble > .cc-act-footnote-line {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  max-inline-size: 100%;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .cc-chat-bubble-row:hover > .cc-chat-bubble-actions .cc-act-bubble-more {
+    opacity: 1;
+  }
+}
+
 /* The delete confirm: 320 px, radius 12, padding 16; Cancel outline, Delete --danger. On a touch
  * screen narrower than a tablet it sits at the bottom of the companion as a menu. */
 .cc-act-confirm {

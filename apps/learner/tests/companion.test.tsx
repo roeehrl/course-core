@@ -86,10 +86,31 @@ describe("persisted companion integration", () => {
     expect(within(log).getAllByText("Notice change")).toHaveLength(1);
     for (const gone of [/Companion: /, /Your saved conversation/, /Asking about/, /^Available$/, /From: /, /About: /, /Answered/, /Message saved/, /^You$/])
       expect(screen.queryByText(gone)).toBeNull();
-    // No timestamps in the turns: dates sit in start-aligned divider lines only.
-    expect(log.querySelectorAll("article time")).toHaveLength(0);
+    // No timestamps in the turns' text: dates sit in start-aligned divider lines, and a reply's time
+    // only in its action row's tooltip (final design §3.3 "Time").
+    expect(log.querySelectorAll("article time:not(.cc-act-time)")).toHaveLength(0);
+    expect(log.querySelector("article .cc-act-time")).toHaveAttribute("datetime", "2026-01-02T10:00:00Z");
     expect(log.querySelectorAll(".cc-chat-divider time").length).toBeGreaterThan(0);
     expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "secret-provider-token" })).not.toContain("secret");
+  });
+
+  it("fades in a reply that arrives, not the earlier messages read above the first ones", () => {
+    const first = [{ ...message, id: "q-now", job_id: "now", created_at: "2026-01-02T10:00:00Z", job_state: "applied" as const }, reply("now", "Reply now", { created_at: "2026-01-02T10:01:00Z" })];
+    const { again } = show({ messages: first });
+    const row = (text: string) => screen.getByText(text).closest(".cc-chat-turn");
+    expect(row("Reply now")).not.toHaveClass("is-fresh");
+    again({
+      messages: [
+        { ...message, id: "q-before", job_id: "before", content: "Earlier?", created_at: "2026-01-01T09:00:00Z", job_state: "applied" },
+        reply("before", "Reply before", { created_at: "2026-01-01T09:01:00Z" }),
+        ...first,
+        { ...message, id: "q-next", job_id: "next", content: "And now?", created_at: "2026-01-02T10:02:00Z", job_state: "applied" },
+        reply("next", "Reply next", { created_at: "2026-01-02T10:03:00Z" }),
+      ],
+    });
+    expect(row("Reply before")).not.toHaveClass("is-fresh");
+    expect(row("Reply now")).not.toHaveClass("is-fresh");
+    expect(row("Reply next")).toHaveClass("is-fresh");
   });
 
   it("names each lesson once, in a divider where it changes, including old rows", () => {

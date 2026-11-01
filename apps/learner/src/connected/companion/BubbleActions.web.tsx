@@ -35,7 +35,9 @@ const COPIED_MS = 2000;
  *
  * Placement: rendered after the bubble inside an element as wide as the bubble. When that element
  * has the class `cc-act-bubble-host`, More sits 4 px outside the bubble's inline-start edge;
- * otherwise it starts its own line.
+ * otherwise it starts its own line. In the conversation it goes in LearnerTurn's actions slot
+ * (`.cc-chat-bubble-actions`), beside the bubble, where companion-actions.css places the menu and
+ * the "Not used" line under the bubble.
  */
 export function BubbleActions({ message, latest, inProgress, onDelete, onEditResend }: BubbleActionsProps) {
   const t = useT();

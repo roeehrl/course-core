@@ -20,7 +20,6 @@ import { SendConfirm } from "../credit/SendConfirm.web";
 import { CreditLineAfter, CreditLineBeforeDivider, CreditThreadEnd } from "../credit/CreditThreadLines.web";
 import { Announcer, useAnnounce } from "../ui/Announcer.web";
 import { ringComposer } from "../ui/highlight";
-import { StatusLine } from "../ui/StatusLine.web";
 import { useCoarsePointer } from "../ui/media";
 import { placeholderAttachment } from "./AttachmentChips.web";
 import { BubbleActions } from "./BubbleActions.web";
@@ -231,7 +230,6 @@ function ConversationBody({
   const [locals, setLocals] = useState<LocalTurn[]>([]);
   const [stops, setStops] = useState<Record<string, LocalStop>>({});
   const [confirm, setConfirm] = useState<{ text: string; fromBox: boolean } | null>(null);
-  const [correctionError, setCorrectionError] = useState("");
   const [correcting, setCorrecting] = useState("");
   const [, setTick] = useState(0);
   const now = Date.now();
@@ -617,24 +615,19 @@ function ConversationBody({
     return () => observer.disconnect();
   }, []);
 
-  async function correct(messageId: string, run: () => Promise<void>, failure: string) {
+  // A change that fails rejects: the delete confirm or the reply it was made from says so in
+  // place, so the thread has no notice of its own for it.
+  async function correct(messageId: string, run: () => Promise<void>) {
     setCorrecting(messageId);
-    setCorrectionError("");
     try {
       await run();
-    } catch (cause) {
-      setCorrectionError(failure);
-      throw cause;
     } finally {
       setCorrecting("");
     }
   }
-  const remove = onDeleteMessage
-    ? (messageId: string) => correct(messageId, () => onDeleteMessage(messageId), t("bubbleActions.error.delete"))
-    : undefined;
+  const remove = onDeleteMessage ? (messageId: string) => correct(messageId, () => onDeleteMessage(messageId)) : undefined;
   const exclude = onExcludeContext
-    ? (messageId: string, excluded: boolean) =>
-        void correct(messageId, () => onExcludeContext(messageId, excluded), t("replyActions.error.correct")).catch(() => {})
+    ? (messageId: string, excluded: boolean) => correct(messageId, () => onExcludeContext(messageId, excluded))
     : undefined;
   const showLesson = (target: LessonTarget) => {
     // On a sheet the lesson needs the room first.
@@ -648,10 +641,13 @@ function ConversationBody({
   // they do not fade in (M1, M7 are for what arrives).
   const firstRead = useRef<ReadonlySet<string> | null>(null);
   if (loaded && firstRead.current === null) firstRead.current = new Set(messages.map((message) => message.id));
-  const arriving = (id: string) => firstRead.current !== null && !firstRead.current.has(id);
+  // Earlier messages read on request come above the first read: they are not arriving either.
+  const firstKnown = firstRead.current ? messages.findIndex((message) => firstRead.current!.has(message.id)) : -1;
+  const earlier = new Set(messages.slice(0, Math.max(0, firstKnown)).map((message) => message.id));
+  const arriving = (id: string) => firstRead.current !== null && !firstRead.current.has(id) && !earlier.has(id);
 
   // The thread's items, in order: dividers, turns and their reply rows.
-  const conversation = { enrollmentId: context.enrollmentId, episodeTitles };
+  const conversation = { enrollmentId: context.enrollmentId, episodeTitles, server };
   // A question of this page not yet read back is the latest: the saved one before it gives up
   // "Ask again" in the same frame as the new bubble shows, so nothing moves once it is anchored.
   const unsaved = locals.some((item) => {
@@ -809,7 +805,6 @@ function ConversationBody({
             showChips={!value && !blocked && !exhausted}
           />
         )}
-        {correctionError && <StatusLine tone="error" text={correctionError} className="cc-chat-system" />}
         <DecisionLine api={api} server={server} />
         <CreditThreadEnd onSend={() => void submit(value, { fromBox: true })} />
       </Thread>
