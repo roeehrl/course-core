@@ -57,6 +57,13 @@ export function Popover({
       node.style.visibility = "";
     };
     position();
+    // Measured while the box or a box around it still moves (a sheet opening, M16), the origin is
+    // that moving box's; place it again once each such motion ends.
+    if (typeof document.getAnimations === "function")
+      for (const animation of document.getAnimations()) {
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        if (target && box.current && target.contains(box.current)) void animation.finished.then(position, position);
+      }
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);
     return () => {
