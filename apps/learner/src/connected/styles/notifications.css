@@ -12,25 +12,39 @@
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  background: var(--surface);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--ink);
   border-radius: var(--radius-pill);
 }
-.connected-bell-count {
+.connected-bell-disc {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.connected-bell-disc svg {
+  display: block;
+}
+.connected-header .connected-bell:hover .connected-bell-disc,
+.connected-header .connected-bell[aria-expanded="true"] .connected-bell-disc {
+  background: var(--line);
+}
+/* Something new: an 8 px `--accent` dot with a ring of the disc's colour (final design §3.1). */
+.connected-bell-dot {
   position: absolute;
-  top: -4px;
-  inset-inline-end: -4px;
-  min-width: 18px;
-  padding: 0 5px;
+  top: 5px;
+  inset-inline-end: 6px;
+  box-sizing: content-box;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface-2);
   border-radius: var(--radius-pill);
   background: var(--accent);
-  color: var(--on-accent);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
 }
 .connected-notifications-panel {
   position: absolute;
@@ -102,6 +116,14 @@
 .connected-header .connected-notifications-panel button.cc-note-row {
   cursor: pointer;
 }
+/* Inside the scrolling list, so the panel's edge never clips it. */
+.connected-header .connected-notifications-panel button.cc-note-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.connected-notifications-heading:focus {
+  outline: none;
+}
 .connected-header .connected-notifications-panel button.cc-note-row:hover:not(:disabled) {
   background: var(--surface-2);
 }
@@ -166,7 +188,8 @@ li.unread .cc-note-dot {
   text-underline-offset: 3px;
 }
 @media (forced-colors: active) {
-  li.unread .cc-note-dot {
+  li.unread .cc-note-dot,
+  .connected-bell-dot {
     background: CanvasText;
     forced-color-adjust: none;
   }
@@ -274,12 +297,13 @@ li.unread .cc-note-dot {
   grid-row: 3;
   justify-content: flex-end;
 }
+/* Meta, not micro: it says where the notes are (14 px in Hebrew, final design §1.2). */
 .cc-note-demo-saved {
   grid-column: 1;
   grid-row: 3;
   margin: 0;
   color: var(--ink-muted);
-  font: 400 var(--text-micro) var(--font-sans);
+  font: 400 var(--text-meta) var(--font-sans);
 }
 @media (forced-colors: active) {
   .cc-note-demo-hint .cc-note-demo-prose {

@@ -65,16 +65,21 @@ export function learnerNotificationTarget(
   return { ...target, episodeId, ...(blockId ? { blockId } : {}) };
 }
 
-/** The time of a notification: the time alone today, the date and time before. */
+/** The time of a notification: the time alone today, "Yesterday" the day before, the date and
+ * time before that. */
 function when(i18n: ReturnType<typeof useI18n>, value: string, now = new Date()) {
-  const at = new Date(value);
-  return at.toDateString() === now.toDateString() ? i18n.time(at, "short") : i18n.dateTime(at);
+  const at = new Date(value),
+    yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (at.toDateString() === now.toDateString()) return i18n.time(at, "short");
+  if (at.toDateString() === yesterday.toDateString()) return i18n.t("notifications.row.yesterday");
+  return i18n.dateTime(at);
 }
 
 /**
  * The learner's notifications (owner decision 8): the course was updated, a newer version is
- * offered, the companion answered while they were away. A bell with the count in the header; the
- * list is a disclosure like the course menu (final design §4.8). Each row is one button: its icon,
+ * offered, the companion answered while they were away. A bell in the header, with a dot while
+ * something is new and the count in its name; the list is a disclosure like the course menu (final
+ * design §4.8). Each row is one button: its icon,
  * what happened, a second line and a dot while it is new. A reply's row names its lesson and
  * quotes the question; opening it marks it read and goes to that lesson with the companion open at
  * the reply (openNotification.ts), or to the course page when the lesson left the course.
@@ -94,7 +99,8 @@ export function LearnerNotifications({
   const [busy, setBusy] = useState(false);
   const id = useId();
   const root = useRef<HTMLDivElement>(null),
-    toggle = useRef<HTMLButtonElement>(null);
+    toggle = useRef<HTMLButtonElement>(null),
+    heading = useRef<HTMLHeadingElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -142,6 +148,11 @@ export function LearnerNotifications({
       setBusy(false);
     }
   };
+  const markAll = async () => {
+    await markRead();
+    // "Mark all as read" goes once nothing is new: focus stays in the list, on its heading.
+    heading.current?.focus({ preventScroll: true });
+  };
   const text = (item: LearnerNotification) => {
     const from = String(item.params.fromVersion ?? ""),
       to = String(item.params.toVersion ?? "");
@@ -172,18 +183,20 @@ export function LearnerNotifications({
           if (!expanded) void load();
         }}
       >
-        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-        </svg>
-        {unread > 0 && (
-          <span className="connected-bell-count" aria-hidden="true">
-            {unread > 99 ? "99+" : i18n.number(unread)}
-          </span>
-        )}
+        {/* A 36 px disc in the 44 px target, with an `--accent` dot while something is new; the
+            count is in the name. */}
+        <span className="connected-bell-disc">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+          {unread > 0 && <span className="connected-bell-dot" aria-hidden="true" />}
+        </span>
       </button>
-      <div id={`${id}-panel`} className="connected-notifications-panel" hidden={!expanded}>
-        <h2 className="connected-notifications-heading">{t("notifications.panel.title")}</h2>
+      <section id={`${id}-panel`} className="connected-notifications-panel" aria-labelledby={`${id}-title`} hidden={!expanded}>
+        <h2 ref={heading} id={`${id}-title`} className="connected-notifications-heading" tabIndex={-1}>
+          {t("notifications.panel.title")}
+        </h2>
         {failed && (
           <p className="connected-notifications-note" role="alert">
             {t("notifications.panel.error")}{" "}
@@ -256,11 +269,11 @@ export function LearnerNotifications({
           </ul>
         )}
         {unread > 0 && (
-          <button type="button" className="cc-note-mark" disabled={busy} onClick={() => void markRead()}>
+          <button type="button" className="cc-note-mark" disabled={busy} onClick={() => void markAll()}>
             {t("notifications.panel.markAll")}
           </button>
         )}
-      </div>
+      </section>
     </div>
   );
 }

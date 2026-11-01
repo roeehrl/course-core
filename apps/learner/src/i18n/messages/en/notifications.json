@@ -16,6 +16,7 @@
   "row.new": "New.",
   "row.openReply": "Open reply",
   "row.excerpt": "{question} · {time}",
+  "row.yesterday": "Yesterday",
   "reply.about": "Your companion replied about “{lesson}”.",
   "reply.lessonGone": "The lesson this was about is no longer in the course."
 }

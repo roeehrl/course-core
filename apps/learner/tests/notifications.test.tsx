@@ -88,6 +88,10 @@ describe("learner notifications", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Notifications, 2 new" }));
     await userEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
     expect(await screen.findByRole("button", { name: "Notifications" })).toBeVisible();
+    // The bell's dot goes with the last new one, and focus stays in the list, on its heading.
+    expect(document.querySelector(".connected-bell-dot")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark all as read" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Notifications" })).toHaveFocus());
     await userEvent.keyboard("{Escape}");
     expect(screen.getByText(/Your companion replied about/)).not.toBeVisible();
 
@@ -99,15 +103,21 @@ describe("learner notifications", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Notifications could not be loaded. Try again in a moment.");
   });
 
-  it("shows a reply from today with its time alone, and an older one with its date", async () => {
+  it("shows a reply from today with its time alone, yesterday's as \"Yesterday\", and an older one with its date", async () => {
     const now = new Date();
     now.setHours(9, 5, 0, 0);
-    const items = [
-      item({ kind: "reply_ready", link: `/enrollments/${ENROLLMENT}/companion`, params: replyParams, lessonTitle: "Minimum", questionExcerpt: "Today?", updatedAt: now.toISOString() }),
-    ];
+    const day = (offset: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, 9, 5).toISOString();
+    const reply = (questionExcerpt: string, updatedAt: string) =>
+      item({ kind: "reply_ready", link: `/enrollments/${ENROLLMENT}/companion`, params: replyParams, lessonTitle: "Minimum", questionExcerpt, updatedAt });
+    const items = [reply("Today?", now.toISOString()), reply("Yesterday?", day(-1)), reply("Before?", day(-3))];
     render(<LearnerNotifications request={server(items)} onOpen={() => {}} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Notifications, 1 new" }));
-    expect(screen.getByRole("button", { name: "Open reply" })).toHaveAccessibleDescription(/Today\? · 9:05\sAM$/);
+    // While something is new, the bell carries the dot and says how many in its name.
+    await userEvent.click(await screen.findByRole("button", { name: "Notifications, 3 new" }));
+    expect(document.querySelector(".connected-bell .connected-bell-dot")).not.toBeNull();
+    const [today, yesterday, before] = screen.getAllByRole("button", { name: "Open reply" });
+    expect(today).toHaveAccessibleDescription(/Today\? · 9:05\sAM$/);
+    expect(yesterday).toHaveAccessibleDescription(/Yesterday\? · Yesterday$/);
+    expect(before).toHaveAccessibleDescription(/Before\? · \S.*\d{4}.*9:05\sAM$/);
   });
 
   it("in Hebrew", async () => {

@@ -57,6 +57,8 @@ test("a reply while away: the bell names its lesson and question, and Open shows
   await page.reload();
 
   const bell = page.getByRole("button", { name: "Notifications, 1 new" });
+  // Something new: the bell carries the `--accent` dot, and its name says how many.
+  await expect(bell.locator(".connected-bell-dot")).toBeVisible();
   await bell.click();
   const panel = page.locator(".connected-notifications-panel");
   await expect(panel).toBeVisible();
@@ -85,8 +87,9 @@ test("a reply while away: the bell names its lesson and question, and Open shows
   await expect(answer).toBeInViewport();
   if (await coarse(page)) await expect(composerBox(page)).not.toBeFocused();
   else await expect(composerBox(page)).toBeFocused();
-  // Read on the server and seen on this device.
+  // Read on the server (the bell's dot is gone) and seen on this device.
   await expect(page.getByRole("button", { name: "Notifications", exact: true })).toBeVisible();
+  await expect(page.locator(".connected-bell-dot")).toHaveCount(0);
   await expect.poll(() => seen(page, enrollmentId)).not.toBe("");
   expect((await axe(page)).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
