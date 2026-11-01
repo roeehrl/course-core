@@ -76,7 +76,7 @@ describe("linear connected lesson and authoritative gates", () => {
     expect(screen.getByRole("textbox")).toHaveFocus();
   });
   it("says the result in place under the question: the verdict, the explanation and why it was practice", () => {
-    const open = question({}, { independentEligible: false });
+    const open = question({}, { independentEligible: false, practiceReason: "companion" });
     render(<Card {...cardProps(undefined, { attempts: answered(open, { passed: true, explanation: "Before the bias: $2 \\cdot 6 = 12$." }, "12") })} />);
     const slot = document.querySelector(".connected-check .connected-answer-feedback")!;
     expect(slot).toHaveAttribute("role", "status");
@@ -88,7 +88,8 @@ describe("linear connected lesson and authoritative gates", () => {
     expect(verdict).toHaveTextContent("Correct.");
     expect(verdict.querySelector("svg[data-icon='check']")).not.toBeNull();
     expect(slot.textContent).not.toContain("$");
-    expect(slot).toHaveTextContent("This counts as practice");
+    // Why it was practice, in the credit's own words (CRD-6).
+    expect(slot.querySelector(".cc-check-suffix")).toHaveTextContent("This counts as practice because you asked your companion.");
     // No box, no warning colour: words carry the verdict.
     expect(slot.querySelector("[data-tone]")).toBeNull();
     expect(screen.getByRole("textbox", { name: "Your numeric answer" })).toHaveValue("12");
