@@ -293,8 +293,9 @@
   font: 400 var(--text-chat) var(--font-sans);
 }
 .cc-check-failed {
-  font: 400 var(--text-chat) var(--font-sans);
+  flex-wrap: nowrap;
   align-items: flex-start;
+  font: 400 var(--text-chat) var(--font-sans);
 }
 .cc-check-failed > svg {
   margin-block-start: 5px;
