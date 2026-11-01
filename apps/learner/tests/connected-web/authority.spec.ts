@@ -92,9 +92,10 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   expect(enrollmentWrites).toBe(1);
   await page.getByRole("radio", { name: "2", exact: true }).click();
   await page.getByRole("button", { name: "Check", exact: true }).click();
-  await expect(
-    page.getByText("Correct. 2 is below 5.", { exact: true }),
-  ).toBeVisible();
+  // The server's verdict, in place under the question: the verdict line, then the explanation.
+  const feedback = page.locator(".connected-check .connected-answer-feedback");
+  await expect(feedback.locator(".cc-check-verdict")).toHaveText("Correct.");
+  await expect(feedback.locator(".cc-check-explanation")).toHaveText("2 is below 5.");
   await expect(
     page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();

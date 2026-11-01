@@ -114,10 +114,14 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await page.getByRole("button", { name: "Close companion" }).click();
   await expect(editor).toHaveValue(solution);
   await page.getByRole("button", { name: "Check", exact: true }).click();
+  // "Check" keeps its place and says "Checking…" while the server grades.
   await expect(
-    page.getByRole("button", { name: "Checking code…" }),
+    page.getByRole("button", { name: "Checking…", exact: true }),
   ).toBeDisabled();
-  await expect(page.getByText(/grader is not configured/)).toBeVisible();
+  // The grader could not run: said in the check, under the code, with a retry; nothing is claimed.
+  const feedback = page.locator(".connected-check .connected-answer-feedback");
+  await expect(feedback).toContainText("Couldn't check your answer. Your answer is kept; try again.");
+  await expect(feedback.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
   expect(submissions).toHaveLength(1);
   expect(submissions[0]).toMatchObject({
     challengeId: "code-challenge",

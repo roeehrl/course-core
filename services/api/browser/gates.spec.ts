@@ -42,7 +42,11 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await nextCheck(page);
   await expect(page.getByText("Which is smaller?")).toBeVisible();
   await page.getByRole("button", { name: "I don't know yet: record no answer and get help" }).click();
-  await expect(page.getByText(/Noted\. Nothing was recorded against you, and it does not count as evidence\./)).toBeVisible();
+  // Said in place, then a way in: the help row opens with focus on its first control (§4.2).
+  await expect(page.locator(".connected-check .connected-answer-feedback")).toHaveText("Noted. This doesn't count against you. Here's a way in:");
+  const help = page.getByRole("group", { name: "Help with question 1" });
+  await expect(help).toBeVisible();
+  await expect(help.getByRole("button").first()).toBeFocused();
   // Now the server's decision shows, with concrete next steps in plain words; a new question is
   // the lesson's own button, not a second one in the decision.
   await expect(panel(page).getByRole("heading", { name: "Not complete yet" })).toBeVisible();

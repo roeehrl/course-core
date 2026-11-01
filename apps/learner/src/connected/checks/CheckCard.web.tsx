@@ -104,6 +104,8 @@ export function CheckCard({
   const feedbackSlot = useRef<HTMLDivElement>(null);
   const helpRow = useRef<HTMLDivElement>(null);
   const questionBlock = useRef<HTMLDivElement>(null);
+  /** Focus goes into the help row once it shows (after "I don't know yet"). */
+  const focusHelp = useRef(false);
   // The help row of a question (by challenge id): "Get help" toggles it; a wrong answer and "I
   // don't know yet" open it.
   const [helpOpen, setHelpOpen] = useState<Record<string, boolean>>({});
@@ -134,16 +136,21 @@ export function CheckCard({
   const ordinal = questionOrdinal(server, episode.id);
   const reveal = (target: HTMLElement | null) =>
     requestAnimationFrame(() => target?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+  const keptStatus = kept?.status;
   useEffect(() => {
     const done = answered.current;
-    if (!done || !settled || settled.challenge.challengeId !== done.id) return;
+    if (!done || !kept || kept.challenge.challengeId !== done.id || kept.status === "checking") return;
     answered.current = null;
-    // After "I don't know yet" the help row opens with focus on its first control (§4.2).
+    // The grader could not check it: the question stays open, and its feedback with the retry
+    // comes into view under the answer bar.
+    if (kept.status === "failed") {
+      reveal(feedbackSlot.current);
+      return;
+    }
+    // After "I don't know yet" the help row opens with focus on its first control (§4.2), once it
+    // is on the page (the effect below).
     if (done.abstain) {
-      requestAnimationFrame(() => {
-        firstControl(helpRow.current)?.focus({ preventScroll: true });
-        reveal(helpRow.current);
-      });
+      focusHelp.current = true;
       return;
     }
     const active = document.activeElement;
@@ -151,7 +158,13 @@ export function CheckCard({
       document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus({ preventScroll: true });
     reveal(checkHead.current);
     reveal(feedbackSlot.current);
-  }, [settled]);
+  }, [keptStatus, kept?.challenge.challengeId]);
+  useEffect(() => {
+    if (!focusHelp.current || !helpRow.current) return;
+    focusHelp.current = false;
+    firstControl(helpRow.current)?.focus({ preventScroll: true });
+    reveal(helpRow.current);
+  });
   // A wrong answer and "I don't know yet" open the help row; on a practice question with hints,
   // "I don't know yet" also opens the first hint (§4.2).
   const settledId = settled?.challenge.challengeId;

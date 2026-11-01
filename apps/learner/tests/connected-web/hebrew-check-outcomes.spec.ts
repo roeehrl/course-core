@@ -24,6 +24,8 @@ import enCode from "../../src/i18n/messages/en/codeEditor.json";
 import heCode from "../../src/i18n/messages/he/codeEditor.json";
 import enConnectivity from "../../src/i18n/messages/en/connectivity.json";
 import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
+import enFeedback from "../../src/i18n/messages/en/answerFeedback.json";
+import heFeedback from "../../src/i18n/messages/he/answerFeedback.json";
 
 // Split from hebrew-polish.spec.ts: check outcomes (a slow sandbox start, a time-limit stop).
 
@@ -40,13 +42,14 @@ import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
  *   sat on the left);
  * - "Context used" quotes a Hebrew question with English and code in it in its own order;
  * - a slow sandbox start shows one message that offers the retry, not a notice and a
- *   "Not recorded yet" band over each other; a time-limit stop is a warning, not the green notice;
+ *   "Not recorded yet" band over each other; a time-limit stop is said in the check as a code
+ *   check that did not pass, a feedback line without a warning colour (§4.1);
  * - a Hebrew scene draws its heading inside the canvas and its slider runs with the scene.
  * Positions are measured on the drawn glyphs and boxes, so each check fails on the old build.
  */
 const text = {
-  en: { host: enHost, companion: enCompanion, replyActions: enReplyActions, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
-  he: { host: heHost, companion: heCompanion, replyActions: heReplyActions, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
+  en: { host: enHost, companion: enCompanion, replyActions: enReplyActions, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity, feedback: enFeedback },
+  he: { host: heHost, companion: heCompanion, replyActions: heReplyActions, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity, feedback: heFeedback },
 } as const;
 type Locale = keyof typeof text;
 type Glyph = { char: string; left: number; right: number; top: number; bottom: number };
@@ -119,7 +122,7 @@ async function openCompanion(page: Page) {
 for (const locale of ["en", "he"] as const) {
   const t = text[locale], rtl = locale === "he";
 
-  test(`${locale}: a slow sandbox start shows one message with the retry; a time-limit stop is a warning`, async ({ page }, info) => {
+  test(`${locale}: a slow sandbox start shows one message with the retry; a time-limit stop is a feedback line in the check`, async ({ page }, info) => {
     test.setTimeout(120_000);
     const signed = await page.request.post("/test/code-session");
     await page.goto(`/?locale=${locale}#signin=${(await signed.json()).token}`);
@@ -158,16 +161,21 @@ for (const locale of ["en", "he"] as const) {
     const retry = status.getByRole("button", { name: t.connectivity.retry, exact: true });
     await expect(retry).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`slow-sandbox-${locale}.png`) });
-    // The retry sends the kept request; this time the run stops at the time limit.
+    // "Check" sends the kept request again (same idempotency key); this time the run stops at the
+    // time limit. The check says it in place: the code check's verdict, then the limit, in ink.
     await page.unroute(answers);
     await page.route(answers, (route) => route.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ result: { passed: false, independent: true, message: { code: "code_limit", params: { limit: "time" } }, execution: { status: "timeout" } } }) }));
-    await retry.click();
+    await page.getByRole("button", { name: t.check["answer.check"], exact: true }).click();
     await expect(status).toHaveCount(0);
-    const notice = page.locator('[data-tone="warning"]').filter({ hasText: rtl ? "מגבלת הזמן" : "time limit" });
-    await expect(notice).toBeVisible();
-    expect(await notice.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgb(252, 243, 223)");
-    await expect(page.locator('[data-tone="info"]').filter({ hasText: rtl ? "מגבלת הזמן" : "time limit" })).toHaveCount(0);
+    const feedback = page.locator(".connected-check .connected-answer-feedback");
+    await expect(feedback.locator(".cc-check-verdict")).toHaveText(t.feedback["verdict.codeFailed"]);
+    const limit = feedback.locator(".cc-check-explanation");
+    await expect(limit).toContainText(rtl ? "מגבלת הזמן" : "time limit");
+    // No box and no warning colour: the words carry it.
+    expect(await feedback.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+    expect(await limit.evaluate((e) => getComputedStyle(e).color)).toBe("rgb(24, 50, 55)");
+    await expect(page.locator("[data-tone]").filter({ hasText: rtl ? "מגבלת הזמן" : "time limit" })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`time-limit-${locale}.png`) });
   });
 }

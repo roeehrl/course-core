@@ -61,26 +61,28 @@ async function timedPress(page: Page, button: RegExp, done: "lesson" | "roadmap"
   );
 }
 
-/** Presses a button and resolves, on the first animation frame where `text` is on the page, with
- * the elapsed milliseconds (the feedback a learner sees after answering). */
-async function timedFeedback(page: Page, button: RegExp, text: string) {
+/** Presses a button and resolves, on the first animation frame where the check's verdict line says
+ * `verdict` above `explanation`, with the elapsed milliseconds (the feedback a learner sees after
+ * answering, in place under the question). The button is found by its shown label. */
+async function timedFeedback(page: Page, button: RegExp, verdict: string, explanation: string) {
   return page.evaluate(
-    ({ source, flags, text }) =>
+    ({ source, flags, verdict, explanation }) =>
       new Promise<number>((resolve, reject) => {
         const pattern = new RegExp(source, flags);
-        const target = [...document.querySelectorAll("button")].find((b) => pattern.test(b.textContent ?? "") && b.offsetParent !== null);
+        const target = [...document.querySelectorAll("button")].find((b) => pattern.test(b.innerText.trim()) && b.offsetParent !== null);
         if (!target) return reject(new Error(`no visible button ${source}`));
         const started = performance.now();
         target.click();
         const deadline = started + 20_000;
         const tick = () => {
-          if (document.body.innerText.includes(text)) resolve(performance.now() - started);
-          else if (performance.now() > deadline) reject(new Error(`${text} did not appear`));
+          const slot = document.querySelector(".connected-check .connected-answer-feedback");
+          if (slot?.querySelector(".cc-check-verdict")?.textContent === verdict && slot.textContent?.includes(explanation)) resolve(performance.now() - started);
+          else if (performance.now() > deadline) reject(new Error(`${verdict} ${explanation} did not appear`));
           else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
       }),
-    { source: button.source, flags: button.flags, text },
+    { source: button.source, flags: button.flags, verdict, explanation },
   );
 }
 
@@ -188,13 +190,13 @@ test("the connected learner stays within its load, navigation and memory budgets
   await expect(page.getByText("Which is smaller?", { exact: true })).toBeVisible();
   // Warm-up: a wrong answer, so the lesson offers its second check and then a fresh one.
   await page.getByRole("radio", { name: "5", exact: true }).click();
-  const warmUpFeedback = await timedFeedback(page, /^Check$/, "Let’s revisit this. 2 is below 5.");
+  const warmUpFeedback = await timedFeedback(page, /^Check$/, "Let's revisit this.", "2 is below 5.");
   ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
   await numeric("4");
-  feedback.push(await timedFeedback(page, /^Check$/, "Correct. 4 is below 9."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct.", "4 is below 9."));
   await page.getByRole("button", { name: /^Get a fresh check/ }).click();
   await page.getByRole("radio", { name: "7", exact: true }).click();
-  feedback.push(await timedFeedback(page, /^Check$/, "Correct. 7 is below 11."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct.", "7 is below 11."));
   // The second lesson: its reading (with any personal extra part), then its two checks.
   await page.getByRole("button", { name: "Finish this lesson →", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
@@ -208,10 +210,10 @@ test("the connected learner stays within its load, navigation and memory budgets
   }).toPass({ timeout: 20_000 });
   ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
   await numeric("9");
-  feedback.push(await timedFeedback(page, /^Check$/, "Correct. 9 is above 4."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct.", "9 is above 4."));
   ack.push(await timedAck(page, /^Start the next check →$/, "challenges"));
   await numeric("-3");
-  feedback.push(await timedFeedback(page, /^Check$/, "Correct. -3 is above -8."));
+  feedback.push(await timedFeedback(page, /^Check$/, "Correct.", "-3 is above -8."));
 
   // The median is the budgeted figure; the worst case is bounded at three times the budget.
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? Number.NaN;

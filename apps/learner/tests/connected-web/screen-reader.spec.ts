@@ -66,6 +66,13 @@ test("a lesson read in document order: landmarks, headings, named controls, focu
   await option.focus();
   await page.keyboard.press("Space");
   await expect(option).toBeChecked();
+  // After "Check" in the Tab order comes the help bar: "I don't know yet", then "Get help".
+  await page.getByRole("button", { name: "Check", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "I don't know yet: record no answer and get help", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Get help", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Get help", exact: true })).toHaveAttribute("aria-expanded", "false");
   const live = page.locator('[aria-live="polite"], [role="status"], [role="alert"]');
   const before = await live.allInnerTexts();
   await page.getByRole("button", { name: "Check", exact: true }).focus();

@@ -171,12 +171,13 @@ test("an answer that is still being sent is not reported as waiting on this devi
   await arrived;
   // The request is saved on the device before it is sent, so the page is now in exactly the
   // state that used to show "Not recorded yet" for a request that had not failed at all.
-  await expect(page.getByRole("button", { name: "Saving…", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Checking…", exact: true })).toBeDisabled();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await expect(page.getByRole("status").filter({ hasText: "Not recorded yet" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Send saved request now" })).toHaveCount(0);
   release();
-  await expect(page.getByText("Correct. 2 is below 5.")).toBeVisible();
+  await expect(page.locator(".connected-check .cc-check-verdict")).toHaveText("Correct.");
+  await expect(page.locator(".connected-check .cc-check-explanation")).toHaveText("2 is below 5.");
   expect(await page.evaluate(() => (window as unknown as { __banners: string[] }).__banners)).toEqual([]);
   expect(posts.confirmed).toEqual([200]);
 });
