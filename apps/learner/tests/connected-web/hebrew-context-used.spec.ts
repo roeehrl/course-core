@@ -4,8 +4,8 @@ import enHost from "../../src/i18n/messages/en/connectedHost.json";
 import heHost from "../../src/i18n/messages/he/connectedHost.json";
 import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
 import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
-import enReplyActions from "../../src/i18n/messages/en/replyActions.json";
-import heReplyActions from "../../src/i18n/messages/he/replyActions.json";
+import enBasedOn from "../../src/i18n/messages/en/basedOn.json";
+import heBasedOn from "../../src/i18n/messages/he/basedOn.json";
 import enDock from "../../src/i18n/messages/en/companionDock.json";
 import heDock from "../../src/i18n/messages/he/companionDock.json";
 import enData from "../../src/i18n/messages/en/yourDataPanel.json";
@@ -25,7 +25,7 @@ import heCode from "../../src/i18n/messages/he/codeEditor.json";
 import enConnectivity from "../../src/i18n/messages/en/connectivity.json";
 import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
 
-// Split from hebrew-polish.spec.ts: "Context used" on a companion reply.
+// Split from hebrew-polish.spec.ts: what a companion reply was based on ("Based on").
 
 /*
  * Learner findings of the 0.1.60 qualification, on every device project and both engines, in
@@ -38,15 +38,15 @@ import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
  * - a signed number in Hebrew text keeps its minus before the digits ("-2." drew as ".2-");
  * - the companion's message box starts at the interface's reading edge (its Hebrew placeholder
  *   sat on the left);
- * - "Context used" quotes a Hebrew question with English and code in it in its own order;
+ * - "Based on" quotes a Hebrew question with English and code in it in its own order;
  * - a slow sandbox start shows one message that offers the retry, not a notice and a
  *   "Not recorded yet" band over each other; a time-limit stop is a warning, not the green notice;
  * - a Hebrew scene draws its heading inside the canvas and its slider runs with the scene.
  * Positions are measured on the drawn glyphs and boxes, so each check fails on the old build.
  */
 const text = {
-  en: { host: enHost, companion: enCompanion, replyActions: enReplyActions, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
-  he: { host: heHost, companion: heCompanion, replyActions: heReplyActions, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
+  en: { host: enHost, companion: enCompanion, basedOn: enBasedOn, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
+  he: { host: heHost, companion: heCompanion, basedOn: heBasedOn, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
 } as const;
 type Locale = keyof typeof text;
 type Glyph = { char: string; left: number; right: number; top: number; bottom: number };
@@ -119,11 +119,14 @@ async function openCompanion(page: Page) {
 for (const locale of ["en", "he"] as const) {
   const t = text[locale], rtl = locale === "he";
 
-  test(`${locale}: "Context used" quotes a Hebrew question with English and code in it in its own order`, async ({ page }, info) => {
+  test(`${locale}: "Based on" quotes a Hebrew question with English and code in it in its own order`, async ({ page }, info) => {
     await openHebrewLesson(page, locale, true);
     const pane = await openCompanion(page);
-    await pane.getByRole("button", { name: t.replyActions["context.show"], exact: true }).click();
-    const answering = pane.getByText(/minimum value/).last();
+    await pane.getByRole("button", { name: new RegExp(`^${t.basedOn["chip.short"]}`) }).click();
+    // The question is the block's first section, under its own label.
+    const block = pane.getByRole("region", { name: t.basedOn.region, exact: true });
+    await expect(block.locator(".cc-act-based-label").first()).toHaveText(t.basedOn.question);
+    const answering = block.getByText(/minimum value/).first();
     await answering.scrollIntoViewIfNeeded();
     const all = await glyphs(answering);
     leftToRight(find(all, "min([3, 7, -2, 5])"), "the call");

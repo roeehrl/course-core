@@ -1,2 +1,445 @@
-/* Actions on companion messages (connected/companion/ReplyActions.web.tsx,
- * BubbleActions.web.tsx). Rules use the cc-act- prefix. */
+/* Actions on companion messages (final design §3.7, §3.4, §3.8 item 7, §3.12):
+ * connected/companion/ReplyActions.web.tsx, BubbleActions.web.tsx, BasedOn.web.tsx,
+ * VoteControls.web.tsx, ReplyMenu.web.tsx, BubbleMenu.web.tsx, DeleteConfirm.web.tsx and
+ * EarlierMessages.web.tsx. Rules use the cc-act- prefix; every colour is a token. */
+
+/* The reply's action row: 32 px, 8 px under the prose, start-aligned, wrapping. The icon group
+ * keeps its place; "Based on" wraps to a second line before it gets narrower than 120 px. */
+.cc-act-reply {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  margin-block-start: var(--space-2);
+}
+.cc-act-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  min-block-size: max(32px, var(--target));
+  transition: opacity var(--motion-m7-duration) var(--motion-m7-easing);
+}
+.cc-act-icons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.cc-act-votes {
+  display: contents;
+}
+
+/* Older replies show the row on hover or when something in it has focus (the reply's own box is
+ * the one hovered); the latest reply, an open part of a row and touch screens always show it. The
+ * row keeps its height while hidden, so nothing moves when it appears (M7). */
+@media (hover: hover) {
+  .cc-act-reply:not(.is-latest, .is-active) .cc-act-row {
+    opacity: 0;
+  }
+  :hover > .cc-act-reply .cc-act-row,
+  .cc-act-reply:hover .cc-act-row,
+  .cc-act-reply:focus-within .cc-act-row {
+    opacity: 1;
+  }
+}
+
+/* Focus on the controls drawn here (the shared ones draw their own): a 2 px outline. */
+.cc-act-chip:focus-visible,
+.cc-act-source:focus-visible,
+.cc-act-text-button:focus-visible,
+.cc-act-note-send:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The 32 px icon buttons (44 px under a coarse pointer) and their 16 px icons. */
+.cc-act-icon {
+  min-inline-size: max(32px, var(--target));
+  min-block-size: max(32px, var(--target));
+}
+.cc-act-icon[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+/* The time the reply was written, as Copy's tooltip. */
+.cc-act-tip {
+  position: relative;
+  display: inline-flex;
+}
+.cc-act-time {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-1));
+  inset-inline-start: 0;
+  z-index: 1;
+  padding-block: 2px;
+  padding-inline: 6px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--surface);
+  font: 500 var(--text-micro) var(--font-sans);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-m7-duration) var(--motion-m7-easing);
+}
+.cc-act-tip:hover .cc-act-time,
+.cc-act-tip:focus-within .cc-act-time {
+  opacity: 1;
+}
+
+/* "Try question 1" / "Back to Part 2": a 32 px outline pill. */
+.cc-act-back {
+  flex: none;
+  gap: 6px;
+}
+
+/* "Based on" and the withheld-answer footnote: 28 px chips with a 1 px --line border. */
+.cc-act-chip {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 120px;
+  max-inline-size: 100%;
+  min-block-size: max(28px, var(--target));
+  padding-block: 0;
+  padding-inline: 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+  text-align: start;
+  cursor: pointer;
+}
+.cc-act-chip:hover,
+.cc-act-chip[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.cc-act-chip-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-act-footnote {
+  min-inline-size: 0;
+}
+.cc-act-reply > .cc-act-note,
+.cc-act-reply > .cc-ui-status,
+.cc-act-reply > .cc-ui-meta {
+  justify-self: start;
+}
+.cc-act-footnote-more {
+  margin: 0;
+  max-inline-size: 65ch;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-act-footnote-more[hidden] {
+  display: none;
+}
+
+/* Beside a panel narrower than 480 px the chip says only "Based on"; wider it summarises. */
+.cc-act-based-short {
+  display: none;
+}
+@container cc-companion (max-width: 479px) {
+  .cc-act-based-long {
+    display: none;
+  }
+  .cc-act-based-short {
+    display: inline;
+  }
+}
+
+/* "Thanks, noted." in the chip's place for 3 s. */
+.cc-act-thanks {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+  white-space: nowrap;
+}
+
+/* What the reply was based on: --surface-2, radius 12, padding 12; no border, no accent rule. */
+.cc-act-based-block {
+  display: grid;
+  gap: 6px;
+  inline-size: min(100%, 65ch);
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-act-based-row,
+.cc-act-based-rule,
+.cc-act-based-section > .cc-act-based-label {
+  margin: 0;
+}
+.cc-act-based-row {
+  overflow-wrap: anywhere;
+}
+.cc-act-based-label {
+  margin-inline-end: 6px;
+  font-weight: 600;
+}
+.cc-act-based-section {
+  display: grid;
+}
+.cc-act-based-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cc-act-based-item {
+  display: flex;
+  align-items: flex-start;
+  column-gap: var(--space-2);
+  min-block-size: max(32px, var(--target));
+}
+.cc-act-based-text {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  padding-block: 6px;
+  overflow-wrap: anywhere;
+}
+.cc-act-based-item.is-excluded > .cc-act-based-text {
+  color: var(--ink-muted);
+}
+
+/* A lesson source: a 28 px chip that shows the part in the lesson (M14 there). */
+.cc-act-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: max(28px, var(--target));
+  margin-inline-start: var(--space-2);
+  padding-block: 0;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.cc-act-source > .cc-ui-icon {
+  color: var(--ink-muted);
+}
+.cc-act-source:hover {
+  background: var(--page);
+}
+
+/* Small text buttons ("Don't use again", "Use again"), 32 px (44 coarse). */
+.cc-act-text-button {
+  flex: none;
+  min-block-size: max(32px, var(--target));
+  padding-block: 0;
+  padding-inline: var(--space-2);
+  margin-inline-end: calc(-1 * var(--space-2));
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--accent);
+  font: 600 var(--text-meta) var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cc-act-text-button:hover {
+  text-decoration: underline;
+}
+.cc-act-text-button:disabled {
+  color: var(--ink-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+/* "What was wrong? (optional)": a one-line pill field with Send, under the row. */
+.cc-act-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  inline-size: min(100%, 400px);
+  box-sizing: border-box;
+  min-block-size: max(36px, var(--target));
+  margin: 0;
+  padding-block: 2px;
+  padding-inline: var(--space-4) var(--space-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+.cc-act-note:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-act-note-field {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: 400 var(--text-chip) var(--font-sans);
+}
+/* One ring, on the pill: the field draws none of its own. */
+.cc-act-note .cc-act-note-field:focus-visible {
+  outline: none;
+}
+.cc-act-note-field::placeholder {
+  color: var(--ink-muted);
+}
+.cc-act-note-send {
+  flex: none;
+  min-block-size: max(28px, var(--target));
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 var(--text-meta) var(--font-sans);
+  cursor: pointer;
+}
+.cc-act-note-send:hover {
+  background: var(--accent-hover);
+}
+
+/* Lines under a message: a change not saved, and "Not used in later answers". */
+.cc-act-error,
+.cc-act-footnote-line {
+  max-inline-size: 65ch;
+}
+
+/* A message whose menu is open is drawn above the messages after it, and the thread above what
+ * follows it (a message box or the thread may start its own stacking context). */
+[data-message-id]:has(.cc-ui-menu:not([hidden])),
+[role="log"]:has(.cc-ui-menu:not([hidden])) {
+  z-index: 2;
+}
+
+/* Menus (More, the learner's message options): the hairline before Delete. A reply's More menu
+ * opens under the row from its start, and a message's menu under it from its end, so a narrow
+ * companion never cuts them off. */
+.cc-act-menu .cc-ui-menu-item.is-danger {
+  border-block-start: 1px solid var(--line);
+}
+.cc-act-row,
+.cc-act-bubble {
+  position: relative;
+}
+.cc-act-row .cc-act-menu,
+.cc-act-bubble .cc-act-bubble-menu {
+  position: static;
+}
+.cc-act-row .cc-act-menu > .cc-ui-menu {
+  inset-inline: 0 auto;
+  inline-size: min(256px, 100%);
+}
+.cc-act-bubble .cc-act-bubble-menu > .cc-ui-menu {
+  inset-inline: auto 0;
+  inline-size: min(256px, 100%);
+}
+.cc-act-bubble-host > .cc-act-bubble .cc-act-bubble-menu {
+  position: relative;
+}
+.cc-act-bubble-host > .cc-act-bubble .cc-act-bubble-menu > .cc-ui-menu {
+  inset-inline: 0 auto;
+  inline-size: 256px;
+}
+
+/* Beside a learner's message. In flow by default; inside `.cc-act-bubble-host` (an element as wide
+ * as the bubble) More sits 4 px outside the bubble's inline-start edge. */
+.cc-act-bubble {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: end;
+}
+.cc-act-bubble-more-anchor {
+  display: flex;
+  align-items: center;
+}
+.cc-act-bubble-host {
+  position: relative;
+}
+.cc-act-bubble-host > .cc-act-bubble > .cc-act-bubble-more-anchor {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: calc(100% + var(--space-1));
+}
+@media (hover: hover) {
+  .cc-act-bubble:not(.is-active) .cc-act-bubble-more:not([aria-expanded="true"]) {
+    opacity: 0;
+    transition: opacity var(--motion-m7-duration) var(--motion-m7-easing);
+  }
+  :hover > .cc-act-bubble .cc-act-bubble-more,
+  .cc-act-bubble:hover .cc-act-bubble-more,
+  .cc-act-bubble-more:focus-visible {
+    opacity: 1;
+  }
+}
+@media (hover: none) {
+  .cc-act-bubble:not(.is-latest, .is-active) .cc-act-bubble-more:not([aria-expanded="true"]):not(:focus-visible) {
+    opacity: 0;
+  }
+}
+
+/* The delete confirm: 320 px, radius 12, padding 16; Cancel outline, Delete --danger. On a touch
+ * screen narrower than a tablet it sits at the bottom of the companion as a menu. */
+.cc-act-confirm {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.cc-act-confirm-text {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-chip) var(--font-sans);
+}
+.cc-act-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.cc-act-delete {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--on-danger);
+}
+.cc-act-delete:hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  text-decoration: underline;
+}
+@media (pointer: coarse) and (max-width: 599px) {
+  .cc-ui-popover.cc-act-confirm {
+    inset-block: auto var(--space-2) !important;
+    inset-inline: var(--space-2) !important;
+    inline-size: auto;
+  }
+}
+
+/* "Show earlier messages" at the top of the thread. */
+.cc-act-earlier {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+@media (forced-colors: active) {
+  .cc-act-chip,
+  .cc-act-source,
+  .cc-act-note,
+  .cc-act-based-block {
+    border: 1px solid CanvasText;
+  }
+  .cc-act-time {
+    border: 1px solid CanvasText;
+  }
+}

@@ -1,1 +1,4 @@
-{}
+{
+  "show": "Show earlier messages",
+  "failed": "Couldn't load earlier messages. Try again."
+}

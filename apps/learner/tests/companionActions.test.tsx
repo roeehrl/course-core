@@ -6,7 +6,9 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
 import { ConnectedCompanion, lessonLabel, panelScroller, sentNoticeKey } from "../src/components/ConnectedCompanion";
@@ -39,13 +41,13 @@ import { companionFocus, selectedLines } from "../src/client/companionFocus";
 import { pressWhenReady } from "./pressWhenReady";
 import { context, message, receipt } from "./companionFixtures";
 
-// Split from companion.test.tsx: actions on companion messages (context used, deleting a question).
+// Split from companion.test.tsx: actions on companion messages (what a reply was based on, deleting a question).
 
 afterEach(() => vi.useRealTimers());
 /** A window that docks the companion beside the lesson, or one that shows it as a sheet. */
 const dockLayout = (wide: boolean) => (wide ? companionLayout(1440, 960) : companionLayout(390, 844));
 describe("persisted companion integration", () => {
-  it("shows what an answer used, attached to its own lesson, and lets the learner stop reusing a message", async () => {
+  it("shows what an answer was based on, in sections, and lets the learner stop reusing a message", async () => {
     companionFocus.setSelection({ kind: "visual_node", blockId: "diagram", nodeId: "meter", label: "Meter bar" });
     const exclude = vi.fn().mockResolvedValue(undefined);
     const reply: CompanionMessage = {
@@ -61,7 +63,7 @@ describe("persisted companion integration", () => {
         summary: { count: 1, omitted: 0, sourceEventIds: ["e1"], items: [{ messageId: "older", eventId: "e1", excerpt: "The first question", excluded: true }] },
         selection: { kind: "formula", excerpt: "a <= b" }, media: { mediaId: "walkthrough", playbackSeconds: 83 }, simulation: null,
         evidenceCount: 2, assessmentMode: "none",
-        constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" },
+        constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: true, policyRevision: 1, digest: "d" },
       },
     };
     render(
@@ -79,17 +81,31 @@ describe("persisted companion integration", () => {
     );
     // The selection made in another lesson was dropped when the lesson changed.
     expect(screen.queryByText(/Attached to your next message/)).not.toBeInTheDocument();
-    expect(screen.getByText("About: Notice change")).toBeVisible();
-    expect(screen.queryByText(/Earlier lesson/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
-    expect(screen.getByText("Answering: “Why does it change?”")).toBeVisible();
-    expect(screen.getByText(/You pointed at \(Formula or code example\): “a <= b”/)).toBeVisible();
-    expect(screen.getByText("Course video at 1:23")).toBeVisible();
-    expect(screen.getByText(/no independent check open · no extra practice beyond the lesson/)).toBeVisible();
-    expect(screen.getByText(/Context version 4/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Don’t use this message again" }));
+    // One start-aligned chip instead of a full-width "Show context used" button.
+    expect(screen.queryByRole("button", { name: "Show context used" })).toBeNull();
+    const chip = screen.getByRole("button", { name: /^Based on/ });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    const block = screen.getByRole("region", { name: "What this reply was based on" });
+    expect(chip).toHaveAttribute("aria-controls", block.id);
+    const text = stripBidiControls(block.textContent ?? "");
+    // Sections with plain labels, in this order.
+    const order = ["Your question", "You pointed at", "Video", "Earlier messages used", "Rules for this reply", "Your answers used:"].map((label) => text.indexOf(label));
+    expect(order.every((at, index) => at >= 0 && (index === 0 || at > order[index - 1]!))).toBe(true);
+    expect(text).toContain("“Why does it change?”");
+    expect(text).toContain("Formula or code example: “a <= b”");
+    expect(text).toContain("Course video at 1:23");
+    expect(text).toContain("A counted check was open, so it gave hints, not answers.");
+    expect(text).toContain("Only practice from this lesson.");
+    expect(text).toContain("2 recent answers");
+    // The jargon is gone.
+    expect(text).not.toMatch(/Context version|Evidence it could see|named briefly|Rules it followed/);
+    // Each earlier message, the learner's own and those named in the summary, can be left out or used again.
+    expect(within(block).getByText("You: “An earlier question”")).toBeVisible();
+    fireEvent.click(within(block).getByRole("button", { name: "Don't use “An earlier question” again" }));
     await waitFor(() => expect(exclude).toHaveBeenCalledWith("old", true));
-    await pressWhenReady(screen.getByRole("button", { name: "Use this question again" }));
+    await pressWhenReady(within(block).getByRole("button", { name: "Use “The first question” again" }));
     await waitFor(() => expect(exclude).toHaveBeenCalledWith("older", false));
     // A focus chosen in this lesson is shown and removable.
     act(() => companionFocus.setSelection({ kind: "code", excerpt: "return x", lineStart: 3, lineEnd: 4, codeSnapshotHash: "a".repeat(64) }));
@@ -98,25 +114,58 @@ describe("persisted companion integration", () => {
     expect(companionFocus.get().selection).toBeUndefined();
   });
 
-  it("deletes a question only after confirming, and offers nothing for a deleted one", async () => {
+  it("deletes a question only after a danger confirm that starts on Cancel, and offers nothing for a deleted one", async () => {
     const remove = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    const answered = { ...message, job_state: "applied" };
     const { rerender } = render(
-      <ConnectedCompanion context={context} messages={[message]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
+      <ConnectedCompanion context={context} messages={[answered]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
         onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete this question" }));
+    // No full-width "Delete this question" button: the question's own menu holds Delete.
+    expect(screen.queryByRole("button", { name: "Delete this question" })).toBeNull();
+    const more = screen.getByRole("button", { name: "Message options" });
+    await user.click(more);
+    const del = screen.getByRole("menuitem", { name: "Delete question" });
+    expect(del).toHaveClass("is-danger");
+    await user.click(del);
     expect(remove).not.toHaveBeenCalled();
-    expect(screen.getByText(/Suggestions based on it are revoked/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Keep question" }));
-    expect(screen.queryByRole("button", { name: "Delete question" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Delete this question" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete question" }));
+    const confirm = screen.getByRole("dialog", { name: /Delete this question and its answer\? Suggestions based on it are removed too\. This can't be undone\./ });
+    expect(within(confirm).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    expect(within(confirm).getByRole("button", { name: "Delete" })).toHaveClass("cc-act-delete");
+    // Esc cancels and returns to the menu button.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(more).toHaveFocus();
+    await user.click(more);
+    await user.click(screen.getByRole("menuitem", { name: "Delete question" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("m"));
     rerender(
-      <ConnectedCompanion context={context} messages={[{ ...message, content: "[deleted]" }]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
+      <ConnectedCompanion context={context} messages={[{ ...answered, content: "[deleted]" }]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
         onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />,
     );
-    expect(screen.queryByRole("button", { name: "Delete this question" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Message options" })).toBeNull();
+  });
+
+  it("never offers Delete while a question waits for its reply, and says so when a delete fails", async () => {
+    const remove = vi.fn().mockRejectedValue(new Error("offline"));
+    const user = userEvent.setup();
+    const panel = (messages: CompanionMessage[]) => (
+      <ConnectedCompanion context={context} messages={messages} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
+        onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />
+    );
+    const { rerender } = render(panel([message]));
+    await user.click(screen.getByRole("button", { name: "Message options" }));
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "Delete question" })).toBeNull();
+    await user.keyboard("{Escape}");
+    rerender(panel([{ ...message, job_state: "applied" }]));
+    await user.click(screen.getByRole("button", { name: "Message options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete question" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const confirm = screen.getByRole("dialog");
+    expect(await within(confirm).findByText("Couldn't delete the question. Refresh and try again.")).toBeVisible();
   });
 });
 
@@ -148,7 +197,7 @@ describe("live companion findings (0.1.57 re-test)", () => {
     document.body.append(pane);
     return { pane, scrolls, restore: () => { Element.prototype.getBoundingClientRect = original; pane.remove(); } };
   }
-  it("shows context used as plain words, not Markdown or TeX", () => {
+  it("shows what a reply was based on as plain words, not Markdown or TeX", () => {
     expect(plainExcerpt("* **Application state, not training:** Saving logs")).toBe("Application state, not training: Saving logs");
     expect(plainExcerpt("### Step 0: Setup from *Checkpoint*")).toBe("Step 0: Setup from Checkpoint");
     expect(plainExcerpt("loading parameters into $w$ and running $w=2$ to $w=2.6$")).toBe("loading parameters into w and running w=2 to w=2.6");
@@ -163,7 +212,7 @@ describe("live companion findings (0.1.57 re-test)", () => {
       summary: null, selection: null, media: null, simulation: null, evidenceCount: 0, assessmentMode: "none",
       constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" } };
     render(panel([{ ...message, job_state: "applied" }, { id: "a", role: "assistant", content: "Reply", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job", context_used: used }]));
-    fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Based on/ }));
     expect(screen.getByText(/Companion: “Fine-tuning updates weights by w - η g”/)).toBeVisible();
     expect(screen.queryByText(/\*\*/)).toBeNull();
   });

@@ -38,8 +38,9 @@ import { connectedSnapshot } from "./connectedFixtures";
 import { companionFocus, selectedLines } from "../src/client/companionFocus";
 import { pressWhenReady } from "./pressWhenReady";
 import { context, message, receipt } from "./companionFixtures";
+import { conversationActions } from "../src/connected/companion/conversationActions";
 
-// Split from companion.test.tsx: the companion client (commands, polling, focus, cancel, event stream, draft frames).
+// Split from companion.test.tsx: the companion client (commands, votes, earlier pages, polling, focus, cancel, event stream, draft frames).
 
 afterEach(() => vi.useRealTimers());
 /** A window that docks the companion beside the lesson, or one that shows it as a sheet. */
@@ -71,6 +72,84 @@ describe("persisted companion integration", () => {
     expect(payload.expectedRevision).toBe(1);
     expect(payload.idempotencyKey).toBeTruthy();
     expect(payload).not.toHaveProperty("allowAssessmentAssistance");
+  });
+  it("votes on a reply and reads earlier pages with CSRF, the snapshot revision and an idempotency key", async () => {
+    const older = { ...message, id: "older", content: "An earlier question" };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messages: [message], earlier: true, before: "cursor-1" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messages: [older], earlier: false, before: null })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messageId: "a", feedback: { vote: "not_helpful", reported: false } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "STALE_REVISION" }), { status: 409 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ revision: 7 })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messageId: "a", feedback: { vote: null, reported: true } })));
+    const client = createCompanionClient(createCourseApi({ fetch: fetcher, csrf: () => "csrf" }));
+    // The latest page says whether older messages remain, and the cursor that reads them.
+    const latest = await client.load("e");
+    expect(client.pageOf!(latest)).toEqual({ earlier: true, before: "cursor-1" });
+    expect(client.pageOf!([message])).toBeUndefined();
+    expect(await client.loadEarlier!("e", "cursor-1")).toEqual({ messages: [older], earlier: false, before: null });
+    expect(fetcher.mock.calls[1]![0]).toBe("/api/enrollments/e/companion?before=cursor-1");
+    expect(fetcher.mock.calls[1]![1]?.method).toBe("GET");
+    // A vote: CSRF, the snapshot's revision and a fresh idempotency key; never queued as a pending command.
+    expect(await client.vote!({ enrollmentId: "e", revision: 3 }, "a", { vote: "not_helpful", comment: "It skipped a step." }))
+      .toEqual({ messageId: "a", feedback: { vote: "not_helpful", reported: false } });
+    const [url, init] = fetcher.mock.calls[2]!;
+    expect(url).toBe("/api/enrollments/e/companion/messages/a/feedback");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("csrf");
+    const body = JSON.parse(init!.body as string);
+    expect(body).toMatchObject({ vote: "not_helpful", comment: "It skipped a step.", expectedRevision: 3 });
+    expect(body.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+    // A revision that moved on is read again once, with a new key.
+    expect((await client.vote!({ enrollmentId: "e", revision: 3 }, "a", { vote: null, report: true })).feedback).toEqual({ vote: null, reported: true });
+    expect(fetcher.mock.calls[4]![0]).toBe("/api/enrollments/e");
+    const retried = JSON.parse(fetcher.mock.calls[5]![1]!.body as string);
+    expect(retried).toMatchObject({ vote: null, report: true, expectedRevision: 7 });
+    expect(retried.idempotencyKey).not.toBe(JSON.parse(fetcher.mock.calls[3]![1]!.body as string).idempotencyKey);
+    // A malformed page or receipt is refused.
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ messages: [{ ...message, role: "assistant", feedback: { vote: "great", reported: false } }] })));
+    await expect(client.load("e")).rejects.toThrow("Invalid companion message response");
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ messageId: "other", feedback: { vote: null, reported: false } })));
+    await expect(client.vote!({ enrollmentId: "e", revision: 7 }, "a", { vote: null })).rejects.toThrow("Invalid companion feedback receipt");
+  });
+  it("keeps earlier pages apart from the latest page: prepended once, joined by messages the latest page lets go, with votes on top", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+    try {
+      const row = (index: number): CompanionMessage => ({ ...message, id: `m${index}`, content: `Message ${index}`, job_state: "applied" });
+      let page = [row(3), row(4), row(5)];
+      const load = vi.fn(async () => page);
+      const loadEarlier = vi.fn().mockResolvedValue({ messages: [row(1), row(2)], earlier: false, before: null });
+      const vote = vi.fn().mockResolvedValue({ messageId: "m4", feedback: { vote: "helpful", reported: false } });
+      const pages = new WeakMap<readonly CompanionMessage[], { earlier: boolean; before: string | null }>();
+      const client: ContextualCompanionClient = { load: async () => { const read = await load(); pages.set(read, { earlier: true, before: "c3" }); return read; },
+        pageOf: (messages) => pages.get(messages), loadEarlier, vote, send: vi.fn() };
+      const { result, rerender } = renderHook(({ revision }) => useCompanionConversation(client, "e", true, revision), { initialProps: { revision: 1 } });
+      await waitFor(() => expect(result.current.messages.map((m) => m.id)).toEqual(["m3", "m4", "m5"]));
+      await waitFor(() => expect(conversationActions.get("e").earlier).toBe(true));
+      const latest = result.current;
+      await act(() => conversationActions.get("e").loadEarlier());
+      expect(loadEarlier).toHaveBeenCalledWith("e", "c3");
+      expect(result.current.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4", "m5"]);
+      await waitFor(() => expect(conversationActions.get("e")).toMatchObject({ earlier: false, loading: false, failed: false }));
+      expect(result.current).not.toBe(latest);
+      // A new message pushes the oldest out of the latest page: it stays, between the two.
+      page = [row(4), row(5), row(6)];
+      rerender({ revision: 2 });
+      await waitFor(() => expect(result.current.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4", "m5", "m6"]));
+      // A vote shows on its reply at once; a change saved elsewhere reaches the earlier pages.
+      await act(async () => void (await conversationActions.get("e").vote!("m4", { vote: "helpful" })));
+      expect(vote).toHaveBeenCalledWith({ enrollmentId: "e", revision: 2 }, "m4", { vote: "helpful" });
+      expect(result.current.messages.find((m) => m.id === "m4")?.feedback).toEqual({ vote: "helpful", reported: false });
+      act(() => conversationActions.changedEverywhere({ deleted: "m1" }));
+      expect(result.current.messages.find((m) => m.id === "m1")?.content).toBe("[deleted]");
+      // Without earlier pages or votes the hook returns the latest page as it is.
+      const plain: ContextualCompanionClient = { load: vi.fn().mockResolvedValue([message]), send: vi.fn() };
+      const other = renderHook(() => useCompanionConversation(plain, "f", true, 1));
+      await waitFor(() => expect(other.result.current.loaded).toBe(true));
+      expect(conversationActions.get("f")).toMatchObject({ earlier: false });
+      expect(conversationActions.get("f").vote).toBeUndefined();
+      other.unmount();
+    } finally { vi.unstubAllGlobals(); }
   });
   it("polls modestly for saved queued work and aborts when context or account changes", async () => {
     vi.useFakeTimers();

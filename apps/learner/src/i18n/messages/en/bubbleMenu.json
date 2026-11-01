@@ -1,1 +1,6 @@
-{}
+{
+  "trigger": "Message options",
+  "copy": "Copy",
+  "edit": "Edit and resend",
+  "delete": "Delete question"
+}

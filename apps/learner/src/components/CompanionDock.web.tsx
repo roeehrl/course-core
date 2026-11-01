@@ -164,6 +164,8 @@ export function CompanionDock({ layout, headerSlot = null, children }: Companion
         onKeyDownCapture={(event) => {
           if (!modal) return;
           if (event.key === "Escape") {
+            // A menu or popover inside the sheet closes itself first (its own Escape).
+            if ((event.target as Element | null)?.closest?.('[role="menu"], .cc-ui-popover')) return;
             event.preventDefault();
             hadFocus.current = false;
             onOpenChange(false);

@@ -256,7 +256,7 @@ export function ConnectedCompanion({
       }),
     [],
   );
-  const conversation = { enrollmentId: context.enrollmentId, episodeTitles };
+  const conversation = { enrollmentId: context.enrollmentId, episodeTitles, server };
   const latestReply = messages.findLast((row) => row.role === "assistant")?.id;
   const latestQuestion = messages.findLast((row) => row.role === "learner")?.id;
   return (
@@ -667,7 +667,8 @@ function useReveal(enrollmentId: string, messages: readonly CompanionMessage[], 
     if (known.current === null) { known.current = new Set(replies.map((m) => m.id)); toLatest(); return; }
     const fresh = replies.filter((m) => !known.current!.has(m.id));
     for (const reply of fresh) known.current.add(reply.id);
-    if (fresh.length) show(`reply:${fresh.at(-1)!.id}`);
+    // Earlier messages read on request come above the others: they are not new replies.
+    if (fresh.length && fresh.at(-1) === replies.at(-1)) show(`reply:${fresh.at(-1)!.id}`);
   }, [messages, loaded]);
   return {
     root,
