@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CourseApiError, type CourseApi, type ServerSnapshot } from "../../client/apiClient";
 import {
   companionDraftFor,
@@ -26,7 +26,7 @@ import { placeholderAttachment } from "./AttachmentChips.web";
 import { BubbleActions } from "./BubbleActions.web";
 import { companionBridge, lessonNavigator, type LessonTarget } from "./bridge";
 import { CompanionTurn } from "./CompanionTurn.web";
-import { Composer, type ComposerHandle } from "./Composer.web";
+import { Composer, MESSAGE_MAX, type ComposerHandle } from "./Composer.web";
 import { DecisionLine } from "./DecisionLine.web";
 import { EarlierMessages } from "./EarlierMessages.web";
 import { EmptyState } from "./EmptyState.web";
@@ -51,7 +51,6 @@ import {
 } from "./replyStates";
 import { ReplyRow } from "./ReplyRow.web";
 import type { SendStopState } from "./SendStopButton.web";
-import { MESSAGE_MAX } from "./Composer.web";
 import { Thread, type ThreadHandle } from "./Thread.web";
 import { continueText, DateDivider, DATE_GAP_MS, DeletedLine, LessonDivider, lessonLabel, VersionLine } from "./ThreadLines.web";
 import { turnState, asksLearner, isWithheldHint } from "./turnState";

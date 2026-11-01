@@ -116,22 +116,30 @@ test("browser storage off: the draft is kept in this tab only, and the banner sa
   await axe(page);
 });
 
-test("a message whose saving was not confirmed says so on the question, and after a reload it is recovered with a banner", async ({ page, request }) => {
+test("a message whose confirmation was lost shows once, as the conversation has it, and after a reload it is recovered with a banner", async ({ page, request }) => {
   await startLesson(page, request);
   // The server saves it; the answer never reaches the page.
+  let lost!: () => void;
+  const answerLost = new Promise<void>((resolve) => (lost = resolve));
   await page.route(/\/companion$/, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     await route.fetch();
     await route.abort("connectionreset");
+    lost();
   });
   await box(page).fill("Was this saved?");
   await roundButton(page).click();
-  await expect(thread(page).getByText(/We couldn't confirm your message was saved/)).toBeVisible();
+  await answerLost;
+  // The answer to the send was lost, but the conversation read back has the question: it shows
+  // once, as saved (without that read it would say the save was not confirmed; unit-tested).
+  await expect(thread(page).locator("[data-message-id]").filter({ hasText: "Was this saved?" })).toHaveCount(1, { timeout: 15_000 });
+  await expect(thread(page).getByText("Was this saved?", { exact: true })).toHaveCount(1);
   await page.unroute(/\/companion$/);
   await page.reload();
   await resumeLesson(page);
   await openCompanion(page);
   await expect(notice(page)).toContainText("Your last message was recovered. Check it in the conversation before sending another.");
+  await expect(thread(page).locator("[data-message-id]").filter({ hasText: "Was this saved?" })).toHaveCount(1, { timeout: 15_000 });
   await expect(thread(page).getByText("Was this saved?", { exact: true })).toHaveCount(1);
   await notice(page).getByRole("button", { name: "Show it" }).click();
   await expect(notice(page)).toHaveCount(0);

@@ -1,11 +1,15 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
+import { settled } from "./conversation-helpers";
 
 /* Coverage uses the denominator fixed at enrollment, and a closed (capped) course
  * keeps a bounded number of read-only questions that the companion counts down. */
 
-const axe = (page: Page) =>
-  new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+// A reply fading in (M1) is measured once its fade has ended.
+const axe = async (page: Page) => {
+  await settled(page);
+  return new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+};
 
 async function startCourse(page: Page) {
   const token = (await (await page.request.post("/test/session")).json()).token;

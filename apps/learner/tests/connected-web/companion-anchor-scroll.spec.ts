@@ -27,6 +27,12 @@ test("the new question sits 16 px below the thread's top, the reply grows downwa
   // M3 is 240 ms; then the bubble's top is 16 px below the thread's.
   await expect.poll(async () => Math.round((await bubble.boundingBox())!.y - (await top(page))), { timeout: 3_000 }).toBeGreaterThanOrEqual(14);
   await expect.poll(async () => Math.round((await bubble.boundingBox())!.y - (await top(page))), { timeout: 3_000 }).toBeLessThanOrEqual(18);
+  // The anchor's smooth scroll has come to rest.
+  await expect.poll(async () => {
+    const first = await scrollTop(page);
+    await page.waitForTimeout(200);
+    return first === (await scrollTop(page));
+  }).toBe(true);
   const anchored = await scrollTop(page);
   const pieces = Array.from({ length: 24 }, (_, i) => `Line ${i + 1}: compare the two values on the number line and keep the smaller one.\n\n`);
   await expect.poll(async () => (await (await request.post("/test/conversation-dispatch", { data: { question, pieces, gapMs: 150, end: "complete" } })).json()).opened).toBe(true);
