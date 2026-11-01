@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef } from "react";
 
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]';
 
@@ -31,7 +31,6 @@ export function Popover({
   children: React.ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useLayoutEffect(() => {
@@ -42,13 +41,20 @@ export function Popover({
       if (!rect || !node) return;
       const rtl = getComputedStyle(node).direction === "rtl";
       const room = window.innerWidth - 16;
-      const w = Math.min(width, room - 16);
+      const w = node.offsetWidth || width;
       let left = rtl ? rect.right - w : rect.left;
       left = Math.max(16, Math.min(left, room - w));
       const height = node.offsetHeight;
       const below = rect.bottom + 8;
       const top = below + height > window.innerHeight - 16 && rect.top - 8 - height >= 16 ? rect.top - 8 - height : below;
-      setPlace({ top, left });
+      // A fixed box is placed in its containing block, which is not the window inside a size
+      // container (the companion panel is one): measure where 0,0 lands and correct for it.
+      node.style.top = "0px";
+      node.style.left = "0px";
+      const origin = node.getBoundingClientRect();
+      node.style.top = `${top - origin.top}px`;
+      node.style.left = `${left - origin.left}px`;
+      node.style.visibility = "";
     };
     position();
     window.addEventListener("resize", position);
@@ -83,7 +89,7 @@ export function Popover({
       aria-labelledby={labelledBy}
       tabIndex={-1}
       className={["cc-ui-popover", `is-${width}`, className].filter(Boolean).join(" ")}
-      style={place ? { top: place.top, left: place.left } : { visibility: "hidden" }}
+      style={{ visibility: "hidden" }}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.preventDefault();
