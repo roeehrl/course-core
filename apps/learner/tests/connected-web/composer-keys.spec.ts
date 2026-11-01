@@ -19,6 +19,7 @@ test("Enter, Cmd+Enter and Ctrl+Enter send, Shift+Enter makes a line, and focus 
   await field.press("Shift+Enter");
   await field.pressSequentially("two or three?");
   await expect(field).toHaveValue("Which is smaller\ntwo or three?");
+  const saved = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
   if (touch) {
     // A touch keyboard's Enter is a new line; the hardware chord still sends.
     await field.press("Enter");
@@ -26,6 +27,7 @@ test("Enter, Cmd+Enter and Ctrl+Enter send, Shift+Enter makes a line, and focus 
     await field.press("Backspace");
     await field.press("Control+Enter");
   } else await field.press("Enter");
+  expect((await saved).status()).toBe(200);
   const first = thread(page).locator(".cc-chat-bubble").filter({ hasText: "Which is smaller" });
   await expect(first).toBeVisible();
   await expect(field).toHaveValue("");
