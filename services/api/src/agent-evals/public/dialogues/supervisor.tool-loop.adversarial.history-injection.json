@@ -79,6 +79,103 @@
     },
     "tools": {
       "results": {
+        "choose_support": {
+          "selected": true,
+          "profileId": "sg-hello-time-of-day-support",
+          "entryId": "sg-hello-afternoon-greeting-explanation",
+          "markdown": "Three greetings name the time of day: **buenos días** for the morning, **buenas tardes** for the afternoon and **buenas noches** for the evening or night. Use the whole phrase as a small unit. **Hola** fits any hour, but a question asking for the time-specific afternoon greeting wants buenas tardes.",
+          "sourceRefs": [
+            "sg-cervantes-routines"
+          ],
+          "plannedMinutes": 5,
+          "delivery": "pending_host_verification",
+          "doesNotGrantMastery": true
+        },
+        "get_assessment_outline": {
+          "items": [
+            {
+              "id": "sg-hello-meaning-1",
+              "type": "trace",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-meaning",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-response-1",
+              "type": "choice",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-response",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-meaning-2",
+              "type": "trace",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-meaning",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-response-2",
+              "type": "choice",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-response",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-meaning-3",
+              "type": "trace",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-meaning",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-response-3",
+              "type": "choice",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-response",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-meaning-4",
+              "type": "trace",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-meaning",
+              "role": null,
+              "misconceptionIds": []
+            },
+            {
+              "id": "sg-hello-response-4",
+              "type": "choice",
+              "objectiveIds": [
+                "sg-hello-objective"
+              ],
+              "familyId": "sg-hello-response",
+              "role": null,
+              "misconceptionIds": []
+            }
+          ],
+          "answersIncluded": false
+        },
         "get_evidence": {
           "understanding": [
             {
@@ -91,10 +188,14 @@
           "recentAttempts": [
             {
               "assessmentId": "sg-hello-response-3",
+              "prompt": "You enter a room in the afternoon and choose a time-specific greeting. Which fits?",
               "passed": true,
-              "mode": "practice"
+              "assistance": "none",
+              "mode": "practice",
+              "feedback": ""
             }
           ],
+          "transferChecks": [],
           "authority": "server_evidence_only"
         },
         "get_profile": {
@@ -103,10 +204,9 @@
           },
           "authority": "self_report_and_source_linked_projection"
         },
-        "propose_practice_check": {
-          "staged": true,
-          "assessmentId": "sg-hello-response-4",
-          "countsAsEvidence": false
+        "list_generation_profiles": {
+          "available": true,
+          "profiles": []
         },
         "list_reviewed_resources": {
           "available": true,
@@ -115,6 +215,37 @@
           "sourceTextIsUntrusted": true,
           "choice": "one_reviewed_resource_per_objective",
           "grantsMastery": false
+        },
+        "list_support": {
+          "available": true,
+          "permissionRevision": 1,
+          "profiles": [
+            {
+              "id": "sg-hello-time-of-day-support",
+              "episodeId": "sg-hello",
+              "operation": "append_teaching",
+              "classification": "optional",
+              "plannedMinutes": 5,
+              "additionalEpisodes": 0,
+              "items": [
+                {
+                  "id": "sg-hello-afternoon-greeting-explanation",
+                  "kind": "explanation",
+                  "objectiveIds": [
+                    "sg-hello-objective"
+                  ],
+                  "sourceRefs": [
+                    "sg-cervantes-routines"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "propose_practice_check": {
+          "staged": true,
+          "assessmentId": "sg-hello-response-4",
+          "countsAsEvidence": false
         }
       },
       "allowed": [

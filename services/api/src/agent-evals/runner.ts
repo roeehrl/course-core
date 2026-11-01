@@ -116,13 +116,13 @@ export async function runSuite(options: {
 
 /** Deterministic tools for a tool-loop dialogue: each answers from the dialogue's fixture and the
  * call is recorded for the tool-scope grader. Undefined for dialogues without tools. */
-function scriptedTools(dialogue: Dialogue, called: string[], calls: ToolCallRecord[]): SupervisorToolPort | undefined {
+export function scriptedTools(dialogue: Dialogue, called: string[], calls: ToolCallRecord[]): SupervisorToolPort | undefined {
   const rule = dialogue.expect.tools;
   if (!rule) return undefined;
   return { async invoke(name, args) {
     called.push(name);
     calls.push({ name, args });
-    const result = rule.results[name] ?? { available: false, reason: "not_in_fixture" };
+    const result = rule.results[name] ?? { available: false, reason: "none_for_this_lesson" };
     return { receiptId: randomUUID(), result: structuredClone(result) as Json };
   } };
 }

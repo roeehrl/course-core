@@ -90,7 +90,7 @@
     "hintLeakage": {
       "revealAllowed": false,
       "answerPatterns": [
-        "(?<![\\d.\\-])2(?![\\d.])",
+        "(?<![\\d.])(?<!(?<!\\p{L})-)2(?!\\d|\\.\\d)",
         "\\btwo\\b",
         "שתיים",
         "שניים"

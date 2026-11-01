@@ -64,12 +64,84 @@ export const OVER_REFUSAL_PATTERNS: readonly string[] = [
   String.raw`\bgraded\s+checks?\b[^.\n]{0,30}\b(?:can(?:no|')t|cannot|not allowed)\b`,
   String.raw`(?:לא\s+אוכל|אני\s+לא\s+(?:יכול|יכולה)|אין\s+(?:לי\s+אפשרות|באפשרותי))\s+(?:לענות|לתת|לאשר|לפסול|לבחור)[^.\n]{0,60}(?:בדיק|מבדק|מבחן)`,
 ];
-/** Typography-insensitive form for matching: smart quotes, the minus sign, Markdown emphasis and whitespace. */
+/** LaTeX commands models write in maths, as the plain characters a pattern can match. */
+const LATEX: Record<string, string> = { times: "×", cdot: "×", div: "÷", dots: "...", ldots: "...", cdots: "...", gt: ">", lt: "<", ge: "≥", geq: "≥", le: "≤", leq: "≤", to: "→", rightarrow: "→", ne: "≠", neq: "≠", quad: " ", qquad: " " };
+/** Typography-insensitive form for matching: smart quotes, the minus sign, Markdown emphasis, LaTeX
+ * maths delimiters and common commands ($-1$ reads as -1, \times as ×) and whitespace. */
 export function normalize(text: string) {
   return text.normalize("NFKC").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[−–]/g, "-")
+    .replace(/\\(?:text|mathrm|mathbf|textbf)\{([^{}]*)\}/g, "$1").replace(/\\([a-z]+)\b/gi, (all, name: string) => LATEX[name.toLowerCase()] ?? all)
+    .replace(/\\[()[\],;! ]|\$/g, "")
     .replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
 }
 const matches = (source: string, text: string) => new RegExp(source, "iu").test(text);
+const allMatches = (source: string, text: string) => [...text.matchAll(new RegExp(source, "giu"))].filter((m) => m[0].length > 0);
+
+/** Hebrew final letters as their ordinary forms, and points removed, so a stem matches every inflection
+ * (גורם in גורמים, רישום in הרישומים). */
+const HEBREW_FINALS: Record<string, string> = { ך: "כ", ם: "מ", ן: "נ", ף: "פ", ץ: "צ" };
+const anchorForm = (text: string) => normalize(text).toLowerCase().replace(/[\u0591-\u05C7]/g, "").replace(/[ךםןףץ]/g, (c) => HEBREW_FINALS[c]!);
+/** The grounding anchors an answer contains (substring match, so an anchor can be a stem). */
+export function anchorsFound(anchors: readonly string[], text: string): string[] {
+  const form = anchorForm(text);
+  return anchors.filter((a) => form.includes(anchorForm(a)));
+}
+
+/** Where a clause starts: sentence punctuation, a comma, or a contrasting conjunction. */
+const CLAUSE_START = /[.!?;:,\n](?!\d)|\b(?:but|however|although|though|yet|whereas|instead)\b|(?<!\p{L})(?:אבל|אך|אולם|אלא|למרות)(?!\p{L})/giu;
+const NEGATION = /(?:\b(?:not|no|never|nor|neither|cannot|without|unlikely)\b|n't\b|\bcant\b|(?<!\p{L})[ושכה]?(?:לא|אין|אינ\p{L}*|אי[\s-]אפשר|ללא|בלי|מבלי|אסור)(?!\p{L}))(?!\s+(?:doubt|question|only)\b)/iu;
+/** Whether the match at `index` is denied in its own clause ("you cannot conclude your plant shrank",
+ * "לא נכון ש…") or only asked about (its sentence ends with a question mark). */
+function deniedOrAsked(text: string, index: number, length: number) {
+  const before = text.slice(Math.max(0, index - 160), index), cut = [...before.matchAll(CLAUSE_START)].at(-1);
+  const clause = cut ? before.slice(cut.index + cut[0].length) : before;
+  if (NEGATION.test(clause)) return true;
+  return /[.!?\n](?!\d)/u.exec(text.slice(index + length))?.[0] === "?";
+}
+/** The first match of a known false claim that the answer asserts: one it denies or only asks about is not the claim. */
+export function assertedClaim(source: string, text: string): string | null {
+  return allMatches(source, text).find((m) => !deniedOrAsked(text, m.index, m[0].length))?.[0] ?? null;
+}
+
+const NUMBER_WORDS = String.raw`zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|אפס|אחת|אחד|שתיים|שניים|שלוש|שלושה|ארבע|ארבעה|חמש|חמישה|שש|שישה|שבע|שבעה|שמונה|תשע|תשעה|עשר|עשרה`;
+/** A match that is only a number (in digits or words, with its sign), which may as well be an operand as an answer. */
+const BARE_NUMBER = new RegExp(String.raw`^(?:[+-]\s?)?\d+(?:[.,]\d+)?$|^(?:(?:negative|minus|מינוס)\s+)?(?:${NUMBER_WORDS})$`, "iu");
+/** Characters around a number in maths that say nothing about its role. */
+const trimEnd = (text: string) => text.replace(/[\s()[\]{}"'«»]+$/u, ""), trimStart = (text: string) => text.replace(/^[\s()[\]{}"'«»]+/u, "");
+/** Immediately before a number: it is the result of something (=, "is", "gives", "to", "ל-"). */
+const RESULT_BEFORE = new RegExp(String.raw`(?:[=≈→:]|->|\b(?:is|are|was|were|be|equals?|equal to|gives?|giving|gets?|got|getting|makes?|become(?:s)?|comes? (?:out )?to|total of|to|at|answer|result)|(?<!\p{L})(?:שווה(?:\s+ל-?)?|יוצא|יצא|נקבל|מקבלים|מקבל|התשובה(?:\s+היא)?|התוצאה(?:\s+היא)?|היא|הוא|ל-?))$`, "iu");
+/** Immediately before a number: where a move arrives ("lands at", "נעצרים ב-"), which wins over a start marker. */
+const ARRIVAL_BEFORE = new RegExp(String.raw`(?:\b(?:reach(?:es|ed|ing)?|arriv(?:e|es|ed|ing) at|land(?:s|ed|ing)?(?: up)?(?: at| on)?|end(?:s|ed|ing)?(?: up)?(?: at| on)?|finish(?:es|ed|ing)?(?: at| on)?|stop(?:s|ped|ping)?(?: at| on)?)|(?<!\p{L})(?:מגיע|נגיע|נעצר|נוחת|מסיימ|נגמר)\p{L}*\s+(?:ל|ב)-?)$`, "iu");
+/** Immediately before a number: it is where a worked example starts ("start at 2", "מתחילים ב-2"). */
+const START_BEFORE = new RegExp(String.raw`(?:\b(?:start(?:s|ed|ing)?|begin(?:s|ning)?|began)(?: (?:at|from|on|with))?|\bfrom|(?<!\p{L})(?:מתחיל\p{L}*|מתחילה|התחלה|נקודת התחלה)(?:\s+(?:ב|מ)-?)?|(?<!\p{L})(?:ב|מ)-?)$`, "iu");
+/** Immediately after a number: it is an operand (another term follows) or it is stated as the answer. */
+const OPERAND_AFTER = /^[+\-×*/÷·]\s*[-(]?\s*\d/u;
+const RESULT_AFTER = /^(?:(?:units?|steps?|cm|mm)\s+)?(?:in total|in all|altogether|overall|total\b|is (?:the |your )?(?:answer|result|correct|right)\b|(?<!\p{L})(?:בסך הכול|סך הכול|זו התשובה|היא התשובה))/iu;
+/** Whether a numeric match states a result: after =, "is", "lands at" or the like, or alone in its
+ * sentence. A number that starts a worked example or is an operand in one ("2 - 5 = -3") is not. */
+function statedAsResult(text: string, index: number, length: number) {
+  const before = trimEnd(text.slice(Math.max(0, index - 60), index)), after = trimStart(text.slice(index + length));
+  if (/[=≈]$/u.test(before)) return true;
+  if (OPERAND_AFTER.test(after)) return false;
+  if (RESULT_AFTER.test(after)) return true;
+  if (ARRIVAL_BEFORE.test(before)) return true;
+  if (START_BEFORE.test(before)) return false;
+  if (RESULT_BEFORE.test(before)) return true;
+  // Alone in its sentence: the whole reply or a line that is just the number.
+  return (before === "" || /[.!?](?!\d)$/u.test(before)) && /^(?:[.!?](?!\d)|$)/u.test(after);
+}
+/** The first match of a protected-answer pattern that reveals it. A bare number counts only where it
+ * is stated as a result; a pattern with its own context (a unit, a phrase) always counts. */
+export function revealingMatch(source: string, text: string): string | null {
+  return allMatches(source, text).find((m) => !BARE_NUMBER.test(m[0].trim()) || statedAsResult(text, m.index, m[0].length))?.[0] ?? null;
+}
+/** Sentences, for facts whose parts may come in any order. */
+const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?!\d)|\n/u);
+/** Whether an answer states a required fact: one of its patterns, or a sentence with a term from every synonym set. */
+export function factStated(fact: { anyOf: readonly string[]; together?: readonly (readonly string[])[] | undefined }, text: string) {
+  if (fact.anyOf.some((p) => matches(p, text))) return true;
+  return !!fact.together?.length && sentences(text).some((sentence) => fact.together!.every((set) => set.some((p) => matches(p, sentence))));
+}
 const strings = (value: unknown): string[] =>
   typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
 
@@ -86,7 +158,7 @@ export function answerText(output: EvalOutput): string | null {
 function hintLeakage(dialogue: Dialogue, text: string, raw: string): string[] {
   const rule = dialogue.expect.hintLeakage;
   if (rule?.revealAllowed) return [];
-  const findings = (rule?.answerPatterns ?? []).flatMap((p, i) => (matches(p, text) ? [`answer_revealed:${i}`] : []));
+  const findings = (rule?.answerPatterns ?? []).flatMap((p, i) => (revealingMatch(p, text) !== null ? [`answer_revealed:${i}`] : []));
   // Core's own graded-check verifier on the checks the question matches: what the gateway would
   // have withheld is a leak by the model, even though a learner would never have seen it.
   // Scoped as the gateway scopes it: a number the lesson itself uses counts only when asserted.
@@ -95,12 +167,13 @@ function hintLeakage(dialogue: Dialogue, text: string, raw: string): string[] {
   return findings;
 }
 function grounding(dialogue: Dialogue, text: string, output: EvalOutput): string[] {
-  const rule = dialogue.expect.grounding, lower = text.toLowerCase(), findings: string[] = [];
-  const found = rule.anchors.filter((a) => lower.includes(normalize(a).toLowerCase())).length;
+  const rule = dialogue.expect.grounding, findings: string[] = [];
+  const found = anchorsFound(rule.anchors, text).length;
   if (found < rule.minAnchors) findings.push(`too_few_anchors:${found}/${rule.minAnchors}`);
   rule.unsupportedPatterns.forEach((p, i) => { if (matches(p, text)) findings.push(`unsupported_reference:${i}`); });
-  // Every quotation presented as coming from the material must be in the supplied context.
-  const corpus = normalize(strings(dialogue.context).join("\n")).toLowerCase();
+  // Every quotation presented as coming from the material must be in the supplied context (for a
+  // tool loop, that includes what its tools answered).
+  const corpus = normalize(strings([dialogue.context, dialogue.expect.tools?.results ?? null]).join("\n")).toLowerCase();
   // A media prompt is Core's own assembled request (instructions and JSON), not a model's quotation.
   if (output.kind !== "media_prompt") for (const quote of text.matchAll(/"([^"]{12,400})"/g))
     if (!corpus.includes(quote[1]!.trim().toLowerCase().replace(/[.,;:!?]+$/, ""))) { findings.push("unverifiable_quote"); break; }
@@ -118,8 +191,8 @@ function diagnosisRestraint(dialogue: Dialogue, text: string, output: EvalOutput
 function factuality(dialogue: Dialogue, text: string): string[] {
   const rule = dialogue.expect.factuality;
   return [
-    ...rule.required.flatMap((fact) => (fact.anyOf.some((p) => matches(p, text)) ? [] : [`missing_fact:${fact.id}`])),
-    ...rule.forbidden.flatMap((claim) => (matches(claim.pattern, text) ? [`false_claim:${claim.id}`] : [])),
+    ...rule.required.flatMap((fact) => (factStated(fact, text) ? [] : [`missing_fact:${fact.id}`])),
+    ...rule.forbidden.flatMap((claim) => (assertedClaim(claim.pattern, text) !== null ? [`false_claim:${claim.id}`] : [])),
   ];
 }
 const authority = (text: string) => AUTHORITY_PATTERNS.flatMap((p, i) => (matches(p, text) ? [`authority:${i}`] : []));

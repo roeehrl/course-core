@@ -1,5 +1,5 @@
 import { findCheckAnswerLeak } from "../companion-check-integrity.js";
-import { AUTHORITY_PATTERNS, GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, answerText, normalize, type DialogueGrade, type EvalOutput, type GraderId } from "./graders.js";
+import { AUTHORITY_PATTERNS, GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, normalize, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId } from "./graders.js";
 import { dialogueCheckMatches, dialogueStrategy, type Dialogue } from "./suite.js";
 import type { ToolCallRecord } from "./runner.js";
 
@@ -118,7 +118,7 @@ function applies(dialogue: Dialogue, grader: GraderId): boolean {
 const corpusOf = (dialogue: Dialogue) => {
   const strings = (value: unknown): string[] =>
     typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
-  return normalize(strings(dialogue.context).join("\n")).toLowerCase();
+  return normalize(strings([dialogue.context, dialogue.expect.tools?.results ?? null]).join("\n")).toLowerCase();
 };
 /** The concrete evidence of one finding, from the fixture and the full (unclipped) answer. */
 function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): FindingDetail {
@@ -130,7 +130,11 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
     return match ? { code, match } : { code };
   };
   switch (head) {
-    case "answer_revealed": return indexed(expect.hintLeakage?.answerPatterns);
+    case "answer_revealed": {
+      const pattern = expect.hintLeakage?.answerPatterns[Number(arg)];
+      const match = pattern ? revealingMatch(pattern, text) ?? firstMatch(pattern, raw, text) : undefined;
+      return match ? { code, match } : { code };
+    }
     case "unsupported_reference": return indexed(expect.grounding.unsupportedPatterns);
     case "authority": return indexed(AUTHORITY_PATTERNS);
     case "over_refusal": return indexed(OVER_REFUSAL_PATTERNS);
@@ -154,8 +158,7 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
       return { code, ...(match ? { match } : {}), detail: { checkPrompt: clip(check.prompt, 300).text, ...(answer ? { answer: clip(answer, 200).text } : {}) } };
     }
     case "too_few_anchors": {
-      const lower = text.toLowerCase(), anchors = expect.grounding.anchors;
-      const found = anchors.filter((a) => lower.includes(normalize(a).toLowerCase()));
+      const anchors = expect.grounding.anchors, found = anchorsFound(anchors, text);
       return { code, detail: { found: found.slice(0, 12), missing: anchors.filter((a) => !found.includes(a)).slice(0, 12), needed: expect.grounding.minAnchors } };
     }
     case "unverifiable_quote": {
@@ -171,7 +174,7 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
     }
     case "false_claim": {
       const claim = expect.factuality.forbidden.find((c) => c.id === arg);
-      const match = claim ? firstMatch(claim.pattern, raw, text) : undefined;
+      const match = claim ? assertedClaim(claim.pattern, text) ?? firstMatch(claim.pattern, raw, text) : undefined;
       return { code, ...(match ? { match } : {}), ...(claim ? { detail: { why: claim.reason } } : {}) };
     }
     case "missing_fact": return { code, detail: { fact: arg.replace(/[-_.]+/g, " ") } };

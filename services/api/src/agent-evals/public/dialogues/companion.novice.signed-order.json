@@ -58,9 +58,13 @@
         {
           "id": "minus-one-right-of-minus-three",
           "anyOf": [
-            "-1 (?:is|lies|sits) (?:further |farther )?(?:to the )?right of -3",
-            "-1 is (?:the )?greater",
-            "-3 is (?:to the )?left of -1"
+            "-1 (?:is|lies|sits|appears)(?: located| positioned| placed| found)? (?:further |farther )?(?:to the )?right of -3",
+            "-1 is (?:the )?(?:greater|bigger|larger)",
+            "-1 is (?:greater|bigger|larger|more) than -3",
+            "-1\\s*>\\s*-3",
+            "-3\\s*<\\s*-1",
+            "-3 (?:is|lies|sits)(?: located| positioned)? (?:further |farther )?(?:to the )?left of -1",
+            "-3 is (?:smaller|less|lower) than -1"
           ]
         }
       ],
