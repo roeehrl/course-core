@@ -67,8 +67,19 @@ test("the reply's row copies, votes, takes a comment and a report, and keeps the
   await expect(row.getByRole("status")).toHaveText(t.reply.thanks);
   await expect.poll(() => feedback(page, enrollment)).toEqual([{ vote: "helpful", comment: null, reported: false }]);
   // Not helpful with a comment, then a report from More.
-  await row.getByRole("button", { name: t.vote.notHelpful, exact: true }).click();
+  const notHelpful = row.getByRole("button", { name: t.vote.notHelpful, exact: true });
+  await notHelpful.click();
   const note = companionPanel(page).getByRole("textbox", { name: t.vote["note.label"], exact: true });
+  await expect(note).toBeFocused();
+  // Esc closes only the field (not a sheet around it) and goes back to Not helpful.
+  await page.keyboard.press("Escape");
+  await expect(note).toBeHidden();
+  await expect(companionPanel(page)).toBeVisible();
+  await expect(notHelpful).toBeFocused();
+  // Taken back, then chosen again: the field opens again.
+  await notHelpful.click();
+  await expect(notHelpful).toHaveAttribute("aria-pressed", "false");
+  await notHelpful.click();
   await expect(note).toBeFocused();
   await note.fill("It skipped the comparison.");
   await page.keyboard.press("Enter");
@@ -178,6 +189,10 @@ test("the Hebrew row starts at the right, and an open Based on passes axe", asyn
   await hint.hover();
   await hint.getByRole("button", { name: t.basedOn["withheld.chip"], exact: true }).click();
   await expect(hint.getByText(t.basedOn["withheld.more"], { exact: true })).toBeVisible();
+  // Its Based on moved into More (§3.12).
+  await hint.getByRole("button", { name: t.menu.more, exact: true }).click();
+  await companionPanel(page).getByRole("menuitem", { name: t.menu.basedOn, exact: true }).click();
+  await expect(hint.getByRole("region", { name: t.basedOn.region, exact: true })).toBeVisible();
   const results = await new AxeBuilder({ page }).include("#connected-companion").withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(results.violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

@@ -76,6 +76,13 @@ describe("the learner's message menu", () => {
     await user.click(screen.getByRole("button", { name: "Message options" }));
     await user.click(screen.getByRole("menuitem", { name: "Edit and resend" }));
     expect(requests).toEqual([{ source: "edit", text: "Why isn't it 9?" }]);
+    // Also after a reply that stalled or will never come.
+    for (const ended of [{ ...question, job_state: "waiting", job_stalled: true }, { ...question, job_state: "dead" }, { ...question, job_state: "refused" }]) {
+      rerender(<BubbleActions message={ended} latest inProgress={false} onDelete={vi.fn()} />);
+      await user.click(screen.getByRole("button", { name: "Message options" }));
+      expect(screen.getByRole("menuitem", { name: "Edit and resend" })).toBeVisible();
+      await user.keyboard("{Escape}");
+    }
     // Not on an answered question, nor on an older one.
     rerender(<BubbleActions message={question} latest inProgress={false} onDelete={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "Message options" }));

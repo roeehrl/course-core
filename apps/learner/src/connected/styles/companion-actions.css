@@ -59,6 +59,7 @@
   min-block-size: max(32px, var(--target));
 }
 .cc-act-icon[aria-pressed="true"] {
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -324,12 +325,12 @@
 }
 
 /* Menus (More, the learner's message options): the hairline before Delete. A reply's More menu
- * opens under the row from its start, and a message's menu under it from its end, so a narrow
- * companion never cuts them off. */
+ * opens right under the icon group from its start, and a message's menu under it from its end, so
+ * a narrow companion never cuts them off. */
 .cc-act-menu .cc-ui-menu-item.is-danger {
   border-block-start: 1px solid var(--line);
 }
-.cc-act-row,
+.cc-act-icons,
 .cc-act-bubble {
   position: relative;
 }
@@ -339,7 +340,7 @@
 }
 .cc-act-row .cc-act-menu > .cc-ui-menu {
   inset-inline: 0 auto;
-  inline-size: min(256px, 100%);
+  inline-size: min(256px, calc(100cqi - 2 * var(--space-4)));
 }
 .cc-act-bubble .cc-act-bubble-menu > .cc-ui-menu {
   inset-inline: auto 0;
@@ -441,5 +442,10 @@
   }
   .cc-act-time {
     border: 1px solid CanvasText;
+  }
+  .cc-act-icon[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
   }
 }

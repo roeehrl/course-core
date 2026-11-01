@@ -7,11 +7,12 @@ import { replyAsksLearner } from "../../src/companion-turn.js";
  * Browser fixtures of the learner AI part "actions" (message actions, Based on, votes, history):
  * routes named `/test/actions-…`, on the companion-context course (its own workspace, which no
  * supervisor watches; the public ordering course without placement). Replies are stored rows, and
- * the one with a capsule is built through the real provider context (no provider is called).
+ * those with a capsule are built through the real provider context (no provider is called).
  *
  * - POST /test/actions-session { earlier?: number, withheld?: boolean }: a learner in the lesson
  *   "Minimum" with its check open (counted until the learner asked about it). They asked "What does
- *   minimum mean here?" (answered; with `withheld` the answer is Core's hint in place of an answer),
+ *   minimum mean here?" (answered; with `withheld` the answer is Core's hint in place of an answer,
+ *   with a capsule),
  *   then, about that check and a selection in the lesson, "Why is 4 the minimum here?", answered
  *   with a question back and a capsule. With `earlier` that many older questions and answers come
  *   first (130 messages need 63). Returns the sign-in token and the enrollment.
@@ -64,7 +65,8 @@ export async function register(ctx: FixtureContext): Promise<void> {
     await answer(first, body.withheld
       ? "I can't give or confirm the answer to a graded check. Tell me your reasoning so far: which of the two values is no greater than the other?"
       : "Minimum means no greater than any other member of the list.",
-    body.withheld ? { context: { checkAnswerWithheld: "answer_given" } } : {});
+    // A hint in place of an answer records what it was built from, as every reply does now.
+    body.withheld ? { capsule: true, context: { checkAnswerWithheld: "answer_given" } } : {});
     const second = await command("companion", { episodeId: "min", blockId: "min-text", content: "Why is 4 the minimum here?", challengeId: challenge.challengeId,
       selection: { kind: "text", courseDigest: digest, excerpt: "no greater than" } });
     await answer(second, "Because 4 is no greater than 9.\n\nCompare them on a number line: which one is further left?", { capsule: true });

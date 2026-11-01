@@ -74,6 +74,8 @@ describe("votes on a reply", () => {
     expect(vote).toHaveBeenLastCalledWith("a", { vote: "not_helpful", comment: "It skipped a step." });
     await flush();
     expect(screen.queryByRole("textbox")).toBeNull();
+    // Focus does not drop to the page when the field closes: it goes back to Not helpful.
+    expect(notHelpful).toHaveFocus();
     expect(screen.getByRole("status")).toHaveTextContent("Thanks, noted.");
   });
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { CompanionMessage } from "../../client/companionClient";
-import { companionHasPending } from "../../client/companionClient";
+import { companionCanAskAgain, companionHasPending } from "../../client/companionClient";
 import { useT } from "../../i18n";
 import { MetaLine } from "../ui/MetaLine.web";
 import { companionBridge } from "./bridge";
@@ -25,8 +25,6 @@ export interface BubbleActionsProps {
   onExclude?: (messageId: string, excluded: boolean) => void;
 }
 
-/** The question was stopped, failed, removed or never sent: it can be changed and sent again. */
-const ENDED = new Set(["cancelled", "failed", "refused"]);
 /** How long Copy shows its check mark. */
 const COPIED_MS = 2000;
 
@@ -51,7 +49,8 @@ export function BubbleActions({ message, latest, inProgress, onDelete, onEditRes
   if (deleted) return null;
   // Never while the question waits for its reply.
   const canDelete = Boolean(onDelete) && !companionHasPending([message]);
-  const canEdit = latest && (ENDED.has(message.job_state ?? "") || message.job_stalled === true);
+  // The question was stopped, failed, removed or never answered: it can be changed and sent again.
+  const canEdit = latest && companionCanAskAgain(message);
   return (
     <div className={`cc-act-bubble${latest ? " is-latest" : ""}${confirm ? " is-active" : ""}`}>
       <div className="cc-act-bubble-more-anchor">

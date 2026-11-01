@@ -110,11 +110,18 @@ export function VoteNote({ state, onClosed }: { state: VoteState; onClosed?: () 
   const id = useId();
   const [text, setText] = useState("");
   const field = useRef<HTMLInputElement>(null);
+  // Focus was in the field when it closed (sent, or a change not saved): it goes back to the row.
+  const focused = useRef(false);
   useEffect(() => {
     if (state.noteOpen) field.current?.focus({ preventScroll: true });
+    else if (focused.current) {
+      focused.current = false;
+      onClosed?.();
+    }
   }, [state.noteOpen]);
   if (!state.noteOpen) return null;
   const close = () => {
+    focused.current = false;
     state.closeNote();
     onClosed?.();
   };
@@ -123,6 +130,10 @@ export function VoteNote({ state, onClosed }: { state: VoteState; onClosed?: () 
       className="cc-act-note"
       role="group"
       aria-label={t("voteControls.note.group")}
+      onFocus={() => (focused.current = true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) focused.current = false;
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         state.sendNote(text);
