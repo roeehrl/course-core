@@ -4,12 +4,16 @@ import enHost from "../../src/i18n/messages/en/connectedHost.json";
 import heHost from "../../src/i18n/messages/he/connectedHost.json";
 import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
 import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
+import enReplyActions from "../../src/i18n/messages/en/replyActions.json";
+import heReplyActions from "../../src/i18n/messages/he/replyActions.json";
 import enDock from "../../src/i18n/messages/en/companionDock.json";
 import heDock from "../../src/i18n/messages/he/companionDock.json";
 import enData from "../../src/i18n/messages/en/yourDataPanel.json";
 import heData from "../../src/i18n/messages/he/yourDataPanel.json";
 import enLesson from "../../src/i18n/messages/en/connectedLesson.json";
 import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
+import enCheck from "../../src/i18n/messages/en/checkCard.json";
+import heCheck from "../../src/i18n/messages/he/checkCard.json";
 import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
 import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
 import enRoadmap from "../../src/i18n/messages/en/courseRoadmap.json";
@@ -39,8 +43,8 @@ import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
  * Positions are measured on the drawn glyphs and boxes, so each check fails on the old build.
  */
 const text = {
-  en: { host: enHost, companion: enCompanion, dock: enDock, data: enData, lesson: enLesson, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
-  he: { host: heHost, companion: heCompanion, dock: heDock, data: heData, lesson: heLesson, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
+  en: { host: enHost, companion: enCompanion, replyActions: enReplyActions, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
+  he: { host: heHost, companion: heCompanion, replyActions: heReplyActions, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
 } as const;
 type Locale = keyof typeof text;
 type Glyph = { char: string; left: number; right: number; top: number; bottom: number };
@@ -165,7 +169,7 @@ for (const locale of ["en", "he"] as const) {
   test(`${locale}: "Context used" quotes a Hebrew question with English and code in it in its own order`, async ({ page }, info) => {
     await openHebrewLesson(page, locale, true);
     const pane = await openCompanion(page);
-    await pane.getByRole("button", { name: t.companion["context.show"], exact: true }).click();
+    await pane.getByRole("button", { name: t.replyActions["context.show"], exact: true }).click();
     const answering = pane.getByText(/minimum value/).last();
     await answering.scrollIntoViewIfNeeded();
     const all = await glyphs(answering);
@@ -261,19 +265,19 @@ for (const locale of ["en", "he"] as const) {
       await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
     }).toPass({ timeout: 20_000 });
     await page.getByRole("button", { name: t.lesson.markRead, exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["check.start"], exact: true }).click();
     await page.getByRole("radio", { name: "2", exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["answer.check"], exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["answer.check"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["check.start"], exact: true }).click();
     await page.getByRole("textbox", { name: t.input.numeric, exact: true }).fill("4");
-    await page.getByRole("button", { name: t.lesson["answer.check"], exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["answer.check"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["check.start"], exact: true }).click();
     const code = page.getByRole("textbox", { name: t.code.yourCode, exact: true });
     await code.fill("def solve(values):\n    return min(values)\n");
     // The sandbox takes too long to start: the API refuses before running anything (#236).
     const answers = /\/api\/enrollments\/[^/]+\/answers$/;
     await page.route(answers, (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CODE_SANDBOX_SETUP_SLOW" }) }));
-    await page.getByRole("button", { name: t.lesson["answer.runCode"], exact: true }).click();
+    await page.getByRole("button", { name: t.check["answer.runCode"], exact: true }).click();
     // One state, where the learner pressed: the connection status says why nothing ran, with the
     // retry; no notice at the top of the lesson says it again, and no "Not recorded yet" beside it.
     const status = page.locator(".connected-connection");

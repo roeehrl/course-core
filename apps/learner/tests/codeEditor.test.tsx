@@ -47,9 +47,7 @@ function lesson(language = "python"): ConnectedLessonProps {
     answer: source,
     onAnswerChange: vi.fn(),
     onRead: vi.fn(),
-    onStart: vi.fn(),
-    onAnswer: vi.fn(),
-    onSolution: vi.fn(),
+    check: { onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn() },
     onComplete: vi.fn(),
     onNormal: vi.fn(),
     onRefresh: vi.fn(),
@@ -103,16 +101,16 @@ describe("connected practical exercise editor", () => {
       screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Run code & check" }));
-    expect(p.onAnswer).not.toHaveBeenCalled();
+    expect(p.check.onAnswer).not.toHaveBeenCalled();
     expect(screen.queryByText(/passed/)).not.toBeInTheDocument();
   });
   it("submits only on explicit action and displays pending without inventing results", () => {
     const p = lesson();
     const { rerender } = render(<ConnectedLesson {...p} />);
-    expect(p.onAnswer).not.toHaveBeenCalled();
+    expect(p.check.onAnswer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Run code & check" }));
-    expect(p.onAnswer).toHaveBeenCalledWith(p.server.activeChallenges[0]);
-    rerender(<ConnectedLesson {...p} pending checkingAnswer />);
+    expect(p.check.onAnswer).toHaveBeenCalledWith(p.server.activeChallenges[0]);
+    rerender(<ConnectedLesson {...p} pending check={{ ...p.check, checkingAnswer: true }} />);
     expect(
       screen.getByRole("button", { name: "Checking code…" }),
     ).toBeDisabled();

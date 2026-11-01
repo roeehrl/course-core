@@ -7,14 +7,16 @@ import enRoadmap from "../../src/i18n/messages/en/courseRoadmap.json";
 import heRoadmap from "../../src/i18n/messages/he/courseRoadmap.json";
 import enLesson from "../../src/i18n/messages/en/connectedLesson.json";
 import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
+import enCheck from "../../src/i18n/messages/en/checkCard.json";
+import heCheck from "../../src/i18n/messages/he/checkCard.json";
 
 // The result of "Check answer" shows in the check, beside the answer just given, and is in the
 // window afterwards at every size (on a phone the notice above the lesson was out of sight); it is
 // announced through a live region that was already on the page. The sticky answer bar is opaque,
 // so lesson text scrolling under it never shows through.
 const text = {
-  en: { host: enHost, preview: enPreview, roadmap: enRoadmap, lesson: enLesson },
-  he: { host: heHost, preview: hePreview, roadmap: heRoadmap, lesson: heLesson },
+  en: { host: enHost, preview: enPreview, roadmap: enRoadmap, lesson: enLesson, check: enCheck },
+  he: { host: heHost, preview: hePreview, roadmap: heRoadmap, lesson: heLesson, check: heCheck },
 } as const;
 type Locale = keyof typeof text;
 
@@ -30,7 +32,7 @@ async function openCheck(page: Page, locale: Locale) {
   await page.getByRole("button", { name: t.preview.start, exact: true }).click();
   await page.getByRole("button", { name: t.roadmap["next.startCourse"], exact: true }).click();
   await page.getByRole("button", { name: t.lesson.markRead, exact: true }).click();
-  await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
+  await page.getByRole("button", { name: t.check["check.start"], exact: true }).click();
   await expect(page.getByRole("radio", { name: "2", exact: true })).toBeVisible();
 }
 
@@ -44,7 +46,7 @@ for (const locale of ["en", "he"] as const) {
     await expect(region).toHaveAttribute("role", "status");
     await expect(region).toHaveText("");
     await page.getByRole("radio", { name: "2", exact: true }).click();
-    const check = page.getByRole("button", { name: text[locale].lesson["answer.check"], exact: true });
+    const check = page.getByRole("button", { name: text[locale].check["answer.check"], exact: true });
     // The learner is at the answer actions, as after reading the question to its end.
     await check.scrollIntoViewIfNeeded();
     await check.click();
@@ -56,7 +58,7 @@ for (const locale of ["en", "he"] as const) {
     await expect(page.locator("#connected-check-title")).toBeFocused();
     await expect(page.locator("#connected-check-title")).toBeInViewport();
     // Starting the next check clears it, and the next result fills the same region.
-    await page.getByRole("button", { name: text[locale].lesson["check.start"], exact: true }).click();
+    await page.getByRole("button", { name: text[locale].check["check.start"], exact: true }).click();
     await expect(region).toHaveText("");
     expect(errors).toEqual([]);
   });

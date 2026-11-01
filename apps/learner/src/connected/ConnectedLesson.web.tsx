@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ContentBlock, Episode } from "@course-core/sdk";
-import type { Challenge, ServerSnapshot } from "../client/apiClient";
+import type { ServerSnapshot } from "../client/apiClient";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { VisualBlock } from "../components/VisualBlock";
 import type { VisualCompletionReport, VisualContextChange } from "../components/VisualBlock";
@@ -12,18 +12,14 @@ import { ReviewStatus, type ReviewAppeal, type ReviewReply, type ReviewsLoader }
 import {
   Badge,
   Button,
-  ChoiceList,
-  Field,
   Notice,
-  styles,
 } from "../components/ui";
-import { Text, View } from "react-native";
 import { mediaAvailability } from "./resources";
-import { CodeEditor } from "../components/CodeEditor";
-import { browserRunsAllowed, codeSubmissionError } from "./code";
-import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } from "./AssessmentInput.web";
-import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
+import { CheckCard } from "./checks/CheckCard.web";
+import type { CheckCommands } from "./checks/useCheckCommands";
+import { lessonNavigator } from "./companion/bridge";
+import { highlightBlock } from "./ui/highlight";
 import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
 import { GeneratedComponentPanel, type GeneratedComponent } from "./GeneratedComponent.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, type LessonStepView } from "./lessonSteps";
@@ -42,11 +38,8 @@ export interface ConnectedLessonProps {
   pending: boolean;
   now: number;
   answer: string;
-  checkingAnswer?: boolean;
-  /** An answer to the open check is being saved; its options are locked only then. Defaults to `pending`. */
-  savingAnswer?: boolean;
-  /** The server's feedback on the answer just checked, shown in the check beside its heading. */
-  answerFeedback?: { text: string; tone: "info" | "warning" };
+  /** What the lesson's check can do (connected/checks/useCheckCommands.ts), handed to it untouched. */
+  check: CheckCommands;
   /** The lesson needs another independent question and none is left: tells the course team (the
    * server checks the state and notifies staff once). Resolves true once they were told. */
   onQuestionsExhausted?: (episodeId: string) => Promise<boolean>;
@@ -64,17 +57,10 @@ export interface ConnectedLessonProps {
   onReviewAppeal?: ReviewAppeal;
   onAnswerChange: (answer: string) => void;
   onRead: (blockId: string) => void;
-  onStart: () => void;
-  onAnswer: (challenge: Challenge) => void;
-  /** "I don't know yet": an explicit abstention that records no evidence. */
-  onAbstain?: (challenge: Challenge) => void;
-  confidence?: number | null;
-  onConfidenceChange?: (value: number | null) => void;
   /** A next step offered by the server's gate decision. */
   onGateAction?: (action: NextAction) => void;
   /** Ask staff to review the current checkpoint decision. */
   onGateReview?: (reason: string) => Promise<unknown>;
-  onSolution: (challenge: Challenge) => void;
   onComplete: () => void;
   onNormal: () => void;
   onRefresh: () => void;
@@ -141,26 +127,12 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   const activityBlocks = episode.blocks.filter((block) => block.type === "activity");
   const activitiesLeft = activityBlocks.filter((block) => !progress?.completedBlockIds.includes(block.id)).length;
   const [reviewId, setReviewId] = useState<string>();
-  // The learner answered (or chose "I don't know yet") in this lesson while on the page: the
-  // checkpoint's suggestions are then relevant even before the server has any evidence.
-  const [answeredHere, setAnsweredHere] = useState(false);
   // The part the learner just marked read. Its button goes away once the server confirms, so
   // focus moves to what comes next (the next part, else the check) instead of falling to the page.
   const markedRead = useRef<string | null>(null);
-  // Likewise the check just answered: its form goes away with the server's result, so focus moves
-  // to the check's heading, right above the result and what to do next.
-  const answered = useRef<string | null>(null);
-  // Set when an answer is sent: its result is brought into view once it arrives. On a phone the
-  // answer actions sit far below the check's heading, so the result would otherwise appear out of
-  // sight. The heading and the result scroll only as far as needed to be seen (block "nearest"),
-  // never to the top of the page.
-  const revealResult = useRef(false);
-  const checkHead = useRef<HTMLDivElement>(null);
-  const reveal = () =>
-    requestAnimationFrame(() => checkHead.current?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+  // (The check moves focus to its own heading once an answer is checked: CheckCard.web.tsx.)
   useEffect(() => {
     setReviewId(undefined);
-    setAnsweredHere(false);
   }, [episode.id]);
   const current = reading.find((block) => block.id === reviewId) ?? next;
   const index = current ? reading.indexOf(current) : -1;
@@ -178,11 +150,6 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   );
   const challenge = server.activeChallenges.find(
     (row) => row.episodeId === episode.id,
-  );
-  const expired = Boolean(
-    challenge?.expiresAt &&
-    (!Number.isFinite(Date.parse(challenge.expiresAt)) ||
-      Date.parse(challenge.expiresAt) <= now),
   );
   const completed =
     progress?.status === "completed" || progress?.status === "placed";
@@ -204,21 +171,28 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
       document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title");
     target?.focus({ preventScroll: false });
   }, [progress?.completedBlockIds]);
-  const challengeId = server.activeChallenges.find((row) => row.episodeId === episode.id)?.challengeId;
-  useEffect(() => {
-    const id = answered.current;
-    if (!id || challengeId === id) return;
-    answered.current = null;
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected) return;
-    document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus({ preventScroll: true });
-    reveal();
-  }, [challengeId]);
-  useEffect(() => {
-    if (!props.answerFeedback || !revealResult.current) return;
-    revealResult.current = false;
-    reveal();
-  }, [props.answerFeedback?.text]);
+  // A part to show from elsewhere (bridge.ts): it becomes the part on screen, comes into view and
+  // is highlighted.
+  const readingIds = reading.map((block) => block.id).join(" ");
+  const completedIds = progress?.completedBlockIds.join(" ") ?? "";
+  useEffect(
+    () =>
+      lessonNavigator.register((target) => {
+        if (!target.blockId || target.challengeId || (target.episodeId && target.episodeId !== episode.id)) return false;
+        if (!readingIds.split(" ").includes(target.blockId)) return false;
+        const read = completedIds.split(" ").includes(target.blockId);
+        setReviewId(read ? target.blockId : undefined);
+        requestAnimationFrame(() => {
+          const card = document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) .connected-reading-card[data-reading-part]");
+          if (!card) return;
+          card.scrollIntoView({ block: "start" });
+          highlightBlock(card);
+          if (target.focus === "block") card.focus({ preventScroll: true });
+        });
+        return true;
+      }),
+    [episode.id, readingIds, completedIds],
+  );
   const steps = lessonSteps(server, episode, t);
   const detour = returnPoint(server, episode, placement);
   const allEpisodes = server.course.chapters.flatMap((row) => row.episodes);
@@ -233,24 +207,10 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   // Questions still to answer correctly on your own: the families each objective still needs.
   const questionsLeft = (gate?.objectives ?? []).reduce((sum, objective) => sum + Math.max(0, objective.required - objective.families.length), 0);
   const questionsTotal = (gate?.objectives ?? []).reduce((sum, objective) => sum + objective.required, 0);
-  // A checkpoint the learner has not engaged with yet reads neutral: no decision, no suggestions.
-  const engaged = answeredHere || Boolean(gate && (
-    (gate.status && gate.status !== "needs_evidence") || gate.passed || gate.review || gate.exception ||
-    gate.objectives.some((objective) => objective.families.length > 0) ||
-    (gate.criterionResults ?? []).some((criterion) => criterion.met !== false)));
   const lastPart = reading.length;
   // The check opens once every part is read (the server issues no check before): until then the
   // section only says how many questions follow and when.
   const waitingForReading = !placement && Boolean(next) && !challenge && !gate?.passed;
-  // Why "Check answer" is not available yet, said next to it.
-  const answerHint = (() => {
-    if (!challenge || pending) return undefined;
-    const payload = answerPayload(challenge.question, props.answer, t);
-    if (!("error" in payload)) return undefined;
-    if (challenge.question.type === "choice" && !props.answer.trim()) return t("connectedLesson.answer.chooseFirst");
-    if (!props.answer.trim()) return t("connectedLesson.answer.enterFirst");
-    return challenge.question.type === "trace" ? payload.error : undefined;
-  })();
   const blockTitle = current
     ? t("connectedLesson.partOf", { number: index + 1, total: reading.length })
     : challenge
@@ -485,187 +445,30 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             <Notice error>{t("connectedLesson.mediaBlocked")}</Notice>
           )}
           {episode.gateId && (
-            <section
-              className={`connected-check ${waitingForReading ? "is-waiting" : ""}`}
-              data-state={waitingForReading ? "after-reading" : "open"}
-              aria-labelledby="connected-check-title"
-            >
-              <div className="connected-check-head" ref={checkHead}>
-                <h2 id="connected-check-title" tabIndex={-1}>{t("connectedLesson.check.title")}</h2>
-                <p>
-                  {waitingForReading
-                    ? t("connectedLesson.check.opensAfter", { count: questionsTotal, part: lastPart })
-                    : gate?.passed
-                      ? t("connectedLesson.check.doneIntro")
-                      : t("connectedLesson.check.introCount", { count: questionsLeft || questionsTotal })}
-                </p>
-                {/* Always mounted, so a screen reader announces each result as it arrives. */}
-                <div className="connected-answer-feedback" role="status" aria-atomic="true">
-                  {props.answerFeedback && <p data-tone={props.answerFeedback.tone}>{props.answerFeedback.text}</p>}
-                </div>
-              </div>
-              {!waitingForReading && engaged && gate?.status && props.onGateAction && (
-                <GateDecisionPanel gate={gate} pending={pending} onAction={props.onGateAction} omitFreshCheck {...(props.onGateReview ? { onRequestReview: props.onGateReview } : {})} />
-              )}
-              {/* One objective: its count is already in the decision above. */}
-              {!waitingForReading && engaged && !gate?.passed && (gate?.objectives.length ?? 0) > 1 && (
-                <ul className="connected-check-progress">
-                  {gate!.objectives.map((objective) => (
-                    <li key={objective.id}>
-                      <span {...courseContentAttributes(server.course)}>
-                        {server.course.objectives.find((row) => row.id === objective.id)?.description}
-                      </span>
-                      <strong>
-                        {t("connectedLesson.check.objectiveProgress", { done: objective.families.length, required: objective.required })}
-                      </strong>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {challenge ? (
-                expired ? (
-                  <Notice error>
-                    {t("connectedLesson.check.expired")}
-                    <Button
-                      label={t("connectedLesson.check.refresh")}
-                      onPress={props.onRefresh}
-                      disabled={pending}
-                    />
-                  </Notice>
-                ) : (
-                  <View style={{ gap: 18 }}>
-                    <p
-                      className={`connected-question-kind ${challenge.independentEligible ? "is-counted" : "is-practice"}`}
-                      data-testid="question-kind"
-                    >
-                      <strong>
-                        {challenge.independentEligible
-                          ? t("connectedLesson.check.independent")
-                          : t("connectedLesson.check.practice")}
-                      </strong>{" "}
-                      {challenge.independentEligible
-                        ? t("connectedLesson.check.independentHint")
-                        : t("connectedLesson.check.practiceHint")}
-                    </p>
-                    {props.unverified?.questions.has(challenge.question.id) && (
-                      <UnverifiedBadge
-                        what="question"
-                        {...(props.onReviewChange
-                          ? { onReview: () => props.onReviewChange!(props.unverified!.questions.get(challenge.question.id)!) }
-                          : {})}
-                      />
-                    )}
-                    <div {...courseContentAttributes(server.course)}>
-                      <MarkdownContent markdown={challenge.question.prompt} />
-                    </div>
-                    <AssessmentInput
-                      key={challenge.challengeId}
-                      question={challenge.question}
-                      answer={props.answer}
-                      pending={props.savingAnswer ?? pending}
-                      onChange={props.onAnswerChange}
-                      practiceRuns={browserRunsAllowed(challenge.mode)}
-                    />
-                    <ConfidenceInput
-                      question={challenge.question}
-                      value={props.confidence ?? null}
-                      pending={props.savingAnswer ?? pending}
-                      onChange={(value) => props.onConfidenceChange?.(value)}
-                    />
-                    <div className="connected-answer-actions">
-                    <Button
-                      label={
-                        isCode(challenge.question)
-                          ? props.checkingAnswer
-                            ? t("connectedLesson.answer.checkingCode")
-                            : t("connectedLesson.answer.runCode")
-                          : isWritten(challenge.question)
-                            ? pending
-                              ? t("connectedLesson.answer.submitting")
-                              : t("connectedLesson.answer.submitForReview")
-                          : pending
-                            ? t("connectedLesson.answer.saving")
-                            : t("connectedLesson.answer.check")
-                      }
-                      kind="primary"
-                      usability="next"
-                      {...(answerHint ? { describedBy: "connected-answer-hint" } : {})}
-                      disabled={
-                        pending ||
-                        "error" in answerPayload(challenge.question, props.answer, t) ||
-                        ((challenge.question.type === "code" || challenge.question.type === "code_repair") &&
-                          Boolean(
-                            codeSubmissionError(
-                              challenge.question.language,
-                              props.answer,
-                              t,
-                            ),
-                          ))
-                      }
-                      onPress={() => {
-                        answered.current = challenge.challengeId;
-                        revealResult.current = true;
-                        setAnsweredHere(true);
-                        props.onAnswer(challenge);
-                      }}
-                    />
-                    {challenge.question.allowAbstain !== false && props.onAbstain && (
-                      <Button
-                        label={t("connectedLesson.abstain.label")}
-                        kind="secondary"
-                        disabled={pending}
-                        accessibilityLabel={t("connectedLesson.abstain.accessibilityLabel")}
-                        onPress={() => {
-                          answered.current = challenge.challengeId;
-                          revealResult.current = true;
-                          setAnsweredHere(true);
-                          props.onAbstain!(challenge);
-                        }}
-                      />
-                    )}
-                    </div>
-                    {answerHint && (
-                      <p className="connected-input-hint" id="connected-answer-hint">{answerHint}</p>
-                    )}
-                    {challenge.question.allowAbstain !== false && props.onAbstain && (
-                      <p className="connected-input-hint">
-                        {t("connectedLesson.abstain.hint")}
-                      </p>
-                    )}
-                    {isCode(challenge.question) &&
-                      props.checkingAnswer && (
-                        <Text
-                          accessibilityRole="text"
-                          accessibilityLiveRegion="polite"
-                          style={styles.small}
-                        >
-                          {t("connectedLesson.answer.waitingForGrader")}
-                        </Text>
-                      )}
-                    {["choice", "numeric", "prediction", "trace"].includes(challenge.question.type) && (
-                      <Button
-                        label={challenge.independentEligible ? t("connectedLesson.answer.showExplanationCounted") : t("connectedLesson.answer.showExplanation")}
-                        kind="quiet"
-                        disabled={pending}
-                        onPress={() => props.onSolution(challenge)}
-                      />
-                    )}
-                  </View>
-                )
-              ) : progress?.gate?.passed ? (
-                <Notice>{t("connectedLesson.check.complete")}</Notice>
-              ) : waitingForReading ? null : recovery?.required&&!recovery.freshCheck ? (
-                <QuestionsExhausted episodeId={episode.id} onReport={props.onQuestionsExhausted} />
-              ) : (
-                <Button
-                  label={recovery?.freshCheck ? t("connectedLesson.check.fresh", { minutes: recovery.freshCheck.plannedMinutes }) : t("connectedLesson.check.start")}
-                  kind="primary"
-                  usability="next"
-                  disabled={pending || blockedMedia}
-                  onPress={props.onStart}
-                />
-              )}
-            </section>
+            <CheckCard
+              server={server}
+              episode={episode}
+              challenge={challenge}
+              gate={gate}
+              placement={placement}
+              pending={pending}
+              now={now}
+              answer={props.answer}
+              onAnswerChange={props.onAnswerChange}
+              check={props.check}
+              waitingForReading={waitingForReading}
+              questionsLeft={questionsLeft}
+              questionsTotal={questionsTotal}
+              lastPart={lastPart}
+              blockedMedia={blockedMedia}
+              recovery={recovery}
+              unverified={props.unverified}
+              onReviewChange={props.onReviewChange}
+              onGateAction={props.onGateAction}
+              onGateReview={props.onGateReview}
+              onRefresh={props.onRefresh}
+              onQuestionsExhausted={props.onQuestionsExhausted}
+            />
           )}
           {completed ? (
             <Notice>{t("connectedLesson.saved")}</Notice>
@@ -699,31 +502,6 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-/**
- * A lesson that needs another independent question while none is left: said plainly, and the
- * course team is told (once per lesson and course version, by the server) instead of leaving the
- * learner at a dead end.
- */
-function QuestionsExhausted({ episodeId, onReport }: { episodeId: string; onReport: ((episodeId: string) => Promise<boolean>) | undefined }) {
-  const t = useT();
-  const [told, setTold] = useState<"telling" | "told" | "failed">("telling");
-  useEffect(() => {
-    if (!onReport) return setTold("failed");
-    let live = true;
-    setTold("telling");
-    onReport(episodeId).then((ok) => live && setTold(ok ? "told" : "failed"), () => live && setTold("failed"));
-    return () => {
-      live = false;
-    };
-  }, [episodeId, onReport]);
-  return (
-    <div className="connected-questions-exhausted" role="status" data-testid="questions-exhausted">
-      <p><strong>{t("connectedLesson.check.exhausted")}</strong></p>
-      <p>{t(told === "told" ? "connectedLesson.check.exhaustedTold" : told === "telling" ? "connectedLesson.check.exhaustedTelling" : "connectedLesson.check.exhaustedNotTold")}</p>
     </div>
   );
 }

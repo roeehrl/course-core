@@ -152,18 +152,19 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     server.lessons[0]!.gate = gate("needs_evidence", [{ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" }]);
     const challenge: Challenge = { challengeId: "c1", episodeId: "intro", question, independentEligible: true, mode: "independent" };
     server.activeChallenges = [challenge];
-    return { server, episode: server.course.chapters[0]!.episodes[0]!, placement: false, pending: false, now: Date.now(), answer: "", confidence: null,
-      onAnswerChange: vi.fn(), onRead: vi.fn(), onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn(), onComplete: vi.fn(), onNormal: vi.fn(), onRefresh: vi.fn(),
-      onBlockChange: vi.fn(), onAbstain: vi.fn(), onConfidenceChange: vi.fn(), onGateAction: vi.fn() };
+    return { server, episode: server.course.chapters[0]!.episodes[0]!, placement: false, pending: false, now: Date.now(), answer: "",
+      check: { confidence: null, onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn(), onAbstain: vi.fn(), onConfidenceChange: vi.fn() },
+      onAnswerChange: vi.fn(), onRead: vi.fn(), onComplete: vi.fn(), onNormal: vi.fn(), onRefresh: vi.fn(),
+      onBlockChange: vi.fn(), onGateAction: vi.fn() };
   }
   it("offers an explicit abstention and optional confidence that never changes the result", () => {
     const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value.", unit: "cm", allowAbstain: true, confidence: { capture: "optional", scale: { minimum: 1, maximum: 5 } } });
     render(<ConnectedLesson {...p} />);
     fireEvent.click(screen.getByRole("button", { name: "I don't know yet: record no answer and get help" }));
-    expect(p.onAbstain).toHaveBeenCalledWith(p.server.activeChallenges[0]);
+    expect(p.check.onAbstain).toHaveBeenCalledWith(p.server.activeChallenges[0]);
     expect(screen.getByText(/Your confidence never changes your result/)).toBeVisible();
     fireEvent.click(screen.getByRole("radio", { name: "5" }));
-    expect(p.onConfidenceChange).toHaveBeenCalledWith(5);
+    expect(p.check.onConfidenceChange).toHaveBeenCalledWith(5);
     expect(screen.getByRole("button", { name: "Check answer" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
     expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
@@ -204,7 +205,7 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(screen.queryByRole("button", { name: /I don't know yet/ })).toBeNull();
     expect(screen.queryByRole("radiogroup", { name: "Confidence" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
-    expect(p.onAnswer).toHaveBeenCalled();
+    expect(p.check.onAnswer).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /Show explanation/ })).toBeNull();
   });
 });

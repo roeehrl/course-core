@@ -6,7 +6,9 @@ import en_answerFeedback from "./messages/en/answerFeedback.json";
 import en_answers from "./messages/en/answers.json";
 import en_apiClient from "./messages/en/apiClient.json";
 import en_assessmentInput from "./messages/en/assessmentInput.json";
+import en_bubbleActions from "./messages/en/bubbleActions.json";
 import en_changedElsewhere from "./messages/en/changedElsewhere.json";
+import en_checkCard from "./messages/en/checkCard.json";
 import en_chip from "./messages/en/chip.json";
 import en_closureSummary from "./messages/en/closureSummary.json";
 import en_code from "./messages/en/code.json";
@@ -14,6 +16,8 @@ import en_codeEditor from "./messages/en/codeEditor.json";
 import en_companion from "./messages/en/companion.json";
 import en_companionClient from "./messages/en/companionClient.json";
 import en_companionDock from "./messages/en/companionDock.json";
+import en_companionRegion from "./messages/en/companionRegion.json";
+import en_companionStates from "./messages/en/companionStates.json";
 import en_companionTurnFrame from "./messages/en/companionTurnFrame.json";
 import en_connectedAgentsPanel from "./messages/en/connectedAgentsPanel.json";
 import en_connectedCompanion from "./messages/en/connectedCompanion.json";
@@ -23,6 +27,7 @@ import en_connectivity from "./messages/en/connectivity.json";
 import en_continuationTrack from "./messages/en/continuationTrack.json";
 import en_courseRoadmap from "./messages/en/courseRoadmap.json";
 import en_courseVersionNotice from "./messages/en/courseVersionNotice.json";
+import en_creditCopy from "./messages/en/creditCopy.json";
 import en_crossCoursePanel from "./messages/en/crossCoursePanel.json";
 import en_debugInspector from "./messages/en/debugInspector.json";
 import en_demoClient from "./messages/en/demoClient.json";
@@ -31,9 +36,11 @@ import en_enrollmentPreview from "./messages/en/enrollmentPreview.json";
 import en_episodeResources from "./messages/en/episodeResources.json";
 import en_gateDecision from "./messages/en/gateDecision.json";
 import en_generatedComponent from "./messages/en/generatedComponent.json";
+import en_kindLine from "./messages/en/kindLine.json";
 import en_learnerApp from "./messages/en/learnerApp.json";
 import en_learnerMemoryPanel from "./messages/en/learnerMemoryPanel.json";
 import en_lessonFlow from "./messages/en/lessonFlow.json";
+import en_lessonRecovery from "./messages/en/lessonRecovery.json";
 import en_lessonSteps from "./messages/en/lessonSteps.json";
 import en_loadingLine from "./messages/en/loadingLine.json";
 import en_localeSwitcher from "./messages/en/localeSwitcher.json";
@@ -57,11 +64,14 @@ import en_profile from "./messages/en/profile.json";
 import en_profileDetails from "./messages/en/profileDetails.json";
 import en_profileEditor from "./messages/en/profileEditor.json";
 import en_pythonRunner from "./messages/en/pythonRunner.json";
+import en_recovered from "./messages/en/recovered.json";
+import en_replyActions from "./messages/en/replyActions.json";
 import en_resources from "./messages/en/resources.json";
 import en_retentionPanel from "./messages/en/retentionPanel.json";
 import en_reviewAssistConsent from "./messages/en/reviewAssistConsent.json";
 import en_reviewStatus from "./messages/en/reviewStatus.json";
 import en_reviewedMedia from "./messages/en/reviewedMedia.json";
+import en_sendConfirm from "./messages/en/sendConfirm.json";
 import en_sourceLinks from "./messages/en/sourceLinks.json";
 import en_studyConsent from "./messages/en/studyConsent.json";
 import en_supervisionPanel from "./messages/en/supervisionPanel.json";
@@ -83,7 +93,9 @@ import he_answerFeedback from "./messages/he/answerFeedback.json";
 import he_answers from "./messages/he/answers.json";
 import he_apiClient from "./messages/he/apiClient.json";
 import he_assessmentInput from "./messages/he/assessmentInput.json";
+import he_bubbleActions from "./messages/he/bubbleActions.json";
 import he_changedElsewhere from "./messages/he/changedElsewhere.json";
+import he_checkCard from "./messages/he/checkCard.json";
 import he_chip from "./messages/he/chip.json";
 import he_closureSummary from "./messages/he/closureSummary.json";
 import he_code from "./messages/he/code.json";
@@ -91,6 +103,8 @@ import he_codeEditor from "./messages/he/codeEditor.json";
 import he_companion from "./messages/he/companion.json";
 import he_companionClient from "./messages/he/companionClient.json";
 import he_companionDock from "./messages/he/companionDock.json";
+import he_companionRegion from "./messages/he/companionRegion.json";
+import he_companionStates from "./messages/he/companionStates.json";
 import he_companionTurnFrame from "./messages/he/companionTurnFrame.json";
 import he_connectedAgentsPanel from "./messages/he/connectedAgentsPanel.json";
 import he_connectedCompanion from "./messages/he/connectedCompanion.json";
@@ -100,6 +114,7 @@ import he_connectivity from "./messages/he/connectivity.json";
 import he_continuationTrack from "./messages/he/continuationTrack.json";
 import he_courseRoadmap from "./messages/he/courseRoadmap.json";
 import he_courseVersionNotice from "./messages/he/courseVersionNotice.json";
+import he_creditCopy from "./messages/he/creditCopy.json";
 import he_crossCoursePanel from "./messages/he/crossCoursePanel.json";
 import he_debugInspector from "./messages/he/debugInspector.json";
 import he_demoClient from "./messages/he/demoClient.json";
@@ -108,9 +123,11 @@ import he_enrollmentPreview from "./messages/he/enrollmentPreview.json";
 import he_episodeResources from "./messages/he/episodeResources.json";
 import he_gateDecision from "./messages/he/gateDecision.json";
 import he_generatedComponent from "./messages/he/generatedComponent.json";
+import he_kindLine from "./messages/he/kindLine.json";
 import he_learnerApp from "./messages/he/learnerApp.json";
 import he_learnerMemoryPanel from "./messages/he/learnerMemoryPanel.json";
 import he_lessonFlow from "./messages/he/lessonFlow.json";
+import he_lessonRecovery from "./messages/he/lessonRecovery.json";
 import he_lessonSteps from "./messages/he/lessonSteps.json";
 import he_loadingLine from "./messages/he/loadingLine.json";
 import he_localeSwitcher from "./messages/he/localeSwitcher.json";
@@ -134,11 +151,14 @@ import he_profile from "./messages/he/profile.json";
 import he_profileDetails from "./messages/he/profileDetails.json";
 import he_profileEditor from "./messages/he/profileEditor.json";
 import he_pythonRunner from "./messages/he/pythonRunner.json";
+import he_recovered from "./messages/he/recovered.json";
+import he_replyActions from "./messages/he/replyActions.json";
 import he_resources from "./messages/he/resources.json";
 import he_retentionPanel from "./messages/he/retentionPanel.json";
 import he_reviewAssistConsent from "./messages/he/reviewAssistConsent.json";
 import he_reviewStatus from "./messages/he/reviewStatus.json";
 import he_reviewedMedia from "./messages/he/reviewedMedia.json";
+import he_sendConfirm from "./messages/he/sendConfirm.json";
 import he_sourceLinks from "./messages/he/sourceLinks.json";
 import he_studyConsent from "./messages/he/studyConsent.json";
 import he_supervisionPanel from "./messages/he/supervisionPanel.json";
@@ -162,7 +182,9 @@ export const en = {
   answers: en_answers,
   apiClient: en_apiClient,
   assessmentInput: en_assessmentInput,
+  bubbleActions: en_bubbleActions,
   changedElsewhere: en_changedElsewhere,
+  checkCard: en_checkCard,
   chip: en_chip,
   closureSummary: en_closureSummary,
   code: en_code,
@@ -170,6 +192,8 @@ export const en = {
   companion: en_companion,
   companionClient: en_companionClient,
   companionDock: en_companionDock,
+  companionRegion: en_companionRegion,
+  companionStates: en_companionStates,
   companionTurnFrame: en_companionTurnFrame,
   connectedAgentsPanel: en_connectedAgentsPanel,
   connectedCompanion: en_connectedCompanion,
@@ -179,6 +203,7 @@ export const en = {
   continuationTrack: en_continuationTrack,
   courseRoadmap: en_courseRoadmap,
   courseVersionNotice: en_courseVersionNotice,
+  creditCopy: en_creditCopy,
   crossCoursePanel: en_crossCoursePanel,
   debugInspector: en_debugInspector,
   demoClient: en_demoClient,
@@ -187,9 +212,11 @@ export const en = {
   episodeResources: en_episodeResources,
   gateDecision: en_gateDecision,
   generatedComponent: en_generatedComponent,
+  kindLine: en_kindLine,
   learnerApp: en_learnerApp,
   learnerMemoryPanel: en_learnerMemoryPanel,
   lessonFlow: en_lessonFlow,
+  lessonRecovery: en_lessonRecovery,
   lessonSteps: en_lessonSteps,
   loadingLine: en_loadingLine,
   localeSwitcher: en_localeSwitcher,
@@ -213,11 +240,14 @@ export const en = {
   profileDetails: en_profileDetails,
   profileEditor: en_profileEditor,
   pythonRunner: en_pythonRunner,
+  recovered: en_recovered,
+  replyActions: en_replyActions,
   resources: en_resources,
   retentionPanel: en_retentionPanel,
   reviewAssistConsent: en_reviewAssistConsent,
   reviewStatus: en_reviewStatus,
   reviewedMedia: en_reviewedMedia,
+  sendConfirm: en_sendConfirm,
   sourceLinks: en_sourceLinks,
   studyConsent: en_studyConsent,
   supervisionPanel: en_supervisionPanel,
@@ -241,7 +271,9 @@ export const he: PartialCatalog<typeof en> = {
   answers: he_answers,
   apiClient: he_apiClient,
   assessmentInput: he_assessmentInput,
+  bubbleActions: he_bubbleActions,
   changedElsewhere: he_changedElsewhere,
+  checkCard: he_checkCard,
   chip: he_chip,
   closureSummary: he_closureSummary,
   code: he_code,
@@ -249,6 +281,8 @@ export const he: PartialCatalog<typeof en> = {
   companion: he_companion,
   companionClient: he_companionClient,
   companionDock: he_companionDock,
+  companionRegion: he_companionRegion,
+  companionStates: he_companionStates,
   companionTurnFrame: he_companionTurnFrame,
   connectedAgentsPanel: he_connectedAgentsPanel,
   connectedCompanion: he_connectedCompanion,
@@ -258,6 +292,7 @@ export const he: PartialCatalog<typeof en> = {
   continuationTrack: he_continuationTrack,
   courseRoadmap: he_courseRoadmap,
   courseVersionNotice: he_courseVersionNotice,
+  creditCopy: he_creditCopy,
   crossCoursePanel: he_crossCoursePanel,
   debugInspector: he_debugInspector,
   demoClient: he_demoClient,
@@ -266,9 +301,11 @@ export const he: PartialCatalog<typeof en> = {
   episodeResources: he_episodeResources,
   gateDecision: he_gateDecision,
   generatedComponent: he_generatedComponent,
+  kindLine: he_kindLine,
   learnerApp: he_learnerApp,
   learnerMemoryPanel: he_learnerMemoryPanel,
   lessonFlow: he_lessonFlow,
+  lessonRecovery: he_lessonRecovery,
   lessonSteps: he_lessonSteps,
   loadingLine: he_loadingLine,
   localeSwitcher: he_localeSwitcher,
@@ -292,11 +329,14 @@ export const he: PartialCatalog<typeof en> = {
   profileDetails: he_profileDetails,
   profileEditor: he_profileEditor,
   pythonRunner: he_pythonRunner,
+  recovered: he_recovered,
+  replyActions: he_replyActions,
   resources: he_resources,
   retentionPanel: he_retentionPanel,
   reviewAssistConsent: he_reviewAssistConsent,
   reviewStatus: he_reviewStatus,
   reviewedMedia: he_reviewedMedia,
+  sendConfirm: he_sendConfirm,
   sourceLinks: he_sourceLinks,
   studyConsent: he_studyConsent,
   supervisionPanel: he_supervisionPanel,

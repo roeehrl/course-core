@@ -5,6 +5,8 @@ import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
 import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
 import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
 import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
+import enReplyActions from "../../src/i18n/messages/en/replyActions.json";
+import heReplyActions from "../../src/i18n/messages/he/replyActions.json";
 
 /*
  * Text in one direction embedded in a sentence in the other, as the learner sees it (0.1.58
@@ -15,8 +17,8 @@ import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
  * Positions are measured on the drawn glyphs, so the checks fail on the old rendering.
  */
 const text = {
-  en: { host: enHost, preview: enPreview, companion: enCompanion },
-  he: { host: heHost, preview: hePreview, companion: heCompanion },
+  en: { host: enHost, preview: enPreview, companion: enCompanion, replyActions: enReplyActions },
+  he: { host: heHost, preview: hePreview, companion: heCompanion, replyActions: heReplyActions },
 } as const;
 type Locale = keyof typeof text;
 type Rect = { left: number; right: number; top: number; bottom: number };
@@ -97,7 +99,7 @@ for (const locale of ["en", "he"] as const) {
     }).toPass({ timeout: 20_000 });
     const pane = page.locator("#connected-companion");
     if (!(await pane.isVisible())) await page.locator(".connected-companion-trigger").click();
-    await page.getByRole("button", { name: t.companion["context.show"], exact: true }).click();
+    await page.getByRole("button", { name: t.replyActions["context.show"], exact: true }).click();
     // An English reply quoted in the sentence; long enough to wrap in the pane on every size.
     const reply = page.locator("#connected-companion div[dir]").filter({ hasText: /Minimum means no greater than any other member/ }).last();
     await reply.scrollIntoViewIfNeeded();

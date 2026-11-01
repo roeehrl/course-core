@@ -13,6 +13,8 @@ import { ConnectedCompanion, lessonLabel, panelScroller, sentNoticeKey } from ".
 import { stripBidiControls } from "@course-core/i18n";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";
+import { companionOpen } from "../src/connected/companion/openState";
+import { companionLayout } from "../src/domain/companionLayout";
 import {
   createCompanionClient,
   companionJobLabel,
@@ -61,6 +63,8 @@ const receipt = {
   downgradedChallengeIds: ["active-check"],
 };
 afterEach(() => vi.useRealTimers());
+/** A window that docks the companion beside the lesson, or one that shows it as a sheet. */
+const dockLayout = (wide: boolean) => (wide ? companionLayout(1440, 960) : companionLayout(390, 844));
 describe("persisted companion integration", () => {
   it("requires a clear choice and never silently sets assessment assistance consent", async () => {
     const send = vi.fn().mockResolvedValue(receipt),
@@ -306,12 +310,18 @@ describe("persisted companion integration", () => {
     trigger.textContent = "Open";
     document.body.append(trigger);
     trigger.focus();
-    const close = vi.fn();
-    const renderDock = (wide: boolean, open: boolean) => (
-      <CompanionDock wide={wide} open={open} onOpenChange={close}>
-        <textarea aria-label="Draft" defaultValue="Keep this" />
-      </CompanionDock>
-    );
+    companionOpen.reset();
+    const renderDock = (wide: boolean, open: boolean) => {
+      act(() => {
+        companionOpen.sync({ docked: wide, surface: "lesson" });
+        companionOpen.setSheetOpen(open);
+      });
+      return (
+        <CompanionDock layout={dockLayout(wide)}>
+          <textarea aria-label="Draft" defaultValue="Keep this" />
+        </CompanionDock>
+      );
+    };
     const { rerender } = render(renderDock(false, true));
     const input = screen.getByRole("textbox", { name: "Draft" });
     input.focus();
@@ -322,27 +332,30 @@ describe("persisted companion integration", () => {
     expect((input as HTMLTextAreaElement).selectionStart).toBe(2);
     rerender(renderDock(false, true));
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(close).toHaveBeenCalledWith(false);
+    expect(companionOpen.get().sheetOpen).toBe(false);
     rerender(renderDock(false, false));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     trigger.remove();
   });
   it("collapses the pane beside the lesson without unmounting the draft, and moves it into a sheet when the window narrows", async () => {
-    const onOpen = vi.fn(), onCollapse = vi.fn();
-    const renderDock = (wide: boolean, open: boolean, collapsed: boolean) => (
-      <CompanionDock wide={wide} open={open} onOpenChange={onOpen} collapsed={collapsed} onCollapsedChange={onCollapse}>
+    companionOpen.reset();
+    const renderDock = (wide: boolean) => (
+      <CompanionDock layout={dockLayout(wide)}>
         <textarea aria-label="Draft" defaultValue="Keep this" />
       </CompanionDock>
     );
-    const { rerender } = render(renderDock(true, false, false));
+    act(() => {
+      companionOpen.sync({ docked: true, surface: "lesson" });
+      companionOpen.setPaneOpen(true);
+    });
+    const { rerender } = render(renderDock(true));
     const input = screen.getByRole("textbox", { name: "Draft" });
     expect(screen.getByRole("complementary", { name: "Your companion" })).toBeVisible();
     expect(document.querySelector(".connected-companion-trigger")).not.toBeVisible();
     const close = screen.getByRole("button", { name: "Close companion" });
     expect(close).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(close);
-    expect(onCollapse).toHaveBeenLastCalledWith(true);
-    rerender(renderDock(true, false, true));
+    expect(companionOpen.get().paneOpen).toBe(false);
     // Hidden, not removed: the draft keeps its value for when the pane returns.
     expect(screen.getByRole("textbox", { name: "Draft", hidden: true })).toBe(input);
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
@@ -352,32 +365,32 @@ describe("persisted companion integration", () => {
     await act(async () => {});
     expect(toggle).toHaveFocus();
     fireEvent.click(toggle);
-    expect(onCollapse).toHaveBeenLastCalledWith(false);
-    rerender(renderDock(true, false, false));
+    expect(companionOpen.get().paneOpen).toBe(true);
     input.focus();
     // Narrowing to a compact window while typing keeps the learner in the companion.
-    rerender(renderDock(false, false, false));
-    expect(onOpen).toHaveBeenLastCalledWith(true);
-    rerender(renderDock(false, true, false));
+    act(() => companionOpen.sync({ docked: false, surface: "lesson" }));
+    rerender(renderDock(false));
+    expect(companionOpen.get().sheetOpen).toBe(true);
     expect(screen.getByRole("dialog", { name: "Your companion" })).toBeVisible();
     expect(input).toHaveFocus();
     // Widening with the sheet open shows the pane even if it had been collapsed.
-    onCollapse.mockClear();
-    rerender(renderDock(false, true, true));
-    rerender(renderDock(true, true, true));
-    expect(onCollapse).toHaveBeenCalledWith(false);
+    act(() => companionOpen.setPaneOpen(false));
+    act(() => companionOpen.sync({ docked: true, surface: "lesson" }));
+    rerender(renderDock(true));
+    expect(companionOpen.get().paneOpen).toBe(true);
   });
   it("closes the sheet with Escape even from a React Native text input, which stops key events bubbling", () => {
-    const close = vi.fn();
+    companionOpen.reset();
+    act(() => companionOpen.setSheetOpen(true));
     render(
-      <CompanionDock wide={false} open onOpenChange={close}>
+      <CompanionDock layout={dockLayout(false)}>
         <TextInput accessibilityLabel="Message" defaultValue="Keep this" />
       </CompanionDock>,
     );
     const input = screen.getByRole("textbox", { name: "Message" });
     input.focus();
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(close).toHaveBeenCalledWith(false);
+    expect(companionOpen.get().sheetOpen).toBe(false);
   });
   it("isolates drafts by account and keeps them in memory when storage is denied", () => {
     const map = new Map<string, string>();
@@ -1103,7 +1116,7 @@ describe("one statement per companion outcome", () => {
     expect(screen.getByText("זה רמז במקום תשובה שחשפה את התשובה לאחת הבדיקות של הקורס. התשובה ההיא לא נשמרה.", { exact: false })).toBeVisible();
     view.unmount();
     expect(he.t("connectedCompanion.withheld.answer")).toBe("זה רמז במקום תשובה שחשפה את התשובה לאחת הבדיקות של הקורס. התשובה ההיא לא נשמרה.");
-    for (const key of ["connectedCompanion.withheld.answer", "connectedCompanion.withheld.unverified", "companionClient.job.unverified"] as const)
+    for (const key of ["connectedCompanion.withheld.answer", "connectedCompanion.withheld.unverified", "companionStates.job.unverified"] as const)
       expect(he.t(key)).not.toMatch(/מלווה|המפקח|הצליח|יכול|זמין|ממתין|מכין|בודק /);
   });
   it("does not say a reply is being built once its draft was withdrawn or stopped", () => {
@@ -1165,11 +1178,11 @@ describe("one statement per companion outcome", () => {
       expect(screen.queryByText(waiting)).toBeNull();
       rerender(panel([q({ job_state: "cancelled", job_sent: true })], [draft({ state: "cancelled" })]));
       expect(screen.queryByText(waiting)).toBeNull();
-      expect(screen.getByText(stripBidiControls(i18n.t("companionClient.job.cancelledSent")))).toBeVisible();
+      expect(screen.getByText(stripBidiControls(i18n.t("companionStates.job.cancelledSent")))).toBeVisible();
       // A queued question cancelled before it was sent.
       rerender(panel([q({ job_state: "cancelled" })]));
       expect(screen.queryByText(waiting)).toBeNull();
-      expect(screen.getByText(stripBidiControls(i18n.t("companionClient.job.cancelled")))).toBeVisible();
+      expect(screen.getByText(stripBidiControls(i18n.t("companionStates.job.cancelled")))).toBeVisible();
       unmount();
     }
   });

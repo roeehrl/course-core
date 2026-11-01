@@ -1,0 +1,8 @@
+{
+  "delete.confirm": "Delete this question and its answer? Suggestions based on it are revoked. This cannot be undone.",
+  "delete.yes": "Delete question",
+  "delete.no": "Keep question",
+  "delete.start": "Delete this question",
+  "excluded": "Not used as context for later answers.",
+  "error.delete": "The question could not be deleted. Refresh the conversation and try again."
+}

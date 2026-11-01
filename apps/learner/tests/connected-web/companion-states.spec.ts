@@ -1,8 +1,8 @@
 import { test, expect, type Page } from "./health";
 import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
 import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
-import enJob from "../../src/i18n/messages/en/companionClient.json";
-import heJob from "../../src/i18n/messages/he/companionClient.json";
+import enJob from "../../src/i18n/messages/en/companionStates.json";
+import heJob from "../../src/i18n/messages/he/companionStates.json";
 import enHost from "../../src/i18n/messages/en/connectedHost.json";
 import heHost from "../../src/i18n/messages/he/connectedHost.json";
 import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";

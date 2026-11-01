@@ -2,21 +2,23 @@ import React, { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { CompanionDockProps } from "./CompanionDock";
 import { useT } from "../i18n";
+import { companionOpen, useCompanionOpenState } from "../connected/companion/openState";
 
 /** The companion beside the lesson (a collapsible complementary pane) or, in a
  * compact or very short window, a modal sheet. The same `<aside>` and children
  * stay mounted across every change, so a draft keeps its value, focus and
- * selection when the window is resized or rotated. */
-export function CompanionDock({
-  wide,
-  open,
-  onOpenChange,
-  collapsed = false,
-  onCollapsedChange,
-  triggerSlot = null,
-  children,
-}: CompanionDockProps) {
+ * selection when the window is resized or rotated. Whether it is open comes from
+ * the companion's open state (connected/companion/openState.ts). */
+export function CompanionDock({ layout, headerSlot = null, children }: CompanionDockProps) {
   const t = useT();
+  const wide = layout.placement === "docked";
+  const state = useCompanionOpenState();
+  const open = state.sheetOpen,
+    collapsed = !state.paneOpen;
+  const onOpenChange = companionOpen.setSheetOpen;
+  const onCollapsedChange = (value: boolean) => companionOpen.setPaneOpen(!value);
+  // Beside the lesson the button sits in the header; on a phone it has its own row.
+  const triggerSlot = wide ? headerSlot : null;
   const returnFocus = useRef<HTMLElement | null>(null);
   const panel = useRef<HTMLElement>(null),
     trigger = useRef<HTMLButtonElement>(null),
@@ -205,17 +207,15 @@ export function CompanionDock({
           <h2>
             <span aria-hidden="true">✧</span> {t("companionDock.label")}
           </h2>
-          {(!wide || onCollapsedChange) && (
-            <button
-              type="button"
-              aria-label={t("companionDock.close")}
-              aria-expanded={wide ? true : undefined}
-              aria-controls={wide ? "connected-companion" : undefined}
-              onClick={close}
-            >
-              <span aria-hidden="true">✕</span>
-            </button>
-          )}
+          <button
+            type="button"
+            aria-label={t("companionDock.close")}
+            aria-expanded={wide ? true : undefined}
+            aria-controls={wide ? "connected-companion" : undefined}
+            onClick={close}
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
         </div>
         {children}
       </aside>

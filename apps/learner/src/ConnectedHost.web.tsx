@@ -24,7 +24,6 @@ import {
 import {
   createCompanionClient,
   type CompanionContext,
-  type CompanionReceipt,
   type ContextualCompanionClient,
 } from "./client/companionClient";
 import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
@@ -33,7 +32,7 @@ import { FirstLoadProvider, useFirstLoad } from "./connected/firstLoad";
 import { classifyClick, createUsabilityRecorder } from "./connected/usability";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
-import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "./i18n";
+import { useI18n, useT, type MessageKey, type Translate } from "./i18n";
 import { useLocaleControl } from "./i18n/LocaleProvider";
 import { fetchServerLocale, saveServerLocale } from "./i18n/localeApi";
 import { isSupportedLocale, type AppLocale } from "@course-core/i18n";
@@ -57,8 +56,6 @@ import { StudyConsent } from './components/StudyConsent';
 import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { SupervisorRequests } from './components/SupervisorRequests';
-import { CompanionDock } from "./components/CompanionDock";
-import { ConnectedCompanion } from "./components/ConnectedCompanion";
 import { Badge, Button, Notice, styles } from "./components/ui";
 import { ConnectedLesson } from "./connected/ConnectedLesson.web";
 import type { VisualCompletionReport, VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
@@ -77,17 +74,21 @@ import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { Toast, type ToastMessage } from "./connected/Toast.web";
 import { Overlay } from "./components/Overlay";
-import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
+import type { WindowClass } from "./domain/windowClass";
+import { companionLayout } from "./domain/companionLayout";
 import { platformCapabilities, pointerMedia } from "./client/platformCapabilities";
-import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import { courseContentAttributes } from "./domain/contentLanguage";
 import { library } from "./connected/library";
 import "./connected/styles";
-import { codeSubmissionError } from "./connected/code";
 import { answerFeedback, answerFeedbackTone } from "./connected/answerFeedback";
-import { readingAnchor, restoreReadingAnchor, type ReadingAnchor } from "./connected/readingAnchor";
-import { answerPayload } from "./connected/AssessmentInput.web";
+import { CompanionRegion } from "./connected/companion/CompanionRegion.web";
+import { companionOpen, useCompanionOpenValue } from "./connected/companion/openState";
+import { companionBridge } from "./connected/companion/bridge";
+import { recoveredCompanionRequest } from "./connected/companion/recovered";
+import { creditScope } from "./connected/credit/creditScope";
+import { useCheckCommands } from "./connected/checks/useCheckCommands";
+import { openNotificationTarget } from "./connected/notifications/openNotification";
 import type { NextAction } from "@course-core/sdk";
 import {
   createPolicyClient,
@@ -116,20 +117,7 @@ export interface ConnectedHostProps {
   companionClient?: ContextualCompanionClient;
 }
 /** What the companion says about a closed course's read-only question allowance. */
-export function closedHelpText(
-  allowance: { budget?: number; used?: number; remaining: number },
-  exhausted: boolean,
-  t: Translate = englishTranslator().t,
-) {
-  if (exhausted) return t("connectedHost.closedHelp.exhausted");
-  return allowance.used !== undefined && allowance.budget !== undefined
-    ? t("connectedHost.closedHelp.remainingOfBudget", {
-        remaining: allowance.remaining,
-        used: allowance.used,
-        budget: allowance.budget,
-      })
-    : t("connectedHost.closedHelp.remaining", { remaining: allowance.remaining });
-}
+export { closedHelpText } from "./connected/companion/CompanionRegion.web";
 /** Learning-record event types with their own label (`connectedHost.record.event.<type with _>`). */
 const RECORD_EVENTS = new Set([
   "block.read",
@@ -148,24 +136,6 @@ const RECORD_EVENTS = new Set([
   "course_version.move_offer_declined",
   "course_version.move_forced",
 ]);
-const PANE_PREFERENCE = "course:learner-companion-pane";
-/** The learner's last explicit choice to show or hide the companion pane. A
- * device preference only; it never affects progress. */
-function readPanePreference(): "open" | "collapsed" | undefined {
-  try {
-    const value = window.localStorage.getItem(PANE_PREFERENCE);
-    return value === "open" || value === "collapsed" ? value : undefined;
-  } catch {
-    return;
-  }
-}
-function writePanePreference(value: "open" | "collapsed") {
-  try {
-    window.localStorage.setItem(PANE_PREFERENCE, value);
-  } catch {
-    /* The choice then lasts for this page only. */
-  }
-}
 /** Drafts and saved-but-unconfirmed requests live in local storage, so they
  * survive a closed tab, a crash or a phone discarding the page. Keys are
  * account-scoped and signing out clears the drafts. */
@@ -216,44 +186,28 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   // keyboard cannot flip the wide layout to compact while the learner types.
   const { fontScale } = useWindowDimensions(),
     { width, height } = useLayoutViewport(),
-    size: WindowClass = windowClass(width, fontScale),
+    layout = companionLayout(width, height, fontScale),
+    size: WindowClass = layout.windowClass,
     compact = size === "compact",
-    wide = companionPlacement(size, height) === "pane";
-  // Beside the lesson the pane starts collapsed (the lesson keeps the width; the header's Companion
-  // button opens it) until the learner chooses; that choice is remembered on this device.
-  const [panePreference, setPanePreference] = useState(
-    () => readPanePreference() ?? "collapsed",
-  );
-  const paneCollapsed = panePreference === "collapsed";
-  // On the course page the pane starts closed whatever the lesson preference: it opens only when
-  // the learner asks (the header's Companion button), and closes again when they leave the page.
-  const [overviewPane, setOverviewPane] = useState(false);
-  const onOverview = useRef(true);
-  // Opening or closing the pane beside the lesson reflows its text: the line being read stays
-  // where it is on the screen (connected/readingAnchor.ts).
-  const reading = useRef<ReadingAnchor | null>(null);
-  const setPaneCollapsed = useCallback((value: boolean) => {
-    const next = value ? "collapsed" : "open";
-    const header = document.querySelector(".connected-header")?.getBoundingClientRect().bottom ?? 0;
-    const anchor = (reading.current = readingAnchor(document.querySelector(".connected-main"), header));
-    // Used by the layout this change commits, or by none (the pane was already that way).
-    requestAnimationFrame(() => {
-      if (reading.current === anchor) reading.current = null;
-    });
-    if (onOverview.current) {
-      setOverviewPane(!value);
-      return;
-    }
-    setPanePreference(next);
-    writePanePreference(next);
-  }, []);
+    // The page's compact layout: the lesson scrolls in its own pane (else in the window).
+    compactPage = layout.compactPage,
+    docked = layout.placement === "docked";
+  // Whether the companion is open lives in its own store (connected/companion/openState.ts): beside
+  // the lesson the pane starts collapsed until the learner chooses, remembered on this device; on
+  // the course page it opens only when asked. A new host reads the remembered choice again.
+  useState(() => {
+    companionOpen.reset();
+    return true;
+  });
+  const companionShown = useCompanionOpenValue("open"),
+    companionView = useCompanionOpenValue("view");
   const hostRef = useRef<HTMLDivElement>(null);
   // Beside the lesson, the button that shows the companion pane lives in the header, where it
   // never covers lesson text (a floating button did, mid-page, on tablets).
   const [companionSlot, setCompanionSlot] = useState<HTMLDivElement | null>(null);
   useHeaderHeight(hostRef);
   // In the compact layout the lesson scrolls in its own pane; otherwise in the window.
-  useKeyboardInset(hostRef, () => (wide ? null : document.querySelector(".connected-main")));
+  useKeyboardInset(hostRef, () => (compactPage ? document.querySelector(".connected-main") : null));
   const [account, setAccount] = useState<Account>(),
     [ready, setReady] = useState(false),
     [loginCodes, setLoginCodes] = useState(false),
@@ -279,20 +233,12 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     [episodeId, setEpisodeId] = useState<string>(),
     [placement, setPlacement] = useState(false),
     [placementOpen, setPlacementOpen] = useState(false);
-  const [view, setView] = useState<"learn" | "profile" | "activity">("learn"),
-    [companionOpen, setCompanionOpen] = useState(false);
+  const [view, setView] = useState<"learn" | "profile" | "activity">("learn");
   const [events, setEvents] = useState<
     { id: string; event_type: string; created_at: string }[]
   >([]);
   const [storageUnavailable, setStorageUnavailable] = useState(false),
     [now, setNow] = useState(Date.now());
-  const [checkingAnswer, setCheckingAnswer] = useState(false);
-  // An answer (or "I don't know yet") is being saved: only then are the check's options locked.
-  // Any other request in flight (a companion message, marking a part read) leaves them usable,
-  // so a tap on an option always chooses it.
-  const [savingAnswer, setSavingAnswer] = useState(false);
-  /** Optional confidence per open check. Never sent unless the learner chose a level. */
-  const [confidence, setConfidence] = useState<Record<string, number | null>>({});
   const [block, setBlock] = useState<{
     scope?: string;
     id?: string;
@@ -378,34 +324,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   // Answer feedback belongs to the lesson's check, which shows while the lesson is open.
   const answerInCheck = view === "learn" && Boolean(episode?.gateId);
   const overview = view === "learn" && !episode;
-  onOverview.current = overview;
-  useEffect(() => {
-    if (!overview) setOverviewPane(false);
-  }, [overview]);
-  const companionCollapsed = overview ? !overviewPane : paneCollapsed;
-  const paneShown = wide && !companionCollapsed;
+  // The companion's store follows the layout and the page (the course page's pane opens only when
+  // asked, and closes again when the learner leaves the page).
   useLayoutEffect(() => {
-    const anchor = reading.current;
-    reading.current = null;
-    if (anchor) restoreReadingAnchor(anchor);
+    companionOpen.sync({ docked, surface: overview ? "course" : "lesson" });
+  }, [docked, overview]);
+  const paneShown = docked && companionShown;
+  // Opening or closing the pane beside the lesson reflows its text: the line being read stays
+  // where it is on the screen (connected/readingAnchor.ts).
+  useLayoutEffect(() => {
+    companionOpen.restoreReadingAnchor();
   }, [paneShown]);
-  // Whether a companion job can answer here now, from the server; read again when the companion
-  // is opened, so a job turned on meanwhile shows.
-  const companionVisible = paneShown || (!wide && companionOpen);
-  const [companionReady, setCompanionReady] = useState<{ enrollmentId: string; status: "ready" | "not_set_up" | "not_offered" | "unknown" }>();
-  const availabilityEnrollment = server?.enrollmentId;
-  useEffect(() => {
-    if (!availabilityEnrollment) return;
-    const controller = new AbortController();
-    api.request<{ status: "ready" | "not_set_up" | "not_offered" }>(
-      `/api/enrollments/${encodeURIComponent(availabilityEnrollment)}/companion/availability`, "GET", undefined, { signal: controller.signal },
-    ).then(
-      (result) => !controller.signal.aborted && setCompanionReady({ enrollmentId: availabilityEnrollment, status: result.status }),
-      // Never "Available" on a guess: a failed read says it could not be checked.
-      () => !controller.signal.aborted && setCompanionReady({ enrollmentId: availabilityEnrollment, status: "unknown" }),
-    );
-    return () => controller.abort();
-  }, [api, availabilityEnrollment, companionVisible]);
   // A lesson that ran out of questions: the server checks it and tells the course team once.
   const exhaustedEnrollment = server?.enrollmentId;
   const reportQuestionsExhausted = useCallback(async (episodeId: string) => {
@@ -414,7 +343,6 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       `/api/enrollments/${encodeURIComponent(exhaustedEnrollment)}/recovery/exhausted`, "POST", { episodeId });
     return result.told === true;
   }, [api, exhaustedEnrollment]);
-  const availability = companionReady?.enrollmentId === server?.enrollmentId && companionReady?.status !== "not_offered" ? companionReady?.status : undefined;
   // Usability timings, only while the learner takes part in a study that asked for them
   // (connected/usability.ts). The server refuses them otherwise, and recording then stops.
   const measuring = server?.studyArm?.measuresUsability === true ? server.enrollmentId : undefined;
@@ -517,8 +445,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       ? drafts.read(answerKey)
       : codeQuestion
         ? codeQuestion.starterCode
-        : "",
-    draft = drafts.read(draftKey);
+        : "";
   // A closed (completed or capped) course keeps a bounded number of read-only questions.
   const closedAllowance: { budget?: number; used?: number; remaining: number } | undefined =
     policy.data?.closedQuestions ?? (questionsExhausted ? { ...questionsExhausted, remaining: 0 } : undefined);
@@ -548,8 +475,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     };
     setTimeout(show, 0);
   }
-  const answerConflict = drafts.conflict(answerKey),
-    companionConflict = drafts.conflict(draftKey);
+  const answerConflict = drafts.conflict(answerKey);
   const titles = useMemo(
     () =>
       Object.fromEntries(
@@ -568,16 +494,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     episodeTitle: episode?.title,
     blockId: block.scope === readingScope ? block.id : undefined,
     blockTitle: block.scope === readingScope ? block.title : undefined,
-    independentChallengeIds:
-      server?.activeChallenges
-        .filter(
-          (item) =>
-            item.independentEligible &&
-            (!item.expiresAt ||
-              !Number.isFinite(Date.parse(item.expiresAt)) ||
-              Date.parse(item.expiresAt) > now),
-        )
-        .map((item) => item.challengeId) ?? [],
+    independentChallengeIds: creditScope(server, episode?.id, now),
+  };
+  /** The interactive part's state to send with a question about it: the latest frame of the part
+   * being read, in this lesson. */
+  const visualContext = () => {
+    const frame = visualFrame.current;
+    return frame?.scope === readingScope && episode && frame.context.episodeId === episode.id && frame.context.blockId === context.blockId
+      ? structuredClone(frame.context)
+      : undefined;
   };
   const onBlockChange = useCallback(
     (id: string | undefined, title: string | undefined) =>
@@ -616,7 +541,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const lessonPlace = useRef<{ top: number; focus: HTMLElement | null }>({ top: 0, focus: null });
   const lessonAnchor = useRef<{ episodeId: string; top: number; focus: HTMLElement | null } | null>(null);
   const scroller = () =>
-    wide ? null : document.querySelector<HTMLElement>(".connected-main");
+    compactPage ? document.querySelector<HTMLElement>(".connected-main") : null;
   const learning = view === "learn" && Boolean(episodeId);
   useEffect(() => {
     if (!learning) return;
@@ -636,7 +561,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       document.removeEventListener("scroll", scrolled, { capture: true });
       stopKeepingClear();
     };
-  }, [learning, wide]);
+  }, [learning, compactPage]);
   const previousView = useRef(view);
   useLayoutEffect(() => {
     const from = previousView.current;
@@ -698,7 +623,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     const recovered = api.takeRecovered(id);
     if (recovered?.action === "answers")
       setNotice({ render: (t) => t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }), tone: answerFeedbackTone(recovered.result) });
-    if (recovered?.action === "companion") setNotice({ render: (t) => t("connectedHost.notice.recoveredMessage") });
+    if (recovered?.action === "companion") recoveredCompanionRequest({ setNotice });
     return value;
   }
   async function loadAccount() {
@@ -742,8 +667,52 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     try {
       return await action();
     } finally {
-      busy.current = false;
-      setPending(false);
+      release();
+    }
+  }
+  /** Requests waiting for the lock (transactQuiet), woken in order when it is released. */
+  const lockWaiters = useRef<(() => void)[]>([]);
+  function release() {
+    busy.current = false;
+    setPending(false);
+    lockWaiters.current.shift()?.();
+  }
+  /** Codes after which the page reads the enrollment again (its state moved on the server). */
+  const REFRESH_AFTER = [
+    "STALE_REVISION",
+    "CHALLENGE_EXPIRED",
+    "ASSESSMENT_HELP_CONSENT_REQUIRED",
+    "GATE_NOT_READY",
+    "GATE_DECISION_STALE",
+    "GATE_DECISION_UNLINKED",
+    "GATE_REVIEW_OPEN",
+    "GATE_DECISION_NOT_REVIEWABLE",
+    "GATE_EXCEPTION_GRANTED",
+    "EVIDENCE_REQUIRED",
+  ];
+  /**
+   * The same lock as `transact`, for requests that say their own outcome (the companion's): it
+   * never sets the page's error or notice, and when another request is in flight it waits for it
+   * instead of failing, so an unrelated action never blocks a send.
+   */
+  async function transactQuiet<T>(action: () => Promise<T>): Promise<T> {
+    while (busy.current) await new Promise<void>((resolve) => lockWaiters.current.push(resolve));
+    busy.current = true;
+    setPending(true);
+    try {
+      return await action();
+    } catch (cause) {
+      if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
+        setAccount(undefined);
+        clearServer();
+        setEpisodeId(undefined);
+        companionOpen.resetForEnrollment();
+      }
+      if (server && cause instanceof CourseApiError && REFRESH_AFTER.includes(cause.code))
+        await refresh(server.enrollmentId).catch(() => {});
+      throw cause;
+    } finally {
+      release();
     }
   }
   async function transact<T>(action: () => Promise<T>): Promise<T> {
@@ -773,29 +742,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         setAccount(undefined);
         clearServer();
         setEpisodeId(undefined);
-        setCompanionOpen(false);
+        companionOpen.resetForEnrollment();
       }
-      if (
-        server &&
-        cause instanceof CourseApiError &&
-        [
-          "STALE_REVISION",
-          "CHALLENGE_EXPIRED",
-          "ASSESSMENT_HELP_CONSENT_REQUIRED",
-          "GATE_NOT_READY",
-          "GATE_DECISION_STALE",
-          "GATE_DECISION_UNLINKED",
-          "GATE_REVIEW_OPEN",
-          "GATE_DECISION_NOT_REVIEWABLE",
-          "GATE_EXCEPTION_GRANTED",
-          "EVIDENCE_REQUIRED",
-        ].includes(cause.code)
-      )
+      if (server && cause instanceof CourseApiError && REFRESH_AFTER.includes(cause.code))
         await refresh(server.enrollmentId).catch(() => {});
       throw cause;
     } finally {
-      busy.current = false;
-      setPending(false);
+      release();
     }
   }
   function run(action: () => Promise<unknown>) {
@@ -861,54 +814,52 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setError("");
     setNotice(null);
     setView("learn");
-  }
-  async function submitAnswer(item: Challenge) {
-    const payload = answerPayload(item.question, answer, t);
-    if ("error" in payload) {
-      setError(payload.error);
-      return;
-    }
-    const value = payload.value, chosen = confidence[item.challengeId];
-    if (item.question.type === "code" || item.question.type === "code_repair") {
-      const problem = codeSubmissionError(item.question.language, answer, t);
-      if (problem) {
-        setError(problem);
-        return;
-      }
-    }
-    setCheckingAnswer(true);
-    setSavingAnswer(true);
-    try {
-      const result = await command<{
-        result: { passed: boolean; explanation: string; independent: boolean };
-      }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t), tone: answerFeedbackTone(result), answer: true });
-    } finally {
-      setCheckingAnswer(false);
-      setSavingAnswer(false);
-    }
-  }
-  /** "I don't know yet": records no answer and no evidence; confidence stays optional. */
-  async function abstain(item: Challenge) {
-    const chosen = confidence[item.challengeId];
-    setSavingAnswer(true);
-    try {
-      const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice({ render: (t) => answerFeedback(result, false, t), tone: answerFeedbackTone(result), answer: true });
-    } finally {
-      setSavingAnswer(false);
-    }
-  }
-  function startCheck(assessmentId?: string) {
-    return run(() => {
-      const recovery = server?.recovery?.find((r) => r.episodeId === episodeId)?.freshCheck;
-      return recovery && !placement && !assessmentId
-        ? command("adaptation/fresh-question", {
-            episodeId, objectiveId: recovery.objectiveId, familyId: recovery.familyId, mode: "independent", expectedPlanRevision: server?.planRevision ?? 0,
-          })
-        : command("challenges", { episodeId, mode: placement ? "placement" : "independent", ...(assessmentId ? { assessmentId } : {}) });
-    });
-  }
+  }  // Where the companion can send the learner (bridge.ts): a section of the profile (scrolled to and
+  // focused once it shows, like reviewChange), a lesson, or the course page.
+  const navigation = useRef({ openEpisode, setView, setEpisodeId, setPlacement });
+  navigation.current = { openEpisode, setView, setEpisodeId, setPlacement };
+  useEffect(
+    () =>
+      companionBridge.registerNavigate({
+        profile(section) {
+          navigation.current.setView("profile");
+          if (!section) return;
+          let tries = 0;
+          const show = () => {
+            const target = document.getElementById(`profile-${section}`);
+            if (target) {
+              target.scrollIntoView({ block: "start" });
+              target.focus({ preventScroll: true });
+            } else if (++tries < 40) setTimeout(show, 50);
+          };
+          setTimeout(show, 0);
+        },
+        lesson: (id) => navigation.current.openEpisode(id),
+        course() {
+          navigation.current.setView("learn");
+          navigation.current.setEpisodeId(undefined);
+          navigation.current.setPlacement(false);
+        },
+      }),
+    [],
+  );
+
+  // The lesson's check: answering, "I don't know yet", the explanation and starting a check
+  // (connected/checks/useCheckCommands.ts). The feedback on an answer stays in the page notice.
+  const checks = useCheckCommands({
+    server,
+    episodeId,
+    challenge,
+    placement,
+    answer,
+    command,
+    run,
+    transact,
+    transactQuiet,
+    setNotice,
+    setError,
+    ...(notice?.answer && answerInCheck ? { answerFeedback: { text: notice.render(t), tone: notice.tone ?? "info" } } : {}),
+  });
   function completeEpisode() {
     const decisionId = server?.lessons.find((l) => l.id === episodeId)?.gate?.decisionId;
     run(async () => {
@@ -925,11 +876,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     if (action.kind === "continue") return completeEpisode();
     // The server offers no companion help when the study version withholds it; an older decision
     // still on screen falls back to the lesson, never to a hidden panel.
-    if (action.kind === "request_help" && server?.studyArm?.companion !== false) return wide ? setPaneCollapsed(false) : setCompanionOpen(true);
+    if (action.kind === "request_help" && server?.studyArm?.companion !== false) return companionOpen.open("gate");
     if (action.kind === "attempt_check") {
       // A reviewer's follow-up is answered in the review thread, not with a fresh check.
       if (action.targetId?.startsWith("gate-conversation:") && server?.lessons.find((l) => l.id === episodeId)?.gate?.status === "under_review") return scrollTo(".connected-reviews");
-      return startCheck(action.targetId);
+      return checks.check.onStart(action.targetId);
     }
     if (action.kind === "review_material" || action.kind === "request_help") {
       const review = document.querySelector<HTMLDetailsElement>(".connected-review");
@@ -1024,63 +975,6 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       onDecline={(offer) => run(() => decideOffer(offer, false))}
     />
   ) : null;
-  async function sendCompanion(
-    content: string,
-    consent?: true,
-  ): Promise<CompanionReceipt> {
-    try {
-      return await sendCompanionNow(content, consent);
-    } catch (cause) {
-      if (cause instanceof CourseApiError && cause.code === "HELP_BUDGET_EXHAUSTED") {
-        const budget = cause.details?.budget;
-        setQuestionsExhausted({ budget: typeof budget === "number" ? budget : undefined });
-        policy.reload();
-      }
-      throw cause;
-    }
-  }
-  async function sendCompanionNow(
-    content: string,
-    consent?: true,
-  ): Promise<CompanionReceipt> {
-    // i18n-ignore: programming guard, the companion is only offered inside a lesson
-    if (!server || !episode) throw new Error("Open a lesson first");
-    const frame = visualFrame.current;
-    const interactiveContext = frame?.scope === readingScope && frame.context.episodeId === episode.id
-      && frame.context.blockId === context.blockId ? structuredClone(frame.context) : undefined;
-    return transact(async () => {
-      const result = await chat.send(server, {
-        episodeId: episode.id,
-        ...(context.blockId ? { blockId: context.blockId } : {}),
-        content,
-        ...(interactiveContext ? { interactiveContext } : {}),
-        ...(consent === true
-          ? { allowAssessmentAssistance: true as const }
-          : {}),
-      });
-      // A queued receipt is authoritative even if the subsequent snapshot GET fails.
-      // Reflect only the explicit assistance downgrade; never infer a passed check.
-      setServer((current) =>
-        current?.enrollmentId === server.enrollmentId
-          ? {
-              ...current,
-              revision: Math.max(current.revision, result.revision),
-              activeChallenges: current.activeChallenges.map((item) =>
-                result.downgradedChallengeIds.includes(item.challengeId)
-                  ? { ...item, independentEligible: false }
-                  : item,
-              ),
-            }
-          : current,
-      );
-      try {
-        await refresh(server.enrollmentId);
-      } catch {
-        setError(t("connectedHost.error.queuedRefreshFailed"));
-      }
-      return result;
-    });
-  }
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   // A refusal that says the request did not run and is kept to send again (slow sandbox setup) is
   // said once, in the connection status beside its retry, where the learner pressed; a notice at
@@ -1146,7 +1040,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     clearServer();
     setEpisodeId(undefined);
     setPlacement(false);
-    setCompanionOpen(false);
+    companionOpen.resetForEnrollment();
     run(loadAccount);
   }
   function saveLocale(locale: AppLocale) {
@@ -1172,7 +1066,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setEnrollments([]);
       setPreview(undefined);
       setStartAttempts({});
-      setCompanionOpen(false);
+      companionOpen.resetForEnrollment();
       setAccountDialog(null);
       setToast(null);
       setView("learn");
@@ -1200,7 +1094,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     leaveCourse();
   }
   return (
-    <div ref={hostRef} className={`connected-host window-${size} ${wide ? "" : "is-compact"}`} data-window-class={size}>
+    <div ref={hostRef} className={`connected-host window-${size} ${compactPage ? "is-compact" : ""}`} data-window-class={size} data-companion-view={companionView}>
       <header className="connected-header" data-connected-background>
         <div className="connected-header-inner">
           <div className="connected-brand">
@@ -1213,18 +1107,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             <LearnerNotifications
               request={api.request}
               onOpen={(target) =>
-                void transact(async () => {
-                  await refresh(target.enrollmentId);
-                  setPreview(undefined);
-                  setEpisodeId(undefined);
-                  setPlacement(false);
-                  setView("learn");
-                  if (target.companion) {
-                    // The notification opens the course page, where the pane opens on request only.
-                    if (wide) setOverviewPane(true);
-                    else setCompanionOpen(true);
-                  }
-                }).catch(() => {})
+                openNotificationTarget(target, {
+                  transact,
+                  refresh,
+                  setPreview,
+                  setEpisodeId,
+                  setPlacement,
+                  setView,
+                  openEpisode,
+                  companionOpen,
+                })
               }
             />
             <YourCourseMenu
@@ -1298,7 +1190,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           className="connected-main"
           data-connected-background
           id="connected-learning"
-          tabIndex={wide?undefined:0}
+          tabIndex={compactPage?0:undefined}
+          // Focus view gives the companion the page (never at this step).
+          {...(companionView === "focus" ? { inert: true, hidden: true } : {})}
           aria-label={t("connectedHost.main")}
         >
           {server && (
@@ -1509,7 +1403,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 onErased={() => {
                   clearServer();
                   setEpisodeId(undefined);
-                  setCompanionOpen(false);
+                  companionOpen.resetForEnrollment();
                   setView("learn");
                   run(async () => {
                     await loadAccount();
@@ -1627,9 +1521,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               pending={pending}
               now={now}
               answer={answer}
-              checkingAnswer={checkingAnswer}
-              savingAnswer={savingAnswer}
-              {...(notice?.answer && answerInCheck ? { answerFeedback: { text: notice.render(t), tone: notice.tone ?? "info" } } : {})}
+              check={checks.check}
               // The study dates live on the course page; staff tools sit in the lesson's header.
               staffTools={inspectorAccess?.enrollmentId === server.enrollmentId && view === "learn" ? (
                 <DebugInspector access={inspectorAccess.access} enrollmentId={server.enrollmentId} episodeId={episode.id}
@@ -1672,22 +1564,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onRead={(blockId) =>
                 run(() => command("read", { episodeId, blockId }))
               }
-              onStart={() => startCheck()}
-              onAnswer={(item) => run(() => submitAnswer(item))}
-              onAbstain={(item) => run(() => abstain(item))}
-              confidence={challenge ? confidence[challenge.challengeId] ?? null : null}
-              onConfidenceChange={(value) => challenge && setConfidence((all) => ({ ...all, [challenge.challengeId]: value }))}
               onGateAction={gateAction}
               onGateReview={requestGateReview}
-              onSolution={(item) =>
-                run(async () => {
-                  const result = await command<{ explanation: string }>(
-                    "solution",
-                    { challengeId: item.challengeId },
-                  );
-                  setNotice({ render: () => result.explanation });
-                })
-              }
               onComplete={completeEpisode}
               onReturn={(id) => openEpisode(id)}
               onNormal={() => setPlacement(false)}
@@ -1701,85 +1579,35 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         </main>
         {/* A research-study version without the companion (the fixed path) does not offer it. */}
         {server && account && server.studyArm?.companion !== false && (
-          <CompanionDock
+          <CompanionRegion
             key={`${account.id}:${server.enrollmentId}`}
-            wide={wide}
-            open={companionOpen}
-            onOpenChange={setCompanionOpen}
-            collapsed={companionCollapsed}
-            onCollapsedChange={setPaneCollapsed}
-            triggerSlot={wide ? companionSlot : null}
-          >
-            {companionConflict && drafts.version(draftKey) && (
-              <DraftConflict
-                label={t("connectedHost.draft.message")}
-                shown={drafts.version(draftKey)!}
-                other={companionConflict}
-                onKeepShown={() => drafts.resolve(draftKey, "shown")}
-                onUseOther={() => drafts.resolve(draftKey, "other")}
-              />
-            )}
-            {closedAllowance && (
-              <p className={`connected-closed-help ${helpExhausted ? "is-exhausted" : ""}`} role="status">
-                {closedHelpText(closedAllowance, helpExhausted, t)}
-              </p>
-            )}
-            <LiveConversation
-              client={chat}
-              enrollmentId={server.enrollmentId}
-              open={companionVisible}
-              revision={server.revision}
-              onUnansweredChange={setUnansweredQuestions}
-            >
-              {(conversation) => (
-            <ConnectedCompanion
-              context={context}
-              messages={conversation.messages}
-              episodeTitles={titles}
-              draft={draft}
-              onDraftChange={(value) => drafts.write(draftKey, value)}
-              onSend={sendCompanion}
-              onExcludeContext={
-                chat.excludeContext
-                  ? (messageId, excluded) =>
-                      transact(async () => {
-                        await chat.excludeContext!(server, messageId, excluded);
-                        await refresh(server.enrollmentId);
-                      })
-                  : undefined
-              }
-              drafts={conversation.drafts}
-              streamConnected={conversation.streamConnected}
-              availability={availability}
-              onCancelQuestion={
-                chat.cancelQuestion
-                  ? (messageId) =>
-                      transact(async () => {
-                        await chat.cancelQuestion!(server, messageId);
-                        await refresh(server.enrollmentId);
-                      })
-                  : undefined
-              }
-              onDeleteMessage={
-                chat.deleteMessage
-                  ? (messageId) =>
-                      transact(async () => {
-                        await chat.deleteMessage!(server, messageId);
-                        await refresh(server.enrollmentId);
-                      })
-                  : undefined
-              }
-              pending={pending}
-              loaded={conversation.loaded}
-              error={conversation.error}
-              storageUnavailable={storageUnavailable || drafts.unavailable}
-              unavailable={Boolean(
-                (episode && server.inaccessibleEpisodeIds.includes(episode.id)) || helpExhausted,
-              )}
-            />
-              )}
-            </LiveConversation>
-          </CompanionDock>
+            server={server}
+            account={account}
+            api={api}
+            chat={chat}
+            drafts={drafts}
+            draftKey={draftKey}
+            context={context}
+            titles={titles}
+            episode={episode}
+            layout={layout}
+            headerSlot={companionSlot}
+            pending={pending}
+            now={now}
+            transact={transact}
+            transactQuiet={transactQuiet}
+            refresh={refresh}
+            visualContext={visualContext}
+            setServer={setServer}
+            setError={setError}
+            setQuestionsExhausted={setQuestionsExhausted}
+            reloadPolicy={policy.reload}
+            storageUnavailable={storageUnavailable || drafts.unavailable}
+            unavailable={Boolean((episode && server.inaccessibleEpisodeIds.includes(episode.id)) || helpExhausted)}
+            closedAllowance={closedAllowance}
+            helpExhausted={helpExhausted}
+            onUnansweredChange={setUnansweredQuestions}
+          />
         )}
       </div>
       {account && accountDialog === "password" && (
@@ -1811,33 +1639,4 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
-}
-/**
- * Holds the companion conversation (useCompanionConversation) and renders the companion from
- * it. Its updates re-render this subtree only; the page hears the one count it acts on, and
- * setting an unchanged count re-renders nothing.
- */
-function LiveConversation({
-  client,
-  enrollmentId,
-  open,
-  revision,
-  onUnansweredChange,
-  children,
-}: {
-  client: ContextualCompanionClient;
-  enrollmentId: string;
-  open: boolean;
-  revision: number;
-  onUnansweredChange(count: number): void;
-  children(conversation: ReturnType<typeof useCompanionConversation>): React.ReactNode;
-}) {
-  const conversation = useCompanionConversation(client, enrollmentId, open, revision);
-  const unanswered = conversation.messages.filter(
-    (message) => message.role === "learner" && ["refused", "failed", "cancelled"].includes(message.job_state ?? ""),
-  ).length;
-  useEffect(() => onUnansweredChange(unanswered), [unanswered, onUnansweredChange]);
-  // Another enrollment's conversation starts from none.
-  useEffect(() => () => onUnansweredChange(0), [onUnansweredChange]);
-  return <>{children(conversation)}</>;
 }
