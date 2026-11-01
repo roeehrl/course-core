@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
+import { closeCompanion } from "./companion-helpers";
 
 /* P04: optional help never costs the learner their place. Opening the
  * companion, or the profile from "Your course", and coming back restores the
@@ -68,8 +69,8 @@ test("help round trip keeps the step, draft, anchor, focus, open help and media"
     exact: true,
   });
   await draft.fill("Why is 2 the smaller value?");
-  if (await page.getByRole("dialog", { name: "Your companion" }).isVisible())
-    await page.keyboard.press("Escape");
+  // Over the lesson (a sheet) the companion is closed before the lesson is used again.
+  if (await page.locator(".connected-host.is-compact").count()) await closeCompanion(page);
   else await answer.focus();
   await expect(answer).toBeChecked();
   // Opening a side pane narrows the lesson and may reflow it; the answer stays in view.

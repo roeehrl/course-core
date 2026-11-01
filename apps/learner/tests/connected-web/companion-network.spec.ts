@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./health";
+import { companionPanel } from "./companion-helpers";
 
 /* With the companion open beside the lesson, the conversation is read when something happens
  * (an event on the enrollment's stream, a new course revision, the panel opening), not on a
@@ -33,7 +34,7 @@ test("the open companion pane reads on events, keeps one stream across revisions
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Your companion" })).toBeVisible();
+  await expect(companionPanel(page)).toBeVisible();
   await expect.poll(() => seen.streams).toBe(1);
 
   // Idle with the pane open: no reads at all (the pane used to read every 3 s).

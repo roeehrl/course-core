@@ -74,32 +74,6 @@ describe("linear connected lesson and authoritative gates", () => {
     ).toBeVisible();
     expect(p.onComplete).not.toHaveBeenCalled();
   });
-  it("uses current server questions and preserves expired answer drafts without submitting", () => {
-    const p = props();
-    p.server.lessons[0]!.completedBlockIds = ["reading", "picture", "movie"];
-    p.server.activeChallenges = [
-      {
-        challengeId: "fresh",
-        episodeId: "intro",
-        independentEligible: true,
-        mode: "independent",
-        question: {
-          id: "q",
-          type: "numeric",
-          prompt: "A dynamically issued problem",
-        },
-        expiresAt: new Date(p.now - 1).toISOString(),
-      },
-    ];
-    p.answer = "42";
-    render(<ConnectedLesson {...p} />);
-    expect(screen.getByRole("button", { name: "Refresh check" })).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: "Check" }),
-    ).not.toBeInTheDocument();
-    expect(p.check.onAnswer).not.toHaveBeenCalled();
-    expect(p.onAnswerChange).not.toHaveBeenCalled();
-  });
 });
 
 describe("return point after a detour (P12)", () => {

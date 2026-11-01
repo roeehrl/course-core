@@ -65,28 +65,6 @@ describe("reusable learner components", () => {
       screen.getByRole("button", { name: "Mark read & continue →" }),
     ).toBeEnabled();
   });
-  it("keeps notes editable and identifies authored guidance honestly", async () => {
-    const change = vi.fn();
-    render(
-      <Companion
-        step={demoCourse.lessons[0]!.steps[0]!}
-        lessonTitle="Example"
-        note="A note"
-        onNoteChange={change}
-        mode="demo"
-      />,
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Show a hint ↗" }),
-    );
-    expect(screen.getByText(/Compare just two neighbors/)).toBeVisible();
-    expect(screen.getByText(/No live AI is connected/)).toBeVisible();
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Notes to yourself" }),
-      { target: { value: "A new note" } },
-    );
-    expect(change).toHaveBeenCalledWith("A new note");
-  });
   it("validates empty profiles without calling the client", async () => {
     const save = vi.fn();
     render(

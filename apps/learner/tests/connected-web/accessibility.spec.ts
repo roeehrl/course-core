@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
+import { closeCompanion } from "./companion-helpers";
 
 /* I04/I05/P05/S12 on the connected lesson: 44 px targets in the lesson and the
  * companion, prose line length, reflow at 200% and 400% browser zoom, forced
@@ -120,8 +121,7 @@ test("44 px targets across the connected lesson, header and companion", async ({
       "#connected-companion, .connected-companion-trigger",
     ),
   ).toEqual([]);
-  if (await page.getByRole("dialog", { name: "Your companion" }).isVisible())
-    await page.keyboard.press("Escape");
+  if (await page.locator(".connected-host.is-compact").count()) await closeCompanion(page);
   await page.locator(".connected-menu-toggle").click();
   expect(await smallTargets(page, ".connected-menu-panel")).toEqual([]);
 });

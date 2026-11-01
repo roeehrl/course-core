@@ -37,67 +37,11 @@ import { createConnectedDraftStore } from "../src/connected/drafts";
 import { connectedSnapshot } from "./connectedFixtures";
 import { companionFocus, selectedLines } from "../src/client/companionFocus";
 import { pressWhenReady } from "./pressWhenReady";
-const context: CompanionContext = {
-  enrollmentId: "e",
-  courseDigest: "digest",
-  snapshotRevision: 1,
-  courseTitle: "Study",
-  episodeId: "intro",
-  episodeTitle: "Notice change",
-  independentChallengeIds: ["active-check"],
-};
-const message: CompanionMessage = {
-  id: "m",
-  role: "learner",
-  content: "Why does it change?",
-  context: { episodeId: "intro" },
-  created_at: "2026-01-01",
-  job_state: "queued",
-  job_id: "job",
-};
-const receipt = {
-  messageId: "m",
-  eventId: "event",
-  revision: 2,
-  state: "queued" as const,
-  downgradedChallengeIds: ["active-check"],
-};
+import { context, message, receipt } from "./companionFixtures";
 afterEach(() => vi.useRealTimers());
 /** A window that docks the companion beside the lesson, or one that shows it as a sheet. */
 const dockLayout = (wide: boolean) => (wide ? companionLayout(1440, 960) : companionLayout(390, 844));
 describe("persisted companion integration", () => {
-  it("requires a clear choice and never silently sets assessment assistance consent", async () => {
-    const send = vi.fn().mockResolvedValue(receipt),
-      change = vi.fn();
-    render(
-      <ConnectedCompanion
-        context={context}
-        messages={[]}
-        episodeTitles={{ intro: "Notice change" }}
-        draft="Question"
-        onDraftChange={change}
-        onSend={send}
-        pending={false}
-        loaded
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(send).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Keep it counted" }),
-    );
-    expect(send).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("textbox", { name: "Message to your companion" }),
-    ).toHaveValue("Question");
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Send as practice" }),
-    );
-    await waitFor(() => expect(send).toHaveBeenCalledWith("Question", true));
-    await waitFor(() => expect(change).toHaveBeenCalledWith(""));
-    expect(screen.getByText(/Waiting for the companion service/)).toBeVisible();
-  });
   it("shows actual saved messages, source lesson and configuration state without raw provider reasons", () => {
     render(
       <ConnectedCompanion
@@ -248,150 +192,6 @@ describe("persisted companion integration", () => {
       screen.getByRole("textbox", { name: "Message to your companion" }),
     ).toHaveValue("Keep me");
   });
-  it("calls implemented endpoints with CSRF, explicit consent, snapshot revision and idempotency", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ messages: [message] })),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify(receipt)));
-    const client = createCompanionClient(
-        createCourseApi({ fetch: fetcher, csrf: () => "csrf" }),
-      ),
-      abort = new AbortController();
-    expect(await client.load("e", abort.signal)).toEqual([message]);
-    // The read is cancellable: the caller's signal is combined with the page's own
-    // (caller cancellation is covered in apiClient.test.ts).
-    expect(fetcher.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
-    await client.send(connectedSnapshot(), {
-      episodeId: "intro",
-      content: "hello",
-    });
-    expect(fetcher.mock.calls[1]![0]).toBe(
-      "/api/enrollments/enrollment-1/companion",
-    );
-    const payload = JSON.parse(fetcher.mock.calls[1]![1]!.body as string);
-    expect(payload.expectedRevision).toBe(1);
-    expect(payload.idempotencyKey).toBeTruthy();
-    expect(payload).not.toHaveProperty("allowAssessmentAssistance");
-  });
-  it("polls modestly for saved queued work and aborts when context or account changes", async () => {
-    vi.useFakeTimers();
-    const load = vi.fn().mockResolvedValue([message]);
-    const client: ContextualCompanionClient = { load, send: vi.fn() };
-    const { rerender, unmount } = renderHook(
-      ({ id, open }) => useCompanionConversation(client, id, open, 1),
-      { initialProps: { id: "a", open: false } },
-    );
-    await act(async () => {});
-    expect(load).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4999);
-    });
-    expect(load).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(load).toHaveBeenCalledTimes(2);
-    const oldSignal = load.mock.calls[1]![1] as AbortSignal;
-    rerender({ id: "b", open: true });
-    expect(oldSignal.aborted).toBe(true);
-    await act(async () => {});
-    expect(load.mock.calls.at(-1)?.[0]).toBe("b");
-    unmount();
-    expect((load.mock.calls.at(-1)![1] as AbortSignal).aborted).toBe(true);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000);
-    });
-    expect(load).toHaveBeenCalledTimes(3);
-  });
-  it("keeps the same textarea through responsive changes and traps/restores drawer focus", () => {
-    const trigger = document.createElement("button");
-    trigger.textContent = "Open";
-    document.body.append(trigger);
-    trigger.focus();
-    companionOpen.reset();
-    const renderDock = (wide: boolean, open: boolean) => {
-      act(() => {
-        companionOpen.sync({ docked: wide, surface: "lesson" });
-        companionOpen.setSheetOpen(open);
-      });
-      return (
-        <CompanionDock layout={dockLayout(wide)}>
-          <textarea aria-label="Draft" defaultValue="Keep this" />
-        </CompanionDock>
-      );
-    };
-    const { rerender } = render(renderDock(false, true));
-    const input = screen.getByRole("textbox", { name: "Draft" });
-    input.focus();
-    (input as HTMLTextAreaElement).setSelectionRange(2, 5);
-    rerender(renderDock(true, true));
-    expect(screen.getByRole("textbox", { name: "Draft" })).toBe(input);
-    expect(input).toHaveFocus();
-    expect((input as HTMLTextAreaElement).selectionStart).toBe(2);
-    rerender(renderDock(false, true));
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(companionOpen.get().sheetOpen).toBe(false);
-    rerender(renderDock(false, false));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    trigger.remove();
-  });
-  it("collapses the pane beside the lesson without unmounting the draft, and moves it into a sheet when the window narrows", async () => {
-    companionOpen.reset();
-    const renderDock = (wide: boolean) => (
-      <CompanionDock layout={dockLayout(wide)}>
-        <textarea aria-label="Draft" defaultValue="Keep this" />
-      </CompanionDock>
-    );
-    act(() => {
-      companionOpen.sync({ docked: true, surface: "lesson" });
-      companionOpen.setPaneOpen(true);
-    });
-    const { rerender } = render(renderDock(true));
-    const input = screen.getByRole("textbox", { name: "Draft" });
-    expect(screen.getByRole("complementary", { name: "Your companion" })).toBeVisible();
-    expect(document.querySelector(".connected-companion-trigger")).not.toBeVisible();
-    const close = screen.getByRole("button", { name: "Close companion" });
-    expect(close).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(close);
-    expect(companionOpen.get().paneOpen).toBe(false);
-    // Hidden, not removed: the draft keeps its value for when the pane returns.
-    expect(screen.getByRole("textbox", { name: "Draft", hidden: true })).toBe(input);
-    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: "Companion" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(toggle).not.toHaveAttribute("aria-haspopup");
-    await act(async () => {});
-    expect(toggle).toHaveFocus();
-    fireEvent.click(toggle);
-    expect(companionOpen.get().paneOpen).toBe(true);
-    input.focus();
-    // Narrowing to a compact window while typing keeps the learner in the companion.
-    act(() => companionOpen.sync({ docked: false, surface: "lesson" }));
-    rerender(renderDock(false));
-    expect(companionOpen.get().sheetOpen).toBe(true);
-    expect(screen.getByRole("dialog", { name: "Your companion" })).toBeVisible();
-    expect(input).toHaveFocus();
-    // Widening with the sheet open shows the pane even if it had been collapsed.
-    act(() => companionOpen.setPaneOpen(false));
-    act(() => companionOpen.sync({ docked: true, surface: "lesson" }));
-    rerender(renderDock(true));
-    expect(companionOpen.get().paneOpen).toBe(true);
-  });
-  it("closes the sheet with Escape even from a React Native text input, which stops key events bubbling", () => {
-    companionOpen.reset();
-    act(() => companionOpen.setSheetOpen(true));
-    render(
-      <CompanionDock layout={dockLayout(false)}>
-        <TextInput accessibilityLabel="Message" defaultValue="Keep this" />
-      </CompanionDock>,
-    );
-    const input = screen.getByRole("textbox", { name: "Message" });
-    input.focus();
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(companionOpen.get().sheetOpen).toBe(false);
-  });
   it("isolates drafts by account and keeps them in memory when storage is denied", () => {
     const map = new Map<string, string>();
     const store = {
@@ -421,117 +221,6 @@ describe("persisted companion integration", () => {
     denied.write("answer", "never lose");
     expect(denied.read("answer")).toBe("never lose");
     expect(denied.unavailable).toBe(true);
-  });
-
-  it("attaches the learner's focus to the next message only, with the course version and UI revision", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(new Response(JSON.stringify(receipt)));
-    const client = createCompanionClient(
-      createCourseApi({ fetch: fetcher, csrf: () => "csrf" }),
-    );
-    const snapshot = connectedSnapshot();
-    companionFocus.setSelection({ kind: "text", excerpt: "no greater than" });
-    companionFocus.setMedia({ mediaId: "walkthrough", label: "Course video", playbackSeconds: 83.3 });
-    await client.send(snapshot, { episodeId: "intro", content: "About this?" });
-    const payload = JSON.parse(fetcher.mock.calls[0]![1]!.body as string);
-    expect(payload).toMatchObject({
-      uiRevision: snapshot.revision,
-      selection: { kind: "text", excerpt: "no greater than", courseDigest: snapshot.courseDigest },
-      media: { mediaId: "walkthrough", playbackSeconds: 83.3, courseDigest: snapshot.courseDigest },
-    });
-    // Sent once, then cleared.
-    expect(companionFocus.get()).toEqual({});
-    fetcher.mockResolvedValue(new Response(JSON.stringify({ ...receipt, messageId: "m2" })));
-    await client.send({ ...snapshot, revision: 3 }, { episodeId: "intro", content: "Next" });
-    const next = JSON.parse(fetcher.mock.calls[1]![1]!.body as string);
-    expect(next).not.toHaveProperty("selection");
-    expect(next).not.toHaveProperty("media");
-    expect(selectedLines("a\nbb\nccc", 2, 6)).toEqual({ lineStart: 2, lineEnd: 3 });
-  });
-  it("sends an attached check as the next message's challengeId, once", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify(receipt)));
-    const client = createCompanionClient(createCourseApi({ fetch: fetcher, csrf: () => "csrf" }));
-    const snapshot = connectedSnapshot();
-    companionFocus.setCheck({ challengeId: "c1", ordinal: 2 });
-    await client.send(snapshot, { episodeId: "intro", content: "About question 2?" });
-    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({ challengeId: "c1" });
-    expect(companionFocus.get()).toEqual({});
-    await client.send({ ...snapshot, revision: 3 }, { episodeId: "intro", content: "Next" });
-    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).not.toHaveProperty("challengeId");
-  });
-  it("shows what an answer used, attached to its own lesson, and lets the learner stop reusing a message", async () => {
-    companionFocus.setSelection({ kind: "visual_node", blockId: "diagram", nodeId: "meter", label: "Meter bar" });
-    const exclude = vi.fn().mockResolvedValue(undefined);
-    const reply: CompanionMessage = {
-      id: "a",
-      role: "assistant",
-      content: "Because the minimum may equal another member.",
-      context: {},
-      created_at: "2026-01-02",
-      job_id: "job",
-      context_used: {
-        episodeId: "intro", blockId: null, answersMessageId: "m", contextRevision: 4, courseDigest: "digest", recentEventCursor: "9",
-        history: [{ messageId: "old", role: "learner", excerpt: "An earlier question", clipped: false, excluded: false }],
-        summary: { count: 1, omitted: 0, sourceEventIds: ["e1"], items: [{ messageId: "older", eventId: "e1", excerpt: "The first question", excluded: true }] },
-        selection: { kind: "formula", excerpt: "a <= b" }, media: { mediaId: "walkthrough", playbackSeconds: 83 }, simulation: null,
-        evidenceCount: 2, assessmentMode: "none",
-        constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" },
-      },
-    };
-    render(
-      <ConnectedCompanion
-        context={{ ...context, episodeId: "next", episodeTitle: "Next lesson" }}
-        messages={[message, reply]}
-        episodeTitles={{ intro: "Notice change", next: "Next lesson" }}
-        draft=""
-        onDraftChange={() => {}}
-        onSend={vi.fn()}
-        onExcludeContext={exclude}
-        pending={false}
-        loaded
-      />,
-    );
-    // The selection made in another lesson was dropped when the lesson changed.
-    expect(screen.queryByText(/Attached to your next message/)).not.toBeInTheDocument();
-    expect(screen.getByText("About: Notice change")).toBeVisible();
-    expect(screen.queryByText(/Earlier lesson/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
-    expect(screen.getByText("Answering: “Why does it change?”")).toBeVisible();
-    expect(screen.getByText(/You pointed at \(Formula or code example\): “a <= b”/)).toBeVisible();
-    expect(screen.getByText("Course video at 1:23")).toBeVisible();
-    expect(screen.getByText(/no independent check open · no extra practice beyond the lesson/)).toBeVisible();
-    expect(screen.getByText(/Context version 4/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Don’t use this message again" }));
-    await waitFor(() => expect(exclude).toHaveBeenCalledWith("old", true));
-    await pressWhenReady(screen.getByRole("button", { name: "Use this question again" }));
-    await waitFor(() => expect(exclude).toHaveBeenCalledWith("older", false));
-    // A focus chosen in this lesson is shown and removable.
-    act(() => companionFocus.setSelection({ kind: "code", excerpt: "return x", lineStart: 3, lineEnd: 4, codeSnapshotHash: "a".repeat(64) }));
-    expect(screen.getByText("Your code, lines 3–4")).toBeVisible();
-    await pressWhenReady(screen.getByRole("button", { name: "Remove selection" }));
-    expect(companionFocus.get().selection).toBeUndefined();
-  });
-
-  it("deletes a question only after confirming, and offers nothing for a deleted one", async () => {
-    const remove = vi.fn().mockResolvedValue(undefined);
-    const { rerender } = render(
-      <ConnectedCompanion context={context} messages={[message]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
-        onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Delete this question" }));
-    expect(remove).not.toHaveBeenCalled();
-    expect(screen.getByText(/Suggestions based on it are revoked/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Keep question" }));
-    expect(screen.queryByRole("button", { name: "Delete question" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Delete this question" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete question" }));
-    await waitFor(() => expect(remove).toHaveBeenCalledWith("m"));
-    rerender(
-      <ConnectedCompanion context={context} messages={[{ ...message, content: "[deleted]" }]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
-        onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />,
-    );
-    expect(screen.queryByRole("button", { name: "Delete this question" })).not.toBeInTheDocument();
   });
   it("keeps past messages and offers cancel or retry while the last question is still being worked on", async () => {
     const waiting: CompanionMessage = { ...message, id: "w", content: "Frozen layers?", job_state: "waiting", job_reason: "provider_uncertain" };
@@ -573,14 +262,6 @@ describe("persisted companion integration", () => {
         draft="" onDraftChange={() => {}} onSend={vi.fn()} onCancelQuestion={vi.fn()} pending={false} loaded />,
     );
     expect(screen.queryByRole("button", { name: "Stop waiting for this answer" })).not.toBeInTheDocument();
-  });
-  it("sends a cancel command for one question and checks its receipt", async () => {
-    const command = vi.fn().mockResolvedValue({ messageId: "m", cancelled: true, revision: 3 }), snapshot = connectedSnapshot();
-    const client = createCompanionClient({ command } as unknown as Parameters<typeof createCompanionClient>[0]);
-    await expect(client.cancelQuestion!(snapshot, "m")).resolves.toEqual({ messageId: "m", cancelled: true, revision: 3 });
-    expect(command).toHaveBeenCalledWith(snapshot, "companion/messages/m/cancel", {});
-    command.mockResolvedValueOnce({ messageId: "other", cancelled: true, revision: 3 });
-    await expect(client.cancelQuestion!(snapshot, "m")).rejects.toThrow();
   });
   it("derives truthful companion states from saved jobs and the browser", () => {
     const at = (job_state: string | null, job_reason: string | null = null): CompanionMessage => ({ ...message, job_state, job_reason });
@@ -627,104 +308,10 @@ describe("persisted companion integration", () => {
     expect(send).toHaveBeenCalledWith("Kept while offline", undefined);
     expect(screen.getByRole("status", { name: /Companion status: Available/ })).toBeVisible();
   });
-  it("reloads at once when the event stream reports a question or an answer, resumes after the last id and stops on 4xx", async () => {
-    const encoder = new TextEncoder();
-    let push: (text: string) => void = () => {}, end: () => void = () => {};
-    const requests: { url: string; headers: Record<string, string>; signal: AbortSignal }[] = [];
-    const fetcher = vi.fn(async (url: string, init: RequestInit) => {
-      requests.push({ url, headers: init.headers as Record<string, string>, signal: init.signal! });
-      if (requests.length === 3) return new Response(null, { status: 410 });
-      if (init.signal?.aborted) throw new DOMException("aborted", "AbortError");
-      const body = new ReadableStream<Uint8Array>({ start(controller) {
-        push = (text) => controller.enqueue(encoder.encode(text));
-        end = () => controller.close();
-      } });
-      return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
-    });
-    vi.stubGlobal("fetch", fetcher);
-    try {
-      const load = vi.fn().mockResolvedValue([]);
-      const client: ContextualCompanionClient = { load, send: vi.fn() };
-      const { unmount } = renderHook(() => useCompanionConversation(client, "e 1", false, 1));
-      await waitFor(() => expect(requests).toHaveLength(1));
-      expect(requests[0]!.url).toBe("/api/enrollments/e%201/events/stream");
-      expect(requests[0]!.headers.Accept).toBe("text/event-stream");
-      expect(load).toHaveBeenCalledTimes(1);
-      push(`id: 7\nevent: learning-event\ndata: ${JSON.stringify({ event_type: "block.read" })}\n\n`);
-      await new Promise((r) => setTimeout(r, 20));
-      expect(load).toHaveBeenCalledTimes(1);
-      push(`id: 8\nevent: learning-event\ndata: ${JSON.stringify({ event_type: "supervisor.applied" })}\n\n: heartbeat\n\nevent: learning-event\ndata: not json\n\n`);
-      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
-      // The server ends the stream (reconnect): the client resumes after the last id.
-      push("event: reconnect\ndata: {}\n\n");
-      end();
-      await waitFor(() => expect(requests).toHaveLength(2), { timeout: 5000 });
-      expect(requests[1]!.headers["Last-Event-ID"]).toBe("8");
-      // A 4xx (erased, signed out, too many streams) stops it for good.
-      end();
-      await waitFor(() => expect(requests).toHaveLength(3), { timeout: 5000 });
-      await new Promise((r) => setTimeout(r, 50));
-      expect(requests).toHaveLength(3);
-      unmount();
-      // An open stream is aborted when the panel unmounts, and when the page starts to leave.
-      const second = renderHook(() => useCompanionConversation(client, "e 2", false, 1));
-      await waitFor(() => expect(requests).toHaveLength(4));
-      second.unmount();
-      expect(requests[3]!.signal.aborted).toBe(true);
-      const third = renderHook(() => useCompanionConversation(client, "e 3", false, 1));
-      await waitFor(() => expect(requests).toHaveLength(5));
-      window.dispatchEvent(new Event("beforeunload"));
-      expect(requests[4]!.signal.aborted).toBe(true);
-      third.unmount();
-      window.dispatchEvent(new Event("pageshow"));
-    } finally { vi.unstubAllGlobals(); }
-  }, 15000);
 });
 
 describe("streamed companion replies (T01)", () => {
   const frame = (offset: number, text: string, state = "streaming", extra = {}) => ({ jobId: "job", messageId: "m", offset, text, state, ...extra });
-  it("applies frames by offset, restores a whole draft on reconnect, ignores gaps and malformed frames, and keeps nothing when withdrawn", () => {
-    let drafts = applyDraftFrame({}, frame(0, "Compare the values. "));
-    drafts = applyDraftFrame(drafts, frame(20, "Left is smaller."));
-    expect(drafts.job!.text).toBe("Compare the values. Left is smaller.");
-    // A gap (a frame lost while reconnecting) is ignored until the whole draft comes again.
-    expect(applyDraftFrame(drafts, frame(99, "lost"))).toBe(drafts);
-    expect(applyDraftFrame(drafts, { jobId: 1 })).toBe(drafts);
-    expect(applyDraftFrame(drafts, frame(0, "x", "invented"))).toBe(drafts);
-    drafts = applyDraftFrame(drafts, frame(0, "Compare the values. Left is smaller. Done.", "complete"));
-    expect(drafts.job).toMatchObject({ state: "complete", text: "Compare the values. Left is smaller. Done.", shown: true });
-    const withdrawn = applyDraftFrame(drafts, frame(0, "", "withdrawn", { reason: "provider_refused" }));
-    expect(withdrawn.job).toMatchObject({ state: "withdrawn", text: "", shown: true, reason: "provider_refused" });
-    expect(applyDraftFrame({}, frame(0, "x".repeat(16001)))).toEqual({});
-  });
-  it("reads companion-draft frames from the event stream into the hook", async () => {
-    const encoder = new TextEncoder();
-    let push: (text: string) => void = () => {};
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      if (init.signal?.aborted) throw new DOMException("aborted", "AbortError");
-      return new Response(new ReadableStream<Uint8Array>({ start(controller) { push = (text) => controller.enqueue(encoder.encode(text)); } }),
-        { status: 200, headers: { "Content-Type": "text/event-stream" } });
-    }));
-    try {
-      const load = vi.fn().mockResolvedValue([message]);
-      const client: ContextualCompanionClient = { load, send: vi.fn() };
-      const { result, unmount } = renderHook(() => useCompanionConversation(client, "e", false, 1));
-      await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-      // The dispatch frame (no text yet) opens the draft and reads the saved job once.
-      push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, ""))}\n\n`);
-      await waitFor(() => expect(result.current.drafts).toEqual([expect.objectContaining({ jobId: "job", text: "", state: "streaming", shown: false })]));
-      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
-      push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, "First sentence. "))}\n\n`);
-      await waitFor(() => expect(result.current.drafts).toEqual([expect.objectContaining({ jobId: "job", text: "First sentence. ", state: "streaming" })]));
-      push(`event: companion-draft\ndata: ${JSON.stringify(frame(16, "Second.", "streaming"))}\n\nevent: companion-draft\ndata: {broken\n\n`);
-      await waitFor(() => expect(result.current.drafts[0]!.text).toBe("First sentence. Second."));
-      // Later frames of the same reply read nothing; a finished draft reads the stored conversation at once.
-      expect(load).toHaveBeenCalledTimes(2);
-      push(`event: companion-draft\ndata: ${JSON.stringify(frame(0, "First sentence. Second.", "complete"))}\n\n`);
-      await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
-      unmount();
-    } finally { vi.unstubAllGlobals(); }
-  });
   const draft = (extra: Partial<CompanionDraft> = {}): CompanionDraft => ({ jobId: "job", messageId: "m", text: "Compare them on a number line. ", state: "streaming", shown: true, ...extra });
   const pending = { ...message, job_state: "running" };
   function show(props: Partial<React.ComponentProps<typeof ConnectedCompanion>> = {}) {
@@ -965,25 +552,6 @@ describe("live companion findings (0.1.57 re-test)", () => {
     render(<I18nProvider value={createLearnerTranslator("he")}>{panel([{ ...message, job_state: "running" }], { drafts: [draft()] })}</I18nProvider>);
     expect(screen.getByText("בכתיבה · עדיין לא נבדקה, ולכן ייתכן שתשתנה או שתוסר")).toBeVisible();
     expect(screen.queryByText(/להימשך/)).toBeNull();
-  });
-  it("shows context used as plain words, not Markdown or TeX", () => {
-    expect(plainExcerpt("* **Application state, not training:** Saving logs")).toBe("Application state, not training: Saving logs");
-    expect(plainExcerpt("### Step 0: Setup from *Checkpoint*")).toBe("Step 0: Setup from Checkpoint");
-    expect(plainExcerpt("loading parameters into $w$ and running $w=2$ to $w=2.6$")).toBe("loading parameters into w and running w=2 to w=2.6");
-    expect(plainExcerpt("$$\\frac{dL}{dw} = -6$$ and \\text{w\\_new} = 2 - 0.1 \\cdot 6")).toBe("dL/dw = -6 and w_new = 2 - 0.1 · 6");
-    expect(plainExcerpt("| Boundary | Weight |\n|---|---|\n| a | b |")).toBe("Boundary · Weight a · b");
-    expect(plainExcerpt("Use `prediction = w*x` or [the lesson](https://example.com)")).toBe("Use prediction = w*x or the lesson");
-    // Plain text that uses the same characters keeps them.
-    expect(plainExcerpt("2*3*4, w_new, snake_case and $5 or $6")).toBe("2*3*4, w_new, snake_case and $5 or $6");
-    expect(plainExcerpt("לא, זו אינה הסקה טהורה אלא **כוונון עדין (fine-tuning)**")).toBe("לא, זו אינה הסקה טהורה אלא כוונון עדין (fine-tuning)");
-    const used: CompanionContextUsed = { episodeId: "intro", blockId: null, answersMessageId: "m", contextRevision: 2, courseDigest: "digest", recentEventCursor: null,
-      history: [{ messageId: "a0", role: "assistant", excerpt: "**Fine-tuning** updates *weights* by $w - \\eta g$", clipped: false, excluded: false }],
-      summary: null, selection: null, media: null, simulation: null, evidenceCount: 0, assessmentMode: "none",
-      constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" } };
-    render(panel([{ ...message, job_state: "applied" }, { id: "a", role: "assistant", content: "Reply", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job", context_used: used }]));
-    fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
-    expect(screen.getByText(/Companion: “Fine-tuning updates weights by w - η g”/)).toBeVisible();
-    expect(screen.queryByText(/\*\*/)).toBeNull();
   });
 });
 

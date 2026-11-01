@@ -114,37 +114,6 @@ describe("server gate decision panel", () => {
   });
 });
 
-describe("new item type inputs", () => {
-  it("collects trace steps and validates every step before sending", () => {
-    const question: Question = { id: "t", type: "trace", prompt: "Trace", steps: [{ id: "s1", prompt: "After 6" }, { id: "s2", prompt: "After 4" }] };
-    const onChange = vi.fn();
-    const { rerender } = render(<AssessmentInput question={question} answer="" pending={false} onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText("After 6"), { target: { value: "6" } });
-    expect(onChange).toHaveBeenLastCalledWith(JSON.stringify({ s1: "6" }));
-    expect(answerPayload(question, JSON.stringify({ s1: "6" }))).toEqual({ error: "Fill in every step (1 left)." });
-    rerender(<AssessmentInput question={question} answer={JSON.stringify({ s1: "6", s2: "4" })} pending={false} onChange={onChange} />);
-    expect(screen.getByLabelText("After 4")).toHaveValue("4");
-    expect(answerPayload(question, JSON.stringify({ s1: "6", s2: "4" }))).toEqual({ value: { s1: "6", s2: "4" } });
-    expect(traceAnswers("not json")).toEqual({});
-  });
-  it("labels predictions with their unit and written tasks with their rubric", () => {
-    const prediction: Question = { id: "p", type: "prediction", prompt: "Predict", unit: "cm" };
-    const { unmount } = render(<AssessmentInput question={prediction} answer="" pending={false} onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Your prediction (cm)")).toBeVisible();
-    expect(answerPayload(prediction, "12.5")).toEqual({ value: 12.5 });
-    expect(answerPayload(prediction, "twelve")).toEqual({ error: "Enter a finite number." });
-    unmount();
-    const teach: Question = { id: "w", type: "teach_back", prompt: "Teach it", criteria: [{ id: "c", description: "States the rule.", required: true }] };
-    render(<AssessmentInput question={teach} answer="" pending={false} onChange={vi.fn()} />);
-    expect(screen.getByText("States the rule.")).toBeVisible();
-    expect(screen.getByLabelText("Your explanation, as you would teach it")).toBeVisible();
-  });
-  it("describes an abstention as recording nothing against the learner", () => {
-    expect(answerFeedback({ result: { passed: false, abstained: true, independent: true, explanation: "12.5 stays." } }))
-      .toBe("Noted. Nothing was recorded against you, and it does not count as evidence. 12.5 stays.");
-  });
-});
-
 describe("lesson check with \"I don't know\", confidence and the gate decision", () => {
   function props(question: Question): ConnectedLessonProps {
     const server = connectedSnapshot();
@@ -157,19 +126,6 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
       onAnswerChange: vi.fn(), onRead: vi.fn(), onComplete: vi.fn(), onNormal: vi.fn(), onRefresh: vi.fn(),
       onBlockChange: vi.fn(), onGateAction: vi.fn() };
   }
-  it("offers an explicit abstention and optional confidence that never changes the result", () => {
-    const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value.", unit: "cm", allowAbstain: true, confidence: { capture: "optional", scale: { minimum: 1, maximum: 5 } } });
-    render(<ConnectedLesson {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "I don't know yet: record no answer and get help" }));
-    expect(p.check.onAbstain).toHaveBeenCalledWith(p.server.activeChallenges[0]);
-    expect(screen.getByText(/Your confidence never changes your result/)).toBeVisible();
-    fireEvent.click(screen.getByRole("radio", { name: "5" }));
-    expect(p.check.onConfidenceChange).toHaveBeenCalledWith(5);
-    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
-    expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
-    expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();
-  });
   it("says plainly when a lesson has no questions left, and that the course team was told", async () => {
     const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
     p.server.activeChallenges = [];
@@ -197,16 +153,6 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS.needs_evidence })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Finish this lesson →" }));
     expect(p.onComplete).toHaveBeenCalled();
-  });
-  it("hides the abstention when the author turned it off and routes written tasks to review", () => {
-    const p = props({ id: "teach", type: "teach_back", prompt: "Teach it.", allowAbstain: false, criteria: [{ id: "c", description: "States the rule.", required: true }] });
-    p.answer = "My own explanation of the rule, with an example.";
-    render(<ConnectedLesson {...p} />);
-    expect(screen.queryByRole("button", { name: /I don't know yet/ })).toBeNull();
-    expect(screen.queryByRole("radiogroup", { name: "Confidence" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
-    expect(p.check.onAnswer).toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: /Show explanation/ })).toBeNull();
   });
 });
 

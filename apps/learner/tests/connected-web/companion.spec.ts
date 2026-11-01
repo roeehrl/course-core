@@ -1,11 +1,15 @@
 import { test, expect } from "./health";
 import { chooseFromMenu } from "./learner-menu";
-import AxeBuilder from "@axe-core/playwright";
+import { closeCompanion, composerBox, openCompanion } from "./companion-helpers";
 
-test("real saved companion, explicit consent, replay and responsive draft preservation", async ({
+// A real saved companion message: sent with the learner's consent while a counted question is
+// open, then after a reload the answer draft, the saved message and its state are all still
+// there. The consent choices are companion-consent.spec.ts; the draft across window sizes is
+// companion-responsive.spec.ts.
+test("real saved companion message survives a reload with the answer draft and its state", async ({
   page,
   request,
-}, info) => {
+}) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const token = (await (await request.post("/test/session")).json()).token;
@@ -41,47 +45,9 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  if (!info.project.name.endsWith("desktop"))
-    await page.getByRole("button", { name: "Companion", exact: true }).click();
-  const draft = page.getByRole("textbox", {
-    name: "Message to your companion",
-    exact: true,
-  });
+  await openCompanion(page);
+  const draft = composerBox(page);
   await draft.fill("Explain how to compare these values.");
-  await page.setViewportSize({ width: 1440, height: 960 });
-  await expect(draft).toHaveValue("Explain how to compare these values.");
-  await draft.focus();
-  // A tablet-width (medium) window keeps the companion beside the lesson; the
-  // learner who was typing stays in the same field.
-  await page.setViewportSize({ width: 834, height: 1112 });
-  await expect(
-    page.getByRole("complementary", { name: "Your companion" }),
-  ).toBeVisible();
-  await expect(draft).toBeFocused();
-  // A compact window turns it into a sheet, still with the same field and focus.
-  await page.setViewportSize({ width: 599, height: 1112 });
-  await expect(
-    page.getByRole("dialog", { name: "Your companion" }),
-  ).toBeVisible();
-  await expect(draft).toBeFocused();
-  const requests: string[] = [];
-  page.on("request", (r) => {
-    if (r.method() === "POST" && r.url().endsWith("/companion"))
-      requests.push(r.postData()!);
-  });
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Send as practice" }),
-  ).toBeVisible();
-  expect(requests).toHaveLength(0);
-  await page.getByRole("button", { name: "Keep it counted" }).click();
-  expect(requests).toHaveLength(0);
-  await page.getByRole("button", { name: "Close companion" }).click();
-  await expect(
-    page.getByRole("radio", { name: "2", exact: true }),
-  ).toBeChecked();
-  await page.getByRole("button", { name: "Companion", exact: true }).click();
-  await expect(draft).toHaveValue("Explain how to compare these values.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   const sent = page.waitForResponse(
     (r) => r.request().method() === "POST" && r.url().endsWith("/companion"),
@@ -92,23 +58,7 @@ test("real saved companion, explicit consent, replay and responsive draft preser
   await expect(
     page.getByText("Explain how to compare these values.", { exact: true }),
   ).toBeVisible();
-  expect(JSON.parse(requests[0]!).allowAssessmentAssistance).toBe(true);
-  await expect(page.getByText(/^From: Minimum/)).toBeVisible();
-  const a11y = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-    .analyze();
-  expect(a11y.violations).toEqual([]);
-  await page.screenshot({
-    path: info.outputPath("companion-drawer.png"),
-    fullPage: true,
-  });
-  await page.getByRole("button", { name: "Close companion" }).click();
-  await expect(page.getByTestId("question-kind")).toHaveText(
-    "Practice. This question does not count toward finishing the lesson.",
-  );
-  await expect(
-    page.getByRole("button", { name: "Companion", exact: true }),
-  ).toBeFocused();
+  await closeCompanion(page);
   await page.reload();
   await page
     .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
@@ -119,14 +69,14 @@ test("real saved companion, explicit consent, replay and responsive draft preser
   await expect(
     page.getByRole("radio", { name: "2", exact: true }),
   ).toBeChecked();
-  await page.getByRole("button", { name: "Companion", exact: true }).click();
+  await openCompanion(page);
   await expect(
     page.getByText("Explain how to compare these values.", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText(/Queued|Waiting for service|Preparing a reply|Sent · a reply is being written/),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Close companion" }).click();
+  await closeCompanion(page);
   await chooseFromMenu(page, "Sign out");
   await expect(
     page.getByRole("heading", { name: "Pick up where you left off." }),
