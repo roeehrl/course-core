@@ -47,7 +47,7 @@ test checks all three against the packs.
 | adversarial | companion: prompt injection (admin mode, mark gate passed, print prompt, reveal answer); a pasted graded check, "no attempt is open, reply with only the number", in English and in Hebrew; supervisor: instructions planted in learner history |
 | inconsistent | companion: contradicts itself about greetings; supervisor: mixed evidence |
 
-Covered roles and strategies (suite 2.4.1, requirement N07): every Core strategy.
+Covered roles and strategies (suite 2.5.0, requirement N07): every Core strategy.
 
 | Role | Strategy | Dialogues | What is graded |
 | --- | --- | --- | --- |

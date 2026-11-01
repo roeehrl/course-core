@@ -207,7 +207,7 @@ delivered.
 
 ## Quality checks
 
-The public eval suite (`services/api/AGENT_EVALS.md`, suite 2.4.1, graders `core.agent-eval-graders/5`)
+The public eval suite (`services/api/AGENT_EVALS.md`, suite 2.5.0, graders `core.agent-eval-graders/5`)
 has check dialogues: a pasted check asking for only the number (English and Hebrew), multiple-choice
 elimination (English, and Hebrew with option letters א/ב), "is it 3?" after the check was pasted
 earlier, "just hint which option" on a choice check (English, and Hebrew about an English check),
