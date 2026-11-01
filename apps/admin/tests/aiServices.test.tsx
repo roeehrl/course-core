@@ -371,6 +371,157 @@ describe("page status", () => {
   });
 });
 
+/** Prices in force for the given model ids (one job each). */
+const pricedModels = (...ids: string[]) => ({
+  requirePricing: true,
+  settingsRevision: 0,
+  currency: "USD" as const,
+  builtInPrices: false as const,
+  models: ids.map((modelId) => {
+    const role = modelId.split(":")[1]!;
+    return {
+      modelId,
+      configured: true,
+      roles: [role],
+      inForce: null,
+      latestVersion: 1,
+      coverage: [{ role, priced: true }],
+      history: [],
+    };
+  }),
+});
+describe("page status with a draft beside the models that are on", () => {
+  // The pilot's case: both jobs on, the owner saves a new tutor model and it waits for a check.
+  const onSetup = () => setup(activeConfiguration, 3);
+  const waitingDraft: Draft = {
+    ...draft,
+    roles: draft.roles.map((r) =>
+      r.role === "companion" ? { ...r, remoteModel: "gemini-8.5-pro" } : r,
+    ),
+  };
+  const base = {
+    connections: { ...noConnections, connections: [connection] },
+    budgets: budgets("25000000", "2000000"),
+  };
+  it("stays on while a new model waits for a check, and lists the check as pending", () => {
+    const status = pageStatus({
+      ...base,
+      setup: onSetup(),
+      draft: waitingDraft,
+      pricing: pricedModels(
+        "connection-1:companion",
+        "connection-1:supervisor",
+      ),
+    });
+    expect(status.on).toBe(true);
+    expect(status.issues).toEqual([]);
+    expect(status.pending).toEqual([
+      { section: "check", kind: "check", count: 1 },
+    ]);
+    // The sections still say what the draft needs.
+    expect(status.sections.models.pill).toBe("waitingCheck");
+    expect(status.sections.check.pill).toBe("waitingCheck");
+  });
+  it("stays on while a draft model needs a price or is not turned on yet", () => {
+    const unpriced = pageStatus({
+      ...base,
+      setup: onSetup(),
+      draft: {
+        ...waitingDraft,
+        waitingForCheck: [],
+        roles: waitingDraft.roles.map((r) =>
+          r.role === "companion"
+            ? { ...r, modelId: "connection-1:companion-next", priced: false }
+            : r,
+        ),
+      },
+      pricing: pricedModels(
+        "connection-1:companion",
+        "connection-1:supervisor",
+      ),
+    });
+    expect(unpriced.on).toBe(true);
+    expect(unpriced.pending.map((i) => i.kind)).toEqual(["notOn", "prices"]);
+  });
+  it("is off when the models that are on lack something, whatever the draft says", () => {
+    // A needed job is not on: learners have no lesson planner.
+    const noPlanner = pageStatus({
+      ...base,
+      setup: setup(
+        {
+          ...activeConfiguration,
+          roles: { companion: activeConfiguration.roles.companion },
+        },
+        3,
+      ),
+      draft: waitingDraft,
+      pricing: pricedModels(
+        "connection-1:companion",
+        "connection-1:supervisor",
+      ),
+    });
+    expect(noPlanner.on).toBe(false);
+    expect(noPlanner.pending).toEqual([]);
+    expect(noPlanner.issues.map((i) => i.kind)).toEqual(["check"]);
+    // An active model without a price, a draft beside it.
+    const activeUnpriced = pageStatus({
+      ...base,
+      setup: onSetup(),
+      draft: waitingDraft,
+      pricing: pricedModels("connection-1:supervisor"),
+    });
+    expect(activeUnpriced.on).toBe(false);
+    // Spending is off: no AI help for anyone.
+    const noSpending = pageStatus({
+      ...base,
+      budgets: budgets(),
+      setup: onSetup(),
+      draft: waitingDraft,
+      pricing: pricedModels(
+        "connection-1:companion",
+        "connection-1:supervisor",
+      ),
+    });
+    expect(noSpending.on).toBe(false);
+    expect(noSpending.issues.map((i) => i.kind)).toEqual(["check", "spending"]);
+  });
+  it("says on in the header, with the waiting draft as a note, in English and Hebrew", async () => {
+    const port = fakePort({
+      setup: vi.fn().mockResolvedValue(onSetup()),
+      connections: vi
+        .fn()
+        .mockResolvedValue({ ...noConnections, connections: [connection] }),
+      currentDraft: vi.fn().mockResolvedValue(waitingDraft),
+      pricing: vi
+        .fn()
+        .mockResolvedValue(
+          pricedModels("connection-1:companion", "connection-1:supervisor"),
+        ),
+      budgets: vi.fn().mockResolvedValue(budgets("25000000", "2000000")),
+    });
+    const { unmount } = render(
+      <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+    );
+    const bar = await screen.findByText(t("status.on"));
+    const status = bar.closest(".ai-status-bar")!;
+    expect(status).toHaveClass("on");
+    expect(status).toHaveTextContent(t("status.pending"));
+    expect(status).toHaveTextContent(t("issue.check", { count: 1 }));
+    expect(status).not.toHaveTextContent(t("status.off"));
+    unmount();
+    render(
+      inHebrew(
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+      ),
+    );
+    const heBar = (await screen.findByText(he("status.on"))).closest(
+      ".ai-status-bar",
+    )!;
+    expect(heBar).toHaveTextContent(he("status.pending"));
+    expect(heBar).not.toHaveTextContent(he("status.off"));
+  });
+});
+
 describe("AI services page", () => {
   it("refuses an empty key without a request, explains a rejected key and keeps it, then saves the trimmed key", async () => {
     const port = fakePort();

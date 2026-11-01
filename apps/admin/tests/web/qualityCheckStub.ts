@@ -473,3 +473,249 @@ export async function stubJobsOn(
   });
   return requests;
 }
+
+/** A model list of the Google connection: `unavailable` names models Google answered 404 for. */
+function googleModels(models: string[], unavailable: string[] = []) {
+  return {
+    connectionId: "connection-1",
+    kind: "google",
+    models: models.map((remoteModel) => ({
+      remoteModel,
+      displayName: remoteModel,
+      description: "",
+      inputTokenLimit: 1048576,
+      outputTokenLimit: 65536,
+      methods: ["generateContent"],
+    })),
+    truncated: false,
+    unavailable: unavailable.map((remoteModel) => ({
+      remoteModel,
+      markedAt: now,
+    })),
+    roles: (
+      ["companion", "supervisor", "research", "reviewer", "media"] as const
+    ).map((role) => ({
+      role,
+      needed: role === "companion" || role === "supervisor",
+      method: "generateContent",
+      videoMethod: role === "media" ? "predictLongRunning" : null,
+      offered: true,
+      suggested: role === "media" ? null : "gemini-3.8-flash",
+    })),
+    generationPerformed: false,
+  };
+}
+
+/**
+ * The pilot's case: the learner tutor and the lesson planner are on (gemini-3.8-flash, checked,
+ * priced, with spending limits), and the owner saved a new tutor model (gemini-2.5-pro) that waits
+ * for a quality check. With `notFound`, that check stopped on its first conversation because
+ * Google answered 404 NOT_FOUND for the model, and the model list names it as unavailable.
+ */
+export async function stubDraftBesideOn(
+  page: Page,
+  options: { notFound?: boolean } = {},
+) {
+  const ws = "**/api/admin/workspaces/*";
+  const active = {
+    ...setup,
+    revision: 3,
+    configuration: {
+      ...setup.configuration,
+      registry: {
+        revision: "x",
+        models: onJobs.map((role) => ({
+          id: `connection-1:${role}`,
+          providerId: "connection-1",
+          remoteModel: "gemini-3.8-flash",
+        })),
+      },
+      roles: Object.fromEntries(
+        onJobs.map((role) => [role, { modelId: `connection-1:${role}` }]),
+      ),
+    },
+  };
+  const waiting = {
+    ...draft,
+    baseRevision: 3,
+    roles: onJobs.map((role) => ({
+      role,
+      modelId: `connection-1:${role}`,
+      connectionId: "connection-1",
+      remoteModel: role === "companion" ? "gemini-2.5-pro" : "gemini-3.8-flash",
+      mediaKind: null,
+      check: role === "companion" ? "needed" : "unchanged",
+      priced: true,
+      changed: role === "companion",
+    })),
+    waitingForCheck: ["companion"],
+  };
+  const notFoundCheck = {
+    ...failedCheck,
+    state: "error",
+    reason: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+    reasonDetail: {
+      role: "companion",
+      providerCode: "NOT_FOUND",
+      status: 404,
+      providerReason: "NOT_FOUND",
+    },
+    roles: ["companion"],
+    total: 9,
+    completed: 1,
+    chargedMicroUsd: 0,
+    outcome: [],
+  };
+  const price = (role: string) => ({
+    id: `00000000-0000-4000-8000-00000000010${role === "companion" ? 1 : 2}`,
+    version: 1,
+    status: "active",
+    currency: "USD",
+    inputMicroUsdPerMillionTokens: 750000,
+    outputMicroUsdPerMillionTokens: 3750000,
+    cachedInputMicroUsdPerMillionTokens: null,
+    microUsdPerRequest: null,
+    microUsdPerOutputSecond: null,
+    effectiveFrom: now,
+    sourceNote: "Synthetic test price",
+    createdAt: now,
+  });
+  await page.route(`${ws}/provider-setup`, (route) =>
+    route.fulfill({ json: active }),
+  );
+  await page.route(`${ws}/provider-setup/connections`, (route) =>
+    route.fulfill({
+      json: {
+        revision: 1,
+        connections: [
+          {
+            id: "connection-1",
+            kind: "google",
+            label: "Google",
+            name: "",
+            keyEnding: "7Q2c",
+            keyStored: true,
+            keyStatus: "working",
+            keyReason: null,
+            testedAt: now,
+            usedByRoles: [...onJobs],
+          },
+        ],
+        serviceKeys: [],
+        keyStorage: "encrypted_server_vault",
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/connections/*/models`, (route) =>
+    route.fulfill({
+      json: options.notFound
+        ? googleModels(
+            ["gemini-3.8-flash", "gemini-3.1-pro", "gemini-3.6-flash"],
+            ["gemini-2.5-pro"],
+          )
+        : googleModels([
+            "gemini-3.8-flash",
+            "gemini-3.1-pro",
+            "gemini-3.6-flash",
+            "gemini-2.5-pro",
+          ]),
+    }),
+  );
+  await page.route(`${ws}/provider-setup/drafts/current`, (route) =>
+    route.fulfill({ json: { draft: waiting } }),
+  );
+  await page.route(`${ws}/provider-pricing`, (route) =>
+    route.fulfill({
+      json: {
+        requirePricing: true,
+        settingsRevision: 0,
+        currency: "USD",
+        builtInPrices: false,
+        models: onJobs.map((role) => ({
+          modelId: `connection-1:${role}`,
+          configured: true,
+          roles: [role],
+          inForce: price(role),
+          latestVersion: 1,
+          coverage: [{ role, priced: true }],
+          history: [price(role)],
+        })),
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/budgets`, (route) =>
+    route.fulfill({
+      json: {
+        workspace: {
+          revision: 1,
+          limit_micro_usd: "25000000",
+          limit_tokens: "0",
+          used_micro_usd: "410000",
+          used_tokens: "0",
+        },
+        defaultEnrollment: {
+          revision: 1,
+          mode: "limit",
+          limit_micro_usd: "2000000",
+          limit_tokens: "1000000000",
+        },
+        enrollments: [],
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-evals`, (route) =>
+    route.fulfill({
+      json: {
+        suite: {
+          id: "core-public",
+          version: "2",
+          digest: "f".repeat(64),
+          dialogues: 18,
+          coverage: [{ role: "companion", dialogues: 9 }],
+        },
+        providerRevision: 3,
+        gatedAtActivation: true,
+        roles: onJobs.map((role, i) => ({
+          role,
+          strategy: `core.${role}`,
+          revisionDigest: String(i).repeat(64),
+          covered: true,
+          status: "passed",
+          grandfathered: false,
+          activatedBy: "passed",
+          evaluatedAt: approvedAt,
+        })),
+        results: [],
+        overrides: [],
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/quality-check`, (route) =>
+    route.fulfill({
+      json: {
+        target: "draft",
+        draftId,
+        roles: [
+          {
+            role: "companion",
+            remoteModel: "gemini-2.5-pro",
+            conversations: 9,
+            priced: true,
+            estimateMicroUsd: 54000,
+          },
+        ],
+        conversations: 9,
+        estimateMicroUsd: 54000,
+        reserveMicroUsd: 900000,
+        blocked: null,
+        latest: options.notFound ? notFoundCheck : null,
+        activeRoles: [],
+        onRoles: [],
+        onAll: null,
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/quality-check/*`, (route) =>
+    route.fulfill({ json: notFoundCheck }),
+  );
+}

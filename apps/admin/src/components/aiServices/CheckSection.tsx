@@ -690,7 +690,13 @@ function errorReason(
     case "PROVIDER_QUALITY_CHECK_SCOPE_CHANGED":
       return t("aiServices.err.forbidden");
     case "PROVIDER_GUIDE_MODEL_UNAVAILABLE":
-      return t("aiServices.err.modelUnavailable");
+      // The service answered "not found" for a job's model: the server stops offering that model.
+      return detail?.role
+        ? t("aiServices.check.run.modelUnavailable", {
+            service,
+            job: jobName(t, detail.role),
+          })
+        : t("aiServices.err.modelUnavailable");
     default:
       return (
         (reason && keyProblemText(text, reason, service)) ??

@@ -49,7 +49,9 @@ import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal
  *   report: Core regrades the answers and a pass lets the waiting models turn on.
  * - A provider fault (key, quota, network, a refused request) stops the run and records no result; the
  *   reason is kept, with the first faulting call's job, HTTP status and the provider's documented
- *   reason code (`reason_detail`), so a refusal is diagnosable without logs.
+ *   reason code (`reason_detail`), so a refusal is diagnosable without logs. A "not found" answer
+ *   for the job's model (NOT_FOUND) also records that model as unavailable for the connection
+ *   (`provider_unavailable_models`), so the model picker stops offering and suggesting it.
  *   A run past its deadline, or left behind by a stopped server, ends as an error and keeps what it
  *   may have spent charged.
  *
@@ -110,6 +112,8 @@ interface JudgeChoice { plan: MeaningJudgePlan; pricing: ModelPricing }
  * the provider's documented reason code (`ProviderError.reason`). Codes and numbers only.
  */
 interface FaultDetail { role: EvalRole; providerCode: string; status: number | null; providerReason: string | null }
+/** A job's model the provider answered "not found" for, recorded in `provider_unavailable_models`. */
+interface UnavailableModel { connectionId: string; remoteModel: string; status: number | null; providerReason: string | null }
 /** One practice conversation's stored detail, in the check's order (`position`). */
 interface DialogueRow { position: number; role: EvalRole; dialogueId: string; passed: boolean; detail: DialogueDetail }
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
@@ -532,7 +536,14 @@ export class ProviderQualityChecks {
       if (!(error instanceof StopRun)) throw error;
     }
     if (signal.aborted) return this.finish(actor, workspace, row.id, { state: "error", reason: "PROVIDER_QUALITY_CHECK_TIMEOUT" }, "not_started");
-    if (fault || !report) return this.finish(actor, workspace, row.id, { state: "error", reason: fault ?? "PROVIDER_QUALITY_CHECK_FAILED", detail }, "not_started");
+    if (fault || !report) {
+      // The provider said the job's model is not there (HTTP 404 NOT_FOUND) although its model list
+      // may still name it: record that, so the model picker stops offering it (provider-connections.ts).
+      const failed = detail as FaultDetail | null, model = failed?.providerCode === "NOT_FOUND" ? roleModels(configuration)[failed.role] : undefined;
+      const unavailable = model?.connectionId && model.remoteModel
+        ? { connectionId: model.connectionId, remoteModel: model.remoteModel, status: failed!.status, providerReason: failed!.providerReason } : null;
+      return this.finish(actor, workspace, row.id, { state: "error", reason: fault ?? "PROVIDER_QUALITY_CHECK_FAILED", detail, unavailable }, "not_started");
+    }
     // A job with no failure whose judge could not run on some conversation has no result: it is not
     // recorded (neither passed nor failed). Every other job is recorded as an uploaded report is:
     // Core regrades every answer against its own suite, with the judge's verdicts for the judged graders.
@@ -645,7 +656,8 @@ export class ProviderQualityChecks {
   }
 
   private async finish(actor: Actor, workspace: string, id: string,
-    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null; dialogues?: DialogueRow[] },
+    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null; dialogues?: DialogueRow[];
+      unavailable?: UnavailableModel | null },
     open: "not_started" | "uncertain") {
     await afterCommitTransaction(this.db, async (client) => {
       const done = await client.query(
@@ -654,11 +666,19 @@ export class ProviderQualityChecks {
       // Conversations never sent (stopped early) release their reservation.
       await this.closeOpenCalls(client, workspace, id, open);
       if (!done.rowCount) return;
+      const unavailable = result.unavailable;
+      if (unavailable)
+        await client.query(`INSERT INTO provider_unavailable_models(workspace_id,connection_id,remote_model,reason_code,provider_status,provider_reason,check_id)
+          VALUES($1,$2,$3,'PROVIDER_GUIDE_MODEL_UNAVAILABLE',$4,$5,$6) ON CONFLICT (workspace_id,connection_id,remote_model) DO UPDATE SET
+          provider_status=EXCLUDED.provider_status,provider_reason=EXCLUDED.provider_reason,check_id=EXCLUDED.check_id,marked_at=clock_timestamp()`,
+        [workspace, unavailable.connectionId, unavailable.remoteModel, unavailable.status !== null && unavailable.status >= 100 && unavailable.status <= 599 ? unavailable.status : null,
+          unavailable.providerReason?.slice(0, 128) ?? null, id]);
       for (const d of result.dialogues ?? [])
         await client.query(`INSERT INTO provider_quality_check_dialogues(check_id,workspace_id,position,role,dialogue_id,passed,detail)
           VALUES($1,$2,$3,$4,$5,$6,$7)`, [id, workspace, d.position, d.role, d.dialogueId, d.passed, JSON.stringify(d.detail)]);
       await appendEvent(client, { workspaceId: workspace, actorId: actor.id, actorKind: "staff", type: "provider.quality_check.finished",
-        payload: { checkId: id, state: result.state, reason: result.reason, ...(result.detail ? { reasonDetail: result.detail } : {}), chargedMicroUsd: await this.charged(client, id),
+        payload: { checkId: id, state: result.state, reason: result.reason, ...(result.detail ? { reasonDetail: result.detail } : {}),
+          ...(unavailable ? { unavailableModel: { connectionId: unavailable.connectionId, remoteModel: unavailable.remoteModel } } : {}), chargedMicroUsd: await this.charged(client, id),
           roles: (result.outcome ?? []).map((o) => ({ role: o.role, passed: o.passed })) },
         idempotencyKey: `provider.quality_check.finished:${id}` });
     });

@@ -415,6 +415,8 @@ export class ProviderConnections {
                key_reason=EXCLUDED.key_reason,tested_at=EXCLUDED.tested_at`,
             [workspace, id, keyEnding(input.key), test.status, test.reason],
           );
+          // Another key may reach models this one could not: what the old key was refused is forgotten.
+          await client.query("DELETE FROM provider_unavailable_models WHERE workspace_id=$1 AND connection_id=$2", [workspace, id]);
           await this.audit(client, actor, workspace, "provider.connection.key_replaced", {
             connectionId: id,
             tested: test.status === "working",
@@ -470,6 +472,7 @@ export class ProviderConnections {
             "DELETE FROM workspace_provider_connections WHERE workspace_id=$1 AND adapter_id=$2",
             [workspace, id],
           );
+          await client.query("DELETE FROM provider_unavailable_models WHERE workspace_id=$1 AND connection_id=$2", [workspace, id]);
           await this.audit(client, actor, workspace, "provider.connection.removed", {
             connectionId: id,
           });
@@ -502,8 +505,23 @@ export class ProviderConnections {
     );
   }
   /**
-   * The model list for one connection's stored key, cached for ten minutes per key. Used by the
-   * page and by drafts; a refusal throws its reason code and marks the connection.
+   * Models of one connection a quality check found missing at the provider (HTTP 404 NOT_FOUND,
+   * provider-quality-checks.ts), with when each was recorded.
+   */
+  private async unavailableModels(workspace: string, adapterId: string) {
+    return (
+      await this.db.query<{ remote_model: string; marked_at: Date }>(
+        "SELECT remote_model,marked_at FROM provider_unavailable_models WHERE workspace_id=$1 AND connection_id=$2 ORDER BY remote_model",
+        [workspace, adapterId],
+      )
+    ).rows;
+  }
+  /**
+   * The model list for one connection's stored key, cached for ten minutes per key, and the
+   * models of it a quality check found missing at the provider (`unavailable`). A cached list older
+   * than the latest such finding is read again from the provider's model list (metadata only, no
+   * generation). A fresh, complete list also forgets findings for models it no longer names. Used by
+   * the page and by drafts; a refusal throws its reason code and marks the connection.
    */
   async catalog(workspace: string, version: Version, adapterId: string) {
     const adapter = this.adapterOf(
@@ -516,9 +534,11 @@ export class ProviderConnections {
       throw new ApiError(409, "PROVIDER_METADATA_CREDENTIAL_MISSING");
     }
     const cacheKey = this.cacheKey(workspace, adapterId, key),
-      hit = this.catalogs.get(cacheKey);
-    if (hit && Date.now() - hit.at < CATALOG_TTL_MS)
-      return { adapter, catalog: hit.catalog };
+      hit = this.catalogs.get(cacheKey),
+      marks = await this.unavailableModels(workspace, adapterId),
+      lastMark = Math.max(0, ...marks.map((m) => m.marked_at.getTime()));
+    if (hit && Date.now() - hit.at < CATALOG_TTL_MS && hit.at > lastMark)
+      return { adapter, catalog: hit.catalog, unavailable: marks };
     let catalog: ModelCatalog;
     try {
       catalog = await boundedMetadataInspection(
@@ -542,14 +562,28 @@ export class ProviderConnections {
     await this.record(workspace, adapterId, "ok");
     if (this.catalogs.size > 200) this.catalogs.clear();
     this.catalogs.set(cacheKey, { at: Date.now(), catalog });
-    return { adapter, catalog };
+    let unavailable = marks;
+    const listed = new Set(catalog.models.map((m) => m.remoteModel)),
+      gone = marks.filter((m) => !listed.has(m.remote_model)).map((m) => m.remote_model);
+    if (!catalog.truncated && gone.length) {
+      await this.db.query(
+        "DELETE FROM provider_unavailable_models WHERE workspace_id=$1 AND connection_id=$2 AND remote_model=ANY($3::text[])",
+        [workspace, adapterId, gone],
+      );
+      unavailable = marks.filter((m) => listed.has(m.remote_model));
+    }
+    return { adapter, catalog, unavailable };
   }
   async models(actor: Actor, workspace: string, id: string) {
     await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
     const version = await this.providers.version(this.db, workspace);
     requireCondition(version, "PROVIDER_CONNECTION_NOT_FOUND", 404);
-    const { adapter, catalog } = await this.catalog(workspace, version, id),
-      methods = this.providers.metadataAdapters[adapter.kind]!.roleMethods;
+    const { adapter, catalog: listed, unavailable } = await this.catalog(workspace, version, id),
+      methods = this.providers.metadataAdapters[adapter.kind]!.roleMethods,
+      refused = new Set(unavailable.map((m) => m.remote_model)),
+      // A model the provider answered "not found" for is neither offered nor suggested, even while
+      // its model list still names it.
+      catalog = { ...listed, models: listed.models.filter((m) => !refused.has(m.remoteModel)) };
     return {
       connectionId: id,
       kind: adapter.kind,
@@ -562,6 +596,7 @@ export class ProviderConnections {
         methods: m.methods,
       })),
       truncated: catalog.truncated,
+      unavailable: unavailable.map((m) => ({ remoteModel: m.remote_model, markedAt: m.marked_at.toISOString() })),
       roles: SUGGESTION_ROLES.map((role) => {
         const method =
           role === "media"

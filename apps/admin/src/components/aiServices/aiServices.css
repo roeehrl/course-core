@@ -67,6 +67,15 @@
   margin-block-start: 4px;
   color: var(--ink);
 }
+/* A draft waiting for a check or a price while the models that are on keep working. */
+.ai-status-pending {
+  margin-block-start: 6px;
+  color: var(--ink);
+}
+.ai-status-pending p {
+  display: inline;
+  margin: 0;
+}
 .ai-toc ol {
   display: flex;
   flex-wrap: wrap;

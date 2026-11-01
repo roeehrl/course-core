@@ -196,6 +196,23 @@ export function AiServicesPage({
       target?.scrollIntoView({ block: "start" });
       target?.focus({ preventScroll: true });
     };
+  const issueList = (issues: Issue[]) => (
+    <ul className="ai-issues">
+      {issues.map((issue) => (
+        <li key={issue.kind}>
+          <a
+            href={`#${sectionAnchor(issue.section)}`}
+            onClick={jump(issue.section)}
+          >
+            {t(
+              ISSUE_TEXT[issue.kind],
+              "count" in issue ? { count: issue.count } : {},
+            )}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
   const unsaved = (Object.keys(dirty) as (SectionId | "advanced")[]).filter(
     (id) => dirty[id],
   );
@@ -239,28 +256,22 @@ export function AiServicesPage({
                     : t("aiServices.status.off")}
                 </strong>
                 {status.on ? (
-                  <p className="ai-status-detail">
-                    {t("aiServices.status.onDetail")}
-                    {status.sections.spending.pill === "noLearnerLimit" && (
-                      <> {t("aiServices.status.noLearnerLimit")}</>
+                  <>
+                    <p className="ai-status-detail">
+                      {t("aiServices.status.onDetail")}
+                      {status.sections.spending.pill === "noLearnerLimit" && (
+                        <> {t("aiServices.status.noLearnerLimit")}</>
+                      )}
+                    </p>
+                    {status.pending.length > 0 && (
+                      <div className="ai-status-pending">
+                        <p>{t("aiServices.status.pending")}</p>
+                        {issueList(status.pending)}
+                      </div>
                     )}
-                  </p>
+                  </>
                 ) : (
-                  <ul className="ai-issues">
-                    {status.issues.map((issue) => (
-                      <li key={issue.kind}>
-                        <a
-                          href={`#${sectionAnchor(issue.section)}`}
-                          onClick={jump(issue.section)}
-                        >
-                          {t(
-                            ISSUE_TEXT[issue.kind],
-                            "count" in issue ? { count: issue.count } : {},
-                          )}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
+                  issueList(status.issues)
                 )}
                 {unsaved.length > 0 && (
                   <p className="ai-unsaved">
