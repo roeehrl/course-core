@@ -18,10 +18,14 @@ const catalog = (locale: string, namespace: string) =>
     ),
   ) as Record<string, string>;
 
-async function openCheck(page: Page, locale: "en" | "he") {
+async function openCheck(
+  page: Page,
+  locale: "en" | "he",
+  { load = true }: { load?: boolean } = {},
+) {
   const nav = catalog(locale, "adminApp"),
     ai = catalog(locale, "aiServices");
-  await page.goto(`/admin/?locale=${locale}`);
+  if (load) await page.goto(`/admin/?locale=${locale}`);
   await (
     await workspaceNav(page)
   )
@@ -127,11 +131,12 @@ for (const locale of ["en", "he"] as const)
       ).violations.map((v) => `${v.id} ${v.nodes[0]?.target}`),
     ).toEqual([]);
 
-    // Still there after a reload: the page's latest check reads its stored details again.
+    // Still there after a reload: the page's latest check reads its stored details again. A
+    // reload opens the default section, so go back to AI services first.
     await page.reload();
-    const again = page
-      .getByRole("region", { name: ai["section.check"] })
-      .locator(".ai-dialogues");
+    const again = (
+      await openCheck(page, locale, { load: false })
+    ).section.locator(".ai-dialogues");
     await again.getByText(ai["check.details.title"]!, { exact: true }).click();
     await expect(
       again.locator('[data-dialogue="companion.adversarial.prompt-injection"]'),
