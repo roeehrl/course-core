@@ -109,25 +109,6 @@ html:has(.connected-host) body {
   font-weight: 650;
   border-radius: 8px;
 }
-.connected-layout {
-  max-width: 1344px;
-  margin: auto;
-  /* The bottom padding clears the floating companion button (50px high, 18px from the edge), so
-   * the last content scrolls fully above it. */
-  padding: 20px 32px calc(96px + env(safe-area-inset-bottom));
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 32px;
-}
-.connected-layout.with-companion {
-  grid-template-columns: minmax(0, 1fr) 320px;
-}
-.connected-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
 .connected-navigation {
   display: flex;
   align-items: center;
@@ -208,68 +189,12 @@ html:has(.connected-host) body {
   font-weight: 700;
   letter-spacing: 1.5px;
 }
-.connected-check {
-  background: #e8f6ed;
-  border: 1px solid #dce6e2;
-  border-radius: 20px;
-  padding: 26px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
 .connected-eyebrow {
   font-size: 10px !important;
   letter-spacing: 1.5px;
   font-weight: 700;
   color: #087b69 !important;
   margin: 0 0 7px !important;
-}
-.connected-check h2 {
-  font-size: 25px;
-  line-height: 1.3;
-  letter-spacing: -0.7px;
-  margin: 0 0 10px;
-}
-.connected-check p {
-  color: #526a70;
-  font-size: 15px;
-  margin: 0;
-}
-/* The result of the answer just checked, under the check's heading (ConnectedLesson.web.tsx). */
-.connected-check .connected-answer-feedback p {
-  margin: 14px 0 0;
-  padding: 14px 16px;
-  border: 1px solid #dce6e2;
-  border-inline-start: 4px solid #087b69;
-  border-radius: 12px;
-  background: #fff;
-  color: #183237;
-  font-size: 15px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-/* An answer to revisit: amber, like the notice it replaces (words carry the meaning). */
-.connected-check .connected-answer-feedback p[data-tone="warning"] {
-  border-inline-start-color: #80601e;
-  background: #fcf3df;
-}
-.connected-check-progress {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-  font-size: 12px;
-}
-.connected-check-progress li {
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-.connected-check-progress strong {
-  font-weight: 650;
-  color: #087b69;
 }
 .connected-complete {
   display: flex;
@@ -295,106 +220,6 @@ html:has(.connected-host) body {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-}
-.connected-companion-dock {
-  --dock-pad: 22px;
-  min-width: 0;
-  padding: var(--dock-pad);
-  border: 1px solid #dce6e2;
-  background: #fff;
-  border-radius: 20px;
-  outline: none;
-}
-.connected-companion-dock.is-panel {
-  position: sticky;
-  top: 20px;
-  max-height: calc(100dvh - 40px);
-  overflow-y: auto;
-  align-self: start;
-}
-.connected-companion-dock.is-drawer {
-  position: fixed;
-  inset: 0 0 0 auto;
-  width: min(480px, 100%);
-  height: 100dvh;
-  overflow-y: auto;
-  border-radius: 0;
-  z-index: 1002;
-  overscroll-behavior: contain;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
-}
-.connected-companion-dock[hidden] {
-  display: none !important;
-}
-/* The companion's title and its close button stay at the top of the pane or sheet while a long
- * conversation scrolls under them. */
-.connected-dock-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  position: sticky;
-  /* Flush with the pane's top edge: a sticky box stops at the scroll container's padding edge. */
-  top: calc(-1 * var(--dock-pad));
-  z-index: 2;
-  margin: calc(-1 * var(--dock-pad)) calc(-1 * var(--dock-pad)) 8px;
-  padding: var(--dock-pad) var(--dock-pad) 12px;
-  background: #fff;
-}
-.connected-dock-title h2 {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin: 0;
-  font-size: 20px;
-  letter-spacing: -0.5px;
-}
-.connected-dock-title h2 span {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 12px;
-  border-end-start-radius: 3px;
-  background: #f2edfb;
-  color: #7050a4;
-  width: 38px;
-  height: 38px;
-  font-size: 27px;
-}
-.connected-dock-title button {
-  border: 1px solid #dce6e2;
-  border-radius: 10px;
-  background: white;
-  min-width: 44px;
-  min-height: 44px;
-  color: #183237;
-}
-.connected-drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  background: #18323766;
-  z-index: 1001;
-}
-.connected-companion-trigger {
-  position: fixed;
-  bottom: calc(18px + env(safe-area-inset-bottom));
-  inset-inline-end: 20px;
-  z-index: 30;
-  background: #183237;
-  color: #fff;
-  border: 1px solid #183237;
-  border-radius: 30px;
-  min-height: 50px;
-  padding: 10px 20px;
-  font-weight: 650 !important;
-  box-shadow: 0 8px 28px #18323722;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.connected-companion-trigger span {
-  font-size: 24px;
-  color: #d4c2ed;
 }
 .connected-signin {
   max-width: 520px;
@@ -564,11 +389,6 @@ html:has(.connected-host) body {
 .connected-recovery p {
   margin: 0;
 }
-@media (max-width: 839px) {
-  .connected-layout {
-    padding-bottom: calc(110px + env(safe-area-inset-bottom));
-  }
-}
 @media (max-width: 599px) {
   .connected-header-inner {
     padding: 10px 16px;
@@ -589,13 +409,6 @@ html:has(.connected-host) body {
     padding: 8px;
     font-size: 12px;
   }
-  .connected-layout {
-    padding: 14px 18px calc(110px + env(safe-area-inset-bottom));
-    gap: 20px;
-  }
-  .connected-main {
-    gap: 16px;
-  }
   .connected-navigation {
     margin: -6px -8px 0;
   }
@@ -613,24 +426,9 @@ html:has(.connected-host) body {
   .connected-lesson-heading > p {
     font-size: 14px;
   }
-  .connected-reading-card,
-  .connected-check {
+  .connected-reading-card {
     padding: 20px;
     border-radius: 18px;
-  }
-  .connected-check h2 {
-    font-size: 24px;
-  }
-  .connected-check-progress li {
-    display: block;
-  }
-  .connected-check-progress strong {
-    display: block;
-    margin-top: 3px;
-  }
-  .connected-companion-trigger {
-    inset-inline-end: 16px;
-    bottom: calc(14px + env(safe-area-inset-bottom));
   }
   .connected-signin {
     padding: 24px;
@@ -646,10 +444,6 @@ html:has(.connected-host) body {
     animation: none !important;
     transition: none !important;
   }
-}
-
-.connected-companion-trigger[hidden] {
-  display: none !important;
 }
 
 .connected-code-editor {
@@ -1020,201 +814,6 @@ html:has(.connected-host) body {
     width: 100%;
   }
 }
-
-/* Compact mode also covers short landscape windows and larger text settings.
- * Keep the companion outside the independently scrollable learning pane. */
-.connected-host.is-compact {
-  height: 100dvh;
-  min-height: 0;
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  /* The page itself never scrolls on a compact screen: the learning pane does. A positioned,
-   * clipping host keeps absolutely positioned descendants (screen-reader-only text deep in a long
-   * lesson) from making the document taller than the screen, which let the window scroll to a
-   * blank page. `clip`, unlike `hidden`, is not a scroll container that focus could scroll. */
-  position: relative;
-  overflow: clip;
-}
-html:has(.connected-host.is-compact),
-html:has(.connected-host.is-compact) body {
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-.connected-host.is-compact .connected-header {
-  flex: 0 0 auto;
-}
-.connected-host.is-compact .connected-layout {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 12px;
-  overflow: hidden;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom));
-}
-.connected-host.is-compact .connected-main {
-  grid-row: 1;
-  min-height: 0;
-  /* Positioned so screen-reader-only text stays inside the pane's own scrolling. */
-  position: relative;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  scroll-padding-block: 16px;
-  padding-bottom: 24px;
-}
-/* A hairline where the learning pane ends and the companion row begins, so content scrolling out
- * of the pane reads as continuing, not as cut off by the companion button. */
-.connected-host.is-compact .connected-layout::before {
-  content: "";
-  grid-row: 2;
-  grid-column: 1;
-  align-self: start;
-  height: 1px;
-  margin-top: -6px;
-  background: #dce6e2;
-  pointer-events: none;
-}
-.connected-host.is-compact .connected-companion-trigger {
-  grid-row: 2;
-  grid-column: 1;
-  position: static;
-  justify-self: end;
-  min-height: 50px;
-  box-shadow: none;
-  margin: 0;
-}
-.connected-resources {
-  border: 1px solid #dce6e2;
-  border-radius: 16px;
-  background: #fbfdfc;
-  padding: 4px 18px;
-}
-.connected-resources > summary {
-  cursor: pointer;
-  min-height: 48px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 10px 0;
-}
-.connected-resources > summary span {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #526a70;
-}
-.connected-resources > summary strong {
-  font-size: 15px;
-}
-.connected-resources ul {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 16px;
-  display: grid;
-  gap: 18px;
-}
-.connected-resource {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding-top: 14px;
-  border-top: 1px solid #e6eeeb;
-}
-.connected-resource h3,
-.connected-resource h4 {
-  margin: 0;
-  font-size: 16px;
-}
-.connected-resource p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.connected-resource blockquote {
-  margin: 0;
-  padding: 8px 14px;
-  border-inline-start: 3px solid #087b69;
-  background: #f1f7f5;
-  font-size: 14px;
-}
-.connected-resource-label {
-  font-weight: 650;
-}
-.connected-resource-suggested {
-  justify-self: start;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: #e5f3ef;
-  color: #0b4f45;
-}
-.connected-resource-meta {
-  color: #526a70;
-}
-.connected-resource-meta a {
-  color: #087b69;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.connected-resource .connected-button {
-  justify-self: start;
-}
-.connected-data {
-  display: grid;
-  gap: 14px;
-}
-.connected-data .connected-button {
-  justify-self: start;
-}
-.connected-staff-views {
-  display: grid;
-  gap: 6px;
-  border-top: 1px solid #d8e4e0;
-  padding-top: 12px;
-  overflow-wrap: anywhere;
-}
-.connected-staff-views h3 {
-  margin: 0;
-  font-size: 16px;
-}
-.connected-staff-views ul {
-  margin: 0;
-  padding-inline-start: 20px;
-}
-/* The erase forms stack in reading order: explanation, label, field, label, field, then the action
-   at the start edge. (`.connected-review > div` lays a review's actions out in a row, and out-ranked
-   this, which put every label, field and button of the form on one line.) */
-.connected-review > .connected-data-erase {
-  display: grid;
-  gap: 8px;
-  padding: 8px 0 14px;
-}
-.connected-data-erase p {
-  margin: 0 0 6px;
-}
-.connected-data-erase label {
-  color: #183237;
-  font-weight: 600;
-}
-.connected-data-erase input,
-.connected-data-erase textarea {
-  min-height: 44px;
-  width: 100%;
-  max-width: 36rem;
-  border: 1px solid #b9cbc6;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font: inherit;
-  box-sizing: border-box;
-}
-.connected-data-erase input + .connected-button {
-  justify-self: start;
-  margin-top: 6px;
-}
 .connected-danger {
   background: #8b413d;
 }
@@ -1243,48 +842,6 @@ html:has(.connected-host.is-compact) body {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-}
-.connected-rubric ul,
-.connected-reviews ul {
-  margin: 6px 0 0;
-  padding-inline-start: 20px;
-  display: grid;
-  gap: 6px;
-}
-.connected-rubric,
-.connected-reviews {
-  font-size: 14px;
-  line-height: 1.6;
-}
-.connected-reviews {
-  border: 1px solid #dce6e2;
-  border-radius: 14px;
-  padding: 14px 18px;
-}
-.connected-reviews h3 {
-  margin: 0 0 6px;
-  font-size: 15px;
-}
-.connected-reviews q {
-  color: #087b69;
-}
-/* A reply or appeal box under a reviewed answer: label, full-width text, then the action. */
-.connected-reply {
-  display: grid;
-  gap: 6px;
-  margin-top: 8px;
-}
-.connected-reply textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 84px;
-  padding: 8px 10px;
-  font: inherit;
-  border: 1px solid #b9cbc4;
-  border-radius: 10px;
-}
-.connected-reply button {
-  justify-self: start;
 }
 .connected-retention ul {
   list-style: none;
@@ -1320,17 +877,6 @@ html:has(.connected-host.is-compact) body {
   align-items: center;
   gap: 6px;
   min-block-size: 44px;
-}
-.connected-changes ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 14px;
-}
-.connected-changes li p {
-  margin: 4px 0;
-  font-size: 14px;
 }
 .connected-form {
   display: flex;
@@ -1466,205 +1012,11 @@ html:has(.connected-host.is-compact) body {
   color: #526a70;
   font-size: 13px;
 }
-/* Server gate decision: status, reason, criteria and the next steps the server allows. */
-.connected-gate {
-  background: #fff;
-  border: 1px solid #cdddce;
-  border-inline-start: 6px solid #087b69;
-  border-radius: 16px;
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-.connected-gate[data-status="needs_help"] { border-inline-start-color: #a7631b; }
-.connected-gate[data-status="under_review"] { border-inline-start-color: #7050a4; }
-.connected-gate[data-status="closed_with_gaps"] { border-inline-start-color: #8a4b3a; }
-.connected-gate-head .connected-eyebrow { margin-bottom: 4px !important; }
-.connected-gate-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  font-size: 19px;
-  line-height: 1.35;
-  color: #183237;
-}
-.connected-gate-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex: none;
-  background: #087b69;
-}
-.connected-gate[data-status="needs_help"] .connected-gate-dot { background: #a7631b; }
-.connected-gate[data-status="under_review"] .connected-gate-dot { background: #7050a4; }
-.connected-gate[data-status="closed_with_gaps"] .connected-gate-dot { background: #8a4b3a; }
-.connected-gate-reason {
-  margin: 0 !important;
-  color: #183237 !important;
-  font-size: 15px !important;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-.connected-gate-criteria {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-}
-.connected-gate-criteria li {
-  display: grid;
-  grid-template-columns: minmax(118px, max-content) 1fr;
-  gap: 4px 14px;
-  font-size: 14px;
-  line-height: 1.5;
-  padding: 8px 0;
-  border-top: 1px solid #e3ece8;
-}
-.connected-gate-criteria strong { color: #087b69; font-weight: 650; }
-.connected-gate-criteria li[data-state="unmet"] strong { color: #8a4b3a; }
-.connected-gate-criteria li[data-state="pending"] strong { color: #7050a4; }
-.connected-gate-criteria span { color: #3c5358; overflow-wrap: anywhere; }
-.connected-gate-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.connected-gate-action {
-  min-height: 48px;
-  max-width: 100%;
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 2px solid #dce6e2;
-  background: #fff;
-  color: #087b69;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-  text-align: start;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.connected-gate-action.primary { background: #087b69; border-color: #087b69; color: #fff; }
-.connected-gate-action:hover:not(:disabled) { background: #e8f6ed; }
-.connected-gate-action.primary:hover:not(:disabled) { background: #066a5a; }
-.connected-gate-action:focus-visible { outline: 3px solid #183237; outline-offset: 2px; }
-.connected-gate-action:disabled { border-color: #e4ebe8; color: #4f6863; cursor: not-allowed; }
-.connected-gate-action.primary:disabled { background: #dfe9e5; border-color: #dfe9e5; color: #3f5a55; }
-.connected-gate-wait { margin: 0 !important; font-size: 14px !important; color: #7050a4 !important; }
-.connected-gate-review-form { display: grid; gap: 8px; min-width: 0; }
-.connected-gate-review-form label { font-size: 14px; font-weight: 600; color: #183237; }
-.connected-gate-review-form textarea {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 88px;
-  padding: 10px 12px;
-  border: 2px solid #dce6e2;
-  border-radius: 12px;
-  font: inherit;
-  font-size: 15px;
-  color: #183237;
-  background: #fff;
-  resize: vertical;
-}
-.connected-gate-review-form textarea:focus-visible { outline: 3px solid #183237; outline-offset: 2px; }
-.connected-gate-review {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #f3f0fa;
-  color: #183237;
-  font-size: 14px;
-  line-height: 1.5;
-  min-width: 0;
-}
-.connected-gate-review[data-state="upheld"] { background: #f6efe9; }
-.connected-gate-review[data-state="exception_granted"] { background: #e8f6ed; }
-.connected-gate-review p { margin: 0 !important; font-size: 14px !important; color: #183237 !important; overflow-wrap: anywhere; }
-.connected-gate-review-note { font-style: italic; }
-.connected-gate-review .connected-gate-action { justify-self: start; }
-.connected-answer-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-.connected-input-hint { margin: 0 !important; font-size: 13px !important; color: #526a70 !important; line-height: 1.5; }
 .connected-trace {
   margin: 0;
   padding-inline-start: 22px;
   display: grid;
   gap: 12px;
-}
-.connected-confidence {
-  border: 1px solid #dce6e2;
-  border-radius: 14px;
-  padding: 12px 16px 16px;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-.connected-confidence legend { font-size: 14px; font-weight: 600; color: #183237; padding: 0 6px; }
-@media (max-width: 599px) {
-  .connected-gate { padding: 16px; border-inline-start-width: 5px; }
-  .connected-gate-criteria li { grid-template-columns: 1fr; }
-  .connected-gate-actions, .connected-answer-actions { flex-direction: column; align-items: stretch; }
-  .connected-gate-action { width: 100%; }
-  .connected-gate-review .connected-gate-action { justify-self: stretch; }
-}
-.connected-confidence-scale {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.connected-confidence-scale label {
-  position: relative;
-  min-width: 48px;
-  min-height: 48px;
-  flex: 1 1 48px;
-  max-width: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #dce6e2;
-  border-radius: 12px;
-  background: #fff;
-  color: #183237;
-  font-weight: 600;
-  cursor: pointer;
-}
-.connected-confidence-scale label.selected { border-color: #087b69; background: #e8f6ed; color: #087b69; }
-.connected-confidence-scale label:focus-within { outline: 3px solid #183237; outline-offset: 2px; }
-.connected-confidence-scale input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-/* Window classes (see src/domain/windowClass.ts): compact < 600, medium 600–839,
- * expanded >= 840. Medium windows keep a narrower, collapsible companion pane. */
-.connected-host.window-medium .connected-layout {
-  padding-inline-start: 20px;
-  padding-inline-end: 20px;
-  gap: 20px;
-}
-.connected-host.window-medium .connected-layout.with-companion {
-  grid-template-columns: minmax(0, 1fr) clamp(240px, 36vw, 300px);
-}
-.connected-host.window-medium .connected-companion-dock.is-panel {
-  --dock-pad: 16px;
-}
-.connected-dock-title button {
-  min-width: 44px;
-  min-height: 44px;
 }
 
 /* "Your course": the secondary menu for profile, record and account settings. */
@@ -1676,97 +1028,6 @@ html:has(.connected-host.is-compact) body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-/* The learner's notifications (Notifications.web.tsx): a bell beside the course menu. */
-.connected-notifications {
-  position: relative;
-}
-.connected-header .connected-bell {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid #dce6e2;
-  background: #fff;
-  color: #183237;
-  border-radius: 999px;
-}
-.connected-bell-count {
-  position: absolute;
-  top: -4px;
-  inset-inline-end: -4px;
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #b4412f;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-}
-.connected-notifications-panel {
-  position: absolute;
-  inset-inline-end: 0;
-  top: calc(100% + 8px);
-  z-index: 1000;
-  width: min(340px, calc(100vw - 32px));
-  max-height: calc(100dvh - 96px);
-  overflow-y: auto;
-  background: #fff;
-  border: 1px solid #dce6e2;
-  border-radius: 16px;
-  box-shadow: 0 16px 40px #18323726;
-  padding: 10px;
-}
-.connected-notifications-panel[hidden] {
-  display: none !important;
-}
-.connected-notifications-heading {
-  margin: 6px 10px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #087b69;
-}
-.connected-notifications-note {
-  margin: 4px 10px 8px;
-  font-size: 13px;
-  color: #526a70;
-}
-.connected-notifications-panel ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.connected-notifications-panel li {
-  padding: 8px 10px;
-  border-bottom: 1px solid #eef3f1;
-}
-.connected-notifications-panel li p {
-  margin: 0 0 4px;
-  font-size: 14px;
-  color: #183237;
-}
-.connected-notifications-panel li small {
-  display: block;
-  color: #526a70;
-  font-size: 12px;
-}
-.connected-header .connected-notifications-panel button {
-  padding-inline: 0;
-  color: #087b69;
-}
-@media (max-width: 600px) {
-  /* On a phone the list spans the screen under the header rather than hanging off the bell. */
-  .connected-notifications-panel {
-    position: fixed;
-    top: 72px;
-    inset-inline: 16px;
-    width: auto;
-  }
 }
 .connected-header .connected-menu-toggle {
   border: 1px solid #dce6e2;
@@ -1906,94 +1167,6 @@ html:has(.connected-host.is-compact) body {
   white-space: nowrap;
   border: 0;
 }
-
-/* Connection and saved-request state. Words carry the meaning; colour only
- * supports it. */
-/* The connection status is a snackbar: it floats at the bottom of the window (on phones, just
- * above the companion button's row) and never pushes the page down. While it shows,
- * ConnectionStatus sets --connected-status-offset (its height plus a gap): the sticky answer
- * actions stick that much higher, above it, as a floating button rises for a snackbar (content
- * they would cover scrolls up with them), and the column gains that much room at its end, so
- * every part of it can still be scrolled clear. */
-.connected-connection {
-  position: fixed;
-  z-index: 40;
-  inset-block-end: calc(
-    16px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px)
-  );
-  inset-inline-start: 24px;
-  width: min(560px, calc(100vw - 48px));
-  box-shadow: 0 14px 40px #18323733;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 10px 14px;
-  font-size: 13px;
-  line-height: 1.45;
-  border: 2px solid #b48a2c;
-  border-radius: 14px;
-  background: #fcf3df;
-  color: #183237;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .connected-connection {
-    animation: connected-connection-in 0.18s ease-out;
-  }
-}
-/* It slides in without fading, so its text keeps full contrast from the first frame (an
- * accessibility check run while it faded in measured its text at 4.1:1). */
-@keyframes connected-connection-in {
-  from {
-    transform: translateY(8px);
-  }
-}
-.connected-host.is-compact .connected-connection {
-  inset-inline: 16px;
-  width: auto;
-}
-/* Phones: the companion button has its own row at the bottom; the status sits just above it. */
-.connected-host.is-compact:has(.connected-companion-trigger:not([hidden]))
-  .connected-connection {
-  inset-block-end: calc(
-    82px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px)
-  );
-}
-/* Phones: while the status shows, the learning pane ends above it (its height plus the gap), so
- * the status never covers the lesson or its buttons at any scroll position; the pane's content
- * stays where it is, and a pane scrolled to its end stays at its end (connectivity.web.tsx). */
-.connected-host.is-compact .connected-main {
-  margin-bottom: var(--connected-status-offset, 0px);
-}
-/* Beside the companion pane (tablets and desktops) the page itself scrolls, so the status is a
- * band across the window's end, opaque like the header: the window's visible part ends above it.
- * The learning column gains its height at its end, so all of it can be scrolled clear of the band,
- * and focus scrolled into view stops above it (scroll-padding-bottom below). */
-.connected-host:not(.is-compact) .connected-connection {
-  inset-inline: 0;
-  inset-block-end: 0;
-  width: auto;
-  border-width: 2px 0 0;
-  border-radius: 0;
-  box-shadow: 0 -8px 24px #18323714;
-  padding-block: 10px calc(10px + env(safe-area-inset-bottom));
-  /* The text lines up with the learning column's start (the layout is 1344px wide at most). */
-  padding-inline: max(32px, calc((100vw - 1344px) / 2 + 32px));
-}
-.connected-host.window-medium:not(.is-compact) .connected-connection {
-  padding-inline: 20px;
-}
-.connected-host:not(.is-compact) .connected-connection p {
-  flex: 1 1 320px;
-}
-.connected-connection.is-offline {
-  border-style: dashed;
-}
-.connected-connection p {
-  margin: 0;
-  flex: 1 1 220px;
-}
-.connected-connection-retry,
 .connected-draft-conflict-actions button {
   justify-self: start;
   min-height: 44px;
@@ -2036,26 +1209,6 @@ html:has(.connected-host.is-compact) body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-/* The answer actions stay in view while the learner works through a check,
- * above the on-screen keyboard (see useKeyboardInset) and the safe area. */
-.connected-answer-actions {
-  position: sticky;
-  /* Above the on-screen keyboard and above the connection status while it shows. */
-  bottom: calc(
-    var(--keyboard-inset, 0px) + 8px + var(--connected-status-offset, 0px)
-  );
-  z-index: 10;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px;
-  margin: 0 -10px;
-  border-radius: 16px;
-  /* Opaque, the check's own colour: lesson text scrolling under the bar never shows through it
-   * (a translucent bar let it show through on phones), and the buttons keep their contrast. */
-  background: #e8f6ed;
-  box-shadow: 0 -6px 16px #18323712;
 }
 
 /* Disclosures: every <details> in the learner shows exactly one indicator, a
@@ -2129,13 +1282,9 @@ html:has(.connected-host.is-compact) body {
     outline-offset: 3px;
   }
   .connected-step,
-  .connected-connection,
   .connected-draft-conflict,
   .connected-menu-panel,
-  .connected-companion-dock,
-  .connected-reading-card,
-  .connected-check,
-  .connected-answer-actions {
+  .connected-reading-card {
     border: 1px solid CanvasText !important;
   }
   .connected-step.is-current,
@@ -2149,95 +1298,6 @@ html:has(.connected-host.is-compact) body {
   }
 }
 
-/* The header (and its "Your course" menu) stays reachable without scrolling
- * away from the learner's place. Scrolled-to and focused content stops below it. */
-.connected-host:not(.is-compact) .connected-header {
-  position: sticky;
-  top: 0;
-  z-index: 900;
-  /* Opaque, so header text keeps its contrast over scrolled content. */
-  background: #fff;
-}
-html:has(.connected-host:not(.is-compact)) {
-  scroll-padding-top: 96px;
-}
-/* The wide layout scrolls the page itself. Expo's web template sets
- * body { overflow: hidden } for apps that scroll inside a <ScrollView>; on the
- * body that value is propagated to the viewport, so the mouse wheel and
- * trackpad could not scroll the page at all (only focus and script could).
- * Open dialogs still lock scrolling with an inline body style, which wins. */
-html:has(.connected-host:not(.is-compact)) body {
-  overflow: visible;
-}
-/* The companion pane sticks 20px below the header at its measured height
- * (--connected-header-height, set by ConnectedHost), and is never taller than the window below the
- * header (less the connection status while it shows), so its title and close button stay in view.
- * Its sticky range is the layout's row: the page's room at its end belongs to the learning column,
- * not to the layout's padding, so near the end of the page the row's end never pushes the pane up
- * under the header (the 0.1.58 qualification saw it 50 to 75 px under it). */
-.connected-host:not(.is-compact) .connected-companion-dock.is-panel {
-  top: calc(var(--connected-header-height, 75px) + 20px);
-  max-height: calc(
-    100dvh - var(--connected-header-height, 75px) - 40px -
-      var(--connected-status-offset, 0px)
-  );
-}
-.connected-host:not(.is-compact) .connected-layout {
-  padding-bottom: 0;
-}
-.connected-host:not(.is-compact) .connected-main {
-  padding-bottom: calc(
-    48px + env(safe-area-inset-bottom) + var(--connected-status-offset, 0px)
-  );
-}
-/* Beside the lesson the show-companion button is in the header (CompanionDock.web.tsx), never
- * floating over the lesson. */
-.connected-header-companion {
-  display: contents;
-}
-.connected-header .connected-companion-trigger.is-in-header {
-  position: static;
-  min-height: 44px;
-  padding: 8px 16px;
-  border: 1px solid #dce6e2;
-  border-radius: 999px;
-  background: #fff;
-  color: #183237;
-  box-shadow: none;
-  font-size: 13px;
-  white-space: nowrap;
-  gap: 8px;
-}
-.connected-header .connected-companion-trigger.is-in-header span {
-  font-size: 16px;
-  color: #7050a4;
-}
-/* Keyboard focus scrolled into view stops above the sticky answer actions (and the connection
- * status under them while it shows). */
-.connected-host.is-compact .connected-main {
-  scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
-}
-html:has(.connected-host:not(.is-compact)) {
-  scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
-}
-
-/* A closed course's remaining read-only questions, above the companion. */
-.connected-closed-help {
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border: 1px solid #dce6e2;
-  border-inline-start: 4px solid #087b69;
-  border-radius: 10px;
-  background: #f8f8f2;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.connected-closed-help.is-exhausted {
-  border-inline-start-color: #80601e;
-  border-inline-start-style: dashed;
-  background: #fcf3df;
-}
-
 .connected-placement-retake {
   margin: 8px 0 0;
   display: grid;
@@ -2246,138 +1306,9 @@ html:has(.connected-host:not(.is-compact)) {
 .connected-placement-retake p {
   margin: 0;
 }
-
-/* "Unverified": generated content, labelled where the learner reads it. */
-.connected-unverified {
-  font-size: 12px;
-}
-.connected-unverified > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px dashed #80601e;
-  border-radius: 999px;
-  background: #fcf3df;
-  color: #5c4514;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  list-style: none;
-}
-.connected-unverified > summary::-webkit-details-marker {
-  display: none;
-}
-.connected-unverified[open] > summary {
-  border-style: solid;
-}
-.connected-unverified-body {
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-inline-start: 3px solid #80601e;
-  background: #fffaf0;
-  border-radius: 8px;
-  max-width: 560px;
-}
-.connected-unverified-body p {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: #183237;
-}
 .connected-part-top {
   flex-wrap: wrap;
   gap: 8px;
-}
-.connected-unverified > summary::marker {
-  content: "";
-}
-.connected-unverified-body,
-.connected-unverified-body p {
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.connected-agents {
-  display: grid;
-  gap: 12px;
-  overflow-wrap: anywhere;
-}
-.connected-agents-form,
-.connected-agents-token {
-  display: grid;
-  gap: 10px;
-  padding: 8px 0 14px;
-}
-.connected-agents-token {
-  border: 1px solid #b9cbc6;
-  border-radius: 12px;
-  padding: 12px;
-  background: #f3f8f6;
-}
-.connected-agents-form input[type="text"],
-.connected-agents-form input:not([type]),
-.connected-agents-form select,
-.connected-agents-token input {
-  min-height: 44px;
-  border: 1px solid #b9cbc6;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font: inherit;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-.connected-agents-token input {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 14px;
-}
-.connected-agents-form fieldset {
-  display: grid;
-  gap: 8px;
-  border: 0;
-  margin: 0;
-  padding: 0;
-}
-.connected-agents-form legend {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.connected-agents-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.connected-agents .connected-button {
-  justify-self: start;
-}
-.connected-agents-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-}
-.connected-agents-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-top: 1px solid #d8e4e0;
-  padding-top: 10px;
-}
-.connected-agents-scope {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-height: 44px;
-}
-.connected-agents-scope input {
-  width: 22px;
-  height: 22px;
-  margin-top: 2px;
-  flex: none;
 }
 /* Interactive activities (declarative controls or a sandboxed frame). */
 .connected-activities {
@@ -2601,27 +1532,6 @@ html:has(.connected-host:not(.is-compact)) {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
-.connected-study ul {
-  margin: 0;
-  padding-inline-start: 22px;
-  line-height: 1.6;
-}
-.connected-study h3 {
-  margin: 12px 0 4px;
-  font-size: 16px;
-}
-.connected-study-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 8px;
-}
-/* "Your course was updated" (course version moves). */
-.connected-version-notice ul {
-  margin: 0 0 12px;
-  padding-inline-start: 22px;
-  line-height: 1.6;
-}
 
 /* Internationalization: see docs/i18n.md. Directional glyphs and icons mirror in
    right-to-left locales. */
@@ -2636,9 +1546,7 @@ html:has(.connected-host:not(.is-compact)) {
 .connected-part-top:lang(he),
 .connected-eyebrow:lang(he),
 .connected-sources p:lang(he),
-.connected-resources > summary span:lang(he),
-.connected-menu-heading:lang(he),
-.connected-unverified > summary:lang(he) {
+.connected-menu-heading:lang(he) {
   letter-spacing: 0;
   text-transform: none;
 }
@@ -2651,8 +1559,6 @@ html:has(.connected-host:not(.is-compact)) {
 .connected-brand:lang(he),
 .connected-lesson-heading h1:lang(he),
 .connected-reading-card h2:lang(he),
-.connected-check h2:lang(he),
-.connected-dock-title h2:lang(he),
 .connected-signin h1:lang(he),
 .connected-library h1:lang(he),
 .connected-activity h2:lang(he),
@@ -2674,113 +1580,6 @@ html:has(.connected-host:not(.is-compact)) {
   min-height: 36px;
   max-width: 100%;
   font: inherit;
-}
-
-/* Generated additions waiting for a safe point in the lesson (pendingChanges.web.tsx). */
-.connected-pending {
-  margin: 12px 0;
-  padding: 14px 16px;
-  border: 1px solid #80601e;
-  border-inline-start-width: 4px;
-  border-radius: 12px;
-  background: #fffaf0;
-  color: #183237;
-}
-.connected-pending h2 {
-  margin: 0 0 6px;
-  font-size: 16px;
-}
-.connected-pending ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 12px;
-}
-.connected-pending p {
-  margin: 0 0 6px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-.connected-pending-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* A generated interactive component beside its text alternative (GeneratedComponent.web.tsx). */
-.connected-component {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid #c9d6d3;
-  border-radius: 12px;
-  background: #ffffff;
-  display: grid;
-  gap: 10px;
-}
-.connected-component h3 {
-  margin: 0;
-  font-size: 16px;
-}
-.connected-component p {
-  margin: 0;
-}
-.connected-component fieldset {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-}
-.connected-component legend {
-  padding: 0 0 6px;
-  font-weight: 600;
-  font-size: 14px;
-}
-.connected-component-control {
-  display: grid;
-  gap: 4px;
-  font-size: 14px;
-}
-.connected-component-control input {
-  min-height: 44px;
-  padding: 6px 10px;
-  border: 1px solid #6b7893;
-  border-radius: 8px;
-  font: inherit;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-.connected-component-results {
-  margin: 0;
-  display: grid;
-  gap: 6px;
-}
-.connected-component-results div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.connected-component-results dt {
-  font-weight: 600;
-}
-.connected-component-results dd {
-  margin: 0;
-}
-.connected-detour {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin: 0 0 16px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1px dashed #9fb5ae;
-}
-.connected-detour p {
-  margin: 0;
-  flex: 1 1 260px;
 }
 .connected-placement-evidence {
   margin: 4px 0 12px;
@@ -2926,25 +1725,6 @@ html:has(.connected-host:not(.is-compact)) {
   }
 }
 
-/* Formulas (MathFormula.web.tsx): MathML drawn from the parsed TeX. */
-.math-formula math {
-  color: inherit;
-}
-.math-formula mi.is-bold {
-  font-weight: 700;
-}
-.math-formula mtable {
-  border-spacing: 0.8em 0.25em;
-}
-.math-formula mtd.is-start {
-  text-align: left;
-}
-.math-formula.is-display:focus-visible {
-  outline: 3px solid #183237;
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
 /* Home: one card per course (connected/library.ts), with a newer version stated on it. */
 .connected-course-card {
   gap: 16px;
@@ -3000,78 +1780,6 @@ html:has(.connected-host:not(.is-compact)) {
   flex-wrap: wrap;
   font-size: 14px;
 }
-
-/* Markdown tables (MarkdownTable.web.tsx): a table wider than its column scrolls sideways, and a
- * soft shadow at the edge shows there is more (the white covers scroll with the content). */
-.markdown-table {
-  background:
-    linear-gradient(to right, #fff 30%, rgb(255 255 255 / 0)) left center / 28px 100% no-repeat local,
-    linear-gradient(to left, #fff 30%, rgb(255 255 255 / 0)) right center / 28px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, rgb(24 50 55 / 0.35), rgb(24 50 55 / 0)) left center / 16px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, rgb(24 50 55 / 0.35), rgb(24 50 55 / 0)) right center / 16px 100% no-repeat scroll,
-    #fff;
-}
-/* A table or display formula wider than its space (the companion pane is narrow) scrolls
- * sideways. Then it shows a scrollbar that does not fade out and a line saying it scrolls, not
- * only a shadow at its edge (MarkdownTable.web.tsx, MathFormula.web.tsx). */
-.markdown-wide {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-}
-.markdown-table.is-overflowing::-webkit-scrollbar,
-.math-formula.is-overflowing::-webkit-scrollbar {
-  height: 8px;
-}
-.markdown-table.is-overflowing::-webkit-scrollbar-track,
-.math-formula.is-overflowing::-webkit-scrollbar-track {
-  background: #edf2ef;
-  border-radius: 4px;
-}
-.markdown-table.is-overflowing::-webkit-scrollbar-thumb,
-.math-formula.is-overflowing::-webkit-scrollbar-thumb {
-  background: #7d9893;
-  border-radius: 4px;
-}
-@supports not selector(::-webkit-scrollbar) {
-  .markdown-table.is-overflowing,
-  .math-formula.is-overflowing {
-    scrollbar-color: #7d9893 #edf2ef;
-  }
-}
-.markdown-scroll-hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #526a70;
-}
-/* An arrow toward the hidden side: the end of the table's or formula's own direction, which can
- * differ from the reply's (an English table in a Hebrew reply hides its end on the right). */
-.markdown-scroll-hint::after {
-  content: "";
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-style: solid;
-  border-color: #526a70;
-  border-width: 0 2px 2px 0;
-}
-.markdown-scroll-hint[data-toward="right"]::after {
-  transform: rotate(-45deg);
-}
-.markdown-scroll-hint[data-toward="left"]::after {
-  transform: rotate(135deg);
-}
-.markdown-table:focus-visible {
-  outline: 3px solid #183237;
-  outline-offset: 2px;
-}
 /* Lesson header: where the lesson sits in the course, and (for staff) a small tools slot. */
 .connected-lesson-topline {
   display: flex;
@@ -3111,35 +1819,6 @@ html:has(.connected-host:not(.is-compact)) {
   font-size: 14px;
   color: #526a70;
 }
-/* The check before every part is read: how many questions follow, and when they open. */
-.connected-check.is-waiting {
-  background: #fff;
-  border-style: dashed;
-  padding: 20px 26px;
-}
-.connected-check.is-waiting h2 {
-  font-size: 19px;
-  margin-bottom: 6px;
-}
-/* Whether the open question counts, said before the question. */
-.connected-question-kind {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid #dce6e2;
-  border-inline-start-width: 4px;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #183237 !important;
-  background: #fff;
-}
-.connected-question-kind.is-counted {
-  border-inline-start-color: #087b69;
-}
-.connected-question-kind.is-practice {
-  border-inline-start-color: #80601e;
-  background: #fcf3df;
-}
 /* The account button: initials and name, so it reads as the account. */
 .connected-header .connected-menu-toggle {
   display: inline-flex;
@@ -3172,21 +1851,4 @@ html:has(.connected-host:not(.is-compact)) {
   .connected-menu-name {
     display: none;
   }
-  .connected-check.is-waiting {
-    padding: 18px 20px;
-  }
-}
-/* A lesson that ran out of questions: said plainly, with whether the course team was told. */
-.connected-check .connected-questions-exhausted {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  border: 1px solid #dce6e2;
-  border-inline-start: 4px solid #80601e;
-  border-radius: 12px;
-  background: #fcf3df;
-}
-.connected-check .connected-questions-exhausted p {
-  color: #183237;
 }

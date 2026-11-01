@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import postcss, { type Rule } from "postcss";
 import { describe, expect, it } from "vitest";
@@ -24,9 +24,11 @@ describe("disabled buttons", () => {
   });
 
   it("are never faded with opacity, and every label colour a disabled rule sets keeps 4.5:1", () => {
-    const css = readFileSync(join(__dirname, "../src/connected/connected.css"), "utf8");
+    // Every stylesheet of the app: rules moved out of connected.css stay covered.
+    const css = stylesheets(join(__dirname, "../src")).map((file) => readFileSync(file, "utf8"));
+    expect(css.length).toBeGreaterThan(1);
     const faded: string[] = [], labels = new Set<string>();
-    postcss.parse(css).walkRules((rule: Rule) => {
+    for (const sheet of css) postcss.parse(sheet).walkRules((rule: Rule) => {
       if (!rule.selector.includes(":disabled")) return;
       rule.walkDecls("opacity", (decl) => { if (Number(decl.value) < 1) faded.push(`${rule.selector} { opacity: ${decl.value} }`); });
       rule.walkDecls("color", (decl) => { if (/^#[0-9a-f]{6}$/i.test(decl.value)) labels.add(decl.value.toLowerCase()); });
@@ -42,3 +44,11 @@ describe("disabled buttons", () => {
     expect(contrast("#6b3936", "#efe2e0")).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+function stylesheets(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return stylesheets(path);
+    return entry.name.endsWith(".css") ? [path] : [];
+  });
+}

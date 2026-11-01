@@ -87,7 +87,7 @@ const displayStyle: React.CSSProperties = {
 // i18n-ignore: CSS font stack, not text
 const MATH_FONTS = "math, 'STIX Two Math', 'Cambria Math', 'Latin Modern Math', 'Times New Roman', serif";
 // MathML elements take no inline style in every DOM (jsdom has none); the wrapper sets the font,
-// and connected.css styles the few classes below.
+// and styles/markdown.css styles the few classes below.
 const fontStyle = (display: boolean): React.CSSProperties => ({ fontFamily: MATH_FONTS, fontSize: display ? "1.12em" : "1.06em" });
 
 const COMBINING: Partial<Record<string, string>> = { hat: "\u0302", bar: "\u0304", tilde: "\u0303", vec: "\u20d7", dot: "\u0307", ddot: "\u0308" };

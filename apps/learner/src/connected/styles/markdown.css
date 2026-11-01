@@ -1,0 +1,93 @@
+/* Markdown in lessons and the companion: tables and display formulas that scroll sideways
+ * (MarkdownTable.web.tsx, MathFormula.web.tsx). Moved from connected.css. */
+
+/* Formulas (MathFormula.web.tsx): MathML drawn from the parsed TeX. */
+.math-formula math {
+  color: inherit;
+}
+.math-formula mi.is-bold {
+  font-weight: 700;
+}
+.math-formula mtable {
+  border-spacing: 0.8em 0.25em;
+}
+.math-formula mtd.is-start {
+  text-align: left;
+}
+.math-formula.is-display:focus-visible {
+  outline: 3px solid #183237;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Markdown tables (MarkdownTable.web.tsx): a table wider than its column scrolls sideways, and a
+ * soft shadow at the edge shows there is more (the white covers scroll with the content). */
+.markdown-table {
+  background:
+    linear-gradient(to right, #fff 30%, rgb(255 255 255 / 0)) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, #fff 30%, rgb(255 255 255 / 0)) right center / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(24 50 55 / 0.35), rgb(24 50 55 / 0)) left center / 16px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(24 50 55 / 0.35), rgb(24 50 55 / 0)) right center / 16px 100% no-repeat scroll,
+    #fff;
+}
+/* A table or display formula wider than its space (the companion pane is narrow) scrolls
+ * sideways. Then it shows a scrollbar that does not fade out and a line saying it scrolls, not
+ * only a shadow at its edge (MarkdownTable.web.tsx, MathFormula.web.tsx). */
+.markdown-wide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar,
+.math-formula.is-overflowing::-webkit-scrollbar {
+  height: 8px;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar-track,
+.math-formula.is-overflowing::-webkit-scrollbar-track {
+  background: #edf2ef;
+  border-radius: 4px;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar-thumb,
+.math-formula.is-overflowing::-webkit-scrollbar-thumb {
+  background: #7d9893;
+  border-radius: 4px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .markdown-table.is-overflowing,
+  .math-formula.is-overflowing {
+    scrollbar-color: #7d9893 #edf2ef;
+  }
+}
+.markdown-scroll-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #526a70;
+}
+/* An arrow toward the hidden side: the end of the table's or formula's own direction, which can
+ * differ from the reply's (an English table in a Hebrew reply hides its end on the right). */
+.markdown-scroll-hint::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-style: solid;
+  border-color: #526a70;
+  border-width: 0 2px 2px 0;
+}
+.markdown-scroll-hint[data-toward="right"]::after {
+  transform: rotate(-45deg);
+}
+.markdown-scroll-hint[data-toward="left"]::after {
+  transform: rotate(135deg);
+}
+.markdown-table:focus-visible {
+  outline: 3px solid #183237;
+  outline-offset: 2px;
+}

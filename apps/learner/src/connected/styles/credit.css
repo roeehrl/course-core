@@ -1,0 +1,21 @@
+/* Credit honesty: whether the open question counts (connected/credit). Moved from connected.css. */
+
+/* Whether the open question counts, said before the question. */
+.connected-question-kind {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #dce6e2;
+  border-inline-start-width: 4px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #183237 !important;
+  background: #fff;
+}
+.connected-question-kind.is-counted {
+  border-inline-start-color: #087b69;
+}
+.connected-question-kind.is-practice {
+  border-inline-start-color: #80601e;
+  background: #fcf3df;
+}

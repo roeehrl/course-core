@@ -59,7 +59,7 @@ describe("icons", () => {
   });
 
   it("keeps strokes and fills visible in forced colours, and flips the mirrored set by direction", () => {
-    const css = readFileSync(join(__dirname, "../src/connected/ui/primitives.css"), "utf8");
+    const css = readFileSync(join(__dirname, "../src/connected/styles/primitives.css"), "utf8");
     const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
     expect(forced).toMatch(/\.cc-ui-icon \{\s*color: CanvasText;/);
     expect(forced).toMatch(/\.cc-ui-icon-practice circle \{\s*stroke: CanvasText;/);

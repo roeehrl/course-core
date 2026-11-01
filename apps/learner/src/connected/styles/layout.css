@@ -1,0 +1,413 @@
+/* Layout of the connected learner: the learning column and the companion beside it or as a sheet,
+ * the sticky header, scroll padding, window classes and the connection status. Moved from
+ * connected.css; tokens in tokens.css. */
+
+.connected-layout {
+  max-width: 1344px;
+  margin: auto;
+  /* The bottom padding clears the floating companion button (50px high, 18px from the edge), so
+   * the last content scrolls fully above it. */
+  padding: 20px 32px calc(96px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+}
+.connected-layout.with-companion {
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+.connected-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.connected-companion-dock {
+  --dock-pad: 22px;
+  min-width: 0;
+  padding: var(--dock-pad);
+  border: 1px solid #dce6e2;
+  background: #fff;
+  border-radius: 20px;
+  outline: none;
+}
+.connected-companion-dock.is-panel {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  align-self: start;
+}
+.connected-companion-dock.is-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(480px, 100%);
+  height: 100dvh;
+  overflow-y: auto;
+  border-radius: 0;
+  z-index: 1002;
+  overscroll-behavior: contain;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+.connected-companion-dock[hidden] {
+  display: none !important;
+}
+/* The companion's title and its close button stay at the top of the pane or sheet while a long
+ * conversation scrolls under them. */
+.connected-dock-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: sticky;
+  /* Flush with the pane's top edge: a sticky box stops at the scroll container's padding edge. */
+  top: calc(-1 * var(--dock-pad));
+  z-index: 2;
+  margin: calc(-1 * var(--dock-pad)) calc(-1 * var(--dock-pad)) 8px;
+  padding: var(--dock-pad) var(--dock-pad) 12px;
+  background: #fff;
+}
+.connected-dock-title h2 {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+.connected-dock-title h2 span {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 12px;
+  border-end-start-radius: 3px;
+  background: #f2edfb;
+  color: #7050a4;
+  width: 38px;
+  height: 38px;
+  font-size: 27px;
+}
+.connected-dock-title button {
+  border: 1px solid #dce6e2;
+  border-radius: 10px;
+  background: white;
+  min-width: 44px;
+  min-height: 44px;
+  color: #183237;
+}
+.connected-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #18323766;
+  z-index: 1001;
+}
+.connected-companion-trigger {
+  position: fixed;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  inset-inline-end: 20px;
+  z-index: 30;
+  background: #183237;
+  color: #fff;
+  border: 1px solid #183237;
+  border-radius: 30px;
+  min-height: 50px;
+  padding: 10px 20px;
+  font-weight: 650 !important;
+  box-shadow: 0 8px 28px #18323722;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.connected-companion-trigger span {
+  font-size: 24px;
+  color: #d4c2ed;
+}
+@media (max-width: 839px) {
+  .connected-layout {
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 599px) {
+  .connected-layout {
+    padding: 14px 18px calc(110px + env(safe-area-inset-bottom));
+    gap: 20px;
+  }
+  .connected-main {
+    gap: 16px;
+  }
+  .connected-companion-trigger {
+    inset-inline-end: 16px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+}
+
+.connected-companion-trigger[hidden] {
+  display: none !important;
+}
+
+/* Compact mode also covers short landscape windows and larger text settings.
+ * Keep the companion outside the independently scrollable learning pane. */
+.connected-host.is-compact {
+  height: 100dvh;
+  min-height: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* The page itself never scrolls on a compact screen: the learning pane does. A positioned,
+   * clipping host keeps absolutely positioned descendants (screen-reader-only text deep in a long
+   * lesson) from making the document taller than the screen, which let the window scroll to a
+   * blank page. `clip`, unlike `hidden`, is not a scroll container that focus could scroll. */
+  position: relative;
+  overflow: clip;
+}
+html:has(.connected-host.is-compact),
+html:has(.connected-host.is-compact) body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+.connected-host.is-compact .connected-header {
+  flex: 0 0 auto;
+}
+.connected-host.is-compact .connected-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  overflow: hidden;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+.connected-host.is-compact .connected-main {
+  grid-row: 1;
+  min-height: 0;
+  /* Positioned so screen-reader-only text stays inside the pane's own scrolling. */
+  position: relative;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 16px;
+  padding-bottom: 24px;
+}
+/* A hairline where the learning pane ends and the companion row begins, so content scrolling out
+ * of the pane reads as continuing, not as cut off by the companion button. */
+.connected-host.is-compact .connected-layout::before {
+  content: "";
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
+  height: 1px;
+  margin-top: -6px;
+  background: #dce6e2;
+  pointer-events: none;
+}
+.connected-host.is-compact .connected-companion-trigger {
+  grid-row: 2;
+  grid-column: 1;
+  position: static;
+  justify-self: end;
+  min-height: 50px;
+  box-shadow: none;
+  margin: 0;
+}
+
+/* Window classes (see src/domain/windowClass.ts): compact < 600, medium 600–839,
+ * expanded >= 840. Medium windows keep a narrower, collapsible companion pane. */
+.connected-host.window-medium .connected-layout {
+  padding-inline-start: 20px;
+  padding-inline-end: 20px;
+  gap: 20px;
+}
+.connected-host.window-medium .connected-layout.with-companion {
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 36vw, 300px);
+}
+.connected-host.window-medium .connected-companion-dock.is-panel {
+  --dock-pad: 16px;
+}
+.connected-dock-title button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Connection and saved-request state. Words carry the meaning; colour only
+ * supports it. */
+/* The connection status is a snackbar: it floats at the bottom of the window (on phones, just
+ * above the companion button's row) and never pushes the page down. While it shows,
+ * ConnectionStatus sets --connected-status-offset (its height plus a gap): the sticky answer
+ * actions stick that much higher, above it, as a floating button rises for a snackbar (content
+ * they would cover scrolls up with them), and the column gains that much room at its end, so
+ * every part of it can still be scrolled clear. */
+.connected-connection {
+  position: fixed;
+  z-index: 40;
+  inset-block-end: calc(
+    16px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px)
+  );
+  inset-inline-start: 24px;
+  width: min(560px, calc(100vw - 48px));
+  box-shadow: 0 14px 40px #18323733;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 2px solid #b48a2c;
+  border-radius: 14px;
+  background: #fcf3df;
+  color: #183237;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .connected-connection {
+    animation: connected-connection-in 0.18s ease-out;
+  }
+}
+/* It slides in without fading, so its text keeps full contrast from the first frame (an
+ * accessibility check run while it faded in measured its text at 4.1:1). */
+@keyframes connected-connection-in {
+  from {
+    transform: translateY(8px);
+  }
+}
+.connected-host.is-compact .connected-connection {
+  inset-inline: 16px;
+  width: auto;
+}
+/* Phones: the companion button has its own row at the bottom; the status sits just above it. */
+.connected-host.is-compact:has(.connected-companion-trigger:not([hidden]))
+  .connected-connection {
+  inset-block-end: calc(
+    82px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px)
+  );
+}
+/* Phones: while the status shows, the learning pane ends above it (its height plus the gap), so
+ * the status never covers the lesson or its buttons at any scroll position; the pane's content
+ * stays where it is, and a pane scrolled to its end stays at its end (connectivity.web.tsx). */
+.connected-host.is-compact .connected-main {
+  margin-bottom: var(--connected-status-offset, 0px);
+}
+/* Beside the companion pane (tablets and desktops) the page itself scrolls, so the status is a
+ * band across the window's end, opaque like the header: the window's visible part ends above it.
+ * The learning column gains its height at its end, so all of it can be scrolled clear of the band,
+ * and focus scrolled into view stops above it (scroll-padding-bottom below). */
+.connected-host:not(.is-compact) .connected-connection {
+  inset-inline: 0;
+  inset-block-end: 0;
+  width: auto;
+  border-width: 2px 0 0;
+  border-radius: 0;
+  box-shadow: 0 -8px 24px #18323714;
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom));
+  /* The text lines up with the learning column's start (the layout is 1344px wide at most). */
+  padding-inline: max(32px, calc((100vw - 1344px) / 2 + 32px));
+}
+.connected-host.window-medium:not(.is-compact) .connected-connection {
+  padding-inline: 20px;
+}
+.connected-host:not(.is-compact) .connected-connection p {
+  flex: 1 1 320px;
+}
+.connected-connection.is-offline {
+  border-style: dashed;
+}
+.connected-connection p {
+  margin: 0;
+  flex: 1 1 220px;
+}
+.connected-connection-retry {
+  justify-self: start;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid #087b69;
+  background: #fff;
+  color: #087b69;
+  font-weight: 650;
+}
+@media (forced-colors: active) {
+  .connected-connection,
+  .connected-companion-dock {
+    border: 1px solid CanvasText !important;
+  }
+}
+
+/* The header (and its "Your course" menu) stays reachable without scrolling
+ * away from the learner's place. Scrolled-to and focused content stops below it. */
+.connected-host:not(.is-compact) .connected-header {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  /* Opaque, so header text keeps its contrast over scrolled content. */
+  background: #fff;
+}
+html:has(.connected-host:not(.is-compact)) {
+  scroll-padding-top: 96px;
+}
+/* The wide layout scrolls the page itself. Expo's web template sets
+ * body { overflow: hidden } for apps that scroll inside a <ScrollView>; on the
+ * body that value is propagated to the viewport, so the mouse wheel and
+ * trackpad could not scroll the page at all (only focus and script could).
+ * Open dialogs still lock scrolling with an inline body style, which wins. */
+html:has(.connected-host:not(.is-compact)) body {
+  overflow: visible;
+}
+/* The companion pane sticks 20px below the header at its measured height
+ * (--connected-header-height, set by ConnectedHost), and is never taller than the window below the
+ * header (less the connection status while it shows), so its title and close button stay in view.
+ * Its sticky range is the layout's row: the page's room at its end belongs to the learning column,
+ * not to the layout's padding, so near the end of the page the row's end never pushes the pane up
+ * under the header (the 0.1.58 qualification saw it 50 to 75 px under it). */
+.connected-host:not(.is-compact) .connected-companion-dock.is-panel {
+  top: calc(var(--connected-header-height, 75px) + 20px);
+  max-height: calc(
+    100dvh - var(--connected-header-height, 75px) - 40px -
+      var(--connected-status-offset, 0px)
+  );
+}
+.connected-host:not(.is-compact) .connected-layout {
+  padding-bottom: 0;
+}
+.connected-host:not(.is-compact) .connected-main {
+  padding-bottom: calc(
+    48px + env(safe-area-inset-bottom) + var(--connected-status-offset, 0px)
+  );
+}
+/* Beside the lesson the show-companion button is in the header (CompanionDock.web.tsx), never
+ * floating over the lesson. */
+.connected-header-companion {
+  display: contents;
+}
+.connected-header .connected-companion-trigger.is-in-header {
+  position: static;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid #dce6e2;
+  border-radius: 999px;
+  background: #fff;
+  color: #183237;
+  box-shadow: none;
+  font-size: 13px;
+  white-space: nowrap;
+  gap: 8px;
+}
+.connected-header .connected-companion-trigger.is-in-header span {
+  font-size: 16px;
+  color: #7050a4;
+}
+/* Keyboard focus scrolled into view stops above the sticky answer actions (and the connection
+ * status under them while it shows). */
+.connected-host.is-compact .connected-main {
+  scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
+}
+html:has(.connected-host:not(.is-compact)) {
+  scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
+}
+.connected-dock-title h2:lang(he) {
+  letter-spacing: 0;
+  text-transform: none;
+}
+/* The companion is a size container: its own rules can follow the panel's width
+ * (`@container cc-companion (max-width: 479px)`). */
+#connected-companion {
+  container: cc-companion / inline-size;
+}

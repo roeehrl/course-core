@@ -83,7 +83,7 @@ import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import { courseContentAttributes } from "./domain/contentLanguage";
 import { library } from "./connected/library";
-import "./connected/connected.css";
+import "./connected/styles";
 import { codeSubmissionError } from "./connected/code";
 import { answerFeedback, answerFeedbackTone } from "./connected/answerFeedback";
 import { readingAnchor, restoreReadingAnchor, type ReadingAnchor } from "./connected/readingAnchor";

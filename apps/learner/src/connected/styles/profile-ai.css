@@ -1,0 +1,204 @@
+/* AI on the profile and record: connected agents, your data, studies, reviews and personal
+ * changes. Moved from connected.css. */
+
+.connected-data {
+  display: grid;
+  gap: 14px;
+}
+.connected-data .connected-button {
+  justify-self: start;
+}
+.connected-staff-views {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #d8e4e0;
+  padding-top: 12px;
+  overflow-wrap: anywhere;
+}
+.connected-staff-views h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.connected-staff-views ul {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+/* The erase forms stack in reading order: explanation, label, field, label, field, then the action
+   at the start edge. (`.connected-review > div` lays a review's actions out in a row, and out-ranked
+   this, which put every label, field and button of the form on one line.) */
+.connected-review > .connected-data-erase {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 14px;
+}
+.connected-data-erase p {
+  margin: 0 0 6px;
+}
+.connected-data-erase label {
+  color: #183237;
+  font-weight: 600;
+}
+.connected-data-erase input,
+.connected-data-erase textarea {
+  min-height: 44px;
+  width: 100%;
+  max-width: 36rem;
+  border: 1px solid #b9cbc6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  box-sizing: border-box;
+}
+.connected-data-erase input + .connected-button {
+  justify-self: start;
+  margin-top: 6px;
+}
+.connected-rubric ul,
+.connected-reviews ul {
+  margin: 6px 0 0;
+  padding-inline-start: 20px;
+  display: grid;
+  gap: 6px;
+}
+.connected-rubric,
+.connected-reviews {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.connected-reviews {
+  border: 1px solid #dce6e2;
+  border-radius: 14px;
+  padding: 14px 18px;
+}
+.connected-reviews h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.connected-reviews q {
+  color: #087b69;
+}
+/* A reply or appeal box under a reviewed answer: label, full-width text, then the action. */
+.connected-reply {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.connected-reply textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 84px;
+  padding: 8px 10px;
+  font: inherit;
+  border: 1px solid #b9cbc4;
+  border-radius: 10px;
+}
+.connected-reply button {
+  justify-self: start;
+}
+.connected-changes ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+.connected-changes li p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.connected-agents {
+  display: grid;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.connected-agents-form,
+.connected-agents-token {
+  display: grid;
+  gap: 10px;
+  padding: 8px 0 14px;
+}
+.connected-agents-token {
+  border: 1px solid #b9cbc6;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f3f8f6;
+}
+.connected-agents-form input[type="text"],
+.connected-agents-form input:not([type]),
+.connected-agents-form select,
+.connected-agents-token input {
+  min-height: 44px;
+  border: 1px solid #b9cbc6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.connected-agents-token input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+.connected-agents-form fieldset {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.connected-agents-form legend {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.connected-agents-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connected-agents .connected-button {
+  justify-self: start;
+}
+.connected-agents-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.connected-agents-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid #d8e4e0;
+  padding-top: 10px;
+}
+.connected-agents-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+}
+.connected-agents-scope input {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  flex: none;
+}
+.connected-study ul {
+  margin: 0;
+  padding-inline-start: 22px;
+  line-height: 1.6;
+}
+.connected-study h3 {
+  margin: 12px 0 4px;
+  font-size: 16px;
+}
+.connected-study-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}

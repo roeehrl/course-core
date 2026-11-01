@@ -1,0 +1,19 @@
+/* The companion's conversation (ConnectedCompanion.tsx) and a closed course's remaining
+ * questions. Moved from connected.css. */
+
+/* A closed course's remaining read-only questions, above the companion. */
+.connected-closed-help {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #dce6e2;
+  border-inline-start: 4px solid #087b69;
+  border-radius: 10px;
+  background: #f8f8f2;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.connected-closed-help.is-exhausted {
+  border-inline-start-color: #80601e;
+  border-inline-start-style: dashed;
+  background: #fcf3df;
+}
