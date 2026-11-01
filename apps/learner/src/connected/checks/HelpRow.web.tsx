@@ -57,8 +57,11 @@ export const HelpRow = forwardRef<HTMLDivElement, HelpRowProps>(function HelpRow
             className={`cc-ui-pill cc-ui-pill-outline cc-ui-pill-36 cc-check-explain${explanation.expanded ? " is-expanded" : ""}`}
             aria-expanded={explanation.expanded}
             aria-controls={explanation.expanded ? explanation.controls : undefined}
-            disabled={explanation.disabled}
-            onClick={explanation.onToggle}
+            // While the explanation is fetched the button keeps its focus (it was just moved there).
+            aria-disabled={explanation.disabled || undefined}
+            onClick={() => {
+              if (!explanation.disabled) explanation.onToggle();
+            }}
           >
             {t(explanation.expanded ? "helpRow.hideExplanation" : "helpRow.showExplanation")}
           </button>

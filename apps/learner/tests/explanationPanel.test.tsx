@@ -10,7 +10,7 @@ import { Card, cardProps, question } from "./checkCardFixtures";
 beforeEach(() => resetCompanionBridge());
 
 describe("the explanation in the check", () => {
-  it("asks first on a counted question: Keep it counted is focused and Esc keeps it, Show as practice asks the server", () => {
+  it("asks first on a counted question: Keep it counted is focused and Esc keeps it, Show as practice asks the server", async () => {
     const open = question();
     const p = cardProps(open);
     const { rerender } = render(<Card {...p} />);
@@ -26,6 +26,14 @@ describe("the explanation in the check", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show explanation" }));
     fireEvent.click(screen.getByRole("button", { name: "Show as practice" }));
     expect(p.check.onSolution).toHaveBeenCalledWith(open);
+    // While it is fetched, the button that will hide it takes the focus and keeps it (never lost
+    // to the page with the confirm that held it).
+    rerender(<Card {...p} check={{ ...p.check, explaining: "c1" }} />);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const waiting = screen.getByRole("button", { name: "Hide explanation" });
+    expect(waiting).toHaveFocus();
+    expect(waiting).toHaveAttribute("aria-disabled", "true");
+    expect(waiting).toBeEnabled();
     // The server answers with the explanation, and the question is practice from then on.
     const after = cardProps({ ...open, independentEligible: false }, { ...p.check, explanations: { c1: "**Multiply first**: $2 \\cdot 6 = 12$." } });
     rerender(<Card {...after} />);

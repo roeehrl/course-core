@@ -144,7 +144,7 @@
   justify-items: center;
   min-block-size: max(40px, var(--target));
   padding-block: 0;
-  padding-inline: var(--space-5);
+  padding-inline: var(--space-4);
   border: 1px solid var(--accent);
   border-radius: var(--radius-pill);
   background: var(--accent);
@@ -186,7 +186,8 @@
 .cc-check-submit.is-checking .cc-check-submit-label {
   visibility: hidden;
 }
-/* A 16 px spinner in the button's text colour; still with reduced motion. */
+/* A 16 px spinner in the button's text colour: it stops after 15 s (16 turns of 900 ms; no loop
+ * runs longer unattended, §1.5) and is still with reduced motion. */
 .cc-check-spinner {
   box-sizing: border-box;
   inline-size: 16px;
@@ -194,7 +195,7 @@
   border: 2px solid currentColor;
   border-inline-end-color: transparent;
   border-radius: 50%;
-  animation: cc-check-spin 900ms linear infinite;
+  animation: cc-check-spin 900ms linear 16;
 }
 @keyframes cc-check-spin {
   to {
@@ -335,6 +336,9 @@
 .cc-check-explain.is-expanded {
   background: var(--surface-2);
 }
+.cc-check-explain[aria-disabled="true"] {
+  cursor: progress;
+}
 .cc-check-hint-step {
   display: inline-flex;
   align-items: center;
@@ -413,6 +417,10 @@
 }
 
 .connected-input-hint { margin: 0 !important; font: 400 var(--text-meta) var(--font-sans) !important; color: var(--ink-muted) !important; }
+/* The unit problem's live region stays in the page while empty, without adding a row gap. */
+.connected-check .connected-unit-problem:empty {
+  margin-block-start: calc(-1 * var(--space-3)) !important;
+}
 .connected-confidence {
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);

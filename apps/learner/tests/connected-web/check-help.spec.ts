@@ -136,6 +136,8 @@ test("Show explanation on a counted question: asked once, then in place with Mar
   await expect(panel).not.toContainText("$");
   await expect(panel.locator("math")).toHaveCount(1);
   expect(solutions).toHaveLength(1);
+  // Focus moves from the confirm that went to the button that hides the explanation again.
+  await expect(row.getByRole("button", { name: "Hide explanation", exact: true })).toBeFocused();
   await expect(row.getByRole("button", { name: "Hide explanation", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("Solution viewed", { exact: true })).toBeVisible();
   // The server made the question practice; the kind line says so.
@@ -192,7 +194,9 @@ test("an attempt the question requires is asked for under the field, and the hel
       ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "ABSTAIN_NOT_ALLOWED" }) })
       : route.continue());
   await page.getByRole("button", { name: "I don't know yet: record no answer and get help", exact: true }).click();
-  await expect(page.getByText("This question needs an attempt. A partial answer is fine.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "This question needs an attempt. A partial answer is fine." })).toBeVisible();
+  // The pressed button went while the request was saved; the learner is put back at the answer.
+  await expect(page.getByRole("radio", { name: "2", exact: true })).toBeFocused();
   await expect(page.getByRole("button", { name: "Get help", exact: true })).toBeVisible();
   await expect(page.getByRole("radio", { name: "2", exact: true })).toBeEnabled();
   await expect(feedbackSlot(page)).toHaveText("");

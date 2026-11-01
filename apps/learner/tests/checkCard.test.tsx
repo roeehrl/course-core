@@ -137,5 +137,27 @@ describe("linear connected lesson and authoritative gates", () => {
     expect(button).toBeDisabled();
     expect(button).toHaveClass("is-checking");
   });
+  it("puts back the focus a pressed Check lost while saving: on the retry, or on the field after a refusal", () => {
+    const open = question();
+    const p = cardProps(open);
+    p.answer = "12";
+    const { rerender } = render(<Card {...p} />);
+    const button = screen.getByRole("button", { name: "Check" });
+    button.focus();
+    fireEvent.click(button);
+    // The pressed button is disabled while the answer is saved: the browser drops its focus.
+    button.blur();
+    rerender(<Card {...p} check={{ ...p.check, savingAnswer: true, attempts: { intro: { challenge: open, answer: "12", kind: "answer", status: "checking" } } }} />);
+    rerender(<Card {...p} check={{ ...p.check, attempts: { intro: { challenge: open, answer: "12", kind: "answer", status: "failed" } } }} />);
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveFocus();
+    // A refusal recorded nothing: the learner answers again in the field, which the refusal describes.
+    (document.activeElement as HTMLElement).blur();
+    rerender(<Card {...p} check={{ ...p.check, fieldErrors: { c1: "attemptRequired" } }} />);
+    const field = screen.getByRole("textbox", { name: "Your numeric answer" });
+    expect(field).toHaveFocus();
+    const error = screen.getByRole("alert");
+    expect(error).toHaveTextContent("This question needs an attempt. A partial answer is fine.");
+    expect(field).toHaveAttribute("aria-describedby", error.id);
+  });
 });
 

@@ -139,14 +139,21 @@ export function CheckCard({
   const ordinal = questionOrdinal(server, episode.id);
   const reveal = (target: HTMLElement | null) =>
     requestAnimationFrame(() => target?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+  /** "Check" and the help bar are disabled or gone while the answer is saved, so the focus they
+   * had falls to the page: it is put back in the check rather than left there. */
+  const focusLost = () => {
+    const active = document.activeElement;
+    return !active || active === document.body || !active.isConnected;
+  };
   const keptStatus = kept?.status;
   useEffect(() => {
     const done = answered.current;
     if (!done || !kept || kept.challenge.challengeId !== done.id || kept.status === "checking") return;
     answered.current = null;
     // The grader could not check it: the question stays open, and its feedback with the retry
-    // comes into view under the answer bar.
+    // comes into view under the answer bar, with focus on the retry when it had none.
     if (kept.status === "failed") {
+      if (focusLost()) feedbackSlot.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
       reveal(feedbackSlot.current);
       return;
     }
@@ -231,6 +238,13 @@ export function CheckCard({
   const canStart = !challenge && !progress?.gate?.passed && !(recovery?.required && !recovery.freshCheck);
   const fieldError = challenge ? check.fieldErrors?.[challenge.challengeId] : undefined;
   const fieldErrorId = `${ids}-field-error`;
+  // A refusal under the field (nothing was recorded): the learner answers again there, so the
+  // field takes back the focus the saving request took.
+  useEffect(() => {
+    if (!fieldError) return;
+    answered.current = null;
+    if (focusLost()) firstControl(questionBlock.current?.querySelector<HTMLElement>(".cc-check-answer") ?? null)?.focus({ preventScroll: true });
+  }, [fieldError, challengeId]);
   const explanationId = `${ids}-explanation`;
   const helpId = `${ids}-help`;
 
@@ -357,7 +371,7 @@ export function CheckCard({
           <p className="connected-input-hint" id="connected-answer-hint">{answerHint}</p>
         )}
         {fieldError && open && (
-          <p className="cc-check-field-error" id={fieldErrorId}>
+          <p className="cc-check-field-error" id={fieldErrorId} role="alert">
             <Icon name="alert-circle" size={16} />
             <span>{t(fieldError === "copied" ? "checkCard.error.copied" : "checkCard.error.attemptRequired")}</span>
           </p>
