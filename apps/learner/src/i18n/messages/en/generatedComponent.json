@@ -1,14 +1,15 @@
 {
-  "note": "This model runs in your browser, in a sandbox with no network and no access to this page. It is for exploring and never counts as an answer.",
+  "note": "This runs in your browser, offline, and never counts as an answer.",
   "controls": "Values to try",
   "run": "Run the model",
-  "loading": "Loading Python…",
+  "loading": "Loading <bdi>Python</bdi>…",
   "running": "Running…",
   "results": "Results",
   "notRun": "Run the model to see this.",
   "startChecked": "These are the values at the starting position, checked before this was added. Change a value and run the model to see others.",
   "updated": "Results updated.",
-  "failed": "The model could not run with these values. Try other values.",
-  "badOutput": "The model returned something unexpected, so no result is shown. The description above has the same information.",
-  "unavailable": "Models cannot run in this browser. The description above has the same information."
+  "failed": "These values didn't run.",
+  "badOutput": "The result looked wrong, so it's hidden. The description above has the same information.",
+  "unavailable": "This browser can't run models. The description above has the same information.",
+  "tryOther": "Try other values"
 }

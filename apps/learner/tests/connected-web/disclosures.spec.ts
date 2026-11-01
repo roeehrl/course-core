@@ -86,6 +86,36 @@ test("forced colours keep the single chevron visible in the system text colour",
   });
 });
 
+test("the Unverified label is a button that opens a note, not a disclosure; the lesson's disclosures keep one chevron", async ({
+  page,
+}) => {
+  const session = await page.request.post("/test/model-session", { data: { generated: true } });
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
+    .click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  const label = page.getByRole("button", { name: /^Unverified: this part/ });
+  await expect(label).toBeVisible();
+  await expect(label).toHaveAttribute("aria-haspopup", "dialog");
+  await expect(label).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("details .cc-ai-unverified, summary .cc-ai-unverified")).toHaveCount(0);
+  // "Review your reading" is a disclosure: one chevron, following its state.
+  const markers = await expectOneIndicatorEach(page);
+  expect(markers.map((marker) => marker.label).join(" | ")).not.toContain("Unverified");
+  await label.click();
+  await expect(label).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("dialog", { name: "About this AI-written part" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(label).toBeFocused();
+});
+
 test("the marker check flags a disclosure that still draws the engine's marker", async ({
   page,
 }) => {

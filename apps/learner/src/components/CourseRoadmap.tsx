@@ -8,7 +8,9 @@ import type {
   Lesson,
 } from "../domain/types";
 import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "../i18n";
-import { Badge, Button, colors, Eyebrow, styles, Heading, textDirection, webDir } from "./ui";
+import { Badge, Button, Eyebrow, styles, Heading, textDirection, webDir } from "./ui";
+import { colors } from "../theme/colors";
+import { Tag } from "../connected/ui/Tag";
 import type { PolicyCoverage } from "../client/policyClient";
 
 /** What the roadmap shows for one lesson. Under review and optional detour are
@@ -118,7 +120,7 @@ export function durationText(minutes: number, t: Translate) {
     : t("courseRoadmap.duration.hours", { count: Math.round(minutes / 60) });
 }
 /** A small padlock drawn with views: a glyph that reads the same on every platform and font. */
-function LockGlyph({ color = colors.muted }: { color?: string }) {
+function LockGlyph({ color = colors.inkMuted }: { color?: string }) {
   return (
     <View aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 12, height: 14, alignItems: "center" }}>
       <View style={{ width: 8, height: 7, borderWidth: 1.6, borderBottomWidth: 0, borderColor: color, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
@@ -150,7 +152,7 @@ function ScreenReaderOnly({ children }: { children: string }) {
   return <Text style={local.srOnly}>{children}</Text>;
 }
 /** A thin progress bar; its value is said in the text beside it. */
-function ProgressBar({ value, total, tone = colors.teal }: { value: number; total: number; tone?: string }) {
+function ProgressBar({ value, total, tone = colors.accent }: { value: number; total: number; tone?: string }) {
   const share = total > 0 ? Math.min(1, value / total) : 0;
   return (
     <View aria-hidden style={local.track}>
@@ -316,7 +318,7 @@ export function CourseRoadmap({
       </View>
       {children}
       {course.placement && (
-        <View style={[styles.card, { backgroundColor: colors.lilac, borderColor: colors.lilac }]}>
+        <View style={[styles.card, { backgroundColor: colors.surface2, borderColor: colors.surface2 }]}>
           <Badge label={t("courseRoadmap.placement.badge")} tone="lilac" />
           <Text accessibilityRole="header" style={styles.heading}>
             {course.placement.title}
@@ -371,12 +373,12 @@ export function CourseRoadmap({
                     style={(active) => [
                       local.chapterHead,
                       compact && { padding: 16, gap: 12 },
-                      active && { backgroundColor: colors.paper },
+                      active && { backgroundColor: colors.page },
                     ]}
                   >
                     <View style={[local.mark, complete && local.markDone, locked && local.markLocked]}>
                       {complete ? (
-                        <Text aria-hidden style={[local.markText, { color: colors.teal }]}>✓</Text>
+                        <Text aria-hidden style={[local.markText, { color: colors.accent }]}>✓</Text>
                       ) : locked ? (
                         <LockGlyph />
                       ) : (
@@ -385,7 +387,7 @@ export function CourseRoadmap({
                     </View>
                     <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
                       {section.subtitle ? <Eyebrow>{section.subtitle}</Eyebrow> : null}
-                      <Text role="heading" aria-level={group.stage ? 4 : 3} style={[styles.heading, { fontSize: 17, lineHeight: 24 }, locked && { color: colors.muted }]}>
+                      <Text role="heading" aria-level={group.stage ? 4 : 3} style={[styles.heading, { fontSize: 17, lineHeight: 24 }, locked && { color: colors.inkMuted }]}>
                         {section.title}
                       </Text>
                       <Text style={styles.small}>
@@ -469,11 +471,11 @@ function LessonRow({
       {locked ? (
         <LockGlyph />
       ) : state === "completed" ? (
-        <Text aria-hidden style={[local.rowMarkText, { color: colors.teal }]}>✓</Text>
+        <Text aria-hidden style={[local.rowMarkText, { color: colors.accent }]}>✓</Text>
       ) : state === "placed" ? (
-        <Text aria-hidden style={[local.rowMarkText, { color: colors.purple }]}>↗</Text>
+        <Text aria-hidden style={[local.rowMarkText, { color: colors.accent }]}>↗</Text>
       ) : (
-        <Text aria-hidden style={[local.rowMarkText, current && { color: colors.white }]}>{number}</Text>
+        <Text aria-hidden style={[local.rowMarkText, current && { color: colors.surface }]}>{number}</Text>
       )}
     </View>
   );
@@ -481,14 +483,15 @@ function LessonRow({
     <>
       {mark}
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Text style={[local.rowTitle, locked && { color: colors.muted, fontWeight: "500" }]} {...webDir(textDirection(lesson.title))}>
+        <Text style={[local.rowTitle, locked && { color: colors.inkMuted, fontWeight: "500" }]} {...webDir(textDirection(lesson.title))}>
           {lesson.title}
           {locked ? <ScreenReaderOnly>{t("courseRoadmap.row.lockedSuffix")}</ScreenReaderOnly> : null}
         </Text>
-        {status && <Text style={[styles.small, current && { color: colors.teal, fontWeight: "600" }]}>{status}</Text>}
+        {status && <Text style={[styles.small, current && { color: colors.accent, fontWeight: "600" }]}>{status}</Text>}
+        {/* A lesson added for this learner (§4.18): a chip, never a colour of its own. */}
         {lesson.personal && (
           <View style={{ alignSelf: "flex-start" }}>
-            <Badge label={lesson.requirement === "optional" ? t("courseRoadmap.personalOptional") : t("courseRoadmap.personal")} tone="lilac" />
+            <Tag label={lesson.requirement === "optional" ? t("courseRoadmap.personalOptional") : t("courseRoadmap.personal")} className="cc-ai-personal" />
           </View>
         )}
       </View>
@@ -514,7 +517,7 @@ function LessonRow({
             local.row,
             compact && local.rowCompact,
             current && local.rowCurrent,
-            active && { backgroundColor: current ? "#D9F0E2" : colors.paper },
+            active && { backgroundColor: current ? colors.line : colors.page },
           ]}
         >
           {body}
@@ -536,21 +539,21 @@ const local = StyleSheet.create({
   track: { height: 6, borderRadius: 3, backgroundColor: colors.line, overflow: "hidden" },
   fill: { height: 6, borderRadius: 3 },
   next: {
-    backgroundColor: colors.mint,
+    backgroundColor: colors.accentSoft,
     borderRadius: 18,
     padding: 24,
     gap: 14,
     borderWidth: 1,
-    borderColor: "#CFE9DA",
+    borderColor: colors.line,
   },
   chapter: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 16,
     overflow: "hidden",
   },
-  chapterCurrent: { borderColor: "#9FD3BF" },
+  chapterCurrent: { borderColor: colors.lineStrong },
   chapterHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -560,7 +563,7 @@ const local = StyleSheet.create({
   },
   chapterBody: { paddingHorizontal: 10, paddingBottom: 10, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 },
   chapterIcon: { width: 36, height: 36, borderRadius: 10 },
-  chevron: { fontSize: 24, lineHeight: 24, color: colors.muted, width: 20, textAlign: "center", transform: [{ rotate: "0deg" }] },
+  chevron: { fontSize: 24, lineHeight: 24, color: colors.inkMuted, width: 20, textAlign: "center", transform: [{ rotate: "0deg" }] },
   chevronOpen: { transform: [{ rotate: "90deg" }] },
   chevronOpenRtl: { transform: [{ rotate: "-90deg" }] },
   mark: {
@@ -569,12 +572,12 @@ const local = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: colors.line,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
-  markDone: { backgroundColor: colors.mint, borderColor: colors.mint },
-  markLocked: { backgroundColor: colors.paper, borderColor: colors.paper },
+  markDone: { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft },
+  markLocked: { backgroundColor: colors.page, borderColor: colors.page },
   markText: { fontSize: 14, fontWeight: "700", color: colors.ink },
   row: {
     flexDirection: "row",
@@ -586,7 +589,7 @@ const local = StyleSheet.create({
     minHeight: 48,
   },
   rowCompact: { gap: 12, paddingHorizontal: 6 },
-  rowCurrent: { backgroundColor: colors.mint },
+  rowCurrent: { backgroundColor: colors.accentSoft },
   rowMark: {
     width: 28,
     height: 28,
@@ -595,9 +598,9 @@ const local = StyleSheet.create({
     borderColor: colors.line,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
   },
-  rowMarkCurrent: { backgroundColor: colors.teal, borderColor: colors.teal },
+  rowMarkCurrent: { backgroundColor: colors.accent, borderColor: colors.accent },
   rowMarkText: { fontSize: 12, fontWeight: "700", color: colors.ink },
   rowTitle: { fontSize: 15, lineHeight: 22, fontWeight: "600", color: colors.ink },
   rowMinutes: { flexShrink: 0 },

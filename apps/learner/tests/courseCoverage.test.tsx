@@ -39,12 +39,12 @@ describe("coverage and closed-course questions", () => {
   it("states core coverage against the fixed denominator and keeps extras apart from completion", () => {
     expect(coverageText(coverage(1)).core).toBe("1 of 4 core objectives covered");
     expect(coverageText(coverage(1)).extras).toBeUndefined();
-    expect(coverageText(coverage(3, 2)).extras).toMatch(/^2 personal extras added for you — optional support that does not change/);
+    expect(coverageText(coverage(3, 2)).extras).toBe("2 personal extras added for you. They're optional and don't change what finishing the course needs.");
     const { course, snapshot } = presentation(connectedSnapshot());
     render(
       <CourseRoadmap course={course} snapshot={snapshot} compact coverage={coverage(3, 1)} onOpenLesson={vi.fn()} onPlacement={vi.fn()} />,
     );
     expect(screen.getByText("3 of 4 core objectives covered")).toBeVisible();
-    expect(screen.getByText(/1 personal extra added for you/)).toBeVisible();
+    expect(screen.getByText("1 personal extra added for you. It's optional and doesn't change what finishing the course needs.")).toBeVisible();
   });
 });

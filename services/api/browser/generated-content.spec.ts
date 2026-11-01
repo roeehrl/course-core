@@ -57,10 +57,13 @@ test("a generated simulation joins the lesson labelled as unverified and the lea
   await expect(generated).toBeVisible();
   // The supervisor's scene, drawn by the installed renderer, with its text alternative and label.
   await expect(generated.getByText("A straight line", { exact: false }).first()).toBeVisible();
-  const badge = generated.locator("summary", { hasText: "Unverified" });
-  await expect(badge).toHaveAttribute("aria-label", "Unverified: this part was written by AI and has not been reviewed by a person");
+  const badge = generated.getByRole("button", { name: "Unverified: this part was written by AI and hasn't been reviewed by a person" });
+  await expect(badge).toHaveText("Unverified");
   await badge.click();
-  await expect(generated.getByText(/written by AI for you and checked automatically/)).toBeVisible();
+  const note = page.getByRole("dialog", { name: "About this AI-written part" });
+  await expect(note).toContainText("Written by AI for you and checked automatically.");
+  // The note's fade (M16) has ended before its contrast is checked.
+  await note.evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
   await accessible(page);
   await page.screenshot({ path: info.outputPath("generated-simulation.png"), fullPage: true });
   await openProfile(page);
@@ -79,9 +82,9 @@ test("a simulation made while the learner answers waits for them, then is added 
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
   await openCurrentLesson(page);
-  const notice = page.getByRole("region", { name: "New material is ready for this lesson" });
+  const notice = page.getByRole("region", { name: "New for this lesson: an interactive simulation" });
   await expect(notice).toBeVisible();
-  await expect(notice.getByText(/waits until you finish the question you are working on/)).toBeVisible();
+  await expect(notice.getByText("It'll be added after you finish this question.", { exact: true })).toBeVisible();
   await expect(notice.getByRole("button", { name: "Add it to this lesson" })).toBeDisabled();
   await expect(page.getByRole("article", { name: "Reading part 3" })).toHaveCount(0);
   await accessible(page);
@@ -92,16 +95,17 @@ test("a simulation made while the learner answers waits for them, then is added 
   expect((await command(page, "answers", { challengeId, answer: "two" })).ok()).toBe(true);
   await page.reload();
   await openCurrentLesson(page);
-  const ready = page.getByRole("region", { name: "New material is ready for this lesson" });
-  await expect(ready.getByText("You can add it now.", { exact: false })).toBeVisible();
+  const ready = page.getByRole("region", { name: "New for this lesson: an interactive simulation" });
+  await expect(ready.getByText("It'll be added after you finish this question.")).toHaveCount(0);
   await ready.getByRole("button", { name: "Add it to this lesson" }).click();
-  await expect(page.getByText("Added to the end of this lesson.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "New material is ready for this lesson" })).toHaveCount(0);
+  // The card says what happened, in place at the end of the lesson; nothing is left to add.
+  await expect(ready.getByText("Added to the end of this lesson.", { exact: true })).toBeVisible();
+  await expect(ready.getByRole("button", { name: "Add it to this lesson" })).toHaveCount(0);
   for (const part of [1, 2]) {
     await expect(page.getByRole("article", { name: `Reading part ${part}` })).toBeVisible();
     await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   }
-  await expect(page.getByRole("article", { name: "Reading part 3" }).locator("summary", { hasText: "Unverified" })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Reading part 3" }).getByRole("button", { name: /^Unverified: / })).toBeVisible();
   await accessible(page);
 });
 
