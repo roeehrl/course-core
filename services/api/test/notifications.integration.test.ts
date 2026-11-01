@@ -196,6 +196,79 @@ describe("learner notifications", () => {
     expect((await app.inject({ method: "GET", url: "/api/me/notifications" })).statusCode).toBe(401);
   });
 
+  // The reply notification names the lesson and quotes the start of the question (Q3): both are
+  // read when the list is, from the reader's own enrollment, and never stored.
+  async function question(enrollment: string, content: string, episodeId = "min") {
+    const id = randomUUID();
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
+      [id, enrollment, content, JSON.stringify({ episodeId, blockId: `${episodeId}-text` })]);
+    return id;
+  }
+  const replyReady = (who: Session, enrollment: string, questionId: string, episodeId = "min", key = randomUUID()) =>
+    notifyUser(db, { workspaceId: workspace, userId: who.userId, audience: "learner", kind: "reply_ready", enrollmentId: enrollment,
+      params: { episodeId, blockId: `${episodeId}-text`, questionMessageId: questionId, replyMessageId: randomUUID() },
+      link: `/enrollments/${enrollment}/companion`, dedupeKey: `reply-ready:${key}` });
+  type Item = { id: string; kind: string; params: Record<string, unknown>; lessonTitle?: string | null; questionExcerpt?: string | null };
+  const items = async (who: Session) => (await call(who, "GET", "/api/me/notifications")).json().items as Item[];
+
+  it("reply_ready names the lesson and quotes the question when listed and when marked read, for its learner only", async () => {
+    const learner = await person("learner"), other = await person("learner"), enrollment = await enrolled(learner), theirs = await enrolled(other);
+    const long = "Why is the minimum of a set\nno greater than   any other member, even when two members are equal to each other?";
+    const asked = await question(enrollment, long);
+    await replyReady(learner, enrollment, asked);
+    await notifyUser(db, { workspaceId: workspace, userId: learner.userId, audience: "learner", kind: "course_updated", enrollmentId: enrollment,
+      params: { fromVersion: "0.9.0", toVersion: "1.0.0" }, link: `/enrollments/${enrollment}`, dedupeKey: "updated:" + enrollment });
+    const [update, reply] = await items(learner);
+    const expected = Array.from(long.replace(/\s+/g, " ")).slice(0, 80).join("").trimEnd() + "…";
+    expect(reply).toMatchObject({ kind: "reply_ready", lessonTitle: "Minimum", questionExcerpt: expected });
+    // Other kinds are as stored, and nothing new was written to the row.
+    expect(update).not.toHaveProperty("lessonTitle");
+    expect((await db.query("SELECT params FROM notifications WHERE id=$1", [reply!.id])).rows[0].params).not.toHaveProperty("lessonTitle");
+    const short = await question(enrollment, "  What is a minimum?  ");
+    await replyReady(learner, enrollment, short);
+    expect((await items(learner))[0]).toMatchObject({ lessonTitle: "Minimum", questionExcerpt: "What is a minimum?" });
+    // The answer of the mark-read route is the same list, enriched the same way.
+    const read = (await call(learner, "POST", "/api/me/notifications/read", { ids: [reply!.id] })).json();
+    expect(read.items.find((i: Item) => i.id === reply!.id)).toMatchObject({ lessonTitle: "Minimum", questionExcerpt: expected });
+    // Another learner sees none of it, and ids that point at someone else's enrollment or question
+    // say nothing about them.
+    expect((await items(other)).filter((i) => i.kind === "reply_ready")).toEqual([]);
+    await replyReady(other, theirs, asked);
+    expect((await items(other))[0]).toMatchObject({ kind: "reply_ready", lessonTitle: "Minimum", questionExcerpt: null });
+    await replyReady(other, enrollment, asked);
+    expect((await items(other))[0]).toMatchObject({ kind: "reply_ready", lessonTitle: null, questionExcerpt: null });
+  });
+
+  it("reply_ready says less once the question was deleted or erased, or the course version no longer has the lesson", async () => {
+    const learner = await person("learner"), enrollment = await enrolled(learner);
+    const asked = await question(enrollment, "Is 2 the minimum?");
+    await replyReady(learner, enrollment, asked);
+    await db.query("UPDATE companion_messages SET content='[deleted]',context='{}'::jsonb WHERE id=$1", [asked]);
+    expect((await items(learner))[0]).toMatchObject({ lessonTitle: "Minimum", questionExcerpt: null });
+    // As erasing the enrollment's data leaves the conversation (data-lifecycle.ts).
+    await db.query("UPDATE companion_messages SET content='[erased]' WHERE id=$1", [asked]);
+    expect((await items(learner))[0]).toMatchObject({ lessonTitle: "Minimum", questionExcerpt: null });
+    // A question about a lesson the enrollment's newer course version dropped: the lesson has no title.
+    const later = await question(enrollment, "And the maximum?", "max");
+    await replyReady(learner, enrollment, later, "max");
+    expect((await items(learner))[0]).toMatchObject({ lessonTitle: "Maximum", questionExcerpt: "And the maximum?" });
+    const manifest = fixture();
+    manifest.version = "2.0.0";
+    manifest.chapters[0]!.episodes[1] = { ...manifest.chapters[0]!.episodes[1]!, id: "max-renewed", title: "Maximum, renewed" };
+    const created = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, manifest);
+    expect(created.statusCode, created.body).toBe(200);
+    expect((await call(owner, "POST", `/api/releases/${created.json().id}/publish`)).statusCode).toBe(200);
+    // The enrollment now follows the newer version (as a course version move leaves it).
+    await db.query("UPDATE enrollments SET course_release_id=$2 WHERE id=$1", [enrollment, created.json().id]);
+    const [dropped, kept] = await items(learner);
+    expect(dropped).toMatchObject({ params: expect.objectContaining({ episodeId: "max" }), lessonTitle: null, questionExcerpt: "And the maximum?" });
+    expect(kept).toMatchObject({ lessonTitle: "Minimum", questionExcerpt: null });
+    // Rows from before the ids were sent name no lesson and quote nothing.
+    await notifyUser(db, { workspaceId: workspace, userId: learner.userId, audience: "learner", kind: "reply_ready", enrollmentId: enrollment,
+      params: { episodeId: "min" }, link: `/enrollments/${enrollment}/companion`, dedupeKey: "reply-ready:old" });
+    expect((await items(learner))[0]).toMatchObject({ lessonTitle: "Minimum", questionExcerpt: null });
+  });
+
   it("keeps at most the per-person cap and drops read ones after the retention period", async () => {
     const learner = await person("learner");
     for (let i = 0; i < NOTIFICATION_LIMITS.maxPerPerson + 5; i++)

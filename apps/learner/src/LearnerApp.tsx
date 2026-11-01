@@ -8,12 +8,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Companion } from "./components/Companion";
+import { Icon } from "./components/icons/Icon";
+import { LivePressable } from "./components/LivePressable";
 import { CourseRoadmap } from "./components/CourseRoadmap";
 import { LessonFlow } from "./components/LessonFlow";
 import { Overlay } from "./components/Overlay";
 import { PlacementEntry } from "./components/PlacementEntry";
 import { ProfileEditor } from "./components/ProfileEditor";
-import { Badge, Button, colors, Notice, styles } from "./components/ui";
+import { Badge, Button, Notice, styles } from "./components/ui";
 import {
   draftKey,
   effectiveLayout,
@@ -30,6 +32,7 @@ import { useLearner } from "./hooks/useLearner";
 import { useApiErrorLocale } from "./client/apiClient";
 import { useT, type MessageKey } from "./i18n";
 import { useReadingFocus } from "./hooks/useReadingFocus";
+import { colors as tokens } from "./theme/colors";
 
 export interface LearnerAppProps {
   course: Course;
@@ -137,7 +140,7 @@ function LearnerWorkspace({
   );
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.paper }}
+      style={{ flex: 1, backgroundColor: tokens.page }}
       onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}
     >
       <ScrollView
@@ -147,9 +150,9 @@ function LearnerWorkspace({
       >
         <View
           style={{
-            backgroundColor: colors.white,
+            backgroundColor: tokens.surface,
             borderBottomWidth: 1,
-            borderColor: colors.line,
+            borderColor: tokens.line,
           }}
         >
           <View
@@ -170,14 +173,14 @@ function LearnerWorkspace({
                   width: 35,
                   height: 35,
                   borderRadius: 10,
-                  backgroundColor: colors.teal,
+                  backgroundColor: tokens.accent,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
                 <Text
                   style={{
-                    color: colors.white,
+                    color: tokens.onAccent,
                     fontSize: 23,
                     fontWeight: "700",
                   }}
@@ -189,7 +192,7 @@ function LearnerWorkspace({
               {/* The product name stays Latin and left to right in every locale. */}
               <Text
                 style={{
-                  color: colors.ink,
+                  color: tokens.ink,
                   fontSize: 21,
                   letterSpacing: -0.8,
                   fontWeight: "700",
@@ -197,7 +200,7 @@ function LearnerWorkspace({
                 }}
               >
                 {/* i18n-ignore: product name wordmark, not translated */}
-                course<Text style={{ color: colors.teal }}>{/* i18n-ignore: product name wordmark */}core</Text>
+                course<Text style={{ color: tokens.accent }}>{/* i18n-ignore: product name wordmark */}core</Text>
               </Text>
             </View>
             <View style={[styles.row, { gap: 6 }]}>
@@ -210,9 +213,8 @@ function LearnerWorkspace({
                     disabled={pending}
                   />
                   {!layout.companionPane && (
-                    <Button
+                    <CompanionNavButton
                       label={t("learnerApp.nav.companion")}
-                      kind="quiet"
                       onPress={() => openDialog("companion")}
                       disabled={pending}
                     />
@@ -236,7 +238,7 @@ function LearnerWorkspace({
               </>
             ) : (
               <>
-                <ActivityIndicator color={colors.teal} />
+                <ActivityIndicator color={tokens.accent} />
                 <Text accessibilityLiveRegion="polite" style={styles.body}>
                   {t("learnerApp.loading")}
                 </Text>
@@ -371,16 +373,19 @@ function LearnerWorkspace({
                 )}
               </View>
               {layout.companionPane && (
+                // The companion beside the page (final design §2.1): 400 px wide, a flat surface
+                // with a hairline, never narrower than the panel of the connected app.
                 <View
                   testID="companion-pane"
                   style={{
-                    width: 288,
-                    padding: 22,
-                    gap: 20,
-                    backgroundColor: colors.white,
+                    width: 400,
+                    flexShrink: 0,
+                    paddingHorizontal: 16,
+                    paddingBottom: 16,
+                    backgroundColor: tokens.surface,
                     borderWidth: 1,
-                    borderColor: colors.line,
-                    borderRadius: 20,
+                    borderColor: tokens.line,
+                    borderRadius: 18,
                   }}
                 >
                   {companion}
@@ -392,7 +397,7 @@ function LearnerWorkspace({
                 styles.spread,
                 {
                   borderTopWidth: 1,
-                  borderColor: colors.line,
+                  borderColor: tokens.line,
                   paddingTop: 20,
                   marginTop: 8,
                 },
@@ -447,5 +452,42 @@ function LearnerWorkspace({
         </Overlay>
       )}
     </SafeAreaView>
+  );
+}
+
+/**
+ * The demo's way to the companion on narrow windows, drawn like the connected app's companion
+ * trigger (final design §3.1): a 44 px pill with the companion glyph and "Companion".
+ */
+function CompanionNavButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <LivePressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      aria-disabled={!!disabled}
+      disabled={disabled}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        minWidth: 44,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingStart: 12,
+        paddingEnd: 16,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: tokens.lineStrong,
+        backgroundColor: hovered && !disabled ? tokens.surface2 : tokens.surface,
+        opacity: !disabled && pressed ? 0.8 : 1,
+      })}
+    >
+      <Icon name="sparkle" size={18} />
+      <Text style={{ color: disabled ? tokens.inkMuted : tokens.ink, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>{label}</Text>
+    </LivePressable>
   );
 }

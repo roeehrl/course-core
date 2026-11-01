@@ -6,12 +6,17 @@
   "panel.loading": "ההתראות נטענות…",
   "panel.markAll": "סימון הכול כנקרא",
   "panel.open": "פתיחה",
-  "panel.new": "חדש",
   "panel.error": "לא ניתן לטעון את ההתראות. אפשר לנסות שוב בעוד רגע.",
   "panel.retry": "ניסיון חוזר",
   "kind.course_updated": "הקורס שלך עודכן מגרסה {from} לגרסה {to}.",
   "kind.move_offer": "לקורס שלך יש גרסה חדשה ({to}). אפשר לבחור אם לעבור אליה.",
   "kind.move_forced": "צוות הקורס העביר אותך מגרסה {from} לגרסה {to}. השינויים האישיים שלך נשמרו בארכיון ולא נמחקו.",
-  "kind.reply_ready": "המנחה השיב על השאלה שלך.",
-  "kind.unknown": "יש לך התראה חדשה."
+  "kind.reply_ready": "התקבלה תשובה מהמנחה על השאלה שלך.",
+  "kind.unknown": "יש לך התראה חדשה.",
+  "row.new": "חדש.",
+  "row.openReply": "פתיחת התשובה",
+  "row.excerpt": "{question} · {time}",
+  "row.yesterday": "אתמול",
+  "reply.about": "התקבלה תשובה מהמנחה על “{lesson}”.",
+  "reply.lessonGone": "השיעור שהתשובה עסקה בו כבר לא בקורס."
 }
