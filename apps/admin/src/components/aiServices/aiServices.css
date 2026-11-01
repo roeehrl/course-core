@@ -1169,15 +1169,30 @@
   }
 }
 
-/* Jobs that are on (OnJobs): one card per job, then checking all of them at once. */
+/* Jobs that are on (OnJobs): one card per job, then checking all of them at once, then the latest
+   check with its result and the details of each conversation. */
 .ai-on-jobs {
   display: grid;
   gap: 16px;
 }
-.ai-on-all {
+.ai-on-jobs > p {
+  margin: 0;
+}
+.ai-on-all,
+.ai-latest {
   display: grid;
   gap: 8px;
+  min-inline-size: 0;
 }
-.ai-on-all > p {
+.ai-on-all > p,
+.ai-latest > p {
   margin: 0;
+}
+.ai-latest {
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+.ai-latest > h4 {
+  margin: 0;
+  font-size: 15px;
 }

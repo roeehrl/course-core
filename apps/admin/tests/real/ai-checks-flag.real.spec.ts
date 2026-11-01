@@ -81,9 +81,7 @@ test("the AI services page flags the job with its own Run check; the route refus
   await signIn(page, fixture.ownerCode);
   await open(page, "AI services");
   const check = page.locator("#ai-check");
-  const flags = check.getByRole("list", {
-    name: "Jobs that are on and need a quality check",
-  });
+  const flags = check.getByRole("list", { name: "Jobs that are on" });
   const job = flags.locator('[data-role="companion"]');
   await expect(job.getByText("Needs a check", { exact: true })).toBeVisible();
   await expect(job).toContainText("Checks this job only, with");
@@ -106,7 +104,7 @@ test("the AI services page flags the job with its own Run check; the route refus
   await expect(check).toContainText(
     "Learner tutor — public-text-model · Checked",
   );
-  // The result shows once (it used to show again under "Run the quality check").
+  // The result shows once, as the latest check under the list of jobs.
   await expect(check.getByText(/Learner tutor: passed all \d+/)).toHaveCount(1);
   await check.scrollIntoViewIfNeeded();
   await page.screenshot({

@@ -226,10 +226,12 @@ failedActiveCheck.completed = failedActiveCheck.total;
 /**
  * The connected AI services page with the learner tutor and the lesson planner on, both approved
  * without checking and no draft open. `failed` serves a failed check of both as the latest check.
+ * `tutorFailed` is the pilot's case: that check failed the tutor (which stays on and needs a
+ * check) and passed the planner.
  */
 export async function stubJobsOn(
   page: Page,
-  options: { failed?: boolean } = {},
+  options: { failed?: boolean; tutorFailed?: boolean } = {},
 ) {
   const requests = { turnOff: [] as unknown[], started: [] as unknown[] };
   const ws = "**/api/admin/workspaces/*";
@@ -306,17 +308,30 @@ export async function stubJobsOn(
         },
         providerRevision: 3,
         gatedAtActivation: true,
-        roles: onJobs.map((role, i) => ({
-          role,
-          strategy: `core.${role}`,
-          revisionDigest: String(i).repeat(64),
-          covered: true,
-          status: "override",
-          grandfathered: false,
-          activatedBy: "override",
-          overrideId: `00000000-0000-4000-8000-00000000000${i}`,
-          overriddenAt: approvedAt,
-        })),
+        roles: onJobs.map((role, i) =>
+          options.tutorFailed
+            ? {
+                role,
+                strategy: `core.${role}`,
+                revisionDigest: String(i).repeat(64),
+                covered: true,
+                status: role === "companion" ? "failed" : "passed",
+                grandfathered: false,
+                activatedBy: "override",
+                ...(role === "companion" ? {} : { evaluatedAt: approvedAt }),
+              }
+            : {
+                role,
+                strategy: `core.${role}`,
+                revisionDigest: String(i).repeat(64),
+                covered: true,
+                status: "override",
+                grandfathered: false,
+                activatedBy: "override",
+                overrideId: `00000000-0000-4000-8000-00000000000${i}`,
+                overriddenAt: approvedAt,
+              },
+        ),
         results: [],
         overrides: [],
       },
@@ -335,7 +350,13 @@ export async function stubJobsOn(
     if (route.request().method() === "POST") {
       requests.started.push(route.request().postDataJSON());
       return route.fulfill({
-        json: { ...failedActiveCheck, state: "running", completed: 1 },
+        json: {
+          ...failedActiveCheck,
+          state: "running",
+          completed: 1,
+          finishedAt: null,
+          deadlineAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        },
       });
     }
     return route.fulfill({
@@ -347,8 +368,9 @@ export async function stubJobsOn(
         estimateMicroUsd: 0,
         reserveMicroUsd: 0,
         blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" },
-        latest: options.failed ? failedActiveCheck : null,
-        activeRoles: [],
+        latest:
+          options.failed || options.tutorFailed ? failedActiveCheck : null,
+        activeRoles: options.tutorFailed ? [plan("companion", 9)] : [],
         onRoles: [plan("companion", 9), plan("supervisor", 3)],
         onAll: {
           conversations: 12,

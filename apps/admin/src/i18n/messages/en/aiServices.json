@@ -391,7 +391,9 @@
   "check.run.charged": "This check cost {amount}.",
   "check.run.errorTitle": "The check couldn't finish.",
   "check.run.timeout": "It took too long and was stopped. Try again later.",
-  "check.run.interrupted": "The server stopped while it ran. Run it again.",
+  "check.run.overdue": "Not finished: its time limit passed with {done} of {total} practice conversations done. It is being stopped, and what happened will show here.",
+  "check.run.interrupted": "It didn't finish in time and was stopped, for example because the server restarted. Run it again.",
+  "check.run.stoppedAt": "{done} of {total} practice conversations were done.",
   "check.run.failedToRun": "Something went wrong while it ran. Try again.",
   "check.run.requestRefused": "{service} refused this request (HTTP {status}, {reason}).",
   "check.run.requestRefusedStatus": "{service} refused this request (HTTP {status}).",
@@ -547,6 +549,7 @@
   "check.errReason": "Write at least 20 characters about why you're skipping the check.",
   "check.disclaimer": "The check is a set of rules, not proof of teaching quality.",
   "check.onTitle": "Jobs that are on",
+  "check.latest.title": "Latest check",
   "check.state.passed": "Checked",
   "check.state.override": "Approved without checking",
   "check.state.not_covered": "No automatic check for this job — keeps working; needs an owner's approval before its model changes",
@@ -556,8 +559,6 @@
   "check.noneOn": "No job is on yet.",
   "check.on.checkedOn": "Checked on {date}.",
   "check.on.approvedOn": "Approved on {date}.",
-  "check.on.run": "Run the quality check",
-  "check.on.runFor": "Run the quality check for {job}",
   "check.on.runAll": "Check all jobs that are on",
   "check.on.allEstimate": "Checks every job that is on, with {count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}}. Uses your key. About {amount}.",
   "check.on.turnOff": "Turn off",
@@ -569,7 +570,6 @@
   "check.on.turnedOff": "{job} is off. Learners don't get this help until it is turned on again under Models for each job.",
   "check.on.failedStillOn": "{count, plural, one {This job didn't pass but is still on: learners keep getting it until you turn it off.} other {These jobs didn't pass but are still on: learners keep getting them until you turn them off.}}",
   "check.active.note": "{count, plural, one {# job is on but hasn't passed the current quality checks.} two {# jobs are on but haven't passed the current quality checks.} other {# jobs are on but haven't passed the current quality checks.}} They keep working as they are. Before you can change their model, they need a quality check or an owner's approval.",
-  "check.active.draftOpen": "You have model changes that aren't turned on yet. Turn them on or discard them to check the jobs that are on.",
   "check.active.notCheckable": "The quality check doesn't cover {jobs}. An owner can approve them below.",
   "check.active.approveTitle": "Approve the jobs that are on without checking",
   "check.active.approveNote": "Use this only if you can't run the check. It records that you accept these jobs as they are now. It doesn't change them.",
@@ -675,6 +675,5 @@
   "check.flag.estimate": "Checks this job only, with {count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}}. Uses your key. About {amount}.",
   "check.flag.run": "Run check",
   "check.flag.runFor": "Run check for {job}",
-  "check.flag.progressLabel": "Quality check progress for {job}",
-  "check.flag.allTitle": "Or check all of them at once"
+  "check.flag.progressLabel": "Quality check progress for {job}"
 }
