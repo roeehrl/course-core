@@ -578,9 +578,10 @@ describe("AI services page", () => {
     expect(
       within(check).getAllByText("gemini-9.0-flash")[0]!.closest("bdi"),
     ).toHaveAttribute("dir", "ltr");
+    // Without the server's plan for the check, the page does not guess how many it runs.
     expect(
-      within(check).getByText(t("check.explain", { dialogues: 9 })),
-    ).toBeInTheDocument();
+      within(check).queryByText(t("check.explain", { dialogues: 9 })),
+    ).toBeNull();
     fireEvent.change(within(check).getByLabelText(t("check.reasonLabel")), {
       target: { value: "Too short" },
     });
