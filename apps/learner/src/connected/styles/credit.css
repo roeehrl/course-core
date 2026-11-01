@@ -78,7 +78,9 @@
   background: var(--line);
 }
 
-/* The kind line at the top of a check, with the reason line and the path back under it. */
+/* The kind line at the top of a check, with the reason line and the path back under it. Its
+   paragraphs are named under .cc-credit-kind, so the check card's own paragraph rule
+   (.connected-check p, checks.css) does not set their size and colour. */
 .cc-credit-kind {
   display: flex;
   flex-direction: column;
@@ -93,15 +95,15 @@
   flex: none;
   margin-block-start: 2px;
 }
-.cc-credit-kind-text {
+.cc-credit-kind .cc-credit-kind-text {
   margin: 0;
   color: var(--ink);
   font: 400 var(--text-meta) var(--font-sans);
 }
-.cc-credit-kind-text strong {
+.cc-credit-kind .cc-credit-kind-text strong {
   font-weight: 600;
 }
-.cc-credit-kind-reason {
+.cc-credit-kind .cc-credit-kind-reason {
   margin: 0;
   padding-inline-start: var(--space-5);
   color: var(--ink-muted);
@@ -115,7 +117,7 @@
   margin-block-start: var(--space-1);
   padding-inline-start: var(--space-5);
 }
-.cc-credit-kind-back-text {
+.cc-credit-kind .cc-credit-kind-back-text {
   margin: 0;
   color: var(--ink-muted);
   font: 400 var(--text-meta) var(--font-sans);

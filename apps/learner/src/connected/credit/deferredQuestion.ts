@@ -3,8 +3,9 @@ import { useSyncExternalStore } from "react";
 /**
  * A question the learner saved for after the check ("Save for after the question", final design
  * §3.11): its text and the counted questions it would have made practice. One per enrollment (an
- * account in a course) and lesson. Kept in memory and on this device (`localStorage`, which may be
- * unavailable: then in memory only), and cleared once it is sent.
+ * account in a course) and lesson: a second question saved there is added after the first, never
+ * over it. Kept in memory and on this device (`localStorage`, which may be unavailable: then in
+ * memory only), and cleared once the server has accepted it.
  */
 export interface DeferredQuestion {
   text: string;
@@ -54,9 +55,13 @@ export const deferredQuestion = {
     }
     return memory.get(key) ?? null;
   },
+  /** Saves a question; one saved earlier in the same lesson is kept, with this one after it. */
   save(enrollmentId: string, episodeId: string, text: string, challengeIds: readonly string[], now = Date.now()) {
     if (!text.trim()) return;
-    const key = keyOf(enrollmentId, episodeId), value = { text, challengeIds: [...challengeIds], savedAt: now };
+    const key = keyOf(enrollmentId, episodeId), earlier = deferredQuestion.get(enrollmentId, episodeId);
+    const value = earlier
+      ? { text: `${earlier.text.trimEnd()}\n\n${text}`, challengeIds: [...new Set([...earlier.challengeIds, ...challengeIds])], savedAt: now }
+      : { text, challengeIds: [...challengeIds], savedAt: now };
     memory.set(key, value);
     try {
       storage()?.setItem(key, JSON.stringify(value));

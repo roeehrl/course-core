@@ -1,4 +1,4 @@
-import React, { useSyncExternalStore } from "react";
+import React, { useRef, useSyncExternalStore } from "react";
 import type { ServerSnapshot } from "../../client/apiClient";
 import { companionFocus } from "../../client/companionFocus";
 import { Icon } from "../../components/icons/Icon.web";
@@ -33,16 +33,17 @@ export function CreditNotice({
   placement: "notice" | "meta";
 }) {
   const t = useT();
+  const line = useRef<HTMLDivElement>(null);
   const attached = useAttachedCheckId();
   const question = scopedQuestion(server, episodeId, now, attached);
   if (!question) return null;
   return (
-    <div className={`cc-credit-line is-${placement}`} data-testid="credit-line">
+    <div ref={line} className={`cc-credit-line is-${placement}`} data-testid="credit-line">
       <Icon name="practice" size={16} className="cc-credit-line-icon" />
       <p id={CREDIT_LINE_ID} className="cc-credit-line-text">
         {t("creditNotice.line", { ordinal: question.ordinal })}
       </p>
-      <CreditInfo />
+      <CreditInfo line={line} />
     </div>
   );
 }

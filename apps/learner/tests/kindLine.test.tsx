@@ -64,7 +64,13 @@ describe("the kind line", () => {
     const second = render(<KindLine challenge={practice} server={passed} episodeId="intro" onFreshCheck={vi.fn()} />);
     expect(screen.queryByRole("button")).toBeNull();
     second.unmount();
-    render(<KindLine challenge={practice} server={withRecovery(4)} episodeId="intro" />);
+    const third = render(<KindLine challenge={practice} server={withRecovery(4)} episodeId="intro" />);
+    expect(screen.queryByRole("button")).toBeNull();
+    third.unmount();
+    // No question is left to give (the check card says so): no fresh check is promised.
+    const exhausted: ServerSnapshot = { ...connectedSnapshot(), recovery: [{ episodeId: "intro", required: true, freshCheck: null }] };
+    render(<KindLine challenge={practice} server={exhausted} episodeId="intro" onFreshCheck={vi.fn()} />);
+    expect(screen.queryByText("Want this to count? A fresh check is ready when you are.")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
   });
 

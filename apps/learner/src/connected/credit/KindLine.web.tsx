@@ -35,7 +35,10 @@ export function KindLine({
   const gate = server?.lessons.find((row) => row.id === lesson)?.gate;
   // The lesson still needs answers on your own: a fresh check can count where this one cannot.
   const needsOwn = Boolean(gate && !gate.passed && gate.objectives.some((objective) => !objective.passed));
-  const minutes = server?.recovery?.find((row) => row.episodeId === lesson)?.freshCheck?.plannedMinutes;
+  const recovery = server?.recovery?.find((row) => row.episodeId === lesson);
+  // No question is left to give (the check card says so): no fresh check is ready, so none is offered.
+  const exhausted = Boolean(recovery && !recovery.freshCheck);
+  const minutes = recovery?.freshCheck?.plannedMinutes;
   return (
     <div className={`cc-credit-kind ${counted ? "is-counted" : "is-practice"}`}>
       <div className="cc-credit-kind-head">
@@ -45,7 +48,7 @@ export function KindLine({
         </p>
       </div>
       {!counted && reason && <p className="cc-credit-kind-reason">{i18n.t(`kindLine.reason.${reason}` as MessageKey)}</p>}
-      {!counted && needsOwn && onFreshCheck && (
+      {!counted && needsOwn && !exhausted && onFreshCheck && (
         <div className="cc-credit-kind-back">
           <p className="cc-credit-kind-back-text">{i18n.t("kindLine.pathBack")}</p>
           <PillButton

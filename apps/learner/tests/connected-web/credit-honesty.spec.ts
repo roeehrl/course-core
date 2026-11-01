@@ -91,13 +91,16 @@ test("the credit line shows only while this lesson's counted question is open, i
   const popover = page.getByRole("dialog", { name: "How questions count" });
   await expect(popover).toContainText("Questions you answer on your own count toward finishing.");
   await expect(info).toHaveAttribute("aria-expanded", "true");
+  // It lines up under the credit line, inside the companion, on every layout.
+  const panelBox = (await companionPanel(page).boundingBox())!, popoverBox = (await popover.boundingBox())!;
+  expect(popoverBox.x).toBeGreaterThanOrEqual(panelBox.x);
+  expect(popoverBox.x + popoverBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width);
   await axe(page);
   await page.keyboard.press("Escape");
   await expect(popover).toBeHidden();
-  // Focus returns to the ⓘ. (Until the nonmodal sheet lands, the phone's modal drawer also takes
-  // this Esc and closes, returning focus to its trigger: CompanionDock.web.tsx.)
-  if (await companionPanel(page).isVisible()) await expect(info).toBeFocused();
-  await openCompanion(page);
+  // Esc closes only the popover (never the companion around it) and focus returns to the ⓘ.
+  await expect(companionPanel(page)).toBeVisible();
+  await expect(info).toBeFocused();
   // A limitation takes the slot above the message box: the line moves under it, never dropped.
   await context.setOffline(true);
   await expect(creditLine(page)).toHaveCount(1);
@@ -170,6 +173,11 @@ test("after sending as practice the thread says so, and the check says why with 
   const check = page.locator(".connected-check");
   await expect(page.getByTestId("question-kind")).toHaveText("Practice. This question does not count toward finishing the lesson.");
   await expect(check.getByText("You asked your companion for help.", { exact: true })).toBeVisible();
+  // Meta type (13/20) in ink, the reason muted: the check card's own paragraph style does not apply.
+  await expect(page.getByTestId("question-kind")).toHaveCSS("font-size", "13px");
+  const color = (selector: string) => page.locator(selector).first().evaluate((node) => getComputedStyle(node).color);
+  expect(await color("[data-testid=question-kind]")).not.toBe(await color(".cc-credit-kind-reason"));
+  await expect(check.getByText("You asked your companion for help.", { exact: true })).toHaveCSS("font-size", "13px");
   await expect(check.getByText("Want this to count? A fresh check is ready when you are.", { exact: true })).toBeVisible();
   const fresh = check.getByRole("button", { name: /^Get a fresh check/ });
   await expect(fresh).toBeVisible();

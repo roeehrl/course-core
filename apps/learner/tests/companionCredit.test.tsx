@@ -164,6 +164,67 @@ describe("credit honesty in the companion", () => {
     expect(deferredQuestion.get("e", "intro")).toBeNull();
   });
 
+  it("keeps a saved question when sending it now fails, and clears it once the server accepts it", async () => {
+    deferredQuestion.save("e", "intro", "Later question", ["answered-check"]);
+    const send = vi.fn().mockRejectedValueOnce(new CourseApiError("COMPANION_UNAVAILABLE", 503)).mockResolvedValue(receipt);
+    companion({ onSend: send, draft: "", server: snapshot([]), context: { ...context, independentChallengeIds: [] } });
+    fireEvent.click(screen.getByRole("button", { name: "Send it now" }));
+    await waitFor(() => expect(send).toHaveBeenCalledWith("Later question", undefined));
+    // Not accepted: still saved, still offered.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send it now" })).toBeEnabled());
+    expect(deferredQuestion.get("e", "intro")?.text).toBe("Later question");
+    await pressWhenReady(screen.getByRole("button", { name: "Send it now" }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(deferredQuestion.get("e", "intro")).toBeNull());
+  });
+
+  it("sends a saved question the learner sent as practice from the message box only once", async () => {
+    // A new counted question opened before the saved one was sent: it is asked first, through the box.
+    deferredQuestion.save("e", "intro", "Later question", ["answered-check"]);
+    const { send, change } = companion({ draft: "" });
+    fireEvent.click(screen.getByRole("button", { name: "Send it now" }));
+    expect(change).toHaveBeenCalledWith("Later question");
+    expect(screen.getByRole("group", { name: /^Asking now makes question 1 practice\./ })).toBeVisible();
+    expect(send).not.toHaveBeenCalled();
+    expect(deferredQuestion.get("e", "intro")?.text).toBe("Later question");
+  });
+
+  it("puts a saved question in the message box while offline, where it waits like any message", async () => {
+    deferredQuestion.save("e", "intro", "Later question", ["answered-check"]);
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      const { send, change } = companion({ draft: "", server: snapshot([]), context: { ...context, independentChallengeIds: [] } });
+      fireEvent.click(screen.getByRole("button", { name: "Send it now" }));
+      expect(change).toHaveBeenCalledWith("Later question");
+      expect(send).not.toHaveBeenCalled();
+      expect(deferredQuestion.get("e", "intro")?.text).toBe("Later question");
+    } finally {
+      online.mockRestore();
+    }
+  });
+
+  it("takes Esc in the inline choice and the ⓘ for themselves, never also for the companion around them", async () => {
+    // The phone's drawer closes on an Esc it hears in the capture phase (CompanionDock.web.tsx).
+    const closeDrawer = vi.fn();
+    const send = vi.fn().mockResolvedValue(receipt);
+    render(
+      <ConnectedCompanion context={context} messages={[]} episodeTitles={{ intro: "Notice change" }} draft="Question" onDraftChange={vi.fn()}
+        onSend={send} pending={false} loaded server={snapshot()} now={Date.parse("2026-11-01T12:00:00Z")} />,
+      { wrapper: ({ children }) => <aside id="connected-companion" onKeyDownCapture={(event) => event.key === "Escape" && closeDrawer()}>{children}</aside> },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Keep it counted" }), { key: "Escape" });
+    expect(screen.queryByRole("group")).toBeNull();
+    await waitFor(() => expect(field()).toHaveFocus());
+    const info = screen.getByRole("button", { name: "How questions count" });
+    await pressWhenReady(info);
+    fireEvent.keyDown(await screen.findByRole("dialog", { name: "How questions count" }), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(info).toHaveFocus());
+    expect(closeDrawer).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("moves the credit line under the composer while a limitation takes the slot above it", () => {
     companion({ unavailable: true });
     const line = screen.getByTestId("credit-line");

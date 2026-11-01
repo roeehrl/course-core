@@ -35,6 +35,7 @@ import { SendConfirm } from "../connected/credit/SendConfirm.web";
 import { CREDIT_LINE_ID, CreditNotice, useCreditLineShown } from "../connected/credit/CreditNotice.web";
 import { CreditLineAfter, CreditLineBeforeDivider, CreditThreadEnd } from "../connected/credit/CreditThreadLines.web";
 import { creditScope } from "../connected/credit/creditScope";
+import { deferredQuestion } from "../connected/credit/deferredQuestion";
 export interface ConnectedCompanionProps {
   context: CompanionContext;
   messages: readonly CompanionMessage[];
@@ -200,11 +201,12 @@ export function ConnectedCompanion({
     held.current = null;
     setHeldOffline(null);
   }, [context.enrollmentId, context.episodeId]);
-  async function send(allow?: true, text?: string) {
+  /** Sends the draft (or `text`); true once the server has accepted the message. */
+  async function send(allow?: true, text?: string): Promise<boolean> {
     if (!online) {
       held.current = { draft, episodeId: context.episodeId, ...(allow ? { consent: allow } : {}) };
       setHeldOffline(allow ? { consent: allow } : {});
-      return;
+      return false;
     }
     const submitted = text ?? current.current.draft,
       scope = context.episodeId;
@@ -217,23 +219,28 @@ export function ConnectedCompanion({
       if (!receipt?.messageId || receipt.state !== "queued")
         // i18n-ignore: internal signal, caught below and replaced with a translated message
         throw new Error("Unconfirmed companion response");
-      if (current.current.context.episodeId !== scope) return;
+      // A question saved for after the check is done once its text is sent, however it was sent.
+      const enrollment = server?.enrollmentId;
+      if (enrollment && scope && deferredQuestion.get(enrollment, scope)?.text.trim() === submitted.trim()) deferredQuestion.clear(enrollment, scope);
+      if (current.current.context.episodeId !== scope) return true;
       if (current.current.draft === submitted) onDraftChange("");
       setConsent(false);
       setSent(receipt.messageId);
+      return true;
     } catch (cause) {
-      if (current.current.context.episodeId !== scope) return;
+      if (current.current.context.episodeId !== scope) return false;
       // The server asks for the learner's choice: the same inline confirm, with no extra paragraph.
       if (cause instanceof CourseApiError && cause.code === "ASSESSMENT_HELP_CONSENT_REQUIRED") {
         if (text !== undefined) onDraftChange(text);
         setConsent(true);
-        return;
+        return false;
       }
       setSendError(
         cause instanceof CourseApiError
           ? cause.message
           : t("connectedCompanion.error.send"),
       );
+      return false;
     }
   }
   // Idle, the status is the server's availability: "Available" only when a companion job can run.
@@ -265,15 +272,22 @@ export function ConnectedCompanion({
   const needsConsent = server ? creditScope(server, context.episodeId, now, focus.check?.challengeId).length > 0 : context.independentChallengeIds.length > 0;
   const creditShown = useCreditLineShown(server, context.episodeId, now);
   const creditPlacement = !online || unavailable ? "meta" : "notice";
-  /** A question saved for after the check, sent now: asked first like any message. */
+  /**
+   * A question saved for after the check, sent now: asked first like any message. It stays saved
+   * until the server accepts it (send() clears it then); offline, it goes into the message box and
+   * waits there like any message.
+   */
   async function sendSaved(text: string) {
-    if (needsConsent) {
+    if (needsConsent || !online) {
       onDraftChange(text);
-      setConsent(true);
+      if (needsConsent) setConsent(true);
+      else {
+        held.current = { draft: text, episodeId: context.episodeId };
+        setHeldOffline({});
+      }
       return false;
     }
-    await send(undefined, text);
-    return true;
+    return send(undefined, text);
   }
   const latestReply = messages.findLast((row) => row.role === "assistant")?.id;
   const latestQuestion = messages.findLast((row) => row.role === "learner")?.id;

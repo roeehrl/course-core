@@ -24,6 +24,12 @@ describe("a question saved for after the check", () => {
     expect(deferredQuestion.get("enrollment-1", "a")).toBeNull();
   });
 
+  it("keeps a question saved earlier in the lesson, with the new one after it", () => {
+    deferredQuestion.save("enrollment-1", "a", "First?", ["check-a"], 10);
+    deferredQuestion.save("enrollment-1", "a", "Second?", ["check-a", "check-b"], 20);
+    expect(deferredQuestion.get("enrollment-1", "a")).toEqual({ text: "First?\n\nSecond?", challengeIds: ["check-a", "check-b"], savedAt: 20 });
+  });
+
   it("never saves an empty message, and ignores a stored value it cannot read", () => {
     deferredQuestion.save("enrollment-1", "a", "   ", ["check-a"]);
     expect(deferredQuestion.get("enrollment-1", "a")).toBeNull();

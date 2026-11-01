@@ -5,6 +5,7 @@ import { InlineConfirm } from "../ui/InlineConfirm.web";
 import { useAttachedCheckId } from "./CreditNotice.web";
 import { scopedQuestion } from "./creditScope";
 import { deferredQuestion } from "./deferredQuestion";
+import { useOwnEscape } from "./ownEscape";
 
 export interface SendConfirmProps {
   server?: ServerSnapshot;
@@ -43,6 +44,12 @@ export function SendConfirm({ server, episodeId, now, pending, sendDisabled, onS
     const field = root.current?.closest("#connected-companion")?.querySelector<HTMLTextAreaElement>("textarea");
     requestAnimationFrame(() => field?.isConnected && field.focus({ preventScroll: true }));
   };
+  const keep = () => {
+    onKeep();
+    refocus();
+  };
+  // Esc is "Keep it counted", and only that (never also closing the companion around it).
+  useOwnEscape(true, () => root.current, keep);
   return (
     <div ref={root} className="cc-credit-confirm-row" aria-busy={pending || undefined}>
       <InlineConfirm
@@ -53,10 +60,7 @@ export function SendConfirm({ server, episodeId, now, pending, sendDisabled, onS
           if (!pending && !sendDisabled) onSendAsPractice();
         }}
         cancelLabel={t("sendConfirm.keep")}
-        onCancel={() => {
-          onKeep();
-          refocus();
-        }}
+        onCancel={keep}
         {...(onSaveForLater
           ? {
               tertiary: {

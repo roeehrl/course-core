@@ -51,11 +51,12 @@ test("a message while a counted question is open asks first and sends only with 
   await expect(row.getByRole("button", { name: "Keep it counted" })).toBeFocused();
   await expect(panel.getByRole("heading", { name: /independent/ })).toHaveCount(0);
   expect(requests).toHaveLength(0);
-  // Esc keeps it counted: nothing sent, the draft stays.
+  // Esc keeps it counted: nothing sent, the draft stays, and the companion stays open with focus
+  // back in the message box.
   await page.keyboard.press("Escape");
   await expect(row).toBeHidden();
-  // (Until the nonmodal sheet lands, the phone's modal drawer also takes this Esc and closes.)
-  await openCompanion(page);
+  await expect(panel).toBeVisible();
+  await expect(draft).toBeFocused();
   await expect(draft).toHaveValue("Explain how to compare these values.");
   expect(requests).toHaveLength(0);
   // "Keep it counted" keeps the draft and returns focus to the message box.
