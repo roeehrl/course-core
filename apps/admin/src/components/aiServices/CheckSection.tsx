@@ -1,4 +1,11 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AiServicesError,
   activeNeedingCheck,
@@ -29,6 +36,7 @@ import {
   type FieldError,
 } from "./shared";
 import { CheckDetails, type DetailsSource } from "./CheckDetails";
+import { OnJobs } from "./OnJobs";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 const MIN_REASON = 20;
@@ -113,8 +121,8 @@ export function CheckSection(props: Props) {
     !waiting.length &&
     (!draft || draft.id === approvedDraft);
   const needing = activeNeedingCheck(data.evals);
-  // Kept here: a finished check or an approval of the jobs that are on removes the list it was made in.
-  const [activeDone, setActiveDone] = useState<QualityCheck | null>(null);
+  // Kept here: an approval of the jobs that are on removes the list it was made in. (A finished
+  // check of them shows with "Jobs that are on", OnJobs.)
   const [activeApproved, setActiveApproved] = useState(false);
   const [turning, setTurning] = useState(false);
   const [turnError, setTurnError] = useState<string>();
@@ -190,13 +198,6 @@ export function CheckSection(props: Props) {
         !needing.length && <p>{t("aiServices.check.nothingWaiting")}</p>
       )}
       <h3>{t("aiServices.check.onTitle")}</h3>
-      {activeDone && !needing.length && (
-        <CheckResult
-          check={activeDone}
-          service={activeService(t, data)}
-          source={props}
-        />
-      )}
       {activeApproved && !needing.length && (
         <Message tone="ok">{t("aiServices.check.active.approved")}</Message>
       )}
@@ -204,31 +205,16 @@ export function CheckSection(props: Props) {
         <ActiveNeedsCheck
           {...props}
           needing={needing}
-          onFinished={setActiveDone}
           onApproved={() => setActiveApproved(true)}
         />
       )}
-      {active.length ? (
-        <ul className="ai-list">
-          {active.map((role) => {
-            const state = data.evals?.roles.find((r) => r.role === role.role);
-            return (
-              <li key={role.role}>
-                {jobName(t, role.role)} —{" "}
-                <Ltr className="mono">{role.remoteModel ?? role.modelId}</Ltr>
-                {state && (
-                  <span className="ai-muted">
-                    {" "}
-                    · {t(`aiServices.check.state.${state.status}` as AiKey)}
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="ai-muted">{t("aiServices.check.noneOn")}</p>
-      )}
+      <OnJobs
+        {...props}
+        active={active}
+        needing={needing}
+        allAtOnceShown={allAtOnceShown(data, needing)}
+        service={activeService(t, data)}
+      />
       <HostFileRoles {...props} />
       <CourseSetups {...props} />
     </Section>
@@ -412,6 +398,17 @@ function activeService(t: AiText["t"], data: Props["data"]) {
   );
 }
 
+/** Whether the flagged list shows "Or check all of them at once" (it checks every job that is on). */
+function allAtOnceShown(data: Props["data"], needing: ActiveCheck[]) {
+  const uncovered = needing.filter((r) => r.status === "not_covered");
+  return (
+    needing.length > 0 &&
+    !data.draft &&
+    data.quality?.target === "active" &&
+    needing.length - uncovered.length > 1
+  );
+}
+
 /**
  * Jobs that are on but have no passing check or approval for the current checks: they keep
  * working; the check of the active setup (when no draft is open) and the owner's approval.
@@ -419,7 +416,7 @@ function activeService(t: AiText["t"], data: Props["data"]) {
 function ActiveNeedsCheck(
   props: Props & {
     needing: ActiveCheck[];
-    onFinished: (check: QualityCheck) => void;
+    onFinished?: (check: QualityCheck) => void;
     onApproved: () => void;
   },
 ) {
@@ -428,9 +425,8 @@ function ActiveNeedsCheck(
   const { data, needing } = props;
   const uncovered = needing.filter((r) => r.status === "not_covered");
   const quality = data.quality;
-  const checkable = !data.draft && quality?.target === "active";
   // "Check all of them at once" shows the result of that check itself.
-  const allAtOnce = checkable && needing.length - uncovered.length > 1;
+  const allAtOnce = allAtOnceShown(data, needing);
   return (
     <div className="ai-sub ai-active-check">
       <Message tone="warn">
@@ -460,7 +456,7 @@ function ActiveNeedsCheck(
         : allAtOnce && (
             <>
               <h4>{t("aiServices.check.flag.allTitle")}</h4>
-              {quality.conversations > 0 && (
+              {!!quality && quality.conversations > 0 && (
                 <p>
                   {t("aiServices.check.explain", {
                     dialogues: quality.conversations,
@@ -920,15 +916,18 @@ function RunCheck(
   );
 }
 
-function CheckResult({
+export function CheckResult({
   check,
   service,
   source,
+  actions,
 }: {
   check: QualityCheck;
   service: string;
   /** Where the conversation details are read. */
   source: DetailsSource;
+  /** What to do about the result, shown right under it (before the conversation details). */
+  actions?: ReactNode;
 }) {
   const text = useAiText();
   const { t } = text;
@@ -1040,6 +1039,7 @@ function CheckResult({
           </span>
         )}
       </Message>
+      {actions}
       <CheckDetails check={check} source={source} />
     </>
   );

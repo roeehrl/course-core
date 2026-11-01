@@ -122,6 +122,17 @@ export function registerProviderSetupRoutes(
         request.body,
       ),
   );
+  // Turns one job of the active setup off (owners and administrators; provider-setup.ts turnOff).
+  app.post(
+    base + "/turn-off",
+    { schema: { params }, bodyLimit: 2048, logLevel: "silent" },
+    async (request) =>
+      service.turnOff(
+        await auth.authenticate(request),
+        (request.params as { workspaceId: string }).workspaceId,
+        request.body,
+      ),
+  );
   app.get(
     base + "/budgets",
     { schema: { params }, logLevel: "silent" },

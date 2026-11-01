@@ -299,6 +299,10 @@ export function errorText(text: AiText, error: unknown, service = ""): string {
       return jobs
         ? t("aiServices.err.evalRequiredJobs", { jobs })
         : t("aiServices.err.evalRequired");
+    case "PROVIDER_ROLE_IN_USE":
+      return jobs
+        ? t("aiServices.err.roleInUse", { jobs })
+        : t("aiServices.err.generic");
     case "PROVIDER_CONNECTION_IN_USE":
       return jobs
         ? t("aiServices.err.connectionInUse", { jobs })

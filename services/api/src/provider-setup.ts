@@ -30,6 +30,7 @@ import { requireCondition, ApiError } from "./errors.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 import { activationDecision, type VersionEvaluation } from "./agent-evals/gate.js";
 import { publicSuite } from "./agent-evals/public-suite.js";
+import { AGENT_ROLES } from "./agent-strategies.js";
 import type { EvalSuite } from "./agent-evals/suite.js";
 
 export const jobPolicySchema = z.strictObject({
@@ -88,6 +89,12 @@ const pastedEdges =
  * is one that still contains anything but printable ASCII (400 PROVIDER_CREDENTIAL_MALFORMED):
  * provider API keys never do, and a key that does would only fail later at the provider.
  */
+/** Turning one job of the active setup off (`turnOff`). */
+const turnOffSchema = z.strictObject({
+  idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/),
+  expectedRevision: z.number().int().nonnegative(),
+  role: z.enum(AGENT_ROLES),
+});
 export function normalizeCredential(value: string) {
   const key = value.replace(pastedEdges, "");
   requireCondition(key, "PROVIDER_CREDENTIAL_EMPTY", 400);
@@ -691,6 +698,66 @@ export class WorkspaceProviders {
         return receiptResult;
       });
     return result;
+  }
+  /**
+   * Turns one job of the active setup off (owners and administrators): a new active version
+   * without that job's binding, so learners get no answer from it from now on, exactly as before
+   * it was turned on (the runtime reports it unconfigured). Unfinished jobs are asked to stop, as
+   * after any model change, so none keeps running on the version that had it. Its approval and
+   * check results stay recorded; turning it on again goes through the models and the check as
+   * usual. An open draft is moved onto the new version without the job. Idempotent per key (a
+   * provider_setup_receipts row) and recorded in the workspace audit log. A job that is already
+   * off changes nothing. 409 PROVIDER_ROLE_IN_USE when another job uses it as its check judge.
+   */
+  async turnOff(actor: Actor, workspace: string, raw: unknown) {
+    const parsed = turnOffSchema.safeParse(raw);
+    requireCondition(parsed.success, "PROVIDER_CONFIGURATION_INVALID", 400);
+    const input = parsed.data,
+      digest = this.vault.requestDigest(workspace, { kind: "provider_role_turn_off", ...input });
+    return transaction(this.db, async (client) => {
+      await this.lockForChange(client, workspace, actor);
+      const cached = await this.receipt(client, workspace, input.idempotencyKey, digest);
+      if (cached) return cached;
+      const old = await this.version(client, workspace);
+      requireCondition(input.expectedRevision === (old?.revision ?? 0), "STALE_PROVIDER_REVISION", 409);
+      const configuration = old ? providerConfigurationSchema.parse(old.configuration) : null;
+      const binding = configuration?.roles[input.role];
+      let result: { role: string; revision: number; turnedOff: boolean; cancelledPendingJobs: number };
+      if (!old || !configuration || !binding) {
+        result = { role: input.role, revision: old?.revision ?? 0, turnedOff: false, cancelledPendingJobs: 0 };
+      } else {
+        const users = Object.entries(configuration.roles)
+          .filter(([role, b]) => role !== input.role && (b as { checkJudgeRole?: string } | undefined)?.checkJudgeRole === input.role)
+          .map(([role]) => role);
+        if (users.length) throw new ApiError(409, "PROVIDER_ROLE_IN_USE", "PROVIDER_ROLE_IN_USE", { roles: users });
+        const next = structuredClone(configuration);
+        delete next.roles[input.role];
+        const committed = await this.commitVersion(client, workspace, actor, {
+          old,
+          configuration: next,
+          jobPolicy: jobPolicySchema.parse(old.job_policy),
+          credentials: {},
+          cancelRunning: true,
+        });
+        // A draft made on the old version stays usable: it moves onto the new one, without the job.
+        await client.query(
+          "UPDATE provider_setup_drafts SET base_revision=$3,configuration=configuration #- ARRAY['roles',$4::text],updated_at=clock_timestamp() WHERE workspace_id=$1 AND base_revision=$2",
+          [workspace, old.revision, committed.revision, input.role],
+        );
+        result = { role: input.role, revision: committed.revision, turnedOff: true, cancelledPendingJobs: committed.cancelledPendingJobs };
+        await appendEvent(client, {
+          workspaceId: workspace,
+          actorId: actor.id,
+          actorKind: "staff",
+          type: "provider.role.turned_off",
+          payload: { role: input.role, modelId: binding.modelId, previousRevision: old.revision, revision: committed.revision,
+            cancelledPendingJobs: committed.cancelledPendingJobs },
+          idempotencyKey: `provider.role.turned_off:${workspace}:${committed.revision}`,
+        });
+      }
+      await this.storeReceipt(client, workspace, actor, input.idempotencyKey, digest, result, "activation");
+      return result;
+    });
   }
   /** Serializes setup changes of one workspace and checks the actor may make them. */
   async lockForChange(client: PoolClient, workspace: string, actor: Actor) {

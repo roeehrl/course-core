@@ -169,6 +169,8 @@ const status = (over: Partial<QualityStatus> = {}): QualityStatus => ({
   blocked: null,
   latest: null,
   activeRoles: [],
+  onRoles: [],
+  onAll: null,
   ...over,
 });
 const suggestion = (changeFrom: string | null): SuggestedPrice => ({
@@ -1912,6 +1914,243 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     ).toBeInTheDocument();
     expect(
       within(region).getByRole("button", { name: he("check.run.button") }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("jobs that are on: check again and turn off", () => {
+  const approvedAt = "2026-10-31T09:00:00.000Z";
+  // The owner's case: both jobs turned on with "Approve without checking".
+  const onSetup = (): ProviderSetup => {
+    const base = setup(3);
+    return {
+      ...base,
+      configuration: {
+        ...(base.configuration as object),
+        registry: {
+          revision: "x",
+          models: (["companion", "supervisor"] as const).map((r) => ({
+            id: `connection-1:${r}`,
+            providerId: "connection-1",
+            remoteModel: "gemini-3.8-flash",
+          })),
+        },
+        roles: Object.fromEntries(
+          (["companion", "supervisor"] as const).map((r) => [
+            r,
+            { modelId: `connection-1:${r}` },
+          ]),
+        ),
+      },
+    };
+  };
+  const approved = () => ({
+    suite: {
+      id: "core-public",
+      version: "2",
+      digest: "f".repeat(64),
+      dialogues: 18,
+      coverage: [{ role: "companion", dialogues: 9 }],
+    },
+    providerRevision: 3,
+    gatedAtActivation: true,
+    roles: (["companion", "supervisor"] as const).map((role, i) => ({
+      role,
+      strategy: `core.${role}`,
+      revisionDigest: String(i).repeat(64),
+      covered: true,
+      status: "override",
+      grandfathered: false,
+      activatedBy: "override",
+      overrideId: `00000000-0000-4000-8000-00000000000${i}`,
+      overriddenAt: approvedAt,
+    })),
+    results: [],
+    overrides: [],
+  });
+  const plan = (role: "companion" | "supervisor", conversations: number) => ({
+    role,
+    remoteModel: "gemini-3.8-flash",
+    conversations,
+    priced: true,
+    estimateMicroUsd: conversations * 6000,
+    reserveMicroUsd: conversations * 100000,
+    blocked: null,
+  });
+  const onStatus = (over: Partial<QualityStatus> = {}) =>
+    status({
+      target: null,
+      draftId: null,
+      roles: [],
+      conversations: 0,
+      estimateMicroUsd: 0,
+      reserveMicroUsd: 0,
+      blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" },
+      onRoles: [plan("companion", 9), plan("supervisor", 3)],
+      onAll: {
+        conversations: 12,
+        estimateMicroUsd: 72000,
+        reserveMicroUsd: 1200000,
+        blocked: null,
+      },
+      ...over,
+    });
+  const failedAll = check({
+    target: "active",
+    draftId: null,
+    state: "failed",
+    completed: 12,
+    chargedMicroUsd: 40000,
+    outcome: [
+      {
+        role: "companion",
+        passed: false,
+        dialogues: 9,
+        failed: [{ dialogueId: "companion.a", graders: ["hint_leakage"] }],
+      },
+      { role: "supervisor", passed: true, dialogues: 3, failed: [] },
+    ],
+  });
+  const onPort = (overrides: Parameters<typeof fakePort>[0] = {}) =>
+    fakePort({
+      setup: vi.fn().mockResolvedValue(onSetup()),
+      currentDraft: vi.fn().mockResolvedValue(null),
+      evals: vi.fn().mockResolvedValue(approved()),
+      qualityStatus: vi.fn().mockResolvedValue(onStatus()),
+      turnOff: vi.fn().mockResolvedValue({
+        role: "companion",
+        revision: 4,
+        turnedOff: true,
+        cancelledPendingJobs: 0,
+      }),
+      ...overrides,
+    });
+
+  it("shows how each job was approved and when, and checks one job or all of them again", async () => {
+    const port = onPort({
+      startQualityCheck: vi.fn().mockResolvedValue(
+        check({
+          target: "active",
+          draftId: null,
+          roles: ["companion"],
+          total: 9,
+          completed: 1,
+        }),
+      ),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const tutor = (await within(region).findAllByRole("listitem")).find(
+      (li) => li.getAttribute("data-role") === "companion",
+    )!;
+    expect(
+      within(tutor).getByText(t("check.state.override")),
+    ).toBeInTheDocument();
+    expect(
+      within(tutor).getByText(
+        t("check.on.approvedOn", { date: english.date(approvedAt, "medium") }),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByRole("button", { name: t("check.on.runAll") }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(tutor).getByRole("button", {
+        name: t("check.on.runFor", { job: t("role.companion.name") }),
+      }),
+    );
+    expect(
+      await within(tutor).findByText(
+        t("check.run.progress", { done: 1, total: 9 }),
+      ),
+    ).toBeInTheDocument();
+    expect(port.startQualityCheck).toHaveBeenCalledWith(workspace, {
+      target: "active",
+      role: "companion",
+      idempotencyKey: expect.stringMatching(/^ai-services:/),
+    });
+  });
+
+  it("checks all jobs that are on with one request", async () => {
+    const port = onPort({
+      startQualityCheck: vi
+        .fn()
+        .mockResolvedValue(
+          check({ target: "active", draftId: null, completed: 2 }),
+        ),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="admin" />);
+    const region = await checkRegion();
+    fireEvent.click(
+      await within(region).findByRole("button", { name: t("check.on.runAll") }),
+    );
+    expect(
+      await within(region).findByText(
+        t("check.run.progress", { done: 2, total: 12 }),
+      ),
+    ).toBeInTheDocument();
+    expect(port.startQualityCheck).toHaveBeenCalledWith(workspace, {
+      target: "active",
+      idempotencyKey: expect.stringMatching(/^ai-services:/),
+    });
+  });
+
+  it("keeps a job that failed on, offers to turn it off and asks first in plain words", async () => {
+    const port = onPort({
+      qualityStatus: vi.fn().mockResolvedValue(onStatus({ latest: failedAll })),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    const job = t("role.companion.name");
+    const still = (
+      await within(region).findByText(t("check.on.failedStillOn", { count: 1 }))
+    ).closest(".ai-message") as HTMLElement;
+    // Only the job that failed is offered, right under the result; the check turned nothing off.
+    expect(
+      within(still).queryByRole("button", {
+        name: t("check.on.turnOffFor", { job: t("role.supervisor.name") }),
+      }),
+    ).toBeNull();
+    expect(port.turnOff).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(still).getByRole("button", {
+        name: t("check.on.turnOffFor", { job }),
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: t("check.on.turnOffTitle", { job }),
+    });
+    expect(dialog).toHaveAccessibleDescription(t("check.on.turnOffBody"));
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: t("check.on.turnOffConfirm"),
+      }),
+    );
+    await waitFor(() =>
+      expect(port.turnOff).toHaveBeenCalledWith(workspace, {
+        expectedRevision: 3,
+        role: "companion",
+        idempotencyKey: expect.stringMatching(/^ai-services:/),
+      }),
+    );
+  });
+
+  it("says the same in Hebrew", async () => {
+    render(
+      <I18nProvider value={hebrew}>
+        <AiServicesPage workspaceId={workspace} port={onPort()} role="owner" />
+      </I18nProvider>,
+    );
+    const region = await screen.findByRole("region", {
+      name: he("section.check"),
+    });
+    expect(
+      await within(region).findByRole("button", {
+        name: he("check.on.turnOffFor", { job: he("role.companion.name") }),
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByRole("button", { name: he("check.on.runAll") }),
     ).toBeInTheDocument();
   });
 });

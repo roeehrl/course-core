@@ -131,6 +131,13 @@ The admin "AI services" page uses these routes (all under
   jobs would be stopped and the operator has not confirmed.
 - `POST …/provider-evals/overrides` also accepts `{draftId, role, reason}`: the owner approves
   the exact revision of that job in the open draft and the server resolves its digest.
+- `POST /turn-off` `{expectedRevision, idempotencyKey, role}` (owners and administrators)
+  turns one job of the active setup off: a new active version without that job, so learners
+  get no answer from it from now on, as before it was on. Unfinished jobs are asked to stop,
+  as after any model change. Its approval and check results stay recorded; an open draft
+  moves onto the new version without the job. Idempotent per key (a setup receipt), audited
+  as `provider.role.turned_off`; a job already off changes nothing (`turnedOff: false`).
+  `409 PROVIDER_ROLE_IN_USE {roles}` when another job names it as its check judge.
 - `PUT /service-keys/youtube` `{key | null}` stores the YouTube search key.
 
 ### Quality check from the page

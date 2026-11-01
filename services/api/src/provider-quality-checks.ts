@@ -14,7 +14,8 @@ import { evaluateActivation, roleChecks, uncheckedRoles, type ProviderEvaluation
 import { runSuite, type CallRecord, type EvalReport, type ToolCallRecord } from "./agent-evals/runner.js";
 import { dialogueDetail, type DialogueDetail } from "./agent-evals/details.js";
 import type { DialogueGrade } from "./agent-evals/graders.js";
-import { dialoguesFor, EVAL_ROLES, type Dialogue, type EvalRole } from "./agent-evals/suite.js";
+import { covers, dialoguesFor, EVAL_ROLES, type Dialogue, type EvalRole } from "./agent-evals/suite.js";
+import { roleRevisions } from "./agent-evals/revision.js";
 import { composeProviders, providerConfigurationSchema } from "./provider-composition.js";
 import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-costs.js";
 import { jobPolicySchema, type WorkspaceProviders } from "./provider-setup.js";
@@ -24,9 +25,11 @@ import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal
 /**
  * Quality checks run from the admin "AI services" page. The server runs Core's eval suite against
  * the open setup draft's models (target `draft`), or against the active setup's jobs that are on
- * without a passing check or an owner approval for their current revision and suite (target
- * `active`, e.g. after an upgrade brought new checks), with the workspace's own stored key, as a
- * durable background job:
+ * (target `active`: every job the suite covers, or the one `role` asked for), with the workspace's
+ * own stored key, as a durable background job. A check of the jobs that are on runs whatever their
+ * standing: one with a passing check or an owner's approval can be checked again (an approval
+ * without a check is then put to the test). A failed result records a failure; it never turns a
+ * job off (an owner or administrator does that, provider-setup.ts `turnOff`).
  *
  * - Admission (one transaction): owners and administrators only; idempotent per key; one running
  *   check per workspace and a per-hour limit; the draft's checked models must have a price in
@@ -177,10 +180,12 @@ export class ProviderQualityChecks {
 
   /**
    * What a check would run, cost and need; `blocked` says why it cannot start. `draft` checks the
-   * open draft's changed jobs; `active` checks the active setup's covered jobs that lack a passing
-   * check or an owner approval for their current revision and the current suite (only `only`, when given).
+   * open draft's changed jobs. `active` checks the active setup's covered jobs (only `only`, when
+   * given): with `scope` "needed" only those that lack a passing check or an owner approval for their
+   * current revision and the current suite (what the page flags), with "on" every one that is on
+   * (what an explicit check of the jobs that are on runs).
    */
-  private async plan(client: Database | PoolClient, workspace: string, target: Target, only?: EvalRole) {
+  private async plan(client: Database | PoolClient, workspace: string, target: Target, only?: EvalRole, scope: "needed" | "on" = "on") {
     const suite = this.providers.evalSuite, old = await this.providers.version(client, workspace);
     const nothing = (code: string) => ({ target, draft: null, old, configuration: null, jobPolicy: null, runtime: null, roles: [], conversations: 0,
       reserve: { microUsd: 0, tokens: 0 }, blocked: { code } as { code: string; roles?: EvalRole[]; neededMicroUsd?: number; availableMicroUsd?: number },
@@ -202,8 +207,13 @@ export class ProviderQualityChecks {
       if (!old) return nothing("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
       configuration = providerConfigurationSchema.parse(old.configuration);
       jobPolicy = jobPolicySchema.parse(old.job_policy);
-      const unchecked = await uncheckedRoles(client, workspace, suite, configuration);
-      needed = EVAL_ROLES.filter((role) => unchecked.some((r) => r.role === role && r.covered) && (!only || role === only));
+      if (scope === "needed") {
+        const unchecked = await uncheckedRoles(client, workspace, suite, configuration);
+        needed = EVAL_ROLES.filter((role) => unchecked.some((r) => r.role === role && r.covered) && (!only || role === only));
+      } else {
+        const revisions = await roleRevisions(configuration);
+        needed = EVAL_ROLES.filter((role) => !!revisions[role] && covers(suite, role, revisions[role]!.strategy) && (!only || role === only));
+      }
       if (!needed.length) return nothing("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
       secrets = this.providers.activeSecrets(workspace, old);
     }
@@ -286,31 +296,36 @@ export class ProviderQualityChecks {
 
   /**
    * The page's view: what a check would run and cost, why it cannot start, and the latest check.
-   * With an open draft it is the draft's check; otherwise the active setup's jobs that need one
-   * (`target: "active"`), or nothing to check (`target: null`).
+   * With an open draft it is the draft's check; otherwise, when a job that is on needs one,
+   * `target: "active"` with what checking every job that is on runs (what `start` runs), or nothing
+   * to check (`target: null`). `activeRoles` are the jobs that are on and need a check; `onRoles`
+   * every job that is on that the check covers, each with what checking it alone runs, and `onAll`
+   * what checking all of them runs, so any job can be checked again.
    */
   async status(actor: Actor, workspace: string) {
     await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
     return transaction(this.db, async (client) => {
       await this.expire(client, workspace);
       const hasDraft = !!(await this.draft(client, workspace));
-      let plan = await this.plan(client, workspace, hasDraft ? "draft" : "active");
+      const needing = await this.plan(client, workspace, "active", undefined, "needed");
+      const onAll = await this.plan(client, workspace, "active");
+      let plan = hasDraft ? await this.plan(client, workspace, "draft") : onAll;
       // Nothing on needs a check: say there is nothing to check, as before there were active checks.
-      if (!hasDraft && !plan.roles.length) plan = await this.plan(client, workspace, "draft");
+      if (!hasDraft && !needing.roles.length) plan = await this.plan(client, workspace, "draft");
       const offered = plan.configuration !== null && (plan.target === "draft" || plan.roles.length > 0);
       const latest = (await client.query<CheckRow>(
         "SELECT * FROM provider_quality_checks WHERE workspace_id=$1 ORDER BY created_at DESC,id LIMIT 1", [workspace])).rows[0];
       const running = latest?.state === "running";
       // Each job that is on and needs a check, with what checking it alone would run and cost and why
       // it cannot start now: the page flags each one with its own "Run check", draft open or not.
-      const activeRoles = [];
-      const onNow = plan.target === "active" ? plan : await this.plan(client, workspace, "active");
-      for (const r of onNow.roles) {
+      const onRoles = [];
+      for (const r of onAll.roles) {
         const alone = await this.plan(client, workspace, "active", r.role);
-        activeRoles.push({ role: r.role, remoteModel: r.remoteModel, conversations: alone.conversations, priced: !r.paid || !!r.pricing,
+        onRoles.push({ role: r.role, remoteModel: r.remoteModel, conversations: alone.conversations, priced: !r.paid || !!r.pricing,
           estimateMicroUsd: alone.estimateMicroUsd, reserveMicroUsd: alone.reserve.microUsd,
           blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : alone.blocked });
       }
+      const activeRoles = onRoles.filter((r) => needing.roles.some((n) => n.role === r.role));
       return {
         target: offered ? plan.target : null,
         draftId: plan.draft?.id ?? null,
@@ -323,6 +338,9 @@ export class ProviderQualityChecks {
         blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : plan.blocked,
         latest: latest ? this.view(latest, await this.charged(client, latest.id)) : null,
         activeRoles,
+        onRoles,
+        onAll: onAll.roles.length ? { conversations: onAll.conversations, estimateMicroUsd: onAll.estimateMicroUsd,
+          reserveMicroUsd: onAll.reserve.microUsd, blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : onAll.blocked } : null,
       };
     });
   }

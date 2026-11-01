@@ -204,3 +204,184 @@ export async function stubQualityCheck(
   });
   return requests;
 }
+
+/** The two jobs the owner turned on with "Approve without checking". */
+const onJobs = ["companion", "supervisor"] as const;
+const approvedAt = "2026-10-31T09:00:00.000Z";
+/** A failed check of the jobs that are on, with the stored conversations of those two jobs. */
+export const failedActiveCheck = {
+  ...failedCheck,
+  target: "active",
+  draftId: null,
+  roles: [...onJobs],
+  total: details.roles
+    .filter((r) => (onJobs as readonly string[]).includes(r.role))
+    .reduce((n, r) => n + r.dialogues.length, 0),
+  outcome: failedCheck.outcome.filter((o) =>
+    (onJobs as readonly string[]).includes(o.role),
+  ),
+};
+failedActiveCheck.completed = failedActiveCheck.total;
+
+/**
+ * The connected AI services page with the learner tutor and the lesson planner on, both approved
+ * without checking and no draft open. `failed` serves a failed check of both as the latest check.
+ */
+export async function stubJobsOn(
+  page: Page,
+  options: { failed?: boolean } = {},
+) {
+  const requests = { turnOff: [] as unknown[], started: [] as unknown[] };
+  const ws = "**/api/admin/workspaces/*";
+  const active = {
+    ...setup,
+    revision: 3,
+    configuration: {
+      ...setup.configuration,
+      registry: {
+        revision: "x",
+        models: onJobs.map((role) => ({
+          id: `connection-1:${role}`,
+          providerId: "connection-1",
+          remoteModel: "gemini-3.8-flash",
+        })),
+      },
+      roles: Object.fromEntries(
+        onJobs.map((role) => [role, { modelId: `connection-1:${role}` }]),
+      ),
+    },
+  };
+  await page.route(`${ws}/provider-setup`, (route) =>
+    route.fulfill({ json: active }),
+  );
+  await page.route(`${ws}/provider-setup/connections`, (route) =>
+    route.fulfill({
+      json: {
+        revision: 1,
+        connections: [
+          {
+            id: "connection-1",
+            kind: "google",
+            label: "Google",
+            name: "",
+            keyEnding: "7Q2c",
+            keyStored: true,
+            keyStatus: "working",
+            keyReason: null,
+            testedAt: now,
+            usedByRoles: [...onJobs],
+          },
+        ],
+        serviceKeys: [],
+        keyStorage: "encrypted_server_vault",
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/drafts/current`, (route) =>
+    route.fulfill({ json: { draft: null } }),
+  );
+  await page.route(`${ws}/provider-pricing`, (route) =>
+    route.fulfill({
+      json: {
+        requirePricing: true,
+        settingsRevision: 0,
+        currency: "USD",
+        builtInPrices: false,
+        models: [],
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/budgets`, (route) =>
+    route.fulfill({ status: 404, json: { error: "NOT_FOUND" } }),
+  );
+  await page.route(`${ws}/provider-evals`, (route) =>
+    route.fulfill({
+      json: {
+        suite: {
+          id: "core-public",
+          version: "2",
+          digest: "f".repeat(64),
+          dialogues: 18,
+          coverage: [{ role: "companion", dialogues: 9 }],
+        },
+        providerRevision: 3,
+        gatedAtActivation: true,
+        roles: onJobs.map((role, i) => ({
+          role,
+          strategy: `core.${role}`,
+          revisionDigest: String(i).repeat(64),
+          covered: true,
+          status: "override",
+          grandfathered: false,
+          activatedBy: "override",
+          overrideId: `00000000-0000-4000-8000-00000000000${i}`,
+          overriddenAt: approvedAt,
+        })),
+        results: [],
+        overrides: [],
+      },
+    }),
+  );
+  const plan = (role: string, conversations: number) => ({
+    role,
+    remoteModel: "gemini-3.8-flash",
+    conversations,
+    priced: true,
+    estimateMicroUsd: conversations * 6000,
+    reserveMicroUsd: conversations * 100000,
+    blocked: null,
+  });
+  await page.route(`${ws}/provider-setup/quality-check`, (route) => {
+    if (route.request().method() === "POST") {
+      requests.started.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { ...failedActiveCheck, state: "running", completed: 1 },
+      });
+    }
+    return route.fulfill({
+      json: {
+        target: null,
+        draftId: null,
+        roles: [],
+        conversations: 0,
+        estimateMicroUsd: 0,
+        reserveMicroUsd: 0,
+        blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" },
+        latest: options.failed ? failedActiveCheck : null,
+        activeRoles: [],
+        onRoles: [plan("companion", 9), plan("supervisor", 3)],
+        onAll: {
+          conversations: 12,
+          estimateMicroUsd: 72000,
+          reserveMicroUsd: 1200000,
+          blocked: null,
+        },
+      },
+    });
+  });
+  await page.route(`${ws}/provider-setup/quality-check/*`, (route) =>
+    route.fulfill({ json: failedActiveCheck }),
+  );
+  await page.route(`${ws}/provider-setup/quality-check/*/details`, (route) =>
+    route.fulfill({
+      json: {
+        ...details,
+        roles: details.roles.filter((r) =>
+          (onJobs as readonly string[]).includes(r.role),
+        ),
+      },
+    }),
+  );
+  await page.route(`${ws}/provider-setup/turn-off`, (route) => {
+    requests.turnOff.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: {
+        role: "companion",
+        revision: 4,
+        turnedOff: true,
+        cancelledPendingJobs: 0,
+      },
+    });
+  });
+  return requests;
+}
