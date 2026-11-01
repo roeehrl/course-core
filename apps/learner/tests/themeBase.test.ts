@@ -56,8 +56,12 @@ describe("the base stylesheet", () => {
     css.walkRules((rule) => {
       if (!rule.selector.includes(":focus-visible")) return;
       const forced = rule.parent?.type === "atrule" && (rule.parent as AtRule).params.includes("forced-colors");
-      rule.walkDecls(/^outline$/, (decl) => rings.push(`${forced ? "forced " : ""}${decl.value.replace(/ !important$/, "")}`));
-      rule.walkDecls(/^box-shadow$/, () => rings.push(`${rule.selector}: box-shadow`));
+      rule.walkDecls(/^outline$/, (decl) => {
+        rings.push(`${forced ? "forced " : ""}${decl.value.replace(/ !important$/, "")}`);
+      });
+      rule.walkDecls(/^box-shadow$/, () => {
+        rings.push(`${rule.selector}: box-shadow`);
+      });
     });
     expect(rings.length).toBeGreaterThan(3);
     for (const ring of rings) expect(ring).toMatch(/^(2px solid var\(--focus\)|forced 3px solid Highlight)$/);
