@@ -93,9 +93,11 @@ test("a selection is attached only by pressing Ask companion, which opens the co
   await expect(panel).toBeVisible();
   await expect(panel.getByText("Selected: “no greater than”", { exact: true })).toBeVisible();
   await expect(ask).toHaveCount(0);
-  // The message box takes focus with a fine pointer; on a touch screen the keyboard stays down.
+  // The message box takes focus with a fine pointer; on a touch screen the keyboard stays down
+  // and a sheet opens at Half.
   if (await coarse(page)) await expect(composerBox(page)).not.toBeFocused();
   else await expect(composerBox(page)).toBeFocused();
+  if ((await panel.getAttribute("data-placement")) === "sheet") await expect(panel).toHaveAttribute("data-detent", "half");
   await page.screenshot({ path: info.outputPath("ask-attached.png") });
   expect(errors).toEqual([]);
 });
@@ -187,7 +189,10 @@ test("a video attaches the moment the player is at", async ({ page }) => {
         this.getCurrentTime = function () { return 134; };
         this.destroy = function () { frame.remove(); };
         var self = this;
-        setTimeout(function () { options.events.onReady && options.events.onReady({ target: self }); }, 20);
+        setTimeout(function () {
+          options.events.onReady && options.events.onReady({ target: self });
+          window.__playerReady = true;
+        }, 20);
       } };
       window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();`,
     }),
@@ -198,6 +203,8 @@ test("a video attaches the moment the player is at", async ({ page }) => {
   await expect(moment).toHaveCount(0);
   await page.getByRole("button", { name: enMedia.load, exact: true }).click();
   await expect(moment).toBeVisible();
+  // The player tells its position once it is ready; a press before that attaches the video alone.
+  await page.waitForFunction(() => (window as Window & { __playerReady?: boolean }).__playerReady === true);
   await moment.click();
   const panel = companionPanel(page);
   await expect(panel).toBeVisible();

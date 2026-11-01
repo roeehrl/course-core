@@ -4,7 +4,8 @@ import { companion, openLesson, trigger } from "./shell-helpers";
 /*
  * The companion's shortcut (final design §3.1, §5, Q8): Ctrl+Shift+. (⌘⇧. on a Mac) on the physical
  * period key, never with Alt and never while typing in a field. It opens and closes the companion;
- * with lesson text selected it opens it with the selection to attach. It is shown in the trigger's
+ * with lesson text selected it opens it with the selection attached (through
+ * `companionBridge.attachSelection`, which `AskFromLesson` registers). It is shown in the trigger's
  * tooltip and `aria-keyshortcuts`. The Hebrew layout and the modifier rules are unit tested
  * (tests/shortcut.test.ts); the collision check is in docs/accessibility.md.
  */
@@ -43,7 +44,7 @@ test("Ctrl+Shift+. toggles the companion, not while typing, and the trigger says
   await expect(trigger(page)).toBeFocused();
 });
 
-test("with lesson text selected the shortcut opens the companion and keeps the selection", async ({ page }) => {
+test("with lesson text selected the shortcut opens the companion with the selection attached", async ({ page }) => {
   await openLesson(page);
   const region = companion(page);
   if ((await trigger(page).getAttribute("aria-expanded")) === "true") {
@@ -59,5 +60,8 @@ test("with lesson text selected the shortcut opens the companion and keeps the s
   });
   await page.keyboard.press("Control+Shift+Period");
   await expect(region).toBeVisible();
-  expect(await page.evaluate(() => document.getSelection()!.toString())).toContain("The minimum is no greater");
+  // The selection is attached through the bridge (final design §3.9): its chip shows in the
+  // composer, which takes focus because the shortcut is a key press.
+  await expect(region.locator(".cc-chat-attachments").getByText(/^Selected: “The minimum is no greater/)).toBeVisible();
+  await expect(region.getByRole("textbox", { name: "Message to your companion", exact: true })).toBeFocused();
 });

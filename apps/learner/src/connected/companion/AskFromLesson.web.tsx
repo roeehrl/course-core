@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { useLessonSelection } from "../../hooks/useLessonSelection";
 import { useT } from "../../i18n";
 import { Announcer, useAnnounce } from "../ui/Announcer.web";
+import { isCompanionShortcut } from "../ui/keys";
 import { useCoarsePointer } from "../ui/media";
 import { AskCompanionButton } from "./AskCompanionButton.web";
 import { companionBridge, useCompanionAvailable } from "./bridge";
@@ -9,7 +10,6 @@ import {
   attachCandidate,
   focusAfterAsk,
   focusSelectionEnd,
-  isAskShortcut,
   tabbableNeighbour,
   type AskCandidate,
 } from "./selectionAttach";
@@ -70,7 +70,7 @@ function AskFromSelection({ enabled, episodeId }: { enabled: boolean; episodeId?
   useEffect(() => {
     if (!enabled) return;
     const shortcut = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !isAskShortcut(event)) return;
+      if (event.defaultPrevented || event.repeat || !isCompanionShortcut(event)) return;
       const target = current();
       if (target?.kind !== "code" || document.activeElement !== target.origin) return;
       event.preventDefault();

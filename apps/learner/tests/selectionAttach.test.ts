@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { companionFocus } from "../src/client/companionFocus";
 import { companionBridge, resetCompanionBridge, type ComposeRequest } from "../src/connected/companion/bridge";
 import { companionOpen } from "../src/connected/companion/openState";
+import { isCompanionShortcut } from "../src/connected/ui/keys";
 import {
   ASK_GAP,
   ASK_MARGIN,
@@ -11,7 +12,6 @@ import {
   codeSelection,
   focusAfterAsk,
   focusSelectionEnd,
-  isAskShortcut,
   tabbableNeighbour,
   textCandidate,
 } from "../src/connected/companion/selectionAttach";
@@ -196,13 +196,13 @@ describe("Tab order around the floating button", () => {
 });
 
 describe("the companion shortcut and coming back from the button", () => {
-  it("matches Ctrl+Shift+. or Cmd+Shift+. by key position (any layout), never with Alt", () => {
+  it("uses the shell's matcher: Ctrl+Shift+. or Cmd+Shift+. by key position (any layout), never with Alt", () => {
     const key = (init: Partial<KeyboardEvent>) => ({ code: "Period", shiftKey: true, ctrlKey: false, metaKey: false, altKey: false, ...init });
-    expect(isAskShortcut(key({ ctrlKey: true }))).toBe(true);
-    expect(isAskShortcut(key({ metaKey: true }))).toBe(true);
-    expect(isAskShortcut(key({ ctrlKey: true, altKey: true }))).toBe(false);
-    expect(isAskShortcut(key({ ctrlKey: true, shiftKey: false }))).toBe(false);
-    expect(isAskShortcut(key({ ctrlKey: true, code: "Comma" }))).toBe(false);
+    expect(isCompanionShortcut(key({ ctrlKey: true }))).toBe(true);
+    expect(isCompanionShortcut(key({ metaKey: true }))).toBe(true);
+    expect(isCompanionShortcut(key({ ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isCompanionShortcut(key({ ctrlKey: true, shiftKey: false }))).toBe(false);
+    expect(isCompanionShortcut(key({ ctrlKey: true, code: "Comma" }))).toBe(false);
   });
 
   it("puts focus on the block the selection ends in, focusable only while it has focus", () => {

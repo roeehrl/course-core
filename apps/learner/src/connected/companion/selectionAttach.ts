@@ -233,14 +233,6 @@ export function isAskButton(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest(`.${ASK_BUTTON_CLASS}`);
 }
 
-/**
- * The companion shortcut, Ctrl+Shift+. or ⌘⇧. (final design §5), matched on `event.code` so a
- * Hebrew keyboard layout gives the same key. No Alt.
- */
-export function isAskShortcut(event: Pick<KeyboardEvent, "code" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey">): boolean {
-  return event.code === "Period" && event.shiftKey && (event.ctrlKey || event.metaKey) && !event.altKey;
-}
-
 const BLOCK = "p,li,dd,dt,blockquote,pre,figcaption,td,th,h1,h2,h3,h4,h5,h6";
 /**
  * Puts focus back where the selection is once the floating button goes away while it has focus
