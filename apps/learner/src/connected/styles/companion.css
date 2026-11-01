@@ -13,6 +13,7 @@
   grid-template-rows: minmax(0, 1fr) auto;
   min-block-size: 0;
   block-size: 100%;
+  background: var(--surface);
   color: var(--ink);
   font: 400 var(--text-chat) var(--font-sans);
 }
@@ -571,6 +572,9 @@ button.cc-chat-anchor:focus-visible {
 .cc-chat-count {
   color: var(--ink-muted);
   font: 400 var(--text-micro) var(--font-sans);
+}
+.cc-chat-key-hint[data-shown="false"] {
+  visibility: hidden;
 }
 .cc-chat-count {
   display: inline-flex;

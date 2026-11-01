@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "./health";
-import { announcer, ask, box, roundButton, startLesson, thread } from "./conversation-helpers";
+import { announcer, ask, box, roundButton, startLesson, thread, settled } from "./conversation-helpers";
 import enRow from "../../src/i18n/messages/en/replyRow.json";
 import heRow from "../../src/i18n/messages/he/replyRow.json";
 import enStates from "../../src/i18n/messages/en/replyStates.json";
@@ -33,6 +33,7 @@ for (const locale of ["en", "he"] as const) {
     await expect(announcer(page)).toHaveText(t.states["announce.ended"]);
     const askAgain = row.getByRole("button", { name: t.row.askAgain, exact: true });
     await expect(askAgain).toBeVisible();
+    await settled(page);
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`companion-stalled-${locale}.png`) });

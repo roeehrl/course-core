@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "./health";
-import { ask, box, startLesson, storeReply, thread } from "./conversation-helpers";
+import { ask, box, startLesson, storeReply, thread, settled } from "./conversation-helpers";
 
 /*
  * Whose turn it is (final design §3.3, G2; the owner's "it says 'what would you like to
@@ -29,6 +29,7 @@ for (const locale of ["en", "he"] as const) {
     await expect(box(page)).toHaveAttribute("placeholder", he ? "כתיבת תשובה…" : "Your answer…");
     const chips = thread(page).getByRole("group", { name: he ? "תשובות מוצעות" : "Suggested answers" });
     await expect(chips.getByRole("button")).toHaveText(he ? ["עוד לא ברור לי", "רמז, בבקשה", "דוגמה, בבקשה"] : ["I'm not sure", "Give me a hint", "Show me an example"]);
+    await settled(page);
     expect((await new AxeBuilder({ page }).include("#connected-companion").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
     await page.screenshot({ path: info.outputPath(`your-turn-${locale}.png`) });
     // An answer chip sends a visible turn, and the turn is over.

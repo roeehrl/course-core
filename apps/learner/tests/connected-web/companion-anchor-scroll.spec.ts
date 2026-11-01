@@ -43,6 +43,8 @@ test("the new question sits 16 px below the thread's top, the reply grows downwa
   await expect(jump.locator(".cc-chat-jump-dot")).toBeVisible();
   expect(await scrollTop(page)).toBe(anchored);
   await page.screenshot({ path: info.outputPath("anchored-streaming.png") });
+  // Once the reply is written, Jump brings its end into view.
+  await expect(reply).toContainText("Line 24:", { timeout: 15_000 });
   await jump.click();
   await expect(jump).toBeHidden();
   await expect.poll(() => thread(page).evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(30);

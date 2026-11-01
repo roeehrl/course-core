@@ -124,7 +124,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     else field.removeAttribute("aria-describedby");
   });
   const over = value.length - MESSAGE_MAX;
-  const keyHint = !coarse && focused && value.trim().length > 0 && sends < KEY_HINT_SENDS && !creditInMeta;
+  // The hint keeps its line while the box has text, shown only while the box has focus: a press
+  // on Send blurs the box first, and the composer must not move under the pointer before the click.
+  const keyHint = !coarse && value.trim().length > 0 && sends < KEY_HINT_SENDS && !creditInMeta;
   function send(byKeyboard: boolean) {
     if (button !== "ready" && button !== "offline") return;
     if (byKeyboard) {
@@ -165,7 +167,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const metaStart = creditInMeta
     ? <CreditNotice server={server} episodeId={episodeId} now={now} placement="meta" />
     : keyHint
-      ? <span className="cc-chat-key-hint">{i18n.rich("composer.keyHint", undefined, { key: (children, key) => <bdi key={key}>{children}</bdi> })}</span>
+      ? <span className="cc-chat-key-hint" aria-hidden={focused ? undefined : true} data-shown={focused ? "true" : "false"}>{i18n.rich("composer.keyHint", undefined, { key: (children, key) => <bdi key={key}>{children}</bdi> })}</span>
       : null;
   return (
     <div className="cc-chat-composer" style={{ "--cc-composer-lines": String(maxLines), "--cc-composer-max": `${COMPOSER_MAX_PX[maxLines]}px` } as React.CSSProperties}>

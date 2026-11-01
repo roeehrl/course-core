@@ -46,7 +46,9 @@ async function openCompanion(page: Page) {
 async function ask(page: Page, locale: Locale, question: string) {
   const t = text[locale].companion;
   await page.getByRole("textbox", { name: t["draft.label"], exact: true }).fill(question);
+  const saved = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
   await page.locator("#connected-companion .cc-chat-send").click();
+  expect((await saved).status()).toBe(200);
   await expect(page.getByRole("log", { name: t.log }).getByText(question, { exact: true })).toBeVisible();
 }
 /** Where the lesson is: the window's scroll and the phone's learning pane's. */

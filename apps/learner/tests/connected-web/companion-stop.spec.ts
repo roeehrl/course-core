@@ -1,5 +1,5 @@
 import { test, expect } from "./health";
-import { announcer, ask, box, roundButton, startLesson, thread } from "./conversation-helpers";
+import { announcer, ask, box, roundButton, startLesson, thread, resumeLesson } from "./conversation-helpers";
 import { companionPanel, openCompanion } from "./companion-helpers";
 
 /*
@@ -53,11 +53,7 @@ for (const how of ["the round button", "Esc"] as const)
     expect(JSON.stringify(saved)).not.toContain("Part 1 of the reply.");
     // After a reload only the line remains.
     await page.reload();
-    await expect(async () => {
-      const resume = page.getByTestId("next-step").getByRole("button");
-      if (await resume.count()) await resume.first().click({ timeout: 2_000 });
-      await expect(page.locator("[data-reading-part]").first()).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 20_000 });
+    await resumeLesson(page);
     await openCompanion(page);
     const after = companionPanel(page).getByRole("log").locator('[data-reply-state="stopped"]');
     await expect(after).toContainText("You stopped this reply.");

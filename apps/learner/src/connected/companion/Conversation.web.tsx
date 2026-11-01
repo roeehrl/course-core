@@ -721,6 +721,17 @@ function ConversationBody({
             ? { kind: "unconfirmed", ...(onRefresh ? { onRefresh: () => { updateLocal(item.key, null); onRefresh(); } } : {}) }
             : undefined;
     const seconds = item.status === "rateLimited" && item.retryAt ? Math.max(0, (item.retryAt - now) / 1000) : undefined;
+    // The same dividers as the saved question will have, so nothing moves when it is read back.
+    const sentIso = new Date(item.sentAt).toISOString();
+    if (!previous || item.sentAt - Date.parse(previous.created_at) > DATE_GAP_MS) items.push(<DateDivider key={`date-${item.key}`} iso={sentIso} now={now} />);
+    const episode = item.episodeId ?? null;
+    if (first || episode !== lessonOf) {
+      if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${item.key}`} episodeId={lessonOf} />);
+      items.push(<LessonDivider key={`lesson-${item.key}`} label={lessonLabel(episode, context.episodeId, episodeTitles, t)} known={Boolean(episode && Object.hasOwn(episodeTitles, episode))} />);
+      lessonOf = episode;
+      first = false;
+    }
+    previous = { id: item.key, role: "learner", content: item.text, context: { ...(item.episodeId ? { episodeId: item.episodeId } : {}) }, created_at: sentIso };
     items.push(
       <div key={item.key} data-turn-key={item.key} className="cc-chat-item">
         <LearnerTurn id={`cc-turn-${item.key}`} text={item.text} footer={footer} />

@@ -27,7 +27,7 @@ export async function startLesson(page: Page, request: APIRequestContext, { loca
     await page.getByRole("button", { name: t.preview.start, exact: true }).click();
   } else await page.getByRole("button", { name: /^(Continue learning|Start the course|Continue lesson \d+|Start lesson \d+) →$/ }).first().click();
   await page.getByTestId("next-step").getByRole("button").first().click();
-  await expect(page.locator("[data-reading-part]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   return openCompanion(page);
 }
 
@@ -41,7 +41,10 @@ export const announcer = (page: Page): Locator => companionPanel(page).locator("
 /** Types and sends a question with the round button (Enter makes a line on touch screens). */
 export async function ask(page: Page, text: string) {
   await box(page).fill(text);
+  // Saved by the server (the bubble shows at once, before the save is confirmed).
+  const saved = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
   await roundButton(page).click();
+  expect((await saved).status()).toBe(200);
   await expect(thread(page).getByText(text, { exact: true })).toBeVisible();
 }
 
@@ -53,6 +56,21 @@ export async function stream(request: APIRequestContext, question: string, piece
 /** Stores a reply to the saved question, with the context flags as given (none derived). */
 export async function storeReply(request: APIRequestContext, question: string, content: string, flags: { asksLearner?: boolean; cutShort?: boolean; checkAnswerWithheld?: string } = {}) {
   await expect.poll(async () => (await (await request.post("/test/conversation-reply", { data: { question, content, ...flags } })).json()).answered).toBe(true);
+}
+
+/** After a reload: back into the lesson the learner was in. */
+export async function resumeLesson(page: Page) {
+  await expect(async () => {
+    const resume = page.getByTestId("next-step").getByRole("button").or(page.getByRole("button", { name: /^Continue learning →$/ }));
+    if (await resume.count()) await resume.first().click({ timeout: 2_000 });
+    await expect(page.getByRole("heading", { name: "Minimum", exact: true, level: 1 })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+}
+
+/** Waits until no finite animation runs (a fade-in measured halfway reads as low contrast). */
+export async function settled(page: Page) {
+  await page.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity));
 }
 
 /** Nothing on the page scrolls sideways. */

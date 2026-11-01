@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page } from "./health";
-import { announcer, ask, box, roundButton, startLesson, thread } from "./conversation-helpers";
+import { announcer, ask, box, roundButton, startLesson, thread, resumeLesson, settled } from "./conversation-helpers";
 import { closeCompanion, companionPanel, openCompanion } from "./companion-helpers";
 
 /*
@@ -11,8 +11,10 @@ import { closeCompanion, companionPanel, openCompanion } from "./companion-helpe
  * and Hebrew, light and dark. States are set by the test host; no model is involved.
  */
 const notice = (page: Page) => companionPanel(page).locator(".cc-chat-notice");
-const axe = async (page: Page) =>
+const axe = async (page: Page) => {
+  await settled(page);
   expect((await new AxeBuilder({ page }).include("#connected-companion").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+};
 
 test("offline: the banner, Send with its clock, the question waiting with Cancel, and sent once back online", async ({ page, context, request }, info) => {
   await startLesson(page, request);
@@ -85,21 +87,19 @@ test("a lesson not taking questions keeps the draft and cannot send", async ({ p
   await axe(page);
 });
 
-test("outside a lesson: the draft stays, Send waits, and Go to {lesson} opens it", async ({ page, request }) => {
+test("outside a lesson: where the conversation lives, no composer, and Go to {lesson} opens the lesson", async ({ page, request }) => {
   await startLesson(page, request);
-  await box(page).fill("Started in the lesson");
-  await page.waitForTimeout(400);
   await closeCompanion(page);
   await page.getByRole("button", { name: "← Course roadmap" }).click();
   await expect(page.getByTestId("next-step")).toBeVisible();
   await openCompanion(page);
   await expect(notice(page)).toContainText("Open a lesson to ask about it. Your conversation stays here.");
-  await expect(box(page)).toHaveValue("Started in the lesson");
-  await expect(box(page)).toHaveAttribute("placeholder", "Keep drafting. Send it from a lesson.");
-  await expect(roundButton(page)).toHaveAttribute("aria-disabled", "true");
+  // A draft belongs to its lesson: none here, so no box (a draft kept outside a lesson is unit-tested).
+  await expect(box(page)).toHaveCount(0);
   await axe(page);
   await notice(page).getByRole("button", { name: /^Go to / }).click();
-  await expect(page.locator("[data-reading-part]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByTestId("next-step")).toHaveCount(0);
 });
 
 test("browser storage off: the draft is kept in this tab only, and the banner says so", async ({ page, request }) => {
@@ -129,11 +129,7 @@ test("a message whose saving was not confirmed says so on the question, and afte
   await expect(thread(page).getByText(/We couldn't confirm your message was saved/)).toBeVisible();
   await page.unroute(/\/companion$/);
   await page.reload();
-  await expect(async () => {
-    const resume = page.getByTestId("next-step").getByRole("button");
-    if (await resume.count()) await resume.first().click({ timeout: 2_000 });
-    await expect(page.locator("[data-reading-part]").first()).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
+  await resumeLesson(page);
   await openCompanion(page);
   await expect(notice(page)).toContainText("Your last message was recovered. Check it in the conversation before sending another.");
   await expect(thread(page).getByText("Was this saved?", { exact: true })).toHaveCount(1);
