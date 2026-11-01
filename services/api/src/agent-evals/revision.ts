@@ -1,13 +1,15 @@
 import type { ProviderRouter } from "@course-core/providers";
 import { AGENT_ROLES, builtInStrategies, type AgentRole, type RoleBinding, type RuntimeStrategy, type StrategyRegistry, type TeachingContext } from "../agent-strategies.js";
+import { checkCoachingView, type GradedCheck } from "../companion-check-integrity.js";
 import { canonicalJson, sha256 } from "./suite.js";
 
 /**
  * The revision of one role: everything that decides what the role's model is asked and who
  * answers it. Two configurations with equal digests for a role run that role identically:
  * the binding and its limits, the model registry entry, the adapter kind, the strategy
- * contract and the request the strategy assembles for a fixed probe context (so a prompt
- * change in Core's code is a new revision). Credentials are not part of it: rotating a key
+ * contract and the request the strategy assembles for a fixed probe context, in each prompt mode
+ * the role has (PROBE_VARIANTS), so a prompt change in Core's code, in any mode, is a new
+ * revision. Credentials are not part of it: rotating a key
  * does not change what is evaluated.
  */
 export interface RoleRevision {
@@ -41,9 +43,27 @@ const PROBE_INPUTS: Partial<Record<AgentRole, Partial<TeachingContext>>> = {
     criteria: [{ id: "probe-criterion", description: "Probe criterion.", required: true }], response: "Probe answer text.", earlierTurns: [],
     rubricDigest: "0".repeat(64), responseDigest: "0".repeat(64) } },
 };
+/** A fixed course check the check-coaching probes match, with options so a choice item's shaping shows. */
+const PROBE_CHECK: GradedCheck = { id: "probe-check", type: "multiple_choice", prompt: "Probe check question?", options: ["Probe option one", "Probe option two"], steps: [], keys: [] };
+/**
+ * Prompt modes a strategy switches on from its context, each probed beside the plain request so a
+ * change to any mode's text is a new revision. The companion adds the check-coaching rule when the
+ * learner's message is about a graded check (a matched check, and one that is not certain, which
+ * has its own note) and the Hebrew rule when the question is in Hebrew. Its reply style (`replyStyle`,
+ * concise or detailed) comes from the binding, so the plain request already has the style that binding
+ * is asked in. Only roles listed here get a `variants` entry, so every other role keeps its digest.
+ */
+const PROBE_VARIANTS_VERSION = "core.role-revision-variants/1";
+const PROBE_VARIANTS: Partial<Record<AgentRole, Record<string, Partial<TeachingContext>>>> = {
+  companion: {
+    checkCoaching: { checkCoaching: checkCoachingView([{ check: PROBE_CHECK, how: "quoted", score: 1 }])! },
+    checkCoachingUnresolved: { checkCoaching: checkCoachingView([{ check: PROBE_CHECK, how: "unresolved", score: 1 }])! },
+    hebrew: { question: "מה ההבדל בין שני המושגים בשיעור?" },
+  },
+};
 class Captured extends Error {}
 /** Runs the strategy against a router that records the first request and stops. Nothing is sent. */
-async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding): Promise<unknown> {
+async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding, variant: Partial<TeachingContext> = {}): Promise<unknown> {
   let captured: unknown = null;
   const capture = (operation: string) => async (request: Record<string, unknown>) => {
     const { accounting: _accounting, ...rest } = request;
@@ -54,12 +74,19 @@ async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBi
   try {
     // A tool loop's first model request comes before any tool call; the probe's tools never answer.
     const tools = { invoke: async () => { throw new Captured(); } };
-    await strategy.run({ role, binding, context: { ...structuredClone(PROBE), ...structuredClone(PROBE_INPUTS[role] ?? {}) }, accountingKey: "revision-probe",
+    await strategy.run({ role, binding, context: { ...structuredClone(PROBE), ...structuredClone(PROBE_INPUTS[role] ?? {}), ...structuredClone(variant) }, accountingKey: "revision-probe",
       signal: new AbortController().signal, router, tools });
   } catch (error) {
     if (!(error instanceof Captured)) return null;
   }
   return captured;
+}
+
+/** The request the strategy assembles in each prompt mode of the role (PROBE_VARIANTS), by mode name. */
+async function probeVariants(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding, variants: Record<string, Partial<TeachingContext>>) {
+  const requests: Record<string, unknown> = {};
+  for (const [name, variant] of Object.entries(variants)) requests[name] = await probe(strategy, role, binding, variant);
+  return { probe: PROBE_VARIANTS_VERSION, requests };
 }
 
 async function imageCompanion(picture: NonNullable<RoleBinding["imageModel"]>, configuration: ConfigurationShape,
@@ -85,6 +112,7 @@ export async function strategyRevision(configuration: ConfigurationShape, role: 
   const model = models.find((m) => m.id === binding.modelId) ?? null;
   const adapter = configuration.adapters.find((a) => a.id === model?.providerId);
   const prompt = strategy ? await probe(strategy, role, binding) : null;
+  const variants = strategy && PROBE_VARIANTS[role] ? await probeVariants(strategy, role, binding, PROBE_VARIANTS[role]) : undefined;
   // An image model bound beside a video model is part of the media role's revision: its registry
   // entry, adapter, strategy and assembled request. Absent for every other binding, so their digests are unchanged.
   const pictures = binding.imageModel ? await imageCompanion(binding.imageModel, configuration, models, strategies) : undefined;
@@ -95,6 +123,7 @@ export async function strategyRevision(configuration: ConfigurationShape, role: 
       adapter: adapter ? { id: adapter.id, kind: adapter.kind, subscriptionRef: adapter.subscriptionRef ?? null } : null,
       strategy: strategy ? { id: strategy.contract.id, version: strategy.contract.version,
         ...(source === "course" ? { source: "course", declaration: sha256(canonicalJson(strategy.contract)) } : {}) } : null, prompt,
+      ...(variants ? { variants } : {}),
       ...(pictures ? { imageModel: pictures } : {}),
     })),
   };
