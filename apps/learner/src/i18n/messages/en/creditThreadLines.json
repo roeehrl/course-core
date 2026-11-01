@@ -1,1 +1,9 @@
-{}
+{
+  "downgraded": "Question {ordinal} is now practice.",
+  "downgradedCourse": "Your open checks in this course are now practice.",
+  "recap": "Lesson finished: {own, plural, one {# question} other {# questions}} on your own, {practice} as practice.",
+  "recapOwn": "Lesson finished: {own, plural, one {# question} other {# questions}} on your own.",
+  "recapPractice": "Lesson finished: {practice, plural, one {# question} other {# questions}} as practice.",
+  "saved": "A question is saved for after the check.",
+  "sendNow": "Send it now"
+}

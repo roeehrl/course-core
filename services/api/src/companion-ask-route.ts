@@ -22,13 +22,22 @@ const path = '/api/enrollments/:enrollmentId/companion';
 const params = { type: 'object', required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
 
 /** An open question of this enrollment with its number in its lesson's check, or INVALID_REQUEST. */
-async function attachedCheckOf(client: PoolClient, context: EnrollmentContext, challengeId: string) {
+async function attachedCheckOf(client: PoolClient, context: EnrollmentContext, challengeId: string, ordinals: (episodeId: string) => Promise<number>) {
   const challenge = (await client.query<{ episode_id: string }>(
     'SELECT episode_id FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2 AND attempt_id IS NULL AND expires_at>now()',
     [challengeId, context.enrollment.id])).rows[0];
   requireCondition(challenge, 'INVALID_REQUEST');
-  const lesson = (await gateLearningSnapshot(client, context)).lessons.find(row => row.id === challenge.episode_id);
-  return { challengeId, ordinal: checkOrdinal(lesson?.gate?.objectives ?? []) };
+  return { challengeId, ordinal: await ordinals(challenge.episode_id) };
+}
+
+/**
+ * Which open counted questions a companion message turns into practice (docs/companion-check-integrity.md):
+ * those of the lesson it is asked from, and the question the learner attached to it, wherever it
+ * is. Open counted questions of other lessons stay counted; the withheld-answer gate and check
+ * coaching still cover them. The learner app previews the same rule (connected/credit/creditScope.ts).
+ */
+export function companionCreditScope<T extends { id: string; episode_id: string }>(open: readonly T[], episodeId: string, attachedChallengeId?: string): T[] {
+  return open.filter(row => row.episode_id === episodeId || row.id === attachedChallengeId);
 }
 
 /** The learner asks the companion: the question is saved and a supervised request is queued. */
@@ -70,23 +79,35 @@ export function registerCompanionAskRoute(app: FastifyInstance, db: Database, au
         currentPolicy = await activateWindows(client, context.release.server_bundle, enrollmentId, policyEpisodeId(context.release, input.episodeId), new Date().toISOString());
         await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', new Date().toISOString());
       }
-      const pending = await client.query<{ id: string; mode: string }>("SELECT id,mode FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true FOR UPDATE", [enrollmentId]);
-      // Placement the author declared unassisted-only takes no companion help while an item is open.
-      if (pending.rows.some(row => row.mode === 'placement'))
+      // Every open counted question is locked, so a concurrent answer or help waits for this message.
+      const open = await client.query<{ id: string; mode: string; episode_id: string }>("SELECT id,mode,episode_id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true FOR UPDATE", [enrollmentId]);
+      // Placement the author declared unassisted-only takes no companion help while an item is open,
+      // whichever lesson the question is asked from.
+      if (open.rows.some(row => row.mode === 'placement'))
         requireCondition(!(await enrollmentPlacement(client, context.enrollment, context.release.server_bundle)).unassistedOnly, 'PLACEMENT_UNASSISTED_ONLY', 409);
-      requireCondition(!pending.rowCount || input.allowAssessmentAssistance === true, 'ASSESSMENT_HELP_CONSENT_REQUIRED', 409);
-      const downgradedChallengeIds = pending.rows.map(row => row.id);
-      if (pending.rowCount) await client.query("UPDATE assessment_challenges SET assistance='hint',independent_eligible=false WHERE id=ANY($1::uuid[])", [downgradedChallengeIds]);
+      // A question's number in its lesson's check ("Question 2"), read once per lesson.
+      let gate: Awaited<ReturnType<typeof gateLearningSnapshot>> | undefined;
+      const ordinals = async (episodeId: string) => {
+        gate ??= await gateLearningSnapshot(client, context);
+        return checkOrdinal(gate.lessons.find(row => row.id === episodeId)?.gate?.objectives ?? []);
+      };
       // A check the learner attached to the message (the check's own "Ask the companion"): an open
       // question of this enrollment, stored with its number in the lesson ("Question 2"). Anything
-      // else is refused and nothing is stored. It changes no credit by itself.
-      const attachedCheck = input.challengeId === undefined ? undefined : await attachedCheckOf(client, context, input.challengeId);
+      // else is refused and nothing is stored.
+      const attachedCheck = input.challengeId === undefined ? undefined : await attachedCheckOf(client, context, input.challengeId, ordinals);
+      const pending = companionCreditScope(open.rows, input.episodeId, attachedCheck?.challengeId);
+      requireCondition(!pending.length || input.allowAssessmentAssistance === true, 'ASSESSMENT_HELP_CONSENT_REQUIRED', 409);
+      const downgradedChallengeIds = pending.map(row => row.id);
+      // Stored with the message, so the conversation can say later which question became practice.
+      const downgraded: { challengeId: string; ordinal: number }[] = [];
+      for (const row of pending) downgraded.push({ challengeId: row.id, ordinal: await ordinals(row.episode_id) });
+      if (pending.length) await client.query("UPDATE assessment_challenges SET assistance='hint',assistance_reason='companion',independent_eligible=false WHERE id=ANY($1::uuid[])", [downgradedChallengeIds]);
       const messageId = randomUUID();
       // Asking is a conversation-only change (navigation_revision): it never fences another answer in preparation.
       const head = (await client.query<{ revision: number; navigation_revision: number }>('UPDATE enrollments SET revision=revision+1,navigation_revision=navigation_revision+1 WHERE id=$1 RETURNING revision,navigation_revision', [enrollmentId])).rows[0]!;
       const capsule = { episodeId: input.episodeId, blockId: input.blockId ?? null, courseDigest: context.release.digest, profileRevision: context.enrollment.profile_revision, policyRevision: currentPolicy.policyRevision,
         enrollmentRevision: head.revision, contextRevision: head.revision - head.navigation_revision, ...(input.uiRevision ? { uiRevision: input.uiRevision } : {}),
-        downgradedChallengeIds, ...(interactiveContext ? { interactiveContext } : {}), ...(selectedAnchor ? { selectedAnchor } : {}), ...(mediaRef ? { mediaRef } : {}),
+        downgradedChallengeIds, ...(downgraded.length ? { downgraded } : {}), ...(interactiveContext ? { interactiveContext } : {}), ...(selectedAnchor ? { selectedAnchor } : {}), ...(mediaRef ? { mediaRef } : {}),
         ...(attachedCheck ? { attachedCheck } : {}) };
       await client.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, input.content.trim(), JSON.stringify(capsule)]);
       const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'companion.requested', payload: { messageId, episodeId: input.episodeId, blockId: input.blockId ?? null, requestKind: 'question', downgradedChallengeIds }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });

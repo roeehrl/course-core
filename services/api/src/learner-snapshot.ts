@@ -12,6 +12,39 @@ import { adaptationSummary } from './adaptation-store.js';
 import { assessmentRecovery } from './assessment-recovery.js';
 import { armOffersRole, studyArmWithin } from './study.js';
 import { learnerMoveOffer } from './course-version-moves.js';
+import { INDEPENDENT_CHECK_SQL } from './independence.js';
+
+/** Why an open question counts as practice, as a code (the learner app words it, kindLine namespace). */
+export const PRACTICE_REASONS = ['companion', 'hint', 'solution', 'fresh_question', 'seen_before'] as const;
+export type PracticeReason = (typeof PRACTICE_REASONS)[number];
+/** The reasons the learner app gives a reason line; a fresh question has none. */
+export const WORDED_PRACTICE_REASONS: readonly PracticeReason[] = ['companion', 'hint', 'solution', 'seen_before'];
+/**
+ * Why a question no longer counts: the reason stored with its downgrade (help from the companion, a
+ * hint, the explanation, a fresh question), or `seen_before` for a question issued in a counted mode
+ * that was not eligible although no help was given (it had been shown before). Null while it counts,
+ * for a question requested as practice, and for questions downgraded before reasons were stored:
+ * never a guess.
+ */
+export function practiceReason(row: { independent_eligible: boolean; assistance: string; assistance_reason: string | null; mode: string }): PracticeReason | null {
+  if (row.independent_eligible) return null;
+  if (row.assistance_reason) return row.assistance_reason as PracticeReason;
+  return row.assistance === 'none' && (row.mode === 'independent' || row.mode === 'placement') ? 'seen_before' : null;
+}
+
+/**
+ * Per lesson, how many answers to its check counted (on your own) and how many were practice, on
+ * the course version the learner is on: submitted answers only, never "I don't know yet", placement
+ * or review items. The conversation's lesson recap reads it. Reads only.
+ */
+export async function checkSummaries(client: PoolClient, enrollmentId: string, courseDigest: string) {
+  const rows = (await client.query<{ episode_id: string; own: number; practice: number }>(
+    `SELECT c.episode_id, count(*) FILTER (WHERE ${INDEPENDENT_CHECK_SQL('c')})::int AS own, count(*) FILTER (WHERE NOT ${INDEPENDENT_CHECK_SQL('c')})::int AS practice
+       FROM assessment_challenges c JOIN attempts a ON a.id=c.attempt_id AND a.enrollment_id=c.enrollment_id
+      WHERE c.enrollment_id=$1 AND c.course_digest=$2 AND c.mode IN ('independent','practice') AND (a.result->>'abstained') IS DISTINCT FROM 'true'
+      GROUP BY c.episode_id`, [enrollmentId, courseDigest])).rows;
+  return Object.fromEntries(rows.map(row => [row.episode_id, { own: row.own, practice: row.practice }]));
+}
 
 /** The enrollment state every learner command returns, with each gate's current decision status,
  * its persisted decision ID and the learner's latest gate review request. Reads only. */
@@ -58,7 +91,9 @@ export async function learnerSnapshot(client: PoolClient, context: EnrollmentCon
   const blocks = course.chapters.flatMap(row => row.episodes.flatMap(ep => ep.blocks));
   course.visuals = course.visuals.filter(visual => blocks.some(block => block.type === 'visual' && block.visualId === visual.id));
   course.media = course.media.filter(media => blocks.some(block => block.type === 'media' && block.mediaId === media.id));
-  const challenges = (await client.query<{ id: string; episode_id: string; assessment_id: string; mode: string; independent_eligible: boolean; expires_at: Date }>(`SELECT id,episode_id,assessment_id,mode,independent_eligible,expires_at FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() ORDER BY issued_at`, [enrollmentId])).rows;
+  // A lesson's counted question comes before a practice one (the app shows the first): after "Get a
+  // fresh check" on a practice question, the fresh one is the one shown.
+  const challenges = (await client.query<{ id: string; episode_id: string; assessment_id: string; mode: string; independent_eligible: boolean; assistance: string; assistance_reason: string | null; expires_at: Date }>(`SELECT id,episode_id,assessment_id,mode,independent_eligible,assistance,assistance_reason,expires_at FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() ORDER BY independent_eligible DESC,issued_at`, [enrollmentId])).rows;
   const base = (await readRelease(client, context.enrollment.course_release_id, context.enrollment.workspace_id))!;
   const recoveryRegistry = await adaptationSummary(client, context.enrollment, base, context.release.server_bundle), exposed = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2', [enrollmentId, base.digest])).rows.map(r => r.assessment_id);
   const recovery = assessmentRecovery(context.release.server_bundle, base.digest, context.progress, context.evidence, exposed, recoveryRegistry.approvedFamilies);
@@ -71,6 +106,8 @@ export async function learnerSnapshot(client: PoolClient, context: EnrollmentCon
     // Staff moved this learner to the version they are on now (K13): the app says so for a while.
     courseVersionNotice: await courseVersionNotice(client, enrollmentId, context.enrollment.course_release_id),
     // A newer version they can move to by dropping their personal changes (they accept or decline).
-    courseVersionOffer: await learnerMoveOffer(client, enrollmentId, context.enrollment.course_release_id), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
-    question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
+    courseVersionOffer: await learnerMoveOffer(client, enrollmentId, context.enrollment.course_release_id),
+    checkSummaries: await checkSummaries(client, enrollmentId, context.release.digest), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+    question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible,
+    practiceReason: practiceReason(row), expiresAt: row.expires_at })) };
 }

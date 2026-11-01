@@ -192,7 +192,7 @@ export function CheckCard({
           </Notice>
         ) : (
           <View style={{ gap: 18 }}>
-            <KindLine challenge={challenge} server={server} episodeId={episode.id} />
+            <KindLine challenge={challenge} server={server} episodeId={episode.id} pending={pending} onFreshCheck={() => check.onStart()} />
             {unverified?.questions.has(challenge.question.id) && (
               <UnverifiedBadge
                 what="question"

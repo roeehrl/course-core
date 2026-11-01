@@ -18,6 +18,7 @@ import { useT } from "../../i18n";
 import { creditScope } from "../credit/creditScope";
 import { SendConfirm } from "../credit/SendConfirm.web";
 import { CreditLineAfter, CreditLineBeforeDivider, CreditThreadEnd } from "../credit/CreditThreadLines.web";
+import { deferredQuestion } from "../credit/deferredQuestion";
 import { Announcer, useAnnounce } from "../ui/Announcer.web";
 import { ringComposer } from "../ui/highlight";
 import { useCoarsePointer } from "../ui/media";
@@ -414,12 +415,13 @@ function ConversationBody({
               : "ready";
 
   /** Sends `text` as the learner's next turn, asking for consent first when it would turn an
-   * open counted check into practice. Errors stay with the question, never in the page. */
-  async function submit(text: string, { consent, fromBox, key }: { consent?: true; fromBox: boolean; key?: string }) {
-    if (!text.trim() || blocked || exhausted || text.length > MESSAGE_MAX) return;
+   * open counted check into practice. Errors stay with the question, never in the page. True once
+   * the server has accepted it. */
+  async function submit(text: string, { consent, fromBox, key }: { consent?: true; fromBox: boolean; key?: string }): Promise<boolean> {
+    if (!text.trim() || blocked || exhausted || text.length > MESSAGE_MAX) return false;
     if (!consent && needsConsent) {
       setConfirm({ text, fromBox });
-      return;
+      return false;
     }
     setConfirm(null);
     const id = key ?? localKey();
@@ -436,7 +438,7 @@ function ConversationBody({
     anchorNext.current = id;
     if (!online) {
       announce(replyAnnouncement("held", t));
-      return;
+      return false;
     }
     const scopeId = context.episodeId;
     // The text goes back to the box (its saved draft still holds it: it is cleared only once the
@@ -453,34 +455,55 @@ function ConversationBody({
         throw new Error("Unconfirmed companion response");
       clocks.current.set(receipt.messageId, { since: sentAt });
       updateLocal(id, { status: "sent", messageId: receipt.messageId });
+      // A question saved for after the check is done once its text is sent, however it was sent.
+      const enrollment = server?.enrollmentId;
+      if (enrollment && scopeId && deferredQuestion.get(enrollment, scopeId)?.text.trim() === text.trim()) deferredQuestion.clear(enrollment, scopeId);
       // A recovered message was there to check before sending another; one was sent now.
       dismissRecovered();
       if (fromBox && latest.current.draft === text) save("");
       if (stopAfterSend.current.delete(id)) void stopQuestion(receipt.messageId, text, true);
+      return true;
     } catch (cause) {
       stopAfterSend.current.delete(id);
       if (cause instanceof CourseApiError && cause.code === "ASSESSMENT_HELP_CONSENT_REQUIRED") {
         updateLocal(id, null);
         giveBack();
         setConfirm({ text, fromBox });
-        return;
+        return false;
       }
       if (cause instanceof CourseApiError && cause.code === "HELP_BUDGET_EXHAUSTED") {
         updateLocal(id, null);
         giveBack();
-        return;
+        return false;
       }
       const retry = cause instanceof CourseApiError ? Number(cause.details?.retryAfter ?? cause.details?.retryAfterSeconds) : NaN;
       if (cause instanceof CourseApiError && cause.status === 429 && Number.isFinite(retry) && retry > 0) {
         updateLocal(id, { status: "rateLimited", retryAt: Date.now() + retry * 1000 });
         giveBack();
-        return;
+        return false;
       }
       const uncertain = !(cause instanceof CourseApiError) || ["NETWORK_UNCERTAIN", "INVALID_RESPONSE", "READ_TIMEOUT"].includes(cause.code);
       updateLocal(id, { status: uncertain ? "unconfirmed" : "failed" });
       if (!uncertain) giveBack();
       announce(replyAnnouncement(uncertain ? "unconfirmed" : "sendFailed", t));
+      return false;
     }
+  }
+
+  /**
+   * A question saved for after the check, sent now ("Send it now"): asked first like any message.
+   * It stays saved until the server accepts it (submit clears it then). While it would still make
+   * a counted question practice, or offline, it goes into the message box and waits there like any
+   * message; a try that failed is tried again in its own bubble.
+   */
+  async function sendSaved(text: string): Promise<boolean> {
+    if (needsConsent || !online) {
+      fill(text);
+      if (needsConsent) setConfirm({ text, fromBox: true });
+      return false;
+    }
+    const failed = locals.find((item) => item.status === "failed" && item.text === text);
+    return submit(text, { fromBox: false, ...(failed ? { key: failed.key } : {}) });
   }
 
   // Held while offline: sent once the browser is back online, from the same lesson.
@@ -672,7 +695,7 @@ function ConversationBody({
     const question = message.role === "assistant" && message.job_id ? shown.find((row) => row.role === "learner" && row.job_id === message.job_id) : undefined;
     const episode = message.context.episodeId ?? question?.context.episodeId ?? null;
     if (first || episode !== lessonOf) {
-      if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${message.id}`} episodeId={lessonOf} />);
+      if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${message.id}`} episodeId={lessonOf} server={server} />);
       const label = lessonLabel(episode, context.episodeId, episodeTitles, t);
       items.push(<LessonDivider key={`lesson-${message.id}`} label={label} known={Boolean(episode && Object.hasOwn(episodeTitles, episode))} />);
       lessonOf = episode;
@@ -772,7 +795,7 @@ function ConversationBody({
     if (!previous || item.sentAt - Date.parse(previous.created_at) > DATE_GAP_MS) items.push(<DateDivider key={`date-${item.key}`} iso={sentIso} now={now} />);
     const episode = item.episodeId ?? null;
     if (first || episode !== lessonOf) {
-      if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${item.key}`} episodeId={lessonOf} />);
+      if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${item.key}`} episodeId={lessonOf} server={server} />);
       items.push(<LessonDivider key={`lesson-${item.key}`} label={lessonLabel(episode, context.episodeId, episodeTitles, t)} known={Boolean(episode && Object.hasOwn(episodeTitles, episode))} />);
       lessonOf = episode;
       first = false;
@@ -806,7 +829,7 @@ function ConversationBody({
           />
         )}
         <DecisionLine api={api} server={server} />
-        <CreditThreadEnd onSend={() => void submit(value, { fromBox: true })} />
+        <CreditThreadEnd onSend={sendSaved} server={server} episodeId={context.episodeId} />
       </Thread>
       <Composer
         ref={composer}
@@ -837,6 +860,20 @@ function ConversationBody({
                 composer.current?.focus();
               }}
               onSendAsPractice={() => void submit(confirm.text, { consent: true, fromBox: confirm.fromBox })}
+              // "Save for after the question" sets the message aside (deferredQuestion.ts) and
+              // empties the box; a question already saved there is not saved twice.
+              {...(server?.enrollmentId && context.episodeId && deferredQuestion.get(server.enrollmentId, context.episodeId)?.text.trim() === confirm.text.trim()
+                ? {}
+                : {
+                    draft: confirm.text,
+                    onSaveForLater: () => {
+                      if (confirm.fromBox) {
+                        setValue("");
+                        save("");
+                      }
+                      setConfirm(null);
+                    },
+                  })}
             />
           ) : undefined
         }

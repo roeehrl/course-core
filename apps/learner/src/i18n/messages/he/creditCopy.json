@@ -1,3 +1,6 @@
 {
-  "practiceSuffix": "זה נחשב כתרגול, כי הייתה עזרה או חשיפה קודמת."
+  "practiceSuffix.companion": "זה נספר כתרגול כי הייתה פנייה למנחה.",
+  "practiceSuffix.hint": "זה נספר כתרגול כי נעשה שימוש ברמז.",
+  "practiceSuffix.solution": "זה נספר כתרגול כי ההסבר נפתח.",
+  "practiceSuffix.seen_before": "זה נספר כתרגול כי השאלה הזו כבר הוצגה."
 }

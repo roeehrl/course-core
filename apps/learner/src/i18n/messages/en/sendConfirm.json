@@ -1,6 +1,6 @@
 {
-  "title": "Keep this check independent?",
-  "body": "Sending a question will switch every active independent check in this course to practice before help is requested. Those attempts will no longer earn independent credit. A new check may be needed later.",
+  "sentence": "Asking now makes question {ordinal} practice. It won't count toward finishing the lesson.",
+  "switch": "Send as practice",
   "keep": "Keep it counted",
-  "switch": "Send as practice"
+  "later": "Save for after the question"
 }
