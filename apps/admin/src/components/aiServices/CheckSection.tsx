@@ -697,6 +697,19 @@ function errorReason(
             job: jobName(t, detail.role),
           })
         : t("aiServices.err.modelUnavailable");
+    // Local setup problems, not the service's: the job's model isn't set up here, or lacks what the job needs.
+    case "PROVIDER_QUALITY_CHECK_MODEL_NOT_CONFIGURED":
+      return detail?.role
+        ? t("aiServices.check.run.modelNotConfigured", {
+            job: jobName(t, detail.role),
+          })
+        : t("aiServices.check.run.modelNotConfiguredGeneric");
+    case "PROVIDER_QUALITY_CHECK_CAPABILITY_MISSING":
+      return detail?.role
+        ? t("aiServices.check.run.capabilityMissing", {
+            job: jobName(t, detail.role),
+          })
+        : t("aiServices.check.run.capabilityMissingGeneric");
     default:
       return (
         (reason && keyProblemText(text, reason, service)) ??

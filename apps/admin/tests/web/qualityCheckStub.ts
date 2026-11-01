@@ -514,7 +514,11 @@ function googleModels(models: string[], unavailable: string[] = []) {
  */
 export async function stubDraftBesideOn(
   page: Page,
-  options: { notFound?: boolean } = {},
+  options: {
+    notFound?: boolean;
+    /** The check stopped on this workspace's own setup instead (runtime UNKNOWN_MODEL or CAPABILITY_MISMATCH). */
+    localFault?: "UNKNOWN_MODEL" | "CAPABILITY_MISMATCH";
+  } = {},
 ) {
   const ws = "**/api/admin/workspaces/*";
   const active = {
@@ -566,6 +570,20 @@ export async function stubDraftBesideOn(
     chargedMicroUsd: 0,
     outcome: [],
   };
+  const localFaultCheck = options.localFault && {
+    ...notFoundCheck,
+    reason:
+      options.localFault === "UNKNOWN_MODEL"
+        ? "PROVIDER_QUALITY_CHECK_MODEL_NOT_CONFIGURED"
+        : "PROVIDER_QUALITY_CHECK_CAPABILITY_MISSING",
+    reasonDetail: {
+      role: "companion",
+      providerCode: options.localFault,
+      status: null,
+      providerReason: null,
+    },
+  };
+  const latest = localFaultCheck || (options.notFound ? notFoundCheck : null);
   const price = (role: string) => ({
     id: `00000000-0000-4000-8000-00000000010${role === "companion" ? 1 : 2}`,
     version: 1,
@@ -708,7 +726,7 @@ export async function stubDraftBesideOn(
         estimateMicroUsd: 54000,
         reserveMicroUsd: 900000,
         blocked: null,
-        latest: options.notFound ? notFoundCheck : null,
+        latest,
         activeRoles: [],
         onRoles: [],
         onAll: null,
@@ -716,6 +734,6 @@ export async function stubDraftBesideOn(
     }),
   );
   await page.route(`${ws}/provider-setup/quality-check/*`, (route) =>
-    route.fulfill({ json: notFoundCheck }),
+    route.fulfill({ json: latest ?? notFoundCheck }),
   );
 }

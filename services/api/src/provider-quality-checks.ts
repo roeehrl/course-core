@@ -119,13 +119,19 @@ interface DialogueRow { position: number; role: EvalRole; dialogueId: string; pa
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-/** Provider codes that mean the provider or the key failed, not the model's answer. */
-const PROVIDER_FAULTS: Record<string, string> = {
+/**
+ * Provider codes that mean the provider, the key or the workspace's own setup failed, not the
+ * model's answer. Only NOT_FOUND (the provider's HTTP 404) says the service lacks the model; the
+ * runtime's own UNKNOWN_MODEL (the job's model is not in this workspace's model registry) and
+ * CAPABILITY_MISMATCH (the bound model is not set up with what the job needs) are local setup
+ * problems with their own codes.
+ */
+export const PROVIDER_FAULTS: Readonly<Record<string, string>> = {
   MISSING_CREDENTIAL: "PROVIDER_METADATA_CREDENTIAL_MISSING",
   AUTHENTICATION: "PROVIDER_METADATA_KEY_INVALID",
   PERMISSION_DENIED: "PROVIDER_METADATA_PERMISSION_DENIED",
   NOT_FOUND: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
-  UNKNOWN_MODEL: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+  UNKNOWN_MODEL: "PROVIDER_QUALITY_CHECK_MODEL_NOT_CONFIGURED",
   THROTTLED: "PROVIDER_METADATA_RATE_LIMITED",
   SUBSCRIPTION_QUOTA_EXHAUSTED: "PROVIDER_METADATA_QUOTA_EXHAUSTED",
   SUBSCRIPTION_EXPIRED: "PROVIDER_METADATA_BILLING_REQUIRED",
@@ -139,7 +145,7 @@ const PROVIDER_FAULTS: Record<string, string> = {
   NETWORK_ERROR: "PROVIDER_METADATA_NETWORK",
   TIMEOUT: "PROVIDER_METADATA_TIMEOUT",
   ADAPTER_UNAVAILABLE: "PROVIDER_METADATA_UNSUPPORTED",
-  CAPABILITY_MISMATCH: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+  CAPABILITY_MISMATCH: "PROVIDER_QUALITY_CHECK_CAPABILITY_MISSING",
   INVALID_CONFIG: "PROVIDER_CONFIGURATION_INVALID",
 };
 class StopRun extends Error {}

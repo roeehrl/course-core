@@ -128,4 +128,30 @@ for (const locale of ["en", "he"] as const) {
       path: info.outputPath(`check-not-found-${locale}.png`),
     });
   });
+
+  for (const [fault, key] of [
+    ["UNKNOWN_MODEL", "check.run.modelNotConfigured"],
+    ["CAPABILITY_MISMATCH", "check.run.capabilityMissing"],
+  ] as const)
+    test(`${locale}: a check stopped on this workspace's own setup says so (${fault})`, async ({
+      page,
+      context,
+    }, info) => {
+      await mockConnectedAdmin(page, context);
+      await stubDraftBesideOn(page, { localFault: fault });
+      const { ai } = await openAiServices(page, locale);
+      const check = page.getByRole("region", { name: ai["section.check"]! });
+      const job = ai["role.companion.name"]!;
+      await expect(check).toContainText(fill(locale, ai[key]!, { job }));
+      await expect(check).not.toContainText(ai["err.modelUnavailable"]!);
+      await noSidewaysScroll(page);
+      const result = check.locator(".ai-message", { hasText: job });
+      await expect(result).toHaveCount(1);
+      await result.scrollIntoViewIfNeeded();
+      await result.screenshot({
+        path: info.outputPath(
+          `check-local-${fault.toLowerCase()}-${locale}.png`,
+        ),
+      });
+    });
 }
