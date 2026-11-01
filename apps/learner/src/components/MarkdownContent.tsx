@@ -1,36 +1,80 @@
-import React, { useMemo } from "react";
-import { ScrollView, Text, View, type TextStyle } from "react-native";
-import { useT } from "../i18n";
-import { colors, styles } from "./ui";
+import React, { createContext, useContext, useMemo } from "react";
+import { Platform, Text, View, type TextStyle } from "react-native";
+import { styles } from "./ui";
+import { colors } from "../theme/colors";
 import { InlineReference } from "./InlineReference";
 import { MathFormula } from "./MathFormula";
 import { MarkdownTable } from "./MarkdownTable";
-import { hasRightToLeft, latinRuns, parseMarkdown, plainText, textDirection, type Block, type Inline } from "./markdown";
+import { CodeBlock } from "./CodeBlock";
+import { hasRightToLeft, latinRuns, parseMarkdown, plainText, splitClosingQuestion, textDirection, type Block, type Inline } from "./markdown";
+
+export interface MarkdownOptions {
+  /** A reply still arriving: unfinished constructs are closed or held back, never shown raw. */
+  streaming?: boolean;
+  /** `reply`: a companion reply in the chat type (16/26, 18/30 in the focus view; headings 16/26
+   * 600; paragraphs 8 apart). `lesson` (default): course text. */
+  variant?: "lesson" | "reply";
+  /**
+   * The reply ends by asking the learner something (final design §3.3, G2): its closing question
+   * is set at weight 600, followed inline by `tag` ("Your turn") when it is the learner's turn.
+   */
+  closingQuestion?: { tag?: React.ReactNode };
+  /** The streaming caret after the last character (M6): `live` pulses while frames arrive,
+   * `still` once they stop. */
+  caret?: "live" | "still";
+}
 
 /** Non-executable prose renderer for course text and companion replies: Markdown blocks and
- * emphasis, tables and TeX math (markdown.ts, mathText.ts). HTML and remote embeds always show
- * as the text they are. With `streaming`, a reply still arriving is drawn the same way, with
- * unfinished constructs closed or held back instead of shown raw. */
-export function MarkdownContent({ markdown, streaming = false }: { markdown: string; streaming?: boolean }) {
+ * emphasis, tables, code blocks (with their language and Copy on the web) and TeX math
+ * (markdown.ts, mathText.ts). HTML and remote embeds always show as the text they are. With
+ * `streaming`, a reply still arriving is drawn the same way, with unfinished constructs closed or
+ * held back instead of shown raw. */
+export function MarkdownContent({ markdown, streaming = false, variant = "lesson", closingQuestion, caret }: { markdown: string } & MarkdownOptions) {
   const blocks = useMemo(() => parseMarkdown(markdown, { streaming }), [markdown, streaming]);
+  const last = blocks.length - 1;
+  const ending = blocks[last];
+  // The caret and the question's emphasis go into the last paragraph or heading; after any other
+  // block the caret is a line of its own.
+  const inlineEnd = ending?.kind === "paragraph" || ending?.kind === "heading";
   return (
-    <View style={{ gap: 14 }}>
-      {blocks.map((block, index) => (
-        <BlockView key={index} block={block} depth={0} />
-      ))}
-    </View>
+    <RenderContext.Provider value={variant}>
+      <View style={{ gap: variant === "reply" ? 8 : 14 }}>
+        {blocks.map((block, index) => (
+          <BlockView
+            key={index}
+            block={block}
+            depth={0}
+            {...(index === last && inlineEnd ? { end: { question: closingQuestion, caret } } : {})}
+          />
+        ))}
+        {caret && !inlineEnd && (
+          <Text>
+            <Caret state={caret} />
+          </Text>
+        )}
+      </View>
+    </RenderContext.Provider>
   );
 }
 
-const headingStyle = (level: number): TextStyle =>
-  level <= 2
-    ? { color: colors.ink, fontSize: 20, lineHeight: 28, fontWeight: "700" }
-    : level === 3
-      ? { color: colors.ink, fontSize: 18, lineHeight: 26, fontWeight: "600" }
-      : { color: colors.ink, fontSize: 16, lineHeight: 24, fontWeight: "700" };
+const RenderContext = createContext<"lesson" | "reply">("lesson");
+/** Web: a size the stylesheet can change (the focus view sets reading type, §2.2). */
+const cssSize = (property: string, fallback: number) =>
+  (Platform.OS === "web" ? `var(${property}, ${fallback}px)` : fallback) as unknown as number;
+const replyText = (): TextStyle => ({ color: colors.ink, fontSize: cssSize("--cc-prose-size", 16), lineHeight: cssSize("--cc-prose-line", 26) });
+const headingStyle = (level: number, variant: "lesson" | "reply"): TextStyle =>
+  variant === "reply"
+    ? { color: colors.ink, fontSize: cssSize("--cc-prose-size", 16), lineHeight: cssSize("--cc-prose-line", 26), fontWeight: "600" }
+    : level <= 2
+      ? { color: colors.ink, fontSize: 20, lineHeight: 28, fontWeight: "700" }
+      : level === 3
+        ? { color: colors.ink, fontSize: 18, lineHeight: 26, fontWeight: "600" }
+        : { color: colors.ink, fontSize: 16, lineHeight: 24, fontWeight: "700" };
 const BULLETS = ["•", "◦", "▪"];
 /** `dir` on a react-native-web element (an HTML attribute; native ignores it). */
 const dirProp = (dir: "rtl" | "ltr" | undefined) => (dir ? ({ dir } as object) : {});
+/** `data-*` attributes on a react-native-web element. */
+const dataProp = (data: Record<string, string>) => ({ dataSet: data } as object);
 const blockText = (blocks: readonly Block[]): string =>
   blocks
     .map((block) =>
@@ -41,43 +85,51 @@ const blockText = (blocks: readonly Block[]): string =>
     )
     .join(" ");
 
-function BlockView({ block, depth }: { block: Block; depth: number }) {
-  const t = useT();
+/** The streaming caret (M6): 2 × 18 px, drawn by the stylesheet (markdown.css). */
+function Caret({ state }: { state: "live" | "still" }) {
+  return <Text aria-hidden {...dataProp({ ccCaret: state })} />;
+}
+
+type BlockEnd = { question?: { tag?: React.ReactNode }; caret?: "live" | "still" };
+
+function BlockView({ block, depth, end }: { block: Block; depth: number; end?: BlockEnd }) {
+  const variant = useContext(RenderContext);
   switch (block.kind) {
-    case "paragraph":
+    case "paragraph": {
+      const rtl = hasRightToLeft(plainText(block.inline));
+      // Each block takes its direction from its first strong letter (RTL-2), in a reply.
+      const dir = variant === "reply" ? dirProp(textDirection(plainText(block.inline))) : {};
+      const split = end?.question ? splitClosingQuestion(block.inline) : undefined;
       return (
-        <Text selectable style={styles.body}>
-          {renderInline(block.inline, "p", hasRightToLeft(plainText(block.inline)))}
+        <Text selectable {...dir} style={variant === "reply" ? [styles.body, replyText()] : styles.body}>
+          {split && split.question.length ? (
+            <>
+              {renderInline(split.lead, "p", rtl)}
+              <Text {...dataProp({ ccQuestion: "" })} style={{ fontWeight: "600", color: colors.ink }}>{renderInline(split.question, "q", rtl)}</Text>
+            </>
+          ) : (
+            renderInline(block.inline, "p", rtl)
+          )}
+          {end?.caret && <Caret state={end.caret} />}
+          {end?.question?.tag}
         </Text>
       );
+    }
     case "heading":
       return (
         <Text
           accessibilityRole="header"
           {...({ "aria-level": Math.min(block.level + 2, 6) } as object)}
+          {...(variant === "reply" ? dirProp(textDirection(plainText(block.inline))) : {})}
           selectable
-          style={headingStyle(block.level)}
+          style={headingStyle(block.level, variant)}
         >
           {renderInline(block.inline, "h", hasRightToLeft(plainText(block.inline)))}
+          {end?.caret && <Caret state={end.caret} />}
         </Text>
       );
     case "code":
-      return (
-        <View style={{ backgroundColor: colors.stage, borderRadius: 16, padding: 18, gap: 10 }}>
-          <Text style={{ color: "#B3DFD3", fontSize: 12 }}>{block.language || t("markdownContent.example")}</Text>
-          {/* Wide code scrolls sideways on narrow screens; keyboard users must be able to focus the
-              region to scroll it. */}
-          <ScrollView
-            horizontal
-            focusable
-            accessibilityLabel={block.language ? t("markdownContent.codeRegion", { language: block.language }) : t("markdownContent.exampleRegion")}
-          >
-            <Text selectable {...dirProp("ltr")} style={{ color: "#EFF8F5", fontFamily: "monospace", writingDirection: "ltr", fontSize: 14, lineHeight: 22 }}>
-              {block.code}
-            </Text>
-          </ScrollView>
-        </View>
-      );
+      return <CodeBlock language={block.language} code={block.code} />;
     case "list":
       return (
         <View role="list" {...dirProp(textDirection(blockText([block])))} style={{ gap: 8 }}>
@@ -87,9 +139,10 @@ function BlockView({ block, depth }: { block: Block; depth: number }) {
                 aria-hidden
                 style={[
                   styles.body,
+                  variant === "reply" ? replyText() : null,
                   block.ordered
                     ? { minWidth: 22, color: colors.ink, fontWeight: "600", fontVariant: ["tabular-nums"] }
-                    : { width: 14, color: colors.teal, fontWeight: "700", textAlign: "center" },
+                    : { width: 14, color: colors.accent, fontWeight: "700", textAlign: "center" },
                 ]}
               >
                 {block.ordered ? `${block.start + index}.` : BULLETS[Math.min(depth, BULLETS.length - 1)]}
@@ -108,7 +161,8 @@ function BlockView({ block, depth }: { block: Block; depth: number }) {
         <View
           {...({ role: "blockquote" } as object)}
           {...dirProp(textDirection(blockText(block.blocks)))}
-          style={{ borderStartWidth: 3, borderColor: colors.line, paddingStart: 14, gap: 10 }}
+          // A 2 px rule at the start marks a quotation (the only rule allowed, §3.3).
+          style={{ borderStartWidth: 2, borderColor: colors.line, paddingStart: 14, gap: variant === "reply" ? 8 : 10 }}
         >
           {block.blocks.map((child, index) => (
             <BlockView key={index} block={child} depth={depth} />
@@ -129,7 +183,7 @@ function BlockView({ block, depth }: { block: Block; depth: number }) {
 /** Something still being written (a formula or table row): a quiet mark until it completes. */
 function Pending() {
   return (
-    <Text aria-hidden style={{ color: colors.muted, letterSpacing: 2 }}>
+    <Text aria-hidden style={{ color: colors.inkMuted, letterSpacing: 2 }}>
       {"…"}
     </Text>
   );
@@ -188,7 +242,7 @@ function renderInline(nodes: readonly Inline[], key: string, isolate: boolean): 
           <Text
             key={id}
             {...dirProp("ltr")}
-            style={{ fontFamily: "monospace", fontSize: 14, writingDirection: "ltr", color: colors.ink, backgroundColor: colors.mint, borderRadius: 4, paddingHorizontal: 3 }}
+            style={{ fontFamily: "monospace", fontSize: 14, writingDirection: "ltr", color: colors.ink, backgroundColor: colors.surface2, borderRadius: 4, paddingHorizontal: 3 }}
           >
             {node.text}
           </Text>

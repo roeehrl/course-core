@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { CourseApiError, type CourseApi, type ServerSnapshot } from "../../client/apiClient";
 import type { CompanionContext, CompanionReceipt, ContextualCompanionClient } from "../../client/companionClient";
 import { CompanionDock } from "../../components/CompanionDock";
@@ -6,27 +6,23 @@ import { ConnectedCompanion } from "../../components/ConnectedCompanion";
 import type { VisualInteractionContext } from "../../components/VisualBlock";
 import type { CompanionLayout } from "../../domain/companionLayout";
 import { useCompanionConversation } from "../../hooks/useCompanionConversation";
-import { englishTranslator, useT, type Translate } from "../../i18n";
-import { DraftConflict } from "../connectivity.web";
+import { englishTranslator, type Translate } from "../../i18n";
 import type { createConnectedDraftStore } from "../drafts";
 import { AskFromLesson } from "./AskFromLesson.web";
 import { companionBridge } from "./bridge";
 import { useCompanionOpenValue } from "./openState";
 import { useCompanionActivity } from "./unread";
 
-/** A closed (completed or capped) course's remaining read-only questions. */
-export type ClosedAllowance = { budget?: number; used?: number; remaining: number };
+import type { ClosedAllowance } from "./Conversation.web";
 
-/** What the companion says about a closed course's read-only question allowance. */
+export type { ClosedAllowance } from "./Conversation.web";
+
+/** What the companion says about a closed course's read-only question allowance (final design
+ * §3.13): "Course closed · 3 questions left" above the composer while questions are left, and the
+ * block that replaces the composer once every one is used. */
 export function closedHelpText(allowance: ClosedAllowance, exhausted: boolean, t: Translate = englishTranslator().t) {
-  if (exhausted) return t("companionRegion.closedHelp.exhausted");
-  return allowance.used !== undefined && allowance.budget !== undefined
-    ? t("companionRegion.closedHelp.remainingOfBudget", {
-        remaining: allowance.remaining,
-        used: allowance.used,
-        budget: allowance.budget,
-      })
-    : t("companionRegion.closedHelp.remaining", { remaining: allowance.remaining });
+  if (exhausted) return t("noticeSlot.exhausted");
+  return t("noticeSlot.closed", { remaining: allowance.remaining });
 }
 
 type Episode = { id: string; title: string };
@@ -65,11 +61,12 @@ export interface CompanionRegionProps {
 }
 
 /**
- * The companion's region of the page: the dock (beside the lesson or a sheet), a draft that
- * changed in another tab, a closed course's remaining questions, the saved conversation and the
- * composer, and asking from the lesson. It sends questions through the host's request lock and
- * reads whether a companion job can answer here. While it is mounted the companion is available
- * to the rest of the page (bridge.ts).
+ * The companion's region of the page: the dock (beside the lesson or a sheet) with the
+ * conversation and its composer, and asking from the lesson. It sends questions through the
+ * host's quiet request lock (what happens to a question is said with the question, never in the
+ * page's notice, and an unrelated request in flight never blocks a send) and reads whether a
+ * companion job can answer here. While it is mounted the companion is available to the rest of
+ * the page (bridge.ts).
  */
 export function CompanionRegion({
   server,
@@ -85,10 +82,10 @@ export function CompanionRegion({
   pending,
   now,
   transact,
+  transactQuiet,
   refresh,
   visualContext,
   setServer,
-  setError,
   setQuestionsExhausted,
   reloadPolicy,
   storageUnavailable,
@@ -97,7 +94,6 @@ export function CompanionRegion({
   helpExhausted,
   onUnansweredChange,
 }: CompanionRegionProps) {
-  const t = useT();
   const open = useCompanionOpenValue("open");
   useEffect(() => {
     companionBridge.setAvailable(true);
@@ -135,7 +131,7 @@ export function CompanionRegion({
     // i18n-ignore: programming guard, the companion is only offered inside a lesson
     if (!episode) throw new Error("Open a lesson first");
     const interactiveContext = visualContext();
-    return transact(async () => {
+    return transactQuiet(async () => {
       const result = await chat.send(server, {
         episodeId: episode.id,
         ...(context.blockId ? { blockId: context.blockId } : {}),
@@ -156,35 +152,23 @@ export function CompanionRegion({
             }
           : current,
       );
-      try {
-        await refresh(server.enrollmentId);
-      } catch {
-        setError(t("companionRegion.error.queuedRefreshFailed"));
-      }
+      // The message is saved: a progress read that fails now is retried by the page's next read,
+      // and the conversation reads itself over its event stream.
+      await refresh(server.enrollmentId).catch(() => undefined);
       return result;
     });
   }
   const draft = drafts.read(draftKey),
-    companionConflict = drafts.conflict(draftKey);
+    companionConflict = Boolean(drafts.conflict(draftKey) && drafts.version(draftKey));
+  // "Try again" and "Refresh" read the conversation from the start (a new read and stream).
+  const [generation, setGeneration] = useState(0);
+  const reread = useCallback(() => setGeneration((value) => value + 1), []);
+  const next = server.nextEpisodeId ? { episodeId: server.nextEpisodeId, title: titles[server.nextEpisodeId] ?? "" } : undefined;
   return (
     <>
       <AskFromLesson episodeId={episode?.id} />
       <CompanionDock layout={layout} headerSlot={headerSlot}>
-        {companionConflict && drafts.version(draftKey) && (
-          <DraftConflict
-            label={t("companionRegion.draft.message")}
-            shown={drafts.version(draftKey)!}
-            other={companionConflict}
-            onKeepShown={() => drafts.resolve(draftKey, "shown")}
-            onUseOther={() => drafts.resolve(draftKey, "other")}
-          />
-        )}
-        {closedAllowance && (
-          <p className={`connected-closed-help ${helpExhausted ? "is-exhausted" : ""}`} role="status">
-            {closedHelpText(closedAllowance, helpExhausted, t)}
-          </p>
-        )}
-        <LiveConversation client={chat} enrollmentId={server.enrollmentId} open={open} revision={server.revision} onUnansweredChange={onUnansweredChange}>
+        <LiveConversation key={generation} client={chat} enrollmentId={server.enrollmentId} open={open} revision={server.revision} onUnansweredChange={onUnansweredChange}>
           {(conversation) => (
             <ConnectedCompanion
               context={context}
@@ -208,9 +192,9 @@ export function CompanionRegion({
               onCancelQuestion={
                 chat.cancelQuestion
                   ? (messageId) =>
-                      transact(async () => {
+                      transactQuiet(async () => {
                         await chat.cancelQuestion!(server, messageId);
-                        await refresh(server.enrollmentId);
+                        await refresh(server.enrollmentId).catch(() => undefined);
                       })
                   : undefined
               }
@@ -231,6 +215,12 @@ export function CompanionRegion({
               server={server}
               api={api}
               now={now}
+              layout={layout}
+              onRefresh={reread}
+              {...(closedAllowance ? { closed: { allowance: closedAllowance, exhausted: helpExhausted } } : {})}
+              draftConflict={companionConflict}
+              onDraftChoice={(keep) => drafts.resolve(draftKey, keep)}
+              {...(next?.title ? { nextLesson: next } : {})}
             />
           )}
         </LiveConversation>

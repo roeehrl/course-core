@@ -1,1 +1,18 @@
-{}
+{
+  "anchor.check": "Question {number}",
+  "anchor.codeLine": "Your code, line {line}",
+  "anchor.codeLines": "Your code, lines {start}–{end}",
+  "anchor.illustration": "Part of the illustration",
+  "anchor.text": "Selected: “{excerpt}”",
+  "anchor.part": "A part of the lesson",
+  "anchor.videoAt": "Course video, {time}",
+  "anchor.video": "Course video",
+  "held": "Waiting to send",
+  "cancel": "Cancel",
+  "notSent": "This question couldn't be sent. Edit it and try again.",
+  "edit": "Edit",
+  "sendFailed": "Couldn't send. Your text is back in the box.",
+  "tryAgain": "Try again",
+  "unconfirmed": "We couldn't confirm your message was saved. Check the conversation before sending it again.",
+  "refresh": "Refresh"
+}

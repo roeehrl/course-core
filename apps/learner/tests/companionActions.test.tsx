@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
-import { ConnectedCompanion, lessonLabel, panelScroller, sentNoticeKey } from "../src/components/ConnectedCompanion";
+import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
 import { stripBidiControls } from "@course-core/i18n";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";
@@ -79,7 +79,8 @@ describe("persisted companion integration", () => {
     );
     // The selection made in another lesson was dropped when the lesson changed.
     expect(screen.queryByText(/Attached to your next message/)).not.toBeInTheDocument();
-    expect(screen.getByText("About: Notice change")).toBeVisible();
+    // The thread names the lesson the question was asked in once, in a divider (conversation §3.4).
+    expect(screen.getByText("Notice change")).toBeVisible();
     expect(screen.queryByText(/Earlier lesson/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
     expect(screen.getByText("Answering: “Why does it change?”")).toBeVisible();
@@ -94,7 +95,7 @@ describe("persisted companion integration", () => {
     // A focus chosen in this lesson is shown and removable.
     act(() => companionFocus.setSelection({ kind: "code", excerpt: "return x", lineStart: 3, lineEnd: 4, codeSnapshotHash: "a".repeat(64) }));
     expect(screen.getByText("Your code, lines 3–4")).toBeVisible();
-    await pressWhenReady(screen.getByRole("button", { name: "Remove selection" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Remove code lines" }));
     expect(companionFocus.get().selection).toBeUndefined();
   });
 

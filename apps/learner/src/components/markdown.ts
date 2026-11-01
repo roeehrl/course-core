@@ -431,6 +431,31 @@ export function plainText(nodes: readonly Inline[]): string {
     .join("");
 }
 
+/**
+ * A reply's closing question, split from the paragraph it ends (final design §3.3, G2): the last
+ * sentence, from after the previous sentence's end, when the paragraph ends with `?` or `؟`. The
+ * whole paragraph is the question when it has one sentence; `question` is empty when it does not
+ * end by asking. Only top-level text is split; emphasis and formulas move whole.
+ */
+export function splitClosingQuestion(nodes: readonly Inline[]): { lead: Inline[]; question: Inline[] } {
+  const asks = /[?؟]["'”’»)\]]*\s*$/u.test(plainText(nodes).replace(/[*_`]+\s*$/, ""));
+  if (!asks) return { lead: [...nodes], question: [] };
+  for (let index = nodes.length - 1; index >= 0; index--) {
+    const node = nodes[index]!;
+    if (node.kind !== "text") continue;
+    // The end of an earlier sentence: a stop, question or exclamation mark (and closing quotes)
+    // followed by a space and more text.
+    const ends = [...node.text.matchAll(/[.!?؟…:;]["'”’»)\]]*\s+(?=\S)/gu)];
+    const last = ends.at(-1);
+    if (!last) continue;
+    const cut = last.index! + last[0].length;
+    const lead = [...nodes.slice(0, index), ...(cut > 0 ? [{ kind: "text" as const, text: node.text.slice(0, cut) }] : [])];
+    const question = [{ kind: "text" as const, text: node.text.slice(cut) }, ...nodes.slice(index + 1)];
+    return { lead, question };
+  }
+  return { lead: [], question: [...nodes] };
+}
+
 const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
 const STRONG = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ֐-ࣿיִ-﷿ﹰ-﻿]/;
 /** The direction of text by its first strong letter, as `dir="auto"` decides it. */

@@ -1,7 +1,7 @@
 import React from "react";
 import { Text } from "react-native";
 import { useI18n } from "../i18n";
-import { colors } from "./ui";
+import { colors } from "../theme/colors";
 import { mathSpoken, mathText, parseTex } from "./mathText";
 
 /** A formula as readable text (the web app draws it with MathML, MathFormula.web.tsx). Screen

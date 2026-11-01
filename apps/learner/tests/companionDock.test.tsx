@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
-import { ConnectedCompanion, lessonLabel, panelScroller, sentNoticeKey } from "../src/components/ConnectedCompanion";
+import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
 import { stripBidiControls } from "@course-core/i18n";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";

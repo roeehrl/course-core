@@ -1,1 +1,5 @@
-{}
+{
+  "over": "{count, plural, one {# character over} other {# characters over}}",
+  "count": "{count} / {max}",
+  "keyHint": "<key>Enter</key> to send · <key>Shift+Enter</key> for a new line"
+}

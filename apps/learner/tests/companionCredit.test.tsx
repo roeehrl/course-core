@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
-import { ConnectedCompanion, lessonLabel, panelScroller, sentNoticeKey } from "../src/components/ConnectedCompanion";
+import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
 import { stripBidiControls } from "@course-core/i18n";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";
@@ -75,6 +75,7 @@ describe("persisted companion integration", () => {
     );
     await waitFor(() => expect(send).toHaveBeenCalledWith("Question", true));
     await waitFor(() => expect(change).toHaveBeenCalledWith(""));
-    expect(screen.getByText(/Waiting for the companion service/)).toBeVisible();
+    // The sent question shows as the learner's turn (conversation §3.5: no "Message saved" notice).
+    expect(screen.getByRole("log")).toHaveTextContent("Question");
   });
 });

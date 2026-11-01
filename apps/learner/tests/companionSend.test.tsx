@@ -12,7 +12,8 @@ import { connectedSnapshot } from "./connectedFixtures";
 import type { ContextualCompanionClient } from "../src/client/companionClient";
 import { pressWhenReady } from "./pressWhenReady";
 
-// Split from connectedHost.test.tsx: a sent companion message is not duplicated when refreshing progress fails.
+// Split from connectedHost.test.tsx: a sent companion message is not duplicated when refreshing
+// progress fails, and the conversation shows it as the learner's turn.
 
 afterEach(() => vi.unstubAllGlobals());
 it("does not duplicate an acknowledged message when refreshing progress fails", async () => {
@@ -92,5 +93,10 @@ it("does not duplicate an acknowledged message when refreshing progress fails", 
       screen.getByRole("textbox", { name: "Message to your companion" }),
     ).toHaveValue(""),
   );
-  expect(screen.getByText(/Message saved\./)).toBeVisible();
+  // The sent question is the learner's turn in the conversation: no "Message saved" notice, and
+  // the progress read that failed after the save is not the page's error either.
+  expect(screen.getByRole("log", { name: "Saved companion messages" })).toHaveTextContent("Save this once");
+  expect(screen.queryByText(/Message saved/)).toBeNull();
+  expect(screen.queryByText(/progress could not refresh/)).toBeNull();
+  expect(client.send).toHaveBeenCalledTimes(1);
 });

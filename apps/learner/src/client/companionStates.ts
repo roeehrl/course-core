@@ -1,13 +1,12 @@
 import type { CompanionDraft, CompanionMessage } from "./companionClient";
 import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
-/** The companion's overall state, from saved messages and the browser:
- * offline, waiting for the learner, building or checking a reply, still
- * working on a question that is waiting for the service, queued, service
- * unavailable (not configured), or available. A question that is waiting
- * never makes the whole companion unavailable: past messages stay readable and
- * the learner can cancel, retry or ask something else. Never derived from
- * provider text. */
+/** The companion's overall state, from saved messages and the browser: offline, waiting for the
+ * learner, preparing or checking a reply, still working on a question that is waiting for the
+ * service, queued, not set up, or idle. There is no status line any more (final design §3.2); the
+ * state gives the collapsed sheet its one line while a reply is on its way. A question that is
+ * waiting never makes the whole companion unavailable: past messages stay readable and the
+ * learner can stop it or ask something else. Never derived from provider text. */
 export type CompanionState =
   | "offline"
   | "waiting_for_you"
@@ -102,86 +101,64 @@ export function companionState(
   if (open.length) return "queued";
   return "available";
 }
-/** The companion's overall state, in the translator's locale. */
+/** The companion's overall state as one short sentence, in the translator's locale ("Companion"
+ * when idle: availability is never shown as a state of its own, §3.13). */
 export function companionStateText(state: CompanionState, t: Translate = englishTranslator().t): string {
   return t(`companionStates.state.${state}` as MessageKey);
 }
-/** Only known public state labels are shown; provider error/reason text is never surfaced.
+/** Only known public outcomes are worded; provider error and reason text is never shown.
  * `draft` is the reply being written for this question (companionDraftFor), which is newer than
  * the saved job: a draft that opened means the call was sent.
  *
- * One label per outcome, so the card never says two things at once (0.1.58 qualification): a
- * reply that stalled part way reads as stalled, not also as refused by the checks; a stopped
- * reply reads as stopped; a reply Core withheld because it gave away a graded check's answer
- * reads as withheld until Core's hint replaces it. The withdrawn or stopped draft itself shows
- * nothing more (DraftReply): this label is the only place that says what happened. */
+ * One short sentence per outcome (final design §3.5), so a question never says two things at
+ * once: a reply that stopped part way reads as that, not also as removed by the checks; a reply
+ * the learner stopped reads as stopped. Undefined while nothing needs saying: a question that was
+ * sent and waits, one whose reply is being written (the reply row shows that), and one answered
+ * (there is no "Answered" label; the reply is the answer). A question held by a spending limit or
+ * a companion not yet set up waits to be sent; the notice above the composer says why. */
 export function companionJobLabel(
   message: CompanionMessage,
   t: Translate = englishTranslator().t,
   draft?: CompanionDraft,
 ): string | undefined {
   if (message.role !== "learner") return;
-  if (message.job_reason === "configuration_missing")
-    return t("companionStates.job.configurationMissing");
+  if (message.job_reason === "configuration_missing") return t("companionStates.job.held");
   // Saved outcomes that are final come first: they are newer than any draft the stream sent.
-  if (message.job_stalled === true) return t("companionStates.job.stalled");
-  if (message.refusal_reason === "provider_stream_stalled") return t("companionStates.job.stalledPartWay");
+  if (message.job_stalled === true) return t("companionStates.job.noReply");
+  if (message.refusal_reason === "provider_stream_stalled") return t("companionStates.job.partway");
   // Core closed the call because the question was cancelled (the learner's Stop, staff, erasure).
-  if (message.refusal_reason === "provider_stream_stopped") return t("companionStates.job.cancelledSent");
-  if (companionCouldNotAnswer(message)) return t("companionStates.job.couldNotAnswer");
+  if (message.refusal_reason === "provider_stream_stopped") return t("companionStates.job.stopped");
+  if (companionCouldNotAnswer(message)) return t("companionStates.job.removed");
   if (draft && companionHasPending([message])) {
-    if (draft.checking && (draft.state === "streaming" || draft.state === "complete")) return t("companionStates.job.checkingReply");
-    if (draft.state === "streaming") return t("companionStates.job.writing");
-    if (draft.state === "complete") return t("companionStates.job.checking");
-    // Stopped by the learner: the call had been sent, so what it used is counted.
-    if (draft.state === "cancelled") return t("companionStates.job.cancelledSent");
-    // Withdrawn before it was kept: said by why, until the saved outcome replaces it.
-    return t(draft.reason === "check_answer_withheld" ? "companionStates.job.withheld"
-      : draft.reason === "check_unverified" ? "companionStates.job.unverified"
-      : draft.reason === "provider_failed" ? "companionStates.job.interrupted"
-        : draft.reason ? "companionStates.job.notShown" : "companionStates.job.withdrawn");
+    if (draft.state === "streaming" && !draft.checking) return;
+    if (draft.state === "streaming" || draft.state === "complete") return t("companionStates.job.checking");
+    // Stopped by the learner: the call had been sent.
+    if (draft.state === "cancelled") return t("companionStates.job.stopped");
+    // Withheld for a counted check: Core's hint takes its place, so the reply is still being
+    // checked until the hint is stored (§3.12; the question itself carries no label).
+    if (draft.reason === "check_answer_withheld" || draft.reason === "check_unverified") return t("companionStates.job.checking");
+    return t(draft.reason === "provider_failed" ? "companionStates.job.partway" : "companionStates.job.removed");
   }
-  if (companionHeldByLimit(message))
-    return t(message.job_ceiling === "workspace" ? "companionStates.job.pausedWorkspace"
-      : message.job_ceiling === "enrollment" ? "companionStates.job.pausedLearner"
-        : message.job_ceiling === "artifact" ? "companionStates.job.pausedLessonToday" : "companionStates.job.pausedToday");
+  if (companionHeldByLimit(message)) return t("companionStates.job.held");
   switch (message.job_state) {
-    case "running":
-    case "leased":
-    case "processing":
-    case "analyzing":
-    case "building":
-    case "evaluating":
-      return t("companionStates.job.writing");
     case "verifying":
     case "ready":
       return t("companionStates.job.checking");
-    case "applied":
-    case "completed":
-    case "succeeded":
-    case "done":
-      return t("companionStates.job.processed");
     case "cancelled":
-      // Honest about cost: a question stopped after its call was sent may still be charged for
-      // what that call used; one cancelled before anything was sent costs nothing. A draft that
-      // opened proves the call had been sent even before the job's snapshot says so.
-      return t(message.job_sent || draft ? "companionStates.job.cancelledSent" : "companionStates.job.cancelled");
+      // Stopped after its call was sent (a draft that opened proves it); one cancelled before
+      // anything was sent was never asked, and its text went back to the message box.
+      return message.job_sent || draft ? t("companionStates.job.stopped") : undefined;
     case "refused":
-      // Never prepared into a job (refused or quarantined before any call): nothing was used.
-      return t("companionStates.job.refused");
+      // Never prepared into a job (refused or quarantined before any call).
+      return t("companionStates.job.notSent");
     case "failed":
     case "dead":
     case "dead_letter":
-      return t("companionStates.job.unavailable");
+      return t("companionStates.job.noReply");
     case "configuration_pending":
-      return t("companionStates.job.configurationMissing");
-    case "waiting":
-    case "budget_wait":
-    case "blocked":
-    case "deferred":
-      return t("companionStates.job.stillWorking");
+      return t("companionStates.job.held");
     default:
-      return t("companionStates.job.queued");
+      return;
   }
 }
 /** The reply was produced but refused by Core's checks before it could be shown (a definite end,
@@ -205,14 +182,15 @@ export function companionReplyUnavailable(message: CompanionMessage): boolean {
 }
 /** A question that ended without an answer the learner can use: Core refused the reply, no reply
  * will come (it stalled, failed or was refused), or the question was cancelled or its reply
- * stopped. It offers "Ask this question again", which puts its text back in the draft to send as
+ * stopped. Its reply row offers "Ask again", which puts its text back in the message box to send as
  * a new question. */
 export function companionCanAskAgain(message: CompanionMessage, draft?: CompanionDraft): boolean {
   if (message.role !== "learner" || message.content === "[deleted]") return false;
   return companionCouldNotAnswer(message) || companionReplyUnavailable(message) || message.job_state === "cancelled" || draft?.state === "cancelled";
 }
-/** A pending question the learner may cancel or ask again: queued or held up, not once its reply
- * is under way (a draft opened, or the job is running or checking): that one offers Stop. */
+/** A pending question whose call was not sent yet (queued or held up): stopping it cancels it
+ * before it is asked, and its text goes back to the message box. Once its reply is under way (a
+ * draft opened, or the job is running or checking), Stop stops the reply instead. */
 export function companionCanCancel(message: CompanionMessage, draft?: CompanionDraft): boolean {
   return message.role === "learner" && message.content !== "[deleted]" && companionHasPending([message]) && !draft &&
     !companionReplyStarted(message);
