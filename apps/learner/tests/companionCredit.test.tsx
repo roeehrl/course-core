@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConnectedCompanion } from "../src/components/ConnectedCompanion";
 import { CourseApiError, type Challenge, type ServerSnapshot } from "../src/client/apiClient";
@@ -87,7 +87,7 @@ describe("credit honesty in the companion", () => {
     expect(screen.getByRole("button", { name: "Keep it counted" })).toHaveFocus();
     expect(screen.getByRole("button", { name: "Save for after the question" })).toBeVisible();
     // No card and no heading: the sentence is the only text of the row.
-    expect(screen.queryByRole("heading")).toBeNull();
+    expect(within(row).queryByRole("heading")).toBeNull();
     fireEvent.keyDown(screen.getByRole("button", { name: "Keep it counted" }), { key: "Escape" });
     expect(screen.queryByRole("group")).toBeNull();
     expect(send).not.toHaveBeenCalled();
@@ -116,13 +116,18 @@ describe("credit honesty in the companion", () => {
     const other = snapshot([{ episodeId: "elsewhere" }]);
     const { send } = companion({ server: other, context: { ...context, independentChallengeIds: [] } });
     expect(screen.queryByTestId("credit-line")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(screen.queryByRole("group")).toBeNull();
-    expect(send).toHaveBeenCalledWith("Question", undefined);
     act(() => companionFocus.setCheck({ challengeId: "active-check", ordinal: 3 }));
     expect(screen.getByTestId("credit-line")).toHaveTextContent("Question 1 counts. Asking now makes it practice.");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(screen.getByRole("group")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Keep it counted" }));
+    expect(send).not.toHaveBeenCalled();
+    // Without the attachment, the other lesson's question stays counted and nothing is asked.
+    act(() => companionFocus.clear());
+    expect(screen.queryByTestId("credit-line")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(send).toHaveBeenCalledWith("Question", undefined);
   });
 
   it("says the credit line before sending, tied to the message box, with how questions count behind the ⓘ", async () => {
