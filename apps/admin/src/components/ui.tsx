@@ -25,14 +25,40 @@ import type { Permission } from "../domain/contracts";
 export function Button({
   kind = "secondary",
   children,
+  reason,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   kind?: "primary" | "secondary" | "quiet" | "danger";
+  /** Why the button cannot be used yet ("No changes yet"): shown on one line under a disabled
+   * button and linked to it as its description. Ignored while the button is enabled. */
+  reason?: string;
 }) {
-  return (
-    <button {...props} className={`button ${kind} ${props.className ?? ""}`}>
+  const reasonId = useId();
+  const button = (
+    <button
+      {...props}
+      className={`button ${kind} ${props.className ?? ""}`}
+      aria-describedby={
+        props.disabled && reason
+          ? [props["aria-describedby"], reasonId].filter(Boolean).join(" ")
+          : props["aria-describedby"]
+      }
+    >
       {children}
     </button>
+  );
+  // With a `reason` the button always sits in the same wrapper, so it keeps its place in the tree
+  // (and its focus) when it turns disabled while an action runs.
+  if (reason === undefined) return button;
+  return (
+    <span className="button-with-reason">
+      {button}
+      {props.disabled && reason && (
+        <small className="button-reason" id={reasonId}>
+          {reason}
+        </small>
+      )}
+    </span>
   );
 }
 export function Badge({
