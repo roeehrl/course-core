@@ -459,8 +459,10 @@ export function Dialog({
       }}
       onClose={() => {
         // A browser can close a modal dialog without a cancel event (Chrome does on a repeated
-        // Escape). Keep React's state in step instead of leaving an invisible dialog open.
-        if (unmounting.current) return;
+        // Escape). Keep React's state in step instead of leaving an invisible dialog open. The
+        // event comes a task after close(): one from an effect that ran twice (StrictMode on the
+        // development server) arrives when the dialog is open again, and is not a close.
+        if (unmounting.current || ref.current?.open) return;
         if (latest.current.pending) ref.current?.showModal();
         else latest.current.onClose();
       }}

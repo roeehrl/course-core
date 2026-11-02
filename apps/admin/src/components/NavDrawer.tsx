@@ -67,8 +67,11 @@ export function NavDrawer({
       }}
       onClose={() => {
         // A browser can close a modal dialog without a cancel event (Chrome does on a repeated
-        // Escape). Keep the caller's state in step.
-        if (!unmounting.current) latest.current.onDismiss();
+        // Escape). Keep the caller's state in step. The event comes a task after close(): one
+        // from an effect that ran twice (StrictMode on the development server) arrives when the
+        // drawer is open again, and is not a dismissal.
+        if (!unmounting.current && !ref.current?.open)
+          latest.current.onDismiss();
       }}
       onKeyDown={(event) => trapTab(event, ref.current!)}
       onClick={(event) => {
