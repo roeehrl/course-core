@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { test, expect, type Page } from "./health";
+import { nextControlKey, test, expect, type Page } from "./health";
 import { companion, lengthenLesson, openLesson, settled, trigger } from "./shell-helpers";
 
 /*
@@ -231,6 +231,44 @@ for (const locale of ["en", "he"] as const) {
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   });
 }
+
+test("typing in the panel and moving through it with Tab never scrolls the lesson, and a jump from it still stops below the header", { tag: "@desktop-window" }, async ({ page, browserName }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openLesson(page);
+  await expect(companion(page)).toBeVisible();
+  await lengthenLesson(page);
+  await settled(companion(page));
+  await page.evaluate(() => window.scrollTo(0, 900));
+  const place = await page.evaluate(() => scrollY);
+  expect(place).toBeGreaterThan(400);
+  const scrolled = () => page.evaluate(() => scrollY);
+  // A raw click (no scroll into view first), then typing, a new line and more typing (§3.8).
+  const field = companion(page).getByRole("textbox");
+  const at = (await field.boundingBox())!;
+  await page.mouse.click(at.x + 20, at.y + at.height / 2);
+  await expect(field).toBeFocused();
+  expect(await scrolled()).toBe(place);
+  await page.keyboard.type("Hello");
+  expect(await scrolled()).toBe(place);
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("second line");
+  expect(await scrolled()).toBe(place);
+  // From the divider through the header, the thread and on to the box.
+  await splitter(page).evaluate((element) => (element as HTMLElement).focus({ preventScroll: true }));
+  for (let i = 0; i < 12 && !(await field.evaluate((element) => element === document.activeElement)); i++) {
+    await page.keyboard.press(nextControlKey(browserName));
+    expect(await scrolled()).toBe(place);
+  }
+  await expect(field).toBeFocused();
+  // An explicit jump while the box has focus (the lesson navigator's scroll) still leaves the
+  // header's room above the part it shows.
+  const top = await page.evaluate(() => {
+    const part = document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) [data-reading-part]")!;
+    part.scrollIntoView({ block: "start" });
+    return part.getBoundingClientRect().top - document.querySelector(".connected-header")!.getBoundingClientRect().bottom;
+  });
+  expect(top).toBeGreaterThanOrEqual(12);
+});
 
 test("the trigger stays in the header, pressed while the panel shows, and its About popover leads to the learner's data", { tag: "@desktop-window" }, async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
