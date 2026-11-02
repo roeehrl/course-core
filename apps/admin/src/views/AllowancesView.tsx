@@ -14,6 +14,7 @@ import {
   Field,
   Notice,
   SkeletonRows,
+  PageIntro,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import type { ScopePolicy } from "../domain/policy";
@@ -59,19 +60,22 @@ export function AllowancesView({
     Boolean(client.previewAccommodationBatch && client.applyAccommodationBatch);
   return (
     <div className="page-stack">
-      <div className="allowances-heading">
-        <p>{t("allowancesView.intro")}</p>
-        {canBatch && (
-          <Button
-            type="button"
-            kind="primary"
-            disabled={!scopes.data?.length}
-            onClick={() => setBatching(true)}
-          >
-            {t("allowancesView.batch")}
-          </Button>
-        )}
-      </div>
+      <PageIntro
+        action={
+          canBatch && (
+            <Button
+              type="button"
+              kind="primary"
+              disabled={!scopes.data?.length}
+              onClick={() => setBatching(true)}
+            >
+              {t("allowancesView.batch")}
+            </Button>
+          )
+        }
+      >
+        {t("allowancesView.intro")}
+      </PageIntro>
       {message && <Notice tone="green">{message}</Notice>}
       <div
         className="segmented allowances-view-switch"

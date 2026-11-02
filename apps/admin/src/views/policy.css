@@ -137,18 +137,6 @@
 /* Extensions & accommodations: the introduction with the page's one action at its end, and a
    compact two-way view switch (the chosen view drawn like a chosen segment, not a second
    primary button). */
-.allowances-heading {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-.allowances-heading > p {
-  flex: 1 1 28rem;
-  margin: 0;
-  color: var(--muted);
-}
 .allowances-view-switch {
   align-self: flex-start;
   max-width: 100%;

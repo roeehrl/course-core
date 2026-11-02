@@ -22,6 +22,7 @@ import {
   Stat,
   TechnicalDetails,
   SkeletonRows,
+  PageIntro,
 } from "../components/ui";
 import { ScopeDetails, ScopeQuotas } from "../components/PolicyDetails";
 import { ExtensionComposer } from "../components/ExtensionComposer";
@@ -154,12 +155,7 @@ export function PolicyView({
   );
   return (
     <div className="page-stack policy-page">
-      <div className="section-heading">
-        <div>
-          <h2>{t("policyView.heading")}</h2>
-          <p>{t("policyView.intro")}</p>
-        </div>
-      </div>
+      <PageIntro>{t("policyView.intro")}</PageIntro>
       <PolicySectionNav />
       {client.getPolicyCeilings && data.course.workspaceId && (
         <Section id="policy-organization">
