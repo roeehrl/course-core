@@ -1,65 +1,12 @@
 /* Policy & extensions and Extensions & accommodations. Page-specific layout only; the shared
    primitives (cards, buttons, fields, tables) come from styles.css. */
 
-/* The page's own link bar: one line that stays under the app bar (or the top of the window) while
-   the page scrolls. On a narrow screen it scrolls sideways inside itself, never the page. */
-.policy-nav {
-  position: sticky;
-  top: var(--app-bar-height, 0px);
-  z-index: 20;
-  margin-block: -10px;
-  padding-block: 10px;
-  background: var(--paper);
-  border-block-end: 1px solid var(--line);
-}
-.policy-nav ol {
-  display: flex;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-}
-/* When the bar is wider than the screen, its far edge fades to show there is more. */
-.policy-nav[data-overflow] ol {
-  mask-image: linear-gradient(to right, #000 85%, transparent);
-}
-.policy-nav[data-overflow] ol:dir(rtl) {
-  mask-image: linear-gradient(to left, #000 85%, transparent);
-}
-.policy-nav ol::-webkit-scrollbar {
-  display: none;
-}
-.policy-nav a {
-  display: inline-flex;
-  align-items: center;
-  min-block-size: 36px;
-  padding-inline: 12px;
-  border-radius: 8px;
-  color: var(--blue);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-  text-decoration: none;
-}
-.policy-nav a:hover {
-  background: var(--ice);
-}
-.policy-nav a[aria-current="true"] {
-  background: var(--ice);
-  box-shadow: inset 0 0 0 1px #9ab4c6;
-  color: var(--ink);
-}
-/* A section reached from the bar starts below the bar, not under it. */
+/* A section the link bar can reach (a link stops below the bar: styles.css, :root:has(.section-nav)). */
 .policy-section {
   display: flex;
   flex-direction: column;
   gap: 24px;
   min-width: 0;
-  scroll-margin-top: 72px;
 }
 .policy-section:focus {
   outline: none;
@@ -130,19 +77,8 @@
   font-size: var(--text-xs);
 }
 
-/* Scope list: searchable, and bounded so its detail is never thousands of pixels away. Beside the
-   detail it stays in view while the detail scrolls. */
-.policy-hierarchy > .policy-scope-picker {
-  position: sticky;
-  top: calc(var(--app-bar-height, 0px) + 72px);
-}
-.policy-scope-picker .selector-list {
-  max-block-size: min(60vh, 640px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 2px;
-  margin: -2px;
-}
+/* Scope list: searchable, with compact items. Its sticky place beside the detail and its own
+   scroll are the shared .master-detail's. */
 .policy-scope-picker .selector-item {
   min-height: 0;
   padding: 10px 12px;
@@ -162,14 +98,6 @@
   margin: 0;
   color: var(--muted);
   font-size: var(--text-xs);
-}
-@container (max-width: 850px) {
-  .policy-hierarchy > .policy-scope-picker {
-    position: static;
-  }
-  .policy-scope-picker .selector-list {
-    max-block-size: 340px;
-  }
 }
 
 /* The quota lines behind "What sets these limits", grouped by kind of limit. */

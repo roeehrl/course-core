@@ -6,7 +6,8 @@ import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { VersionMoves } from "../components/VersionMoves";
-import { useState, type FormEvent, type MouseEvent } from "react";
+import { useState, type FormEvent } from "react";
+import { SectionNav } from "../components/SectionNav";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import {
   ArrowUpRight,
@@ -134,12 +135,6 @@ export function CourseView({
     { id: "course-recovery", label: t("courseView.sections.recovery") },
     { id: "course-objectives", label: t("courseView.objectives") },
   ];
-  const jump = (id: string) => (event: MouseEvent) => {
-    event.preventDefault();
-    const target = document.getElementById(id);
-    target?.scrollIntoView({ block: "start" });
-    target?.focus({ preventScroll: true });
-  };
   return (
     <div className="page-stack">
       <ActionFeedback actions={actions} />
@@ -184,17 +179,7 @@ export function CourseView({
           </Button>
         </div>
       </section>
-      <nav className="section-nav" aria-label={t("courseView.sections.label")}>
-        <ol>
-          {sections.map((section) => (
-            <li key={section.id}>
-              <a href={`#${section.id}`} onClick={jump(section.id)}>
-                {section.label}
-              </a>
-            </li>
-          ))}
-        </ol>
-      </nav>
+      <SectionNav label={t("courseView.sections.label")} sections={sections} />
       {/* The live version is in the header above; these are the figures to watch. */}
       <div className="stats-grid three">
         <Stat

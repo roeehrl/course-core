@@ -241,10 +241,7 @@ button.copy-text:hover {
 .course-header-row > .button {
   flex: none;
 }
-/* The link bar under the course header is WP1's shared .section-nav (styles.css). */
-.page-section {
-  scroll-margin-top: calc(var(--sticky-top) + 64px);
-}
+/* The link bar under the course header is the shared SectionNav (styles.css .section-nav). */
 .page-section:focus {
   outline: none;
 }

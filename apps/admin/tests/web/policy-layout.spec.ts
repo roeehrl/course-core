@@ -68,7 +68,7 @@ async function oneWordPerLine(page: Page, root: string) {
     const scope = document.querySelector(root);
     if (!scope) return ["missing " + root];
     for (const el of scope.querySelectorAll<HTMLElement>(
-      "h2, h3, p, small, dt, dd, label, legend, caption, th, td, .button, .badge, .policy-nav a, summary",
+      "h2, h3, p, small, dt, dd, label, legend, caption, th, td, .button, .badge, .section-nav a, summary",
     )) {
       if (!el.checkVisibility()) continue;
       const words = (el.innerText ?? "").trim().split(/\s+/).filter(Boolean);
@@ -104,7 +104,7 @@ for (const locale of ["en", "he"] as const)
       await expect(
         main.locator(".policy-scope-picker .selector-item"),
       ).toHaveCount(71);
-      await expect(main.locator(".policy-nav a")).toHaveCount(8);
+      await expect(main.locator(".section-nav a")).toHaveCount(8);
       await noSidewaysScroll(page);
       expect(await oneWordPerLine(page, "main")).toEqual([]);
       await shot(page, `policy-${size.name}-${locale}-top`);
@@ -162,22 +162,22 @@ for (const locale of ["en", "he"] as const)
       await picker.getByRole("searchbox").fill("");
 
       // The link bar stays in view and takes the reader to a section.
-      await main.locator(".policy-nav a").nth(5).click();
-      const nav = (await main.locator(".policy-nav").boundingBox())!;
+      await main.locator(".section-nav a").nth(5).click();
+      const nav = (await main.locator(".section-nav").boundingBox())!;
       expect(nav.y).toBeGreaterThanOrEqual(-1);
       expect(nav.y).toBeLessThan(80);
       const work = (await main.locator("#policy-work").boundingBox())!;
       expect(work.y).toBeGreaterThan(nav.y + nav.height - 2);
       expect(work.y).toBeLessThan(nav.y + nav.height + 60);
-      await expect(main.locator(".policy-nav a").nth(5)).toHaveAttribute(
+      await expect(main.locator(".section-nav a").nth(5)).toHaveAttribute(
         "aria-current",
         "true",
       );
       await noSidewaysScroll(page);
       await shot(page, `policy-${size.name}-${locale}-work-limits`);
-      await main.locator(".policy-nav a").nth(4).click();
+      await main.locator(".section-nav a").nth(4).click();
       await shot(page, `policy-${size.name}-${locale}-scopes`);
-      await main.locator(".policy-nav a").nth(3).click();
+      await main.locator(".section-nav a").nth(3).click();
       await shot(page, `policy-${size.name}-${locale}-attempts`);
 
       // "Show all" opens the full lists, still without sideways scrolling.
@@ -189,7 +189,7 @@ for (const locale of ["en", "he"] as const)
       expect(await oneWordPerLine(page, "main")).toEqual([]);
 
       // Summary-first settings: the form opens on request.
-      await main.locator(".policy-nav a").nth(1).click();
+      await main.locator(".section-nav a").nth(1).click();
       await main
         .locator("#policy-course .section-heading .button")
         .first()
@@ -204,7 +204,7 @@ for (const locale of ["en", "he"] as const)
       await noSidewaysScroll(page);
       await main.locator("#policy-course .action-row").scrollIntoViewIfNeeded();
       await shot(page, `policy-${size.name}-${locale}-course-settings-edit`);
-      await main.locator(".policy-nav a").nth(0).click();
+      await main.locator(".section-nav a").nth(0).click();
       await main
         .locator("#policy-organization .section-heading .button")
         .first()
