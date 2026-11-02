@@ -70,6 +70,15 @@ export interface CheckCommands {
 
 type Transact = <T>(action: () => Promise<T>) => Promise<T>;
 
+/** A request saved on this device and sent once the page loaded again (apiClient `takeRecovered`). */
+export interface RecoveredRequest {
+  action: string;
+  data: Record<string, unknown>;
+  result: unknown;
+  /** What the page showed for it when it was sent: for an answer, its question. */
+  shown?: unknown;
+}
+
 /** Refusals that belong to the answer field; the request recorded nothing. */
 const FIELD_ERRORS: Record<string, CheckFieldError> = {
   AGENT_AUTHORED_ANSWER: "copied",
@@ -102,7 +111,8 @@ export function useCheckCommands({
   challenge: Challenge | undefined;
   placement: boolean;
   answer: string;
-  command: <T>(action: string, data: Record<string, unknown>) => Promise<T>;
+  /** `shown`: kept with the request on the device, so a reload can show its result in place. */
+  command: <T>(action: string, data: Record<string, unknown>, shown?: unknown) => Promise<T>;
   run: (action: () => Promise<unknown>) => void;
   transact?: Transact;
   transactQuiet?: Transact;
@@ -110,7 +120,7 @@ export function useCheckCommands({
   setError: (message: string) => void;
   /** The feedback the page notice holds for the check, if it shows there. */
   answerFeedback?: { text: string; tone: "info" | "warning" };
-}): { check: CheckCommands } {
+}): { check: CheckCommands; recover: (recovered: RecoveredRequest) => boolean } {
   const t = useT();
   const [checkingAnswer, setCheckingAnswer] = useState(false);
   // An answer (or "I don't know yet") is being saved: only then are the check's options locked.
@@ -161,7 +171,7 @@ export function useCheckCommands({
     if (code) setCheckingAnswer(true);
     setSavingAnswer(true);
     try {
-      const receipt = await command("answers", { challengeId: item.challengeId, ...(kind === "abstain" ? { abstain: true } : { answer: value }), ...(chosen ? { confidence: chosen } : {}) });
+      const receipt = await command("answers", { challengeId: item.challengeId, ...(kind === "abstain" ? { abstain: true } : { answer: value }), ...(chosen ? { confidence: chosen } : {}) }, item);
       // An unreadable receipt is the grader's failure, said in the check, never a guess at the grade.
       try {
         answerResult(receipt, code);
@@ -212,7 +222,32 @@ export function useCheckCommands({
         : command("challenges", { episodeId, mode: placement ? "placement" : "independent", ...(assessmentId ? { assessmentId } : {}) });
     });
   }
+  /** An answer sent again after a reload: shown under its question as if it had just been
+   * answered here (the check's feedback slot and status region). False when the page kept no
+   * question with it, or the result cannot be read: the host says it in its notice then. */
+  function recover({ data, result, shown }: RecoveredRequest): boolean {
+    const item = shown as Challenge | undefined;
+    if (!item || typeof item !== "object" || typeof item.challengeId !== "string" || item.challengeId !== data.challengeId ||
+      typeof item.episodeId !== "string" || !item.question || typeof item.question !== "object") return false;
+    const code = isCode(item.question);
+    try {
+      answerResult(result, code);
+    } catch {
+      return false;
+    }
+    const abstain = data.abstain === true;
+    keep(item.episodeId, {
+      challenge: item,
+      answer: !abstain && typeof data.answer === "string" ? data.answer : "",
+      kind: abstain ? "abstain" : "answer",
+      status: "answered",
+      receipt: result,
+      ...(code ? { code } : {}),
+    });
+    return true;
+  }
   return {
+    recover,
     check: {
       onStart: (assessmentId) => startCheck(assessmentId),
       onAnswer: (item) => run(() => submitAnswer(item)),

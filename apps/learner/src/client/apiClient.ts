@@ -319,11 +319,14 @@ export function createCourseApi(
     semantic: string;
     idempotencyKey: string;
     expectedRevision: number;
+    /** What the page showed for the request (the question an answer was for), so a request
+     * replayed after a reload can be shown where it belongs. Never sent. */
+    shown?: unknown;
   };
   const memory = new Map<string, Pending | null>();
   const recovered = new Map<
     string,
-    { action: string; data: Record<string, unknown>; result: unknown }
+    { action: string; data: Record<string, unknown>; result: unknown; shown?: unknown }
   >();
   let warned = false;
   function warnStorage() {
@@ -472,6 +475,7 @@ export function createCourseApi(
     snapshot: ServerSnapshot,
     action: string,
     data: Record<string, unknown>,
+    { shown }: { shown?: unknown } = {},
   ): Promise<T> {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/.test(action))
       throw new CourseApiError("INVALID_ACTION", 400);
@@ -494,6 +498,7 @@ export function createCourseApi(
       semantic,
       idempotencyKey: randomId(),
       expectedRevision: snapshot.revision,
+      ...(shown !== undefined ? { shown } : {}),
     };
     writePending(storageKey, pending);
     try {
@@ -542,7 +547,7 @@ export function createCourseApi(
         operation.action,
         operation.data,
       );
-      recovered.set(enrollmentId, { ...operation, result });
+      recovered.set(enrollmentId, { ...operation, result, ...(previous.shown !== undefined ? { shown: previous.shown } : {}) });
     } catch (error) {
       if (!(
         error instanceof CourseApiError &&

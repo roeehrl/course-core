@@ -86,7 +86,7 @@ import { companionOpen, useCompanionOpenValue } from "./connected/companion/open
 import { companionBridge } from "./connected/companion/bridge";
 import { recoveredCompanionRequest } from "./connected/companion/recovered";
 import { creditScope } from "./connected/credit/creditScope";
-import { useCheckCommands } from "./connected/checks/useCheckCommands";
+import { useCheckCommands, type RecoveredRequest } from "./connected/checks/useCheckCommands";
 import { openNotificationTarget } from "./connected/notifications/openNotification";
 import type { NextAction } from "@course-core/sdk";
 import {
@@ -649,6 +649,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     loads.shown = ++loads.started;
     setServer(undefined);
   }
+  // The check's way to show an answer sent again after a reload (useCheckCommands `recover`).
+  const recoverAnswer = useRef<(recovered: RecoveredRequest) => boolean>(() => false);
   async function refresh(id: string) {
     const loads = snapshotLoads.current,
       ticket = ++loads.started;
@@ -658,7 +660,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setServer(value);
     }
     const recovered = api.takeRecovered(id);
-    if (recovered?.action === "answers")
+    // An answer saved on this device and sent after a reload: its result goes under its question
+    // in the check, like any answer's (§4.1). Only one sent by an older page, which kept no
+    // question with it, is said in the page notice.
+    if (recovered?.action === "answers" && !recoverAnswer.current(recovered))
       setNotice({ render: (t) => t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }), tone: answerFeedbackTone(recovered.result) });
     if (recovered?.action === "companion") recoveredCompanionRequest({ setNotice });
     return value;
@@ -838,10 +843,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   async function command<T>(
     action: string,
     data: Record<string, unknown>,
+    shown?: unknown,
   ): Promise<T> {
     // i18n-ignore: programming guard, never shown
     if (!server) throw new Error("No enrollment");
-    const result = await api.command<T>(server, action, data);
+    const result = await api.command<T>(server, action, data, shown === undefined ? {} : { shown });
     await refresh(server.enrollmentId);
     return result;
   }
@@ -874,7 +880,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   );
 
   // The lesson's check: answering, "I don't know yet", the explanation and starting a check
-  // (connected/checks/useCheckCommands.ts). The feedback on an answer stays in the page notice.
+  // (connected/checks/useCheckCommands.ts). The feedback on an answer stays in the check.
   const checks = useCheckCommands({
     server,
     episodeId,
@@ -889,6 +895,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setError,
     ...(notice?.answer && answerInCheck ? { answerFeedback: { text: notice.render(t), tone: notice.tone ?? "info" } } : {}),
   });
+  recoverAnswer.current = checks.recover;
   function completeEpisode() {
     const decisionId = server?.lessons.find((l) => l.id === episodeId)?.gate?.decisionId;
     run(async () => {

@@ -87,7 +87,10 @@ test("offline: the answer waits on this device, is sent once on reconnect and re
   expect(posts.confirmed).toEqual([]);
 
   await context.setOffline(false);
-  await expect(page.getByText(/^Recovered submission\./)).toBeVisible();
+  // The result shows under its question, in the check's own status region, never in the page
+  // notice (final design §4.1).
+  await expect(page.locator(".connected-answer-feedback.is-filled")).toContainText(/Correct\.|Let's revisit this\./);
+  await expect(page.getByText(/^Recovered submission\./)).toHaveCount(0);
   await expect(status).toHaveCount(0);
   await expect(waiting).toHaveCount(0);
   // Every send used the same idempotency key, and the server confirmed it once.
@@ -129,7 +132,9 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
     .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
-  await expect(reopened.getByText(/^Recovered submission\./)).toBeVisible();
+  // Sent again from the new tab, its result shows under its question there (§4.1).
+  await expect(reopened.locator(".connected-answer-feedback.is-filled")).toContainText(/Correct\.|Let's revisit this\./);
+  await expect(reopened.getByText(/^Recovered submission\./)).toHaveCount(0);
   expect(posts.keys).toEqual(firstKeys);
   expect(posts.confirmed).toEqual([200]);
   await expect(
