@@ -124,33 +124,16 @@ test("the personal lesson support panel keeps its height while its permission lo
   expect(Math.abs(after - before)).toBeLessThanOrEqual(MAX_SHIFT);
   await noHorizontalOverflow(page);
 
-  // Turning support on and refreshing the panel reads again: the badge and
-  // button are replaced by the placeholder and back, still without movement.
-  // The saved change raises the course revision, which reads the panel again;
-  // let that read finish before holding the next one.
-  const reread = page.waitForResponse(
-    (r) =>
-      r.request().method() === "GET" &&
-      supervisionRead.test(new URL(r.url()).pathname),
-  );
+  // Turning support on reads the panel again (the saved change raises the
+  // course revision): the badge and button are replaced by the placeholder and
+  // back, still without movement. There is no bare Refresh under the card.
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
+  const again = await hold(page, supervisionRead);
   await page
     .getByRole("button", { name: "Turn on", exact: true })
     .click();
-  await reread;
-  await expect(page.getByText("On", { exact: true })).toBeVisible();
-  await expect(loadingStatus).toHaveCount(0);
-  const refresh = page.getByRole("button", {
-    name: "Refresh",
-    exact: true,
-  });
-  await expect(refresh).toBeEnabled();
-  const settled = await documentTop(below);
-  const again = await hold(page, supervisionRead);
-  await refresh.click();
   await expect(loadingStatus).toHaveCount(1);
-  expect(Math.abs((await documentTop(below)) - settled)).toBeLessThanOrEqual(
-    MAX_SHIFT,
-  );
+  const settled = await documentTop(below);
   again.release();
   await expect(
     page.getByRole("button", { name: "Turn off", exact: true }),
@@ -175,12 +158,10 @@ test("a failed permission read shows its notice in the reserved space", async ({
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
   const before = await documentTop(below);
   read.release();
-  await expect(
-    page.getByText(
-      "Couldn't load this. Refresh to try again.",
-      { exact: true },
-    ),
-  ).toBeVisible();
+  // The line says it, and offers to read it again.
+  const failed = page.getByRole("alert").filter({ hasText: "Couldn't load this." });
+  await expect(failed).toBeVisible();
+  await expect(failed.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: /^Turn (on|off)$/ }),
   ).toHaveCount(0);

@@ -46,6 +46,11 @@ describe("connected agents", () => {
     for (const code of document.querySelectorAll(".connected-agents-token code")) expect(code).toHaveAttribute("dir", "ltr");
     expect(key).toHaveValue("ccat_" + "x".repeat(43));
     expect(screen.getByText(/it's shown only once/)).toBeVisible();
+    // The form closed and starts afresh; the focus is on "Copy key".
+    expect(screen.getByText("Connect an agent").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByLabelText("Name for this agent", { selector: "input" })).toHaveValue("");
+    expect(screen.getByLabelText("Disconnect automatically after")).toHaveValue("7");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy key" })).toHaveFocus());
     const list = await screen.findByRole("list", { name: "Agents connected now" });
     expect(within(list).getByText("Desk assistant")).toBeVisible();
     // Its status is a chip, its dates two lines, and what it can use a checkbox list.

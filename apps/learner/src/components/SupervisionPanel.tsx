@@ -30,6 +30,9 @@ interface Props {
   enrollment: ServerSnapshot;
   client: SupervisionClient;
   mode: "settings" | "timeline";
+  /** The timeline under "Personal lesson support" in My profile (Profile-support-activity): a
+   * section of its own, not a card, with no Refresh (it reads again with the course). */
+  embedded?: boolean;
   pending?: boolean;
   onRevision: (revision: number) => Promise<unknown> | void;
 }
@@ -199,7 +202,7 @@ export function SupervisionPanel(props: Props) {
     />
   );
 }
-function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
+function Panel({ enrollment, client, mode, embedded = false, pending, onRevision }: Props) {
   const i18n = useI18n();
   const t = i18n.t;
   const headingId = `supervision-${mode}-${useId().replace(/:/g, "")}`;
@@ -208,7 +211,9 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
   const [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    // The panel's own read failed (not a change): it can be read again from the line that says so.
+    [readFailed, setReadFailed] = useState(false);
   const [retry, setRetry] = useState<boolean | null>(null),
     [refreshKey, setRefreshKey] = useState(0),
     [reserved, setReserved] = useState<number>();
@@ -223,6 +228,7 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
+    setReadFailed(false);
     setPermission(undefined);
     setCalls([]);
     const read =
@@ -239,8 +245,9 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
             });
     void read
       .catch(() => {
-        if (!controller.signal.aborted)
-          setError(t("supervisionPanel.error.unavailable"));
+        if (controller.signal.aborted) return;
+        setReadFailed(true);
+        setError(t("supervisionPanel.error.unavailable"));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -292,9 +299,13 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
     }
   }
   const on = !!permission?.adaptiveTeaching;
+  const readAgain = () => {
+    setError("");
+    setRefreshKey((n) => n + 1);
+  };
   return (
     <View
-      style={[styles.card, local.panel]}
+      style={embedded ? local.section : [styles.card, local.panel]}
       {...(Platform.OS === "web" ? { role: "region", "aria-labelledby": headingId } : {})}
     >
       <View style={local.titleRow}>
@@ -305,29 +316,32 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
               : "supervisionPanel.timeline.title",
           )}
         </Text>
-        {mode === "settings" && permission ? (
-          <Tag
-            className="cc-prof-chip"
-            icon={on ? "check" : undefined}
-            label={t(on ? "supervisionPanel.badge.enabled" : "supervisionPanel.badge.off")}
-          />
-        ) : mode === "settings" ? (
-          // In the chip's place and with its size, so the title line wraps the same once it loads
-          // (or when the read fails and a short notice takes the button's place).
+        {mode === "settings" ? (
+          // One slot as wide as the widest chip ("On", with its check) whatever it shows: the
+          // spinner while the permission loads, "On" or "Off" after. The title line then wraps the
+          // same in every state (a narrower "Off" let it fit on one line where "On" wrapped).
           <View style={local.chipSlot}>
             {Platform.OS === "web" && (
               <View aria-hidden style={local.chipGhost}>
                 <Tag className="cc-prof-chip cc-prof-placeholder" icon="check" label={t("supervisionPanel.badge.enabled")} />
               </View>
             )}
-            {loading && (
+            {permission ? (
+              <View style={Platform.OS === "web" ? local.chipOver : undefined}>
+                <Tag
+                  className="cc-prof-chip"
+                  icon={on ? "check" : undefined}
+                  label={t(on ? "supervisionPanel.badge.enabled" : "supervisionPanel.badge.off")}
+                />
+              </View>
+            ) : loading ? (
               <View style={Platform.OS === "web" ? local.chipSpinner : undefined}>
                 <ActivityIndicator
                   size="small"
                   accessibilityLabel={t("supervisionPanel.loading")}
                 />
               </View>
-            )}
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -347,7 +361,13 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
         </Disclosure>
       )}
       {mode === "timeline" && loading && (
-        <ActivityIndicator accessibilityLabel={t("supervisionPanel.loading")} />
+        // The empty line's height, so the panels below stay where they are once it is read.
+        <View>
+          <Text aria-hidden style={[styles.small, local.ghost]}>{t("supervisionPanel.timeline.empty")}</Text>
+          <View style={local.chipSpinner}>
+            <ActivityIndicator size="small" accessibilityLabel={t("supervisionPanel.timeline.loading")} />
+          </View>
+        </View>
       )}
       {mode === "settings" ? (
         <View
@@ -363,7 +383,9 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
               setReserved(event.nativeEvent.layout.height);
           }}
         >
-          <Messages error={error} notice={notice} />
+          {/* No bare Refresh under the card (Profile-support-activity): an error a fresh read fixes
+              (a failed read, a change made elsewhere) offers it on its own line. */}
+          <Messages error={error} notice={notice} short={readFailed} {...(error && retry === null && !busy ? { onReadAgain: readAgain } : {})} />
           {loading && !permission && (
             // The button's footprint, so that the panel keeps its height when
             // the read finishes (the chip waits in the title line).
@@ -393,7 +415,7 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
             ))}
         </View>
       ) : (
-        <Messages error={error} notice={notice} />
+        <Messages error={error} notice={notice} short={readFailed && embedded} {...(readFailed && embedded ? { onReadAgain: readAgain } : {})} />
       )}
       {mode === "timeline" &&
         !loading &&
@@ -423,29 +445,36 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
         ) : (
           <Text style={styles.small}>{t("supervisionPanel.timeline.empty")}</Text>
         ))}
-      <View style={local.refresh}>
-        <Button
-          label={t("supervisionPanel.refresh")}
-          kind="quiet"
-          disabled={busy || loading || retry !== null}
-          onPress={() => {
-            setError("");
-            setRefreshKey((n) => n + 1);
-          }}
-        />
-      </View>
+      {/* The Learning record page reads the timeline again on request; My profile reads both
+          panels again with the course, so it has no stray Refresh there. */}
+      {mode === "timeline" && !embedded && (
+        <View style={local.refresh}>
+          <Button
+            label={t("supervisionPanel.refresh")}
+            kind="quiet"
+            disabled={busy || loading || retry !== null}
+            onPress={() => {
+              setError("");
+              setRefreshKey((n) => n + 1);
+            }}
+          />
+        </View>
+      )}
     </View>
   );
 }
 
 /** One status line at most for each: a failure (announced at once) and a confirmation. They fit
  * the space the loading chip and button kept, so nothing below moves. */
-function Messages({ error, notice }: { error: string; notice: string }) {
+function Messages({ error, notice, short, onReadAgain }: { error: string; notice: string; short?: boolean; onReadAgain?: () => void }) {
+  const t = useI18n().t;
+  // A failed read says so in a few words, so the line and its Refresh fit the reserved space.
+  const text = short ? t("supervisionPanel.error.unavailableShort") : error;
   return (
     <>
       {!!error && (
         <View accessibilityRole="alert" aria-live="assertive">
-          <StatusLine tone="error" text={error} />
+          <StatusLine tone="error" text={text} {...(onReadAgain ? { action: { label: t("supervisionPanel.refresh"), onPress: onReadAgain } } : {})} />
         </View>
       )}
       {!!notice && (
@@ -492,6 +521,8 @@ function Disclosure({ label, children }: { label: string; children: React.ReactN
 
 const local = StyleSheet.create({
   panel: { marginTop: 20, gap: 12 },
+  section: { marginTop: 28, gap: 12 },
+  ghost: { opacity: 0 },
   titleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 },
   title: { marginBottom: 0 },
   disclosure: { gap: 8, alignItems: "flex-start" },
@@ -509,4 +540,5 @@ const local = StyleSheet.create({
   chipSlot: { justifyContent: "center", alignItems: "center" },
   chipGhost: { position: "relative" },
   chipSpinner: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, alignItems: "center", justifyContent: "center" },
+  chipOver: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, alignItems: "flex-start", justifyContent: "center" },
 });

@@ -183,8 +183,14 @@ describe("your data in your companion's words", () => {
         const strong = field.closest("div")!.querySelector(`label[for="${field.id}"] strong`)!;
         fireEvent.change(document.querySelector('textarea[id$="-reason"]')!, { target: { value: "Leaving this course for good." } });
         fireEvent.change(field, { target: { value: strong.textContent! } });
-        await pressWhenReady(document.querySelector(".connected-data-erase .connected-danger")!);
+        const button = document.querySelector<HTMLButtonElement>(".connected-data-erase .connected-danger")!;
+        button.focus();
+        await pressWhenReady(button);
         const status = await screen.findByText(stopping);
+        // The pressed button keeps the focus while it erases: it says so, and is not disabled.
+        expect(button).toHaveFocus();
+        expect(button).toHaveAttribute("aria-disabled", "true");
+        expect(button).not.toBeDisabled();
         expect(status.closest("p")!.querySelector(".cc-ui-dots")).not.toBeNull();
         // Under the erase button that started it, in a live region of its own.
         expect(status.closest(".connected-data-erase")).not.toBeNull();

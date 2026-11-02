@@ -210,8 +210,13 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           <button
             type="button"
             className="connected-button connected-danger"
-            disabled={Boolean(busy) || typedPhrase(confirmation) !== typedPhrase(phrase) || reason.trim().length < 10}
-            onClick={() => void erase()}
+            // While it erases the pressed button keeps the focus (aria-disabled, "Erasing…"), so
+            // the learner keeps their place while the progress line under it is read out.
+            disabled={busy !== "erase" && (Boolean(busy) || typedPhrase(confirmation) !== typedPhrase(phrase) || reason.trim().length < 10)}
+            aria-disabled={busy === "erase" ? true : undefined}
+            onClick={() => {
+              if (!busy) void erase();
+            }}
           >
             {busy === "erase" ? t("yourDataPanel.erase.erasing") : t("yourDataPanel.erase.button")}
           </button>
@@ -231,8 +236,11 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           <button
             type="button"
             className="connected-button connected-danger"
-            disabled={Boolean(busy) || typedPhrase(accountConfirmation) !== typedPhrase(accountPhrase) || accountReason.trim().length < 10}
-            onClick={() => void eraseAccount()}
+            disabled={busy !== "erase" && (Boolean(busy) || typedPhrase(accountConfirmation) !== typedPhrase(accountPhrase) || accountReason.trim().length < 10)}
+            aria-disabled={busy === "erase" ? true : undefined}
+            onClick={() => {
+              if (!busy) void eraseAccount();
+            }}
           >
             {busy === "erase" ? t("yourDataPanel.erase.erasing") : t("yourDataPanel.account.button")}
           </button>

@@ -669,8 +669,8 @@ function ProbeCard({
             onSubmit={() => {
               if (ready) void onAnswer({ answer: answer! });
             }}
+            secondary={{ label: t("teachingHypothesesPanel.probe.dontKnow"), disabled, onPress: () => void onAnswer({ abstain: true }) }}
           />
-          <View style={local.probeActions}>{dontKnow}</View>
         </View>
       )}
     </View>

@@ -1118,7 +1118,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           </div>
           {account && (
             <div className="connected-header-actions">
-            <div ref={setCompanionSlot} className="connected-header-companion" />
+            {/* Bell, then the companion trigger beside the account menu (final design §2.1). */}
             <LearnerNotifications
               request={api.request}
               onOpen={(target) =>
@@ -1134,6 +1134,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 })
               }
             />
+            <div ref={setCompanionSlot} className="connected-header-companion" />
             <YourCourseMenu
               label={t("connectedHost.menu.accountOf", { name: account.displayName })}
               name={account.displayName}
@@ -1404,6 +1405,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 }
               />
               {account && <SupervisionPanel accountId={account.id} enrollment={server} client={supervisionClient} mode="settings" pending={pending} onRevision={() => refresh(server.enrollmentId)} />}
+              {/* What the companion did, under the support it does it with (Profile-support-activity). */}
+              {account && <SupervisionPanel accountId={account.id} enrollment={server} client={supervisionClient} mode="timeline" embedded pending={pending} onRevision={() => refresh(server.enrollmentId)} />}
               <LearnerMemoryPanel account={account} enrollment={server} api={memoryClient}
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />

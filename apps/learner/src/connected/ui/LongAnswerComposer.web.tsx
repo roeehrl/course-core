@@ -8,7 +8,9 @@ export type { LongAnswerComposerProps } from "./LongAnswerComposer";
 /**
  * A field for a long answer (final design §4.13): the visible label above, radius 16, at least
  * 112 px, Enter makes a new line and Cmd/Ctrl+Enter submits (never while an input method is
- * composing), and a meta line with the key hint and the submit text button.
+ * composing), and one meta row: the key hint at its start, then the optional quiet choice ("I don't
+ * know yet") and the submit as an accent pill at its end (the Ideas-quick-check and
+ * Reviewer-feedback artboards).
  */
 export function LongAnswerComposer({
   label,
@@ -22,6 +24,7 @@ export function LongAnswerComposer({
   id,
   className,
   describedBy,
+  secondary,
 }: LongAnswerComposerProps) {
   const i18n = useI18n();
   const own = useId();
@@ -62,9 +65,16 @@ export function LongAnswerComposer({
         <span id={hint} className="cc-ui-long-hint">
           {i18n.rich(isMac() ? "longAnswerComposer.hint.mac" : "longAnswerComposer.hint.other", undefined, key)}
         </span>
-        <button type="button" className="cc-ui-text-button" disabled={off} aria-busy={busy || undefined} onClick={submit}>
-          {submitLabel}
-        </button>
+        <span className="cc-ui-long-actions">
+          {secondary && (
+            <button type="button" className="cc-ui-text-button" disabled={secondary.disabled} onClick={secondary.onPress}>
+              {secondary.label}
+            </button>
+          )}
+          <button type="button" className="cc-ui-pill cc-ui-pill-accent cc-ui-pill-36" disabled={off} aria-busy={busy || undefined} onClick={submit}>
+            {submitLabel}
+          </button>
+        </span>
       </div>
     </div>
   );

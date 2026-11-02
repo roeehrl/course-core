@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { ConnectedAgentsPanelProps } from "./ConnectedAgentsPanel";
 import { Icon } from "./icons/Icon.web";
@@ -36,12 +36,25 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
     try { setListing(await (api as CourseApi).request<Listing>(base)); } catch { setListing("unavailable"); }
   }, [api, base]);
   useEffect(() => { void load(); }, [load]);
+  const connectForm = useRef<HTMLDetailsElement>(null);
+  const tokenCard = useRef<HTMLDivElement>(null);
+  const focusCopy = useRef(false);
+  useEffect(() => {
+    if (!created || !focusCopy.current) return;
+    focusCopy.current = false;
+    tokenCard.current?.querySelector<HTMLElement>(".connected-agents-actions button")?.focus({ preventScroll: true });
+  }, [created]);
   async function connect() {
     setBusy(true); setError(""); setCopied(false); setCopyFailed(false);
     try {
       const result = await (api as CourseApi).request<{ token: string; grant: Grant }>(base, "POST", { label: label.trim(), scopes, expiresInDays: days });
       setCreated({ token: result.token, label: result.grant.label });
+      // The form closes and starts afresh; the key card shows once, with the focus on "Copy key".
       setLabel("");
+      setScopes(["context", "profile", "evidence"]);
+      setDays(7);
+      if (connectForm.current) connectForm.current.open = false;
+      focusCopy.current = true;
       await load();
     } catch (cause) {
       setError(t(cause instanceof CourseApiError && cause.code === "AGENT_GRANT_LIMIT"
@@ -133,7 +146,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
               </>
             )}
         {created && (
-          <div className="connected-agents-token cc-prof-card" role="status">
+          <div ref={tokenCard} className="connected-agents-token cc-prof-card" role="status">
             <p className="cc-prof-token-line">
               <Icon name="check" size={16} />
               <span>
@@ -159,7 +172,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
             </p>
           </div>
         )}
-        <details className="cc-prof-connect">
+        <details ref={connectForm} className="cc-prof-connect">
           <summary className="cc-ui-pill cc-ui-pill-outline cc-ui-pill-36">{t("connectedAgentsPanel.form.summary")}</summary>
           <div className="connected-agents-form">
             <label htmlFor={id + "-label"}>{t("connectedAgentsPanel.form.name")}</label>

@@ -121,10 +121,10 @@ it("holds the badge and button footprint while the permission loads, without a p
   expect(
     screen.getAllByLabelText("Loading your companion's work"),
   ).toHaveLength(1);
-  // Only the disclosure and refresh controls are offered; the reserved button is inert and hidden.
+  // Only the disclosure is offered (no bare Refresh under the card); the reserved button is inert
+  // and hidden.
   expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
     "What this shares",
-    "Refresh",
   ]);
   // Icons are drawn aria-hidden; the reserved chip and button are the only other hidden elements,
   // and neither says anything a screen reader could reach.
@@ -136,7 +136,11 @@ it("holds the badge and button footprint while the permission loads, without a p
   expect(screen.getByText("Off")).toBeVisible();
   expect(screen.getByRole("button", { name: "Turn on" })).toBeEnabled();
   expect(screen.queryByLabelText("Loading your companion's work")).toBeNull();
-  expect(container.querySelectorAll('[aria-hidden="true"]:not(svg)')).toHaveLength(0);
+  // Only the chip slot's width keeper stays hidden ("On" is the widest chip, so the title line wraps
+  // the same whether the chip says On or Off); the reserved button is gone.
+  const kept = container.querySelectorAll('[aria-hidden="true"]:not(svg)');
+  expect(kept).toHaveLength(1);
+  expect(kept[0]!.querySelector(".cc-prof-placeholder")).not.toBeNull();
 });
 it("requires an explicit choice and shows confirmed saved permission without granting completion", async () => {
   const api = client(),
@@ -337,11 +341,12 @@ it("does not refresh while a permission write is pending, then permits explicit 
   );
   mount(api);
   await clickEnabled("Turn on");
-  const refresh = screen.getByRole("button", { name: "Refresh" });
-  expect(refresh).toBeDisabled();
-  fireEvent.click(refresh);
+  // While the write is pending nothing offers to read again.
+  expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   expect(api.permission).toHaveBeenCalledTimes(1);
   await act(async () => reject(new CourseApiError("STALE_REVISION", 409)));
+  // The error line offers it.
+  expect(screen.getByRole("alert")).toContainElement(screen.getByRole("button", { name: "Refresh" }));
   await clickEnabled("Refresh");
   await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
   expect(api.setPermission).toHaveBeenCalledTimes(1);
