@@ -91,11 +91,16 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   await expect
     .poll(() => saved)
     .toEqual([{ body: { locale: "he" }, csrf: "mock-csrf" }]);
-  // The navigation sits on the right in right-to-left layout on wide screens.
+  // The navigation sits on the right in right-to-left layout on wide screens: against the
+  // page's right edge, which stops at the scrollbar's room (kept on every page, styles.css).
   const viewport = page.viewportSize()!;
   if (viewport.width >= 1100) {
     const sidebar = await page.locator(".sidebar").boundingBox();
-    expect(sidebar!.x + sidebar!.width).toBeGreaterThan(viewport.width - 4);
+    const edge = await page.evaluate(
+      () => document.body.getBoundingClientRect().right,
+    );
+    expect(edge).toBeGreaterThan(viewport.width - 20);
+    expect(sidebar!.x + sidebar!.width).toBeGreaterThan(edge - 4);
   }
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
