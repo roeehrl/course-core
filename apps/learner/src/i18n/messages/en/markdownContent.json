@@ -1,4 +1,5 @@
 {
   "tableRegion": "Table, scrollable",
-  "scrollHint": "Scroll sideways to see the rest"
+  "scrollHint": "Scroll sideways to see the rest",
+  "tableScrollHint": "Scroll sideways to see the rest"
 }

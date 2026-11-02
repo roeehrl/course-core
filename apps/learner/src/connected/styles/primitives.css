@@ -195,8 +195,10 @@ button.cc-ui-chip:hover {
   color: var(--ink);
   white-space: nowrap;
 }
+/* Accent text on its soft fill (4.65:1 light, 5.89:1 dark; final design §1.2): the turn marker. */
 .cc-ui-tag.is-accent {
   background: var(--accent-soft);
+  color: var(--accent);
 }
 .cc-ui-tag.is-muted {
   background: var(--surface-2);
@@ -481,6 +483,13 @@ button.cc-ui-chip:hover {
 .cc-ui-long-hint {
   color: var(--ink-muted);
   font: 400 var(--text-micro) var(--font-sans);
+}
+.cc-ui-long-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
 }
 
 /* Highlights (highlight.ts): M14 on a block, M15 on the composer. */

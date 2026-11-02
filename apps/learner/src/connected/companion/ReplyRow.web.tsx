@@ -29,7 +29,9 @@ export function useBatchedText(text: string, ms = TEXT_BATCH_MS): string {
       }, wait);
   }, [text, shown, ms]);
   useEffect(() => () => clearTimeout(timer.current), []);
-  return shown;
+  // The first text shows in the frame it arrives: an empty frame between "Preparing a reply…" and
+  // the text would shrink the reply for a moment (and the thread's scroll with it).
+  return shown === "" ? text : shown;
 }
 
 export interface ReplyRowProps {

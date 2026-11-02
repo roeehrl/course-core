@@ -206,7 +206,25 @@ export const companionOpen = {
    * Leaving the course page closes its pane again (it opens there only when asked). */
   sync({ docked, surface }: { docked: boolean; surface: CompanionSurface }) {
     lastChange = "layout";
-    update(surface === "lesson" ? { docked, surface, overviewOpen: false } : { docked, surface });
+    const patch: Partial<Raw> = surface === "lesson" ? { docked, surface, overviewOpen: false } : { docked, surface };
+    // Crossing between the panel and the sheet (a tablet rotated, a window narrowed) keeps what the
+    // learner sees, whatever has the focus: an open panel opens the sheet at its opening height, a
+    // closed one closes it, and an open sheet shows the panel. Done in the same change, so the
+    // companion is never hidden for a frame (which would drop the focus inside it).
+    if (raw.docked !== docked && surface === raw.surface) {
+      if (raw.docked) {
+        const paneOpen = derive(raw).paneOpen;
+        patch.sheetOpen = paneOpen;
+        if (paneOpen) patch.detent = openingDetent();
+      } else if (raw.sheetOpen && !derive(raw).paneOpen) {
+        if (surface === "course") patch.overviewOpen = true;
+        else {
+          writePanePreference("open");
+          patch.preference = "open";
+        }
+      }
+    }
+    update(patch);
   },
   /** Another enrollment, signing out or an erased course: the sheet closes, focus view ends. */
   resetForEnrollment() {

@@ -1,4 +1,4 @@
-import { test, expect } from "./health";
+import { nextControlKey, test, expect } from "./health";
 import { box, roundButton, startLesson, thread } from "./conversation-helpers";
 import { closeCompanion, openCompanion } from "./companion-helpers";
 import heAsk from "../../src/i18n/messages/he/askCompanionButton.json";
@@ -11,9 +11,11 @@ import heAsk from "../../src/i18n/messages/he/askCompanionButton.json";
  * button sits at the bottom left; and the composer's own Tab order. Replies are stored by the test
  * host; no model is involved.
  */
-test("Enter, Cmd+Enter and Ctrl+Enter send, Shift+Enter makes a line, and focus stays in the box", async ({ page, request }, info) => {
-  const touch = info.project.name !== "desktop";
+test("Enter, Cmd+Enter and Ctrl+Enter send, Shift+Enter makes a line, and focus stays in the box", async ({ page, request }) => {
   await startLesson(page, request);
+  // A touch keyboard (phone, tablet, iPhone, iPad), not the project's name: "webkit-desktop" has a
+  // fine pointer too.
+  const touch = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
   const field = box(page);
   await field.click();
   await field.pressSequentially("Which is smaller");
@@ -45,6 +47,14 @@ test("Enter, Cmd+Enter and Ctrl+Enter send, Shift+Enter makes a line, and focus 
   await field.fill("And four?");
   await field.press("Meta+Enter");
   await expect(thread(page).locator(".cc-chat-bubble").filter({ hasText: "And four?" })).toBeVisible();
+  await expect.poll(async () => (await (await request.post("/test/companion-job", { data: { question: "And four?", state: "applied", answer: "Four is larger." } })).json()).updated).toBe(true);
+  await expect(thread(page).getByText("Four is larger.", { exact: true })).toBeVisible({ timeout: 15_000 });
+  // A tap on the round button (a click with a mouse) keeps the focus in the box as well: left on
+  // the button, which turns into Stop, a second tap would stop the reply (§3.5, §6).
+  await field.fill("And five?");
+  await (touch ? roundButton(page).tap() : roundButton(page).click());
+  await expect(thread(page).locator(".cc-chat-bubble").filter({ hasText: "And five?" })).toBeVisible();
+  await expect(field).toBeFocused();
 });
 
 test("the box grows to its line limit, then scrolls inside", async ({ page, request }, info) => {
@@ -57,7 +67,7 @@ test("the box grows to its line limit, then scrolls inside", async ({ page, requ
   expect((await field.boundingBox())!.height).toBeGreaterThan(single + line * 1.5);
   await field.fill(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"));
   // 8 lines in a panel (216 px), 5 on a phone (140 px).
-  const limit = info.project.name === "phone" ? 140 : 216;
+  const limit = ["phone", "webkit-iphone"].includes(info.project.name) ? 140 : 216;
   const tall = (await field.boundingBox())!.height;
   expect(tall).toBeLessThanOrEqual(limit + 1);
   expect(tall).toBeGreaterThan(limit * 0.6);
@@ -65,7 +75,7 @@ test("the box grows to its line limit, then scrolls inside", async ({ page, requ
   await page.screenshot({ path: info.outputPath("grown.png") });
 });
 
-test("in Hebrew the round button sits at the bottom left of the pill, and an attachment comes before the box in Tab order", async ({ page, request }) => {
+test("in Hebrew the round button sits at the bottom left of the pill, and an attachment comes before the box in Tab order", async ({ page, request, browserName }) => {
   await startLesson(page, request, { locale: "he" });
   const field = box(page);
   await field.fill("שאלה ראשונה\nושורה שנייה\nושלישית");
@@ -95,10 +105,10 @@ test("in Hebrew the round button sits at the bottom left of the pill, and an att
   const remove = page.locator(".cc-chat-attachment button");
   await expect(remove).toBeVisible();
   await field.focus();
-  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press(nextControlKey(browserName, true));
   await expect(remove).toBeFocused();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press(nextControlKey(browserName));
   await expect(field).toBeFocused();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press(nextControlKey(browserName));
   await expect(roundButton(page)).toBeFocused();
 });

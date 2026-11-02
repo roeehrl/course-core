@@ -50,17 +50,27 @@ export function turnAnchor(message: CompanionMessage, t: Translate): TurnAnchor 
           : t("learnerTurn.anchor.codeLines", { start: selectedAnchor.lineStart, end: selectedAnchor.lineEnd }),
         ...base,
       };
-    if (selectedAnchor.kind === "visual_node") return { icon: "image", label: t("learnerTurn.anchor.illustration"), ...base };
+    // The part's label as the composer's chip showed it, when the stored selection has it.
+    if (selectedAnchor.kind === "visual_node")
+      return {
+        icon: "image",
+        label: selectedAnchor.label ? t("learnerTurn.anchor.illustrationPart", { label: selectedAnchor.label }) : t("learnerTurn.anchor.illustration"),
+        ...base,
+      };
     if (selectedAnchor.excerpt) return { icon: "quote", label: t("learnerTurn.anchor.text", { excerpt: clip(selectedAnchor.excerpt) }), ...base };
     return target ? { icon: "quote", label: t("learnerTurn.anchor.part"), target } : undefined;
   }
-  if (mediaRef)
+  if (mediaRef) {
+    // The video's block in the lesson, which the chip shows (M14).
+    const blockId = mediaRef.blockId ?? message.context.blockId ?? undefined;
     return {
       icon: "play",
       label: typeof mediaRef.playbackSeconds === "number"
         ? t("learnerTurn.anchor.videoAt", { time: clock(mediaRef.playbackSeconds) })
         : t("learnerTurn.anchor.video"),
+      ...(blockId ? { target: { ...(episodeId ? { episodeId } : {}), blockId, focus: "block" as const } } : {}),
     };
+  }
   return undefined;
 }
 

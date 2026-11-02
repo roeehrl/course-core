@@ -101,8 +101,9 @@ describe("Based on", () => {
     for (const words of ["השאלה שלך", "הקטע שסומן", "טקסט מהשיעור", "(שורה 4)", "הודעות קודמות שנלקחו בחשבון", "תשובת המנחה: “Minimum means no greater.”",
       "כללים לתשובה הזו", "הייתה פתוחה בדיקה שנספרת, ולכן ניתנו רמזים ולא תשובות.", "תרגול מהשיעור הזה בלבד.", "תשובות שנלקחו בחשבון:", "3 תשובות אחרונות"])
       expect(text).toContain(words);
-    // The quotation marks are inside the English text's own isolate, so they stay at its start and end.
-    expect(block.textContent).toMatch(/[⁦-⁨]“Minimum means no greater\.”⁩/);
+    // The quotation, marks included, is its own isolate (`<bdi>`), so the marks stay at its start
+    // and end; no control characters sit beside them.
+    expect([...block.querySelectorAll("bdi")].map((node) => node.textContent)).toContain("“Minimum means no greater.”");
     expect(within(block).getByRole("button", { name: (name) => stripBidiControls(name) === "לא להשתמש שוב בהודעה “Minimum means no greater.”" })).toBeVisible();
   });
 });

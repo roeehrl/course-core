@@ -76,7 +76,7 @@ function WrittenField({ label, value, onChange, readOnly, describedBy }: {
  * written, reviewer-judged tasks (teach-back, counterexample, experiment design, rubric). The
  * check's actions (`actions`: "Check" and what goes with it) sit beside a one-line field and
  * under every other input, in the sticky answer bar. */
-export function AssessmentInput({ question, answer, pending, onChange, practiceRuns = false, actions, onSubmit, describedBy }: {
+export function AssessmentInput({ question, answer, pending, onChange, practiceRuns = false, actions, onSubmit, describedBy, fieldMessage }: {
   question: Question; answer: string; pending: boolean; onChange: (answer: string) => void;
   /** Offer browser practice runs on code items. Off unless the caller allows it (see browserRunsAllowed). */
   practiceRuns?: boolean;
@@ -86,13 +86,18 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
   onSubmit?: () => void;
   /** What describes the field (a refusal said under it). */
   describedBy?: string;
+  /** Said right under the answer field, above the answer bar (§4.4): a refusal, or why "Check"
+   * waits after an empty press. */
+  fieldMessage?: React.ReactNode;
 }) {
   const t = useT();
   const bar = actions ? <div className="connected-answer-actions">{actions}</div> : null;
+  const message = fieldMessage ?? null;
   if (question.type === "choice")
     return (
       <>
         <ChoiceList label={t("assessmentInput.yourAnswer")} options={question.options.map((o) => ({ id: o.id, label: o.text }))} value={answer} onChange={onChange} disabled={pending} />
+        {message}
         {bar}
       </>
     );
@@ -112,6 +117,7 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
           <AnswerField label={label} value={answer} onChange={onChange} readOnly={pending} {...(onSubmit ? { onSubmit } : {})} {...(describedBy ? { describedBy } : {})} />
           {actions}
         </div>
+        {message}
         {question.unit && <p className="connected-input-hint">{t("assessmentInput.unitHint", { unit: question.unit })}</p>}
         <p className="connected-input-hint connected-unit-problem" role="status" aria-live="polite">{unitProblem}</p>
       </>
@@ -137,6 +143,7 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
             </li>
           ))}
         </ol>
+        {message}
         {bar}
       </>
     );
@@ -145,10 +152,11 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
     return (
       <>
         <CodeEditor language={question.language} value={answer} onChange={onChange} disabled={pending} practice={practiceRuns} />
+        {message}
         {bar}
       </>
     );
-  if (!("criteria" in question)) return bar;
+  if (!("criteria" in question)) return <>{message}{bar}</>;
   return (
     <>
       <div className="connected-rubric">
@@ -164,6 +172,7 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
         <p className="connected-input-hint">{t("assessmentInput.rubric.ownWords")}</p>
       </div>
       <WrittenField label={writtenLabel(question.type, t)} value={answer} onChange={onChange} readOnly={pending} {...(describedBy ? { describedBy } : {})} />
+      {message}
       {bar}
     </>
   );

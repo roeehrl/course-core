@@ -3,6 +3,7 @@ import { useT } from "../../i18n";
 import { Icon } from "../../components/icons/Icon.web";
 import { PreparingDots } from "../ui/PreparingDots.web";
 import { isEditable, keyboardHeight } from "../layoutViewport";
+import { companionFocus } from "../../client/companionFocus";
 import { useCompanionActivity } from "./bridge";
 import { companionOpen, type CompanionDetent } from "./openState";
 import {
@@ -97,9 +98,9 @@ export function CollapsedBar({ kind }: { kind: SheetKind }) {
   );
 }
 
-/** The host element (`.connected-host`), where the sheet's per-frame variables are written. */
-const hostOf = (element: Element | null) => element?.closest<HTMLElement>(".connected-host") ?? null;
-const headerHeight = () => document.querySelector(".connected-header")?.getBoundingClientRect().height ?? 0;
+/** The host element (`.connected-host`, or the demo's frame), where the sheet's per-frame variables are written. */
+const hostOf = (element: Element | null) => element?.closest<HTMLElement>(".connected-host, .cc-demo-dock-host") ?? null;
+const headerHeight = () => document.querySelector(".connected-header, [data-testid='demo-header']")?.getBoundingClientRect().height ?? 0;
 const motion = (element: Element, name: string, fallback: number) => {
   const value = parseFloat(getComputedStyle(element).getPropertyValue(name));
   return Number.isFinite(value) ? value : fallback;
@@ -372,11 +373,14 @@ export function revealAnchorThenFull(kind: SheetKind) {
   companionOpen.setDetent("full");
 }
 
-/** The lesson element the learner is asking about: the block holding the selected lesson text,
+/** The lesson element the learner is asking about: the newest attachment's place (the check, the
+ * selected lines, the player, the illustration), else the block holding the selected lesson text,
  * else the first lesson block whose top is visible between `top` and `bottom`. */
 function attachedAnchor(top: number, bottom: number): Element | null {
   const main = document.querySelector(".connected-main");
   if (!main) return null;
+  const attached = companionFocus.anchor();
+  if (attached && main.contains(attached)) return attached;
   const selection = document.getSelection?.();
   const node = selection && !selection.isCollapsed ? selection.anchorNode : null;
   const selected = (node instanceof Element ? node : node?.parentElement)?.closest("p, li, pre, figure, h1, h2, h3, section, article");

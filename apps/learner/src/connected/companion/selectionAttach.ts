@@ -185,7 +185,8 @@ export function askButtonPosition(
  */
 export function attachCandidate(candidate: AskCandidate, { focus = true }: { focus?: boolean } = {}): void {
   const compose = (selection: FocusSelection) => {
-    companionFocus.setSelection(selection);
+    // Its place in the lesson: the paragraph, item or code field the selection ends in.
+    companionFocus.setSelection(selection, candidate.origin.closest("p, li, pre, figure, h1, h2, h3, textarea") ?? candidate.origin);
     companionBridge.compose({ source: candidate.kind === "code" ? "code" : "selection", focus });
   };
   const built = candidate.build();

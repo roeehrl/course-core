@@ -36,35 +36,53 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
   const detent = kind ? validDetent(kind, state.detent) : state.detent;
   const panel = useRef<HTMLElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const hadFocus = useRef(false);
-  const wasDocked = useRef(docked);
   useCompanionShortcut();
   useLayoutEffect(() => companionOpen.setSheet(kind), [kind]);
-  // Docked -> sheet while the learner is in the companion: it stays open as a sheet. Sheet ->
-  // docked while the sheet is open: the panel shows rather than hiding it.
-  useLayoutEffect(() => {
-    const before = wasDocked.current;
-    wasDocked.current = docked;
-    if (before === docked) return;
-    if (before && !docked && hadFocus.current) companionOpen.setSheetOpen(true);
-    if (!before && docked && companionOpen.get().sheetOpen && !companionOpen.get().paneOpen) companionOpen.setPaneOpen(true);
-  }, [docked]);
+  // Crossing between the panel and the sheet keeps it open or closed (openState.ts `sync`).
 
   // Focus follows the learner's own open and close: into the companion when they open it with the
-  // trigger or the shortcut, back to the trigger whenever it closes with focus inside it (heard
-  // from the store before React hides it).
+  // trigger or the shortcut, back to the trigger when it closes from the trigger, or with focus
+  // inside it or nowhere (heard from the store before React hides it). Where the press came from is
+  // recorded at the press: a click does not focus a button in Safari, so the focus cannot say.
   const moveFocus = useRef<"panel" | "trigger" | null>(null);
+  const closedByTrigger = useRef(false);
   useEffect(() => {
     let was = companionOpen.get();
     return companionOpen.subscribe(() => {
       const now = companionOpen.get();
       // A change of layout (panel to sheet) is not the learner closing it.
       const sameLayout = now.docked === was.docked;
-      if (now.open && !was.open && ["trigger", "shortcut"].includes(companionOpen.openedBy() ?? "")) moveFocus.current = "panel";
-      if (!now.open && was.open && sameLayout && panel.current?.contains(document.activeElement)) moveFocus.current = "trigger";
+      if (now.open && !was.open && companionOpen.lastChange() === "action" && ["trigger", "shortcut"].includes(companionOpen.openedBy() ?? ""))
+        moveFocus.current = "panel";
+      const active = document.activeElement;
+      const nowhere = !active || active === document.body;
+      if (!now.open && was.open && sameLayout && (closedByTrigger.current || nowhere || panel.current?.contains(active))) moveFocus.current = "trigger";
+      closedByTrigger.current = false;
       was = now;
     });
   }, []);
+  // Into or out of Collapsed the focused control goes (the collapsed bar replaces the header): the
+  // focus moves to the matching control of the new height, "Show companion" or the handle, so it
+  // never falls to the page (§5, §6). Heard from the store before React swaps them.
+  const focusAcrossHeights = useRef(false);
+  useEffect(() => {
+    let before = companionOpen.get().detent;
+    return companionOpen.subscribe(() => {
+      const next = companionOpen.get().detent;
+      if (next !== before && (next === "collapsed" || before === "collapsed")) focusAcrossHeights.current = Boolean(panel.current?.contains(document.activeElement));
+      before = next;
+    });
+  }, []);
+  useLayoutEffect(() => {
+    if (!focusAcrossHeights.current) return;
+    focusAcrossHeights.current = false;
+    const aside = panel.current, active = document.activeElement;
+    if (!aside || (active && active !== document.body && active.isConnected && aside.contains(active))) return;
+    const target = detent === "collapsed"
+      ? aside.querySelector<HTMLElement>(".cc-shell-collapsed button")
+      : aside.querySelector<HTMLElement>(".cc-shell-handle") ?? aside.querySelector<HTMLElement>("[data-detent]");
+    (target ?? aside).focus({ preventScroll: true });
+  }, [detent]);
   // M9 plays when the learner opens the panel, not when a page loads with it open (heard from the
   // store, which says whether an action or the layout opened it).
   const entering = useRef(false);
@@ -95,7 +113,6 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
     if (target === "trigger" && !open) trigger.current?.focus({ preventScroll: true });
   }, [open]);
   function close() {
-    hadFocus.current = false;
     companionOpen.close();
   }
   useExitMotion(panel, docked, open);
@@ -159,7 +176,11 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
         ref={trigger}
         open={open}
         slot={headerSlot}
-        onToggle={() => (open ? close() : companionOpen.open("trigger"))}
+        onToggle={() => {
+          if (!open) return companionOpen.open("trigger");
+          closedByTrigger.current = true;
+          close();
+        }}
       />
       {docked && view === "docked" && <PanelSplitter hidden={!open} />}
       <aside
@@ -174,12 +195,8 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
         aria-label={t("companionDock.label")}
         tabIndex={-1}
         onFocusCapture={(event) => {
-          hadFocus.current = true;
           // G6: the message box at Half first shows the lesson part being asked about, then Full.
           if (kind && kind !== "short" && detent === "half" && isEditable(event.target as Element)) revealAnchorThenFull(kind);
-        }}
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hadFocus.current = false;
         }}
         onKeyDownCapture={(event) => {
           if (event.key !== "Escape" || event.nativeEvent.isComposing) return;

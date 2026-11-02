@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
-import { closeCompanion, companionPanel, composerBox } from "./companion-helpers";
+import { closeCompanion, companionPanel, composerBox, openCompanion } from "./companion-helpers";
 import enCheck from "../../src/i18n/messages/en/checkCard.json";
 import heCheck from "../../src/i18n/messages/he/checkCard.json";
 import enHelp from "../../src/i18n/messages/en/helpRow.json";
@@ -194,7 +194,13 @@ test("an attempt the question requires is asked for under the field, and the hel
       ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "ABSTAIN_NOT_ALLOWED" }) })
       : route.continue());
   await page.getByRole("button", { name: "I don't know yet: record no answer and get help", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "This question needs an attempt. A partial answer is fine." })).toBeVisible();
+  const refusal = page.getByRole("alert").filter({ hasText: "This question needs an attempt. A partial answer is fine." });
+  await expect(refusal).toBeVisible();
+  // Under the answer field, above "Check" (§4.4).
+  expect(await refusal.evaluate((node) => {
+    const field = document.querySelector(".connected-check [role='radio']")!, check = document.querySelector(".connected-check .cc-check-submit")!;
+    return Boolean(field.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) && Boolean(node.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBe(true);
   // The pressed button went while the request was saved; the learner is put back at the answer.
   await expect(page.getByRole("radio", { name: "2", exact: true })).toBeFocused();
   await expect(page.getByRole("button", { name: "Get help", exact: true })).toBeVisible();
@@ -202,6 +208,19 @@ test("an attempt the question requires is asked for under the field, and the hel
   await expect(feedbackSlot(page)).toHaveText("");
   // Said once, in place: not in the page error above the lesson.
   await expect(page.getByText(/needs an attempt/)).toHaveCount(1);
+});
+
+test("Ask the companion with the panel already open rings the composer it attaches the question to", { tag: "@desktop-window" }, async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openCheck(page);
+  await openCompanion(page);
+  const pill = companionPanel(page).locator(".cc-chat-pill");
+  await expect(pill).not.toHaveAttribute("data-cc-ring", /.+/);
+  await page.getByRole("button", { name: "Get help", exact: true }).click();
+  await helpRow(page).getByRole("button", { name: "Ask the companion", exact: true }).click();
+  // Only the "Question 1" chip goes in; the open composer is marked (M15, §4.1).
+  await expect(companionPanel(page).locator(".cc-chat-attachment")).toContainText("Question 1");
+  await expect(pill).toHaveAttribute("data-cc-ring", /.+/);
 });
 
 test("Ask the companion opens the companion at the message box and sends nothing", async ({ page }) => {

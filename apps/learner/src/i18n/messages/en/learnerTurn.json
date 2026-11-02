@@ -3,6 +3,7 @@
   "anchor.codeLine": "Your code, line {line}",
   "anchor.codeLines": "Your code, lines {start}–{end}",
   "anchor.illustration": "Part of the illustration",
+  "anchor.illustrationPart": "Part of the illustration: {label}",
   "anchor.text": "Selected: “{excerpt}”",
   "anchor.part": "A part of the lesson",
   "anchor.videoAt": "Course video, {time}",

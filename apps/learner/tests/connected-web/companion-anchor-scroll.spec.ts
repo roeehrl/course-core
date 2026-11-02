@@ -51,8 +51,11 @@ test("the new question sits 16 px below the thread's top, the reply grows downwa
   await page.screenshot({ path: info.outputPath("anchored-streaming.png") });
   // Once the reply is written, Jump brings its end into view.
   await expect(reply).toContainText("Line 24:", { timeout: 15_000 });
-  await jump.click();
+  await jump.focus();
+  await page.keyboard.press("Enter");
   await expect(jump).toBeHidden();
+  // The button hid itself: its focus went to the thread, not to the page (§5, §6).
+  await expect(thread(page)).toBeFocused();
   await expect.poll(() => thread(page).evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(30);
   await expect(roundButton(page)).toBeVisible();
 });

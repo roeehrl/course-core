@@ -78,18 +78,17 @@ test("599/600/839/840/1024: phone sheet, tablet sheet, docked panel", {
   }
   await noHorizontalScroll(page);
 
-  // Medium: the tablet's sheet. The learner was not in the companion, so it closes; the lesson
-  // takes the page's own layout and the whole width.
+  // Medium: the tablet's sheet. The panel was open, so the sheet is too, at Half, whatever has the
+  // focus (the learner is reading the lesson); the lesson takes the page's own layout and the
+  // whole width.
   await page.getByRole("heading", { name: "Minimum", exact: true }).click();
   await page.setViewportSize({ width: 839, height: 900 });
   await expect(host(page)).toHaveAttribute("data-window-class", "medium");
   await expect(host(page)).not.toHaveClass(/is-compact/);
-  await expect(companion).toHaveCount(0);
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(toggle).not.toHaveAttribute("aria-haspopup", /.*/);
   expect((await main()).width).toBeGreaterThan(839 - 2 * 20 - 30);
   await noHorizontalScroll(page);
-  await toggle.click();
   await expect(companion).toHaveAttribute("data-placement", "sheet");
   await expect(companion).toHaveAttribute("data-detent", "half");
   await expect(page.getByRole("dialog")).toHaveCount(0);

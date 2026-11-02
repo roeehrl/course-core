@@ -71,7 +71,7 @@ export function MarkdownTable({
       {/* The arrow points to the hidden side: the end of the table's own direction. */}
       {overflowing && (
         <p className="markdown-scroll-hint" data-toward={dir === "rtl" ? "left" : "right"} aria-hidden="true">
-          {t("markdownContent.scrollHint")}
+          {t("markdownContent.tableScrollHint")}
         </p>
       )}
     </div>

@@ -68,13 +68,14 @@ export function ReviewedMedia({
             onClick={(event) => {
               // The moment the player is at goes with the next message, and the companion opens.
               const seconds = position?.();
+              const player = event.currentTarget.parentElement?.parentElement ?? null;
               companionFocus.setMedia({
                 mediaId: media.id,
                 label: t("reviewedMedia.video"),
                 ...(seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
                   ? { playbackSeconds: Math.round(seconds * 10) / 10 }
                   : {}),
-              });
+              }, player);
               companionBridge.compose({ source: "video", focus: focusAfterAsk(event, coarse) });
             }}
           >

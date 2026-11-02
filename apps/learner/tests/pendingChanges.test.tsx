@@ -32,9 +32,13 @@ it("says what the new material is and why it waits, and offers to add it only at
   const card = screen.getByRole("region", { name: "New for this lesson: an interactive simulation" });
   expect(card).toHaveTextContent("Your companion made it for what you're working on. It goes at the end of this lesson; what you've done stays as it is.");
   expect(card).toHaveTextContent("It'll be added after you finish this question.");
+  // Waiting: "Add" keeps its accent and says it waits (aria-disabled); a press adds nothing yet.
   const addButton = screen.getByRole("button", { name: "Add it to this lesson" });
-  expect(addButton).toBeDisabled();
+  expect(addButton).toHaveAttribute("aria-disabled", "true");
+  expect(addButton).toHaveClass("cc-ui-pill-accent");
   expect(addButton).toHaveAccessibleDescription("It'll be added after you finish this question.");
+  fireEvent.click(addButton);
+  expect(add).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "No thanks" }));
   expect(decline).toHaveBeenCalledWith("w1");
   rerender(<Offer items={[{ ...ready, kind: "add_assessment_variant" }]} pending={false} plan={place(1)} onAdd={add} onDecline={decline} />);
@@ -106,5 +110,5 @@ it("says it in Hebrew", () => {
   render(<I18nProvider value={createLearnerTranslator("he")}><Offer items={[waiting]} pending={false} plan={place(1)} /></I18nProvider>);
   const card = screen.getByRole("region", { name: "חדש בשיעור: סימולציה אינטראקטיבית" });
   expect(stripBidiControls(card.textContent ?? "")).toContain("זה יתווסף אחרי שהשאלה הנוכחית תסתיים.");
-  expect(screen.getByRole("button", { name: "הוספה לשיעור" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "הוספה לשיעור" })).toHaveAttribute("aria-disabled", "true");
 });

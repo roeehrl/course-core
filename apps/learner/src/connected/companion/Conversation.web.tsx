@@ -21,7 +21,6 @@ import { CreditLineAfter, CreditLineBeforeDivider, CreditThreadEnd } from "../cr
 import { deferredQuestion } from "../credit/deferredQuestion";
 import { Announcer, useAnnounce } from "../ui/Announcer.web";
 import { ringComposer } from "../ui/highlight";
-import { useCoarsePointer } from "../ui/media";
 import { placeholderAttachment } from "./AttachmentChips.web";
 import { BubbleActions } from "./BubbleActions.web";
 import { companionBridge, lessonNavigator, type LessonTarget } from "./bridge";
@@ -176,7 +175,6 @@ function ConversationBody({
   const t = useT();
   const announce = useAnnounce();
   const online = useOnline();
-  const coarse = useCoarsePointer();
   const focus = useCompanionFocus();
   const open = useCompanionOpenValue("open");
   const recovered = useRecoveredMessage();
@@ -289,7 +287,7 @@ function ConversationBody({
     if (message.role !== "learner" || deleted(message)) continue;
     const replyDraft = companionDraftFor(message, messages, drafts);
     const clock = clockFor(message, replyDraft);
-    const view = replyView({ message, draft: replyDraft, answered: answered(message), stop: stops[message.id], clock, now, connected: streamConnected });
+    const view = replyView({ message, draft: replyDraft, answered: answered(message), stop: stops[message.id], clock, now, connected: streamConnected, notSetUp: availability === "not_set_up" });
     views.set(message.id, { view, ...(replyDraft ? { draft: replyDraft } : {}), clock });
     // Only the newest question holds the round button: an older one still waiting (a reply that
     // never came) shows its own row and never locks the composer.
@@ -298,7 +296,8 @@ function ConversationBody({
   // A question being sent, or accepted and not yet read back with the conversation.
   const sending = locals.find((item) =>
     (item.status === "sending" && !matched.has(item.key)) || (item.status === "sent" && !!item.messageId && !messages.some((message) => message.id === item.messageId)));
-  const inProgress = Boolean(running || sending);
+  // With no companion set up a question waits to be sent: the round button stays Send (§3.5).
+  const inProgress = Boolean(running || (sending && availability !== "not_set_up"));
   const stopping = Object.values(stops).some((stop) => stop.state === "stopping");
 
   // Re-render when a view can change by time alone (400 ms, 1 s, 8 s, 15 s, 45 s; a countdown).
@@ -352,8 +351,9 @@ function ConversationBody({
   // The collapsed sheet's one line (bridge.ts `latest`): the reply on its way, or the latest one.
   const lastReply = shown.findLast((message) => message.role === "assistant" && !deleted(message));
   const runningView = running ? views.get(running.id)?.view : undefined;
+  // The dots give way to the text at its first token (M8): a streaming line is the text alone.
   const latestLine = runningView?.kind === "streaming"
-    ? { text: plainExcerpt(runningView.text).slice(0, 160), busy: true }
+    ? { text: plainExcerpt(runningView.text).slice(0, 160), busy: false }
     : inProgress
       ? { text: t("conversation.preparing"), busy: true }
       : lastReply
@@ -571,9 +571,12 @@ function ConversationBody({
             const end = field?.value.length ?? 0;
             field?.setSelectionRange(end, end);
           }
-          // Text put into a composer that was already open is marked (M15).
+          // Text or an attachment put into a composer that was already open is marked (M15): "Ask
+          // the companion" at a check (or a selection, code lines, a video moment, a part of an
+          // illustration) adds only its chip.
           const pill = composer.current?.pill();
-          if (request.text !== undefined && wasOpen.current && pill) ringComposer(pill);
+          const attached = ["check", "selection", "code", "video", "illustration"].includes(request.source);
+          if ((request.text !== undefined || attached) && wasOpen.current && pill) ringComposer(pill);
           revealPending();
         });
       }),
@@ -625,7 +628,10 @@ function ConversationBody({
     const measure = () => {
       const height = node.clientHeight;
       if (!height) return;
-      node.style.setProperty("--cc-composer-cap", `${Math.round(height * 0.4)}px`);
+      // Written only when it changes: the observer watches this node, and a write that resizes it
+      // again from its own callback is a loop.
+      const cap = `${Math.round(height * 0.4)}px`;
+      if (node.style.getPropertyValue("--cc-composer-cap") !== cap) node.style.setProperty("--cc-composer-cap", cap);
       const zone = node.querySelector<HTMLElement>(".cc-chat-composer")?.offsetHeight ?? 0;
       setFolded(zone > 0.4 * Math.max(1, height - zone));
     };
@@ -736,13 +742,15 @@ function ConversationBody({
               />
             }
           />
+          {/* Under the question that caused it, above its reply row: it stays put when the reply
+              comes (the reply takes the row's place below it). */}
+          <CreditLineAfter message={message} />
           <ReplyRow
             view={view}
             latest={message.id === latestQuestion}
             onAskAgain={() => askAgain(message.content)}
             fresh={arriving(message.id)}
           />
-          <CreditLineAfter message={message} />
         </div>,
       );
     } else {
@@ -805,7 +813,8 @@ function ConversationBody({
       <div key={item.key} data-turn-key={item.key} className="cc-chat-item">
         <LearnerTurn id={`cc-turn-${item.key}`} text={item.text} footer={footer} />
         {seconds !== undefined && <ReplyRow view={{ kind: "none" }} latest rateLimited={seconds} />}
-        {(item.status === "sending" || item.status === "sent") && now - item.sentAt >= REPLY_MS.preparing && (
+        {/* With no companion set up the question is held once it is read back: never "Preparing". */}
+        {(item.status === "sending" || item.status === "sent") && availability !== "not_set_up" && now - item.sentAt >= REPLY_MS.preparing && (
           <ReplyRow view={{ kind: "preparing", slow: now - item.sentAt >= REPLY_MS.slow }} latest={false} />
         )}
       </div>,
@@ -843,8 +852,9 @@ function ConversationBody({
         running={inProgress}
         onSend={(byKeyboard) => {
           void submit(value, { fromBox: true });
-          // Focus stays in the message box after a send (§6).
-          if (!byKeyboard && !coarse) composer.current?.focus();
+          // Focus stays in the message box after a send (§3.5, §6), a tap on a touch screen too:
+          // left on the round button, which turns into Stop, a second tap would stop the reply.
+          if (!byKeyboard) composer.current?.focus();
         }}
         onStop={() => void stop()}
         confirm={
@@ -859,7 +869,11 @@ function ConversationBody({
                 setConfirm(null);
                 composer.current?.focus();
               }}
-              onSendAsPractice={() => void submit(confirm.text, { consent: true, fromBox: confirm.fromBox })}
+              onSendAsPractice={() => {
+                void submit(confirm.text, { consent: true, fromBox: confirm.fromBox });
+                // The confirm row goes: the focus it had stays in the message box, as after a send.
+                composer.current?.focus();
+              }}
               // "Save for after the question" sets the message aside (deferredQuestion.ts) and
               // empties the box; a question already saved there is not saved twice.
               {...(server?.enrollmentId && context.episodeId && deferredQuestion.get(server.enrollmentId, context.episodeId)?.text.trim() === confirm.text.trim()

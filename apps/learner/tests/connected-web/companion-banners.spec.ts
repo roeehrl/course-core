@@ -42,10 +42,22 @@ test("offline: the banner, Send with its clock, the question waiting with Cancel
   await expect(thread(page).getByText("Held while offline", { exact: true })).toBeVisible();
 });
 
-test("not set up: the companion says it is not on yet, and a question can still be asked", async ({ page, request }) => {
+test("not set up: the companion says it is not on yet, and a question asked waits to send", async ({ page, request }) => {
   await startLesson(page, request, { session: "/test/companion-off-session" });
   await expect(notice(page)).toHaveText("Your companion isn't on for this course yet. You can still ask; questions are saved and answered once it's on.");
   await expect(box(page)).toBeVisible();
+  // A question asked now is held like a paused one (§3.5): "Waiting to send" with Cancel under it,
+  // never "Preparing a reply…", and the round button stays Send.
+  const question = `Not set up ${Date.now()}`;
+  await ask(page, question);
+  const turn = thread(page).locator(".cc-chat-turn.is-learner").filter({ hasText: question });
+  await expect(turn.getByText("Waiting to send", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(turn.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+  await page.waitForTimeout(1_000);
+  await expect(thread(page).locator('[data-reply-state="preparing"]')).toHaveCount(0);
+  await expect(thread(page).getByText("Preparing a reply…")).toHaveCount(0);
+  await expect(roundButton(page)).toHaveAccessibleName("Send");
+  await expect(announcer(page)).not.toContainText("Companion is replying");
   await axe(page);
 });
 
@@ -70,6 +82,22 @@ for (const [ceiling, text, more] of [
     } else await expect(notice(page).getByRole("button", { name: "More about this" })).toHaveCount(0);
     await axe(page);
   });
+
+test("a rate limit in front of the server (HTTP 429 with Retry-After) counts down under the question, and the text goes back to the box", async ({ page, request }) => {
+  await startLesson(page, request);
+  // A proxy's answer: no JSON body, only the header says when to ask again.
+  await page.route(/\/companion$/, (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({ status: 429, headers: { "Retry-After": "42", "Content-Type": "text/plain" }, body: "Too Many Requests" })
+      : route.continue());
+  const question = `Rate limited ${Date.now()}`;
+  await box(page).fill(question);
+  await roundButton(page).click();
+  const row = thread(page).locator(".cc-chat-row").filter({ hasText: "Too many questions at once." });
+  await expect(row).toContainText(/You can ask again in 0:4[0-2]\./);
+  await expect(box(page)).toHaveValue(question);
+  await expect(thread(page).getByText("Couldn't send. Your text is back in the box.")).toHaveCount(0);
+});
 
 test("a lesson not taking questions keeps the draft and cannot send", async ({ page, request }) => {
   // The server's answer for this lesson, as a policy that closes it reports it.

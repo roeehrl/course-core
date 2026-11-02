@@ -162,11 +162,17 @@ test("after sending as practice the thread says so, and the check says why with 
   await companionPanel(page).getByRole("button", { name: "Send", exact: true }).click();
   await companionPanel(page).getByRole("button", { name: "Send as practice" }).click();
   await expect(composerBox(page)).toHaveValue("");
+  // The confirm row went: the focus stays in the message box, as after any send (§6).
+  await expect(composerBox(page)).toBeFocused();
   const line = companionPanel(page).getByRole("note").filter({ hasText: "Question 1 is now practice." });
   await expect(line).toBeVisible();
-  // The line follows the learner's message that made the question practice.
+  // The line follows the learner's message that made the question practice, and comes before its
+  // reply row from the first frame, so it never moves when the reply arrives.
   const question = companionPanel(page).getByText("Explain how to compare these values.", { exact: true });
   expect((await line.boundingBox())!.y).toBeGreaterThan((await question.boundingBox())!.y);
+  const preparing = companionPanel(page).locator('[data-reply-state="preparing"]');
+  await expect(preparing).toBeVisible();
+  expect((await preparing.boundingBox())!.y).toBeGreaterThan((await line.boundingBox())!.y);
   // Nothing in scope counts any more: no credit line.
   await expect(creditLine(page)).toHaveCount(0);
   await closeCompanion(page);

@@ -24,7 +24,8 @@ export interface CompanionActivity {
   replyAbout: Readonly<Record<string, string>>;
   /** A decision waiting on the profile (profile). */
   suggestions: number;
-  /** The collapsed bar's one line (conversation). */
+  /** The collapsed bar's one line (conversation): `busy` while a reply is prepared and has no text
+   * yet (the bar's dots); once text streams, the line is that text alone. */
   latest: { text: string; busy: boolean } | null;
 }
 export type NavigateTarget = { to: "profile"; section?: string } | { to: "lesson"; episodeId: string } | { to: "course" };

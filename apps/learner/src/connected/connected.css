@@ -139,10 +139,15 @@ html[data-theme="dark"]:has(.connected-host) {
   margin-block: -8px 0;
   margin-inline: -10px 0;
 }
+/* The lesson's reading measure (final design §2.1, §2.3): 680 px, centred in its column beside the
+ * companion, above a sheet or alone. */
 .connected-lesson {
   display: flex;
   flex-direction: column;
   gap: 22px;
+  inline-size: 100%;
+  max-inline-size: 680px;
+  margin-inline: auto;
 }
 /* The lesson title (final design §1.2): 32/40 bold, drawn a little tighter in Latin script. */
 .connected-lesson-heading h1 {

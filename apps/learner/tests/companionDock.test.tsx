@@ -123,6 +123,43 @@ describe("companion dock", () => {
     slot.remove();
   });
 
+  it("closing from the trigger puts focus on it wherever focus was, and a layout change keeps it open or closed whatever has focus", () => {
+    const slot = document.createElement("div");
+    const outside = document.createElement("button");
+    document.body.append(slot, outside);
+    const renderDock = (wide: boolean) => (
+      <CompanionDock layout={dockLayout(wide)} headerSlot={slot}>
+        <textarea aria-label="Draft" />
+      </CompanionDock>
+    );
+    act(() => companionOpen.sync({ docked: true, surface: "lesson" }));
+    const { rerender } = render(renderDock(true));
+    const trigger = slot.querySelector<HTMLButtonElement>(".connected-companion-trigger")!;
+    fireEvent.click(trigger);
+    // The learner went on reading: focus is in the lesson, not in the companion.
+    act(() => outside.focus());
+    // Narrower than a panel allows: the open panel becomes an open sheet, at Half.
+    act(() => companionOpen.sync({ docked: false, surface: "lesson" }));
+    rerender(renderDock(false));
+    expect(screen.getByRole("complementary", { name: "Your companion" })).toHaveAttribute("data-placement", "sheet");
+    expect(companionOpen.get().detent).toBe("half");
+    expect(outside).toHaveFocus();
+    // Wider again: the panel, still open.
+    act(() => companionOpen.sync({ docked: true, surface: "lesson" }));
+    rerender(renderDock(true));
+    expect(screen.getByRole("complementary", { name: "Your companion" })).toHaveAttribute("data-placement", "docked");
+    // A click on the trigger in Safari does not focus it: closing from it still returns focus there.
+    fireEvent.click(trigger);
+    expect(companionOpen.get().paneOpen).toBe(false);
+    expect(trigger).toHaveFocus();
+    // A closed panel stays closed as a sheet.
+    act(() => companionOpen.sync({ docked: false, surface: "lesson" }));
+    rerender(renderDock(false));
+    expect(companionOpen.get().open).toBe(false);
+    slot.remove();
+    outside.remove();
+  });
+
   it("names unread replies and a waiting suggestion on the trigger", () => {
     const slot = document.createElement("div");
     document.body.append(slot);
@@ -270,15 +307,24 @@ describe("companion dock", () => {
     fireEvent.click(screen.getByRole("button", { name: "Half height" }));
     expect(region()).toHaveAttribute("data-detent", "half");
     expect(screen.getByRole("button", { name: "Full height" })).toHaveAttribute("data-detent", "full");
+    screen.getByRole("button", { name: "Resize companion" }).focus();
     fireEvent.keyDown(screen.getByRole("button", { name: "Resize companion" }), { key: "ArrowDown" });
     expect(region()).toHaveAttribute("data-detent", "collapsed");
+    // The handle went with the header: the focus is on "Show companion", not on the page.
+    expect(screen.getByRole("button", { name: "Show companion" })).toHaveFocus();
     // Collapsed: the latest line, or "Companion"; then the dots while a reply is prepared.
     expect(screen.getByText("Companion", { selector: ".cc-shell-collapsed-text" })).toBeVisible();
     act(() => companionBridge.updateActivity({ latest: { text: "Preparing a reply…", busy: true } }));
     expect(screen.getByText("Preparing a reply…")).toBeVisible();
     expect(region().querySelector(".cc-ui-dots")).not.toBeNull();
+    // Once text streams the line is that text alone: no dots beside it.
+    act(() => companionBridge.updateActivity({ latest: { text: "9 is x + b, so the bias went onto the input", busy: false } }));
+    expect(screen.getByText("9 is x + b, so the bias went onto the input")).toBeVisible();
+    expect(region().querySelector(".cc-ui-dots")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show companion" }));
     expect(region()).toHaveAttribute("data-detent", "half");
+    // Leaving Collapsed, the focus goes to the handle of the header that came back.
+    expect(screen.getByRole("button", { name: "Resize companion" })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole("button", { name: "Resize companion" }), { key: "ArrowUp" });
     expect(region()).toHaveAttribute("data-detent", "full");
     // Closing and opening again starts at Half every time.

@@ -105,7 +105,9 @@ describe("persisted companion integration", () => {
     // The jargon is gone.
     expect(text).not.toMatch(/Context version|Evidence it could see|named briefly|Rules it followed/);
     // Each earlier message, the learner's own and those named in the summary, can be left out or used again.
-    expect(within(block).getByText("You: “An earlier question”")).toBeVisible();
+    // The quotation is its own isolate (`<bdi>`) after the label.
+    expect(within(block).getByText((_, node) => node?.className === "cc-act-based-text" && node.textContent === "You: “An earlier question”")).toBeVisible();
+    expect(within(block).getByText("“An earlier question”", { selector: "bdi" })).toBeVisible();
     fireEvent.click(within(block).getByRole("button", { name: "Don't use “An earlier question” again" }));
     await waitFor(() => expect(exclude).toHaveBeenCalledWith("old", true));
     await pressWhenReady(within(block).getByRole("button", { name: "Use “The first question” again" }));
@@ -234,7 +236,7 @@ describe("live companion findings (0.1.57 re-test)", () => {
       constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" } };
     render(panel([{ ...message, job_state: "applied" }, { id: "a", role: "assistant", content: "Reply", context: { episodeId: "intro" }, created_at: "2026-01-02", job_id: "job", context_used: used }]));
     fireEvent.click(screen.getByRole("button", { name: /^Based on/ }));
-    expect(screen.getByText(/Companion: “Fine-tuning updates weights by w - η g”/)).toBeVisible();
+    expect(screen.getByText((_, node) => node?.className === "cc-act-based-text" && node.textContent === "Companion: “Fine-tuning updates weights by w - η g”")).toBeVisible();
     expect(screen.queryByText(/\*\*/)).toBeNull();
   });
 });

@@ -126,7 +126,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const over = value.length - MESSAGE_MAX;
   // The hint keeps its line while the box has text, shown only while the box has focus: a press
   // on Send blurs the box first, and the composer must not move under the pointer before the click.
-  const keyHint = !coarse && value.trim().length > 0 && sends < KEY_HINT_SENDS && !creditInMeta;
+  // Over the limit Send is off and the count stands alone on the line (§3.6 state 4).
+  const keyHint = !coarse && value.trim().length > 0 && sends < KEY_HINT_SENDS && !creditInMeta && over <= 0;
   function send(byKeyboard: boolean) {
     if (button !== "ready" && button !== "offline") return;
     if (byKeyboard) {

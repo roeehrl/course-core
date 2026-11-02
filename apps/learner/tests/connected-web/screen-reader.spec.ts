@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./health";
+import { expect, nextControlKey, test, type Page } from "./health";
 
 /* S12, automated part of the screen-reader traversal in docs/accessibility.md (steps 2 to 8).
  * A screen reader's browse mode reads the accessibility tree in document order; Playwright's
@@ -16,7 +16,7 @@ const tree = (page: Page, selector = "body") => page.locator(selector).ariaSnaps
 const focusedWithin = (page: Page, selector: string) =>
   page.evaluate((s) => !!document.activeElement?.closest(s), selector);
 
-test("a lesson read in document order: landmarks, headings, named controls, focus after each step and announced feedback", async ({ page }) => {
+test("a lesson read in document order: landmarks, headings, named controls, focus after each step and announced feedback", async ({ page, browserName }) => {
   await signIn(page);
   // Step 2: each course is an article with its heading, then its "Open course" button.
   const course = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) });
@@ -68,9 +68,9 @@ test("a lesson read in document order: landmarks, headings, named controls, focu
   await expect(option).toBeChecked();
   // After "Check" in the Tab order comes the help bar: "I don't know yet", then "Get help".
   await page.getByRole("button", { name: "Check", exact: true }).focus();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press(nextControlKey(browserName));
   await expect(page.getByRole("button", { name: "I don't know yet: record no answer and get help", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press(nextControlKey(browserName));
   await expect(page.getByRole("button", { name: "Get help", exact: true })).toBeFocused();
   await expect(page.getByRole("button", { name: "Get help", exact: true })).toHaveAttribute("aria-expanded", "false");
   const live = page.locator('[aria-live="polite"], [role="status"], [role="alert"]');

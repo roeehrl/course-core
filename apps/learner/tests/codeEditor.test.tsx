@@ -94,9 +94,10 @@ describe("connected practical exercise editor", () => {
     expect(
       screen.queryByRole("textbox", { name: "Your numeric answer" }),
     ).not.toBeInTheDocument();
+    // Nothing to check: "Check" says it waits (aria-disabled, its accent kept) and sends nothing.
     expect(
       screen.getByRole("button", { name: "Check" }),
-    ).toBeDisabled();
+    ).toHaveAttribute("aria-disabled", "true");
     expect(
       screen.getByRole("button", { name: "Finish this lesson →" }),
     ).toBeDisabled();

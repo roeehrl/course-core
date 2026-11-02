@@ -134,6 +134,17 @@ test("a scroll of the page hides the button, and text in the companion is never 
   await expect(ask).toHaveCount(0);
 });
 
+/** Shift+→ extends the selection by one character. Safari's engine does that on lesson text;
+ * Chromium needs caret browsing for it, so there the selection is extended as caret browsing would. */
+async function extendByOne(page: Page) {
+  const before = await page.evaluate(() => document.getSelection()!.toString().length);
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.evaluate((length) => {
+    const selection = document.getSelection()!;
+    if (selection.toString().length === length) selection.modify("extend", "forward", "character");
+  }, before);
+}
+
 test("keyboard: the shortcut is named once, Tab reaches the button and Enter attaches", async ({ page }) => {
   await openLesson(page);
   const ask = page.getByRole("button", { name: enAsk.label, exact: true });
@@ -148,10 +159,7 @@ test("keyboard: the shortcut is named once, Tab reaches the button and Enter att
       return;
     }
   });
-  for (let i = 0; i < "any other".length; i++) {
-    await page.keyboard.press("Shift+ArrowRight");
-    await page.evaluate(() => document.getSelection()!.modify("extend", "forward", "character"));
-  }
+  for (let i = 0; i < "any other".length; i++) await extendByOne(page);
   await expect(ask).toBeVisible();
   const status = page.locator(".cc-ask-status");
   await expect(status).toHaveText(enAnnounce.available);
@@ -162,10 +170,7 @@ test("keyboard: the shortcut is named once, Tab reaches the button and Enter att
   await page.keyboard.press("Escape");
   await expect(ask).toHaveCount(0);
   expect(await page.evaluate(() => !!document.activeElement?.closest(".connected-lesson"))).toBe(true);
-  for (let i = 0; i < 2; i++) {
-    await page.keyboard.press("Shift+ArrowRight");
-    await page.evaluate(() => document.getSelection()!.modify("extend", "forward", "character"));
-  }
+  for (let i = 0; i < 2; i++) await extendByOne(page);
   await expect(ask).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(ask).toBeFocused();

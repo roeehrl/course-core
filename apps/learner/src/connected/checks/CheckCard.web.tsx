@@ -98,7 +98,9 @@ export function CheckCard({
   const [answeredHere, setAnsweredHere] = useState(false);
   // The check just answered: once the server has its result, focus moves to the check's heading
   // (or, after "I don't know yet", into the help that opens), and the result is brought into view.
-  const answered = useRef<{ id: string; abstain: boolean } | null>(null);
+  // `from` is what had the focus at the press: a click does not focus a button in Safari, so focus
+  // still there (or nowhere) means the learner has not gone elsewhere since.
+  const answered = useRef<{ id: string; abstain: boolean; from: Element | null } | null>(null);
   const checkHead = useRef<HTMLDivElement>(null);
   const section = useRef<HTMLElement>(null);
   const feedbackSlot = useRef<HTMLDivElement>(null);
@@ -141,9 +143,9 @@ export function CheckCard({
     requestAnimationFrame(() => target?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
   /** "Check" and the help bar are disabled or gone while the answer is saved, so the focus they
    * had falls to the page: it is put back in the check rather than left there. */
-  const focusLost = () => {
+  const focusLost = (from?: Element | null) => {
     const active = document.activeElement;
-    return !active || active === document.body || !active.isConnected;
+    return !active || active === document.body || !active.isConnected || (from !== undefined && active === from);
   };
   const keptStatus = kept?.status;
   useEffect(() => {
@@ -153,7 +155,7 @@ export function CheckCard({
     // The grader could not check it: the question stays open, and its feedback with the retry
     // comes into view under the answer bar, with focus on the retry when it had none.
     if (kept.status === "failed") {
-      if (focusLost()) feedbackSlot.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+      if (focusLost(done.from)) feedbackSlot.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
       reveal(feedbackSlot.current);
       return;
     }
@@ -164,7 +166,7 @@ export function CheckCard({
       return;
     }
     const active = document.activeElement;
-    if (!active || active === document.body || !active.isConnected || section.current?.contains(active))
+    if (focusLost(done.from) || (active && section.current?.contains(active)))
       document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus({ preventScroll: true });
     reveal(checkHead.current);
     reveal(feedbackSlot.current);
@@ -227,9 +229,20 @@ export function CheckCard({
     !("error" in answerPayload(challenge.question, answer, t)) &&
     !((challenge.question.type === "code" || challenge.question.type === "code_repair") && codeSubmissionError(challenge.question.language, answer, t)),
   );
+  // "Check" keeps its accent fill before an answer (§4.1 item 3): a press on it with nothing to
+  // check says why under the field and puts the learner in it; nothing is sent.
+  const [emptyPress, setEmptyPress] = useState<string | null>(null);
+  useEffect(() => setEmptyPress(null), [answer, challengeId]);
+  const answerHintShown = Boolean(answerHint && emptyPress === challengeId);
   const submit = () => {
-    if (!challenge || !canSubmit) return;
-    answered.current = { id: challenge.challengeId, abstain: false };
+    if (!challenge || checking) return;
+    if (!canSubmit) {
+      if (!answerHint) return;
+      setEmptyPress(challenge.challengeId);
+      firstControl(questionBlock.current?.querySelector<HTMLElement>(".cc-check-answer") ?? null)?.focus({ preventScroll: true });
+      return;
+    }
+    answered.current = { id: challenge.challengeId, abstain: false, from: document.activeElement };
     setAnsweredHere(true);
     setConfirming(null);
     check.onAnswer(challenge);
@@ -242,8 +255,9 @@ export function CheckCard({
   // field takes back the focus the saving request took.
   useEffect(() => {
     if (!fieldError) return;
+    const from = answered.current?.from;
     answered.current = null;
-    if (focusLost()) firstControl(questionBlock.current?.querySelector<HTMLElement>(".cc-check-answer") ?? null)?.focus({ preventScroll: true });
+    if (focusLost(from)) firstControl(questionBlock.current?.querySelector<HTMLElement>(".cc-check-answer") ?? null)?.focus({ preventScroll: true });
   }, [fieldError, challengeId]);
   const explanationId = `${ids}-explanation`;
   const helpId = `${ids}-help`;
@@ -306,7 +320,7 @@ export function CheckCard({
     const confirm = confirming?.id === shown.challengeId ? confirming.what : null;
     const ask = () => {
       // An open question goes with the next message as its chip ("Question 1"); nothing is sent.
-      if (open) companionFocus.setCheck({ challengeId: shown.challengeId, ordinal });
+      if (open) companionFocus.setCheck({ challengeId: shown.challengeId, ordinal }, section.current);
       companionBridge.compose({ source: "check" });
     };
     const checkLabel = written
@@ -335,15 +349,30 @@ export function CheckCard({
             onChange={onAnswerChange}
             practiceRuns={open && browserRunsAllowed(shown.mode)}
             onSubmit={submit}
-            {...(fieldError ? { describedBy: fieldErrorId } : {})}
+            {...(fieldError || answerHintShown ? { describedBy: fieldError ? fieldErrorId : "connected-answer-hint" } : {})}
+            fieldMessage={
+              fieldError && open ? (
+                <p className="cc-check-field-error" id={fieldErrorId} role="alert">
+                  <Icon name="alert-circle" size={16} />
+                  <span>{t(fieldError === "copied" ? "checkCard.error.copied" : "checkCard.error.attemptRequired")}</span>
+                </p>
+              ) : answerHintShown ? (
+                <p className="cc-check-field-error" id="connected-answer-hint" role="alert">
+                  <Icon name="alert-circle" size={16} />
+                  <span>{answerHint}</span>
+                </p>
+              ) : undefined
+            }
             actions={
               open || checking ? (
                 <button
                   type="button"
                   className={`cc-check-submit${checking && !written ? " is-checking" : ""}`}
                   data-usability="next"
-                  aria-describedby={answerHint ? "connected-answer-hint" : undefined}
-                  disabled={!canSubmit || checking}
+                  aria-describedby={answerHintShown ? "connected-answer-hint" : undefined}
+                  // Waiting for an answer is said, not greyed out: the accent stays (aria-disabled).
+                  aria-disabled={!canSubmit && !checking ? true : undefined}
+                  disabled={checking}
                   onClick={submit}
                 >
                   {/* Both labels take the same cell, so the button keeps its width while it checks. */}
@@ -367,15 +396,6 @@ export function CheckCard({
             onChange={(value) => check.onConfidenceChange?.(value)}
           />
         )}
-        {answerHint && (
-          <p className="connected-input-hint" id="connected-answer-hint">{answerHint}</p>
-        )}
-        {fieldError && open && (
-          <p className="cc-check-field-error" id={fieldErrorId} role="alert">
-            <Icon name="alert-circle" size={16} />
-            <span>{t(fieldError === "copied" ? "checkCard.error.copied" : "checkCard.error.attemptRequired")}</span>
-          </p>
-        )}
         {/* Before an attempt: "I don't know yet" and "Get help", after "Check" in the Tab order. */}
         {open && !checking && (
           <div className="cc-check-help-bar">
@@ -386,7 +406,7 @@ export function CheckCard({
                 aria-label={t("checkCard.abstain.accessibilityLabel")}
                 disabled={check.savingAnswer ?? pending}
                 onClick={() => {
-                  answered.current = { id: shown.challengeId, abstain: true };
+                  answered.current = { id: shown.challengeId, abstain: true, from: document.activeElement };
                   setAnsweredHere(true);
                   setConfirming(null);
                   check.onAbstain!(shown);

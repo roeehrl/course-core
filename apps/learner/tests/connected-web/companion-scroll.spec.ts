@@ -143,12 +143,13 @@ for (const locale of ["en", "he"] as const) {
     expect(await inline.evaluate((el) => el.querySelectorAll("math").length)).toBe(1);
     // The table and the display formula are wider than the companion (the tablet sheet's 640 px
     // included): they scroll sideways, and a line under each says so.
-    for (const frame of [table, pane.locator(".math-formula.is-display")]) {
+    // The table's line names the table (final design §3.3: "…לשאר הטבלה" in Hebrew).
+    for (const [frame, said] of [[table, t.markdown.tableScrollHint], [pane.locator(".math-formula.is-display"), t.markdown.scrollHint]] as const) {
       await frame.scrollIntoViewIfNeeded();
       expect(await frame.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
       await expect(frame).toHaveClass(/is-overflowing/);
       const hint = frame.locator("xpath=following-sibling::*[contains(@class, 'markdown-scroll-hint')]");
-      await expect(hint).toHaveText(t.markdown.scrollHint);
+      await expect(hint).toHaveText(said);
       await expect(hint).toBeVisible();
     }
     // Scrolled to its end, the last column shows in full inside the frame.

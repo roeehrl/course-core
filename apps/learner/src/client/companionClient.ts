@@ -81,9 +81,9 @@ export interface CompanionMessage {
     /** Learner messages: the check the learner attached, with its number in the lesson ("Question 2"). */
     attachedCheck?: { challengeId: string; ordinal: number };
     /** Learner messages: what the learner pointed at in the lesson, as the server resolved it. */
-    selectedAnchor?: { kind: string; blockId?: string; excerpt?: string; lineStart?: number; lineEnd?: number };
+    selectedAnchor?: { kind: string; blockId?: string; excerpt?: string; lineStart?: number; lineEnd?: number; label?: string };
     /** Learner messages: the course video and position the learner sent with the question. */
-    mediaRef?: { mediaId: string; playbackSeconds?: number | null };
+    mediaRef?: { mediaId: string; blockId?: string; playbackSeconds?: number | null };
     /** Learner messages: the open checks this message turned into practice, with their numbers. */
     downgraded?: { challengeId: string; ordinal: number }[];
     downgradedChallengeIds?: string[];

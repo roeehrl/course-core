@@ -75,6 +75,8 @@ export interface ReplyInput {
   now: number;
   /** The event stream is up (a draft continues once it is back). */
   connected: boolean;
+  /** The server says no companion is set up to answer (§3.13): a waiting question is held. */
+  notSetUp?: boolean;
 }
 
 const CHECKING = ["verifying", "ready"];
@@ -87,7 +89,7 @@ export function cancelledBeforeSent(message: CompanionMessage, draft?: Companion
 }
 
 /** The reply view for one learner question. */
-export function replyView({ message, draft, answered, stop, clock, now, connected }: ReplyInput): ReplyView {
+export function replyView({ message, draft, answered, stop, clock, now, connected, notSetUp = false }: ReplyInput): ReplyView {
   if (message.role !== "learner" || message.content === "[deleted]" || answered) return { kind: "none" };
   if (stop?.state === "stopped") return { kind: "stopped", ...(stop.partial ? { partial: stop.partial } : {}) };
   const stopFailed = stop?.state === "failed" ? { stopFailed: true } : {};
@@ -100,7 +102,10 @@ export function replyView({ message, draft, answered, stop, clock, now, connecte
   if (message.job_state === "cancelled") return message.job_sent || draft ? { kind: "stopped", ...(stop?.partial ? { partial: stop.partial } : {}) } : { kind: "none" };
   if (["failed", "dead", "dead_letter"].includes(message.job_state ?? "")) return { kind: "ended", reason: "noReply" };
   if (!companionHasPending([message])) return { kind: "none" };
-  if (message.job_reason === "configuration_missing" || message.job_state === "configuration_pending" || companionHeldByLimit(message))
+  // Held, like a paused or offline question (§3.5): waiting to send, not being answered. With no
+  // companion set up nothing will answer it, so it never shows as prepared.
+  if (message.job_reason === "configuration_missing" || message.job_state === "configuration_pending" || companionHeldByLimit(message) ||
+    (notSetUp && !draft && !CHECKING.includes(message.job_state ?? "")))
     return { kind: "held" };
   const elapsed = now - clock.since;
   const checkingFor = clock.checkingSince === undefined ? 0 : now - clock.checkingSince;

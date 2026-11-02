@@ -84,6 +84,9 @@ export function PendingChangesNotice({
   // The card whose choice was just made: its pressed button goes, so the line that says what is
   // happening takes the focus, and then the line that says what happened.
   const focusAfter = useRef<string | null>(null);
+  // What had the focus at the press (a click does not focus a button in Safari): focus still there
+  // means the learner has not gone elsewhere since.
+  const focusFrom = useRef<Element | null>(null);
   const here = items.filter((item) => item.episodeId === episodeId);
   for (const item of here) seen.current.set(item.pendingId, item);
   // A choice is settled once the host's request is over; the addition then leaves the waiting list
@@ -110,13 +113,14 @@ export function PendingChangesNotice({
   }, [choice, items, pending, place?.planRevision, place?.blocks]);
   const choose = (item: PendingChange, kind: Choice["kind"]) => {
     focusAfter.current = item.pendingId;
+    focusFrom.current = document.activeElement;
     setChoice({ pendingId: item.pendingId, kind, planRevision: place?.planRevision, blocks: place?.blocks.map((block) => block.id) ?? [], settled: null });
     (kind === "add" ? onAdd : onDecline)(item.pendingId);
   };
   const takeFocus = (id: string, last: boolean) => (line: HTMLParagraphElement | null) => {
     if (!line || focusAfter.current !== id) return;
     const active = document.activeElement;
-    if (active && active !== document.body && !line.parentElement?.contains(active)) return;
+    if (active && active !== document.body && active !== focusFrom.current && active.isConnected && !line.parentElement?.contains(active)) return;
     line.focus({ preventScroll: true });
     if (last) focusAfter.current = null;
   };
@@ -163,12 +167,17 @@ export function PendingChangesNotice({
                   </p>
                 )}
                 <div className="cc-ai-offer-actions">
+                  {/* Waiting for the question to finish, "Add" keeps its accent (New-material tile 3):
+                      it says it waits (aria-disabled, the waiting line) rather than greying out. */}
                   <button
                     type="button"
                     className="cc-ui-pill cc-ui-pill-accent cc-ui-pill-40"
-                    disabled={pending || !item.addableNow}
+                    disabled={pending}
+                    aria-disabled={item.addableNow ? undefined : true}
                     aria-describedby={item.addableNow ? undefined : waitId}
-                    onClick={() => choose(item, "add")}
+                    onClick={() => {
+                      if (item.addableNow) choose(item, "add");
+                    }}
                   >
                     {t("pendingChanges.add")}
                   </button>

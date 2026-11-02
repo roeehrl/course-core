@@ -83,6 +83,11 @@ function summary(content: BasedOnContent, messages: readonly CompanionMessage[],
  * The "Based on" chip: "Based on" in a panel narrower than 480 px, a short summary wider (both are
  * in the page and the container query shows one, so the name is always the words shown).
  */
+/** `text` without the one isolate around all of it (an argument a right-to-left message isolated). */
+function withoutOuterIsolate(text: string): string {
+  return /^[\u2066-\u2068][\s\S]*\u2069$/u.test(text) ? text.slice(1, -1) : text;
+}
+
 export function BasedOnChip({ content, messages, open, controls, onToggle }: {
   content: BasedOnContent;
   messages: readonly CompanionMessage[];
@@ -135,13 +140,21 @@ export function BasedOnBlock({ id, content, busy, onExclude, onShowPart }: {
   // right-to-left sentence isolates its arguments itself).
   const quote = (excerpt: string) =>
     i18n.dir === "ltr" && hasRightToLeft(excerpt) ? isolate(isolateRuns(excerpt)) : isolateRuns(excerpt);
+  // Each quotation, its marks included, is its own isolate in the markup (`<bdi>`, the catalog's
+  // `<q>`), so the marks stay at the quoted text's start and end in either direction and on every
+  // line it wraps to. The control characters a right-to-left message puts around the argument are
+  // dropped there: the element isolates it (and Safari's engine lays a mark beside them oddly).
+  const quoted = (key: MessageKey, params: Record<string, string | number>) =>
+    i18n.rich<React.ReactNode>(key, params, {
+      q: (children, k) => <bdi key={k}>{children.map((child) => (typeof child === "string" ? withoutOuterIsolate(child) : child))}</bdi>,
+    });
   const selection = used.selection;
   const pointer = selection && (() => {
     const kind = selectionLabel(selection.kind, t), excerpt = quote(plainExcerpt(selection.excerpt));
-    if (!selection.lineStart) return t("basedOn.pointer", { kind, excerpt });
+    if (!selection.lineStart) return quoted("basedOn.pointer", { kind, excerpt });
     return selection.lineEnd !== undefined && selection.lineEnd !== selection.lineStart
-      ? t("basedOn.pointer.lines", { kind, excerpt, start: selection.lineStart, end: selection.lineEnd })
-      : t("basedOn.pointer.line", { kind, excerpt, line: selection.lineStart });
+      ? quoted("basedOn.pointer.lines", { kind, excerpt, start: selection.lineStart, end: selection.lineEnd })
+      : quoted("basedOn.pointer.line", { kind, excerpt, line: selection.lineStart });
   })();
   // Earlier messages it used, and the earlier questions it named in its summary (the learner's own).
   const earlier = [
@@ -160,7 +173,7 @@ export function BasedOnBlock({ id, content, busy, onExclude, onShowPart }: {
       {question && question.content !== "[deleted]" && (
         <p className="cc-act-based-row">
           <span className="cc-act-based-label">{t("basedOn.question")}</span>
-          <span dir="auto">{t("basedOn.quote", { excerpt: quote(clip(plainExcerpt(question.content))) })}</span>
+          <span>{quoted("basedOn.quote", { excerpt: quote(clip(plainExcerpt(question.content))) })}</span>
         </p>
       )}
       {(pointer || used.simulation) && (
@@ -190,7 +203,7 @@ export function BasedOnBlock({ id, content, busy, onExclude, onShowPart }: {
               const short = quote(clip(plainExcerpt(row.excerpt), 40));
               return (
                 <li key={row.messageId} className={`cc-act-based-item${row.excluded ? " is-excluded" : ""}`}>
-                  <span className="cc-act-based-text">{t(row.role === "learner" ? "basedOn.row.learner" : "basedOn.row.companion", { excerpt })}</span>
+                  <span className="cc-act-based-text">{quoted(row.role === "learner" ? "basedOn.row.learner" : "basedOn.row.companion", { excerpt })}</span>
                   {onExclude && (
                     <button
                       type="button"

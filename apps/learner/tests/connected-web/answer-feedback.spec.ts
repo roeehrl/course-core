@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./health";
+import { closeCompanion } from "./companion-helpers";
 import enHost from "../../src/i18n/messages/en/connectedHost.json";
 import heHost from "../../src/i18n/messages/he/connectedHost.json";
 import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
@@ -84,7 +85,9 @@ test("the sticky answer bar is opaque: lesson text under it never shows through"
   expect(style.opacity).toBe("1");
   // rgb(...) is opaque; rgba(..., a) and color(... / a) carry an alpha below 1.
   expect(style.background).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
-  // The reading folds away, so a tall window can hold the whole check; a short one makes the bar stick.
+  // The reading folds away, so a tall window can hold the whole check; a short one makes the bar
+  // stick. The companion is closed first: open, it would stay open as the short window's sheet.
+  await closeCompanion(page);
   await page.setViewportSize({ width: page.viewportSize()!.width, height: 470 });
   // The layout settles after the resize; scroll only once the lesson column scrolls on its own.
   await expect

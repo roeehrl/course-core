@@ -79,10 +79,15 @@ test("a lesson shows one progress indicator, and its check opens neutral after t
   await expect(page.getByTestId("gate-decision")).toHaveCount(0);
   await expect(page.getByText("Not complete yet")).toHaveCount(0);
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
-  // Whether the question counts, said before it; why "Check" waits, said beside it.
+  // Whether the question counts, said before it. "Check" keeps its accent before an answer (final
+  // design §4.1 item 3, aria-disabled); a press on it says why under the field and sends nothing.
   await expect(page.getByTestId("question-kind")).toHaveText("Counts toward this lesson. Answer on your own.");
   const checkAnswer = page.getByRole("button", { name: "Check", exact: true });
-  await expect(checkAnswer).toBeDisabled();
+  await expect(checkAnswer).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator("#connected-answer-hint")).toHaveCount(0);
+  // (Playwright's click waits for an enabled button, so the press is made from the keyboard.)
+  await checkAnswer.focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#connected-answer-hint")).toHaveText(/^(Choose an|Enter your) answer to check it\.$/);
   await expect(checkAnswer).toHaveAttribute("aria-describedby", "connected-answer-hint");
   // Help waits behind "Get help": the explanation is in the help row, which says what help costs.

@@ -216,8 +216,9 @@ test("lesson prose keeps a readable line length (I04)", async ({ page }, info) =
   }
   expect(measure.overflow).toBeLessThanOrEqual(1);
   if (info.project.name.endsWith("desktop"))
-    // The card keeps the full column; only the prose measure is narrower.
-    expect(measure.prose).toBeLessThan(measure.card - 80);
+    // The lesson is set to the 680 px reading measure, centred in its column (final design §2.1),
+    // and the prose fills its card.
+    expect(measure.card).toBeLessThanOrEqual(681);
   else
     // Phones and tablets: the prose uses the card's width, no forced narrow column.
     expect(measure.prose).toBeGreaterThan(Math.min(measure.card - 80, 300));

@@ -54,10 +54,19 @@ export const Thread = forwardRef<ThreadHandle, ThreadProps>(function Thread({ lo
           {!loaded && slow && <LoadingSkeleton />}
           {children}
           <div ref={end} className="cc-chat-end" aria-hidden="true" />
-          <div ref={spacer} className="cc-chat-spacer" aria-hidden="true" />
         </div>
+        <div ref={spacer} className="cc-chat-spacer" aria-hidden="true" />
       </div>
-      <JumpToLatest visible={scroll.jumpVisible} dot={scroll.jumpDot} onJump={scroll.jump} />
+      <JumpToLatest
+        visible={scroll.jumpVisible}
+        dot={scroll.jumpDot}
+        onJump={(fromButton) => {
+          scroll.jump();
+          // The button hides once the end is in view: the focus it had goes to the thread, which
+          // keeps the reading place, instead of falling to the page.
+          if (fromButton) log.current?.focus({ preventScroll: true });
+        }}
+      />
     </div>
   );
 });

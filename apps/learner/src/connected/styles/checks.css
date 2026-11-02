@@ -480,6 +480,18 @@
    * (a translucent bar let it show through on phones), and the buttons keep their contrast. */
   background: var(--surface);
 }
+/* While the check is highlighted (M14, "Try question 1"), its opaque bar takes the same fill, so no
+ * white band runs across the card; it fades back with the card. */
+[data-cc-highlight] .connected-answer-actions {
+  background: var(--accent-soft);
+  transition: background-color var(--motion-m14-fade) linear;
+}
+[data-cc-highlight="hold"] .connected-answer-actions {
+  transition: none;
+}
+[data-cc-highlight="fade"] .connected-answer-actions {
+  background: var(--surface);
+}
 .cc-check-answer-row {
   flex-wrap: nowrap;
 }

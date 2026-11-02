@@ -210,6 +210,15 @@ export function apiErrorMessage(code: string, t: Translate = activeTranslator(),
     ? t(`apiClient.error.${code}` as MessageKey)
     : t("apiClient.error.generic");
 }
+/** A Retry-After header in seconds: a number of seconds or an HTTP date (RFC 9110 §10.2.3). */
+export function retryAfterSeconds(value: string | null, now = Date.now()): number | undefined {
+  if (value === null) return undefined;
+  const text = value.trim();
+  if (/^\d+$/.test(text)) return Number(text);
+  const at = Date.parse(text);
+  return Number.isFinite(at) ? Math.max(0, Math.ceil((at - now) / 1000)) : undefined;
+}
+
 export class CourseApiError extends Error {
   constructor(
     readonly code: string,
@@ -442,12 +451,19 @@ export function createCourseApi(
     }
     const data = await response.json().catch(() => null);
     if (signal?.aborted && data === null) throw abortError();
-    if (!response.ok)
+    if (!response.ok) {
+      const details: Record<string, unknown> | undefined = data?.details && typeof data.details === "object" ? data.details : undefined;
+      // A rate limit (the server's, or a proxy's in front of it) says when to ask again in its
+      // Retry-After header; the body's own figure wins when it has one.
+      const retryAfter = response.status === 429 ? retryAfterSeconds(response.headers?.get?.("Retry-After") ?? null) : undefined;
       throw new CourseApiError(
         typeof data?.error === "string" ? data.error : "UNAVAILABLE",
         response.status,
-        data?.details && typeof data.details === "object" ? data.details : undefined,
+        retryAfter !== undefined && details?.retryAfter === undefined && details?.retryAfterSeconds === undefined
+          ? { ...details, retryAfterSeconds: retryAfter }
+          : details,
       );
+    }
     if (!data || typeof data !== "object")
       throw new CourseApiError("INVALID_RESPONSE", 502);
     return data as T;

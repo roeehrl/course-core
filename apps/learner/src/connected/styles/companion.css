@@ -10,8 +10,12 @@
   --cc-turn-gap: var(--space-5);
   position: relative;
   display: grid;
+  /* One column as wide as the companion, never as wide as its content: a long chip label or an
+   * unbroken token in the box cannot widen the panel. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   min-block-size: 0;
+  min-inline-size: 0;
   block-size: 100%;
   background: var(--surface);
   color: var(--ink);
@@ -48,10 +52,13 @@
   gap: var(--cc-turn-gap);
   min-block-size: 100%;
 }
-.cc-chat-end,
-.cc-chat-spacer {
+.cc-chat-end {
   flex: none;
   margin-block-start: calc(-1 * var(--cc-turn-gap));
+}
+/* After the content, outside it: the room under an anchored question (useThreadScroll.ts). */
+.cc-chat-spacer {
+  block-size: 0;
 }
 .cc-chat-item {
   display: flex;
@@ -394,6 +401,7 @@ button.cc-chat-anchor:focus-visible {
 .cc-chat-composer {
   display: flex;
   flex-direction: column;
+  min-inline-size: 0;
   gap: var(--space-2);
   padding-block: var(--space-2) var(--space-3);
   padding-inline: var(--space-4);
@@ -449,6 +457,8 @@ button.cc-chat-anchor:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-inline-size: 0;
+  max-inline-size: 100%;
   min-block-size: 48px;
   padding-block: 6px;
   padding-inline: var(--space-4) 6px;
@@ -468,13 +478,17 @@ button.cc-chat-anchor:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
+  min-inline-size: 0;
   padding-block-start: 2px;
 }
+/* A chip shrinks inside the pill: its label is one line, cut with an ellipsis (§3.6). */
 .cc-chat-attachment {
   display: inline-flex;
+  min-inline-size: 0;
   max-inline-size: 100%;
 }
 .cc-chat-attachment .cc-ui-chip {
+  min-inline-size: 0;
   border: 0;
   padding-inline-start: 10px;
 }
@@ -482,10 +496,15 @@ button.cc-chat-anchor:focus-visible {
   display: flex;
   align-items: flex-end;
   gap: var(--space-2);
-}
-.cc-chat-field {
-  flex: 1;
   min-inline-size: 0;
+}
+/* `field-sizing: content` sizes the height only: the width is the row's (a zero basis that grows),
+ * and an unbroken token (a URL, code) breaks inside it. */
+.cc-chat-field {
+  flex: 1 1 0;
+  inline-size: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
   /* As tall as the round button: 36 px, 44 under a coarse pointer (the 24 px line centred). */
   min-block-size: max(36px, var(--target));
   max-block-size: min(var(--cc-composer-max, 216px), var(--cc-composer-cap, 216px));

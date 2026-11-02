@@ -74,7 +74,16 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     expect(screen.getByText(/Your confidence never changes your result/)).toBeVisible();
     fireEvent.click(screen.getByRole("radio", { name: "5" }));
     expect(p.check.onConfidenceChange).toHaveBeenCalledWith(5);
-    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
+    // Before an answer "Check" keeps its accent (aria-disabled, not greyed out); a press says why
+    // under the field, sends nothing, and puts the learner in the field.
+    const check = screen.getByRole("button", { name: "Check" });
+    expect(check).toHaveAttribute("aria-disabled", "true");
+    expect(check).not.toBeDisabled();
+    expect(screen.queryByText("Enter your answer to check it.")).toBeNull();
+    fireEvent.click(check);
+    expect(p.check.onAnswer).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter your answer to check it.");
+    expect(check).toHaveAttribute("aria-describedby", "connected-answer-hint");
     fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
     expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
     expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();

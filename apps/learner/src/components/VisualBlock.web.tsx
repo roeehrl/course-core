@@ -124,6 +124,8 @@ export function VisualBlock({ experience, source, onContextChange, onComplete, c
     </View>
   );
   const parts = useMemo(() => (prepared ? labelledParts(prepared.scene.nodes) : []), [prepared]);
+  // Where the illustration is, for showing it above a phone's sheet when asked about.
+  const root = useRef<View>(null);
   // The part asked about last (checked in the menu) while it is still attached.
   const asked =
     focus.selection?.kind === "visual_node" && focus.selection.blockId === identity?.blockId ? focus.selection.nodeId : undefined;
@@ -132,13 +134,13 @@ export function VisualBlock({ experience, source, onContextChange, onComplete, c
       parts={parts}
       current={asked}
       onChoose={(part, byKeyboard) => {
-        companionFocus.setSelection({ kind: "visual_node", blockId: identity.blockId, nodeId: part.id, label: part.label });
+        companionFocus.setSelection({ kind: "visual_node", blockId: identity.blockId, nodeId: part.id, label: part.label }, root.current as unknown as Element | null);
         companionBridge.compose({ source: "illustration", focus: byKeyboard || !coarse });
       }}
     />
   ) : null;
   return (
-    <View style={{ gap: 12 }}>
+    <View ref={root} style={{ gap: 12 }}>
       {source && (
         <Text style={styles.small}>
           {prepared

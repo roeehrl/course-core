@@ -7,7 +7,7 @@ import { useT } from "../../i18n";
  * composer zone while the end of the conversation is below the view, with an accent dot once
  * something new arrived there.
  */
-export function JumpToLatest({ visible, dot, onJump }: { visible: boolean; dot: boolean; onJump(): void }) {
+export function JumpToLatest({ visible, dot, onJump }: { visible: boolean; dot: boolean; onJump(fromButton: boolean): void }) {
   const t = useT();
   return (
     <button
@@ -18,7 +18,8 @@ export function JumpToLatest({ visible, dot, onJump }: { visible: boolean; dot: 
       aria-hidden={visible ? undefined : true}
       aria-label={t("jumpToLatest.label")}
       title={t("jumpToLatest.label")}
-      onClick={onJump}
+      // Whether the button had the focus (a keyboard press, or a click where clicks focus buttons).
+      onClick={(event) => onJump(document.activeElement === event.currentTarget)}
     >
       <Icon name="arrow-down" size={20} />
       {dot && <span className="cc-chat-jump-dot" aria-hidden="true" />}

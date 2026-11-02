@@ -50,6 +50,8 @@ export function useThreadScroll(
   const [jumpDot, setJumpDot] = useState(false);
   /** The scroll position an anchor asked for; the spacer keeps it reachable. */
   const anchored = useRef<number | null>(null);
+  /** The view rests at the anchor and the learner has not scrolled since: it is held there. */
+  const held = useRef(false);
   const lastEnd = useRef(0);
   const visible = useRef(false);
 
@@ -66,29 +68,52 @@ export function useThreadScroll(
     lastEnd.current = endAt;
   }, [thread, end]);
 
-  /** The spacer under the anchored question: enough room for the anchor's scroll position. */
+  /**
+   * The spacer under the anchored question: enough room for the anchor's scroll position. It sits
+   * after the observed content, not inside it, so resizing it from the observer never resizes what
+   * the observer watches (a loop WebKit reports as an error and answers by dropping notifications).
+   */
   const fitSpacer = useCallback(() => {
-    const scroller = thread.current, marker = end.current, room = spacer.current;
-    if (!scroller || !marker || !room) return;
-    if (anchored.current === null) {
-      room.style.blockSize = "0px";
-      return;
+    const scroller = thread.current, content = end.current?.parentElement, room = spacer.current;
+    if (!scroller || !content || !room) return;
+    let size = 0;
+    if (anchored.current !== null) {
+      const contentEnd = offsetIn(scroller, content) + content.getBoundingClientRect().height;
+      const style = getComputedStyle(scroller);
+      const padding = Number.parseFloat(style.paddingBlockEnd || style.paddingBottom || "0") || 0;
+      size = Math.max(0, Math.ceil(anchored.current + scroller.clientHeight - contentEnd - padding));
     }
-    const content = offsetIn(scroller, marker);
-    const style = getComputedStyle(scroller);
-    const padding = Number.parseFloat(style.paddingBlockEnd || style.paddingBottom || "0") || 0;
-    const need = anchored.current + scroller.clientHeight - content - padding;
-    room.style.blockSize = `${Math.max(0, Math.ceil(need))}px`;
+    const next = `${size}px`;
+    if (room.style.blockSize !== next) room.style.blockSize = next;
   }, [thread, end, spacer]);
 
   useEffect(() => {
     const scroller = thread.current;
     if (!scroller) return;
-    const onScroll = () => measure();
+    const onScroll = () => {
+      // The anchor's own scroll came to rest there: from now on the view is held at it.
+      if (anchored.current !== null && Math.abs(scroller.scrollTop - anchored.current) < 1) held.current = true;
+      measure();
+    };
+    // The learner's own scrolling (wheel, touch, the scroll bar, keys in the thread) lets go of it;
+    // the room under the question stays until the next send.
+    const letGo = () => {
+      held.current = false;
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) letGo();
+    };
     scroller.addEventListener("scroll", onScroll, { passive: true });
+    scroller.addEventListener("wheel", letGo, { passive: true });
+    scroller.addEventListener("touchstart", letGo, { passive: true });
+    scroller.addEventListener("pointerdown", letGo, { passive: true });
+    scroller.addEventListener("keydown", onKey);
     const observer = typeof ResizeObserver === "function"
       ? new ResizeObserver(() => {
           fitSpacer();
+          // Content that shrank for a moment (one state of a reply giving way to the next) can
+          // clamp the scroll before the spacer grows back: the held view is put back where it was.
+          if (held.current && anchored.current !== null && Math.abs(scroller.scrollTop - anchored.current) >= 1) scroller.scrollTop = anchored.current;
           measure();
         })
       : null;
@@ -98,6 +123,10 @@ export function useThreadScroll(
     measure();
     return () => {
       scroller.removeEventListener("scroll", onScroll);
+      scroller.removeEventListener("wheel", letGo);
+      scroller.removeEventListener("touchstart", letGo);
+      scroller.removeEventListener("pointerdown", letGo);
+      scroller.removeEventListener("keydown", onKey);
       observer?.disconnect();
     };
   }, [thread, measure, fitSpacer]);
@@ -121,6 +150,7 @@ export function useThreadScroll(
     jumpVisible,
     jumpDot,
     jump() {
+      held.current = false;
       setJumpDot(false);
       toEnd(true);
     },
@@ -134,12 +164,14 @@ export function useThreadScroll(
         if (alternative < top && top - alternative < scroller.clientHeight / 2) top = alternative;
       }
       anchored.current = Math.max(0, top);
+      held.current = false;
       fitSpacer();
       scrollTo(anchored.current, true);
     },
     reveal(element) {
       const scroller = thread.current;
       if (!scroller) return;
+      held.current = false;
       scrollTo(Math.max(0, offsetIn(scroller, element) - ANCHOR_GAP), true);
       highlightBlock(element);
     },
@@ -147,6 +179,7 @@ export function useThreadScroll(
       const scroller = thread.current;
       if (!scroller) return;
       anchored.current = null;
+      held.current = false;
       fitSpacer();
       if (element) scrollTo(Math.max(0, offsetIn(scroller, element) - ANCHOR_GAP), false);
       else toEnd(false);

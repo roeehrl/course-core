@@ -3,6 +3,7 @@
   "anchor.codeLine": "הקוד, שורה {line}",
   "anchor.codeLines": "הקוד, שורות {start}–{end}",
   "anchor.illustration": "חלק מהאיור",
+  "anchor.illustrationPart": "חלק מהאיור: {label}",
   "anchor.text": "קטע נבחר: “{excerpt}”",
   "anchor.part": "חלק מהשיעור",
   "anchor.videoAt": "סרטון הקורס, {time}",
