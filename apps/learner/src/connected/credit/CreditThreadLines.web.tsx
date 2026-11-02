@@ -18,24 +18,19 @@ function ThreadLine({ children, action }: { children: React.ReactNode; action?: 
 }
 
 /**
- * After a learner's turn that made questions practice: "Question 1 is now practice.", one line per
- * question, from the numbers stored with the message. Older messages, sent while a message made
- * every open check of the course practice, stored only the questions' ids: several are said as
- * "Your open checks in this course are now practice."; a single one without its number says nothing
- * rather than guess it.
+ * After a learner's turn that made questions practice: "Question 1 is now practice." from the number
+ * stored with the message, or, when it made several practice (a lesson's check and a retention
+ * item can share a number), one line that says how many: "2 questions are now practice.", as the
+ * confirm said before it was sent. Older messages, sent while a message made every open check of
+ * the course practice, stored only the questions' ids: several are said as "Your open checks in this
+ * course are now practice."; a single one without its number says nothing rather than guess it.
  */
 export function CreditLineAfter({ message }: { message: CompanionMessage }) {
   const t = useT();
   if (message.role !== "learner") return null;
   const downgraded = message.context.downgraded;
-  if (downgraded?.length)
-    return (
-      <>
-        {downgraded.map((row) => (
-          <ThreadLine key={row.challengeId}>{t("creditThreadLines.downgraded", { ordinal: row.ordinal })}</ThreadLine>
-        ))}
-      </>
-    );
+  if (downgraded?.length === 1) return <ThreadLine>{t("creditThreadLines.downgraded", { ordinal: downgraded[0]!.ordinal })}</ThreadLine>;
+  if (downgraded?.length) return <ThreadLine>{t("creditThreadLines.downgradedMany", { count: downgraded.length })}</ThreadLine>;
   if ((message.context.downgradedChallengeIds?.length ?? 0) > 1) return <ThreadLine>{t("creditThreadLines.downgradedCourse")}</ThreadLine>;
   return null;
 }

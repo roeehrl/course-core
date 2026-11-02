@@ -263,3 +263,50 @@ test("he: the sheet mirrors, and every height stays accessible", async ({ page }
   await expect(sheet.getByRole("button", { name: "הצגת המנחה", exact: true })).toBeVisible();
   await axe(page);
 });
+
+for (const locale of ["en", "he"] as const)
+  test(`an empty conversation opens at its start, and the handle's focus ring is drawn whole inside the sheet (${locale})`, async ({ page }, info) => {
+    await sheetWindow(page);
+    const sizes = [page.viewportSize()!];
+    // The smallest phone too (a shorter Half), where the empty state overflows most.
+    if (sizes[0]!.width < 600) sizes.push({ width: 360, height: 640 });
+    await openLesson(page, locale);
+    const sheet = companion(page);
+    const name = locale === "he" ? "שינוי גובה המנחה" : "Resize companion";
+    for (const size of sizes) {
+      await page.setViewportSize(size);
+      await trigger(page).click();
+      await expect(sheet).toHaveAttribute("data-detent", "half");
+      await settled(sheet);
+      // Where the learner is comes first (§3.10): the context line shows under the sheet's header,
+      // not scrolled away above it, and nothing offers to jump to a latest message.
+      const log = sheet.getByRole("log");
+      const context = sheet.locator(".cc-chat-empty-context");
+      await expect(context).toContainText("Minimum");
+      const [logBox, contextBox] = [(await log.boundingBox())!, (await context.boundingBox())!];
+      expect(contextBox.y).toBeGreaterThanOrEqual(logBox.y);
+      expect(contextBox.y + contextBox.height).toBeLessThanOrEqual(logBox.y + logBox.height);
+      expect(await log.evaluate((element) => element.scrollTop)).toBe(0);
+      await expect(sheet.locator(".cc-chat-jump:visible")).toHaveCount(0);
+      await page.screenshot({ path: info.outputPath(`empty-half-${locale}-${size.width}x${size.height}.png`) });
+      // Keys on the handle (↑ Full, ↓ Half, ↓ Collapsed come back from the bar) keep a ring on all four
+      // sides: it is drawn inside the handle, never above the sheet's top edge, which clips it.
+      const handle = sheet.getByRole("button", { name, exact: true });
+      for (const [key, detent] of [["ArrowUp", "full"], ["ArrowDown", "half"]] as const) {
+        await handle.press(key);
+        await expect(sheet).toHaveAttribute("data-detent", detent);
+        await settled(sheet);
+        const ring = await handle.evaluate((element) => {
+          const style = getComputedStyle(element);
+          const top = element.getBoundingClientRect().top - Number.parseFloat(style.outlineWidth) - Number.parseFloat(style.outlineOffset);
+          return { visible: element.matches(":focus-visible"), style: style.outlineStyle, top, sheet: element.closest("#connected-companion")!.getBoundingClientRect().top };
+        });
+        expect(ring.visible).toBe(true);
+        expect(ring.style).toBe("solid");
+        expect(ring.top).toBeGreaterThanOrEqual(ring.sheet);
+      }
+      await page.screenshot({ path: info.outputPath(`handle-ring-${locale}-${size.width}x${size.height}.png`) });
+      await sheet.getByRole("button", { name: locale === "he" ? "סגירת המנחה" : "Close companion", exact: true }).click();
+      await expect(sheet).toBeHidden();
+    }
+  });

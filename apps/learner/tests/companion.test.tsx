@@ -703,6 +703,35 @@ describe("the learner's place and text are never lost (verify round 2)", () => {
     await waitFor(() => expect(change).toHaveBeenLastCalledWith(""));
   });
 
+  it("a failed question sent again from the box is that question asked again: one bubble, no Try again left", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new CourseApiError("INTERNAL", 500)).mockImplementation(() => new Promise(() => {}));
+    show({ draft: "Failing question", onSend: send });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Try again" });
+    expect(box()).toHaveValue("Failing question");
+    await pressWhenReady(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    const log = screen.getByRole("log");
+    expect(within(log).getAllByText("Failing question")).toHaveLength(1);
+    expect(within(log).queryByText("Couldn't send. Your text is back in the box.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("a rate-limited question says once that the learner can ask again when its countdown ends; asked again, it shows once", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new CourseApiError("RATE_LIMITED", 429, { retryAfterSeconds: 1 })).mockImplementation(() => new Promise(() => {}));
+    show({ draft: "Limited question", onSend: send });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const log = screen.getByRole("log");
+    expect(await within(log).findByText(/You can ask again in 0:01\./)).toBeVisible();
+    expect(status()).not.toHaveTextContent("You can ask again");
+    await waitFor(() => expect(status()).toHaveTextContent("You can ask again"), { timeout: 3000 });
+    expect(within(log).getByText("You can ask again")).toBeVisible();
+    await pressWhenReady(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(within(log).getAllByText("Limited question")).toHaveLength(1);
+    expect(within(log).queryByText("You can ask again")).toBeNull();
+  });
+
   it("Cancel on a question held offline puts its text after a newer draft and says so", () => {
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     show({ draft: "Held question text" });

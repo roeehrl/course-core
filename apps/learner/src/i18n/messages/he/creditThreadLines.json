@@ -1,5 +1,6 @@
 {
   "downgraded": "שאלה {ordinal} היא עכשיו תרגול.",
+  "downgradedMany": "{count} שאלות הן עכשיו תרגול.",
   "downgradedCourse": "הבדיקות הפתוחות בקורס הן עכשיו תרגול.",
   "recap": "השיעור הסתיים: {own, plural, one {שאלה אחת} other {# שאלות}} בלי עזרה, {practice} כתרגול.",
   "recapOwn": "השיעור הסתיים: {own, plural, one {שאלה אחת} other {# שאלות}} בלי עזרה.",

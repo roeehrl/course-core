@@ -90,6 +90,14 @@ describe("how a reply ends", () => {
     expect(replyInProgress(queued, { kind: "held" })).toBe(false);
     expect(replyInProgress(queued, { kind: "stopped" }, { state: "stopped", partial: "" })).toBe(false);
   });
+  it("gives up a stalled reply on Ask again: the stalled line stays (no stop line), and it no longer holds the round button", () => {
+    const abandoned = { state: "abandoned" as const, partial: "Compare the" };
+    const stalled = { kind: "streaming", text: "Compare the", caret: "still", line: "stalled" };
+    expect(view({ at: 50_000, draft: draft({ text: "Compare the", shown: true }), stop: abandoned })).toEqual(stalled);
+    // Cancelled on the server since: still the stalled line, never "You stopped this reply."
+    expect(view({ at: 50_000, message: q({ job_state: "cancelled", job_sent: true }), draft: draft({ state: "cancelled" }), stop: abandoned })).toEqual(stalled);
+    expect(replyInProgress(q({ job_state: "queued" }), view({ at: 50_000, stop: abandoned }), abandoned)).toBe(false);
+  });
 });
 
 describe("when to look again", () => {

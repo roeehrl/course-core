@@ -281,6 +281,15 @@ test("the trigger stays in the header, pressed while the panel shows, and its Ab
   await about.click();
   const popover = page.getByRole("dialog", { name: "About your companion" });
   await expect(popover).toContainText("Your companion sees this lesson and your answers here.");
+  // First-run-consent panel 2 (§3.2): a visible title that names the dialog, padding 16, and the
+  // link underlined.
+  const title = popover.getByRole("heading", { name: "About your companion", exact: true });
+  await expect(title).toBeVisible();
+  expect(await popover.getAttribute("aria-labelledby")).toBe(await title.getAttribute("id"));
+  expect(await popover.evaluate((element) => getComputedStyle(element).padding)).toBe("16px");
+  expect(await title.evaluate((element) => getComputedStyle(element).fontWeight)).toBe("600");
+  expect(await popover.getByRole("button", { name: "Your data and choices", exact: true })
+    .evaluate((element) => getComputedStyle(element).textDecorationLine)).toBe("underline");
   await page.keyboard.press("Escape");
   await expect(popover).toBeHidden();
   await expect(about).toBeFocused();

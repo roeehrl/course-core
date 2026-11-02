@@ -77,14 +77,23 @@ test("Esc leaves focus view, and focus view lasts for the browser session", { ta
   await expect(page.locator("#connected-learning")).toBeHidden();
   // Esc from the message box (a React Native text input, which stops key events bubbling): back
   // beside the lesson, still open; the next Esc closes it.
+  // The focus stays in the box, with what was typed (§6): the box is still there, unlike "Show
+  // lesson beside", whose place Expand takes.
   const draft = companion(page).getByRole("textbox", { name: "Message to your companion", exact: true });
   await draft.focus();
+  await page.keyboard.type("draft text");
   await page.keyboard.press("Escape");
   await expect(companion(page)).toHaveAttribute("data-view", "docked");
   await expect(companion(page)).toBeVisible();
   await expect(page.locator("#connected-learning")).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem("course:learner-companion-view"))).toBeNull();
-  await companion(page).getByRole("textbox", { name: "Message to your companion", exact: true }).focus();
+  await expect(draft).toBeFocused();
+  // Still focused a frame later (the view change settles in the next frame).
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(draft).toBeFocused();
+  await expect(draft).toHaveValue("draft text");
+  await page.keyboard.type(" more");
+  await expect(draft).toHaveValue("draft text more");
   await page.keyboard.press("Escape");
   await expect(companion(page)).toBeHidden();
   await expect(trigger(page)).toBeFocused();

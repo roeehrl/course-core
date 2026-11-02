@@ -54,7 +54,7 @@ export function SendConfirm({ server, episodeId, now, pending, sendDisabled, onS
     <div ref={root} className="cc-credit-confirm-row" aria-busy={pending || undefined}>
       <InlineConfirm
         className="cc-credit-confirm"
-        sentence={t("sendConfirm.sentence", { ordinal })}
+        sentence={question && question.count > 1 ? t("sendConfirm.sentenceMany", { count: question.count }) : t("sendConfirm.sentence", { ordinal })}
         confirmLabel={t("sendConfirm.switch")}
         onConfirm={() => {
           if (!pending && !sendDisabled) onSendAsPractice();
