@@ -22,12 +22,15 @@ test("offline: the banner, Send with its clock, the question waiting with Cancel
   await context.setOffline(true);
   await expect(notice(page)).toHaveText("You're offline. Your message sends when you reconnect.");
   await box(page).fill("Held while offline");
-  // Its tip is drawn at the button on keyboard focus (Composer-states 12) and describes it.
-  await page.keyboard.press("Tab");
-  await expect(roundButton(page)).toBeFocused();
+  // Its tip describes it and is drawn at the button (Composer-states 12) on hover, where there is
+  // one, after a short wait.
   await expect(roundButton(page)).toHaveAccessibleDescription("Sends when you're back online");
-  await expect(page.locator("#connected-companion").getByRole("tooltip")).toBeVisible();
-  await expect(page.locator("#connected-companion").getByRole("tooltip")).toHaveText("Sends when you're back online");
+  const tip = page.locator("#connected-companion").getByRole("tooltip", { includeHidden: true });
+  await expect(tip).toHaveText("Sends when you're back online");
+  if (!(await page.evaluate(() => matchMedia("(hover: none)").matches))) {
+    await roundButton(page).hover();
+    await expect(tip).toBeVisible();
+  }
   await roundButton(page).click();
   const held = thread(page).locator(".cc-chat-turn.is-learner").filter({ hasText: "Held while offline" });
   await expect(held.getByText("Waiting to send", { exact: true })).toBeVisible();

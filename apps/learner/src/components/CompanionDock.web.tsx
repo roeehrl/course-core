@@ -50,6 +50,26 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
   const moveFocus = useRef<"panel" | "trigger" | null>(null);
   const closedByTrigger = useRef(false);
   const opener = useRef<HTMLElement | null>(null);
+  // The control the learner last pressed (with a pointer, or a key on the focused control): Safari
+  // does not focus a button it clicks, so the focus alone cannot say where the companion was
+  // opened from.
+  const pressed = useRef<{ element: HTMLElement; at: number } | null>(null);
+  useEffect(() => {
+    const onPointer = (event: Event) => {
+      const element = (event.target as Element | null)?.closest?.("button, a[href], [role='button']");
+      pressed.current = element instanceof HTMLElement ? { element, at: performance.now() } : null;
+    };
+    const onKey = () => {
+      const element = document.activeElement;
+      pressed.current = element instanceof HTMLElement && element !== document.body ? { element, at: performance.now() } : null;
+    };
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, []);
   useEffect(() => {
     let was = companionOpen.get();
     return companionOpen.subscribe(() => {
@@ -60,7 +80,9 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
       const nowhere = !active || active === document.body;
       if (now.open && !was.open && companionOpen.lastChange() === "action") {
         if (["trigger", "shortcut"].includes(companionOpen.openedBy() ?? "")) moveFocus.current = "panel";
-        opener.current = companionOpen.openedBy() !== "trigger" && !nowhere && active instanceof HTMLElement && !panel.current?.contains(active) ? active : null;
+        const press = pressed.current && performance.now() - pressed.current.at < 2000 ? pressed.current.element : null;
+        const from = press ?? (!nowhere && active instanceof HTMLElement ? active : null);
+        opener.current = companionOpen.openedBy() !== "trigger" && from && !panel.current?.contains(from) ? from : null;
       }
       if (!now.open && was.open && sameLayout && (closedByTrigger.current || nowhere || panel.current?.contains(active))) {
         moveFocus.current = "trigger";
