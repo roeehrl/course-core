@@ -54,18 +54,11 @@ nav.nav-links {
 }
 
 /* Phones and tablets: the page heading names the section while it is in view; the app bar
-   takes over the section's name (and, on phones, the course) once it has scrolled under it. */
-.app-bar .app-bar-title > * {
-  transition: opacity 0.15s ease-out;
-}
+   takes over the section's name (and, on phones, the course) once it has scrolled under it. The
+   switch is instant: a half-faded title would read too faint against the dark bar. */
 .app-bar:not(.title-in-bar) .app-bar-title > * {
   opacity: 0;
   visibility: hidden;
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-bar .app-bar-title > * {
-    transition: none;
-  }
 }
 /* The footer keeps one line, at the same quiet size as the rest of the page's small print. */
 .content > .footer {

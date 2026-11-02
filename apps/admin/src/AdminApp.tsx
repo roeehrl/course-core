@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Activity,
   BookOpen,
@@ -414,13 +420,24 @@ function CourseWorkspace({
   const appBar = useStickyHeight();
   // Phones and tablets: the page's own heading names the section at the top of the page, so the
   // app bar shows the section (and, on phones, the course) only once that heading has scrolled
-  // under the bar. The title is never said twice on one screen.
-  const [titleInBar, setTitleInBar] = useState(false);
+  // under the bar. The title is never said twice on one screen. The class is set on the bar
+  // directly: scrolling does not re-render the workspace (a re-render would restart loads that
+  // depend on fresh props further down).
+  const barElement = useRef<HTMLElement | null>(null);
+  const barRef = useCallback(
+    (element: HTMLElement | null) => {
+      barElement.current = element;
+      appBar(element);
+    },
+    [appBar],
+  );
   useEffect(() => {
     const target = heading.current;
+    const bar = barElement.current;
     if (
       layout === "wide" ||
       !target ||
+      !bar ||
       typeof IntersectionObserver === "undefined"
     )
       return;
@@ -428,7 +445,8 @@ function CourseWorkspace({
       ([entry]) => {
         if (!entry) return;
         const barBottom = entry.rootBounds?.top ?? 0;
-        setTitleInBar(
+        bar.classList.toggle(
+          "title-in-bar",
           !entry.isIntersecting &&
             entry.boundingClientRect.bottom <= barBottom + 1,
         );
@@ -436,7 +454,10 @@ function CourseWorkspace({
       { rootMargin: "-64px 0px 0px 0px" },
     );
     observer.observe(target);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      bar.classList.remove("title-in-bar");
+    };
   }, [layout, view, actions.loading]);
   // Where focus goes when the drawer closes: back to the menu button, or to the chosen page.
   const afterDrawer = useRef<"menu" | "heading">("menu");
@@ -640,10 +661,7 @@ function CourseWorkspace({
             </div>
           </header>
         ) : (
-          <header
-            className={`topbar app-bar${titleInBar ? " title-in-bar" : ""}`}
-            ref={appBar}
-          >
+          <header className="topbar app-bar" ref={barRef}>
             <button
               ref={menuButton}
               type="button"
