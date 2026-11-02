@@ -1,4 +1,3 @@
-/* Kept in its own file: rules appended to styles.css currently land inside an unclosed block there. */
 /* Debug inspector: workflow graph in the run inspector, and the pane opened from a block of the
    read-only learner view (a third column on wide screens, full screen on smaller ones). */
 .workflow-graph {
