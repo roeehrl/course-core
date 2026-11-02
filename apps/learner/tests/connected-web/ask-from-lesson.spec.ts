@@ -46,9 +46,17 @@ async function selectInLesson(page: Page, text: string) {
       range.setEnd(node, at + wanted.length);
       document.getSelection()!.removeAllRanges();
       document.getSelection()!.addRange(range);
-      const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
-      const last = rects.at(-1)!;
-      return { top: last.top, bottom: last.bottom, left: last.left, right: last.right };
+      // The selection's last character: where its last line ends. (A range's own rects are not
+      // always in reading order: Safari's engine gives a right-to-left line's words out of it.)
+      const tail = document.createRange();
+      tail.setStart(node, at + wanted.length - 1);
+      tail.setEnd(node, at + wanted.length);
+      const last = tail.getBoundingClientRect();
+      const line = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && Math.abs(rect.top - last.top) < 2);
+      const edge = getComputedStyle(node.parentElement!).direction === "rtl"
+        ? { left: Math.min(...line.map((rect) => rect.left)), right: last.right }
+        : { left: last.left, right: Math.max(...line.map((rect) => rect.right)) };
+      return { top: last.top, bottom: Math.max(...line.map((rect) => rect.bottom)), ...edge };
     }
     throw new Error(`lesson text not found: ${wanted}`);
   }, text);
