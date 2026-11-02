@@ -17,7 +17,6 @@
   "evidenceStatus.stale": "stale",
   "noMatch.title": "No matching learners",
   "noMatch.body": "Try another name or learner reference.",
-  "profile.eyebrow": "Enrollment profile",
   "profile.edit": "Edit profile",
   "noGoal": "No learning goal provided.",
   "pinnedRelease": "Pinned release",
@@ -48,7 +47,6 @@
   "progress.label": "{name} objective progress",
   "progress.note": "Progress reflects accepted evidence. Editing a profile does not award credit.",
   "evidence.title": "Evidence & decisions",
-  "evidence.eyebrow": "Versioned records",
   "evidence.receipt": "Receipt: {id}",
   "evidence.stale": "This evidence cannot be approved under the current rubric. A new submission is required.",
   "evidence.reviewLabel": "Review evidence: {objective}",
@@ -79,5 +77,7 @@
   "review.reject": "Reject evidence",
   "review.note": "Review note",
   "review.recording": "Recording…",
-  "review.record": "Record review"
+  "review.record": "Record review",
+  "reference.copy": "Copy reference",
+  "reference.copied": "Copied"
 }

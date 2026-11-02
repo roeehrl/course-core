@@ -5,7 +5,6 @@ import {
   Cable,
   ClipboardCheck,
   Contact,
-  ChevronRight,
   Gauge,
   History,
   Hourglass,
@@ -18,7 +17,6 @@ import {
   ListChecks,
   Menu,
   Network,
-  PanelTop,
   PlugZap,
   RefreshCw,
   ScanSearch,
@@ -55,36 +53,142 @@ import { ConceptMappingsView } from "./views/ConceptMappingsView";
 import { PlatformView } from "./views/PlatformView";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { useI18n, useT, type AdminTranslator, type MessageKey } from "./i18n";
+import "./shell.css";
 
 export interface AdminAppProps {
   client: AdminClient;
   /** The signed-in person's menu (connected host), shown at the end of the top bar. */
   account?: ReactNode;
 }
+/** The sidebar's groups, in order. Pairs that are easy to confuse ("Answer reviews" and "Answer
+ * keys", "AI services" and "AI supervision") land under different headings. */
+const navGroups = [
+  { id: "course", titleKey: "adminApp.navGroup.course" },
+  { id: "learners", titleKey: "adminApp.navGroup.learners" },
+  { id: "rules", titleKey: "adminApp.navGroup.rules" },
+  { id: "system", titleKey: "adminApp.navGroup.system" },
+] as const satisfies readonly { id: string; titleKey: MessageKey }[];
+type NavGroupId = (typeof navGroups)[number]["id"];
 const views = [
-  { id: "overview", titleKey: "adminApp.nav.overview", icon: Gauge },
-  { id: "course", titleKey: "adminApp.nav.course", icon: BookOpen },
-  { id: "learners", titleKey: "adminApp.nav.learners", icon: UsersRound },
-  { id: "reviews", titleKey: "adminApp.nav.reviews", icon: ClipboardCheck },
-  { id: "assessments", titleKey: "adminApp.nav.assessments", icon: ListChecks },
-  { id: "placement", titleKey: "adminApp.nav.placement", icon: Compass },
-  { id: "people", titleKey: "adminApp.nav.people", icon: Contact },
-  { id: "policy", titleKey: "adminApp.nav.policy", icon: ShieldCheck },
-  { id: "allowances", titleKey: "adminApp.nav.allowances", icon: Hourglass },
-  { id: "mappings", titleKey: "adminApp.nav.mappings", icon: Network },
-  { id: "research", titleKey: "adminApp.nav.research", icon: Library },
-  { id: "media", titleKey: "adminApp.nav.media", icon: Clapperboard },
-  { id: "providers", titleKey: "adminApp.nav.providers", icon: PlugZap },
-  { id: "supervision", titleKey: "adminApp.nav.supervision", icon: Bot },
-  { id: "studies", titleKey: "adminApp.nav.studies", icon: FlaskConical },
-  { id: "runs", titleKey: "adminApp.nav.runs", icon: ScanSearch },
-  { id: "audit", titleKey: "adminApp.nav.audit", icon: History },
-  { id: "platform", titleKey: "adminApp.nav.platform", icon: Activity },
-  { id: "integrations", titleKey: "adminApp.nav.integrations", icon: Cable },
+  {
+    id: "overview",
+    titleKey: "adminApp.nav.overview",
+    icon: Gauge,
+    group: "course",
+  },
+  {
+    id: "course",
+    titleKey: "adminApp.nav.course",
+    icon: BookOpen,
+    group: "course",
+  },
+  {
+    id: "assessments",
+    titleKey: "adminApp.nav.assessments",
+    icon: ListChecks,
+    group: "course",
+  },
+  {
+    id: "placement",
+    titleKey: "adminApp.nav.placement",
+    icon: Compass,
+    group: "course",
+  },
+  {
+    id: "mappings",
+    titleKey: "adminApp.nav.mappings",
+    icon: Network,
+    group: "course",
+  },
+  {
+    id: "research",
+    titleKey: "adminApp.nav.research",
+    icon: Library,
+    group: "course",
+  },
+  {
+    id: "media",
+    titleKey: "adminApp.nav.media",
+    icon: Clapperboard,
+    group: "course",
+  },
+  {
+    id: "learners",
+    titleKey: "adminApp.nav.learners",
+    icon: UsersRound,
+    group: "learners",
+  },
+  {
+    id: "reviews",
+    titleKey: "adminApp.nav.reviews",
+    icon: ClipboardCheck,
+    group: "learners",
+  },
+  {
+    id: "allowances",
+    titleKey: "adminApp.nav.allowances",
+    icon: Hourglass,
+    group: "learners",
+  },
+  {
+    id: "people",
+    titleKey: "adminApp.nav.people",
+    icon: Contact,
+    group: "learners",
+  },
+  {
+    id: "policy",
+    titleKey: "adminApp.nav.policy",
+    icon: ShieldCheck,
+    group: "rules",
+  },
+  {
+    id: "providers",
+    titleKey: "adminApp.nav.providers",
+    icon: PlugZap,
+    group: "rules",
+  },
+  {
+    id: "supervision",
+    titleKey: "adminApp.nav.supervision",
+    icon: Bot,
+    group: "rules",
+  },
+  {
+    id: "studies",
+    titleKey: "adminApp.nav.studies",
+    icon: FlaskConical,
+    group: "rules",
+  },
+  {
+    id: "runs",
+    titleKey: "adminApp.nav.runs",
+    icon: ScanSearch,
+    group: "system",
+  },
+  {
+    id: "audit",
+    titleKey: "adminApp.nav.audit",
+    icon: History,
+    group: "system",
+  },
+  {
+    id: "platform",
+    titleKey: "adminApp.nav.platform",
+    icon: Activity,
+    group: "system",
+  },
+  {
+    id: "integrations",
+    titleKey: "adminApp.nav.integrations",
+    icon: Cable,
+    group: "system",
+  },
 ] as const satisfies readonly {
   id: string;
   titleKey: MessageKey;
   icon: unknown;
+  group: NavGroupId;
 }[];
 /** A role code from the server as a label; unknown codes are shown as they are. */
 export function roleLabel(i18n: AdminTranslator, role: string) {
@@ -252,6 +356,7 @@ function CourseWorkspace({
     title: section.title,
     icon: SlidersHorizontal,
     content: true,
+    group: "course" as NavGroupId,
   }));
   // Platform and integrations are workspace operations for owners and administrators.
   const operator =
@@ -307,6 +412,32 @@ function CourseWorkspace({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const appBar = useStickyHeight();
+  // Phones and tablets: the page's own heading names the section at the top of the page, so the
+  // app bar shows the section (and, on phones, the course) only once that heading has scrolled
+  // under the bar. The title is never said twice on one screen.
+  const [titleInBar, setTitleInBar] = useState(false);
+  useEffect(() => {
+    const target = heading.current;
+    if (
+      layout === "wide" ||
+      !target ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        const barBottom = entry.rootBounds?.top ?? 0;
+        setTitleInBar(
+          !entry.isIntersecting &&
+            entry.boundingClientRect.bottom <= barBottom + 1,
+        );
+      },
+      { rootMargin: "-64px 0px 0px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [layout, view, actions.loading]);
   // Where focus goes when the drawer closes: back to the menu button, or to the chosen page.
   const afterDrawer = useRef<"menu" | "heading">("menu");
   const drawerShown = drawerOpen && layout !== "wide";
@@ -321,15 +452,35 @@ function CourseWorkspace({
     const list = sidebarScroll.current;
     const current = list?.querySelector<HTMLElement>('[aria-current="page"]');
     if (!list || !current) return;
-    const box = current.getBoundingClientRect();
-    const top = box.top - list.getBoundingClientRect().top + list.scrollTop;
-    const bottom = top + box.height;
+    const offset = (element: Element) =>
+      element.getBoundingClientRect().top -
+      list.getBoundingClientRect().top +
+      list.scrollTop;
+    const top = offset(current);
+    const bottom = top + current.getBoundingClientRect().height;
     // A small margin, so the item's focus ring is not cut off at the edge either.
     const margin = 12;
-    if (top - margin < list.scrollTop)
-      list.scrollTop = Math.max(0, top - margin);
-    else if (bottom + margin > list.scrollTop + list.clientHeight)
-      list.scrollTop = bottom + margin - list.clientHeight;
+    const group = current.closest(".nav-group");
+    if (top - margin < list.scrollTop) {
+      // Scrolling up: show the item's group heading with it when both fit.
+      const groupTop = group ? offset(group) : top;
+      list.scrollTop = Math.max(
+        0,
+        (bottom - groupTop + 2 * margin <= list.clientHeight ? groupTop : top) -
+          margin,
+      );
+    } else if (bottom + margin > list.scrollTop + list.clientHeight) {
+      // Scrolling down: stop where a whole item or group heading starts the visible list, so the
+      // first one in view is never cut in half under the brand.
+      const wanted = bottom + margin - list.clientHeight;
+      const starts = [
+        ...list.querySelectorAll(".nav-group-label, .nav-links button"),
+      ]
+        .map(offset)
+        .filter((start) => start - margin >= wanted);
+      list.scrollTop =
+        (starts.length ? Math.min(...starts) : wanted + margin) - margin;
+    }
   }, [view, layout]);
   const openView = (id: ViewId) => {
     setView(id);
@@ -339,25 +490,37 @@ function CourseWorkspace({
   };
   const navList = (onPick: (id: ViewId) => void) => (
     <nav aria-label={t("adminApp.navigation")} className="nav-links">
-      {navigation.map((item) => (
-        <button
-          key={item.id}
-          className={view === item.id ? "active" : ""}
-          aria-current={view === item.id ? "page" : undefined}
-          onClick={() => onPick(item.id)}
-          disabled={actions.pending}
-        >
-          <item.icon size={19} aria-hidden="true" />
-          <span dir={item.content ? "auto" : undefined}>{item.title}</span>
-          {view === item.id && (
-            <ChevronRight
-              size={15}
-              className="nav-arrow flip-rtl"
-              aria-hidden="true"
-            />
-          )}
-        </button>
-      ))}
+      {navGroups.map((group) => {
+        const items = navigation.filter((item) => item.group === group.id);
+        if (!items.length) return null;
+        const labelId = `nav-group-${group.id}`;
+        return (
+          <div
+            key={group.id}
+            className="nav-group"
+            role="group"
+            aria-labelledby={labelId}
+          >
+            <div className="nav-group-label" id={labelId}>
+              {t(group.titleKey)}
+            </div>
+            {items.map((item) => (
+              <button
+                key={item.id}
+                className={view === item.id ? "active" : ""}
+                aria-current={view === item.id ? "page" : undefined}
+                onClick={() => onPick(item.id)}
+                disabled={actions.pending}
+              >
+                <item.icon size={19} aria-hidden="true" />
+                <span dir={item.content ? "auto" : undefined}>
+                  {item.title}
+                </span>
+              </button>
+            ))}
+          </div>
+        );
+      })}
     </nav>
   );
   const courseTitle = (id: string, title: string) =>
@@ -427,16 +590,7 @@ function CourseWorkspace({
           {/* The brand and the signed-in person stay put; the navigation between them scrolls on
               its own, so every section can be reached in a short window. */}
           <div className="sidebar-scroll" ref={sidebarScroll}>
-            <div className="workspace-label">
-              <PanelTop size={15} aria-hidden="true" />{" "}
-              {t("adminApp.workspace")}
-            </div>
             {navList(openView)}
-            <div className="sidebar-tagline">
-              <ListChecks size={22} aria-hidden="true" />
-              <strong>{t("adminApp.tagline.title")}</strong>
-              <p>{t("adminApp.tagline.body")}</p>
-            </div>
           </div>
           {actor}
         </aside>
@@ -463,9 +617,6 @@ function CourseWorkspace({
               {refresh}
             </div>
           )}
-          <div className="workspace-label">
-            <PanelTop size={15} aria-hidden="true" /> {t("adminApp.workspace")}
-          </div>
           {navList((id) => {
             afterDrawer.current = "heading";
             setDrawerOpen(false);
@@ -489,7 +640,10 @@ function CourseWorkspace({
             </div>
           </header>
         ) : (
-          <header className="topbar app-bar" ref={appBar}>
+          <header
+            className={`topbar app-bar${titleInBar ? " title-in-bar" : ""}`}
+            ref={appBar}
+          >
             <button
               ref={menuButton}
               type="button"
@@ -531,13 +685,13 @@ function CourseWorkspace({
         >
           <div className="page-heading">
             <div>
-              <p className="eyebrow">
-                {data?.course.category && !data.course.categoryCode
-                  ? t("adminApp.eyebrow", { category: data.course.category })
-                  : t("adminApp.eyebrow", {
-                      category: t("adminApp.workspace"),
-                    })}
-              </p>
+              {/* The course this page belongs to, in full (the pickers and the app bar cut long
+                  titles short). */}
+              {currentCourse && (
+                <p className="eyebrow page-course" dir="auto">
+                  {courseTitle(currentCourse.id, currentCourse.title)}
+                </p>
+              )}
               <h1
                 tabIndex={-1}
                 ref={heading}
@@ -621,6 +775,7 @@ function CourseWorkspace({
                   data={data}
                   client={client}
                   onOpenAiServices={() => setView("providers")}
+                  onOpenView={(id) => openView(id)}
                 />
               )}
               {view === "audit" && <AuditView data={data} client={client} />}
@@ -636,7 +791,11 @@ function CourseWorkspace({
                 <PlatformView data={data} client={client} />
               )}
               {view === "integrations" && (
-                <IntegrationsView data={data} client={client} />
+                <IntegrationsView
+                  data={data}
+                  client={client}
+                  onOpenAiServices={() => openView("providers")}
+                />
               )}
               {sectionId && client.adminSections && declared.data && (
                 <AdminSectionView
@@ -653,7 +812,6 @@ function CourseWorkspace({
           )}
           <footer className="footer">
             <span>{t("adminApp.footer.motto")}</span>
-            <span>{t("adminApp.footer.authorization")}</span>
           </footer>
         </main>
       </div>

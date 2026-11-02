@@ -94,7 +94,20 @@ describe("phone and tablet navigation", () => {
     expect(current).toHaveAttribute("aria-current", "page");
     expect(current).toHaveFocus();
     // The course picker and the mode badge are in the drawer on phones.
-    expect(within(drawer).getByLabelText("Course")).toBeInTheDocument();
+    expect(
+      within(drawer).getByRole("combobox", { name: "Course" }),
+    ).toBeInTheDocument();
+    // The sections are grouped under four headings.
+    expect(
+      within(nav)
+        .getAllByRole("group")
+        .map((group) => group.getAttribute("aria-labelledby")),
+    ).toEqual([
+      "nav-group-course",
+      "nav-group-learners",
+      "nav-group-rules",
+      "nav-group-system",
+    ]);
     expect(within(drawer).getByText("Demo workspace")).toBeInTheDocument();
     // Escape (the dialog's cancel) closes it and focus returns to the menu button.
     fireEvent(drawer, new Event("cancel", { cancelable: true }));

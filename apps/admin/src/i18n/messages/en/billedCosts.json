@@ -1,6 +1,5 @@
 {
   "title": "Billed versus estimated cost",
-  "eyebrow": "Check the estimates against what providers actually charged",
   "explain": "Every cost Course Core shows is an estimate from your price list. Type in what a provider billed for a period, from its invoice or usage page, to see how far the estimate was off. Course Core never reads billing data from providers.",
   "provider": "Provider",
   "providerHint": "A name you will recognise, such as the provider and account. Letters, digits, spaces, dots, dashes.",

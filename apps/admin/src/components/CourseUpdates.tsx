@@ -159,10 +159,7 @@ export function CourseUpdates({
     });
   if (!view)
     return (
-      <Card
-        title={t("courseUpdates.title")}
-        eyebrow={t("courseUpdates.eyebrow")}
-      >
+      <Card title={t("courseUpdates.title")}>
         {error ? (
           <Notice tone="red">{error}</Notice>
         ) : (
@@ -171,6 +168,14 @@ export function CourseUpdates({
       </Card>
     );
   const canConfigure = view.permissions.configure;
+  // Why a button is off, said once under the buttons it concerns (linked to them).
+  const sourceReason =
+    !pending && (!canConfigure || !view.source || !sourceEdit.edited);
+  const settingsReason =
+    !pending &&
+    canConfigure &&
+    Boolean(view.source) &&
+    (!settingsEdit.edited || (level === "publish" && !acknowledge));
   const status = view.status;
   function lastCheck() {
     const error = status?.lastErrorCode
@@ -190,7 +195,7 @@ export function CourseUpdates({
       : t("courseUpdates.facts.lastCheck.value", params);
   }
   return (
-    <Card title={t("courseUpdates.title")} eyebrow={t("courseUpdates.eyebrow")}>
+    <Card title={t("courseUpdates.title")} className="course-updates">
       {notice && <Notice tone="green">{notice}</Notice>}
       {error && (
         <Notice tone="red" title={t("courseUpdates.notCompleted")}>
@@ -209,8 +214,12 @@ export function CourseUpdates({
       <dl className="facts vertical">
         <div>
           <dt>{t("courseUpdates.facts.newestInstalled")}</dt>
-          <dd dir={view.newestInstalled ? "ltr" : undefined}>
-            {view.newestInstalled ?? t("courseUpdates.facts.none")}
+          <dd>
+            {view.newestInstalled ? (
+              <bdi>{view.newestInstalled}</bdi>
+            ) : (
+              t("courseUpdates.facts.none")
+            )}
           </dd>
         </div>
         <div>
@@ -232,10 +241,10 @@ export function CourseUpdates({
         )}
       </dl>
       <form className="stack" onSubmit={saveSource}>
-        <fieldset className="segmented">
+        <fieldset className="update-source">
           <legend>{t("courseUpdates.source.legend")}</legend>
           {(["github", "path", "none"] as const).map((value) => (
-            <label key={value}>
+            <label key={value} className="choice-row">
               <input
                 type="radio"
                 name={`${id}-kind`}
@@ -248,7 +257,9 @@ export function CourseUpdates({
                 }
                 onChange={() => editSource({ kind: value })}
               />
-              {t(`courseUpdates.source.${value}`)}
+              <span>
+                <strong>{t(`courseUpdates.source.${value}`)}</strong>
+              </span>
             </label>
           ))}
         </fieldset>
@@ -323,13 +334,20 @@ export function CourseUpdates({
         <div className="button-row">
           <Button
             type="submit"
-            disabled={pending || !canConfigure || sourceEdit.changedElsewhere}
+            kind="primary"
+            aria-describedby={sourceReason ? `${id}-source-reason` : undefined}
+            disabled={
+              pending ||
+              !canConfigure ||
+              !sourceEdit.edited ||
+              sourceEdit.changedElsewhere
+            }
           >
             {t("courseUpdates.saveSource")}
           </Button>
           <Button
-            kind="primary"
             type="button"
+            aria-describedby={sourceReason ? `${id}-source-reason` : undefined}
             disabled={pending || !canConfigure || !view.source}
             onClick={checkNow}
           >
@@ -338,6 +356,15 @@ export function CourseUpdates({
               : t("courseUpdates.checkNow")}
           </Button>
         </div>
+        {sourceReason && (
+          <small className="button-reason" id={`${id}-source-reason`}>
+            {!canConfigure
+              ? t("courseUpdates.reason.role")
+              : !view.source
+                ? t("courseUpdates.reason.noSource")
+                : t("courseUpdates.reason.noSourceChanges")}
+          </small>
+        )}
       </form>
       {check?.result === "update_available" && (
         <section
@@ -451,17 +478,22 @@ export function CourseUpdates({
           htmlFor={`${id}-interval`}
           hint={t("courseUpdates.auto.interval.hint")}
         >
-          <input
-            id={`${id}-interval`}
-            aria-describedby={`${id}-interval-hint`}
-            type="number"
-            min={1}
-            max={720}
-            step={1}
-            value={interval}
-            disabled={pending || !canConfigure || !view.source}
-            onChange={(e) => editSettings({ interval: e.target.value })}
-          />
+          <span className="input-with-unit">
+            <input
+              id={`${id}-interval`}
+              aria-describedby={`${id}-interval-hint`}
+              type="number"
+              min={1}
+              max={720}
+              step={1}
+              value={interval}
+              disabled={pending || !canConfigure || !view.source}
+              onChange={(e) => editSettings({ interval: e.target.value })}
+            />
+            <span aria-hidden="true">
+              {t("courseUpdates.auto.interval.unit")}
+            </span>
+          </span>
         </Field>
         {level === "publish" && (
           <div className="stack">
@@ -494,18 +526,32 @@ export function CourseUpdates({
             onKeep={settingsEdit.keep}
           />
         )}
-        <Button
-          type="submit"
-          disabled={
-            pending ||
-            !canConfigure ||
-            !view.source ||
-            (level === "publish" && !acknowledge) ||
-            settingsEdit.changedElsewhere
-          }
-        >
-          {t("courseUpdates.auto.save")}
-        </Button>
+        <div className="button-row">
+          <Button
+            type="submit"
+            kind="primary"
+            aria-describedby={
+              settingsReason ? `${id}-settings-reason` : undefined
+            }
+            disabled={
+              pending ||
+              !canConfigure ||
+              !view.source ||
+              !settingsEdit.edited ||
+              (level === "publish" && !acknowledge) ||
+              settingsEdit.changedElsewhere
+            }
+          >
+            {t("courseUpdates.auto.save")}
+          </Button>
+        </div>
+        {settingsReason && (
+          <small className="button-reason" id={`${id}-settings-reason`}>
+            {!settingsEdit.edited
+              ? t("courseUpdates.reason.noSettingsChanges")
+              : t("courseUpdates.reason.acknowledge")}
+          </small>
+        )}
         {view.settings.level === "publish" && view.settings.acknowledgedBy && (
           <small>
             {t("courseUpdates.auto.authorizedBy", {

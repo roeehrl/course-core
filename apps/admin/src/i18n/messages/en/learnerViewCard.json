@@ -1,6 +1,6 @@
 {
   "title": "View as learner",
-  "eyebrow": "Read-only debugging",
+  "eyebrow": "Read only",
   "intro": "See this learner's path, current lesson, personal changes, gate evidence and pending reviews exactly as their app shows them. You cannot act as the learner. Each opening is recorded and the learner can see that you viewed their record. Their companion conversation and their own notes are not shown.",
   "opening": "Opening…",
   "open": "Open read-only learner view",

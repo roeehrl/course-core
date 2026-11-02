@@ -116,10 +116,7 @@ function MappingWorkspace({ port }: { port: ConceptMappingPort }) {
       options.find((o) => o.releaseId === second)?.catalogId;
   return (
     <div className="page-stack">
-      <Card
-        title={t("conceptMappingsView.choose.title")}
-        eyebrow={t("conceptMappingsView.choose.eyebrow")}
-      >
+      <Card title={t("conceptMappingsView.choose.title")}>
         <p className="muted">{t("conceptMappingsView.choose.body")}</p>
         {options.length < 2 ? (
           <EmptyState title={t("conceptMappingsView.choose.empty.title")}>

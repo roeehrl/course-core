@@ -78,9 +78,15 @@ describe("audit log", () => {
         client={{ audit: { list } } as unknown as AdminClient}
       />,
     );
-    // A recorded payload is shown field by field.
-    expect(await screen.findByText("releaseId")).toBeVisible();
+    // Each event is a sentence; the code and the payload are behind "Technical details".
+    expect(await screen.findByText("Course version published")).toBeVisible();
+    expect(screen.getByText("Answers submitted")).toBeVisible();
+    expect(screen.getByText("releaseId")).not.toBeVisible();
+    const details = screen.getAllByText("Technical details")[0]!;
+    fireEvent.click(details);
+    expect(screen.getByText("releaseId")).toBeVisible();
     expect(screen.getByText("r1")).toBeVisible();
+    expect(screen.getByText("course.published")).toBeVisible();
     expect(screen.getByText("Details withheld · learner record")).toBeVisible();
   });
 

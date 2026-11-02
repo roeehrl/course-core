@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { Button, Card, Field, Notice } from "./ui";
 import { useI18n, type MessageKey } from "../i18n";
+import { CopyText } from "./CopyText";
 
 export function RecoveryRegistry({
   data,
@@ -116,19 +117,18 @@ export function RecoveryRegistry({
     }
   }
   return (
-    <Card
-      title={t("recoveryRegistry.title")}
-      eyebrow={t("recoveryRegistry.eyebrow")}
-    >
+    <Card title={t("recoveryRegistry.title")}>
       <p>{t("recoveryRegistry.intro")}</p>
       {!allowed ? (
         <Notice tone="gold">{t("recoveryRegistry.notAllowed")}</Notice>
       ) : (
         <div className="page-stack">
-          <label>
-            {t("recoveryRegistry.release")}
+          <Field
+            label={t("recoveryRegistry.release")}
+            htmlFor="recovery-registry-release"
+          >
             <select
-              aria-label={t("recoveryRegistry.release")}
+              id="recovery-registry-release"
               value={releaseId}
               disabled={busy}
               onChange={(e) => {
@@ -145,21 +145,33 @@ export function RecoveryRegistry({
                 </option>
               ))}
             </select>
-          </label>
+          </Field>
           {runtime && (
             <div>
               <h3>{t("recoveryRegistry.installed")}</h3>
               {runtime.adapters.length ? (
-                runtime.adapters.map((a) => (
-                  <p key={a.id}>
-                    <strong dir="ltr">{a.id}</strong> ·{" "}
-                    <span dir="ltr">{a.kind}</span>
-                    <br />
-                    <code dir="ltr" style={{ overflowWrap: "anywhere" }}>
-                      {a.implementationDigest}
-                    </code>
-                  </p>
-                ))
+                <ul className="creator-list">
+                  {runtime.adapters.map((a) => (
+                    <li key={a.id}>
+                      <span>
+                        <bdi className="mono">{a.id}</bdi>
+                        <small>
+                          <bdi>{a.kind}</bdi>
+                        </small>
+                      </span>
+                      {/* The implementation's fingerprint is for comparing with the
+                          author's, not for reading: copy it. */}
+                      <CopyText
+                        value={a.implementationDigest}
+                        label={t("recoveryRegistry.copyDigest")}
+                        copiedLabel={t("recoveryRegistry.copied")}
+                        accessibleLabel={t("recoveryRegistry.copyDigestFor", {
+                          creator: a.id,
+                        })}
+                      />
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <Notice tone="gold">{t("recoveryRegistry.noCreators")}</Notice>
               )}
@@ -190,14 +202,7 @@ export function RecoveryRegistry({
           <small>{t("recoveryRegistry.configurationHint")}</small>
           {error && <Notice tone="red">{error}</Notice>}
           {notice && <Notice tone="green">{notice}</Notice>}
-          <div className="tag-row">
-            <Button
-              type="button"
-              disabled={busy}
-              onClick={() => void refresh()}
-            >
-              {t("recoveryRegistry.refresh")}
-            </Button>
+          <div className="button-row">
             <Button
               type="button"
               kind="primary"
@@ -207,6 +212,13 @@ export function RecoveryRegistry({
               onClick={() => void approve()}
             >
               {t("recoveryRegistry.approve")}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
+              {t("recoveryRegistry.refresh")}
             </Button>
           </div>
         </div>

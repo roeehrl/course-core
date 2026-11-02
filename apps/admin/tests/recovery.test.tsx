@@ -43,8 +43,15 @@ it("connected recovery approval shows exact installed code and revision and pres
   };
   render(<RecoveryRegistry data={workspace()} client={client} />);
   await screen.findByText("Registry revision 1 · approved");
+  // The implementation's fingerprint is behind a copy button, not printed on the page.
+  expect(screen.queryByText("a".repeat(64))).toBeNull();
+  expect(
+    screen.getByRole("button", {
+      name: "Copy the fingerprint of bounded-numeric-v1",
+    }),
+  ).toHaveAttribute("title", "a".repeat(64));
   const editor = screen.getByRole("textbox", {
-    name: "Recovery registry configuration",
+    name: "Recovery registry (JSON)",
   });
   fireEvent.change(editor, { target: { value: '{"profiles":[]}' } });
   const button = screen.getByRole("button", {
