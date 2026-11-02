@@ -4,8 +4,6 @@
   "outcome.refusal.core": "ה-Core דחה את הפלט של המודל: {reason}.",
   "outcome.refusal.host": "ההרצה הסתיימה בלי תוכנית בגלל סיבה בשרת או אצל ספק ה-AI, לא בגלל הפלט של המודל: {reason}.",
   "outcome.metadataOnly": "פלט הדיבוג מציג נתונים נלווים בלבד; לא נכללים בו נימוקים פרטיים של המודל או פרטי גישה.",
-  "event.recorded": "נרשם",
-  "event.detail": "אירוע למידה בתחום ההרצה; הנתונים שלו לא מוצגים בתצוגת הדיבוג.",
   "context.provider_binding.label": "קישור להגדרות ספק ה-AI",
   "context.provider_binding.version": "{providerRevision, select, host {ברירת המחדל של השרת} other {workspace-provider-{providerRevision}}}",
   "context.provider_binding.source": "גרסת ההגדרות שנשמרה עם המשימה",

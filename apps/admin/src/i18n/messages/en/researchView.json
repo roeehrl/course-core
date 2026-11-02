@@ -176,5 +176,10 @@
   "failure.REVIEW_EVIDENCE_REQUIRED": "the review needs quoted evidence from the page",
   "failure.INSPECTION_CHANGED": "the page changed since it was reviewed",
   "failure.RIGHTS_REQUIRED": "the source's usage rights are missing",
-  "failure.CAPACITY": "too many inspections are running; try again in a moment"
+  "failure.CAPACITY": "too many inspections are running; try again in a moment",
+  "topics.count": "{count, plural, one {# topic} other {# topics}} · {withSources} with sources",
+  "topics.search": "Search topics",
+  "topics.noMatch": "No topic matches this search.",
+  "emptyTopics.title": "Topics without sources ({count})",
+  "emptyTopics.body": "No source has been added or suggested for these topics yet."
 }

@@ -35,6 +35,7 @@ import {
   Notice,
   Stat,
 } from "../components/ui";
+import { SkeletonRows } from "./contentShared";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 const stateTone = {
@@ -79,7 +80,11 @@ function StudyAdmin({
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
   if (list.loading && !list.data)
-    return <Loading label={t("studyView.loading")} />;
+    return (
+      <Card title={t("studyView.about.title")}>
+        <SkeletonRows label={t("studyView.loading")} rows={3} />
+      </Card>
+    );
   if (list.error || !list.data)
     return <Notice tone="red">{studyErrorMessage(list.error, t)}</Notice>;
   const s = list.data;
@@ -92,22 +97,52 @@ function StudyAdmin({
     setCreating(false);
     list.reload();
   };
+  const canCreate = s.canManage && !creating && free.length > 0;
   return (
     <div className="page-stack">
-      <div aria-live="polite">
+      <div aria-live="polite" className="cv-live">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
-      <Card title={t("studyView.about.title")}>
+      {/* One header card for the page: what studies are, and the create action on its right, as
+          on the other pages (Invite person, New enrollment, New draft). */}
+      <Card
+        title={t("studyView.about.title")}
+        actions={
+          canCreate && (
+            <Button kind="primary" onClick={() => setCreating(true)}>
+              <FlaskConical size={16} aria-hidden="true" /> {t("studyView.new")}
+            </Button>
+          )
+        }
+      >
         <p className="muted">{t("studyView.about.body")}</p>
-      </Card>
-      {s.studies.length === 0 && !creating && (
-        <Card title={t("studyView.title")}>
+        {s.studies.length === 0 && !creating && (
           <EmptyState title={t("studyView.empty.title")}>
             {s.canManage
               ? t("studyView.empty.manage")
               : t("studyView.empty.readOnly")}
           </EmptyState>
-        </Card>
+        )}
+      </Card>
+      {s.canManage && creating && (
+        <StudyForm
+          releases={free}
+          onCancel={() => setCreating(false)}
+          onSubmit={async (input, releaseId) => {
+            const result = await port.create(catalogId, {
+              ...input,
+              releaseId: releaseId!,
+            });
+            done(
+              t(
+                result.warnings?.length
+                  ? "studyView.createdWithWarnings"
+                  : "studyView.created",
+                { title: result.study.title },
+              ),
+            );
+          }}
+        />
       )}
       {s.studies.map((study) => (
         <StudyCard
@@ -118,36 +153,6 @@ function StudyAdmin({
           onChanged={done}
         />
       ))}
-      {s.canManage &&
-        (creating ? (
-          <StudyForm
-            releases={free}
-            onCancel={() => setCreating(false)}
-            onSubmit={async (input, releaseId) => {
-              const result = await port.create(catalogId, {
-                ...input,
-                releaseId: releaseId!,
-              });
-              done(
-                t(
-                  result.warnings?.length
-                    ? "studyView.createdWithWarnings"
-                    : "studyView.created",
-                  { title: result.study.title },
-                ),
-              );
-            }}
-          />
-        ) : (
-          free.length > 0 && (
-            <div className="tag-row">
-              <Button kind="primary" onClick={() => setCreating(true)}>
-                <FlaskConical size={16} aria-hidden="true" />{" "}
-                {t("studyView.new")}
-              </Button>
-            </div>
-          )
-        ))}
     </div>
   );
 }

@@ -58,5 +58,6 @@
   "appeal.answerLabel": "Answer {n} from {learner}",
   "appeal.decision": "Your decision: <strong>{met, select, yes {Criteria met} other {Not yet}}</strong>{keeps, select, yes { (keeps the original)} other { (changes the original)}}",
   "appeal.noteHint": "Required: explain the second opinion.",
-  "appeal.save": "Save second opinion"
+  "appeal.save": "Save second opinion",
+  "appeal.title": "Second opinions"
 }

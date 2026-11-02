@@ -12,7 +12,15 @@ import {
   type SupervisionSettingsPort,
 } from "../domain/supervision";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, Card, Field, Loading, Notice } from "../components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Loading,
+  Notice,
+} from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
@@ -114,8 +122,11 @@ export function SupervisionSettingsCard({
       className="supervision-settings"
     >
       <div className="stack">
-        <p>{t("supervisionSettings.intro")}</p>
-        <p>{t("supervisionSettings.admission")}</p>
+        <p className="muted">{t("supervisionSettings.intro")}</p>
+        <details className="cv-tech">
+          <summary>{t("supervisionSettings.admission.summary")}</summary>
+          <p>{t("supervisionSettings.admission")}</p>
+        </details>
         <fieldset className="stack">
           <legend className="section-title">
             {t("supervisionSettings.autonomy.title")}
@@ -128,12 +139,11 @@ export function SupervisionSettingsCard({
                 value={value}
                 checked={chosenLevel === value}
                 onChange={() => setLevel(value)}
-              />{" "}
+              />
               <span>
                 <strong>
                   {t(`supervisionSettings.autonomy.${value}` as MessageKey)}
                 </strong>
-                <br />
                 <span className="muted">
                   {t(
                     `supervisionSettings.autonomy.${value}.help` as MessageKey,
@@ -160,12 +170,11 @@ export function SupervisionSettingsCard({
                       : chosenFamilies.filter((f) => f !== family.id),
                   )
                 }
-              />{" "}
+              />
               <span>
                 <strong>
                   {label(`supervisionSettings.family.${family.id}`, family.id)}
                 </strong>
-                <br />
                 <span className="muted">
                   {label(
                     `supervisionSettings.family.${family.id}.help`,
@@ -189,12 +198,11 @@ export function SupervisionSettingsCard({
                 value={value}
                 checked={chosenConfirmation === value}
                 onChange={() => setConfirmation(value)}
-              />{" "}
+              />
               <span>
                 <strong>
                   {t(`supervisionSettings.confirmation.${value}` as MessageKey)}
                 </strong>
-                <br />
                 <span className="muted">
                   {t(
                     `supervisionSettings.confirmation.${value}.help` as MessageKey,
@@ -263,22 +271,31 @@ export function SupervisionSettingsCard({
             ))}
           </Notice>
         )}
-        <div className="tag-row">
-          <Button disabled={pending || unchanged} onClick={() => void check()}>
-            <Eye size={16} aria-hidden="true" />{" "}
-            {t("supervisionSettings.check")}
-          </Button>
+        <div className="button-row">
           <Button
             kind="primary"
             disabled={pending || unchanged || !previewed}
             onClick={() => void save()}
+            aria-describedby={unchanged || !previewed ? `${id}-why` : undefined}
           >
             {t("supervisionSettings.save")}
           </Button>
+          <Button disabled={pending || unchanged} onClick={() => void check()}>
+            <Eye size={16} aria-hidden="true" />{" "}
+            {t("supervisionSettings.check")}
+          </Button>
+          {unchanged ? (
+            <span className="button-reason" id={`${id}-why`}>
+              {t("supervisionSettings.noChanges")}
+            </span>
+          ) : (
+            !previewed && (
+              <span className="button-reason" id={`${id}-why`}>
+                {t("supervisionSettings.checkFirst")}
+              </span>
+            )
+          )}
         </div>
-        {!unchanged && !previewed && (
-          <p className="muted">{t("supervisionSettings.checkFirst")}</p>
-        )}
       </div>
     </Card>
   );
@@ -366,7 +383,9 @@ export function AuthorityQueueCard({
           )}
         </div>
         {pendingRequests.length === 0 ? (
-          <p className="muted">{t("supervisionSettings.requests.empty")}</p>
+          <EmptyState title={t("supervisionSettings.requests.empty")}>
+            {t("supervisionSettings.requests.emptyBody")}
+          </EmptyState>
         ) : (
           <ul className="stack">
             {pendingRequests.map((r) => (

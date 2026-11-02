@@ -4,8 +4,6 @@
   "outcome.refusal.core": "Core refused the model output: {reason}.",
   "outcome.refusal.host": "The run ended without a plan for a host or provider cause, not the model's output: {reason}.",
   "outcome.metadataOnly": "Debug output is a metadata-only projection; no private reasoning or credentials are included.",
-  "event.recorded": "Recorded",
-  "event.detail": "Scoped learning event; payload withheld in the debug projection.",
   "context.provider_binding.label": "Provider configuration binding",
   "context.provider_binding.version": "{providerRevision, select, host {Host fallback} other {workspace-provider-{providerRevision}}}",
   "context.provider_binding.source": "Persisted job version binding",

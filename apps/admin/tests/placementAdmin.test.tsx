@@ -158,6 +158,12 @@ describe("placement administration", () => {
     const save = screen.getByRole("button", {
       name: "Save placement settings",
     });
+    // A pristine form cannot be saved, and says why.
+    expect(save).toBeDisabled();
+    expect(screen.getByText("No changes yet.")).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /Offer placement to learners/ }),
+    );
     await userEvent.type(limit, "1");
     expect(save).toBeDisabled();
     await userEvent.clear(limit);

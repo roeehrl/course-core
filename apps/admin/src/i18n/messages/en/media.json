@@ -1,6 +1,6 @@
 {
   "error.FORBIDDEN": "Your role cannot do this. Nothing changed.",
-  "error.MEDIA_PROVIDER_UNCONFIGURED": "No media provider is configured for this workspace. Configure one under Providers first.",
+  "error.MEDIA_PROVIDER_UNCONFIGURED": "No media model is set up for this workspace. Choose one for “Images and video” in AI services first.",
   "error.MEDIA_CAPABILITY_MISSING": "The configured provider has no video model assigned to the media role.",
   "error.MEDIA_PROVIDER_UNAVAILABLE": "The media provider is not ready (for example, its key is missing). Nothing was charged.",
   "error.MEDIA_PRICING_UNAVAILABLE": "The media role has no reviewed rate card, so no cost can be estimated. Nothing was charged.",

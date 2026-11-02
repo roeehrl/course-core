@@ -285,73 +285,81 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         )}
       </dl>
       {p.strategies && <StrategiesUsed strategies={p.strategies} />}
-      <table className="data-table">
-        <caption>{t("runInspectorPanels.operations.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("runInspectorPanels.operations.operation")}</th>
-            <th scope="col">{t("runInspectorPanels.operations.status")}</th>
-            <th scope="col">{t("runInspectorPanels.operations.reserved")}</th>
-            <th scope="col">{t("runInspectorPanels.operations.used")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {p.operations.map((o) => (
-            <tr key={o.id + o.attempt}>
-              <td className="mono">
-                <span dir="ltr">
-                  {o.id.split("/").at(-1)} #{o.attempt}
-                </span>
-              </td>
-              <td>
-                <span dir="ltr">{o.status}</span>
-              </td>
-              <td>{pair(o.reservation)}</td>
-              <td>
-                {o.usage
-                  ? `${pair(o.usage)}${o.usageBasis ? ` (${o.usageBasis.microUsd})` : ""}`
-                  : "—"}
-              </td>
+      <div className="table-wrap">
+        <table className="data-table">
+          <caption>{t("runInspectorPanels.operations.caption")}</caption>
+          <thead>
+            <tr>
+              <th scope="col">
+                {t("runInspectorPanels.operations.operation")}
+              </th>
+              <th scope="col">{t("runInspectorPanels.operations.status")}</th>
+              <th scope="col">{t("runInspectorPanels.operations.reserved")}</th>
+              <th scope="col">{t("runInspectorPanels.operations.used")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <table className="data-table">
-        <caption>{t("runInspectorPanels.budgets.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("runInspectorPanels.budgets.budget")}</th>
-            <th scope="col">{t("runInspectorPanels.budgets.limit")}</th>
-            <th scope="col">{t("runInspectorPanels.budgets.used")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <th scope="row">{t("runInspectorPanels.budgets.learner")}</th>
-            <td>
-              {p.enrollmentBudget?.limitSource === "unlimited"
-                ? t("runInspectorPanels.budgets.noLearnerLimit")
-                : pair(p.enrollmentBudget?.limit)}
-            </td>
-            <td>{pair(p.enrollmentBudget?.used)}</td>
-          </tr>
-          <tr>
-            <th scope="row">{t("runInspectorPanels.budgets.learnerDaily")}</th>
-            <td>{pair(p.enrollmentBudget?.daily)}</td>
-            <td>—</td>
-          </tr>
-          <tr>
-            <th scope="row">{t("runInspectorPanels.budgets.perArtifact")}</th>
-            <td>{pair(p.enrollmentBudget?.perArtifact)}</td>
-            <td>—</td>
-          </tr>
-          <tr>
-            <th scope="row">{t("runInspectorPanels.budgets.workspace")}</th>
-            <td>{pair(p.workspaceBudget?.limit)}</td>
-            <td>{pair(p.workspaceBudget?.used)}</td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {p.operations.map((o) => (
+              <tr key={o.id + o.attempt}>
+                <td className="mono">
+                  <span dir="ltr">
+                    {o.id.split("/").at(-1)} #{o.attempt}
+                  </span>
+                </td>
+                <td>
+                  <span dir="ltr">{o.status}</span>
+                </td>
+                <td>{pair(o.reservation)}</td>
+                <td>
+                  {o.usage
+                    ? `${pair(o.usage)}${o.usageBasis ? ` (${o.usageBasis.microUsd})` : ""}`
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-wrap">
+        <table className="data-table">
+          <caption>{t("runInspectorPanels.budgets.caption")}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("runInspectorPanels.budgets.budget")}</th>
+              <th scope="col">{t("runInspectorPanels.budgets.limit")}</th>
+              <th scope="col">{t("runInspectorPanels.budgets.used")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">{t("runInspectorPanels.budgets.learner")}</th>
+              <td>
+                {p.enrollmentBudget?.limitSource === "unlimited"
+                  ? t("runInspectorPanels.budgets.noLearnerLimit")
+                  : pair(p.enrollmentBudget?.limit)}
+              </td>
+              <td>{pair(p.enrollmentBudget?.used)}</td>
+            </tr>
+            <tr>
+              <th scope="row">
+                {t("runInspectorPanels.budgets.learnerDaily")}
+              </th>
+              <td>{pair(p.enrollmentBudget?.daily)}</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <th scope="row">{t("runInspectorPanels.budgets.perArtifact")}</th>
+              <td>{pair(p.enrollmentBudget?.perArtifact)}</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <th scope="row">{t("runInspectorPanels.budgets.workspace")}</th>
+              <td>{pair(p.workspaceBudget?.limit)}</td>
+              <td>{pair(p.workspaceBudget?.used)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -565,37 +573,39 @@ export function ReplayPanel({
                   )}
             </Notice>
             {!!result.steps.length && (
-              <table className="data-table">
-                <caption>
-                  {t("runInspectorPanels.replay.steps.caption")}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">
-                      {t("runInspectorPanels.replay.steps.step")}
-                    </th>
-                    <th scope="col">
-                      {t("runInspectorPanels.replay.steps.tool")}
-                    </th>
-                    <th scope="col">
-                      {t("runInspectorPanels.replay.steps.receipt")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.steps.map((s) => (
-                    <tr key={s.step}>
-                      <td>{i18n.number(s.step)}</td>
-                      <td>
-                        <span dir="ltr">{s.tool}</span>
-                      </td>
-                      <td className="mono">
-                        <span dir="ltr">{s.recordedReceiptId}</span>
-                      </td>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <caption>
+                    {t("runInspectorPanels.replay.steps.caption")}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">
+                        {t("runInspectorPanels.replay.steps.step")}
+                      </th>
+                      <th scope="col">
+                        {t("runInspectorPanels.replay.steps.tool")}
+                      </th>
+                      <th scope="col">
+                        {t("runInspectorPanels.replay.steps.receipt")}
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {result.steps.map((s) => (
+                      <tr key={s.step}>
+                        <td>{i18n.number(s.step)}</td>
+                        <td>
+                          <span dir="ltr">{s.tool}</span>
+                        </td>
+                        <td className="mono">
+                          <span dir="ltr">{s.recordedReceiptId}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
             <dl className="facts vertical">
               <div>

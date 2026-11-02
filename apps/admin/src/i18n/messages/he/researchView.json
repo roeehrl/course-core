@@ -176,5 +176,10 @@
   "failure.REVIEW_EVIDENCE_REQUIRED": "הבדיקה צריכה ציטוט מתוך הדף",
   "failure.INSPECTION_CHANGED": "הדף השתנה מאז שנבדק",
   "failure.RIGHTS_REQUIRED": "חסרות זכויות השימוש של המקור",
-  "failure.CAPACITY": "יותר מדי סריקות רצות כרגע; אפשר לנסות שוב בעוד רגע"
+  "failure.CAPACITY": "יותר מדי סריקות רצות כרגע; אפשר לנסות שוב בעוד רגע",
+  "topics.count": "{count, plural, one {נושא אחד} two {שני נושאים} other {# נושאים}} · {withSources} עם מקורות",
+  "topics.search": "חיפוש נושאים",
+  "topics.noMatch": "אף נושא לא מתאים לחיפוש.",
+  "emptyTopics.title": "נושאים בלי מקורות ({count})",
+  "emptyTopics.body": "עדיין לא נוספו או הוצעו מקורות לנושאים האלה."
 }
