@@ -536,6 +536,8 @@ function CourseWorkspace({
   /** Opens a page: a workspace page, or a page of the open course. */
   const openView = (id: ViewId) => {
     actions.clear();
+    // The heading takes focus also when the page is the one already open.
+    heading.current?.focus({ preventScroll: true });
     navigate(
       isWorkspacePage(id)
         ? { scope: "workspace", page: id }

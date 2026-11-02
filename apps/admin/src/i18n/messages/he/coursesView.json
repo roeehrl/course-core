@@ -24,5 +24,5 @@
   "queue.item": "{label}: {count}",
   "queue.open": "סקירה",
   "queue.openCourse": "פתיחת הסקירה של {title}",
-  "queue.partial": "{count, plural, one {קורס אחד לא נספר} other {# קורסים לא נספרו}}: לא ניתן היה לקרוא את הנתונים."
+  "queue.partial": "{count, plural, one {קורס אחד לא נספר: לא ניתן היה לקרוא את הנתונים שלו.} other {# קורסים לא נספרו: לא ניתן היה לקרוא את הנתונים שלהם.}}"
 }

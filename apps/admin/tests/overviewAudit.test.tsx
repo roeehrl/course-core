@@ -313,7 +313,7 @@ describe("Courses home", () => {
     expect(screen.getAllByText("AI supervision health")).toHaveLength(1);
   });
 
-  it("says when nothing waits, and when a course could not be counted, in Hebrew", async () => {
+  it("says when a course could not be counted rather than calling it empty, in Hebrew", async () => {
     const quiet = {
       ...overview,
       approvalQueue: { ...overview.approvalQueue, writtenAnswers: 0 },
@@ -326,10 +326,9 @@ describe("Courses home", () => {
         {home(workspace([]), { overview: { load } } as unknown as AdminClient)}
       </I18nProvider>,
     );
-    expect(
-      await screen.findByText("שום דבר לא ממתין לצוות באף קורס."),
-    ).toBeVisible();
-    expect(text()).toContain("קורס אחד לא נספר");
+    // A course that could not be read is not called empty.
+    expect(await screen.findByText(/קורס אחד לא נספר/)).toBeVisible();
+    expect(screen.queryByText("שום דבר לא ממתין לצוות באף קורס.")).toBeNull();
     expect(screen.getByText("ממתינות לתקציב")).toBeVisible();
     expect(text()).toContain("שתי קריאות AI ב-7 הימים האחרונים");
   });

@@ -82,9 +82,8 @@ nav.nav-links {
   flex-direction: row;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid #2f4a5d;
-  border-radius: 12px;
+  padding: 4px 14px 14px;
+  border-bottom: 1px solid #2f4a5d;
   color: #9fb6c5;
 }
 .level-header.level-workspace strong {
@@ -130,7 +129,7 @@ nav.nav-links {
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 9px;

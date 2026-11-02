@@ -134,7 +134,11 @@ function WaitingForStaff({
         {read.loading ? (
           <SkeletonRows label={t("coursesView.queue.loading")} rows={3} />
         ) : rows.length === 0 ? (
-          <p className="courses-queue-empty">{t("coursesView.queue.empty")}</p>
+          unread === 0 && (
+            <p className="courses-queue-empty">
+              {t("coursesView.queue.empty")}
+            </p>
+          )
         ) : (
           <div
             className="table-wrap"
