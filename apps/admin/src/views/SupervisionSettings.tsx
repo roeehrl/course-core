@@ -445,7 +445,7 @@ export function AuthorityQueueCard({
         ) : (
           <ul className="stack">
             {pendingRequests.map((r) => (
-              <li key={r.requestId} className="stack">
+              <li key={r.requestId} className="record">
                 <strong>
                   {label(`supervisionSettings.requests.kind.${r.kind}`, r.kind)}
                 </strong>
@@ -461,7 +461,8 @@ export function AuthorityQueueCard({
                 {r.reason && (
                   <span className="muted" dir="auto">
                     {t("supervisionSettings.requests.reason", {
-                      reason: r.reason,
+                      // The supervisor's words keep their own direction.
+                      reason: `\u2068${r.reason}\u2069`,
                     })}
                   </span>
                 )}
