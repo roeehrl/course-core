@@ -1740,11 +1740,26 @@ pre {
 .dialog::backdrop {
   background: #172d3b88;
 }
+/* The title stays at the top while a long dialog's body scrolls under it; a hairline sets it
+   apart once the body has scrolled. */
 .dialog-heading {
+  position: sticky;
+  z-index: 2;
+  top: calc(-1 * var(--dialog-pad-block));
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+  margin-inline: calc(-1 * var(--dialog-pad-inline));
+  margin-block-start: calc(-1 * var(--dialog-pad-block));
+  /* The 12px under the title is part of the stuck bar; the space to the body stays the dialog's
+     gap. */
+  margin-block-end: -12px;
+  padding: var(--dialog-pad-block) var(--dialog-pad-inline) 12px;
+  background: var(--paper);
+}
+.dialog[data-scrolled] > .dialog-heading {
+  box-shadow: 0 1px 0 var(--line);
 }
 .dialog .stack > .button {
   align-self: flex-start;

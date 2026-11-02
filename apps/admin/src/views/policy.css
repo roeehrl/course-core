@@ -221,17 +221,6 @@
   font-weight: 700;
 }
 
-/* Dialogs of this area: the title stays at the top while the body scrolls. */
-.dialog.policy-dialog > .dialog-heading {
-  position: sticky;
-  z-index: 2;
-  top: calc(-1 * var(--dialog-pad-block));
-  margin-inline: calc(-1 * var(--dialog-pad-inline));
-  margin-block-start: calc(-1 * var(--dialog-pad-block));
-  padding: var(--dialog-pad-block) var(--dialog-pad-inline) 12px;
-  background: var(--paper);
-  box-shadow: 0 1px 0 var(--line);
-}
 .dialog.policy-dialog .segmented {
   margin: 0;
   border: 0;
