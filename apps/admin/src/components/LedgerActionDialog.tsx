@@ -74,6 +74,7 @@ export function LedgerActionDialog({
   };
   return (
     <Dialog
+      className="policy-dialog"
       title={t(`ledgerActionDialog.title.${action.kind}` as MessageKey)}
       onClose={onClose}
       pending={flight.pending}
@@ -127,20 +128,22 @@ export function LedgerActionDialog({
         </>
       )}
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <Button
-        disabled={flight.pending}
-        onClick={() =>
-          void flight.run(async () =>
-            setPreview(
-              await client.previewLedgerAction!(policy.enrollmentId, action),
-            ),
-          )
-        }
-      >
-        {flight.pending && !preview
-          ? t("ledgerActionDialog.computing")
-          : t("ledgerActionDialog.preview")}
-      </Button>
+      <div className="policy-form-actions action-row">
+        <Button
+          disabled={flight.pending}
+          onClick={() =>
+            void flight.run(async () =>
+              setPreview(
+                await client.previewLedgerAction!(policy.enrollmentId, action),
+              ),
+            )
+          }
+        >
+          {flight.pending && !preview
+            ? t("ledgerActionDialog.computing")
+            : t("ledgerActionDialog.preview")}
+        </Button>
+      </div>
       {preview && (
         <div className="stack">
           <h3>{t("ledgerActionDialog.reviewed")}</h3>
@@ -251,6 +254,14 @@ export function LedgerActionDialog({
               }
             >
               {t(`ledgerActionDialog.apply.${action.kind}` as MessageKey)}
+            </Button>
+            <Button
+              type="button"
+              kind="quiet"
+              disabled={flight.pending}
+              onClick={onClose}
+            >
+              {t("ledgerActionDialog.cancel")}
             </Button>
           </div>
         </div>

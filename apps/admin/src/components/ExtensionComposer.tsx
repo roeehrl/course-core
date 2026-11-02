@@ -248,24 +248,30 @@ export function ExtensionComposer({
             />
           </Field>
         )}
-        <Button
-          type="submit"
-          kind="primary"
-          disabled={
-            !enabled || previewing || pending || !Object.keys(amounts).length
-          }
-        >
-          {previewing
-            ? t("extensionComposer.resolving")
-            : t("extensionComposer.preview")}
-        </Button>
-        {!enabled && <small>{t("extensionComposer.notExtendable")}</small>}
+        <div className="policy-form-actions action-row">
+          <Button
+            type="submit"
+            kind="primary"
+            disabled={
+              !enabled || previewing || pending || !Object.keys(amounts).length
+            }
+          >
+            {previewing
+              ? t("extensionComposer.resolving")
+              : t("extensionComposer.preview")}
+          </Button>
+          {!enabled && (
+            <span className="policy-reason button-reason">
+              {t("extensionComposer.notExtendable")}
+            </span>
+          )}
+        </div>
       </form>
       {Boolean(error) && <ErrorState error={error} onRetry={onRefresh} />}
       {preview && (
         <div className="preview-result">
           <h3>{t("extensionComposer.resolved")}</h3>
-          <small>
+          <small className="muted">
             {t("extensionComposer.revisions", {
               revision: preview.revision,
               policy: preview.policyRevision,
@@ -355,22 +361,24 @@ export function ExtensionComposer({
                 />
                 {t("extensionComposer.reviewed")}
               </label>
-              <Button
-                kind="primary"
-                type="submit"
-                disabled={
-                  !reviewed ||
-                  !rationale.length ||
-                  !activities.length ||
-                  !impact.trim() ||
-                  !alternatives.trim() ||
-                  pending
-                }
-              >
-                {pending
-                  ? t("extensionComposer.proposing")
-                  : t("extensionComposer.propose")}
-              </Button>
+              <div className="policy-form-actions action-row">
+                <Button
+                  kind="primary"
+                  type="submit"
+                  disabled={
+                    !reviewed ||
+                    !rationale.length ||
+                    !activities.length ||
+                    !impact.trim() ||
+                    !alternatives.trim() ||
+                    pending
+                  }
+                >
+                  {pending
+                    ? t("extensionComposer.proposing")
+                    : t("extensionComposer.propose")}
+                </Button>
+              </div>
             </fieldset>
             {!canPropose && (
               <small>{t("extensionComposer.cannotPropose")}</small>

@@ -117,7 +117,9 @@ test.describe("demo workspace", () => {
     await page.goto("/admin/demo?locale=he");
     await expectRightToLeft(page);
     await openSection(page, "מדיניות והארכות", {});
-    // The course setting, explained in plain words beside its two fields.
+    // The course setting, explained in plain words beside its two fields once the settings
+    // summary is opened for editing.
+    await page.getByRole("button", { name: "עריכת הגדרות הקורס" }).click();
     await expect(page.getByLabel("מספר ניסיונות לכל נקודת בקרה")).toHaveValue(
       "3",
     );

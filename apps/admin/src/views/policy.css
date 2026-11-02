@@ -1,0 +1,335 @@
+/* Policy & extensions and Extensions & accommodations. Page-specific layout only; the shared
+   primitives (cards, buttons, fields, tables) come from styles.css. */
+
+/* The page's own link bar: one line that stays under the app bar (or the top of the window) while
+   the page scrolls. On a narrow screen it scrolls sideways inside itself, never the page. */
+.policy-nav {
+  position: sticky;
+  top: var(--app-bar-height, 0px);
+  z-index: 20;
+  margin-block: -10px;
+  padding-block: 10px;
+  background: var(--paper);
+  border-block-end: 1px solid var(--line);
+}
+.policy-nav ol {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+/* When the bar is wider than the screen, its far edge fades to show there is more. */
+.policy-nav[data-overflow] ol {
+  mask-image: linear-gradient(to right, #000 85%, transparent);
+}
+.policy-nav[data-overflow] ol:dir(rtl) {
+  mask-image: linear-gradient(to left, #000 85%, transparent);
+}
+.policy-nav ol::-webkit-scrollbar {
+  display: none;
+}
+.policy-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 36px;
+  padding-inline: 12px;
+  border-radius: 8px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.policy-nav a:hover {
+  background: var(--ice);
+}
+.policy-nav a[aria-current="true"] {
+  background: var(--ice);
+  box-shadow: inset 0 0 0 1px #9ab4c6;
+  color: var(--ink);
+}
+/* A section reached from the bar starts below the bar, not under it. */
+.policy-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  scroll-margin-top: 72px;
+}
+.policy-section:focus {
+  outline: none;
+}
+.policy-section:empty {
+  display: none;
+}
+
+/* A card's actions sit at the end of its heading and wrap below it on a narrow screen. */
+.policy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* One quiet line of record facts (revisions, the last save) under a heading. */
+.policy-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Settings shown before they are edited: a two-column list of what is in force. */
+.policy-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 28px;
+  margin: 0;
+}
+.policy-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-block-end: 12px;
+  border-block-end: 1px solid var(--line);
+}
+.policy-summary dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.policy-summary dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+.policy-summary dd small {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* A form's own actions: the one primary first, at the reading start, with the reason it cannot be
+   used yet beside it. */
+.policy-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.policy-form-actions .policy-reason {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* "Show all" under a shortened list or table. */
+.policy-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Scope list: searchable, and bounded so its detail is never thousands of pixels away. Beside the
+   detail it stays in view while the detail scrolls. */
+.policy-hierarchy > .policy-scope-picker {
+  position: sticky;
+  top: calc(var(--app-bar-height, 0px) + 72px);
+}
+.policy-scope-picker .selector-list {
+  max-block-size: min(60vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+  margin: -2px;
+}
+.policy-scope-picker .selector-item {
+  flex-shrink: 0;
+  min-height: 0;
+  padding: 10px 12px;
+  gap: 8px;
+}
+.policy-scope-picker .selector-item > span {
+  min-width: 0;
+}
+.policy-scope-picker .selector-item .badge {
+  margin-block-start: 6px;
+}
+.policy-scope-picker .selector-item small {
+  margin-block-start: 4px;
+  color: var(--muted);
+}
+.policy-scope-picker .policy-scope-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+@container (max-width: 850px) {
+  .policy-hierarchy > .policy-scope-picker {
+    position: static;
+  }
+  .policy-scope-picker .selector-list {
+    max-block-size: 340px;
+  }
+}
+
+/* The quota lines behind "What sets these limits", grouped by kind of limit. */
+.policy-why {
+  margin: 0;
+  padding-inline-start: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.policy-why li + li {
+  margin-block-start: 6px;
+}
+.policy-why details summary {
+  min-height: 36px;
+  padding-block: 6px;
+}
+.policy-why details ul {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* Technical details: identifiers kept for support, folded away. */
+.policy-technical {
+  border-block-start: 1px solid var(--line);
+}
+.policy-technical dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.policy-technical dt {
+  color: var(--muted);
+}
+.policy-technical dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A row group's heading inside a table: the scope a set of work limits belongs to. */
+.policy-group-row th {
+  background: #f4f6f7;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Dialogs of this area: the title stays at the top while the body scrolls. */
+.dialog.policy-dialog > .dialog-heading {
+  position: sticky;
+  z-index: 2;
+  top: calc(-1 * var(--dialog-pad-block));
+  margin-inline: calc(-1 * var(--dialog-pad-inline));
+  margin-block-start: calc(-1 * var(--dialog-pad-block));
+  padding: var(--dialog-pad-block) var(--dialog-pad-inline) 12px;
+  background: var(--paper);
+  box-shadow: 0 1px 0 var(--line);
+}
+.dialog.policy-dialog .dialog-footer .policy-reason {
+  color: var(--muted);
+  font-size: 12px;
+}
+.dialog.policy-dialog .segmented {
+  margin: 0;
+  border: 0;
+}
+
+/* Extensions & accommodations: the introduction with the page's one action at its end, and a
+   compact two-way view switch (the chosen view drawn like a chosen segment, not a second
+   primary button). */
+.allowances-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.allowances-heading > p {
+  flex: 1 1 28rem;
+  margin: 0;
+  color: var(--muted);
+}
+.allowances-view-switch {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.allowances-view-switch .button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.allowances-view-switch .button[aria-pressed="true"] {
+  background: #fff;
+  box-shadow: 0 0 0 1px #aebec8;
+  color: var(--ink);
+}
+.allowances-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.allowances-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--line);
+  font-size: 13px;
+}
+.allowances-list > li:last-child {
+  border-block-end: 0;
+}
+.allowances-list > li small {
+  color: var(--muted);
+}
+
+@container (max-width: 560px) {
+  .allowances-view-switch {
+    align-self: stretch;
+  }
+  .allowances-view-switch .button {
+    flex: 1 1 0;
+  }
+  .policy-summary {
+    grid-template-columns: 1fr;
+  }
+  .policy-actions,
+  .policy-actions .button {
+    width: 100%;
+  }
+}
+
+/* A state in a table cell ("No attempts left") stays on one line. */
+.policy-page td .badge {
+  white-space: nowrap;
+}
+/* Phones draw tables as cards: the caption becomes a plain full-width line above them instead
+   of a shrink-wrapped box that breaks after every word. */
+@media (max-width: 699px) {
+  .policy-page table caption {
+    display: block;
+    width: 100%;
+  }
+}

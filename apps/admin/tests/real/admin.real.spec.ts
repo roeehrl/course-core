@@ -256,7 +256,9 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
   await expect(
     page.getByText("Awaiting exact learner consent", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Edit policy scopes" }).click();
+  await page
+    .getByRole("button", { name: "Edit this learner's levels" })
+    .click();
   const source = page.getByLabel("Proposed scope definitions (JSON)");
   const scopes = JSON.parse(await source.inputValue());
   scopes[0].work.additionalMinutes = 240;

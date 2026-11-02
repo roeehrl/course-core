@@ -55,6 +55,7 @@ test("organization limits are checked against every course before saving", async
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Organization limits" }),
   });
+  await card.getByRole("button", { name: "Edit organization limits" }).click();
   await expect(card.getByText("No organization limits set")).toBeVisible();
   await card.getByLabel("Longest enrollment (calendar days)").fill("10");
   await card
@@ -88,10 +89,13 @@ test("an allowance that can never be used is flagged in the settings preview", a
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Course policy settings" }),
   });
+  await card.getByRole("button", { name: "Edit course settings" }).click();
   await card.getByRole("button", { name: "Add an allowance" }).click();
   await expect(card.getByText("Allowance “allowance-1”")).toBeVisible();
   await card
-    .getByRole("button", { name: "Preview feasibility and daylight saving" })
+    .getByRole("button", {
+      name: "Check feasibility and daylight-saving effects",
+    })
     .click();
   // The fixture's chapters have no deadline of their own: a day allowance there cannot be used.
   await expect(
@@ -100,7 +104,9 @@ test("an allowance that can never be used is flagged in the settings preview", a
   await card.getByLabel("What it adds").selectOption("planned_minute");
   await card.getByLabel("Where it can be used").selectOption("course");
   await card
-    .getByRole("button", { name: "Preview feasibility and daylight saving" })
+    .getByRole("button", {
+      name: "Check feasibility and daylight-saving effects",
+    })
     .click();
   await expect(card.getByText(/can never be used/)).toHaveCount(1);
   await accessible(page);

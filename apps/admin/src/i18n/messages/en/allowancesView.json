@@ -1,5 +1,4 @@
 {
-  "heading": "Extensions and accommodations",
   "intro": "Every learner's extra time and work in one place: offers waiting for your approval, what was granted or adjusted, and how much of each allowance is used.",
   "show": "Show",
   "tab.pending": "Waiting for approval",
@@ -28,7 +27,7 @@
   "rejected": "Rejected for {name}. Nothing was taken from the allowance.",
   "offers.title": "All extension offers",
   "offers.eyebrow": "Most recent first",
-  "offers.empty": "No extension offers yet.",
+  "offers.empty": "No extension offers yet",
   "col.learner": "Learner",
   "col.where": "Where",
   "col.what": "What",
@@ -43,7 +42,7 @@
   "state.superseded": "Replaced by a policy change",
   "accommodations.title": "Accommodations, pauses and outage adjustments",
   "accommodations.eyebrow": "Separate from allowances; each one was authorized by staff",
-  "accommodations.empty": "No accommodations yet.",
+  "accommodations.empty": "No accommodations yet",
   "accommodations.row": "{learner} · {scope} · {date}",
   "accommodations.batch": "(part of a group adjustment)",
   "kind.accommodation": "Accommodation",
@@ -51,9 +50,15 @@
   "kind.outage": "Outage",
   "pools.title": "Allowance use",
   "pools.eyebrow": "Active learners only",
-  "pools.empty": "No allowances in use.",
+  "pools.empty": "No allowances in use",
   "pools.row": "{used} of {total} {unit, select, calendar_day {calendar days} scope_calendar_day {calendar days} planned_minute {planned minutes} episode {episodes} other {units}} used across {learners, plural, one {# learner} other {# learners}} ({grants, plural, one {# grant} other {# grants}})",
   "batches.title": "Recent group adjustments",
   "batches.eyebrow": "Who applied them and why",
-  "batches.row": "{what} for {scope}, {count, plural, one {# learner} other {# learners}}, by {by} on {date}."
+  "batches.row": "{what} for {scope}, {count, plural, one {# learner} other {# learners}}, by {by} on {date}.",
+  "offers.empty.body": "Offers proposed to learners appear here, newest first.",
+  "accommodations.empty.body": "Accommodations, approved pauses and outage adjustments appear here once staff apply them.",
+  "pools.empty.body": "When a learner is granted an extension, its allowance appears here with how much is used.",
+  "pools.name": "{unit, select, calendar_day {Calendar days} scope_calendar_day {Calendar days} planned_minute {Planned minutes} episode {Episodes} other {Units}} · {scope}",
+  "pools.nameOnly": "{unit, select, calendar_day {Calendar days} scope_calendar_day {Calendar days} planned_minute {Planned minutes} episode {Episodes} other {Units}}",
+  "pending.pool": "{pool} ({amount})"
 }
