@@ -224,7 +224,12 @@ for (const locale of ["en", "he"] as const)
       await expectNoHorizontalOverflow(page);
       await shot(page, `enrollments-${tag}`);
 
+      // E11: no course access yet is said once.
       await go(page, text.people);
+      await expect(page.locator(".card .empty").last()).toBeVisible();
+      await expect(page.locator(".card:has(.empty) .notice.blue")).toHaveCount(
+        0,
+      );
       await expectNoHorizontalOverflow(page);
       await shot(page, `people-${tag}`);
       expect(errors).toEqual([]);

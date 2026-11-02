@@ -385,5 +385,49 @@ export async function mockWorkspacePages(page: Page, context: BrowserContext) {
     "**/api/admin/workspaces/*/billing-statements",
     async (route) => route.fulfill({ json: platform.billing }),
   );
+  // Four people, none of them course-scoped yet and no course grant: the course access card
+  // has one empty state, not a notice and an empty table.
+  const person = (n: number, name: string, role: string, self = false) => ({
+    userId: uuid(700 + n),
+    displayName: name,
+    role,
+    joinedAt: minutesAgo(60 * 24 * (30 - n)),
+    addedBy: self ? null : "Dana Levi",
+    enrollments: role === "learner" ? 1 : 0,
+    lastSignInAt: minutesAgo(60 * n),
+    self,
+    canChangeRole: !self,
+    canRevoke: !self,
+    canIssueSignIn: !self,
+    loginName: name.toLowerCase().replace(" ", "."),
+    hasPassword: true,
+  });
+  await page.route("**/api/admin/workspaces/*/people", (route) =>
+    route.fulfill({
+      json: {
+        actorRole: "owner",
+        roles: [
+          "owner",
+          "admin",
+          "author",
+          "instructor",
+          "reviewer",
+          "learner",
+          "observer",
+          "support_observer",
+          "course_scoped",
+        ],
+        people: [
+          person(1, "Dana Levi", "owner", true),
+          person(2, "Noam Example", "author"),
+          person(3, "Robin Example", "learner"),
+          person(4, "Sam Example", "reviewer"),
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/admin/workspaces/*/course-grants", (route) =>
+    route.fulfill({ json: { grants: [] } }),
+  );
   return state;
 }
