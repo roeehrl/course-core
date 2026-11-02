@@ -37,7 +37,10 @@ export class ProviderError extends Error {
   readonly status: number | null;
   readonly retryAfterMs: number | null;
   readonly submission: 'not_sent' | 'rejected' | 'unknown';
-  /** The provider's documented reason code for an HTTP refusal (`providerReason`), else null. */
+  /** The provider's documented reason code for an HTTP refusal (`providerReason`); for a reply an
+   * adapter's output checks refused (BLOCKED, INCOMPLETE_OUTPUT, INVALID_RESPONSE), its cause when
+   * the adapter names one (Google: the finish or block reason, or GOOGLE_OUTPUT_REASONS such as
+   * MAX_TOKENS_THINKING); else null. Always upper snake case, never provider text. */
   readonly reason: string | null;
   usage?: UsageReceipt;
   job?: VideoJob;

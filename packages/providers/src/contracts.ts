@@ -151,7 +151,10 @@ export type TelemetryEvent = Readonly<{
  * accounting keys, URLs, provider bodies or messages. Model IDs are trusted registry configuration. */
 export type ProviderCallStart = Readonly<{ operation: Operation | 'video_cancel'; modelId: string }>;
 export type ProviderCallEnd = Readonly<{
-  outcome: 'response' | 'error'; code: string | null; providerId: string | null; attempts: number;
+  outcome: 'response' | 'error'; code: string | null;
+  /** The error's `reason` (ProviderError: a documented refusal reason, or why the output checks
+   * refused a reply, e.g. MAX_TOKENS_THINKING); null on success or when none was named. */
+  reason: string | null; providerId: string | null; attempts: number;
   /** Sums over attempts; null when any attempt did not report that counter. */
   tokens: Readonly<{ input: number | null; output: number | null; total: number | null }> | null;
   access: 'subscription' | 'api_key_fallback' | null; elapsedMs: number;

@@ -28,8 +28,8 @@ test('router observer receives only allowlisted call metadata with summed token 
   assert.equal(events.length, 2);
   assert.deepEqual(events[0][1], { operation: 'tutor', modelId: 'tutor-model' });
   const end = events[1][1];
-  assert.deepEqual(Object.keys(end).sort(), ['access', 'attempts', 'code', 'elapsedMs', 'outcome', 'providerId', 'tokens']);
-  assert.deepEqual({ ...end, elapsedMs: 0 }, { outcome: 'response', code: null, providerId: 'observer-vendor', attempts: 2,
+  assert.deepEqual(Object.keys(end).sort(), ['access', 'attempts', 'code', 'elapsedMs', 'outcome', 'providerId', 'reason', 'tokens']);
+  assert.deepEqual({ ...end, elapsedMs: 0 }, { outcome: 'response', code: null, reason: null, providerId: 'observer-vendor', attempts: 2,
     tokens: { input: 30, output: 5, total: 35 }, access: null, elapsedMs: 0 });
   assert.ok(Object.isFrozen(end) && Object.isFrozen(events[0][1]));
   const serialized = JSON.stringify(events);
@@ -44,14 +44,14 @@ test('observer reports errors by code and unknown counters as null, and output v
     throw error;
   }), { observe });
   await assert.rejects(failing.tutor(request), error => error instanceof ProviderError && error.code === 'THROTTLED');
-  assert.deepEqual({ ...events[0], elapsedMs: 0 }, { outcome: 'error', code: 'THROTTLED', providerId: 'observer-vendor', attempts: 1,
+  assert.deepEqual({ ...events[0], elapsedMs: 0 }, { outcome: 'error', code: 'THROTTLED', reason: null, providerId: 'observer-vendor', attempts: 1,
     tokens: { input: null, output: null, total: null }, access: null, elapsedMs: 0 });
   const unexpected = new ProviderRouter(setup(() => { throw new Error(PROMPT); }), { observe });
   await assert.rejects(unexpected.tutor(request), new RegExp(PROMPT));
-  assert.deepEqual({ ...events[1], elapsedMs: 0 }, { outcome: 'error', code: 'UNEXPECTED', providerId: null, attempts: 0, tokens: null, access: null, elapsedMs: 0 });
+  assert.deepEqual({ ...events[1], elapsedMs: 0 }, { outcome: 'error', code: 'UNEXPECTED', reason: null, providerId: null, attempts: 0, tokens: null, access: null, elapsedMs: 0 });
   await assert.rejects(unexpected.assess({ ...request, outputSchema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] } }),
     error => error instanceof ProviderError && error.code === 'INVALID_RESPONSE');
-  assert.deepEqual({ ...events[2], elapsedMs: 0 }, { outcome: 'error', code: 'INVALID_RESPONSE', providerId: 'observer-vendor', attempts: 1,
+  assert.deepEqual({ ...events[2], elapsedMs: 0 }, { outcome: 'error', code: 'INVALID_RESPONSE', reason: null, providerId: 'observer-vendor', attempts: 1,
     tokens: { input: 3, output: 4, total: 7 }, access: null, elapsedMs: 0 });
   assert.ok(!JSON.stringify(events).includes(PROMPT));
 });

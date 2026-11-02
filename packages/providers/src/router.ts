@@ -12,8 +12,8 @@ function sum(usage: UsageReceipt, key: 'input' | 'output' | 'total') {
   for (const attempt of usage.attempts) { const value = attempt.tokens[key]; if (value === null) return null; total += value; }
   return total;
 }
-function settled(usage: UsageReceipt | undefined, outcome: ProviderCallEnd['outcome'], code: string | null, started: number): ProviderCallEnd {
-  return Object.freeze({ outcome, code, providerId: usage?.providerId ?? null, attempts: usage?.attempts.length ?? 0,
+function settled(usage: UsageReceipt | undefined, outcome: ProviderCallEnd['outcome'], code: string | null, started: number, reason: string | null = null): ProviderCallEnd {
+  return Object.freeze({ outcome, code, reason, providerId: usage?.providerId ?? null, attempts: usage?.attempts.length ?? 0,
     tokens: usage ? Object.freeze({ input: sum(usage, 'input'), output: sum(usage, 'output'), total: sum(usage, 'total') }) : null,
     access: usage?.access?.kind ?? null, elapsedMs: Math.max(0, Date.now() - started) });
 }
@@ -33,7 +33,8 @@ export class ProviderRouter implements TutoringProvider, StructuredAssessmentPro
     const report = (value: ProviderCallEnd) => { try { end?.(value); } catch { /* cannot fail or replay a paid call */ } };
     try { const result = await body(); report(settled(result.usage, 'response', null, started)); return result; }
     catch (error) {
-      report(settled(error instanceof ProviderError ? error.usage : undefined, 'error', error instanceof ProviderError ? error.code : 'UNEXPECTED', started));
+      report(settled(error instanceof ProviderError ? error.usage : undefined, 'error', error instanceof ProviderError ? error.code : 'UNEXPECTED', started,
+        error instanceof ProviderError ? error.reason : null));
       throw error;
     }
   }

@@ -532,9 +532,10 @@ called, and the reply is replaced by Core's coaching message (fail closed).
 
 A streamed reply (the companion) must start within 20 s of sending and never pause for more than
 20 s, below every call's 60 s bound. A reply about a graded check streams too, into a hidden
-buffer, under the same bounds. A whole companion reply (no draft open, quality checks) and the
-check judge's verdict must arrive within 20 s as well, since a learner is waiting for them; other
-roles' whole replies keep the 60 s bound. A role may set its own:
+buffer, under the same bounds. A whole companion reply (no draft open, quality checks) must
+arrive within 45 s: its first byte is the finished response, so the bound covers the model's
+thinking and the whole answer up to the output limit. The check judge's short verdict must arrive
+within 20 s. Other roles' whole replies keep the 60 s bound. A role may set its own:
 `roles.<role>.firstByteTimeoutMs` (a streamed reply's first chunk; a whole reply's finished
 response) and `roles.<role>.streamIdleTimeoutMs`, each 5,000–55,000 ms. What a call that ends
 this way costs, Core's automatic second ask, and the owner's decision on a call whose cost stayed

@@ -23,11 +23,23 @@ const candidateSchema = z.object({
 export function generationConfig(config: GoogleModelConfig, maxOutputTokens: number, format?: unknown) {
   return { candidateCount: 1, maxOutputTokens,
     ...(config.transport === 'generate_content' && config.thinking ? { thinkingConfig: 'level' in config.thinking
-      ? { thinkingLevel: config.thinking.level } : { thinkingBudget: config.thinking.budget } } : {}),
+      ? { thinkingLevel: config.thinking.level } : { thinkingBudget: thinkingBudget(config.thinking.budget, maxOutputTokens) } } : {}),
     // generateContent takes JSON output as `responseMimeType` plus a JSON Schema in
     // `responseJsonSchema`. `responseFormat.text.mimeType` is an enum (APPLICATION_JSON) and
     // refuses "application/json" with 400 INVALID_ARGUMENT, so that shape is not used.
     ...(format === undefined ? {} : { responseMimeType: 'application/json', responseJsonSchema: googleJsonSchema(format) }) };
+}
+/** The smallest thinking budget every Gemini 2.5 model accepts (Flash-Lite's minimum). */
+const MIN_CLAMPED_THINKING_BUDGET = 512;
+/**
+ * The token budget sent for a configured `thinking.budget`. Thought tokens count toward
+ * `maxOutputTokens`, so a budget above half the request's output limit could leave no room for
+ * the visible answer (MAX_TOKENS with only thoughts): it is lowered to half the limit, as long as
+ * that stays at or above every model's minimum budget. 0 (off) and -1 (dynamic) are sent as they are.
+ */
+export function thinkingBudget(budget: number, maxOutputTokens: number): number {
+  const half = Math.floor(maxOutputTokens / 2);
+  return budget > half && half >= MIN_CLAMPED_THINKING_BUDGET ? half : budget;
 }
 /**
  * The JSON Schema as sent to Google. An integer without declared bounds compiles with the
@@ -45,34 +57,69 @@ export function googleJsonSchema(schema: unknown): unknown {
   return out;
 }
 /**
+ * Why Google's output checks refused a reply, as the ProviderError `reason` (codes only, never
+ * provider text), so a run's details and logs say what happened:
+ * - BLOCKED: the candidate's finish reason (SAFETY, RECITATION, PROHIBITED_CONTENT...), SAFETY for
+ *   a blocked safety rating, or PROMPT_<blockReason> when the prompt itself was blocked.
+ * - INCOMPLETE_OUTPUT: MAX_TOKENS_THINKING when the output limit was reached with no visible text
+ *   while the model thought (the thoughts used the limit), MAX_TOKENS otherwise, NO_FINISH_REASON
+ *   for a stream that ended unfinished, else the finish reason itself (OTHER, LANGUAGE...).
+ * - INVALID_RESPONSE: NO_CANDIDATE (no candidate at all), THOUGHTS_ONLY (finished with no visible
+ *   text after thinking: thought parts or reported thought tokens), EMPTY_OUTPUT (finished with no
+ *   parts or no text, and no thinking).
+ */
+export const GOOGLE_OUTPUT_REASONS = ['MAX_TOKENS_THINKING', 'MAX_TOKENS', 'NO_FINISH_REASON', 'NO_CANDIDATE', 'EMPTY_OUTPUT', 'THOUGHTS_ONLY'] as const;
+const BLOCKING_FINISH = ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'RECITATION', 'SPII'];
+const looseCandidate = z.object({ finishReason: z.string(), safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional(), content: z.unknown().optional() });
+/** The parts of a candidate not yet validated, read only to name a refusal's cause. */
+function looseParts(content: unknown): { text?: unknown; thought?: unknown }[] {
+  const parts = (content as { parts?: unknown } | null | undefined)?.parts;
+  return Array.isArray(parts) ? parts.filter((p): p is { text?: unknown; thought?: unknown } => p !== null && typeof p === 'object') : [];
+}
+const reportedThoughts = z.object({ thoughtsTokenCount: z.number().optional() }).passthrough();
+/**
  * The single candidate of a finished response. Also the classifier for a streamed response:
  * apply it to the final aggregated candidate (its last finishReason and all its parts). A stop at the output limit (MAX_TOKENS) is
  * refused as INCOMPLETE_OUTPUT unless `allowCutShort` is set, in which case the candidate is
  * returned with `cutShort: true` for the caller to judge (a cut-off thinking turn may carry no
- * visible part at all, which then stays incomplete).
+ * visible part at all, which then stays incomplete). Every refusal names its cause in `reason`
+ * (GOOGLE_OUTPUT_REASONS).
  */
 export function candidate(data: Record<string, unknown>, allowCutShort = false) {
   const envelope = parse(z.object({
     promptFeedback: z.object({ blockReason: z.string().optional() }).optional(), candidates: z.array(z.unknown()).optional(),
+    usageMetadata: z.unknown().optional(),
   }), data, 'INVALID_RESPONSE');
-  if (envelope.promptFeedback?.blockReason && envelope.promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED') throw new ProviderError('BLOCKED');
-  ensure(envelope.candidates?.length === 1, 'INVALID_RESPONSE');
-  const raw = parse(z.object({ finishReason: z.string(), safetyRatings: z.array(z.object({ blocked: z.boolean().optional() })).optional() }), envelope.candidates[0], 'INVALID_RESPONSE');
-  if (raw.safetyRatings?.some(r => r.blocked) || ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'RECITATION', 'SPII'].includes(raw.finishReason)) throw new ProviderError('BLOCKED');
+  const blockReason = envelope.promptFeedback?.blockReason;
+  if (blockReason && blockReason !== 'BLOCK_REASON_UNSPECIFIED') throw new ProviderError('BLOCKED', { reason: `PROMPT_${blockReason}`.slice(0, 64) });
+  if (!envelope.candidates?.length) throw new ProviderError('INVALID_RESPONSE', { reason: 'NO_CANDIDATE' });
+  ensure(envelope.candidates.length === 1, 'INVALID_RESPONSE');
+  const raw = parse(looseCandidate, envelope.candidates[0], 'INVALID_RESPONSE');
+  if (BLOCKING_FINISH.includes(raw.finishReason)) throw new ProviderError('BLOCKED', { reason: raw.finishReason });
+  if (raw.safetyRatings?.some(r => r.blocked)) throw new ProviderError('BLOCKED', { reason: 'SAFETY' });
+  const parts = looseParts(raw.content);
+  const visible = parts.filter(p => !p.thought && typeof p.text === 'string').map(p => p.text as string).join('');
+  const usage = reportedThoughts.safeParse(envelope.usageMetadata ?? {});
+  const thought = parts.some(p => p.thought === true) || (usage.success && (usage.data.thoughtsTokenCount ?? 0) > 0);
+  // The output limit reached with nothing visible while the model thought: the thoughts used the limit.
+  const limitReason = !visible.trim() && thought ? 'MAX_TOKENS_THINKING' : 'MAX_TOKENS';
   const cutShort = allowCutShort && raw.finishReason === 'MAX_TOKENS';
-  ensure(raw.finishReason === 'STOP' || cutShort, 'INCOMPLETE_OUTPUT');
+  if (raw.finishReason !== 'STOP' && !cutShort)
+    throw new ProviderError('INCOMPLETE_OUTPUT', { reason: raw.finishReason === 'MAX_TOKENS' ? limitReason : raw.finishReason });
+  const emptyReason = thought ? 'THOUGHTS_ONLY' : 'EMPTY_OUTPUT';
+  if (!parts.length) throw new ProviderError(cutShort ? 'INCOMPLETE_OUTPUT' : 'INVALID_RESPONSE', { reason: cutShort ? limitReason : emptyReason });
   const checked = candidateSchema.safeParse(envelope.candidates[0]);
-  if (!checked.success) throw new ProviderError(cutShort ? 'INCOMPLETE_OUTPUT' : 'INVALID_RESPONSE');
+  if (!checked.success) throw new ProviderError(cutShort ? 'INCOMPLETE_OUTPUT' : 'INVALID_RESPONSE', cutShort ? { reason: limitReason } : {});
   const result = checked.data;
   ensure(result.index === undefined || result.index === 0, 'INVALID_RESPONSE');
-  return cutShort ? { ...result, cutShort: true as const } : result;
+  return cutShort ? { ...result, emptyReason, cutShort: true as const, limitReason } : { ...result, emptyReason };
 }
 /** The visible text of a tutoring reply. A reply cut short at the output limit is delivered,
  * marked, only with at least `minimum` visible characters; otherwise it is incomplete. */
 export function tutoringText(c: Candidate, minimum: number): { text: string; cutShort?: true } {
   if (!('cutShort' in c)) return { text: responseText(c) };
   const visible = c.content.parts.filter(p => !p.thought && p.text !== undefined).map(p => p.text).join('');
-  ensure(visible.trim().length >= minimum, 'INCOMPLETE_OUTPUT');
+  if (visible.trim().length < minimum) throw new ProviderError('INCOMPLETE_OUTPUT', { reason: c.limitReason });
   return { text: visible, cutShort: true };
 }
 export type Candidate = ReturnType<typeof candidate>;
@@ -80,7 +127,7 @@ export function responseText(c: Candidate): string {
   const visible = c.content.parts.filter(p => !p.thought);
   ensure(visible.every(p => p.text !== undefined), 'INVALID_RESPONSE');
   const answer = visible.map(p => p.text).join('');
-  ensure(answer.trim().length > 0, 'INVALID_RESPONSE');
+  if (!answer.trim().length) throw new ProviderError('INVALID_RESPONSE', { reason: c.emptyReason });
   return answer;
 }
 
@@ -124,11 +171,14 @@ export function streamedCandidate(onText: (text: string) => void) {
       }
       if (c.finishReason && c.finishReason !== 'FINISH_REASON_UNSPECIFIED') finish = c.finishReason;
     },
-    end() { if (blockReason === undefined || blockReason === 'BLOCK_REASON_UNSPECIFIED') ensure(finish !== undefined, 'INCOMPLETE_OUTPUT'); },
+    end() {
+      if ((blockReason === undefined || blockReason === 'BLOCK_REASON_UNSPECIFIED') && finish === undefined)
+        throw new ProviderError('INCOMPLETE_OUTPUT', { reason: 'NO_FINISH_REASON' });
+    },
     tokens: () => tokenUsage(usage),
     /** The assembled response, for `candidate`. */
     response(): Record<string, unknown> {
-      return { ...(blockReason === undefined ? {} : { promptFeedback: { blockReason } }),
+      return { ...(blockReason === undefined ? {} : { promptFeedback: { blockReason } }), ...(usage === undefined ? {} : { usageMetadata: usage }),
         candidates: finish === undefined ? [] : [{ finishReason: finish, content: { role: 'model', parts },
           ...(blocked ? { safetyRatings: [{ blocked: true }] } : {}) }] };
     },
