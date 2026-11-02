@@ -244,7 +244,13 @@ function learnerSpend(query: {
     activeHours: 2 + i,
     perDay: { p50: charged / 2, p90: charged, max: charged },
     byRole: [{ role: "companion", ...sums(3 + i, charged) }],
-    byLesson: [{ episodeId: "fnd-e01-01", ...sums(3 + i, charged) }],
+    byLesson: [
+      {
+        episodeId: "fnd-e01-01",
+        episodeTitle: "Moves with direction",
+        ...sums(3 + i, charged),
+      },
+    ],
     byDay: [{ day: query.to, charged: String(charged), calls: 3 + i }],
   }));
   const total = spent.reduce((a, b) => a + b, 0);
@@ -268,7 +274,12 @@ function learnerSpend(query: {
       { role: "supervisor", learners: 9, ...sums(40, 900000) },
     ],
     byLesson: [
-      { episodeId: "fnd-e01-01", learners: 12, ...sums(90, total - 400000) },
+      {
+        episodeId: "fnd-e01-01",
+        episodeTitle: "Moves with direction",
+        learners: 12,
+        ...sums(90, total - 400000),
+      },
       { episodeId: null, learners: 4, ...sums(50, 400000) },
     ],
     page: query.page,

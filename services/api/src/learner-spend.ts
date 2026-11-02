@@ -22,6 +22,8 @@ import { requireCondition } from './errors.js';
  * - Privacy: learners appear by enrollment id and course, never by name, email or anything they
  *   wrote. Who may look: a workspace role that may view enrollments (enrollment.read). A course
  *   grant does not open it: this is workspace-wide data, like the workspace audit log.
+ * - A lesson carries its title (`episodeTitle`, the course's language) when a release of the
+ *   window's learners names it; otherwise only its id.
  * - Bounded: at most 93 days, 25 learners a page, 10 lessons and 93 days per learner, 20 lessons
  *   and 8 jobs in the summary.
  */
@@ -147,15 +149,30 @@ export async function learnerSpend(client: Sql, actor: Pick<Actor, 'id'>, worksp
      FROM provider_spend_ledger s WHERE ${where} GROUP BY 1,2 HAVING sum(charged_micro_usd)>0 ORDER BY 1,2 DESC`, detail)).rows : [];
   const strip = <T extends { enrollment_id: string; n?: unknown }>(rows: T[], id: string) =>
     rows.filter((row) => row.enrollment_id === id).map(({ enrollment_id: _id, n: _n, ...rest }) => rest);
+  // Each lesson's title, from the newest release a learner in the window spent on it with (titles
+  // are written in the course's own language). Optional: a lesson no release names keeps its id.
+  const lessonIds = [...new Set([...byLesson, ...lessons].map((row) => row.episodeId as string | null).filter((id): id is string => !!id))];
+  const titles = new Map(lessonIds.length ? (await client.query<{ id: string; title: string }>(
+    `SELECT DISTINCT ON (ep->>'id') ep->>'id' AS id,left(ep->>'title',200) AS title FROM course_releases r
+       CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(r.server_bundle->'chapters')='array' THEN r.server_bundle->'chapters' ELSE '[]'::jsonb END) ch
+       CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(ch->'episodes')='array' THEN ch->'episodes' ELSE '[]'::jsonb END) ep
+     WHERE r.workspace_id=$1 AND ep->>'id'=ANY($4::text[]) AND jsonb_typeof(ep->'title')='string' AND btrim(ep->>'title')<>''
+       AND r.id IN (SELECT e.course_release_id FROM enrollments e JOIN provider_spend_ledger l ON l.enrollment_id=e.id
+         WHERE e.workspace_id=$1 AND l.workspace_id=$1 AND l.reserved_at>=$2 AND l.reserved_at<$3)
+     ORDER BY ep->>'id',r.created_at DESC`, [...args, lessonIds])).rows.map((row) => [row.id, row.title] as const) : []);
+  const titled = <T extends { episodeId?: unknown }>(rows: T[]) => rows.map((row) => {
+    const title = typeof row.episodeId === 'string' ? titles.get(row.episodeId) : undefined;
+    return title ? { ...row, episodeTitle: title } : row;
+  });
   const workspaceLimit = Number((await client.query<{ limit: string }>('SELECT limit_micro_usd::text AS limit FROM supervisor_workspace_budgets WHERE workspace_id=$1', [workspaceId])).rows[0]?.limit ?? 0);
   const distributions = { learnerDay: toNumbers(summary.day), activeHour: toNumbers(summary.hour), learnerTotal: toNumbers(summary.total) };
   return {
     from: range.from.toISOString(), to: range.to.toISOString(), days: range.days, timeZone: 'UTC' as const, currency: 'USD' as const,
-    learners: summary.learners, learnerDays: summary.learner_days, distributions, totals, byRole, byLesson,
+    learners: summary.learners, learnerDays: summary.learner_days, distributions, totals, byRole, byLesson: titled(byLesson),
     page: query.page, pageSize: query.pageSize, totalLearners: summary.learners,
     rows: page.map((row) => ({ enrollmentId: row.enrollment_id, courseKey: row.course_key, activeDays: row.days, activeHours: row.hours,
       perDay: toNumbers(row.day), ...(strip(sums, row.enrollment_id)[0] ?? {}), charged: row.charged,
-      byRole: strip(roles, row.enrollment_id), byLesson: strip(lessons, row.enrollment_id), byDay: strip(days, row.enrollment_id) })),
+      byRole: strip(roles, row.enrollment_id), byLesson: titled(strip(lessons, row.enrollment_id)), byDay: strip(days, row.enrollment_id) })),
     recommendation: recommendLearnerLimit({ learners: summary.learners, learnerDays: summary.learner_days, learnerTotal: distributions.learnerTotal,
       learnerDay: distributions.learnerDay, windowDays: range.days, workspaceLimitMicroUsd: workspaceLimit }),
     notAnInvoice: true as const,
