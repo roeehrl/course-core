@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { inlines, isolateRuns, latinRuns, parseMarkdown, textDirection } from "../src/components/markdown";
+import { inlines, isolateRuns, latinRuns, parseMarkdown, splitClosingQuestion, textDirection } from "../src/components/markdown";
 import { MarkdownContent } from "../src/components/MarkdownContent";
 
 // Synthetic prose shaped like the live companion replies and lesson text (lists with bold lead-ins,
@@ -183,5 +183,56 @@ describe("Markdown on the page", () => {
     expect(container.textContent).not.toMatch(/\*|\$|\\frac/);
     rerender(<MarkdownContent markdown={"* **Point:** the value $\\frac{a}{b}$"} />);
     expect(screen.getByRole("math")).toHaveAttribute("aria-label", "the fraction a over b, end fraction");
+  });
+});
+
+describe("Markdown in a companion reply (final design §3.3)", () => {
+  it("gives a code block its language and Copy, in lesson text and replies", () => {
+    render(<MarkdownContent variant="reply" markdown={"Try:\n\n```python\nprint(w * x + b)\n```"} />);
+    expect(screen.getByText("python")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy code" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "python code, scrollable" })).toHaveTextContent("print(w * x + b)");
+  });
+
+  it("aligns text at the start and numbers at the end in tabular figures, never centred", () => {
+    render(<MarkdownContent markdown={"| Step | Note | Value |\n| --- | :---: | --- |\n| Multiply | first | 12 |\n| Add | then | 15.5 |"} />);
+    const table = screen.getByRole("table");
+    const [step, note, value] = within(table).getAllByRole("columnheader");
+    expect(step).toHaveStyle({ textAlign: "start" });
+    // A centred column is set at the start.
+    expect(note).toHaveStyle({ textAlign: "start" });
+    expect(value).toHaveStyle({ textAlign: "end" });
+    expect(within(table).getByRole("cell", { name: "15.5" })).toHaveClass("is-number");
+    expect(within(table).getByRole("cell", { name: "then" })).toHaveStyle({ textAlign: "start" });
+  });
+
+  it("sets the closing question at 600 with the tag after it, and leaves the sentence before it alone", () => {
+    render(
+      <MarkdownContent
+        variant="reply"
+        markdown={"First paragraph.\n\n9 is x + b, so the bias went onto the input. In y = w·x + b, what happens to x before b is added?"}
+        closingQuestion={{ tag: <span data-testid="tag">Your turn</span> }}
+      />,
+    );
+    const question = document.querySelector<HTMLElement>("[data-cc-question]")!;
+    expect(question.textContent).toBe("In y = w·x + b, what happens to x before b is added?");
+    expect(question).toHaveStyle({ fontWeight: "600" });
+    expect(question.parentElement!.textContent).toContain("9 is x + b, so the bias went onto the input. ");
+    expect(screen.getByTestId("tag").previousElementSibling).toBe(question);
+    expect(splitClosingQuestion([{ kind: "text", text: "No question here." }])).toEqual({ lead: [{ kind: "text", text: "No question here." }], question: [] });
+    expect(splitClosingQuestion([{ kind: "text", text: "Ready? " }, { kind: "strong", children: [{ kind: "text", text: "Which comes first?" }] }]).question)
+      .toEqual([{ kind: "strong", children: [{ kind: "text", text: "Which comes first?" }] }]);
+  });
+
+  it("draws reply headings at the chat size, each block in its own direction, and the streaming caret after the last character", () => {
+    const { container } = render(<MarkdownContent variant="reply" caret="live" markdown={"## Steps\n\nPython הוא שפה.\n\nThe end"} />);
+    const heading = screen.getByRole("heading", { name: "Steps" });
+    expect(heading).toHaveStyle({ fontWeight: "600" });
+    // Each block's direction comes from its first strong letter (RTL-2).
+    const mixed = [...container.querySelectorAll("[dir]")].find((node) => node.textContent === "Python הוא שפה.");
+    expect(mixed).toHaveAttribute("dir", "ltr");
+    const caret = container.querySelector('[data-cc-caret="live"]')!;
+    expect(caret).toBeTruthy();
+    expect(caret.parentElement!.textContent).toBe("The end");
   });
 });

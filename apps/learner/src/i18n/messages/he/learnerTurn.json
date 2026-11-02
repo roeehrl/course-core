@@ -1,0 +1,19 @@
+{
+  "anchor.check": "שאלה {number}",
+  "anchor.codeLine": "הקוד, שורה {line}",
+  "anchor.codeLines": "הקוד, שורות {start}–{end}",
+  "anchor.illustration": "חלק מהאיור",
+  "anchor.illustrationPart": "חלק מהאיור: {label}",
+  "anchor.text": "קטע נבחר: “{excerpt}”",
+  "anchor.part": "חלק מהשיעור",
+  "anchor.videoAt": "סרטון הקורס, {time}",
+  "anchor.video": "סרטון הקורס",
+  "held": "בהמתנה לשליחה",
+  "cancel": "ביטול",
+  "notSent": "לא ניתן היה לשלוח את השאלה. אפשר לערוך ולנסות שוב.",
+  "edit": "עריכה",
+  "sendFailed": "השליחה נכשלה. הטקסט חזר לתיבה.",
+  "tryAgain": "ניסיון נוסף",
+  "unconfirmed": "לא ניתן היה לוודא שההודעה נשמרה. כדאי לבדוק את השיחה לפני שליחה חוזרת.",
+  "refresh": "רענון"
+}

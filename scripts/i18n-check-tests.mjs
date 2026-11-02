@@ -386,5 +386,25 @@ test('glossary: the repository keeps the tutor rules, and its catalogs pass them
   assert.deepEqual(byId.get('gendered-someone')?.forbidden, ['מישהו', 'מישהי']);
   for (const word of ['כותב הקורס', 'כותבת הקורס', 'מפעיל השרת', 'מפעילת השרת']) assert.ok(byId.get('gendered-role-noun')?.forbidden.includes(word));
   assert.deepEqual(byId.get('gendered-role-noun')?.surfaces, ['admin', 'learner']);
+  // The companion is never the subject of a gendered verb or adjective in the learner app (COPY-7).
+  assert.deepEqual(byId.get('tutor-as-subject')?.surfaces, ['learner']);
+  for (const phrase of ['המנחה צריך', 'המנחה רואה', 'המנחה יכול', 'המנחה עונה', 'המנחה זמין']) assert.ok(byId.get('tutor-as-subject')?.forbidden.includes(phrase));
   assert.deepEqual(checkGlossary().errors, []);
+});
+
+test('glossary: the companion as the subject of a gendered verb fails in the learner app, prefixed forms too; its work as the subject passes', () => {
+  const learnerMessages = 'apps/learner/src/i18n/messages';
+  const root = fixture({
+    'scripts/i18n-glossary.json': { rules: [{ id: 'tutor-as-subject', locale: 'he', surfaces: ['learner'], forbidden: ['המנחה צריך', 'המנחה רואה'], use: 'an impersonal sentence', why: 'COPY-7' }] },
+    [`${learnerMessages}/en/hints.json`]: { a: 'The companion must prepare a question', b: 'What the companion sees', c: 'Companion help is not on yet' },
+    [`${learnerMessages}/he/hints.json`]: { a: 'המנחה צריך להכין שאלה', b: 'מה שהמנחה רואה בשיעור', c: 'עזרת המנחה עוד לא הופעלה' },
+  });
+  try {
+    const text = checkGlossary(root).errors.join('\n');
+    assert.match(text, /he\/hints\.json: "a" says "המנחה צריך"/);
+    assert.match(text, /he\/hints\.json: "b" says "שהמנחה רואה"/);
+    assert.doesNotMatch(text, /"c"/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

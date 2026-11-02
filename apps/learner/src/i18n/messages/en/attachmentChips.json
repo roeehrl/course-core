@@ -1,0 +1,13 @@
+{
+  "check": "Question {number}",
+  "removeCheck": "Ask about the whole lesson instead",
+  "codeLine": "Your code, line {line}",
+  "codeLines": "Your code, lines {start}–{end}",
+  "removeCode": "Remove code lines",
+  "illustration": "Part of the illustration: {label}",
+  "removeIllustration": "Remove illustration part",
+  "text": "Selected: “{excerpt}”",
+  "removeText": "Remove quoted text",
+  "videoAt": "{label}, {time}",
+  "removeVideo": "Remove video time"
+}

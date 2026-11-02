@@ -1,0 +1,14 @@
+{
+  "notSure": "I'm not sure",
+  "hint": "Give me a hint",
+  "example": "Show me an example",
+  "anotherWay": "Explain it another way",
+  "quiz": "Quiz me on this",
+  "showMeHow": "Show me how",
+  "reasoning": "Here's my reasoning",
+  "reasoningText": "My reasoning: ",
+  "starter.explain": "Explain this part another way",
+  "starter.practice": "Give me a practice question",
+  "starter.summary": "Summarise this lesson",
+  "more": "More suggestions"
+}

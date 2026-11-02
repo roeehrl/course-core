@@ -96,6 +96,8 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  *
  * Withheld from staff copies (learner view, staff exports, learner-model API):
  * - companion_messages.content (learner turns): 'companion'. Never read for staff.
+ * - companion_reply_feedback.comment (what the learner said was wrong with a reply, with their
+ *   vote and problem report): 'companion'. Never read for staff; no staff view of reports exists.
  * - learner_model_profiles / _changes / _proposals (self-report, preferences,
  *   prior knowledge, thoughts, question history): 'learner-model'.
  * - Unsent answer and message drafts: 'drafts'. Never sent to the server.

@@ -44,6 +44,14 @@
       "why": "Hebrew is gender-neutral by default (docs/i18n-glossary.md, Style): מישהו and מישהי always name a person by gender, and the verb that follows them does too"
     },
     {
+      "id": "tutor-as-subject",
+      "locale": "he",
+      "surfaces": ["learner"],
+      "forbidden": ["המנחה צריך", "המנחה צריכה", "המנחה רואה", "המנחה יכול", "המנחה יוכל", "המנחה עונה", "המנחה זמין", "המנחה רשאי", "המנחה מתחיל", "המנחה יכין", "המנחה יקבל", "המנחה השיב", "המנחה הכין", "המנחה ביצע", "המנחה בחר", "המנחה לא יכול", "המנחה לא רואה", "המנחה לא עונה"],
+      "use": "an impersonal or passive sentence (שאלה חדשה מוכנה ונבדקת, נעשה שימוש), or the companion's work as the subject (עזרת המנחה עוד לא הופעלה)",
+      "why": "with המנחה as its subject a Hebrew verb or adjective takes a gender, and screen readers read unpointed forms as masculine (final design §7, COPY-7). The list holds the conjugated forms the learner catalog used, prefixed forms such as שהמנחה included"
+    },
+    {
       "id": "gendered-role-noun",
       "locale": "he",
       "forbidden": ["כותב הקורס", "כותבת הקורס", "מפעיל השרת", "מפעילת השרת"],

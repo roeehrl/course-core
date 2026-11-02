@@ -272,7 +272,7 @@ describe("learner-owned memory panel through HTTP", () => {
       screen.getByRole("heading", { name: "Preferences & prior knowledge" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "AI suggestions" }),
+      screen.getByRole("heading", { name: "Suggestions for you to review" }),
     ).toBeVisible();
     expect(
       screen.getByText(/These results come from saved independent checks/),
@@ -283,11 +283,12 @@ describe("learner-owned memory panel through HTTP", () => {
       }),
     );
     expect(screen.getByText("Evidence: evidence-1")).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: `Show source references for suggestion ${proposalId}`,
-      }),
-    );
+    const sources = screen.getByRole("button", {
+      name: `Show source references for suggestion ${proposalId}`,
+    });
+    // The id is in the button's name for assistive technology, never in its visible words.
+    expect(sources).toHaveTextContent(/^Show source references$/);
+    fireEvent.click(sources);
     expect(screen.getByText("Source event: source-event")).toBeVisible();
     expect(screen.getByText(`Recorded digest: ${source.digest}`)).toBeVisible();
     expect(h.posts()).toHaveLength(0);
@@ -332,6 +333,13 @@ describe("learner-owned memory panel through HTTP", () => {
     // The id is isolated left to right inside the right-to-left sentence.
     expect(reference.textContent).toContain("\u2066evidence-1\u2069");
     expect(document.body.textContent).not.toMatch(/Show |Loading saved memory/);
+    // The suggestions in Hebrew: one name for the helper, status chips, verbal-noun actions.
+    expect(screen.getByRole("heading", { name: "הצעות לעיון" })).toBeVisible();
+    expect(screen.getByText("מהמנחה")).toBeVisible();
+    expect(screen.getByText("מחכה לעיון")).toBeVisible();
+    expect(screen.getByRole("button", { name: "קבלה" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "ערעור" })).toBeVisible();
+    expect(screen.getByText(/^אלה לא זמינים למנחה\./)).toBeVisible();
   });
 
   it("names where each suggestion came from: the course's AI or the connected agent the learner labelled", async () => {
@@ -342,7 +350,8 @@ describe("learner-owned memory panel through HTTP", () => {
     const h = harness(snapshot);
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
-    expect(screen.getByText("From this course's AI")).toBeVisible();
+    // One name for the helper: the course's own AI is "your companion".
+    expect(screen.getByText("From your companion")).toBeVisible();
     expect(screen.getByText("From your connected agent My desktop assistant")).toBeVisible();
   });
 
@@ -434,14 +443,14 @@ describe("learner-owned memory panel through HTTP", () => {
     const h = harness();
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
-    fireEvent.click(screen.getByRole("button", { name: "Accept suggestion" }));
-    await screen.findByText("Accepted suggestion");
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await screen.findByText("Accepted");
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Correct suggestion" }),
+        screen.getByRole("button", { name: "Correct" }),
       ).not.toBeDisabled(),
     );
-    await pressWhenReady(screen.getByRole("button", { name: "Correct suggestion" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Correct" }));
     const editor = screen.getByRole("radiogroup", {
       name: "Corrected suggestion",
     });
@@ -451,10 +460,10 @@ describe("learner-owned memory panel through HTTP", () => {
       { target: { value: "Brief explanations work better for me." } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
-    await screen.findByText("Corrected by you");
+    await screen.findByText("Corrected");
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Dispute suggestion" }),
+        screen.getByRole("button", { name: "Dispute" }),
       ).not.toBeDisabled(),
     );
     expect(screen.getByText("Suggested explanation: Concise")).toBeVisible();
@@ -464,9 +473,10 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(
       within(preferences).getByRole("radio", { name: "Worked examples" }),
     ).toHaveAttribute("aria-checked", "true");
-    await pressWhenReady(screen.getByRole("button", { name: "Dispute suggestion" }));
+    await pressWhenReady(screen.getByRole("button", { name: "Dispute" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm dispute" }));
-    await screen.findByText("Disputed · excluded from AI context");
+    await screen.findByText("Disputed", { selector: ".cc-prof-chip" });
+    expect(screen.getByText("Disputed, so your companion doesn't use it.")).toBeVisible();
     expect(
       h.posts().map(([, init]) => JSON.parse(String(init!.body)).action),
     ).toEqual(["accept", "correct", "dispute"]);
@@ -492,7 +502,7 @@ describe("learner-owned memory panel through HTTP", () => {
       if ((init.method ?? "GET") === "GET") await held;
       return serve(input, init);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Accept suggestion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     const indicator = await screen.findByLabelText("Loading learning memory");
     // The decision's controls and the evidence stay on screen while it reloads.
     expect(
@@ -505,7 +515,7 @@ describe("learner-owned memory panel through HTTP", () => {
     );
     expect(screen.getByText("Loading saved memory…")).toBeInTheDocument();
     release();
-    await screen.findByText("Accepted suggestion");
+    await screen.findByText("Accepted");
     await waitFor(() =>
       expect(screen.queryByLabelText("Loading learning memory")).toBeNull(),
     );
@@ -515,8 +525,8 @@ describe("learner-owned memory panel through HTTP", () => {
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
     // Honest about who reads which goal: this copy is private, the profile goal is not.
-    expect(screen.getByText(/This goal is part of your private memory\. The learning goal on your profile .* course staff who can see your enrollment can read it/)).toBeVisible();
-    expect(screen.getByText(/Course staff cannot read anything you save here/)).toBeVisible();
+    expect(screen.getByText(/This goal is part of your private memory\. The learning goal on your profile .* course staff who can see your place in the course can read it/)).toBeVisible();
+    expect(screen.getByText(/^Your companion doesn't see these\. Course staff can't read them either/)).toBeVisible();
     fireEvent.change(goal(), { target: { value: "My unsaved goal" } });
     h.model.revision = 9;
     h.model.selfReport.preferences.goal = "Changed on another device";
@@ -543,7 +553,7 @@ describe("learner-owned memory panel through HTTP", () => {
     const h = harness();
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
-    fireEvent.click(screen.getByRole("button", { name: "Correct suggestion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Correct" }));
     fireEvent.click(
       within(
         screen.getByRole("radiogroup", { name: "Corrected suggestion" }),
@@ -573,7 +583,7 @@ describe("learner-owned memory panel through HTTP", () => {
     // second submission; clicking a disabled button intentionally does nothing.
     await waitFor(()=>expect(screen.getByRole("button",{name:"Save correction"})).toBeEnabled());
     await pressWhenReady(screen.getByRole("button", { name: "Save correction" }));
-    await screen.findByText("Corrected by you");
+    await screen.findByText("Corrected");
     await waitFor(() =>
       expect(
         screen.getByRole("toolbar", { name: "Suggestion review actions" }),
@@ -697,14 +707,16 @@ describe("learner-owned memory panel through HTTP", () => {
     const h = harness(snapshot);
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
-    expect(screen.getByText("Uncertain: based on one of your activities.")).toBeVisible();
-    expect(screen.getByText("Fairly certain: based on several of your activities.")).toBeVisible();
+    expect(screen.getByText("Based on one activity")).toBeVisible();
+    expect(screen.getByText("Based on several activities")).toBeVisible();
+    expect(screen.getByText("Waiting for you")).toBeVisible();
+    expect(screen.getByText("Expired")).toBeVisible();
     expect(screen.getByText(/^Open for your review until /)).toBeVisible();
-    expect(screen.getByText("Expired · not applied")).toBeVisible();
+    expect(screen.getByText("Expired", { selector: ".cc-prof-chip" })).toBeVisible();
     expect(screen.getByText(/so it was never applied\. You can still dispute it\./)).toBeVisible();
     // Accept and correct only on the open one; dispute on both.
-    expect(screen.getAllByRole("button", { name: "Accept suggestion" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Dispute suggestion" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Accept" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Dispute" })).toHaveLength(2);
     // Unknown uncertainty values or malformed expiry dates are refused, not shown.
     expect(() => parseMemorySnapshot({ ...snapshot, suggestions: { ...snapshot.suggestions, items: [{ ...first, uncertainty: "certain" } as never] } }, scope)).toThrow();
     expect(() => parseMemorySnapshot({ ...snapshot, suggestions: { ...snapshot.suggestions, items: [{ ...first, expiresAt: "soon" } as never] } }, scope)).toThrow();
@@ -806,6 +818,9 @@ describe("learner-owned memory panel through HTTP", () => {
     );
     await screen.findByText("Suggestion corrected");
     expect(screen.getByText("This represents me better.")).toBeVisible();
+    // Who made it, then when, on lines of their own: one name for the companion, no `·` chain.
+    expect(screen.getByText("Your edit")).toBeVisible();
+    expect(screen.queryByText(/·|Service|Learner edit/)).toBeNull();
     await pressWhenReady(screen.getByRole("button", { name: "Show change details 20" }));
     expect(screen.getByText("Event: review-event")).toBeVisible();
     expect(screen.getByText("Suggested explanation: Concise")).toBeVisible();
@@ -983,7 +998,7 @@ describe("memory client scope and safe transport", () => {
       }),
     );
     expect(
-      screen.getByText("Your companion and supervisor may use this result."),
+      screen.getByText("Your companion may use this result."),
     ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: "Dispute result evidence" }),
@@ -1008,9 +1023,11 @@ describe("memory client scope and safe transport", () => {
       reason: "The grader missed my working.",
     });
     await userEvent.click(
-      await screen.findByRole("button", { name: "Exclude evidence from AI context" }),
+      // The control names the result it is about.
+      await screen.findByRole("button", { name: `Don't let your companion use this: ${title}` }),
     );
-    await screen.findByText(/Not used by your companion or supervisor/);
+    await screen.findByText("Disputed, and a review is open. Your companion doesn't use this result.");
+    expect(screen.getByRole("button", { name: `Let your companion use this: ${title}` })).toHaveTextContent("Let your companion use this");
     expect(JSON.parse(String(h.posts().at(-1)![1]!.body))).toMatchObject({
       expectedRevision: 8,
       action: "exclude",

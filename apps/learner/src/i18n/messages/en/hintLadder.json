@@ -1,0 +1,12 @@
+{
+  "button": "Hint {level, number} of {count, number}",
+  "heading": "Hint {level, number} of {count, number} · {name}",
+  "name.nudge": "A nudge",
+  "name.nextStep": "Next step",
+  "name.example": "A similar example",
+  "locked": "Opens after one more try.",
+  "confirm": "A hint makes question {ordinal, number} practice.",
+  "showAsPractice": "Show hint as practice",
+  "keepCounted": "Keep it counted",
+  "area": "Hints"
+}

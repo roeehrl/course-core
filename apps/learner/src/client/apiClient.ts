@@ -8,7 +8,11 @@ import { randomId, randomTraceparent } from "./webCrypto";
 
 /** What every learner-visible question may carry: "I don't know" is offered unless the author
  * turned it off, and confidence is captured only when the item declares a scale. */
-interface QuestionCommon { id: string; prompt: string; allowAbstain?: boolean; confidence?: ConfidenceCapture }
+interface QuestionCommon {
+  id: string; prompt: string; allowAbstain?: boolean; confidence?: ConfidenceCapture;
+  /** Hints, easiest first. Not sent by the API until the SDK declares hints. */
+  hints?: readonly string[];
+}
 export type Criterion = { id: string; description: string; required: boolean };
 export type Question = QuestionCommon & (
   | { type: "choice"; options: { id: string; text: string }[] }
@@ -45,6 +49,10 @@ export interface Challenge {
   independentEligible: boolean;
   mode: string;
   expiresAt?: string;
+  /** Why the question counts as practice: help from the companion, a hint or the explanation, a
+   * fresh question, or a question seen before. Null or absent when it counts, or when the reason
+   * was not recorded (older questions). */
+  practiceReason?: "companion" | "hint" | "solution" | "fresh_question" | "seen_before" | null;
 }
 export interface ClosedRecordNotice {
   evidenceId: string;
@@ -96,6 +104,8 @@ export interface ServerSnapshot {
   /** The research-study version in force, when the learner joined one; null or absent otherwise. */
   studyArm?: { label: string; behaviour: "fixed" | "chat_only" | "supervisor"; companion: boolean; supervision: boolean; measuresUsability?: boolean } | null;
   activeChallenges: Challenge[];
+  /** Per lesson, how many of its check's answers counted (on your own) and how many were practice. */
+  checkSummaries?: Readonly<Record<string, { own: number; practice: number }>>;
   lessons: {
     id: string;
     status: "available" | "locked" | "completed" | "placed";
@@ -200,6 +210,15 @@ export function apiErrorMessage(code: string, t: Translate = activeTranslator(),
     ? t(`apiClient.error.${code}` as MessageKey)
     : t("apiClient.error.generic");
 }
+/** A Retry-After header in seconds: a number of seconds or an HTTP date (RFC 9110 §10.2.3). */
+export function retryAfterSeconds(value: string | null, now = Date.now()): number | undefined {
+  if (value === null) return undefined;
+  const text = value.trim();
+  if (/^\d+$/.test(text)) return Number(text);
+  const at = Date.parse(text);
+  return Number.isFinite(at) ? Math.max(0, Math.ceil((at - now) / 1000)) : undefined;
+}
+
 export class CourseApiError extends Error {
   constructor(
     readonly code: string,
@@ -300,11 +319,14 @@ export function createCourseApi(
     semantic: string;
     idempotencyKey: string;
     expectedRevision: number;
+    /** What the page showed for the request (the question an answer was for), so a request
+     * replayed after a reload can be shown where it belongs. Never sent. */
+    shown?: unknown;
   };
   const memory = new Map<string, Pending | null>();
   const recovered = new Map<
     string,
-    { action: string; data: Record<string, unknown>; result: unknown }
+    { action: string; data: Record<string, unknown>; result: unknown; shown?: unknown }
   >();
   let warned = false;
   function warnStorage() {
@@ -432,12 +454,19 @@ export function createCourseApi(
     }
     const data = await response.json().catch(() => null);
     if (signal?.aborted && data === null) throw abortError();
-    if (!response.ok)
+    if (!response.ok) {
+      const details: Record<string, unknown> | undefined = data?.details && typeof data.details === "object" ? data.details : undefined;
+      // A rate limit (the server's, or a proxy's in front of it) says when to ask again in its
+      // Retry-After header; the body's own figure wins when it has one.
+      const retryAfter = response.status === 429 ? retryAfterSeconds(response.headers?.get?.("Retry-After") ?? null) : undefined;
       throw new CourseApiError(
         typeof data?.error === "string" ? data.error : "UNAVAILABLE",
         response.status,
-        data?.details && typeof data.details === "object" ? data.details : undefined,
+        retryAfter !== undefined && details?.retryAfter === undefined && details?.retryAfterSeconds === undefined
+          ? { ...details, retryAfterSeconds: retryAfter }
+          : details,
       );
+    }
     if (!data || typeof data !== "object")
       throw new CourseApiError("INVALID_RESPONSE", 502);
     return data as T;
@@ -446,6 +475,7 @@ export function createCourseApi(
     snapshot: ServerSnapshot,
     action: string,
     data: Record<string, unknown>,
+    { shown }: { shown?: unknown } = {},
   ): Promise<T> {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/.test(action))
       throw new CourseApiError("INVALID_ACTION", 400);
@@ -468,6 +498,7 @@ export function createCourseApi(
       semantic,
       idempotencyKey: randomId(),
       expectedRevision: snapshot.revision,
+      ...(shown !== undefined ? { shown } : {}),
     };
     writePending(storageKey, pending);
     try {
@@ -516,7 +547,7 @@ export function createCourseApi(
         operation.action,
         operation.data,
       );
-      recovered.set(enrollmentId, { ...operation, result });
+      recovered.set(enrollmentId, { ...operation, result, ...(previous.shown !== undefined ? { shown: previous.shown } : {}) });
     } catch (error) {
       if (!(
         error instanceof CourseApiError &&

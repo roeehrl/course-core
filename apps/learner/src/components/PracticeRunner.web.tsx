@@ -58,7 +58,7 @@ async function defaultRunner(): Promise<PracticeRunnerHandle | null> {
 /**
  * Run the learner's Python in this browser, for practice. It runs in Core's sandboxed runner frame
  * with no network and no access to this page, is never sent to the server and never counts as
- * evidence. Grading stays with "Run code & check".
+ * evidence. Grading stays with "Check".
  */
 export function PracticeRunner({ language, source, disabled, loadRunner = defaultRunner }: PracticeRunnerProps) {
   const i18n = useI18n(),

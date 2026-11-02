@@ -132,6 +132,18 @@ test("production connected renderer, safe sources, explicit video load and no au
   );
   expect(apiLoads).toBe(1);
   await expect.poll(() => videoRequests).toBe(1);
+  // Under the loaded player: asking about the moment it is at (final design §3.9).
+  const moment = page.getByRole("button", { name: "Ask about this moment", exact: true });
+  await expect(moment).toBeVisible();
+  await expect(page.locator(".cc-ask-media-bar")).toContainText("Ask about this moment");
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .include(".connected-media")
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
   await expect(
     page.getByRole("button", { name: "Mark this part read", exact: true }),
   ).toBeEnabled();

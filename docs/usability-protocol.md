@@ -23,7 +23,7 @@ moment a learner leaves the study. The app then records, for each participant:
 
 - **Next step trials.** From a place being shown (the course page, a lesson, a check, or a lesson
   just after a detour) to the learner using that place's required next step ("Continue
-  learning", "Mark this part read", "Start the next check", "Check answer", "Complete lesson",
+  learning", "Mark this part read", "Start the next check", "Check", "Complete lesson",
   a checkpoint's main action). Other buttons and links used first count as wrong turns; opening
   the companion or the "Your course" menu is a detour, not a wrong turn. A trial still open when
   the learner leaves the app counts as abandoned.

@@ -17,13 +17,14 @@ vi.mock("../src/connected/ConnectedLesson.web", async (original) => {
     },
   };
 });
-vi.mock("../src/components/ConnectedCompanion", async (original) => {
-  const actual = await original<typeof import("../src/components/ConnectedCompanion")>();
+// The companion is its conversation (thread and composer, Conversation.web.tsx).
+vi.mock("../src/connected/companion/Conversation.web", async (original) => {
+  const actual = await original<typeof import("../src/connected/companion/Conversation.web")>();
   return {
     ...actual,
-    ConnectedCompanion: (props: Parameters<typeof actual.ConnectedCompanion>[0]) => {
+    Conversation: (props: Parameters<typeof actual.Conversation>[0]) => {
       renders.companion++;
-      return <actual.ConnectedCompanion {...props} />;
+      return <actual.Conversation {...props} />;
     },
   };
 });

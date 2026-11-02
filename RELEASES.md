@@ -287,6 +287,29 @@ from v0.1.36.
 Notes for operators and workspace owners, newest first. They describe what changes for a
 running deployment; the candidate's own manifest remains the record of what was built.
 
+### Next release: the learner's companion redesign, scoped credit and reply feedback
+
+- Asking the companion now turns into practice only the open counted questions in scope: the
+  current lesson's, and a check the learner attached with "Ask the companion" (owner decision Q2).
+  Before, every open counted check of the course became practice. Checks of other lessons stay
+  counted, and while one is open every companion reply is checked against it, whether or not the
+  question seems to be about it: the reply arrives whole once checked ("Checking the reply…"),
+  never streamed, and a reply that would give its answer away is written again once by the
+  answer guard, then withheld before it is shown or stored if it still would. Only a counted check of the question's own lesson opened after it was asked still stops
+  the reply.
+- Migration 130 adds `assessment_challenges.assistance_reason` (`companion`, `hint`, `solution`,
+  `fresh_question`), written with each downgrade so the learner app can say why a question is
+  practice. It is additive: questions downgraded earlier keep NULL and show no reason.
+- Migration 131 adds `companion_reply_feedback`: the learner's Helpful / Not helpful vote on a
+  reply, an optional comment of at most 500 characters and whether they reported it. It is part of
+  the learner's private conversation: their own export includes it, staff copies withhold it, it
+  never reaches the teaching context, evidence or credit, and erasing the enrollment deletes it.
+- "Your companion replied" notifications (`reply_ready`) carry the question's message and lesson
+  ids, so **Open** goes to that lesson with the companion at the reply; the list also names the
+  lesson and the start of the question, read when it is listed and never stored again.
+- Both migrations are additive, so the previous release runs against the migrated schema
+  (rollback rehearsal unchanged).
+
 ### Next release: Gemini structured output works again; refused requests say why
 
 - Gemini jobs that answer in JSON (the lesson planner, answer review drafts, the check-mode

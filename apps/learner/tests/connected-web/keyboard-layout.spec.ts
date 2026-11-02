@@ -71,8 +71,10 @@ test("an on-screen keyboard does not flip the learner layout while typing", asyn
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
 
   const wide = !/phone/.test(info.project.name);
-  if (wide) await expect(page.getByRole("complementary", { name: "Your companion" })).toBeVisible();
-  else await page.getByRole("button", { name: "Companion", exact: true }).click();
+  const companion = page.getByRole("complementary", { name: "Your companion" });
+  if (wide) await expect(companion).toBeVisible();
+  else await page.locator(".connected-header .connected-companion-trigger").click();
+  await expect(companion).toHaveAttribute("data-placement", wide ? "docked" : "sheet");
   const draft = page.getByRole("textbox", { name: "Message to your companion", exact: true });
   await draft.fill("Why is the smallest value first?");
   await draft.focus();
@@ -95,11 +97,22 @@ test("an on-screen keyboard does not flip the learner layout while typing", asyn
   await settle(page);
   expect(await page.evaluate(() => window.visualViewport!.height)).toBeLessThan(620);
   expect(await layoutState(page)).toEqual(before);
-  if (wide) {
-    await expect(page.getByRole("complementary", { name: "Your companion" })).toBeVisible();
-    await expect(page.getByRole("dialog", { name: "Your companion" })).toHaveCount(0);
-  } else await expect(page.getByRole("dialog", { name: "Your companion" })).toBeVisible();
+  // The companion keeps its place and role; it is never a dialog.
+  await expect(companion).toBeVisible();
+  await expect(companion).toHaveAttribute("data-placement", wide ? "docked" : "sheet");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(draft).toBeFocused();
+  if (!wide) {
+    // The sheet keeps its composer above the keyboard: --kb is the part of the window it covers,
+    // and at Full the strip of lesson under the header shrinks to 48 px.
+    const keyboard = viewport.height - Math.round(viewport.height * 0.45);
+    await expect.poll(() => page.evaluate(() => document.querySelector<HTMLElement>(".connected-host")!.style.getPropertyValue("--kb"))).toBe(`${keyboard}px`);
+    await expect(companion).toHaveAttribute("data-detent", "full");
+    const header = (await page.locator(".connected-header").boundingBox())!;
+    await expect.poll(async () => Math.round((await companion.boundingBox())!.y)).toBe(Math.round(header.y + header.height + 48));
+    const box = (await draft.boundingBox())!;
+    expect(box.y + box.height, "the message box is above the keyboard").toBeLessThanOrEqual(viewport.height - keyboard);
+  }
   await page.keyboard.type("X");
   await expect(draft).toHaveValue("Why Xe smallest value first?");
 
@@ -111,13 +124,15 @@ test("an on-screen keyboard does not flip the learner layout while typing", asyn
   if (wide) {
     // Browsers that shrink the layout viewport for the keyboard as well: the
     // height-only shrink is held back while the field is focused...
-    await page.setViewportSize({ width: viewport.width, height: 560 });
+    await page.setViewportSize({ width: viewport.width, height: 400 });
     await settle(page);
     expect((await layoutState(page)).compact).toBe(false);
     await expect(draft).toBeFocused();
-    // ...and applied once editing ends, so a genuinely short window is compact.
+    // ...and applied once editing ends, so a genuinely short window is compact, with the
+    // companion as the short window's sheet.
     await draft.blur();
     await expect(page.locator(".connected-host")).toHaveClass(/is-compact/);
+    await expect(page.locator("#connected-companion")).toHaveClass(/is-short/);
     await page.setViewportSize(viewport);
     await expect(page.locator(".connected-host")).not.toHaveClass(/is-compact/);
     // A width change (rotation/resize) applies immediately even while typing.

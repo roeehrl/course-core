@@ -70,15 +70,15 @@ test("an option tapped while another request is in flight is chosen, and locked 
   const sheet = !info.project.name.endsWith("desktop");
   if (sheet) await page.getByRole("button", { name: "Companion", exact: true }).click();
   await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("Which is smallest?");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await page.getByRole("button", { name: "Switch to practice & send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Send as practice" }).click();
   if (sheet) await page.getByRole("button", { name: "Close companion" }).click();
   for (const index of [0, 1, 0]) {
     await press(index);
     await expect(options.nth(index)).toHaveAttribute("aria-checked", "true", { timeout: 1500 });
   }
   release();
-  await expect(page.getByRole("button", { name: "Check answer", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Check", exact: true })).toBeEnabled();
   // While the answer itself saves, the options are locked, and a tap neither chooses nor focuses one.
   let releaseAnswer: () => void = () => {};
   const answerHeld = new Promise<void>((resolve) => (releaseAnswer = resolve));
@@ -86,7 +86,7 @@ test("an option tapped while another request is in flight is chosen, and locked 
     await answerHeld;
     await route.fallback();
   });
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(options.nth(1)).toHaveAttribute("aria-disabled", "true");
   const box = (await options.nth(1).boundingBox())!;
   if (touch) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);

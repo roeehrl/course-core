@@ -1,6 +1,12 @@
 {
   "title": "Reviews of your written answers",
-  "body": "A person reviews your written answers. You can let an AI draft notes for that reviewer to check. The AI sees the question, the rubric and your answers in that review conversation only — not your name, profile or history. It never grades you: the reviewer decides, or, at a checkpoint the course checks automatically, a fixed check that only accepts quotes of your own words.",
-  "saveFailed": "Your choice could not be saved. Nothing changed.",
-  "label": "Let an AI draft notes for my reviewer"
+  "body": "A person reviews your written answers. You can let AI draft notes for that reviewer; it sees only the question, the rubric and your answers, never your name or history. It never grades you.",
+  "saveFailed": "Your choice couldn't be saved. Nothing changed.",
+  "label": "Let AI draft notes for my reviewer",
+  "legend.title": "What each status means",
+  "legend.pending": "No one has reviewed it yet.",
+  "legend.met": "Your answer meets every criterion.",
+  "legend.notMet": "Some criteria aren't met yet. The reviewer's note says which.",
+  "legend.clarification": "Your reviewer has a question. Reply under the answer in the lesson.",
+  "legend.automatic": "The course's fixed check confirmed each criterion from your own words. You can still ask a person for a second opinion."
 }

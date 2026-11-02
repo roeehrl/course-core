@@ -17,6 +17,55 @@ another domain, classified; a Hebrew paraphrase of an English option), the wrong
 for three messages after a paste was coached, and the verifier then withheld correct replies that
 repeated the lesson's own numbers or opened with "No,").
 
+## Credit: which open questions a message makes practice
+
+Asking the companion for help on a counted question makes that attempt practice. The server
+decides it (`services/api/src/companion-ask-route.ts`, `companionCreditScope`); the learner app only
+previews the same rule (`apps/learner/src/connected/credit/creditScope.ts`) to ask first.
+
+- **Scope.** A message makes practice of the open counted questions of the lesson it is asked
+  from, plus the question the learner attached to it (`challengeId`, the check's own "Ask the
+  companion"), wherever that question is. Open counted questions in other lessons stay counted and
+  need no consent. Before this, every open counted question of the enrollment was downgraded by any
+  message, so a question about another lesson cost the learner credit they had not chosen to give up.
+- **Consent.** While an in-scope question is open, the message is refused with
+  `ASSESSMENT_HELP_CONSENT_REQUIRED` and nothing is stored, unless it carries
+  `allowAssessmentAssistance: true`. The app asks the learner first in an inline choice ("Send as
+  practice", "Keep it counted", "Save for after the question") and never sets the flag on its own.
+- **Placement.** An open placement item whose author declared it unassisted-only refuses every
+  companion message (`PLACEMENT_UNASSISTED_ONLY`), from any lesson: that rule stays enrollment-wide.
+- **Record.** The downgrade sets `assistance='hint'`, `independent_eligible=false` and
+  `assistance_reason='companion'` (migration 130) on the in-scope questions only. The learner's
+  message stores `downgraded: [{ challengeId, ordinal }]` (the question's number in its lesson,
+  `check-ordinal.ts`), so the conversation can say "Question 1 is now practice." later; the
+  response's `downgradedChallengeIds` and the `companion.requested` event list the same questions.
+  The explanation writes `assistance_reason='solution'` and a fresh question `'fresh_question'`
+  (its own scope is unchanged). The learner snapshot sends the reason as
+  `activeChallenges[].practiceReason`, plus `seen_before` for a question issued not eligible with no
+  help; questions downgraded before migration 130 send `null` and show no reason.
+
+**Why integrity still holds.** Narrowing the credit scope changes only which attempts count; it
+does not loosen what the companion may say. An open counted question in another lesson stays
+counted because the learner received no help on it, and the companion still never gives its
+answer. Matching alone cannot promise that: a paraphrase without answer intent ("Walk me through
+finding the larger of 4 and 9") is not tied to the check. So every open counted question of the
+enrollment is added to the turn's check list whether the message matched it or not
+(`companion-check-scope.ts`, match `open_counted`): the model is told those checks still count and
+that the message is not known to be about them, so the usual rule applies and the stricter
+coaching rule only for matched checks (`coachesOnChecks`); the reply never streams (a checking
+draft); and the deterministic verification and the judge check it against those checks in the
+gateway and again in the companion verifier, before anything is shown or stored. A learner who asks
+in lesson A about lesson B's open question without attaching it is coached without its answer, and
+B keeps counting only as long as no answer reached them. The companion still refuses to answer
+(`independentAssessmentActive`) only for a counted question in the message's own scope, which
+asking made practice: one opened in that lesson after the question was asked
+(`provider-context.ts`).
+`services/api/test/companion-credit-scope.integration.test.ts` checks the scope, the placement
+refusal and that B's answer is still withheld;
+`services/api/test/companion-check-integrity.integration.test.ts` checks, end to end, that a
+paraphrase the matcher misses is hidden and withheld while B stays counted, that another question
+is kept once checked, and that a counted question of the lesson itself still stops the reply.
+
 ## 1. Instruction
 
 Every companion request carries the graded-check rule in Core's strategy
@@ -90,6 +139,9 @@ A match switches the turn to **check-coaching mode**:
 - The context gets `checkCoaching`: each matched check's id, type, prompt and options, never its
   key or explanation, and the note that says whether the check is identified.
 - The instruction adds `CHECK_COACHING_RULE` (and `HEBREW_RULE` for Hebrew).
+- Open counted questions the message did not match are listed after the matched checks
+  (`open_counted`, see Credit above). A turn with only those is checked the same way below but
+  keeps the usual instruction, with a note that the message is not known to be about them.
 - The reply **streams into a hidden buffer**: the provider call is streamed, so the first-byte and
   idle bounds end a stall at once (20 s each by default, `provider-runtime.ts` `RESPONSE_BOUNDS`),
   but no text reaches the learner. The learner's draft is a *checking* draft (`checking: true` on
@@ -157,10 +209,13 @@ verifier did not, because the lesson uses the number 2 and the example's operand
 check's own. So Core now reads every draft of a turn in check-coaching mode by the grader's own
 rule before anything is kept (`companion-answer-guard.ts`, in Core's companion strategy):
 
-- **When:** only when the server knows the answer of a check in scope: the turn matched graded
-  checks (check-coaching mode) and they have deterministic keys (a value, an option, a text answer),
-  all read back from the course release. Ordinary turns, and items graded by a rubric, tests or a
-  reviewer, are never guarded (the judge still reads the latter).
+- **When:** only when the server knows the answer of a check in scope: the turn is in check-coaching
+  mode (it matched graded checks, or an open counted question is listed with it, match
+  `open_counted`, sections "Credit" and 2) and those checks have deterministic keys (a value, an
+  option, a text answer), all read back from the course release. So another lesson's open counted
+  question, which the narrowed credit scope leaves counted, is guarded on every turn while it is
+  open. Turns with neither, and items graded by a rubric, tests or a reviewer, are never guarded
+  (the judge still reads the latter).
 - **The rule** (`companion-check-integrity.ts` `draftAnswerLeak`, `answer-leak.ts`): the patterns
   of section 3, then each numeric key's value as the `hint_leakage` grader reads a protected answer
   (digits with their own sign, English and Hebrew number words): it counts where the reply arrives
@@ -218,13 +273,12 @@ reservation:
   `companion-check-scope.ts`): only a question in check-coaching mode reserves room for the judge.
   When the question is prepared into a job, Core runs the same match the teaching context runs when
   the call is assembled (the question, the learner's earlier questions in the lesson, the lesson's
-  and its neighbours' checks and the checks open now). A match reserves one companion call and one
-  judge call, each at its own limits (the judge at most 16,000 input characters and 2,048 output
+  and its neighbours' checks and the checks open now, the counted ones listed matched or not). A
+  match, or an open counted question, reserves two companion calls (the reply and the answer
+  guard's one regeneration) and one judge call, each at its own limits (the judge at most 16,000 input characters and 2,048 output
   tokens) and price, never above the job allowance; any other question reserves its own call only.
   If the match changes between preparation and the call (a check opened meanwhile), the judge finds
   no room and fails closed.
-  The same reservation also holds a second companion call for the answer guard's one regeneration
-  (section 3a), so a check-coaching question reserves two companion calls and one judge call.
 - **Room check:** before the judge is sent, the gateway checks that what the reply used plus the
   judge's ceiling for this request (its bytes, its output limit, the margin) still fits the job's
   allowance in tokens and micro-USD; otherwise it fails closed, so a job is never failed for

@@ -1,0 +1,142 @@
+import { test, expect, type Locator, type Page } from "./health";
+import { chooseFromMenu } from "./learner-menu";
+import enHost from "../../src/i18n/messages/en/connectedHost.json";
+import heHost from "../../src/i18n/messages/he/connectedHost.json";
+import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
+import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
+import enBasedOn from "../../src/i18n/messages/en/basedOn.json";
+import heBasedOn from "../../src/i18n/messages/he/basedOn.json";
+import enDock from "../../src/i18n/messages/en/companionDock.json";
+import heDock from "../../src/i18n/messages/he/companionDock.json";
+import enData from "../../src/i18n/messages/en/yourDataPanel.json";
+import heData from "../../src/i18n/messages/he/yourDataPanel.json";
+import enLesson from "../../src/i18n/messages/en/connectedLesson.json";
+import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
+import enCheck from "../../src/i18n/messages/en/checkCard.json";
+import heCheck from "../../src/i18n/messages/he/checkCard.json";
+import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
+import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
+import enRoadmap from "../../src/i18n/messages/en/courseRoadmap.json";
+import heRoadmap from "../../src/i18n/messages/he/courseRoadmap.json";
+import enInput from "../../src/i18n/messages/en/assessmentInput.json";
+import heInput from "../../src/i18n/messages/he/assessmentInput.json";
+import enCode from "../../src/i18n/messages/en/codeEditor.json";
+import heCode from "../../src/i18n/messages/he/codeEditor.json";
+import enConnectivity from "../../src/i18n/messages/en/connectivity.json";
+import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
+
+// Split from hebrew-polish.spec.ts: what a companion reply was based on ("Based on").
+
+/*
+ * Learner findings of the 0.1.60 qualification, on every device project and both engines, in
+ * English and Hebrew, on the real connected host (the Hebrew course is test/hebrew-reading-fixture.ts):
+ * - opening or closing the companion beside the lesson keeps the text being read where it was
+ *   (on a WebKit tablet it moved about 100 px);
+ * - the erase forms stack label, field and action in reading order (they ran onto one row);
+ * - after erasing the account the sign-in page keeps the language and confirms the erasure (it
+ *   came back in English, saying nothing);
+ * - a signed number in Hebrew text keeps its minus before the digits ("-2." drew as ".2-");
+ * - the companion's message box starts at the interface's reading edge (its Hebrew placeholder
+ *   sat on the left);
+ * - "Based on" quotes a Hebrew question with English and code in it in its own order;
+ * - a slow sandbox start shows one message that offers the retry, not a notice and a
+ *   "Not recorded yet" band over each other; a time-limit stop is a warning, not the green notice;
+ * - a Hebrew scene draws its heading inside the canvas and its slider runs with the scene.
+ * Positions are measured on the drawn glyphs and boxes, so each check fails on the old build.
+ */
+const text = {
+  en: { host: enHost, companion: enCompanion, basedOn: enBasedOn, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
+  he: { host: heHost, companion: heCompanion, basedOn: heBasedOn, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
+} as const;
+type Locale = keyof typeof text;
+type Glyph = { char: string; left: number; right: number; top: number; bottom: number };
+
+/** Every drawn character under `root`, in text order, without bidi controls. */
+async function glyphs(root: Locator): Promise<Glyph[]> {
+  return root.evaluate((element) => {
+    const out: Glyph[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null)
+      for (let i = 0; i < node.data.length; i++) {
+        if (/[‎‏⁦-⁩]/.test(node.data[i]!)) continue;
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        // WebKit adds an empty rect at an isolate's edge to the first character's box: use the drawn one.
+        const r = Array.from(range.getClientRects()).find((rect) => rect.width > 0) ?? range.getBoundingClientRect();
+        out.push({ char: node.data[i]!, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+      }
+    return out;
+  });
+}
+/** The glyphs of `needle`'s first occurrence after `from`. */
+function find(all: Glyph[], needle: string, from = 0): Glyph[] {
+  const joined = all.map((g) => g.char).join("");
+  const at = joined.indexOf(needle, from);
+  expect(at, `"${needle}" is drawn`).toBeGreaterThanOrEqual(0);
+  return all.slice(at, at + needle.length);
+}
+/** The glyph's horizontal centre (edges overlap by a pixel in WebKit). */
+const mid = (g: Glyph) => (g.left + g.right) / 2;
+const sameLine = (a: Glyph, b: Glyph) => Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 4;
+/** A run drawn left to right: each glyph to the right of the one before on its line; a run that
+ * wraps continues on a lower line. */
+function leftToRight(run: Glyph[], label: string) {
+  const drawn = run.filter((g) => g.char.trim());
+  for (let i = 1; i < drawn.length; i++) {
+    const [previous, glyph] = [drawn[i - 1]!, drawn[i]!];
+    if (sameLine(previous, glyph)) expect(mid(glyph), `${label}: "${glyph.char}" after "${previous.char}"`).toBeGreaterThan(mid(previous));
+    else expect(glyph.top, `${label}: "${glyph.char}" continues below "${previous.char}"`).toBeGreaterThan(previous.top);
+  }
+}
+async function signIn(page: Page, locale: Locale, session: string, data?: Record<string, unknown>) {
+  const token = (await (await page.request.post(session, data ? { data } : undefined)).json()).token;
+  await page.goto(`/?locale=${locale}#signin=${token}`);
+  await expect(page.locator("html")).toHaveAttribute("dir", locale === "he" ? "rtl" : "ltr");
+}
+async function openHebrewLesson(page: Page, locale: Locale, conversation = false) {
+  await signIn(page, locale, "/test/hebrew-reading-session", { conversation });
+  const resume = page.getByRole("button", { name: text[locale].host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
+  const reading = page.getByText(/בשיעור הזה מחפשים/).first();
+  await expect(async () => {
+    if (await resume.count()) await resume.first().click({ timeout: 2_000 });
+    await expect(reading).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+/** A real press at the control's centre (a locator click first scrolls the page under the
+ * sticky header, which would hide what this file measures). */
+async function press(page: Page, control: Locator) {
+  const box = (await control.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+async function openCompanion(page: Page) {
+  const pane = page.locator("#connected-companion");
+  if (!(await pane.isVisible())) await press(page, page.locator(".connected-companion-trigger"));
+  await expect(pane).toBeVisible();
+  return pane;
+}
+
+for (const locale of ["en", "he"] as const) {
+  const t = text[locale], rtl = locale === "he";
+
+  test(`${locale}: "Based on" quotes a Hebrew question with English and code in it in its own order`, async ({ page }, info) => {
+    await openHebrewLesson(page, locale, true);
+    const pane = await openCompanion(page);
+    await pane.getByRole("button", { name: new RegExp(`^${t.basedOn["chip.short"]}`) }).click();
+    // The question is the block's first section, under its own label.
+    const block = pane.getByRole("region", { name: t.basedOn.region, exact: true });
+    await expect(block.locator(".cc-act-based-label").first()).toHaveText(t.basedOn.question);
+    const answering = block.getByText(/minimum value/).first();
+    await answering.scrollIntoViewIfNeeded();
+    const all = await glyphs(answering);
+    leftToRight(find(all, "min([3, 7, -2, 5])"), "the call");
+    leftToRight(find(all, "minimum"), "the term");
+    const ending = find(all, "וקיבלתי -2.");
+    const minus = ending[ending.length - 3]!, digit = ending[ending.length - 2]!;
+    expect(mid(minus)).toBeLessThan(mid(digit));
+    // The Hebrew question reads right to left: its first word is right of the call.
+    const first = find(all, "מה זה")[0]!, call = find(all, "min([")[0]!;
+    if (sameLine(first, call)) expect(first.left).toBeGreaterThan(call.right);
+    await pane.screenshot({ path: info.outputPath(`context-used-${locale}.png`) });
+  });
+}

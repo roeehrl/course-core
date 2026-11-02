@@ -109,6 +109,11 @@ async function login(role = "learner"): Promise<Session> {
   return { id, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), csrf: r.json().csrfToken };
 }
 let testDatabase: TestDatabase | undefined;
+/** Each test here makes several round trips to its own Postgres copy: well under a second on
+ * an idle machine, several on a saturated one, where vitest's 5 s default cut them off. Like the
+ * other database suites, they get room for that; a test that hangs still fails. */
+const databaseTests = { timeout: 30_000 };
+
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
@@ -176,7 +181,7 @@ async function reviewedAttachment(options: { url: string; kind?: "web" | "youtub
 }
 const fallback = "Watch how the running minimum keeps the smaller value at every comparison step of the loop.";
 
-describe("YouTube Data API search and reviewed segments", () => {
+describe("YouTube Data API search and reviewed segments", databaseTests, () => {
   it("keeps keys in the admin provider vault: stored sealed, readable only server-side, never projected", async () => {
     const vault = credentialVault(randomBytes(32)), providers = new WorkspaceProviders(db, vault);
     const ws = randomUUID(), admin = randomUUID();
@@ -300,7 +305,7 @@ describe("YouTube Data API search and reviewed segments", () => {
   });
 });
 
-describe("YouTube quota and errors an admin can act on (O05)", () => {
+describe("YouTube quota and errors an admin can act on (O05)", databaseTests, () => {
   // A separate workspace and release, so quota counts start at zero.
   let ws: string, release: string, admin: Session;
   const answers: (Response | null)[] = [];
@@ -442,7 +447,7 @@ const resources = async (who: Session, id: string, episodeId = "min") => {
   return r.json();
 };
 
-describe("supervisor choice of one reviewed resource per objective", () => {
+describe("supervisor choice of one reviewed resource per objective", databaseTests, () => {
   let video: Awaited<ReturnType<typeof reviewedAttachment>>, second: Awaited<ReturnType<typeof reviewedAttachment>>,
     blocked: Awaited<ReturnType<typeof reviewedAttachment>>;
   beforeAll(async () => {
@@ -591,7 +596,7 @@ async function collect(row: { activation_event_id: string }) {
   return { ref: ref!, verified: await transition({ type: "verify", ref: ref! }) };
 }
 
-describe("structured research requests, deadlines and cancellation", () => {
+describe("structured research requests, deadlines and cancellation", databaseTests, () => {
   it("builds a learner-free SDK ResearchRequest and refuses widened or undeclared fields before any search", async () => {
     const j = await prepare(), tools = await scopedTools(j), searched = researchCalls.length + youtubeCalls.length;
     await tools.invoke("list_research_topics", {}, 0);

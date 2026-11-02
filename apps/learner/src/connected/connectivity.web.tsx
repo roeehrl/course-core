@@ -119,7 +119,7 @@ function makeRoom(root: HTMLElement, value: string) {
 
 /** The connection status and the state of a request that is saved on this
  * device but not yet confirmed by the server. It sits at the bottom of the
- * window (see connected.css), takes room there instead of covering the lesson,
+ * window (see styles/layout.css), takes room there instead of covering the lesson,
  * and never moves the page. */
 export function ConnectionStatus({
   online,

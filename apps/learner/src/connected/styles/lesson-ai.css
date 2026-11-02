@@ -1,0 +1,686 @@
+/* AI in the lesson (final design §4.5–§4.7, §4.18): the gate decision and its help pill, the
+ * "Unverified" pill and note, generated models, new-material offers, optional help, detours,
+ * fresh checks and exhausted questions. Every colour is a token (tokens.css). */
+
+/* Optional help (§4.7): the disclosure keeps its chevron; resources are rows of one list. */
+.connected-resources {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.connected-resources > summary {
+  cursor: pointer;
+  min-block-size: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: var(--space-1);
+  border-radius: 8px;
+}
+.connected-resources-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.connected-resources-count {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-resources > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.connected-resources-intro {
+  margin: 0;
+  padding-inline-start: 22px;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.connected-resources ul {
+  list-style: none;
+  margin-block: var(--space-1) 0;
+  margin-inline: 22px 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  overflow: hidden;
+}
+.connected-resources.is-unavailable {
+  gap: var(--space-1);
+}
+.connected-resource {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: var(--space-3);
+  align-items: start;
+  min-block-size: 44px;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+  color: var(--ink);
+}
+.connected-resource + .connected-resource {
+  border-block-start: 1px solid var(--line);
+}
+.connected-resource > .cc-ui-icon {
+  margin-block-start: 2px;
+  color: var(--ink-muted);
+}
+.connected-resource-body {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  justify-items: start;
+}
+.connected-resource h3,
+.connected-resource h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.connected-resource p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.connected-resource blockquote {
+  margin: 0;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14px;
+}
+.connected-resource-label {
+  font-weight: 600;
+}
+.connected-resource .connected-resource-suggested {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 24px;
+  padding-block: 0;
+  padding-inline: var(--space-2) 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 500 var(--text-meta) var(--font-sans);
+  white-space: nowrap;
+}
+.connected-resource .connected-resource-why,
+.connected-resource .connected-resource-meta {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-resource .connected-resource-made {
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-resource-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-block-size: var(--target);
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Server gate decision (§4.5): status, reason, criteria and the next steps the server allows. */
+.connected-gate {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  color: var(--ink);
+}
+.connected-gate-head {
+  display: grid;
+  gap: var(--space-1);
+}
+.connected-gate .connected-gate-label {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-gate-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-empty) var(--font-sans);
+}
+.connected-gate-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--accent);
+}
+.connected-gate[data-status="under_review"] .connected-gate-dot {
+  background: var(--ink-muted);
+}
+.connected-gate[data-status="closed_with_gaps"] .connected-gate-dot {
+  background: var(--warning);
+}
+.connected-gate .connected-gate-reason {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.connected-gate-criteria {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.connected-gate-criteria li {
+  display: grid;
+  grid-template-columns: minmax(118px, max-content) 1fr;
+  gap: var(--space-1) 14px;
+  font-size: 14px;
+  line-height: 22px;
+  padding-block: var(--space-2) 0;
+  border-block-start: 1px solid var(--line);
+}
+.connected-gate-criteria strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+.connected-gate-criteria li[data-state="unmet"] strong {
+  color: var(--ink);
+}
+.connected-gate-criteria li[data-state="pending"] strong {
+  color: var(--ink-muted);
+}
+.connected-gate-criteria span {
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+.connected-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) 20px;
+  margin-block-start: var(--space-1);
+}
+.connected-gate-action {
+  max-inline-size: 100%;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.connected-gate-action.cc-ui-pill {
+  padding-block: var(--space-2);
+}
+.connected-gate-action.cc-ui-text-button {
+  min-block-size: max(40px, var(--target));
+}
+.connected-gate-action.cc-ui-text-button:disabled {
+  text-decoration: none;
+}
+.cc-ai-gate-help > .cc-ui-icon {
+  align-self: center;
+}
+.connected-gate .connected-gate-wait {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.connected-gate-review-form {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.connected-gate-review-form .cc-ui-long-field {
+  inline-size: 100%;
+  box-sizing: border-box;
+}
+/* Empty until a reason is too short: it takes no room, not even the form's gap. */
+.connected-gate-review-status:empty {
+  margin-block-start: calc(-1 * var(--space-2));
+}
+.connected-gate .connected-gate-review-short {
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-gate-review {
+  display: grid;
+  gap: 6px;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+  min-inline-size: 0;
+}
+.connected-gate-review[data-state="exception_granted"] {
+  background: var(--accent-soft);
+}
+.connected-gate .connected-gate-review p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.connected-gate-review .connected-gate-action {
+  justify-self: start;
+}
+@media (max-width: 599px) {
+  .connected-gate {
+    padding: var(--space-4);
+  }
+  .connected-gate-criteria li {
+    grid-template-columns: 1fr;
+  }
+  .connected-gate-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .connected-gate-action.cc-ui-pill {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+  .connected-gate-review .connected-gate-action {
+    justify-self: stretch;
+  }
+}
+
+/* "Unverified" (§4.6, 18a): a 24 px pill (44 px to touch) that opens a 320 px note. */
+.connected-unverified {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.cc-ai-unverified {
+  display: inline-grid;
+  place-items: center;
+  min-block-size: var(--target);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.cc-ai-unverified-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  block-size: 24px;
+  padding-block: 0;
+  padding-inline: var(--space-2) 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 500 var(--text-meta) var(--font-sans);
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+}
+.cc-ai-unverified:hover .cc-ai-unverified-pill,
+.cc-ai-unverified[aria-expanded="true"] .cc-ai-unverified-pill {
+  background: var(--line);
+}
+.cc-ai-unverified:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-ui-popover.cc-ai-unverified-note {
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+  text-align: start;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-4);
+}
+/* The link lines up with the note's text. */
+.cc-ai-unverified-note .cc-ui-text-button {
+  padding-inline: 0;
+}
+.cc-ai-unverified-note p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* "Your course was updated": what became of the learner's personal changes (§4.18). */
+.connected-version-notice ul {
+  margin: 0 0 12px;
+  padding-inline-start: 22px;
+  line-height: 1.6;
+}
+.connected-reading-card .cc-ai-version-personal {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.cc-ai-version-personal > .cc-ui-icon {
+  margin-block-start: 3px;
+}
+
+/* New material for this lesson (§4.6, 18c), at the end of the lesson. */
+.cc-ai-offers {
+  display: grid;
+  gap: var(--space-3);
+}
+.cc-ai-offer {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  background: var(--surface);
+  color: var(--ink);
+}
+.cc-ai-offer-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.cc-ai-offer-body {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.cc-ai-offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+}
+.cc-ai-offer[data-state="preparing"] {
+  align-content: center;
+  min-block-size: 120px;
+  box-sizing: border-box;
+}
+.cc-ai-offer-preparing,
+.cc-ai-offer-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.cc-ai-offer-preparing {
+  color: var(--ink-muted);
+}
+.cc-ai-offer-outcome.is-muted {
+  color: var(--ink-muted);
+}
+.cc-ai-offer-outcome > .cc-ui-icon[data-icon="check"] {
+  color: var(--accent);
+}
+.cc-ai-offer-outcome > .cc-ui-text-button {
+  margin-inline-start: auto;
+}
+
+/* A generated interactive model beside its text alternative (§4.6, 18b). */
+.connected-component {
+  margin-block-start: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-check);
+  background: var(--surface);
+  color: var(--ink);
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.connected-component h3 {
+  margin: 0;
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.connected-component fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-inline-size: 0;
+}
+.connected-component-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.connected-component-control input {
+  inline-size: 9ch;
+  min-block-size: 40px;
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+  box-sizing: border-box;
+}
+.connected-component-control input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cc-ai-model-run {
+  min-inline-size: 184px;
+}
+.cc-ai-model-run[aria-disabled="true"] {
+  cursor: progress;
+}
+.cc-ai-spinner {
+  inline-size: 12px;
+  block-size: 12px;
+  border: 2px solid currentColor;
+  border-block-start-color: transparent;
+  border-radius: 50%;
+  animation: cc-ai-spin 1s linear 15;
+}
+@keyframes cc-ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cc-ai-model-results {
+  align-self: stretch;
+  justify-self: stretch;
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-block-size: 96px;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+}
+.connected-component .cc-ai-model-status,
+.connected-component .cc-ai-model-note {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.connected-component .cc-ai-model-line {
+  margin: 0;
+}
+.connected-component-results {
+  margin: 0;
+  display: grid;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.connected-component-results div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: 6px;
+  padding-inline: var(--space-3);
+  font-size: 14px;
+  line-height: 20px;
+}
+.connected-component-results div + div {
+  border-block-start: 1px solid var(--line);
+}
+.connected-component-results dt {
+  color: var(--ink);
+}
+.connected-component-results dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+/* A detour from the learner's path (§4.18): one 40 px row in the lesson header. */
+.connected-detour {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-3);
+  min-block-size: 40px;
+  box-sizing: border-box;
+  margin-block-end: var(--space-3);
+  padding-block: var(--space-1);
+  padding-inline: var(--space-3) var(--space-1);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.connected-lesson-heading .connected-detour p {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+}
+.cc-ai-detour-back {
+  gap: 6px;
+  min-block-size: max(32px, var(--target));
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-pill);
+  text-align: start;
+}
+
+/* Status lines of more than one line: the icon stays at the start of the first line and the words
+ * wrap beside it, never under it on a narrow screen. */
+.cc-ai-model-line,
+.cc-ai-model-results > .cc-ui-status,
+.cc-ai-exhausted-team,
+.cc-ai-offer-outcome,
+.connected-resources.is-unavailable > .cc-ui-status {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.cc-ai-model-line > .cc-ui-icon,
+.cc-ai-model-results > .cc-ui-status > .cc-ui-icon,
+.cc-ai-exhausted-team > .cc-ui-icon,
+.cc-ai-offer-outcome > .cc-ui-icon,
+.connected-resources.is-unavailable > .cc-ui-status > .cc-ui-icon {
+  flex: none;
+  margin-block-start: 2px;
+}
+.cc-ai-exhausted-team > .cc-ui-dots {
+  flex: none;
+  align-self: center;
+}
+.cc-ai-model-line > span,
+.cc-ai-model-results > .cc-ui-status > span,
+.cc-ai-exhausted-team > span,
+.cc-ai-offer-outcome > span,
+.connected-resources.is-unavailable > .cc-ui-status > span {
+  min-inline-size: 0;
+}
+.cc-ai-model-line > .cc-ui-text-button {
+  flex: none;
+}
+
+/* Personal lessons on the roadmap: a chip, never a colour of their own. */
+.cc-ui-tag.cc-ai-personal {
+  min-block-size: 24px;
+  box-sizing: border-box;
+  padding-inline: 10px;
+  color: var(--ink);
+  font: 500 var(--text-meta) var(--font-sans);
+}
+
+/* A fresh check after the questions ran out of what they could show. */
+.cc-ai-fresh-check {
+  align-self: flex-start;
+}
+
+/* A lesson that ran out of questions: said in place under the check, with whether the course
+ * team was told. */
+.connected-check .connected-questions-exhausted {
+  display: grid;
+  gap: var(--space-3);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--line);
+}
+.connected-check .cc-ai-exhausted-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.connected-check .cc-ai-exhausted-team {
+  font-size: var(--text-meta-size);
+}
+.cc-ai-exhausted-team[data-state="told"] > .cc-ui-icon {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-ai-spinner {
+    animation: none;
+    border-block-start-color: currentColor;
+    border-inline-end-color: transparent;
+  }
+}
+@media (forced-colors: active) {
+  .cc-ai-unverified-pill,
+  .cc-ai-offer,
+  .connected-detour,
+  .cc-ai-model-results {
+    border: 1px solid CanvasText;
+  }
+}
+/* The chevron sits beside the title line, not between the title and the count. */
+.connected-host .connected-resources > summary::before {
+  top: 16px;
+}

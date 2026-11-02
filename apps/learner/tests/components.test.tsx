@@ -6,8 +6,10 @@ import { CourseRoadmap } from "../src/components/CourseRoadmap";
 import { LessonFlow } from "../src/components/LessonFlow";
 import { Companion } from "../src/components/Companion";
 import { ProfileEditor } from "../src/components/ProfileEditor";
-import { ChoiceList } from "../src/components/ui";
+import { Badge, Button, ChoiceList, Field, Notice } from "../src/components/ui";
 import { Overlay } from "../src/components/Overlay.web";
+import { InlineReference } from "../src/components/InlineReference.web";
+import { palette } from "../src/theme/palette";
 import { demoCourse } from "../src/data/demoCourse";
 import { demo } from "./helpers";
 
@@ -64,28 +66,6 @@ describe("reusable learner components", () => {
     expect(
       screen.getByRole("button", { name: "Mark read & continue →" }),
     ).toBeEnabled();
-  });
-  it("keeps notes editable and identifies authored guidance honestly", async () => {
-    const change = vi.fn();
-    render(
-      <Companion
-        step={demoCourse.lessons[0]!.steps[0]!}
-        lessonTitle="Example"
-        note="A note"
-        onNoteChange={change}
-        mode="demo"
-      />,
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Show a hint ↗" }),
-    );
-    expect(screen.getByText(/Compare just two neighbors/)).toBeVisible();
-    expect(screen.getByText(/No live AI is connected/)).toBeVisible();
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Notes to yourself" }),
-      { target: { value: "A new note" } },
-    );
-    expect(change).toHaveBeenCalledWith("A new note");
   });
   it("validates empty profiles without calling the client", async () => {
     const save = vi.fn();
@@ -228,5 +208,80 @@ describe("reusable learner components", () => {
     ).toHaveFocus();
     await user.tab({ shift: true });
     expect(screen.getByRole("button", { name: "Last control" })).toHaveFocus();
+  });
+  it("draws a keyboard-focused button, option and field with a 2 px --focus outline, never a shadow alone", async () => {
+    const user = userEvent.setup();
+    const ring = { outlineStyle: "solid", outlineWidth: "2px", outlineColor: "var(--focus)" };
+    for (const [control, find] of [
+      [<Button label="Save" onPress={() => {}} />, () => screen.getByRole("button", { name: "Save" })],
+      [<ChoiceList label="An example" options={[{ id: "a", label: "First" }]} value="" onChange={() => {}} />, () => screen.getByRole("radio", { name: "First" })],
+      [<Field label="Name" />, () => screen.getByRole("textbox", { name: "Name" })],
+    ] as const) {
+      const { unmount } = render(control);
+      await user.tab();
+      expect(find()).toHaveFocus();
+      expect(find()).toHaveStyle(ring);
+      expect(getComputedStyle(find()).boxShadow).toBe("");
+      await user.tab();
+      expect(find()).not.toHaveFocus();
+      expect(find()).not.toHaveStyle({ outlineStyle: "solid" });
+      unmount();
+    }
+  });
+  it("takes the base components' colours from the theme tokens", () => {
+    render(
+      <>
+        <Button label="Primary" kind="primary" onPress={() => {}} />
+        <Button label="Secondary" onPress={() => {}} />
+        <Button label="Off" kind="primary" disabled onPress={() => {}} />
+        <Badge label="Suggested" tone="lilac" />
+        <Notice tone="warning">Stopped at the time limit.</Notice>
+        <InlineReference label="Source" href="https://example.org/a" />
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Primary" })).toHaveStyle({ backgroundColor: "var(--accent)" });
+    expect(screen.getByText("Primary")).toHaveStyle({ color: "var(--on-accent)" });
+    // An outline button's edge keeps 3:1 against the page (--line-strong).
+    expect(screen.getByRole("button", { name: "Secondary" })).toHaveStyle({ backgroundColor: "var(--surface)", borderColor: "var(--line-strong)" });
+    expect(screen.getByRole("button", { name: "Off" })).toHaveStyle({ backgroundColor: "var(--send-off)" });
+    expect(screen.getByText("Off")).toHaveStyle({ color: "var(--ink-muted)" });
+    // No purple text on a lilac fill: ink on the second surface.
+    expect(screen.getByText("Suggested")).toHaveStyle({ color: "var(--ink)" });
+    expect(screen.getByText("Suggested").parentElement!).toHaveStyle({ backgroundColor: "var(--surface-2)" });
+    expect(screen.getByText("Stopped at the time limit.").parentElement!).toHaveStyle({ backgroundColor: "var(--warning-soft)" });
+    expect(screen.getByRole("link", { name: "Source" })).toHaveStyle({ color: "var(--accent)" });
+  });
+  it("draws the sheet and its backdrop in the theme's page and backdrop colours", () => {
+    render(
+      <Overlay title="test panel" onClose={() => {}}>
+        <p>Inside</p>
+      </Overlay>,
+    );
+    const sheet = screen.getByRole("dialog", { name: "test panel" });
+    expect(sheet).toHaveStyle({ background: "var(--page)", color: "var(--ink)" });
+    expect(sheet.parentElement!).toHaveStyle({ background: "var(--backdrop)" });
+  });
+  it("draws a lesson diagram on its dark stage with the dark theme's light colours, in either theme", async () => {
+    const lesson = demoCourse.lessons[0]!;
+    const step = lesson.steps.find((candidate) => candidate.kind === "reading" && candidate.diagram)!;
+    render(
+      <LessonFlow
+        lesson={lesson}
+        step={step}
+        snapshot={await demo().load()}
+        compact
+        answer=""
+        pending={false}
+        onAnswer={vi.fn()}
+        onStep={vi.fn()}
+        onSubmit={vi.fn()}
+        onContinue={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    const hex = (value: string) => `rgb(${[1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16)).join(", ")})`;
+    if (step.kind !== "reading" || !step.diagram) throw new Error("the demo lesson has a diagram");
+    expect(screen.getByText(step.diagram.caption)).toHaveStyle({ color: hex(palette.dark.ink) });
+    expect(screen.getByText(step.diagram.label)).toHaveStyle({ color: hex(palette.dark.accent) });
   });
 });

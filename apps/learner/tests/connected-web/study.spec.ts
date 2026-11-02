@@ -19,7 +19,8 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   const prompt = page.getByRole("region", { name: "Join a research study? Ordering study" });
   await expect(prompt).toBeVisible();
   await expect(prompt.getByText(/A fair, random draw places you/)).toBeVisible();
-  await expect(prompt.getByText(/conversations with the AI companion/)).toBeVisible();
+  await expect(prompt.getByText("Your conversations with your companion", { exact: true })).toBeVisible();
+  await expect(prompt.getByText("The fixed lesson path: your companion is off.", { exact: true })).toBeVisible();
   // Before joining, the course is the standard one.
   await expect(companion(page).first()).toBeAttached();
   await expect(prompt.getByRole("button", { name: "Join the study" })).toBeDisabled();
@@ -36,7 +37,7 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "5", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   const steps = page.getByRole("group", { name: "Next steps" });
   await expect(steps.getByRole("button", { name: /Review “Minimum”/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /companion/i })).toHaveCount(0);
@@ -48,7 +49,11 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   await chooseFromMenu(page, "My profile");
   const settings = page.getByRole("region", { name: "Research study: Ordering study" });
   await expect(settings.getByText(/Your study code is P[0-9A-F]{10}/)).toBeVisible();
-  await expect(settings.getByText(/Your version: The fixed lesson path/)).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Your version of the course", exact: true })).toBeVisible();
+  await expect(settings.getByText("The fixed lesson path: your companion is off.", { exact: true }).first()).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Never collected", exact: true })).toBeVisible();
+  await settings.getByText("What each version includes", { exact: true }).click();
+  await expect(settings.getByText("Your version", { exact: true })).toBeVisible();
   await expect(page.getByText(/has no personal support\. Leave the study to turn it on\./)).toBeVisible();
   await accessible(page);
   await settings.getByRole("button", { name: "Leave the study" }).click();
@@ -75,8 +80,22 @@ test("in a study that asked for usability timings, the app sends only place code
   const prompt = page.getByRole("region", { name: "Join a research study? Ordering study" });
   await expect(prompt.getByText(/how many other buttons you try first/)).toBeVisible();
   await prompt.getByRole("checkbox", { name: "I have read this and agree to take part" }).check();
+  // The course as it is after joining (the snapshot that says this arm times usability) arrives
+  // slowly, as on a busy machine: the prompt goes only once the page shows the joined course, so
+  // the course page's trial is timed from the first moment the learner can press its Start.
+  const snapshot = /\/api\/enrollments\/[^/?#]+$/;
+  let slowed = 0;
+  await page.route(snapshot, async (route) => {
+    if (route.request().method() === "GET") {
+      slowed++;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    await route.fallback();
+  });
   await prompt.getByRole("button", { name: "Join the study" }).click();
   await expect(prompt).toHaveCount(0);
+  await expect.poll(() => slowed).toBeGreaterThan(0);
+  await page.unroute(snapshot);
   const sent: { body: { batchId: string; trials: Record<string, unknown>[] }; status: number }[] = [];
   page.on("response", async (response) => {
     if (response.url().endsWith("/study/usability") && response.request().method() === "POST")

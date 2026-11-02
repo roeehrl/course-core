@@ -1,7 +1,9 @@
-import React, { startTransition, useCallback, useEffect, useState } from "react";
+import React, { createContext, startTransition, useContext, useEffect, useRef, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
-import { Button } from "../components/ui";
+import { Icon } from "../components/icons/Icon.web";
 import { useT } from "../i18n";
+import { lessonNavigator } from "./companion/bridge";
+import { PreparingDots } from "./ui/PreparingDots.web";
 
 /** A generated addition that waits for the learner to finish their current attempt
  * (the server's safe-boundary rule). Its content is not shown before it is added. */
@@ -36,8 +38,30 @@ export function usePendingChanges(api: CourseApi, enrollmentId: string | undefin
 }
 
 /**
- * What is waiting for this lesson, why it waits, and the learner's choice: add it once they are
- * at a safe point (the server checks again) or turn it down. Shown above the lesson content.
+ * What the lesson tells the offer (ConnectedLesson.web.tsx provides it): the learner's plan
+ * revision, which moves when an addition is applied and stays when it lapsed, the lesson's parts,
+ * and whether a part can be shown now (a part read, or the next one to read).
+ */
+export interface LessonPlace {
+  planRevision?: number;
+  episodeId: string;
+  blocks: readonly { id: string; type: string }[];
+  showable: (blockId: string) => boolean;
+}
+export const LessonPlaceContext = createContext<LessonPlace | null>(null);
+
+type Outcome = { state: "added" | "declined" | "gone"; item: PendingChange; goTo?: string };
+type Choice = { pendingId: string; kind: "add" | "decline"; planRevision?: number; blocks: string[]; settled: number | null };
+/** How long a choice waits, once no request is running, for the waiting list to drop the addition
+ * before it is offered again (the request failed or never started). */
+const SETTLE_MS = 4000;
+const READABLE = ["text", "visual", "media"];
+
+/**
+ * New material for this lesson (§4.6, 18c), at its end: what it is, why it is here, and the
+ * learner's choice. While it waits for a safe point (the server's rule) it says so and cannot be
+ * added yet. After a choice the card says what happened: "Preparing it…" while it is added, then
+ * added (with "Go to it"), not added, or no longer available.
  */
 export function PendingChangesNotice({
   items,
@@ -53,43 +77,120 @@ export function PendingChangesNotice({
   onDecline: (pendingId: string) => void;
 }) {
   const t = useT();
+  const place = useContext(LessonPlaceContext);
+  const [choice, setChoice] = useState<Choice | null>(null);
+  const [outcomes, setOutcomes] = useState<Outcome[]>([]);
+  const seen = useRef(new Map<string, PendingChange>());
+  // The card whose choice was just made: its pressed button goes, so the line that says what is
+  // happening takes the focus, and then the line that says what happened.
+  const focusAfter = useRef<string | null>(null);
+  // What had the focus at the press (a click does not focus a button in Safari): focus still there
+  // means the learner has not gone elsewhere since.
+  const focusFrom = useRef<Element | null>(null);
   const here = items.filter((item) => item.episodeId === episodeId);
-  const describe = useCallback(
-    (item: PendingChange) =>
-      item.addableNow
-        ? t("pendingChanges.ready")
-        : item.waitingFor === "activity_in_progress"
-          ? t("pendingChanges.waitingActivity")
-          : t("pendingChanges.waitingAttempt"),
-    [t],
-  );
-  if (!here.length) return null;
+  for (const item of here) seen.current.set(item.pendingId, item);
+  // A choice is settled once the host's request is over; the addition then leaves the waiting list
+  // (added, turned down or lapsed), or, after a failed request, stays and is offered again.
+  useEffect(() => {
+    if (!choice) return;
+    if (pending) return;
+    const listed = items.some((item) => item.pendingId === choice.pendingId);
+    if (!listed) {
+      const item = seen.current.get(choice.pendingId);
+      setChoice(null);
+      if (!item) return;
+      const applied = choice.kind === "add" && (place?.planRevision ?? 0) > (choice.planRevision ?? 0);
+      const added = place?.blocks.find((block) => !choice.blocks.includes(block.id) && READABLE.includes(block.type));
+      setOutcomes((all) => [
+        ...all.filter((row) => row.item.pendingId !== item.pendingId),
+        { state: choice.kind === "decline" ? "declined" : applied ? "added" : "gone", item, ...(applied && added ? { goTo: added.id } : {}) },
+      ]);
+      return;
+    }
+    if (choice.settled === null) return setChoice({ ...choice, settled: Date.now() });
+    const timer = setTimeout(() => setChoice((now) => (now === choice ? null : now)), Math.max(0, choice.settled + SETTLE_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [choice, items, pending, place?.planRevision, place?.blocks]);
+  const choose = (item: PendingChange, kind: Choice["kind"]) => {
+    focusAfter.current = item.pendingId;
+    focusFrom.current = document.activeElement;
+    setChoice({ pendingId: item.pendingId, kind, planRevision: place?.planRevision, blocks: place?.blocks.map((block) => block.id) ?? [], settled: null });
+    (kind === "add" ? onAdd : onDecline)(item.pendingId);
+  };
+  const takeFocus = (id: string, last: boolean) => (line: HTMLParagraphElement | null) => {
+    if (!line || focusAfter.current !== id) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== focusFrom.current && active.isConnected && !line.parentElement?.contains(active)) return;
+    line.focus({ preventScroll: true });
+    if (last) focusAfter.current = null;
+  };
+  // Each card keeps its place while its choice settles and after, so focus and reading stay put.
+  const kept = (id: string) => choice?.pendingId === id || outcomes.some((row) => row.item.pendingId === id);
+  const shown = [...seen.current.values()].filter((item) => item.episodeId === episodeId && (here.includes(item) || kept(item.pendingId)));
+  if (!shown.length) return null;
   return (
-    <section className="connected-pending" aria-labelledby="connected-pending-title">
-      <h2 id="connected-pending-title">{t("pendingChanges.title")}</h2>
-      <ul>
-        {here.map((item) => (
-          <li key={item.pendingId}>
-            <p>
-              <strong>{t("pendingChanges.kind", { kind: item.kind })}</strong> {describe(item)}
-            </p>
-            <p className="connected-muted" id={`pending-note-${item.pendingId}`}>
-              {t("pendingChanges.note")}
-            </p>
-            <div className="connected-pending-actions">
-              <Button label={t("pendingChanges.decline")} kind="quiet" disabled={pending} onPress={() => onDecline(item.pendingId)} />
-              <Button
-                label={t("pendingChanges.add")}
-                kind="primary"
-                disabled={pending || !item.addableNow}
-                describedBy={`pending-note-${item.pendingId}`}
-                onPress={() => onAdd(item.pendingId)}
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <div className="cc-ai-offers">
+      {shown.map((item) => {
+        const outcome = outcomes.find((row) => row.item.pendingId === item.pendingId);
+        const preparing = choice?.pendingId === item.pendingId && choice.kind === "add";
+        const titleId = `pending-title-${item.pendingId}`, waitId = `pending-wait-${item.pendingId}`;
+        const goTo = outcome?.goTo && place?.showable(outcome.goTo) ? outcome.goTo : undefined;
+        return (
+          <section key={item.pendingId} className="connected-pending cc-ai-offer" data-state={outcome?.state ?? (preparing ? "preparing" : item.addableNow ? "ready" : "waiting")}
+            aria-labelledby={titleId}>
+            <h2 id={titleId} className={outcome || preparing ? "cc-ui-sr-only" : "cc-ai-offer-title"}>
+              {!outcome && !preparing && <Icon name="sparkle" size={16} />}
+              <span>{t("pendingChanges.title", { kind: item.kind })}</span>
+            </h2>
+            {outcome ? (
+              <p ref={takeFocus(item.pendingId, true)} tabIndex={-1} className={outcome.state === "declined" ? "cc-ai-offer-outcome is-muted" : "cc-ai-offer-outcome"}>
+                {outcome.state === "added" && <Icon name="check" size={16} />}
+                {outcome.state === "gone" && <Icon name="alert-circle" size={16} />}
+                <span>{t(outcome.state === "added" ? "pendingChanges.added" : outcome.state === "declined" ? "pendingChanges.declined" : "pendingChanges.lapsed")}</span>
+                {goTo && (
+                  <button type="button" className="cc-ui-text-button" onClick={() => lessonNavigator.show({ episodeId: place?.episodeId, blockId: goTo, focus: "block" })}>
+                    {t("pendingChanges.goTo")}
+                  </button>
+                )}
+              </p>
+            ) : preparing ? (
+              <p ref={takeFocus(item.pendingId, false)} tabIndex={-1} className="cc-ai-offer-preparing">
+                <PreparingDots />
+                <span>{t("pendingChanges.preparing")}</span>
+              </p>
+            ) : (
+              <>
+                <p className="cc-ai-offer-body">{t("pendingChanges.body")}</p>
+                {!item.addableNow && (
+                  <p className="cc-ai-offer-body" id={waitId}>
+                    {t(item.waitingFor === "activity_in_progress" ? "pendingChanges.waitingActivity" : "pendingChanges.waitingAttempt")}
+                  </p>
+                )}
+                <div className="cc-ai-offer-actions">
+                  {/* Waiting for the question to finish, "Add" keeps its accent (New-material tile 3):
+                      it says it waits (aria-disabled, the waiting line) rather than greying out. */}
+                  <button
+                    type="button"
+                    className="cc-ui-pill cc-ui-pill-accent cc-ui-pill-40"
+                    disabled={pending}
+                    aria-disabled={item.addableNow ? undefined : true}
+                    aria-describedby={item.addableNow ? undefined : waitId}
+                    onClick={() => {
+                      if (item.addableNow) choose(item, "add");
+                    }}
+                  >
+                    {t("pendingChanges.add")}
+                  </button>
+                  <button type="button" className="cc-ui-pill cc-ui-pill-outline cc-ui-pill-40" disabled={pending} onClick={() => choose(item, "decline")}>
+                    {t("pendingChanges.decline")}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        );
+      })}
+    </div>
   );
 }
 

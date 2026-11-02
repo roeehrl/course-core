@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useState } from "react";
 import type { ServerSnapshot } from "../client/apiClient";
 import { useI18n } from "../i18n";
+import { Icon } from "./icons/Icon.web";
 
 // i18n-ignore: local storage key, not shown to people
 const seenKey = (enrollmentId: string, noticeId: string) => `course-version-notice:${enrollmentId}:${noticeId}`;
@@ -40,8 +41,14 @@ export function CourseVersionNotice({ server }: { server: ServerSnapshot }) {
         )}
         <li>{t("courseVersionNotice.checkpoints")}</li>
         <li>{t("courseVersionNotice.deadlines")}</li>
-        {notice.personalChanges && <li>{t(`courseVersionNotice.personal.${notice.personalChanges}`)}</li>}
       </ul>
+      {/* What became of the learner's personal changes, on its own line (§4.18). */}
+      {notice.personalChanges && (
+        <p className="cc-ai-version-personal">
+          <Icon name="info" size={16} />
+          <span>{t(`courseVersionNotice.personal.${notice.personalChanges}`)}</span>
+        </p>
+      )}
       <button
         type="button"
         className="connected-secondary"

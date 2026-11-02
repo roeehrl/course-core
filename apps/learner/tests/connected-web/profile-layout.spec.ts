@@ -90,7 +90,7 @@ test("the personal lesson support panel keeps its height while its permission lo
   const read = await hold(page, supervisionRead);
   await chooseFromMenu(page, "My profile");
   const below = headings(page).memory;
-  const loadingStatus = page.getByLabel("Loading supervisor information", {
+  const loadingStatus = page.getByLabel("Loading your companion's work", {
     exact: true,
   });
   await expect(loadingStatus).toHaveCount(1);
@@ -102,7 +102,7 @@ test("the personal lesson support panel keeps its height while its permission lo
   // While pending: one announced status, and the reserved button is not an
   // unlabelled or duplicate control.
   await expect(
-    page.getByRole("button", { name: /personal support/ }),
+    page.getByRole("button", { name: /^Turn (on|off)$/ }),
   ).toHaveCount(0);
   expect(
     (
@@ -116,7 +116,7 @@ test("the personal lesson support panel keeps its height while its permission lo
 
   read.release();
   await expect(
-    page.getByRole("button", { name: "Enable personal support", exact: true }),
+    page.getByRole("button", { name: "Turn on", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Off", { exact: true })).toBeVisible();
   await expect(loadingStatus).toHaveCount(0);
@@ -124,36 +124,19 @@ test("the personal lesson support panel keeps its height while its permission lo
   expect(Math.abs(after - before)).toBeLessThanOrEqual(MAX_SHIFT);
   await noHorizontalOverflow(page);
 
-  // Turning support on and refreshing the panel reads again: the badge and
-  // button are replaced by the placeholder and back, still without movement.
-  // The saved change raises the course revision, which reads the panel again;
-  // let that read finish before holding the next one.
-  const reread = page.waitForResponse(
-    (r) =>
-      r.request().method() === "GET" &&
-      supervisionRead.test(new URL(r.url()).pathname),
-  );
-  await page
-    .getByRole("button", { name: "Enable personal support", exact: true })
-    .click();
-  await reread;
-  await expect(page.getByText("Enabled", { exact: true })).toBeVisible();
-  await expect(loadingStatus).toHaveCount(0);
-  const refresh = page.getByRole("button", {
-    name: "Refresh supervisor information",
-    exact: true,
-  });
-  await expect(refresh).toBeEnabled();
-  const settled = await documentTop(below);
+  // Turning support on reads the panel again (the saved change raises the
+  // course revision): the badge and button are replaced by the placeholder and
+  // back, still without movement. There is no bare Refresh under the card.
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
   const again = await hold(page, supervisionRead);
-  await refresh.click();
+  await page
+    .getByRole("button", { name: "Turn on", exact: true })
+    .click();
   await expect(loadingStatus).toHaveCount(1);
-  expect(Math.abs((await documentTop(below)) - settled)).toBeLessThanOrEqual(
-    MAX_SHIFT,
-  );
+  const settled = await documentTop(below);
   again.release();
   await expect(
-    page.getByRole("button", { name: "Turn off personal support", exact: true }),
+    page.getByRole("button", { name: "Turn off", exact: true }),
   ).toBeVisible();
   expect(Math.abs((await documentTop(below)) - settled)).toBeLessThanOrEqual(
     MAX_SHIFT,
@@ -169,20 +152,18 @@ test("a failed permission read shows its notice in the reserved space", async ({
   await chooseFromMenu(page, "My profile");
   const below = headings(page).memory;
   await expect(
-    page.getByLabel("Loading supervisor information", { exact: true }),
+    page.getByLabel("Loading your companion's work", { exact: true }),
   ).toHaveCount(1);
   for (const label of ["Loading learning memory", "Loading teaching ideas"])
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
   const before = await documentTop(below);
   read.release();
+  // The line says it, and offers to read it again.
+  const failed = page.getByRole("alert").filter({ hasText: "Couldn't load this." });
+  await expect(failed).toBeVisible();
+  await expect(failed.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
   await expect(
-    page.getByText(
-      "Supervisor information is unavailable. Refresh to try again.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /personal support/ }),
+    page.getByRole("button", { name: /^Turn (on|off)$/ }),
   ).toHaveCount(0);
   expect(Math.abs((await documentTop(below)) - before)).toBeLessThanOrEqual(
     MAX_SHIFT,
@@ -197,7 +178,7 @@ test("reopened learning memory and teaching ideas keep their height while they r
   await chooseFromMenu(page, "My profile");
   const { changes } = headings(page);
   for (const label of [
-    "Loading supervisor information",
+    "Loading your companion's work",
     "Loading learning memory",
     "Loading teaching ideas",
   ])
@@ -223,7 +204,7 @@ test("reopened learning memory and teaching ideas keep their height while they r
     page.getByLabel("Loading teaching ideas", { exact: true }),
   ).toHaveCount(1);
   await expect(
-    page.getByLabel("Loading supervisor information", { exact: true }),
+    page.getByLabel("Loading your companion's work", { exact: true }),
   ).toHaveCount(0);
   const pending = await documentTop(changes);
   expect(Math.abs(pending - settled)).toBeLessThanOrEqual(MAX_SHIFT);
@@ -240,17 +221,17 @@ test("reopened learning memory and teaching ideas keep their height while they r
 });
 
 /** Opens the profile with one lower panel's read held, after the panels above
- * have settled, and returns the read's release and a heading below the panel. */
-async function holdLowerPanel(page: Page, path: RegExp, below: string) {
+ * have settled, and returns the read's release and a heading (or other element) below the panel. */
+async function holdLowerPanel(page: Page, path: RegExp, below: string | ((page: Page) => Locator)) {
   const read = await hold(page, path);
   await chooseFromMenu(page, "My profile");
   for (const label of [
-    "Loading supervisor information",
+    "Loading your companion's work",
     "Loading learning memory",
     "Loading teaching ideas",
   ])
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
-  const heading = page.getByRole("heading", { name: below, exact: true });
+  const heading = typeof below === "string" ? page.getByRole("heading", { name: below, exact: true }) : below(page);
   await expect(heading).toBeAttached();
   // A course-revision refresh can read again; every such read is held.
   expect(read.seen()).toBeGreaterThanOrEqual(1);
@@ -296,7 +277,8 @@ test("staff access to your record keeps its height while it loads", async ({
   const { read, heading } = await holdLowerPanel(
     page,
     /^\/api\/enrollments\/[^/]+\/staff-views$/,
-    "Connected agents",
+    // Connected agents wait behind "Advanced", the next thing down.
+    (page) => page.locator(".cc-prof-advanced > summary"),
   );
   const access = page.getByRole("region", {
     name: "Staff access to your record",
@@ -336,7 +318,7 @@ test("the review-assist choice keeps its space, inert and hidden, while it loads
     "Your data",
   );
   const choice = page.getByRole("checkbox", {
-    name: "Let an AI draft notes for my reviewer",
+    name: "Let AI draft notes for my reviewer",
   });
   // Laid out but not shown, announced or focusable before the saved choice is known.
   await expect(

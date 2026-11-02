@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useT } from "../i18n";
+import { colors as theme } from "../theme/colors";
 import { colors, styles } from "./ui";
 export interface OverlayProps {
   title: string;
@@ -25,7 +26,7 @@ export function Overlay({ title, titleVisible = false, onClose, children }: Over
       <SafeAreaView
         style={{
           flex: 1,
-          backgroundColor: "#18323766",
+          backgroundColor: theme.backdrop,
           justifyContent: "flex-end",
         }}
       >

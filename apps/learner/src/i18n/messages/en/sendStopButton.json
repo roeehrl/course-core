@@ -1,0 +1,6 @@
+{
+  "stop": "Stop reply",
+  "sendTip": "Send (Enter)",
+  "stopTip": "Stop (Esc)",
+  "offlineTip": "Sends when you're back online"
+}

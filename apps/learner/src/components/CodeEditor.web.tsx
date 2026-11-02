@@ -6,7 +6,8 @@ import {
   codeSubmissionError,
   utf8Bytes,
 } from "../connected/code";
-import { companionFocus, selectedLines, sha256Hex } from "../client/companionFocus";
+import { useCompanionAvailable } from "../connected/companion/bridge";
+import { codeCandidate, codeSelection, isAskButton } from "../connected/companion/selectionAttach";
 import { useT } from "../i18n";
 import { PracticeRunner } from "./PracticeRunner.web";
 export function CodeEditor({
@@ -25,12 +26,38 @@ export function CodeEditor({
     [fileError, setFileError] = useState(""),
     [fileNotice, setFileNotice] = useState("");
   const error = codeSubmissionError(language, value, t);
+  const companion = useCompanionAvailable();
   useEffect(
     () => () => {
       generation.current++;
     },
     [],
   );
+  // Selected lines of the learner's own code are offered to the floating "Ask companion" button
+  // (AskFromLesson); nothing goes with a message until the learner presses it.
+  function offerSelection() {
+    const field = editor.current;
+    if (!field) return;
+    const candidate = companion ? codeCandidate(field) : null;
+    if (candidate) codeSelection.offer(candidate);
+    else codeSelection.withdraw(field);
+  }
+  const offerRef = useRef(offerSelection);
+  offerRef.current = offerSelection;
+  useEffect(() => {
+    const field = editor.current;
+    if (!companion) codeSelection.withdraw(field);
+    // Browsers also tell the field itself when its selection changes (a script or an assistive
+    // technology selecting lines fires no pointer or key event).
+    const changed = () => offerRef.current();
+    field?.addEventListener("select", changed);
+    field?.addEventListener("selectionchange", changed);
+    return () => {
+      field?.removeEventListener("select", changed);
+      field?.removeEventListener("selectionchange", changed);
+      codeSelection.withdraw(field);
+    };
+  }, [companion]);
   useEffect(() => {
     if (disabled) {
       generation.current++;
@@ -141,20 +168,10 @@ export function CodeEditor({
         aria-invalid={error && value.trim() ? true : undefined}
         value={value}
         onChange={(event) => update(event.target.value)}
-        onSelect={(event) => {
-          // Selected lines of the learner's own code can go with their next companion message.
-          const target = event.currentTarget,
-            { selectionStart: start, selectionEnd: end, value: code } = target;
-          if (end <= start || !code.slice(start, end).trim()) return;
-          const lines = selectedLines(code, start, end);
-          void sha256Hex(code).then((codeSnapshotHash) =>
-            companionFocus.setSelection({
-              kind: "code",
-              excerpt: code.slice(start, end).slice(0, 2000),
-              ...lines,
-              codeSnapshotHash,
-            }),
-          );
+        onSelect={offerSelection}
+        onBlur={(event) => {
+          // Focus moving to the floating button keeps the offer; anywhere else withdraws it.
+          if (!isAskButton(event.relatedTarget)) codeSelection.withdraw(event.currentTarget);
         }}
         readOnly={disabled}
         autoCapitalize="off"

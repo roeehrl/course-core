@@ -5,9 +5,11 @@ import {
   applyDraftFrame,
   companionHasPending,
   type CompanionDraft,
+  type CompanionFeedback,
   type CompanionMessage,
   type ContextualCompanionClient,
 } from "../client/companionClient";
+import { conversationActions, type ConversationActions } from "../connected/companion/conversationActions";
 /** How often the conversation is read again while the event stream is down (and the panel is open or a reply is due). */
 export const COMPANION_FALLBACK_POLL_MS = 5000;
 /** A slow safety read while a reply is due and the stream is up, in case an event was lost. */
@@ -37,6 +39,26 @@ type Saved = {
   failed: boolean;
   loaded: boolean;
 };
+/** Messages older than the latest page, read on request ("Show earlier messages"), oldest first.
+ * Kept apart from the latest page, which the stream keeps current; a message that the latest page
+ * no longer holds (newer ones pushed it out) joins them, so nothing between them goes missing. */
+type Older = {
+  client: ContextualCompanionClient;
+  id: string;
+  rows: readonly CompanionMessage[];
+  /** At least one earlier page was read: `earlier` and `before` are the last page's. */
+  read: boolean;
+  earlier: boolean;
+  before: string | null;
+  loading: boolean;
+  failed: boolean;
+};
+/** Votes saved in this visit, shown on their replies until a read of the latest page agrees. */
+type Votes = { client: ContextualCompanionClient; id: string; feedback: Readonly<Record<string, CompanionFeedback>> };
+const NO_ROWS: readonly CompanionMessage[] = [];
+const NO_VOTES: Readonly<Record<string, CompanionFeedback>> = {};
+const sameFeedback = (a: CompanionFeedback | null | undefined, b: CompanionFeedback | null | undefined) =>
+  (a?.vote ?? null) === (b?.vote ?? null) && (a?.reported ?? false) === (b?.reported ?? false);
 /**
  * The companion conversation for one enrollment, kept current by events, not by polling.
  *
@@ -62,6 +84,10 @@ export function useCompanionConversation(
   const lastSeen = useRef({ open, revision });
   // Replies being written, as streamed over the event stream; kept per enrollment and never stored.
   const [drafts, setDrafts] = useState<HeldDrafts>();
+  const [older, setOlder] = useState<Older>();
+  const [votes, setVotes] = useState<Votes>();
+  // Whether earlier pages are shown, read by the stream effect without restarting it.
+  const olderShown = useRef(false);
   useEffect(() => {
     if (!enrollmentId) return;
     setDrafts({ id: enrollmentId, drafts: {}, connected: true });
@@ -79,6 +105,8 @@ export function useCompanionConversation(
     let running = false, again = false;
     // The text of the last messages read, to tell a real change from an identical answer.
     let shown: string | undefined, failedShown = false;
+    // The latest page as last read: a message it no longer holds joins the earlier pages shown.
+    let latestRows: readonly CompanionMessage[] = [];
     const schedule = () => {
       clearTimeout(timer);
       if (controller.signal.aborted) return;
@@ -108,13 +136,26 @@ export function useCompanionConversation(
         // the paint of what the learner just did.
         if (text !== shown || failedShown) {
           const changed = text !== shown;
-          startTransition(() =>
-            changed
-              ? setSaved({ client, id: enrollmentId!, messages, failed: false, loaded: true })
-              : setSaved((old) => old && { ...old, failed: false }),
-          );
+          const ids = new Set(messages.map((row) => row.id));
+          const pushed = changed && olderShown.current ? latestRows.filter((row) => !ids.has(row.id)) : NO_ROWS;
+          startTransition(() => {
+            if (!changed) return setSaved((old) => old && { ...old, failed: false });
+            setSaved({ client, id: enrollmentId!, messages, failed: false, loaded: true });
+            if (pushed.length)
+              setOlder((old) => old?.client === client && old.id === enrollmentId
+                ? { ...old, rows: [...old.rows, ...pushed.filter((row) => !old.rows.some((kept) => kept.id === row.id))] }
+                : old);
+            // A vote this visit saved is dropped once the latest page reads it back.
+            setVotes((old) => {
+              if (old?.client !== client || old.id !== enrollmentId) return old;
+              const read = new Map(messages.map((row) => [row.id, row.feedback]));
+              const left = Object.entries(old.feedback).filter(([id, value]) => !read.has(id) || !sameFeedback(read.get(id), value));
+              return left.length === Object.keys(old.feedback).length ? old : { ...old, feedback: Object.fromEntries(left) };
+            });
+          });
           shown = text;
           failedShown = false;
+          if (changed) latestRows = messages;
         }
       } catch (error) {
         // Cancelled (by this effect or by leaving the page): nothing failed.
@@ -197,10 +238,72 @@ export function useCompanionConversation(
     // (which also resets the fallback timer for the new panel state).
     reread.current?.();
   }, [open, revision]);
-  const conversation = saved?.client !== client || saved.id !== enrollmentId
+  const current = saved?.client === client && saved.id === enrollmentId ? saved : undefined;
+  const latest = !current
     ? EMPTY
-    : saved.failed ? withError(saved, t("useCompanionConversation.refreshFailed")) : withoutError(saved);
+    : current.failed ? withError(current, t("useCompanionConversation.refreshFailed")) : withoutError(current);
   const held = drafts?.id === enrollmentId ? drafts : undefined;
+  const earlierPages = older?.client === client && older.id === enrollmentId ? older : undefined;
+  olderShown.current = Boolean(earlierPages?.read);
+  const olderRows = earlierPages?.rows ?? NO_ROWS;
+  const savedVotes = votes?.client === client && votes.id === enrollmentId ? votes.feedback : NO_VOTES;
+  // The earlier pages and this visit's votes over the latest page; with neither, the latest page
+  // itself, so the identity rules below are those of the latest page.
+  const conversation = useMemo(() => {
+    if (!olderRows.length && savedVotes === NO_VOTES) return latest;
+    const live = new Set(latest.messages.map((row) => row.id));
+    const all = [...olderRows.filter((row) => !live.has(row.id)), ...latest.messages];
+    return { ...latest, messages: all.map((row) => (Object.hasOwn(savedVotes, row.id) ? { ...row, feedback: savedVotes[row.id] } : row)) };
+  }, [latest, olderRows, savedVotes]);
+  // What the actions on the messages read (conversationActions.ts): earlier pages, votes, changes.
+  const page = current ? client.pageOf?.(current.messages) : undefined;
+  const earlier = earlierPages?.read ? earlierPages.earlier : Boolean(page?.earlier && client.loadEarlier);
+  const cursor = earlierPages?.read ? earlierPages.before : page?.before ?? null;
+  const now = useRef({ client, enrollmentId, revision, cursor, loading: false, live: latest.messages });
+  now.current = { client, enrollmentId, revision, cursor, loading: Boolean(earlierPages?.loading), live: latest.messages };
+  const actions = useRef<Pick<ConversationActions, "loadEarlier" | "vote" | "changed">>(undefined);
+  actions.current ??= {
+    async loadEarlier() {
+      const { client, enrollmentId, cursor, loading, live } = now.current;
+      if (!enrollmentId || !cursor || loading || !client.loadEarlier) return;
+      const mine = (old: Older | undefined): Older => old?.client === client && old.id === enrollmentId ? old
+        : { client, id: enrollmentId, rows: NO_ROWS, read: false, earlier: false, before: null, loading: false, failed: false };
+      setOlder((old) => ({ ...mine(old), loading: true, failed: false }));
+      try {
+        const read = await client.loadEarlier(enrollmentId, cursor);
+        setOlder((old) => {
+          const base = mine(old);
+          const known = new Set([...base.rows, ...live].map((row) => row.id));
+          return { ...base, rows: [...read.messages.filter((row) => !known.has(row.id)), ...base.rows], read: true,
+            earlier: read.earlier, before: read.before, loading: false, failed: false };
+        });
+      } catch (error) {
+        setOlder((old) => ({ ...mine(old), loading: false, failed: !isAbortError(error) }));
+      }
+    },
+    async vote(messageId, input) {
+      const { client, enrollmentId, revision } = now.current;
+      // i18n-ignore: programming guard, votes are offered only when the client takes them
+      if (!enrollmentId || !client.vote) throw new Error("Votes are not available");
+      const saved = await client.vote({ enrollmentId, revision }, messageId, input);
+      setVotes((old) => ({ client, id: enrollmentId, feedback: { ...(old?.client === client && old.id === enrollmentId ? old.feedback : {}), [messageId]: saved.feedback } }));
+      return saved.feedback;
+    },
+    changed(change) {
+      const { client, enrollmentId } = now.current;
+      setOlder((old) => old?.client === client && old.id === enrollmentId ? { ...old, rows: applyChange(old.rows, change) } : old);
+    },
+  };
+  const loading = Boolean(earlierPages?.loading), failed = Boolean(earlierPages?.failed), canVote = Boolean(client.vote);
+  useEffect(() => {
+    if (!enrollmentId) return;
+    const { loadEarlier, vote, changed } = actions.current!;
+    conversationActions.publish(enrollmentId, { earlier, loading, failed, loadEarlier, changed, ...(canVote ? { vote } : {}) });
+  }, [enrollmentId, earlier, loading, failed, canVote]);
+  useEffect(() => {
+    if (!enrollmentId) return;
+    return () => conversationActions.publish(enrollmentId, null);
+  }, [enrollmentId]);
   // Keeps its identity while neither the conversation nor the drafts changed.
   return useMemo(() => ({
     ...conversation,
@@ -208,6 +311,30 @@ export function useCompanionConversation(
     /** False while the event stream is reconnecting; a draft resumes once it is back. */
     streamConnected: held?.connected ?? true,
   }), [conversation, held]);
+}
+/** A change saved through another route, on earlier messages already read: a deleted question
+ * (with its answers, and wherever a reply lists it as used) or a message no longer used. */
+function applyChange(rows: readonly CompanionMessage[], change: Parameters<ConversationActions["changed"]>[0]): readonly CompanionMessage[] {
+  if ("deleted" in change) {
+    const question = rows.find((row) => row.id === change.deleted);
+    const job = question?.job_id;
+    return rows.map((row) => {
+      if (row.id === change.deleted || (job && row.job_id === job && row.role === "assistant")) return { ...row, content: "[deleted]", context: {} };
+      const used = row.context_used;
+      if (!used || !JSON.stringify(used).includes(change.deleted)) return row;
+      return { ...row, context_used: { ...used,
+        history: used.history.filter((ref) => ref.messageId !== change.deleted),
+        summary: used.summary && { ...used.summary, items: used.summary.items.filter((item) => item.messageId !== change.deleted) } } };
+    });
+  }
+  return rows.map((row) => {
+    const own = row.id === change.excluded ? { ...row, excluded: change.value } : row;
+    const used = own.context_used;
+    if (!used || !JSON.stringify(used).includes(change.excluded)) return own;
+    return { ...own, context_used: { ...used,
+      history: used.history.map((ref) => (ref.messageId === change.excluded ? { ...ref, excluded: change.value } : ref)),
+      summary: used.summary && { ...used.summary, items: used.summary.items.map((item) => (item.messageId === change.excluded ? { ...item, excluded: change.value } : item)) } } };
+  });
 }
 const EMPTY = { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
 // The returned object keeps its identity while the conversation is unchanged, so a memoized
