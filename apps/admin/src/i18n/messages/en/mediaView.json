@@ -143,7 +143,7 @@
   "clips.title": "Exact clips from course visuals",
   "clips.ready": "Ready. {count, plural, one {One verified course visual} other {# verified course visuals}} can be rendered frame by frame into a video clip on this server, at no cost.",
   "clips.noVisuals": "This release has no course visuals to render.",
-  "clips.toolchainMissing": "Not set up on this server. An administrator sets CLIP_RASTERIZER_PATH and CLIP_FFMPEG_PATH (see the API README) and restarts the API.",
+  "clips.toolchainMissing": "Not set up on this server yet. Whoever runs the server can turn exact clips on; they cost nothing.",
   "request.what": "What to make",
   "request.mode.video": "A generated video clip (paid)",
   "request.mode.image": "A generated image (paid)",
@@ -244,5 +244,7 @@
   "shots.removeLabel": "Remove shot {number, number}",
   "clip.formatMp4": "MP4",
   "clip.formatWebm": "WebM",
-  "jobs.requestReason": "Needs a media model in AI services, or course visuals that can be clipped."
+  "jobs.requestReason": "Needs a media model in AI services, or course visuals that can be clipped.",
+  "clips.toolchainSetup": "Set CLIP_RASTERIZER_PATH and CLIP_FFMPEG_PATH for the API (see the API README), then restart the API.",
+  "technical": "Technical details"
 }

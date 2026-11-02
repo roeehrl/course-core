@@ -691,6 +691,7 @@ function ReplayRecent({
   return (
     <Card
       title={t("runsView.replayRecent.title")}
+      className="cv-replay"
       actions={
         <Button
           disabled={state.pending}
