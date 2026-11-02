@@ -1,3 +1,4 @@
 {
-  "line": "Question {ordinal} counts. Asking now makes it practice."
+  "line": "Question {ordinal} counts. Asking now makes it practice.",
+  "lineMany": "{count} questions count. Asking now makes them practice."
 }

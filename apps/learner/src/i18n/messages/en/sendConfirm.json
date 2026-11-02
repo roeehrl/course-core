@@ -1,5 +1,6 @@
 {
   "sentence": "Asking now makes question {ordinal} practice. It won't count toward finishing the lesson.",
+  "sentenceMany": "Asking now makes {count} questions practice. They won't count toward finishing the lesson.",
   "switch": "Send as practice",
   "keep": "Keep it counted",
   "later": "Save for after the question"

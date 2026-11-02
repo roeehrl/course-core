@@ -37,9 +37,11 @@ export interface ReplyClock {
   checkingSince?: number;
 }
 
-/** The learner's own Stop of this question, kept in memory only (Q10). */
+/** The learner's own Stop of this question, kept in memory only (Q10). "abandoned" is a stalled
+ * reply given up by "Ask again": it is cancelled like a Stop, but its row keeps the stalled line
+ * (the learner did not stop it), and it no longer holds the round button. */
 export interface LocalStop {
-  state: "stopping" | "stopped" | "failed";
+  state: "stopping" | "stopped" | "failed" | "abandoned";
   /** The text that was on screen when Stop was pressed; never sent, stored or exported. */
   partial: string;
 }
@@ -92,6 +94,7 @@ export function cancelledBeforeSent(message: CompanionMessage, draft?: Companion
 export function replyView({ message, draft, answered, stop, clock, now, connected, notSetUp = false }: ReplyInput): ReplyView {
   if (message.role !== "learner" || message.content === "[deleted]" || answered) return { kind: "none" };
   if (stop?.state === "stopped") return { kind: "stopped", ...(stop.partial ? { partial: stop.partial } : {}) };
+  if (stop?.state === "abandoned") return { kind: "streaming", text: stop.partial, caret: "still", line: "stalled" };
   const stopFailed = stop?.state === "failed" ? { stopFailed: true } : {};
   // Final outcomes the server saved come first: they are newer than any draft.
   if (message.job_stalled === true) return { kind: "ended", reason: "noReply" };
@@ -146,7 +149,7 @@ export function nextReplyChange({ clock, now, draft }: Pick<ReplyInput, "clock" 
 
 /** The question's reply is on its way: Stop applies, and Enter does not send another. */
 export function replyInProgress(message: CompanionMessage, view: ReplyView, stop?: LocalStop): boolean {
-  if (stop?.state === "stopped") return false;
+  if (stop?.state === "stopped" || stop?.state === "abandoned") return false;
   return companionHasPending([message]) && (view.kind === "none" || view.kind === "preparing" || view.kind === "streaming" || view.kind === "checking");
 }
 

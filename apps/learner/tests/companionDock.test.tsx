@@ -231,11 +231,23 @@ describe("companion dock", () => {
     await settle();
     expect(stop).toHaveBeenCalledOnce();
     expect(companionOpen.get().view).toBe("focus");
+    draft.focus();
     fireEvent.keyDown(draft, { key: "Escape" });
     await settle();
     expect(companionOpen.get().view).toBe("docked");
     expect(companionOpen.get().open).toBe(true);
     expect(window.sessionStorage.getItem("course:learner-companion-view")).toBeNull();
+    // Esc in the message box leaves the focus there (it is still there); a frame later too.
+    await act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+    expect(draft).toHaveFocus();
+    // "Show lesson beside" is gone once pressed: the focus goes to Expand, which takes its place.
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    const beside = screen.getByRole("button", { name: "Show lesson beside" });
+    beside.focus();
+    fireEvent.click(beside);
+    await act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+    expect(screen.getByRole("button", { name: "Expand" })).toHaveFocus();
+    draft.focus();
     // Composing text with an input method: Escape belongs to it.
     fireEvent.keyDown(draft, { key: "Escape", isComposing: true });
     await settle();

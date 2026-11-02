@@ -42,8 +42,14 @@ describe("credit scope", () => {
   it("names the attached question when it is in scope, else the lesson's, by its number in its lesson", () => {
     const open = server([challenge("in-a", "a"), challenge("in-b", "b")]);
     // Lesson a has one family of two counted: its open question is question 2.
-    expect(scopedQuestion(open, "a", now)).toEqual({ challengeIds: ["in-a"], ordinal: 2 });
-    expect(scopedQuestion(open, "a", now, "in-b")).toEqual({ challengeIds: ["in-a", "in-b"], ordinal: 1 });
+    expect(scopedQuestion(open, "a", now)).toEqual({ challengeIds: ["in-a"], ordinal: 2, count: 1 });
+    expect(scopedQuestion(open, "a", now, "in-b")).toEqual({ challengeIds: ["in-a", "in-b"], ordinal: 1, count: 2 });
     expect(scopedQuestion(server([challenge("practice", "a", { independentEligible: false })]), "a", now)).toBeUndefined();
+  });
+
+  it("counts every open counted question of the lesson, since the server makes all of them practice", () => {
+    // The lesson's check and a retention item of the same lesson share the lesson's number.
+    const open = server([challenge("check", "a"), challenge("retention", "a", { mode: "retention" } as Partial<Challenge>), challenge("in-b", "b")]);
+    expect(scopedQuestion(open, "a", now)).toEqual({ challengeIds: ["check", "retention"], ordinal: 2, count: 2 });
   });
 });

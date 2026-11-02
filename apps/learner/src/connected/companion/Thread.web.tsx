@@ -16,6 +16,8 @@ export interface ThreadProps {
   onRetry?: () => void;
   /** Called each time the thread becomes visible (the companion opens). */
   onShown?: () => void;
+  /** No messages yet: the empty state is all there is, so nothing offers to jump to a latest one. */
+  empty?: boolean;
   children: React.ReactNode;
 }
 
@@ -26,7 +28,7 @@ export interface ThreadProps {
  * takes longer than 400 ms, a line with "Try again" when a read failed, the turns, and Jump to
  * latest just above the composer zone.
  */
-export const Thread = forwardRef<ThreadHandle, ThreadProps>(function Thread({ loaded, failed, onRetry, onShown, children }, ref) {
+export const Thread = forwardRef<ThreadHandle, ThreadProps>(function Thread({ loaded, failed, onRetry, onShown, empty = false, children }, ref) {
   const t = useT();
   const log = useRef<HTMLDivElement>(null), end = useRef<HTMLDivElement>(null), spacer = useRef<HTMLDivElement>(null);
   const scroll = useThreadScroll(log, end, spacer);
@@ -58,7 +60,7 @@ export const Thread = forwardRef<ThreadHandle, ThreadProps>(function Thread({ lo
         <div ref={spacer} className="cc-chat-spacer" aria-hidden="true" />
       </div>
       <JumpToLatest
-        visible={scroll.jumpVisible}
+        visible={scroll.jumpVisible && !empty}
         dot={scroll.jumpDot}
         onJump={(fromButton) => {
           scroll.jump();

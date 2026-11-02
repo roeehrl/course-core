@@ -234,6 +234,17 @@ describe("credit honesty in the companion", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("names every question the message would make practice: two open counted questions are said as two", () => {
+    // The lesson's check and a retention item of the same lesson: the server makes both practice.
+    const { send } = companion({ server: snapshot([{}, { mode: "retention" } as Partial<Challenge>]) });
+    expect(screen.getByTestId("credit-line")).toHaveTextContent("2 questions count. Asking now makes them practice.");
+    expect(screen.getByTestId("credit-line")).not.toHaveTextContent(/Question \d/);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(screen.getByRole("group", { name: "Asking now makes 2 questions practice. They won't count toward finishing the lesson." })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Keep it counted" }));
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("moves the credit line under the composer while a limitation takes the slot above it", () => {
     companion({ unavailable: true });
     const line = screen.getByTestId("credit-line");
@@ -248,6 +259,11 @@ describe("credit lines in the thread", () => {
   it("says which question became practice after the turn that did it", () => {
     render(<CreditLineAfter message={turn({ downgraded: [{ challengeId: "c", ordinal: 1 }], downgradedChallengeIds: ["c"] })} />);
     expect(screen.getByRole("note")).toHaveTextContent("Question 1 is now practice.");
+  });
+  it("says how many questions became practice when one turn made several practice, never the same line twice", () => {
+    render(<CreditLineAfter message={turn({ downgraded: [{ challengeId: "c", ordinal: 1 }, { challengeId: "d", ordinal: 1 }], downgradedChallengeIds: ["c", "d"] })} />);
+    expect(screen.getAllByRole("note")).toHaveLength(1);
+    expect(screen.getByRole("note")).toHaveTextContent("2 questions are now practice.");
   });
   it("says every open check became practice only for older turns that changed several", () => {
     const older = render(<CreditLineAfter message={turn({ downgradedChallengeIds: ["c", "d"] })} />);

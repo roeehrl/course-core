@@ -12,11 +12,14 @@ const say = (t: typeof en, key: MessageKey, args?: Record<string, number>) => st
 // המנחה as its subject. Scoped copy (owner decision Q2); course-wide copy only for older history.
 const copy: [MessageKey, Record<string, number> | undefined, string, string][] = [
   ["creditNotice.line", { ordinal: 1 }, "Question 1 counts. Asking now makes it practice.", "שאלה 1 נספרת. פנייה למנחה עכשיו תהפוך אותה לתרגול."],
+  ["creditNotice.lineMany", { count: 2 }, "2 questions count. Asking now makes them practice.", "2 שאלות נספרות. פנייה למנחה עכשיו תהפוך אותן לתרגול."],
   ["creditInfo.body", undefined,
     "Questions you answer on your own count toward finishing. After you get help on one, it becomes practice: you can still answer it, and a fresh check comes later.",
     "שאלות שעונים עליהן לבד נספרות לסיום. אחרי עזרה בשאלה היא הופכת לתרגול: עדיין אפשר לענות עליה, ובדיקה חדשה תגיע בהמשך."],
   ["sendConfirm.sentence", { ordinal: 1 }, "Asking now makes question 1 practice. It won't count toward finishing the lesson.",
     "פנייה למנחה עכשיו תהפוך את שאלה 1 לתרגול, והיא לא תיספר לסיום השיעור."],
+  ["sendConfirm.sentenceMany", { count: 2 }, "Asking now makes 2 questions practice. They won't count toward finishing the lesson.",
+    "פנייה למנחה עכשיו תהפוך את 2 השאלות לתרגול, והן לא ייספרו לסיום השיעור."],
   ["sendConfirm.switch", undefined, "Send as practice", "שליחה כתרגול"],
   ["sendConfirm.keep", undefined, "Keep it counted", "להשאיר נספרת"],
   ["sendConfirm.later", undefined, "Save for after the question", "שמירה לאחרי השאלה"],
@@ -33,6 +36,7 @@ const copy: [MessageKey, Record<string, number> | undefined, string, string][] =
   ["creditCopy.practiceSuffix.solution", undefined, "This counts as practice because you opened the explanation.", "זה נספר כתרגול כי ההסבר נפתח."],
   ["creditCopy.practiceSuffix.seen_before", undefined, "This counts as practice because you saw this question before.", "זה נספר כתרגול כי השאלה הזו כבר הוצגה."],
   ["creditThreadLines.downgraded", { ordinal: 1 }, "Question 1 is now practice.", "שאלה 1 היא עכשיו תרגול."],
+  ["creditThreadLines.downgradedMany", { count: 2 }, "2 questions are now practice.", "2 שאלות הן עכשיו תרגול."],
   ["creditThreadLines.downgradedCourse", undefined, "Your open checks in this course are now practice.", "הבדיקות הפתוחות בקורס הן עכשיו תרגול."],
   ["creditThreadLines.recap", { own: 2, practice: 1 }, "Lesson finished: 2 questions on your own, 1 as practice.", "השיעור הסתיים: 2 שאלות בלי עזרה, 1 כתרגול."],
   ["creditThreadLines.saved", undefined, "A question is saved for after the check.", "שאלה נשמרה לאחרי הבדיקה."],

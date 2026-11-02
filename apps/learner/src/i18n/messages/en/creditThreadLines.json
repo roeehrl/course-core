@@ -1,5 +1,6 @@
 {
   "downgraded": "Question {ordinal} is now practice.",
+  "downgradedMany": "{count} questions are now practice.",
   "downgradedCourse": "Your open checks in this course are now practice.",
   "recap": "Lesson finished: {own, plural, one {# question} other {# questions}} on your own, {practice} as practice.",
   "recapOwn": "Lesson finished: {own, plural, one {# question} other {# questions}} on your own.",

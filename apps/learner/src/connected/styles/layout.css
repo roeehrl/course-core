@@ -226,15 +226,30 @@
   padding: 16px 16px calc(24px + var(--kb, 0px));
 }
 
-/* The About popover. */
+/* The About popover (§3.2: 320 px, radius 12, padding 16; First-run-consent panel 2): a title, the
+ * policy line and the underlined link, 8 apart. */
+.cc-ui-popover.cc-shell-about {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+.cc-shell-about-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+}
 .cc-shell-about-policy {
-  margin: 0 0 8px;
+  margin: 0;
   color: var(--ink);
   font: 400 var(--text-meta) var(--font-sans);
 }
 .cc-shell-about-link {
   margin-inline-start: -4px;
-  font: 600 var(--text-button) var(--font-sans);
+  font: 600 var(--text-meta) var(--font-sans);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* Focus view (§2.2): the companion takes the area under the app header (the host hides the lesson,
@@ -329,6 +344,12 @@
   background: transparent;
   cursor: grab;
   touch-action: none;
+}
+/* The handle starts at the sheet's top edge, which clips anything drawn above it: its focus ring
+ * (§6: a full 2 px outline) is drawn inside its 96 × 44 hit zone instead, all four sides. */
+.cc-shell-handle:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--radius-panel);
 }
 .cc-shell-handle-bar,
 .cc-shell-collapsed-handle {

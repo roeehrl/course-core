@@ -16,8 +16,8 @@ export function useAttachedCheckId(): string | undefined {
 
 /**
  * The credit line (final design §3.11, "before"): while an open counted question is in the scope
- * of the next message, the Practice icon, "Question 1 counts. Asking now makes it practice." and an
- * ⓘ with how questions count. It sits in the notice slot above the composer; when a limitation
+ * of the next message, the Practice icon, "Question 1 counts. Asking now makes it practice." (with
+ * several in scope, "2 questions count. Asking now makes them practice.") and an ⓘ with how questions count. It sits in the notice slot above the composer; when a limitation
  * banner takes that slot it moves to the meta line under it (`placement: "meta"`), never dropped.
  * Quiet: no fill, no warning colour (CRD-8).
  */
@@ -41,7 +41,7 @@ export function CreditNotice({
     <div ref={line} className={`cc-credit-line is-${placement}`} data-testid="credit-line">
       <Icon name="practice" size={16} className="cc-credit-line-icon" />
       <p id={CREDIT_LINE_ID} className="cc-credit-line-text">
-        {t("creditNotice.line", { ordinal: question.ordinal })}
+        {question.count > 1 ? t("creditNotice.lineMany", { count: question.count }) : t("creditNotice.line", { ordinal: question.ordinal })}
       </p>
       <CreditInfo line={line} />
     </div>

@@ -186,10 +186,20 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
     setTitle(lessonTitle ?? document.querySelector(".connected-main h1")?.textContent?.trim() ?? undefined);
   }, [view, lessonTitle]);
   const enterFocus = () => companionOpen.setView("focus");
-  const leaveFocus = () => {
+  const leaveFocus = (fromBeside: boolean) => {
+    const from = document.activeElement;
     companionOpen.setView("docked");
-    // The button that left is gone; focus goes to Expand, which took its place in the header.
-    requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>("[data-companion-expand]")?.focus({ preventScroll: true }));
+    // "Show lesson beside" is gone once pressed: focus goes to Expand, which took its place in the
+    // header. Esc (in the message box, say) keeps the focus where it is, while that is still there
+    // in the companion (§6: the textarea keeps the focus).
+    requestAnimationFrame(() => {
+      const aside = panel.current;
+      if (!fromBeside && from instanceof HTMLElement && from.isConnected && from !== aside && aside?.contains(from)) {
+        if (document.activeElement !== from) from.focus({ preventScroll: true });
+        return;
+      }
+      aside?.querySelector<HTMLElement>("[data-companion-expand]")?.focus({ preventScroll: true });
+    });
   };
   // M11: the companion's content crossfades between focus view and beside the lesson.
   const viewSeen = useRef(view);
@@ -252,7 +262,7 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
           setTimeout(() => {
             if (native.defaultPrevented) return;
             if (companionBridge.stopRunningReply()) return;
-            if (companionOpen.get().view === "focus") return leaveFocus();
+            if (companionOpen.get().view === "focus") return leaveFocus(false);
             close();
           }, 0);
         }}
@@ -267,7 +277,7 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
             detent={detent}
             onClose={close}
             onExpand={enterFocus}
-            onBeside={leaveFocus}
+            onBeside={() => leaveFocus(true)}
           />
         )}
         <div className="cc-shell-body">{children}</div>

@@ -107,6 +107,65 @@ test("a rate limit in front of the server (HTTP 429 with Retry-After) counts dow
   await expect(thread(page).getByText("Couldn't send. Your text is back in the box.")).toHaveCount(0);
 });
 
+/** Sends what is in the message box from the box itself: Enter where Enter sends (a fine pointer),
+ * the round button on a touch screen (where Enter makes a line). */
+async function sendFromBox(page: Page) {
+  if (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) await roundButton(page).click();
+  else await box(page).press("Enter");
+}
+
+test("a send that failed, sent again from the box (as its line says), is that question asked again: one bubble, no Try again", async ({ page, request }) => {
+  await startLesson(page, request);
+  let failures = 1;
+  await page.route(/\/companion$/, (route) =>
+    route.request().method() === "POST" && failures-- > 0
+      ? route.fulfill({ status: 500, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ error: "INTERNAL" }) })
+      : route.continue());
+  const question = `Failing question ${Date.now()}`;
+  await box(page).fill(question);
+  await sendFromBox(page);
+  await expect(thread(page).getByText("Couldn't send. Your text is back in the box.")).toBeVisible();
+  await expect(box(page)).toHaveValue(question);
+  const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
+  await box(page).focus();
+  await sendFromBox(page);
+  expect((await sent).status()).toBe(200);
+  const bubbles = thread(page).locator(".cc-chat-bubble").filter({ hasText: question });
+  await expect(bubbles).toHaveCount(1);
+  await expect(thread(page).getByText("Couldn't send. Your text is back in the box.")).toHaveCount(0);
+  await expect(thread(page).getByRole("button", { name: "Try again", exact: true })).toHaveCount(0);
+  // Anchored on send: the question asked again is the one in view, under the thread's top.
+  await expect.poll(async () => {
+    const [top, bubble] = await Promise.all([thread(page).boundingBox(), bubbles.boundingBox()]);
+    return top && bubble ? Math.round(bubble.y - top.y) : -1;
+  }).toBeGreaterThanOrEqual(0);
+  await expect(bubbles).toBeInViewport();
+  await expect(box(page)).toHaveValue("");
+});
+
+test("a rate limit says once that the learner can ask again when it runs out; asked again from the box, it shows once", async ({ page, request }) => {
+  await startLesson(page, request);
+  let limited = 1;
+  await page.route(/\/companion$/, (route) =>
+    route.request().method() === "POST" && limited-- > 0
+      ? route.fulfill({ status: 429, headers: { "Retry-After": "2", "Content-Type": "text/plain" }, body: "Too Many Requests" })
+      : route.continue());
+  const question = `Rate limited question ${Date.now()}`;
+  await box(page).fill(question);
+  await sendFromBox(page);
+  const row = thread(page).locator(".cc-chat-row").filter({ hasText: /Too many questions at once\.|You can ask again/ });
+  await expect(row).toContainText(/You can ask again in 0:0[12]\./);
+  // At 0 the row says so, and the status region says it once (§3.5).
+  await expect(row).toHaveText(/You can ask again$/, { timeout: 5_000 });
+  await expect(announcer(page)).toHaveText("You can ask again");
+  const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
+  await box(page).focus();
+  await sendFromBox(page);
+  expect((await sent).status()).toBe(200);
+  await expect(thread(page).locator(".cc-chat-bubble").filter({ hasText: question })).toHaveCount(1);
+  await expect(row).toHaveCount(0);
+});
+
 test("a lesson not taking questions keeps the draft and cannot send", async ({ page, request }) => {
   // The server's answer for this lesson, as a policy that closes it reports it.
   await page.route(/\/api\/enrollments\/[0-9a-f-]{36}$/, async (route) => {
@@ -191,9 +250,8 @@ for (const locale of ["en", "he"] as const)
       expect((await (await request.post("/test/companion-job", { data: { question, state: "budget_wait", ceiling: "workspace" } })).json()).updated).toBe(true);
       await expect(notice(page)).toBeVisible({ timeout: 15_000 });
       await settled(page);
-      // The message actions are the actions slot's, still drawn in the light palette until the
-      // app-wide theme lands; the conversation's own surfaces are checked here.
-      expect((await new AxeBuilder({ page }).include("#connected-companion").exclude(".cc-chat-bubble-actions").exclude(".cc-chat-reply-actions")
+      // The whole conversation, its message actions too, in both themes.
+      expect((await new AxeBuilder({ page }).include("#connected-companion")
         .withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
       await page.screenshot({ path: info.outputPath(`banner-${locale}-${scheme}.png`) });
     });

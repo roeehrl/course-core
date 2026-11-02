@@ -342,6 +342,14 @@ function ConversationBody({
         announce(replyAnnouncement(next as Parameters<typeof replyAnnouncement>[0], t));
       }
     }
+    // A rate-limited question's countdown reached 0 (§3.5): said once for that try.
+    for (const item of locals) {
+      if (item.status !== "rateLimited" || !item.retryAt || item.retryAt > now) continue;
+      const mark = `${item.key}:canAskAgain:${item.retryAt}`;
+      if (said.current.get(mark)) continue;
+      said.current.set(mark, "1");
+      announce(replyAnnouncement("canAskAgain", t));
+    }
     // A reply that arrives (not one already there when the conversation loaded) is read once.
     if (!loaded) return;
     const replies = messages.filter((message) => message.role === "assistant" && !deleted(message));
@@ -439,7 +447,14 @@ function ConversationBody({
       return false;
     }
     setConfirm(null);
-    const id = key ?? localKey();
+    // The same text as a question of this page that could not be sent (or was rate-limited) is that
+    // question asked again, however it is sent: its turn is reused, so it never shows twice and its
+    // "Try again" goes with it. Sent from the box, where its text went back, an edit of it counts too.
+    const same = (item: LocalTurn) =>
+      item.text.trim() === text.trim() || (fromBox && item.fromBox && text.includes(item.text.trim()));
+    const stale = key ? [] : locals.filter((item) => (item.status === "failed" || item.status === "rateLimited") && same(item));
+    const id = key ?? stale[0]?.key ?? localKey();
+    const superseded = new Set(stale.map((item) => item.key));
     const sentAt = Date.now();
     if (fromBox) {
       // The box clears at once (the bubble shows the text); the saved draft goes only once the
@@ -449,7 +464,7 @@ function ConversationBody({
     }
     const turnRecord: LocalTurn = { key: id, text, status: online ? "sending" : "held", ...(consent ? { consent } : {}), episodeId: context.episodeId, sentAt, fromBox,
       before: messages.filter((row) => row.role === "learner").map((row) => row.id) };
-    setLocals((list) => [...list.filter((item) => item.key !== id), turnRecord]);
+    setLocals((list) => [...list.filter((item) => item.key !== id && !superseded.has(item.key)), turnRecord]);
     anchorNext.current = id;
     if (!online) {
       announce(replyAnnouncement("held", t));
@@ -642,7 +657,10 @@ function ConversationBody({
     // Used once it shows; a load behind a closed companion keeps it for the opening.
     if (scroller?.getClientRects().length) unreadAtOpen.current = undefined;
     const element = unread ? scroller?.querySelector<HTMLElement>(`[data-message-id="${unread.replace(/["\\]/g, "")}"]`) : null;
-    thread.current?.open(element ?? null);
+    // A conversation with no messages opens at the start of its empty state (§3.10): where the
+    // learner is comes first, also when the empty state is taller than a sheet at Half.
+    const empty = scroller?.querySelector<HTMLElement>(".cc-chat-empty");
+    thread.current?.open(element ?? empty ?? null);
     revealPending();
   }, []);
   useLayoutEffect(() => {
@@ -694,7 +712,18 @@ function ConversationBody({
     lessonNavigator.show(target);
   };
   // "Ask again" puts the question back in the box, after whatever the learner has written since.
-  const askAgain = (text: string) => putBack(text);
+  // A stalled reply still on its way is given up first (cancelled like a Stop, without the
+  // learner's stop line), so the round button is Send again and the next Enter asks it.
+  const askAgain = (message: CompanionMessage) => {
+    const entry = views.get(message.id);
+    if (entry?.view.kind === "streaming" && entry.view.line === "stalled" && !stops[message.id] && replyInProgress(message, entry.view)) {
+      const partial = entry.view.text;
+      setStops((all) => ({ ...all, [message.id]: { state: "abandoned", partial } }));
+      if (onCancelQuestion)
+        onCancelQuestion(message.id).catch(() => setStops((all) => ({ ...all, [message.id]: { state: "failed", partial } })));
+    }
+    putBack(message.content);
+  };
   // A chip is the learner's turn: it goes, and the focus stays in the message box, as after a send
   // (§6), instead of falling to the page with the chip row.
   const sendChip = (text: string) => {
@@ -792,7 +821,7 @@ function ConversationBody({
           <ReplyRow
             view={view}
             latest={message.id === latestQuestion}
-            onAskAgain={() => askAgain(message.content)}
+            onAskAgain={() => askAgain(message)}
             fresh={arriving(message.id)}
           />
         </div>,
@@ -883,7 +912,7 @@ function ConversationBody({
 
   return (
     <div ref={root} className="cc-chat" data-in-progress={inProgress ? "true" : undefined} data-sheet={layout?.placement === "sheet" ? (layout.sheet ?? "phone") : undefined}>
-      <Thread ref={thread} loaded={loaded} failed={Boolean(error)} {...(onRefresh ? { onRetry: onRefresh } : {})} onShown={openAtStart}>
+      <Thread ref={thread} loaded={loaded} failed={Boolean(error)} empty={emptyThread} {...(onRefresh ? { onRetry: onRefresh } : {})} onShown={openAtStart}>
         <EarlierMessages conversation={conversation} />
         {items}
         {/* A conversation that could not be read is not an empty one. */}

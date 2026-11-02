@@ -63,6 +63,20 @@ for (const locale of ["en", "he"] as const) {
     await expect(announcer(page)).toHaveText(t.states["announce.stalled"]);
     await row.getByRole("button", { name: t.row.askAgain, exact: true }).click();
     await expect(box(page)).toHaveValue(question);
+    await expect(box(page)).toBeFocused();
+    // The stalled reply is given up: the round button sends again (no Stop first), and the row keeps
+    // the stalled line rather than saying the learner stopped it.
+    await expect(roundButton(page)).not.toHaveAccessibleName(/Stop|עצירה|עצירת/);
+    await expect(row).toContainText(t.row.stalled);
+    await expect(thread(page)).not.toContainText(t.row.stoppedPartial);
+    await expect(thread(page)).not.toContainText(t.row.stopped);
     expect((await new AxeBuilder({ page }).include("#connected-companion").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+    // The next Enter asks it (the round button on a touch screen, where Enter makes a line).
+    const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
+    if (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) await roundButton(page).click();
+    else await box(page).press("Enter");
+    expect((await sent).status()).toBe(200);
+    await expect(thread(page).locator(".cc-chat-bubble").filter({ hasText: question })).toHaveCount(2);
+    await expect(box(page)).toHaveValue("");
   });
 }
