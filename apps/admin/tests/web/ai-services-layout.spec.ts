@@ -241,40 +241,44 @@ for (const locale of ["en", "he"] as const) {
   });
 }
 
-/** Screenshots for review at 1440, 805 and 375 in both languages (COURSE_SCREENSHOT_DIR). */
+/** Screenshots for review at 1440, 805 and 375 in both languages (COURSE_SCREENSHOT_DIR). Only
+ * registered when a folder is given: CI fails on a skipped test. @desktop-window keeps them to
+ * the desktop project. */
 const shots = process.env.COURSE_SCREENSHOT_DIR;
-for (const locale of ["en", "he"] as const)
-  test(`${locale}: review screenshots @desktop-window`, async ({
-    page,
-    context,
-  }, info) => {
-    test.skip(!shots || info.project.name !== "desktop");
-    test.setTimeout(180_000);
-    await mockConnectedAdmin(page, context);
-    await stubAiServicesPage(page);
-    for (const width of [1440, 805, 375]) {
-      await page.setViewportSize({ width, height: 1000 });
-      const ai = await openPage(page, locale);
-      await page.evaluate(() => {
-        for (const d of document.querySelectorAll<HTMLDetailsElement>(
-          ".ai-history, .ai-advanced",
-        ))
-          d.open = true;
-      });
-      await page.locator("#ai-check .ai-dialogues summary").first().click();
-      await page
-        .locator('[data-dialogue="companion.adversarial.hebrew-check"] summary')
-        .click();
-      await expect(
-        page.locator(".ai-learner-list summary").first(),
-      ).toBeVisible();
-      await page.locator(".ai-learner-list summary").first().click();
-      await noSidewaysScroll(page);
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({
-        path: `${shots}/ai-${locale}-${width}-full.png`,
-        fullPage: true,
-      });
-      void ai;
-    }
-  });
+if (shots)
+  for (const locale of ["en", "he"] as const)
+    test(`${locale}: review screenshots @desktop-window`, async ({
+      page,
+      context,
+    }) => {
+      test.setTimeout(180_000);
+      await mockConnectedAdmin(page, context);
+      await stubAiServicesPage(page);
+      for (const width of [1440, 805, 375]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const ai = await openPage(page, locale);
+        await page.evaluate(() => {
+          for (const d of document.querySelectorAll<HTMLDetailsElement>(
+            ".ai-history, .ai-advanced",
+          ))
+            d.open = true;
+        });
+        await page.locator("#ai-check .ai-dialogues summary").first().click();
+        await page
+          .locator(
+            '[data-dialogue="companion.adversarial.hebrew-check"] summary',
+          )
+          .click();
+        await expect(
+          page.locator(".ai-learner-list summary").first(),
+        ).toBeVisible();
+        await page.locator(".ai-learner-list summary").first().click();
+        await noSidewaysScroll(page);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({
+          path: `${shots}/ai-${locale}-${width}-full.png`,
+          fullPage: true,
+        });
+        void ai;
+      }
+    });
