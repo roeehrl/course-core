@@ -3,6 +3,7 @@ import { join } from "node:path";
 import postcss, { type AtRule, type Rule } from "postcss";
 import { describe, expect, it } from "vitest";
 import { TOKENS, palette, shadows, type ColorToken, type Theme } from "../src/theme/palette";
+import { cssTime } from "../src/connected/ui/media";
 
 // The design tokens (final design §1): every colour on :root, the dark values under both guards
 // (TOK-2), the same values as the hex palette React Native uses, and every contrast pair of the
@@ -133,5 +134,17 @@ describe("design tokens", () => {
     expect(reduced.get("--motion-m14-fade")).toBe("0ms");
     expect(reduced.get("--motion-m15-fade")).toBe("0ms");
     expect(reduced.get("--motion-m5-rest-opacity")).toBe("0.6");
+  });
+
+  it("reads a motion token's time in milliseconds as written and as the minified build writes it", () => {
+    // The built stylesheet writes 150ms as .15s: read as 0.15 ms, every scripted motion was cut to a frame.
+    expect(cssTime("150ms")).toBe(150);
+    expect(cssTime(".15s")).toBe(150);
+    expect(cssTime(" 0.3s")).toBe(300);
+    expect(cssTime("0ms")).toBe(0);
+    expect(cssTime("")).toBeUndefined();
+    expect(cssTime("ease")).toBeUndefined();
+    const motion = declared(":root");
+    for (const m of [9, 10, 11, 12]) expect(cssTime(motion.get(`--motion-m${m}-duration`)!), `M${m}`).toBeGreaterThanOrEqual(100);
   });
 });

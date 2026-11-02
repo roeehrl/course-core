@@ -236,4 +236,9 @@ test("Ask the companion opens the companion at the message box and sends nothing
   await expect(composerBox(page)).toHaveValue("");
   await page.waitForTimeout(300);
   expect(sent).toEqual([]);
+  // Closed with Esc, it gives the focus back where it was opened from: the learner is at the
+  // check again, not at the header's trigger (§6).
+  await page.keyboard.press("Escape");
+  await expect(companionPanel(page)).toBeHidden();
+  await expect(helpRow(page).getByRole("button", { name: "Ask the companion", exact: true })).toBeFocused();
 });
