@@ -93,7 +93,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     command_receipts: { idempotency_key: "constraints-key", response: said },
     companion_context_capsules: { job_id: ids.job, capsule: said },
     companion_context_exclusions: {},
-    // A vote, comment and report on a reply (migration 128): erasure deletes them.
+    // A vote, comment and report on a reply (migration 131): erasure deletes them.
     companion_reply_feedback: { vote: "not_helpful", comment: "It said " + secret, reported: true },
     companion_messages: { role: "learner", content: "Question: " + secret, context: said, job_id: ids.job },
     // A suggestion shown here from another course (migration 086): erasure deletes it outright.

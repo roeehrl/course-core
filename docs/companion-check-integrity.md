@@ -35,14 +35,14 @@ previews the same rule (`apps/learner/src/connected/credit/creditScope.ts`) to a
 - **Placement.** An open placement item whose author declared it unassisted-only refuses every
   companion message (`PLACEMENT_UNASSISTED_ONLY`), from any lesson: that rule stays enrollment-wide.
 - **Record.** The downgrade sets `assistance='hint'`, `independent_eligible=false` and
-  `assistance_reason='companion'` (migration 127) on the in-scope questions only. The learner's
+  `assistance_reason='companion'` (migration 130) on the in-scope questions only. The learner's
   message stores `downgraded: [{ challengeId, ordinal }]` (the question's number in its lesson,
   `check-ordinal.ts`), so the conversation can say "Question 1 is now practice." later; the
   response's `downgradedChallengeIds` and the `companion.requested` event list the same questions.
   The explanation writes `assistance_reason='solution'` and a fresh question `'fresh_question'`
   (its own scope is unchanged). The learner snapshot sends the reason as
   `activeChallenges[].practiceReason`, plus `seen_before` for a question issued not eligible with no
-  help; questions downgraded before migration 127 send `null` and show no reason.
+  help; questions downgraded before migration 130 send `null` and show no reason.
 
 **Why integrity still holds.** Narrowing the credit scope changes only which attempts count; it
 does not loosen what the companion may say. An open counted question in another lesson stays

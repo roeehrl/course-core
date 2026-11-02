@@ -297,10 +297,10 @@ running deployment; the candidate's own manifest remains the record of what was 
   never streamed, and a reply that would give its answer away is withheld before it is shown or
   stored. Only a counted check of the question's own lesson opened after it was asked still stops
   the reply.
-- Migration 127 adds `assessment_challenges.assistance_reason` (`companion`, `hint`, `solution`,
+- Migration 130 adds `assessment_challenges.assistance_reason` (`companion`, `hint`, `solution`,
   `fresh_question`), written with each downgrade so the learner app can say why a question is
   practice. It is additive: questions downgraded earlier keep NULL and show no reason.
-- Migration 128 adds `companion_reply_feedback`: the learner's Helpful / Not helpful vote on a
+- Migration 131 adds `companion_reply_feedback`: the learner's Helpful / Not helpful vote on a
   reply, an optional comment of at most 500 characters and whether they reported it. It is part of
   the learner's private conversation: their own export includes it, staff copies withhold it, it
   never reaches the teaching context, evidence or credit, and erasing the enrollment deletes it.

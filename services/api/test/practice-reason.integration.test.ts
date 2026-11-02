@@ -90,7 +90,7 @@ describe('why a question is practice', () => {
     const fresh = await issue(who, enrollmentId, 'min-a'), legacy = await issue(who, enrollmentId, 'min-b');
     // The fresh-question path (adaptation-store.ts) writes this reason with its downgrade.
     await db.query("UPDATE assessment_challenges SET assistance='hint',assistance_reason='fresh_question',independent_eligible=false WHERE id=$1", [fresh]);
-    // A row from before migration 127: downgraded, no reason recorded. Never guessed.
+    // A row from before migration 130: downgraded, no reason recorded. Never guessed.
     await db.query("UPDATE assessment_challenges SET assistance='hint',independent_eligible=false WHERE id=$1", [legacy]);
     expect(await reasonOf(who, enrollmentId, fresh)).toBe('fresh_question');
     expect(await reasonOf(who, enrollmentId, legacy)).toBeNull();
