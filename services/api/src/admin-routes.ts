@@ -835,6 +835,14 @@ export async function policyView(client: Sql, context: EnrollmentContext) {
     ...policyLedgerView(policy, context),
     accommodations: policy.accommodations.map((a) => ({ accommodationId: a.accommodationId, kind: a.kind, scopeId: a.adjustment.scopeId, adjustment: a.adjustment, newPolicyRevision: a.newPolicyRevision })),
     rationaleEvents: rationale.map((e) => ({ id: e.id, label: e.event_type })),
+    // A per-concept work limit names its concept: the course's concept title, else the
+    // objective's description (policy concepts are the course's objectives).
+    conceptTitles: Object.fromEntries(
+      course.objectives.map((o) => [
+        o.id,
+        (course.concepts?.find((c) => c.id === o.id)?.title ?? o.description).slice(0, 400),
+      ]),
+    ),
     // An inserted personal episode is governed by its anchor episode's scope.
     activities: episodes(course).map((e) => ({
       id: e.id,

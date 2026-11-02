@@ -21,6 +21,7 @@ import {
   Field,
   Notice,
   SkeletonRows,
+  When,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT } from "../i18n";
@@ -72,7 +73,7 @@ function PeopleAdministration({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const { when, day } = useFormatters();
+  const { day } = useFormatters();
   const list = useRemote(
     (signal) => port.list(workspaceId, signal),
     [port, workspaceId],
@@ -387,9 +388,11 @@ function PeopleAdministration({
                       className="cell-date"
                       data-label={t("peopleView.column.lastSignIn")}
                     >
-                      {person.lastSignInAt
-                        ? when(person.lastSignInAt)
-                        : t("peopleView.never")}
+                      {person.lastSignInAt ? (
+                        <When iso={person.lastSignInAt} />
+                      ) : (
+                        t("peopleView.never")
+                      )}
                     </td>
                     {anyActions && (
                       <td className="row-actions" data-label="">

@@ -375,6 +375,53 @@ describe("run inspector completion", () => {
     );
   });
 
+  it("names each timeline event in words, with its time in the viewer's zone and UTC as the tooltip", async () => {
+    const withEvents = {
+      ...run,
+      events: [
+        {
+          id: "e1",
+          label: "block.read",
+          time: "2026-10-14T00:01:00.000Z",
+          status: "recorded",
+        },
+        {
+          id: "e2",
+          label: "provider.budget_changed",
+          time: "2026-10-14T00:02:00.000Z",
+          status: "recorded",
+        },
+        {
+          id: "e3",
+          label: "brand_new.thing",
+          time: "2026-10-14T00:03:00.000Z",
+          status: "recorded",
+        },
+      ],
+    };
+    render(
+      <RunsView
+        data={workspace(["run.inspect"])}
+        client={
+          {
+            getRun: vi.fn(async () => withEvents),
+            runInspector: port(),
+          } as unknown as AdminClient
+        }
+      />,
+    );
+    expect(await screen.findByText("Read a lesson part")).toBeVisible();
+    // A workspace event the audit log names, and an unknown one in words, not its key.
+    expect(screen.getByText("AI spending limit changed")).toBeVisible();
+    expect(screen.getByText("Other event: Brand new thing")).toBeVisible();
+    expect(screen.queryByText(/block\.read/)).toBeNull();
+    const time = screen
+      .getByText("Read a lesson part")
+      .closest("li")!
+      .querySelector("time")!;
+    expect(time).toHaveAttribute("title", "Oct 14, 2026, 12:01:00 AM UTC");
+  });
+
   it("withholds the payload without run.payload and reveals it only for a chosen reason", async () => {
     const inspector = port();
     const { unmount } = render(

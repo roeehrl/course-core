@@ -92,8 +92,6 @@
   "sources.status.due_soon": "לבדוק בתוך חודש",
   "sources.status.current": "נבדק לאחרונה",
   "sources.noDate": "אין בקורס תאריך בדיקה.",
-  "sources.reviewed": "נבדק לאחרונה ב-{date} ({days, plural, one {לפני יום} other {לפני # ימים}})",
-  "sources.cited": "{count, plural, =0 {לא מצוטט בטקסט של אף שיעור} one {מצוטט בחלק אחד של שיעור} other {מצוטט ב-# חלקים של שיעורים}}",
   "questions.title": "שאלות",
   "questions.total": "{count, plural, one {שאלה אחת} two {שתי שאלות} other {# שאלות}}",
   "questions.showing": "מוצגות {shown} מתוך {total} שאלות.",
@@ -132,11 +130,12 @@
   "sources.allCurrent": "כל המקורות נבדקו לאחרונה.",
   "sources.col.source": "מקור",
   "sources.col.checked": "נבדק לאחרונה",
-  "sources.col.cited": "מצוטט ב",
+  "sources.col.cited": "חלקי שיעור שמצטטים",
   "sources.col.status": "מצב",
   "sources.fewer": "להציג פחות",
   "sources.all": "להציג את כל {count} המקורות",
   "sources.copied": "הועתק",
   "sources.copyDigest": "העתקת טביעת האצבע {short}…",
-  "run.by": "הורצה על ידי"
+  "run.by": "הורצה על ידי",
+  "sources.digest": "טביעת אצבע (SHA-256)"
 }

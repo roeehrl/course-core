@@ -24,7 +24,7 @@
   "targets.rpoNone": "No backup or snapshot has been reported yet.",
   "targets.rpoHelp": "Turn on hourly snapshots (the snapshots setting in the pilot's config.json), then check the services log for snapshot_failed.",
   "targets.rto": "Back up and running within {minutes} minutes",
-  "targets.rtoValue": "The last restore drill took {minutes} minutes, {days, plural, one {# day ago} two {# days ago} other {# days ago}}.",
+  "targets.rtoValue": "The last restore drill took {duration}, {ago}.",
   "targets.rtoNone": "No restore drill has been reported yet.",
   "targets.rtoHelp": "Run a restore drill (backup.mjs verify) on a recent snapshot at least every {days} days. If it failed, its code is listed under Backups.",
   "check.database": "Database",
@@ -92,5 +92,7 @@
   "targets.encryptionOn": "The newest copy is encrypted.",
   "targets.encryptionOff": "The newest copy is not encrypted.",
   "targets.encryptionHelp": "Encryption is optional and backups work without it, but anyone with a copy of an unencrypted backup can read every learner's data. The pilot guide explains how to turn it on (\"Encrypting backups with age\").",
-  "targets.intro": "How much data could be lost in a failure, and how quickly the platform is back."
+  "targets.intro": "How much data could be lost in a failure, and how quickly the platform is back.",
+  "targets.seconds": "{count, plural, one {# second} other {# seconds}}",
+  "targets.minutes": "{count, plural, one {# minute} other {# minutes}}"
 }

@@ -66,5 +66,6 @@
   "reason.noSource": "Choose and save an update source before checking for updates.",
   "reason.noSourceChanges": "No changes to the update source yet.",
   "reason.noSettingsChanges": "No changes to the automatic updates yet.",
-  "reason.acknowledge": "Tick the authorization above to save automatic publication."
+  "reason.acknowledge": "Tick the authorization above to save automatic publication.",
+  "source.githubOff": "This server does not download from the internet, so a GitHub release cannot be an update source here."
 }

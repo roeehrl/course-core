@@ -118,7 +118,9 @@ export async function backupStatus(client: Sql, now: Date) {
   return {
     lastSnapshot: view(snapshot), lastBackup: view(backup), lastRestoreDrill: view(drill), lastFailure: view(lastFailure),
     rpo: { targetMinutes: RECOVERY_TARGETS.rpoMinutes, currentMinutes: rpoMinutes, status: rpoStatus },
-    rto: { targetMinutes: RECOVERY_TARGETS.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: RECOVERY_TARGETS.drillMaxAgeDays, status: rtoStatus },
+    // lastDrillSeconds: the same drill's exact length (the minutes are rounded up for the target).
+    rto: { targetMinutes: RECOVERY_TARGETS.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: RECOVERY_TARGETS.drillMaxAgeDays, status: rtoStatus,
+      lastDrillSeconds: drill?.outcome === 'succeeded' ? Math.round((drill.finished_at.getTime() - drill.started_at.getTime()) / 1000) : null },
     encryption,
   };
 }

@@ -114,6 +114,8 @@ export const readinessSchema = z.object({
     rto: z.object({
       targetMinutes: count,
       lastDrillMinutes: optionalCount,
+      /** The drill's exact length (newer servers): the minutes are rounded up. */
+      lastDrillSeconds: optionalCount.optional(),
       drillAgeDays: optionalCount,
       drillMaxAgeDays: count,
       status,

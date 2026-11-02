@@ -137,6 +137,7 @@ export function AllowancesView({
           title={t("allowancesView.batches.title")}
           eyebrow={t("allowancesView.batches.eyebrow")}
         >
+          <p className="muted">{t("allowancesView.batches.body")}</p>
           <BatchList
             batches={batches.data.batches}
             scopes={scopes.data ?? []}
@@ -217,6 +218,7 @@ function AllowanceLists({
         title={t("allowancesView.pending.title")}
         eyebrow={t("allowancesView.pending.eyebrow")}
       >
+        <p className="muted">{t("allowancesView.pending.body")}</p>
         {!waiting.length ? (
           <EmptyState title={t("allowancesView.pending.empty.title")}>
             {t("allowancesView.pending.empty.body")}
@@ -295,6 +297,7 @@ function AllowanceLists({
             title={t("allowancesView.accommodations.title")}
             eyebrow={t("allowancesView.accommodations.eyebrow")}
           >
+            <p className="muted">{t("allowancesView.accommodations.body")}</p>
             {!data.accommodations.length ? (
               <EmptyState title={t("allowancesView.accommodations.empty")}>
                 {t("allowancesView.accommodations.empty.body")}

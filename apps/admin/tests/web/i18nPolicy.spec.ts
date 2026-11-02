@@ -127,7 +127,9 @@ test.describe("demo workspace", () => {
       "לכל נקודת בקרה יש 3 ניסיונות.",
     );
     const card = page.getByRole("region", { name: "ניסיונות לפי נקודת בקרה" });
-    await expect(card.getByRole("row").nth(2)).toContainText("3 מתוך 3");
+    await expect(card.getByRole("row").nth(2)).toContainText(
+      "33לא נשארו ניסיונות",
+    );
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
@@ -144,7 +146,7 @@ test.describe("demo workspace", () => {
     await expect(
       page.getByText("ניתן ניסיון נוסף. אפשר להתחיל אותו עכשיו."),
     ).toBeVisible();
-    await expect(card.getByRole("row").nth(2)).toContainText("3 מתוך 4");
+    await expect(card.getByRole("row").nth(2)).toContainText("34");
     await expectNoHorizontalOverflow(page);
   });
 

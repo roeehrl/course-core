@@ -22,6 +22,7 @@ import {
   Field,
   Notice,
   Status,
+  When,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
@@ -244,7 +245,7 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         </div>
         <div>
           <dt>{t("runInspectorPanels.policies.deadline")}</dt>
-          <dd>{p.deadline ? when(p.deadline) : "—"}</dd>
+          <dd>{p.deadline ? <When iso={p.deadline} /> : "—"}</dd>
         </div>
         <div>
           <dt>{t("runInspectorPanels.policies.runBudget")}</dt>
@@ -496,7 +497,7 @@ export function SyncPanel({ run }: { run: SupervisorRun }) {
       </div>
       <div>
         <dt>{t("runInspectorPanels.sync.lastChange")}</dt>
-        <dd>{s.run.updatedAt ? when(s.run.updatedAt) : "—"}</dd>
+        <dd>{s.run.updatedAt ? <When iso={s.run.updatedAt} /> : "—"}</dd>
       </div>
     </dl>
   );

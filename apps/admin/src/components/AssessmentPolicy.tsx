@@ -13,7 +13,7 @@ import {
   Notice,
   SkeletonRows,
 } from "./ui";
-import { useFormatters, useT } from "../i18n";
+import { useFormatters, useI18n, useT } from "../i18n";
 
 /** What the assessment policy means for a learner, in one plain sentence per rule. */
 export function useAssessmentPolicySummary() {
@@ -124,6 +124,7 @@ export function AssessmentAttemptsCard({
   onGranted: (message: string) => void;
 }) {
   const t = useT();
+  const i18n = useI18n();
   const { when } = useFormatters();
   const summary = useAssessmentPolicySummary();
   const remote = useRemote(
@@ -213,7 +214,10 @@ export function AssessmentAttemptsCard({
                   <thead>
                     <tr>
                       <th scope="col">{t("assessmentPolicy.card.check")}</th>
-                      <th scope="col">{t("assessmentPolicy.card.used")}</th>
+                      <th scope="col" className="num">
+                        {t("assessmentPolicy.card.used")}
+                      </th>
+                      <th scope="col">{t("assessmentPolicy.card.limit")}</th>
                       <th scope="col">{t("assessmentPolicy.card.state")}</th>
                       {/* The column appears only when a check can be given another attempt. */}
                       {grantable && (
@@ -233,15 +237,11 @@ export function AssessmentAttemptsCard({
                           <th scope="row">
                             <bdi>{check.title}</bdi>
                           </th>
+                          <td className="num">{i18n.number(check.used)}</td>
                           <td>
                             {check.limit === null
-                              ? t("assessmentPolicy.card.usedUnlimited", {
-                                  used: check.used,
-                                })
-                              : t("assessmentPolicy.card.usedOf", {
-                                  used: check.used,
-                                  limit: check.limit,
-                                })}
+                              ? t("assessmentPolicy.card.noLimit")
+                              : i18n.number(check.limit)}
                             {check.granted > 0 && (
                               <>
                                 {" "}

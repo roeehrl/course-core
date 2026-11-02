@@ -1093,10 +1093,18 @@ function CourseWorkspace({
                 <CourseAccessView data={data} client={client} />
               )}
               {activeView.id === "research" && (
-                <ResearchView data={data} client={client} />
+                <ResearchView
+                  data={data}
+                  client={client}
+                  onOpenAiServices={() => openView("providers")}
+                />
               )}
               {activeView.id === "media" && (
-                <MediaView data={data} client={client} />
+                <MediaView
+                  data={data}
+                  client={client}
+                  onOpenAiServices={() => openView("providers")}
+                />
               )}
               {activeView.id === "runs" && (
                 <RunsView data={data} client={client} />

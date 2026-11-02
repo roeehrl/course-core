@@ -280,7 +280,7 @@ describe("platform readiness and integrations (Q11, Q12, T03)", () => {
     await report("snapshot", "succeeded", 200, 4);
     await report("restore_drill", "succeeded", 300, 90);
     let body = (await call(owner, "GET", url)).json();
-    expect(body.targets).toMatchObject({ rpo: { currentMinutes: 200, status: "failing" }, rto: { lastDrillMinutes: 2, status: "ok", drillAgeDays: 0 } });
+    expect(body.targets).toMatchObject({ rpo: { currentMinutes: 200, status: "failing" }, rto: { lastDrillMinutes: 2, lastDrillSeconds: 90, status: "ok", drillAgeDays: 0 } });
     expect(body.overall).toBe("failing");
     await report("snapshot", "succeeded", 20, 4);
     await report("snapshot", "failed", 5, 1, "pg_dump_failed");

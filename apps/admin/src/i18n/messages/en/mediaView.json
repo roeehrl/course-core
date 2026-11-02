@@ -245,5 +245,6 @@
   "clip.formatMp4": "MP4",
   "clip.formatWebm": "WebM",
   "jobs.requestReason": "Needs a media model in AI services, or course visuals that can be clipped.",
-  "clips.toolchainSetup": "Set CLIP_RASTERIZER_PATH and CLIP_FFMPEG_PATH for the API (see the API README), then restart the API."
+  "clips.toolchainSetup": "Set CLIP_RASTERIZER_PATH and CLIP_FFMPEG_PATH for the API (see the API README), then restart the API.",
+  "provider.none.open": "Choose a media model in AI services"
 }

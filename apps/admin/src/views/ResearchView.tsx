@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  ArrowRight,
   BookMarked,
   CircleSlash,
   ExternalLink,
@@ -31,7 +32,8 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
-import { sentenceCase } from "./contentShared";
+import { sentenceCase, siteNames } from "./contentShared";
+import { setAiServicesTarget } from "../components/aiServices/target";
 
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -111,9 +113,12 @@ function sourceState(source: ResearchSource) {
 export function ResearchView({
   data,
   client,
+  onOpenAiServices,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
+  /** Opens AI services (the YouTube key lives under its Advanced section). */
+  onOpenAiServices?: () => void;
 }) {
   const t = useT();
   const published = data.releases.filter((r) => r.state === "published");
@@ -170,6 +175,7 @@ export function ResearchView({
         releaseId={releaseId}
         permissions={data.permissions}
         workspaceId={data.course.workspaceId}
+        onOpenAiServices={onOpenAiServices}
       />
     </div>
   );
@@ -198,11 +204,13 @@ function YouTubeStatusCard({
   workspaceId,
   canCheck,
   status,
+  onOpenAiServices,
 }: {
   port: Port;
   workspaceId: string;
   canCheck: boolean;
   status: ReturnType<typeof useYouTubeStatus>;
+  onOpenAiServices?: (() => void) | undefined;
 }) {
   const t = useT();
   const { when } = useFormatters();
@@ -216,7 +224,20 @@ function YouTubeStatusCard({
   return (
     <Card eyebrow={t("researchView.youtube.status.title")}>
       {!s.configured ? (
-        <p>{t("researchView.youtube.status.notConfigured")}</p>
+        <>
+          <p>{t("researchView.youtube.status.notConfigured")}</p>
+          {onOpenAiServices && (
+            <Button
+              onClick={() => {
+                setAiServicesTarget("advanced");
+                onOpenAiServices();
+              }}
+            >
+              {t("researchView.youtube.status.openKey")}
+              <ArrowRight size={16} aria-hidden="true" className="flip-rtl" />
+            </Button>
+          )}
+        </>
       ) : (
         <>
           <p>
@@ -278,11 +299,13 @@ function ReleaseResearch({
   releaseId,
   permissions,
   workspaceId,
+  onOpenAiServices,
 }: {
   port: Port;
   releaseId: string;
   permissions: CourseWorkspace["permissions"];
   workspaceId?: string | undefined;
+  onOpenAiServices?: (() => void) | undefined;
 }) {
   const t = useT();
   const { when } = useFormatters();
@@ -392,7 +415,7 @@ function ReleaseResearch({
       <span>
         {topic.allowedDomains.length
           ? t("researchView.topic.domains", {
-              domains: topic.allowedDomains.join(", "),
+              domains: siteNames(topic.allowedDomains).join(", "),
             })
           : t("researchView.topic.domainsAny")}
       </span>
@@ -414,6 +437,7 @@ function ReleaseResearch({
           workspaceId={workspaceId}
           canCheck={permissions.includes("provider.configure")}
           status={youtube}
+          onOpenAiServices={onOpenAiServices}
         />
       )}
       {lib.topics.length === 0 && (

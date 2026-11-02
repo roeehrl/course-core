@@ -25,7 +25,7 @@ export function PolicyMigrationEditor({
   const i18n = useI18n();
   const t = i18n.t;
   const scopeNames = useScopeLabel();
-  const { when } = useFormatters();
+  const { when, whenUtc } = useFormatters();
   const [source, setSource] = useState(
     JSON.stringify(
       policy.scopes.map(({ label: _label, ...scope }) => scope),
@@ -169,10 +169,10 @@ export function PolicyMigrationEditor({
               <p>
                 {t("policyMigrationEditor.effective", {
                   before: impact.before.effectiveDeadline
-                    ? when(impact.before.effectiveDeadline)
+                    ? whenUtc(impact.before.effectiveDeadline)
                     : t("policyMigrationEditor.none"),
                   after: impact.after.effectiveDeadline
-                    ? when(impact.after.effectiveDeadline)
+                    ? whenUtc(impact.after.effectiveDeadline)
                     : t("policyMigrationEditor.none"),
                 })}
               </p>
@@ -180,11 +180,13 @@ export function PolicyMigrationEditor({
               <ScopeQuotas
                 quotas={impact.before.quotas}
                 scopes={policy.scopes}
+                conceptTitles={policy.conceptTitles}
               />
               <h3>{t("policyMigrationEditor.proposedEnvelope")}</h3>
               <ScopeQuotas
                 quotas={impact.after.quotas}
                 scopes={policy.scopes}
+                conceptTitles={policy.conceptTitles}
               />
             </details>
           ))}

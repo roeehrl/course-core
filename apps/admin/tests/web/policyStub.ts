@@ -167,6 +167,13 @@ function enlarge(base: LearningPolicy): LearningPolicy {
     headroom: [],
   };
   policy.afterClosure = { questionBudget: 20 };
+  // Each concept's name, as newer servers send it (the table names concepts, not ids).
+  policy.conceptTitles = Object.fromEntries(
+    Array.from({ length: EPISODES }, (_, i) => [
+      conceptId(i),
+      `Concept ${i + 1}: comparing ${["lists", "trees", "graphs", "tables", "streams", "sets"][i % 6]}`,
+    ]),
+  );
   return policy;
 }
 

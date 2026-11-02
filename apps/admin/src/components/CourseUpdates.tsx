@@ -171,6 +171,13 @@ export function CourseUpdates({
   // Why a save button is off, said under it (Button `reason`); "Check now" sits beside it.
   const sourceReason =
     !pending && (!canConfigure || !view.source || !sourceEdit.edited);
+  const sourceReasonText = !sourceReason
+    ? ""
+    : !canConfigure
+      ? t("courseUpdates.reason.role")
+      : !view.source
+        ? t("courseUpdates.reason.noSource")
+        : t("courseUpdates.reason.noSourceChanges");
   const settingsReason =
     !pending &&
     canConfigure &&
@@ -243,25 +250,37 @@ export function CourseUpdates({
       <form className="stack" onSubmit={saveSource}>
         <fieldset className="update-source">
           <legend>{t("courseUpdates.source.legend")}</legend>
-          {(["github", "path", "none"] as const).map((value) => (
-            <label key={value} className="choice-row">
-              <input
-                type="radio"
-                name={`${id}-kind`}
-                checked={kind === value}
-                disabled={
-                  pending ||
-                  !canConfigure ||
-                  (value === "path" && !view.directories.length) ||
-                  (value === "github" && view.remoteFetch === "off")
-                }
-                onChange={() => editSource({ kind: value })}
-              />
-              <span>
-                <strong>{t(`courseUpdates.source.${value}`)}</strong>
-              </span>
-            </label>
-          ))}
+          {(["github", "path", "none"] as const).map((value) => {
+            // An option this host cannot offer says why under its name.
+            const unavailable =
+              value === "path" && !view.directories.length
+                ? t("courseUpdates.noDirectories")
+                : value === "github" && view.remoteFetch === "off"
+                  ? t("courseUpdates.source.githubOff")
+                  : "";
+            return (
+              <label key={value} className="choice-row">
+                <input
+                  type="radio"
+                  name={`${id}-kind`}
+                  checked={kind === value}
+                  disabled={pending || !canConfigure || Boolean(unavailable)}
+                  aria-describedby={
+                    unavailable ? `${id}-${value}-unavailable` : undefined
+                  }
+                  onChange={() => editSource({ kind: value })}
+                />
+                <span>
+                  <strong>{t(`courseUpdates.source.${value}`)}</strong>
+                  {unavailable && (
+                    <small id={`${id}-${value}-unavailable`}>
+                      {unavailable}
+                    </small>
+                  )}
+                </span>
+              </label>
+            );
+          })}
         </fieldset>
         {kind === "github" && (
           <Field
@@ -321,9 +340,6 @@ export function CourseUpdates({
             </Field>
           </>
         )}
-        {kind === "path" && !view.directories.length && (
-          <small>{t("courseUpdates.noDirectories")}</small>
-        )}
         {sourceEdit.changedElsewhere && (
           <ChangedElsewhere
             disabled={pending}
@@ -331,18 +347,14 @@ export function CourseUpdates({
             onKeep={sourceEdit.keep}
           />
         )}
+        {/* Save and Check sit together in one row, primary first; why they are off is one
+            line under the row, so a long reason never pushes Check away from Save. */}
         <div className="button-row">
           <Button
             type="submit"
             kind="primary"
-            reason={
-              !sourceReason
-                ? ""
-                : !canConfigure
-                  ? t("courseUpdates.reason.role")
-                  : !view.source
-                    ? t("courseUpdates.reason.noSource")
-                    : t("courseUpdates.reason.noSourceChanges")
+            aria-describedby={
+              sourceReasonText ? `${id}-source-reason` : undefined
             }
             disabled={
               pending ||
@@ -356,6 +368,11 @@ export function CourseUpdates({
           <Button
             type="button"
             disabled={pending || !canConfigure || !view.source}
+            aria-describedby={
+              !pending && (!canConfigure || !view.source)
+                ? `${id}-source-reason`
+                : undefined
+            }
             onClick={checkNow}
           >
             {pending
@@ -363,6 +380,11 @@ export function CourseUpdates({
               : t("courseUpdates.checkNow")}
           </Button>
         </div>
+        {sourceReasonText && (
+          <small className="button-reason" id={`${id}-source-reason`}>
+            {sourceReasonText}
+          </small>
+        )}
       </form>
       {check?.result === "update_available" && (
         <section

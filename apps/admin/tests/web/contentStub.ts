@@ -81,6 +81,8 @@ export function answerKeyItems(): Item[] {
       familyId: `${id}-family`,
       fixtures: 0,
       editable: true,
+      // The lesson it is asked in (newer servers send it).
+      lessonTitle: `Lesson ${chapter}.${(n % 9) + 1}: ${TOPICS[chapter % TOPICS.length]}`,
     };
     if (
       n % 10 === 0 &&
@@ -120,7 +122,7 @@ export function answerKeyItems(): Item[] {
         ...base,
         assessmentId: `${id}-estimate`,
         type: "numeric",
-        prompt: `A model has ${n} million parameters stored in 16-bit floats. How many megabytes do the weights take?`,
+        prompt: `Independent check. A model has ${n} million parameters stored in 16-bit floats. How many megabytes do the weights take?`,
         kind: "key",
         key: {
           expected: n * 2,
@@ -155,7 +157,7 @@ export function answerKeyItems(): Item[] {
         ...base,
         assessmentId: `${id}-transfer`,
         type: "choice",
-        prompt: `${STEMS[n % STEMS.length]} ${TOPICS[n % TOPICS.length]}: array bounds and row sums still pass after the change. Which explanation fits best?`,
+        prompt: `Independent transfer check. ${STEMS[n % STEMS.length]} ${TOPICS[n % TOPICS.length]}: array bounds and row sums still pass after the change. Which explanation fits best?`,
         kind: "key",
         options: [
           { id: "a", text: "The change did not affect the computation." },
@@ -464,7 +466,12 @@ export async function stubResearch(page: Page, { youtube = true } = {}) {
           id: `topic-${n}`,
           objectiveIds: [`obj-${n}`],
           queryText: `what is a machine learning model ${topic} explained for beginners`,
-          allowedDomains: n % 4 === 0 ? ["example.org", "example.com"] : [],
+          allowedDomains:
+            n % 4 === 0
+              ? ["example.org", "example.com"]
+              : n % 4 === 2
+                ? ["www.youtube.com", "youtube.com", "youtu.be"]
+                : [],
           episodes:
             n % 3 === 0 ? [] : [{ id: `ep-${n}`, title: `Chapter ${n}` }],
         })),

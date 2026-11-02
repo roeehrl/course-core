@@ -40,25 +40,30 @@ export const { I18nProvider, useI18n, useT } = createI18nBindings<MessageKey>({
 
 /**
  * Locale-aware replacements for the old `money` and `when` helpers in components/ui.tsx.
- * Server times are shown in UTC, with the zone name in the active locale. `whenExact` adds the
- * seconds, for events that can fall in the same minute (two AI calls, say).
+ * Times are shown in the viewer's own time zone (the browser's), with the zone's short name;
+ * `whenUtc` keeps UTC where the time is defined in UTC (a deadline policy's settings), and is
+ * also the tooltip of a <When> time. `whenExact` adds the seconds, for events that can fall in
+ * the same minute (two AI calls, say). `day` is a calendar date, read in UTC so a date-only
+ * value ("2026-10-12") never shifts a day.
  */
 export function useFormatters() {
   const i18n = useI18n();
-  // Intl rejects dateStyle/timeStyle together with timeZoneName, so name the fields.
-  const fields = {
+  // Intl rejects dateStyle/timeStyle together with timeZoneName, so name the fields. No
+  // timeZone: Intl uses the browser's own.
+  const local = {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "UTC",
     timeZoneName: "short",
   } as const;
+  const utc = { ...local, timeZone: "UTC" } as const;
   return {
     money: (cents: number, currency = "USD") =>
       i18n.currency(cents / 100, currency),
-    when: (iso: string) => i18n.dateTime(iso, fields),
+    when: (iso: string) => i18n.dateTime(iso, local),
+    whenUtc: (iso: string) => i18n.dateTime(iso, utc),
     /** The calendar day alone (UTC), for dates where the time adds nothing (joined on …). */
     day: (iso: string) =>
       i18n.dateTime(iso, {
@@ -68,6 +73,8 @@ export function useFormatters() {
         timeZone: "UTC",
       }),
     whenExact: (iso: string) =>
-      i18n.dateTime(iso, { ...fields, second: "2-digit" }),
+      i18n.dateTime(iso, { ...local, second: "2-digit" }),
+    whenExactUtc: (iso: string) =>
+      i18n.dateTime(iso, { ...utc, second: "2-digit" }),
   };
 }

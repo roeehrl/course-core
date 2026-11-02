@@ -15,9 +15,9 @@
   "topics.empty.body": "הגרסה הזו לא מגדירה נושאי מחקר ציבוריים שהכותבים אישרו.",
   "topic.eyebrow": "נושא ציבורי מאושר",
   "topic.episodes": "יחידות לימוד: {episodes}",
-  "topic.episodesNone": "יחידות לימוד: אין",
-  "topic.domains": "דומיינים: {domains}",
-  "topic.domainsAny": "דומיינים: כל שרת HTTPS ציבורי שצוות הקורס בוחר",
+  "topic.episodesNone": "עדיין לא בשימוש באף יחידת לימוד",
+  "topic.domains": "אתרים: {domains}",
+  "topic.domainsAny": "אתרים: כל אתר HTTPS ציבורי שצוות הקורס בוחר",
   "youtube.search": "חיפוש ב-YouTube",
   "youtube.saved": "תוצאות YouTube נשמרו כהצעות שלא נבדקו. נשלחה רק השאילתה המאושרת של הנושא הזה.",
   "youtube.summary": "{count, plural, one {תוצאת YouTube אחת} two {שתי תוצאות YouTube} other {# תוצאות YouTube}} · מטא-נתונים בלבד, לא נבדקו",
@@ -181,5 +181,6 @@
   "topics.search": "חיפוש נושאים",
   "topics.noMatch": "אף נושא לא מתאים לחיפוש.",
   "emptyTopics.title": "נושאים בלי מקורות ({count})",
-  "emptyTopics.body": "עדיין לא נוספו או הוצעו מקורות לנושאים האלה."
+  "emptyTopics.body": "עדיין לא נוספו או הוצעו מקורות לנושאים האלה.",
+  "youtube.status.openKey": "הוספת המפתח בשירותי AI"
 }

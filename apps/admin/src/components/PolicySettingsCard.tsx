@@ -93,7 +93,7 @@ function SettingsForm({
 }>) {
   const i18n = useI18n();
   const t = i18n.t;
-  const { when } = useFormatters();
+  const { when, whenUtc } = useFormatters();
   /** A server code shown through the catalog; an unknown code falls back. */
   const label = (key: string, fallback: string) =>
     i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
@@ -247,6 +247,7 @@ function SettingsForm({
             <dt>{t("policySettingsCard.zone")}</dt>
             <dd>
               <span dir="ltr">{shown.timeZone}</span>
+              <small>{t("policySettingsCard.zone.hint")}</small>
             </dd>
           </div>
           <div>
@@ -285,7 +286,7 @@ function SettingsForm({
               {shown.extensions.ultimateDeadline && (
                 <small>
                   {t("policySettingsCard.summary.ultimate", {
-                    date: when(shown.extensions.ultimateDeadline),
+                    date: whenUtc(shown.extensions.ultimateDeadline),
                   })}
                 </small>
               )}
@@ -317,7 +318,10 @@ function SettingsForm({
           </div>
           <div>
             <dt>{t("policySettingsCard.questions")}</dt>
-            <dd>{i18n.number(shown.closedQuestionBudget)}</dd>
+            <dd>
+              {i18n.number(shown.closedQuestionBudget)}
+              <small>{t("policySettingsCard.questions.hint")}</small>
+            </dd>
           </div>
         </dl>
         {feasibilityBlock}

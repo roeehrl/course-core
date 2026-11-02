@@ -54,6 +54,49 @@ export function shortTitle(text: string, max = 90) {
   return first.slice(0, max).replace(/\s+\S*$/, "") + "…";
 }
 
+const leadSentence = (text: string) =>
+  /^\s*([^\n.?!:]{2,60}[.:])\s+\S/.exec(text)?.[1];
+/**
+ * Short opening sentences many questions share ("Independent check."): they name a kind of
+ * question, not the question, so a list row skips them. A lead counts when at least three of
+ * the texts start with it.
+ */
+export function sharedLeads(texts: string[], min = 3) {
+  const counts = new Map<string, number>();
+  for (const text of texts) {
+    const lead = leadSentence(text);
+    if (lead) counts.set(lead, (counts.get(lead) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, n]) => n >= min).map(([lead]) => lead));
+}
+/** A question's text for a one-line list row: without a shared lead-in, on one line (the row
+ * ellipsizes it). */
+export function questionLine(text: string, leads: Set<string>) {
+  const lead = leadSentence(text);
+  const rest = lead && leads.has(lead) ? text.trim().slice(lead.length) : text;
+  return rest.replace(/\s+/g, " ").trim();
+}
+
+/** Well-known sites by their hosts, named the way people know them. */
+const SITE_NAMES: [RegExp, string][] = [
+  [
+    /^(?:(?:www|m|music)\.)?youtube\.com$|^youtu\.be$|^(?:www\.)?youtube-nocookie\.com$/,
+    "YouTube",
+  ],
+  [/^(?:[a-z]{2,3}\.)?(?:m\.)?wikipedia\.org$/, "Wikipedia"],
+  [/^(?:www\.)?github\.com$/, "GitHub"],
+];
+/** Allowed hosts as site names: one "YouTube" for its three hosts, others without "www.". */
+export function siteNames(hosts: string[]) {
+  const names = hosts.map((host) => {
+    const h = host.trim().toLowerCase();
+    return (
+      SITE_NAMES.find(([re]) => re.test(h))?.[1] ?? h.replace(/^www\./, "")
+    );
+  });
+  return [...new Set(names)];
+}
+
 /** A lower-case search query or code as a display name: its first letter capitalised. */
 export function sentenceCase(text: string) {
   const trimmed = text.trim();

@@ -92,8 +92,6 @@
   "sources.status.due_soon": "Due within a month",
   "sources.status.current": "Recently checked",
   "sources.noDate": "No review date in the course.",
-  "sources.reviewed": "Last checked {date} ({days, plural, one {# day} other {# days}} ago)",
-  "sources.cited": "{count, plural, =0 {not cited in any lesson text} one {cited in # lesson part} other {cited in # lesson parts}}",
   "questions.title": "Questions",
   "questions.total": "{count, plural, one {# question} other {# questions}}",
   "questions.showing": "Showing {shown} of {total} questions.",
@@ -132,11 +130,12 @@
   "sources.allCurrent": "Every source was checked recently.",
   "sources.col.source": "Source",
   "sources.col.checked": "Last checked",
-  "sources.col.cited": "Cited in",
+  "sources.col.cited": "Lesson parts citing it",
   "sources.col.status": "Status",
   "sources.fewer": "Show fewer",
   "sources.all": "Show all {count} sources",
   "sources.copied": "Copied",
   "sources.copyDigest": "Copy fingerprint {short}…",
-  "run.by": "Run by"
+  "run.by": "Run by",
+  "sources.digest": "Fingerprint (SHA-256)"
 }

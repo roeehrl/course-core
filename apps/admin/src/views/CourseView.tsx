@@ -461,7 +461,7 @@ export function CourseView({
             <p className="muted">{t("courseView.objectives.none")}</p>
           ) : (
             // Long lists stay folded: the page stays short enough to find the rest.
-            <details className="objectives-disclosure">
+            <details className="quiet-details objectives-disclosure">
               <summary>
                 {t("courseView.objectives.show", {
                   count: data.course.objectives.length,

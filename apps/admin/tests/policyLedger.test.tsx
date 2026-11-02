@@ -255,9 +255,9 @@ describe("course policy settings", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Edit course settings" }),
     );
-    await userEvent.clear(screen.getByLabelText("Deadline time zone (IANA)"));
+    await userEvent.clear(screen.getByLabelText("Deadline time zone"));
     await userEvent.type(
-      screen.getByLabelText("Deadline time zone (IANA)"),
+      screen.getByLabelText("Deadline time zone"),
       "America/New_York",
     );
     await userEvent.selectOptions(
@@ -323,7 +323,7 @@ describe("course policy settings", () => {
     );
     // A reader sees what is in force, with no way into the form.
     expect(await screen.findByText("Documented defaults")).toBeVisible();
-    expect(screen.getByText("Deadline time zone (IANA)")).toBeVisible();
+    expect(screen.getByText("Deadline time zone")).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "Edit course settings" }),
     ).toBeNull();

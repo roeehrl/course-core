@@ -245,5 +245,6 @@
   "clip.formatMp4": "MP4",
   "clip.formatWebm": "WebM",
   "jobs.requestReason": "צריך מודל מדיה בשירותי AI, או המחשות של הקורס שאפשר להפוך לקליפ.",
-  "clips.toolchainSetup": "מגדירים ל-API את CLIP_RASTERIZER_PATH ואת CLIP_FFMPEG_PATH (ראו את ה-README של ה-API), ואז מפעילים מחדש את ה-API."
+  "clips.toolchainSetup": "מגדירים ל-API את CLIP_RASTERIZER_PATH ואת CLIP_FFMPEG_PATH (ראו את ה-README של ה-API), ואז מפעילים מחדש את ה-API.",
+  "provider.none.open": "בחירת מודל מדיה בשירותי AI"
 }

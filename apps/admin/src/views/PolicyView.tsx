@@ -244,7 +244,7 @@ function ScopePicker({
   onSelect: (scopeId: string) => void;
 }) {
   const t = useT();
-  const { when } = useFormatters();
+  const { whenUtc } = useFormatters();
   const scopeNames = useScopeLabel();
   const [query, setQuery] = useState("");
   const depth = (scope: ScopePolicy) => {
@@ -325,7 +325,7 @@ function ScopePicker({
                 <small>
                   {resolved?.effectiveDeadline
                     ? t("policyView.effective", {
-                        date: when(resolved.effectiveDeadline),
+                        date: whenUtc(resolved.effectiveDeadline),
                       })
                     : t("policyView.noEffective")}
                 </small>
@@ -605,6 +605,7 @@ function PolicyWorkspace({
                 key={scope.scopeId}
                 quotas={constraint.quotas}
                 scopes={policy.scopes}
+                conceptTitles={policy.conceptTitles}
               />
               <Notice tone="blue">{t("policyView.envelope.notice")}</Notice>
             </Card>
