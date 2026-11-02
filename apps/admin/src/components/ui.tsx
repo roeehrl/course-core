@@ -208,6 +208,21 @@ export function EmptyState({
   );
 }
 /**
+ * The one way a page opens under its title (the shell draws the title): a short muted line on
+ * what the page is for, and the page's main action, if it has one, at the line's end.
+ */
+export function PageIntro({
+  children,
+  action,
+}: PropsWithChildren<{ action?: ReactNode }>) {
+  return (
+    <div className="page-intro">
+      <p>{children}</p>
+      {action}
+    </div>
+  );
+}
+/**
  * Identifiers and codes kept for support (a policy id, an error code, a stored record), folded
  * away under "Technical details" so the owner reads sentences, not codes. `rows` lists label and
  * value pairs (the values left to right, in a monospace face); other content goes in children.

@@ -1,5 +1,4 @@
 {
-  "heading": "Follow the work, not a black box.",
   "intro": "Inspectable inputs, context references, tool decisions and reviewable outputs.",
   "privacyNotice": "This inspector shows operational records and concise decision explanations. Private model reasoning and hidden chain-of-thought are not requested or displayed.",
   "list.title": "Supervisor runs",

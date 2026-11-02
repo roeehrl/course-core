@@ -21,6 +21,7 @@ import {
   Field,
   Notice,
   PermissionHint,
+  PageIntro,
 } from "../components/ui";
 import { useI18n, useT, type MessageKey } from "../i18n";
 import { learnerName } from "../domain/learnerName";
@@ -83,23 +84,23 @@ export function EnrollmentsView({
   return (
     <div className="page-stack">
       <ActionFeedback actions={actions} />
-      <div className="section-heading">
-        <div>
-          <h2>{t("enrollmentsView.heading")}</h2>
-          <p>{t("enrollmentsView.intro")}</p>
-        </div>
-        <Button
-          kind="primary"
-          onClick={() => {
-            actions.clear();
-            setDialog("enroll");
-          }}
-          disabled={!canWrite || actions.pending}
-        >
-          <Plus size={16} aria-hidden="true" />
-          {t("enrollmentsView.newEnrollment")}
-        </Button>
-      </div>
+      <PageIntro
+        action={
+          <Button
+            kind="primary"
+            onClick={() => {
+              actions.clear();
+              setDialog("enroll");
+            }}
+            disabled={!canWrite || actions.pending}
+          >
+            <Plus size={16} aria-hidden="true" />
+            {t("enrollmentsView.newEnrollment")}
+          </Button>
+        }
+      >
+        {t("enrollmentsView.intro")}
+      </PageIntro>
       <PermissionHint
         permissions={data.permissions}
         required="enrollment.write"

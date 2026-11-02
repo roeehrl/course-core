@@ -557,6 +557,26 @@ button svg {
   margin-bottom: 28px;
   color: #6c603f;
 }
+/* A page's opening line under its title (ui.tsx PageIntro): muted text capped for reading, the
+   page's main action at the inline end, below the text on a narrow page. */
+.page-intro {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.page-intro > p {
+  flex: 1 1 28rem;
+  max-inline-size: 75ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.page-intro > :is(.button, .button-with-reason) {
+  flex: none;
+}
 .page-stack {
   display: flex;
   flex-direction: column;
@@ -1439,16 +1459,6 @@ progress::-moz-progress-bar {
   margin-top: 7px;
   font-size: var(--text-sm);
 }
-.large-icon {
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 54px;
-  flex-shrink: 0;
-  border-radius: 16px;
-  background: var(--ice);
-  color: var(--blue);
-}
 .preview-result {
   display: flex;
   flex-direction: column;
@@ -1924,8 +1934,7 @@ pre {
   .hero-card {
     gap: 12px;
   }
-  .hero-art,
-  .section-heading > .large-icon {
+  .hero-art {
     display: none;
   }
   .hero-card h2 {

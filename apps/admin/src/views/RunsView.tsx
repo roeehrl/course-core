@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { FileText, ScanSearch } from "lucide-react";
+import { FileText } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { useRemote } from "../hooks/useAdmin";
 import {
@@ -11,6 +11,7 @@ import {
   Notice,
   TechnicalDetails,
   SkeletonRows,
+  PageIntro,
 } from "../components/ui";
 import {
   useFormatters,
@@ -84,15 +85,7 @@ export function RunsView({
   const pickerId = useId();
   return (
     <div className="page-stack">
-      <div className="section-heading">
-        <div>
-          <h2>{t("runsView.heading")}</h2>
-          <p>{t("runsView.intro")}</p>
-        </div>
-        <span className="large-icon">
-          <ScanSearch size={28} aria-hidden="true" />
-        </span>
-      </div>
+      <PageIntro>{t("runsView.intro")}</PageIntro>
       <Notice tone="blue">{t("runsView.privacyNotice")}</Notice>
       {!data.permissions.includes("run.inspect") ? (
         <ErrorState error={new AdminError("permission_denied")} />

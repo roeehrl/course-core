@@ -13,11 +13,6 @@
 .ai-page p {
   max-inline-size: 78ch;
 }
-.ai-intro {
-  color: var(--muted);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-}
 .ai-status-bar {
   display: flex;
   gap: 12px;
