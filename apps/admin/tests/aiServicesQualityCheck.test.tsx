@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -697,7 +697,23 @@ describe("running the quality check from the page", () => {
   });
 });
 
+// The prices card compares an announced change with today's date (a warning within
+// CHANGE_WARNING_DAYS, a note before that). These tests pin the clock to the day the table was
+// checked, 72 days before the 1 January 2027 change they use, so they do not change with the
+// real date. Only Date is faked: the page's own timers and Testing Library's waits stay real.
+const PRICE_TABLE_DAY = "2026-10-21T12:00:00Z";
+function pinClockToPriceTableDay() {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(PRICE_TABLE_DAY);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 describe("prefilled prices", () => {
+  pinClockToPriceTableDay();
   const pricing = (changeFrom: string | null) => ({
     requirePricing: true,
     settingsRevision: 0,
@@ -827,6 +843,7 @@ describe("prefilled prices", () => {
 });
 
 describe("a price change already scheduled", () => {
+  pinClockToPriceTableDay();
   const later = "2027-01-01T00:00:00.000Z";
   const version = (
     n: number,
