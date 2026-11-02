@@ -586,12 +586,9 @@ button.cc-chat-anchor:focus-visible {
   font: 400 var(--text-micro) var(--font-sans);
   white-space: nowrap;
   box-shadow: 0 4px 16px rgb(24 50 55 / 15%);
-  opacity: 0;
+  /* Shown and hidden whole (no fade), so it is never drawn at part contrast. */
   visibility: hidden;
   pointer-events: none;
-  transition:
-    opacity var(--motion-m7-duration) var(--motion-m7-easing),
-    visibility 0s linear var(--motion-m7-duration);
 }
 .cc-chat-send-wrap[data-tip="side"] > .cc-chat-send-tip {
   inset-block: 50% auto;
@@ -603,14 +600,12 @@ button.cc-chat-anchor:focus-visible {
   translate: 0 -50%;
 }
 .cc-chat-send:hover + .cc-chat-send-tip {
-  opacity: 1;
   visibility: visible;
-  transition-delay: 500ms;
+  transition: visibility 0s linear 500ms;
 }
 .cc-chat-send:focus-visible + .cc-chat-send-tip {
-  opacity: 1;
   visibility: visible;
-  transition-delay: 0s;
+  transition: none;
 }
 .cc-chat-stop-square {
   inline-size: 12px;
@@ -721,8 +716,7 @@ button.cc-chat-anchor:focus-visible {
   }
   .cc-chat-jump,
   .cc-chat-jump[data-visible="false"],
-  .cc-chat-send,
-  .cc-chat-send-tip {
+  .cc-chat-send {
     transition: none;
   }
 }
