@@ -116,7 +116,10 @@ const pair = (mapping: ConceptMapping | null): MappingPair => ({
   },
   mapping,
 });
-function setup(port: Partial<ConceptMappingPort> = {}) {
+function setup(
+  port: Partial<ConceptMappingPort> = {},
+  onOpenCourses?: () => void,
+) {
   const full: ConceptMappingPort = {
     candidates: vi.fn(async () => candidates),
     pair: vi.fn(async () => pair(null)),
@@ -127,6 +130,7 @@ function setup(port: Partial<ConceptMappingPort> = {}) {
   render(
     <ConceptMappingsView
       client={{ conceptMappings: full } as unknown as AdminClient}
+      onOpenCourses={onOpenCourses}
     />,
   );
   return full;
@@ -319,15 +323,24 @@ describe("concept mapping editor", () => {
       screen.getByText("Concept mappings are not available here"),
     ).toBeVisible();
     unmount();
-    setup({
-      candidates: vi.fn(async () => ({
-        ...candidates,
-        courses: [candidates.courses[0]!],
-      })),
-    });
+    const openCourses = vi.fn();
+    setup(
+      {
+        candidates: vi.fn(async () => ({
+          ...candidates,
+          courses: [candidates.courses[0]!],
+        })),
+      },
+      openCourses,
+    );
     expect(
       await screen.findByText("Two published courses are needed"),
     ).toBeVisible();
+    // Not a dead end: the way to another course (C11).
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add or open a course" }),
+    );
+    expect(openCourses).toHaveBeenCalled();
   });
 
   it("calls the documented server routes", async () => {

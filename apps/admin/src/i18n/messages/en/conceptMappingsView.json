@@ -51,5 +51,6 @@
   "action.created": "Created",
   "action.revised": "Revised",
   "action.retired": "Retired",
-  "action.restored": "Restored"
+  "action.restored": "Restored",
+  "choose.empty.courses": "Add or open a course"
 }

@@ -1132,7 +1132,10 @@ function CourseWorkspace({
                 <SupervisionView data={data} client={client} />
               )}
               {activeView.id === "mappings" && (
-                <ConceptMappingsView client={client} />
+                <ConceptMappingsView
+                  client={client}
+                  onOpenCourses={() => openView(WORKSPACE_HOME)}
+                />
               )}
               {activeView.id === "studies" && (
                 <StudyView data={data} client={client} />

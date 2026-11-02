@@ -28,14 +28,15 @@ async function expectNoHorizontalOverflow(page: Page, name: string) {
 
 /** Visible text in main with plain Latin letters outside any ⟦…⟧ frame, except data
  * (dir="ltr"/"auto", bdi, code, pre, option, a field's own text, lang="en") and English-formatted
- * dates. */
+ * dates and relative times. */
 async function untranslated(page: Page) {
   return page.evaluate(() => {
     const found: string[] = [];
     const main = document.querySelector("main")!;
     const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    // Dates and relative times come from Intl, which has no pseudo-locale (English output).
     const date =
-      /[A-Z][a-z]{2} \d{1,2}, \d{4}(, \d{1,2}:\d{2}(:\d{2})? [AP]M)?( UTC)?/g;
+      /[A-Z][a-z]{2} \d{1,2}, \d{4}(, \d{1,2}:\d{2}(:\d{2})? [AP]M)?( UTC)?|\b(in )?\d+ (second|minute|hour|day|week|month|year)s?( ago)?\b|\b(today|yesterday|tomorrow|now)\b/g;
     let depth = 0;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       let outside = "";
