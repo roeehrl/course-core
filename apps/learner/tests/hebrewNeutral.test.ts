@@ -40,6 +40,12 @@ describe("gender-neutral Hebrew in the companion redesign", () => {
     expect(found).toEqual([]);
   });
 
+  it("says the check's and the gate's results without a second-person past verb (read as masculine by TTS)", () => {
+    // סיימת, כתבת: unpointed, a Hebrew voice reads them as masculine (final design §7).
+    expect(messages("checkCard")["check.doneIntro"]).toBe("השאלות של השיעור הזה הושלמו.");
+    expect(messages("gateDecision")["msg.criterion.rubric.met"]).toBe("ההסבר שלך אושר בבדיקה, עם ציטוט מהתשובה.");
+  });
+
   it("recognises what it is meant to reject", () => {
     expect([..."בודק/ת אישר/ה, אני מסכים/ה, תלוי/ה".matchAll(SLASHED)].map(([word]) => word)).toEqual(["בודק/ת", "אישר/ה", "מסכים/ה", "תלוי/ה"]);
     expect(ROLE_NOUNS.has(bare("ממנהל/ת"))).toBe(true);

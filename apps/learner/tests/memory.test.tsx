@@ -818,6 +818,9 @@ describe("learner-owned memory panel through HTTP", () => {
     );
     await screen.findByText("Suggestion corrected");
     expect(screen.getByText("This represents me better.")).toBeVisible();
+    // Who made it, then when, on lines of their own: one name for the companion, no `·` chain.
+    expect(screen.getByText("Your edit")).toBeVisible();
+    expect(screen.queryByText(/·|Service|Learner edit/)).toBeNull();
     await pressWhenReady(screen.getByRole("button", { name: "Show change details 20" }));
     expect(screen.getByText("Event: review-event")).toBeVisible();
     expect(screen.getByText("Suggested explanation: Concise")).toBeVisible();

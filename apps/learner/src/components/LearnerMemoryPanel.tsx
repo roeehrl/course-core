@@ -1067,14 +1067,15 @@ function MemoryPanel({
                 <Text style={styles.heading}>
                   {changeLabel(change.action, i18n)}
                 </Text>
+                {/* Who made the change, then when, each on its own line (§4.9: no `·` chains). */}
                 <Text style={styles.small}>
                   {t(
                     change.actorKind === "learner"
                       ? "learnerMemoryPanel.change.byLearner"
                       : "learnerMemoryPanel.change.byService",
-                    { when: i18n.dateTime(change.createdAt) },
                   )}
                 </Text>
+                <Text style={styles.small}>{i18n.dateTime(change.createdAt)}</Text>
                 {change.data.reason ? (
                   <Text selectable style={styles.body}>
                     {change.data.reason}

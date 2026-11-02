@@ -41,7 +41,7 @@
   "msg.criterion.misconception.met": "לא נשאר בלבול נפוץ לשלול.",
   "msg.criterion.misconception.open": "שאלה בהמשך תבדוק שהבלבול הזה כבר לא קיים: {misconceptions}.",
   "msg.criterion.misconception.unobserved": "קודם עונים על שאלה באופן עצמאי, כדי שאפשר יהיה לשלול בלבול נפוץ.",
-  "msg.criterion.rubric.met": "ההסבר שלך אושר בבדיקה, עם ציטוט ממה שכתבת.",
+  "msg.criterion.rubric.met": "ההסבר שלך אושר בבדיקה, עם ציטוט מהתשובה.",
   "msg.criterion.rubric.unmet": "מסבירים במילים שלך, וההסבר נבדק מול “{rubric}”.",
   "msg.criterion.rubric.unmetUnnamed": "מסבירים במילים שלך, וההסבר נבדק מול הקריטריונים של הקורס.",
   "msg.criterion.practical.met": "המשימה המעשית שלך עברה את הבדיקות.",
