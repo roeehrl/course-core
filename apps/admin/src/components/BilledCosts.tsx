@@ -32,7 +32,7 @@ export function BilledCosts({
   const [saved, setSaved] = useState<Billing>();
   const view = saved ?? remote.data;
   return (
-    <Card title={t("billedCosts.title")} eyebrow={t("billedCosts.eyebrow")}>
+    <Card title={t("billedCosts.title")}>
       <Notice tone="blue">{t("billedCosts.explain")}</Notice>
       <StatementForm port={port} workspaceId={workspaceId} onSaved={setSaved} />
       {remote.loading && !view ? (

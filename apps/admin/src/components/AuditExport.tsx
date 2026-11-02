@@ -37,7 +37,7 @@ export function AuditExport({
     setState({ pending: false });
   };
   return (
-    <Card title={t("auditExport.title")} eyebrow={t("auditExport.eyebrow")}>
+    <Card title={t("auditExport.title")}>
       <p>{t("auditExport.intro")}</p>
       <form
         className="stack"
@@ -134,16 +134,18 @@ export function AuditExport({
             </small>
           </Notice>
         )}
-        <Button
-          type="submit"
-          kind="primary"
-          disabled={state.pending || !query.from || !query.to}
-        >
-          <Download size={16} aria-hidden="true" />
-          {state.pending
-            ? t("auditExport.downloading")
-            : t("auditExport.download")}
-        </Button>
+        <div className="button-row">
+          <Button
+            type="submit"
+            kind="primary"
+            disabled={state.pending || !query.from || !query.to}
+          >
+            <Download size={16} aria-hidden="true" />
+            {state.pending
+              ? t("auditExport.downloading")
+              : t("auditExport.download")}
+          </Button>
+        </div>
       </form>
     </Card>
   );

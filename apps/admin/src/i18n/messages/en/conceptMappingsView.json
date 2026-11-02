@@ -5,7 +5,6 @@
   "loadingCourses": "Loading courses you can map…",
   "loadingMapping": "Loading the mapping…",
   "choose.title": "Choose two courses",
-  "choose.eyebrow": "Staff-authored mapping",
   "choose.body": "Link objectives of two different courses as equivalent, overlapping, or one a prerequisite of the other. Only an owner or admin of both courses can save a mapping, and every save is kept as a version with who saved it. Nothing is inferred automatically.",
   "choose.empty.title": "Two published courses are needed",
   "choose.empty.body": "You can map courses where you are an owner or admin.",

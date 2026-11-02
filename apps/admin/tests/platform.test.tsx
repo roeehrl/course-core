@@ -246,7 +246,7 @@ describe("platform readiness (Q11, T03)", () => {
     expect(await screen.findByText("Is the platform ready?")).toBeVisible();
     expect(platform.readiness).toHaveBeenCalledWith(WS, expect.anything());
     const temporal = screen
-      .getByRole("heading", { name: "Workflow engine (Temporal)" })
+      .getByRole("heading", { name: "Background jobs" })
       .closest("section")!;
     expect(within(temporal).getByText("Not working")).toBeVisible();
     expect(
@@ -289,7 +289,7 @@ describe("platform readiness (Q11, T03)", () => {
       await screen.findByText("The newest copy is not encrypted."),
     ).toBeVisible();
     const note = screen.getByText(
-      /Encryption is optional\. .*install age on the server/,
+      /Encryption is optional and backups work without it.*pilot guide/,
     );
     expect(note).toBeVisible();
     // An informational note, not a warning.
@@ -404,7 +404,14 @@ describe("integrations and billed costs (Q12, U04)", () => {
     expect(
       screen.getByText(/Install the extension version this course declares/),
     ).toBeVisible();
-    expect(screen.getByText("Key works")).toBeVisible();
+    // AI connections are summarised with a link to AI services, not listed again here.
+    expect(
+      screen.getByText(/One AI connection, and its key works\./),
+    ).toBeVisible();
+    // What each course needs is a table: extension, needed, installed here, status.
+    expect(
+      screen.getByRole("columnheader", { name: "Installed here" }),
+    ).toBeVisible();
     const table = await screen.findByRole("table", {
       name: "Billed amounts and estimates (days in UTC)",
     });
@@ -473,7 +480,8 @@ describe("audit export and policy history (Q12)", () => {
         client={{ platform, audit } as unknown as AdminClient}
       />,
     );
-    expect(await screen.findByText("paceDays")).toBeVisible();
+    // A setting without a catalog name is spelled out from its code.
+    expect(await screen.findByText("pace days")).toBeVisible();
     expect(screen.getByText("Pilot cohort needs more time.")).toBeVisible();
     await user.selectOptions(screen.getByLabelText("File type"), "json");
     await user.click(screen.getByRole("button", { name: "Download" }));
