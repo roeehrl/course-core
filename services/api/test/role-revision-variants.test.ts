@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BUILT_IN_STRATEGIES, StrategyRegistry, companionStrategy, defineRuntimeStrategy } from "../src/agent-strategies.js";
 import { roleRevisions } from "../src/agent-evals/revision.js";
 import { scriptedConfiguration } from "../src/agent-evals/scripted-model.js";
+import { REGENERATION_NOTE } from "../src/companion-answer-guard.js";
 
 // The companion asks its model in several prompt modes (agent-strategies.ts companionInstruction):
 // the check-coaching rule and the Hebrew rule are added from the context, and the reply style comes
@@ -36,15 +37,25 @@ const revisions = (configuration: Configuration, strategies?: StrategyRegistry) 
 const detailed: Configuration = { ...base, roles: { ...base.roles, companion: { ...base.roles.companion, replyStyle: "detailed" } } } as Configuration;
 
 describe("companion revision digests cover every prompt mode", () => {
-  it("probe the plain, check-coaching (matched and uncertain) and Hebrew requests", async () => {
+  it("probe the plain, check-coaching (matched and uncertain), Hebrew and answer-guard regeneration requests", async () => {
     const instructions: string[] = [], messages: string[] = [];
     const { registry } = edited((request) => { instructions.push(request.systemInstruction); messages.push(request.messages[0]!.text); return request; });
     expect((await revisions(base, registry)).companion).toMatchObject({ strategy: "core.companion.tutor", probed: true });
-    expect(instructions).toHaveLength(4);
-    expect(instructions.filter((text) => text.includes("Check coaching:"))).toHaveLength(2);
+    // The regeneration probe sends the coached request, gets a draft its guard rejects, and records the second request.
+    expect(instructions).toHaveLength(6);
+    expect(instructions.filter((text) => text.includes("Check coaching:"))).toHaveLength(4);
     expect(instructions.filter((text) => text.includes("Hebrew replies:"))).toHaveLength(1);
+    expect(instructions.filter((text) => text.endsWith(REGENERATION_NOTE))).toHaveLength(1);
     // The uncertain match is told so in its own note.
     expect(messages.filter((text) => text.includes("which one is not certain"))).toHaveLength(1);
+  });
+
+  it("change when only the answer guard's corrective note changes, and for no other role", async () => {
+    const original = await revisions(base), { seen, registry } = rewordInstruction("Correction: your previous draft");
+    const changed = await revisions(base, registry);
+    expect(seen.applied).toBe(1);
+    expect(changed.companion!.digest).not.toBe(original.companion!.digest);
+    for (const role of ["supervisor", "research", "media", "reviewer"] as const) expect(changed[role]!.digest).toBe(original[role]!.digest);
   });
 
   for (const [mode, phrase] of [["check coaching", "Check coaching:"], ["Hebrew", "Hebrew replies:"]] as const) {

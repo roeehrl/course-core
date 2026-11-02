@@ -87,14 +87,15 @@ describe('role reservations are sized from the role limits and the price in forc
     expect(loop.microUsd).toBe(Math.ceil(4 * ((30000 + 1024) * 750_000 + 8192 * 3_750_000) * 1.25 / 1_000_000) + 40);
     expect(roleReservation({ maxInputCharacters: 30000, maxOutputTokens: 8192, maxToolRounds: 4 }, price, policy)).toEqual({ microUsd: 100_000, tokens: 500_000 });
   });
-  it('the companion also reserves one check-judge call at the judge\'s limits and price, never above the job allowance', () => {
+  it('in check-coaching mode the companion reserves its regeneration and one check-judge call at the judge\'s limits and price, never above the job allowance', () => {
     const judgePrice = { ...price, versionId: 'j', inputMicroUsdPerMillionTokens: 250_000, outputMicroUsdPerMillionTokens: 1_250_000 };
     const unbounded = { microUsd: Number.MAX_SAFE_INTEGER, tokens: Number.MAX_SAFE_INTEGER };
     const own = roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, unbounded)!, judge = roleReservation({ maxInputCharacters: 16000, maxOutputTokens: 2048 }, judgePrice, unbounded)!;
     expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: judgePrice }, policy))
-      .toEqual({ microUsd: own.microUsd + judge.microUsd, tokens: Math.min(policy.tokens, own.tokens + judge.tokens) });
+      .toEqual({ microUsd: Math.min(policy.microUsd, 2 * own.microUsd + judge.microUsd), tokens: Math.min(policy.tokens, 2 * own.tokens + judge.tokens) });
     // An unpriced judge adds nothing here (the gateway then fails it closed); the job allowance caps the sum.
-    expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: null }, policy)).toEqual(own);
+    expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: null }, policy))
+      .toEqual({ microUsd: Math.min(policy.microUsd, 2 * own.microUsd), tokens: Math.min(policy.tokens, 2 * own.tokens) });
     expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: { maxInputCharacters: 16000, maxOutputTokens: 2048 }, pricing: judgePrice }, { microUsd: 30_000, tokens: 50_000 }))
       .toEqual({ microUsd: 30_000, tokens: 50_000 });
     expect(companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, null, null, policy)).toBeNull();

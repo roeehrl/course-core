@@ -1,5 +1,6 @@
 import { ModelRegistry, ProviderRouter, ProviderError, type CostEstimate, type Json, type MediaCapabilities, type MediaPrice, type OutputSchema, type UsageReceipt, type VideoJob } from '@course-core/providers';
 import type { SupervisorToolPort } from './supervisor-tool-loop.js';
+import type { CompanionAnswerGuard } from './companion-answer-guard.js';
 import { providerCallObserver } from './telemetry.js';
 import { CHECK_JUDGE_SCHEMA, judgeInputCharacters, judgeOutputTokens } from './companion-check-judge.js';
 import { AGENT_ROLES, builtInStrategies, type AgentRole, type RoleBinding, type RoleBindings, type RuntimeResult, type RuntimeStrategy,
@@ -196,13 +197,14 @@ export class ProviderRuntime {
     const result = await router.tutor(base, options);
     return { output: result.output.text, usage: result.usage };
   }
-  /** `onText` (companion only) receives the answer as it streams; see reply-drafts.ts. */
+  /** `onText` (companion only) receives the answer as it streams; see reply-drafts.ts. `answerGuard`
+   * (companion only): the host's guard over the in-scope checks' keys (companion-answer-guard.ts). */
   async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>,
-    course: readonly RuntimeStrategy[] = [], onText?: (text: string) => void): Promise<RuntimeResult> {
+    course: readonly RuntimeStrategy[] = [], onText?: (text: string) => void, answerGuard?: CompanionAnswerGuard): Promise<RuntimeResult> {
     if (this.availability(role).status !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
     const { binding, strategy } = this.strategy(role, course)!;
     const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router, binding), tools, beforeModelCall,
-      ...(role === 'companion' && onText ? { onText } : {}) });
+      ...(role === 'companion' && onText ? { onText } : {}), ...(role === 'companion' && answerGuard ? { answerGuard } : {}) });
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
   }

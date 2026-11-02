@@ -29,9 +29,9 @@ export function roleReservation(limits: RoleLimits, pricing: ModelPricing | null
   return { microUsd: Math.min(policy.microUsd, microUsd), tokens: Math.min(policy.tokens, tokens) };
 }
 
-/** The most one check-judge call can cost (companion-check-judge.ts): its request's UTF-8 bytes
- * bound its input tokens from above, plus framing, and its output limit, with the margin. Null when
- * the price cannot bound it. */
+/** The most one check-judge call can cost (companion-check-judge.ts), or the answer guard's one
+ * regeneration (companion-answer-guard.ts): its request's UTF-8 bytes bound its input tokens from
+ * above, plus framing, and its output limit, with the margin. Null when the price cannot bound it. */
 export function judgeCeilingMicroUsd(requestBytes: number, maxOutputTokens: number, pricing: ModelPricing): number | null {
   if (pricing.inputMicroUsdPerMillionTokens === null || pricing.outputMicroUsdPerMillionTokens === null) return null;
   const raw = (requestBytes + RESERVATION_INPUT_OVERHEAD_TOKENS) * pricing.inputMicroUsdPerMillionTokens + maxOutputTokens * pricing.outputMicroUsdPerMillionTokens;
@@ -39,14 +39,15 @@ export function judgeCeilingMicroUsd(requestBytes: number, maxOutputTokens: numb
   return Number.isSafeInteger(microUsd) ? microUsd : null;
 }
 /**
- * The companion's reservation with its check judge (companion-check-judge.ts): one companion call
- * and, when a judge role is bound and priced, one judge call at the judge's input and output limits
- * and its own price, together never above the workspace job allowance. Only a question in
+ * The companion's reservation in check-coaching mode: two companion calls (the reply and the one
+ * regeneration the answer guard may make, companion-answer-guard.ts) and, when a judge role is
+ * bound and priced, one check-judge call (companion-check-judge.ts) at the judge's input and output
+ * limits and its own price, together never above the workspace job allowance. Only a question in
  * check-coaching mode reserves it (matched when the question is prepared, companion-check-scope.ts);
  * an ordinary question reserves the companion's own call (roleReservation). Null when the
  * companion's own price cannot bound its call (the policy allowance stays in force); without a
- * priced judge it is the companion's own reservation, and the gateway fails a judge without room
- * closed rather than exceed it.
+ * priced judge it is the companion's two calls, and the gateway fails a judge without room closed
+ * (and admits no regeneration without room) rather than exceed it.
  */
 export function companionReservation(companion: RoleLimits, pricing: ModelPricing | null, judge: { limits: RoleLimits; pricing: ModelPricing | null } | null,
   policy: { microUsd: number; tokens: number }) {
@@ -54,7 +55,7 @@ export function companionReservation(companion: RoleLimits, pricing: ModelPricin
   const own = roleReservation(companion, pricing, unbounded);
   if (!own) return null;
   const extra = judge ? roleReservation(judge.limits, judge.pricing, unbounded) : null;
-  const microUsd = own.microUsd + (extra?.microUsd ?? 0), tokens = own.tokens + (extra?.tokens ?? 0);
+  const microUsd = 2 * own.microUsd + (extra?.microUsd ?? 0), tokens = 2 * own.tokens + (extra?.tokens ?? 0);
   if (!Number.isSafeInteger(microUsd) || !Number.isSafeInteger(tokens)) return null;
   return { microUsd: Math.min(policy.microUsd, microUsd), tokens: Math.min(policy.tokens, tokens) };
 }

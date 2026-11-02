@@ -126,8 +126,15 @@ around maths operators.
   dialogue with `checks`, Core's own graded-check verifier also runs on the checks the
   question matches (`check_answer:check_answer_stated`, `check_option_named` or
   `check_answer_confirmed`; [docs/companion-check-integrity.md](../../docs/companion-check-integrity.md)).
-  A reply the gateway would have withheld is a failure of the model even though the
-  learner would never have seen it.
+  The rule lives in `src/answer-leak.ts` and `companion-check-integrity.ts`
+  (`answerLeakFindings`), and the companion's answer guard applies the same code to every
+  draft of a turn in check-coaching mode, with the checks' keys as its protected answers
+  (`companion-answer-guard.ts`): a leaking draft is written again once, then replaced by
+  Core's guiding message. The runner builds that guard over a dialogue's checks too, so the
+  grade is on what a learner would be given; a reply the guard wrote again or replaced is
+  marked `answerGuard` (`regenerated` or `fallback`) on the report's output. Such a reply is
+  graded as delivered (Core's guiding message reveals nothing, though it rarely meets a
+  dialogue's grounding anchors).
 - **grounding**: at least `minAnchors` phrases from the supplied context appear (a
   dialogue in Hebrew lists Hebrew anchors too, since Core replies in the learner's language;
   anchors are substrings, so a stem matches its inflections, and Hebrew final letters are
@@ -311,7 +318,10 @@ request of the tool loop (before any tool answers), research (with a probe topic
 the reviewer (with a probe rubric) too, so a prompt change in any of them is a new
 revision. The companion is also probed in each prompt mode it adds to its instruction:
 check coaching (a matched check, and one where which check is meant is not certain)
-and a Hebrew question. A change to the check-coaching or Hebrew rule is therefore a new
+and a Hebrew question, and once more for the answer guard's regeneration
+(`companion-answer-guard.ts`: the probe's guard rejects a probe draft and the second request,
+with its corrective note, is recorded; the guard's version is part of the digest). A change to the
+check-coaching or Hebrew rule, or to the guard, is therefore a new
 companion revision, as is a change to the concise reply rule for a binding whose
 `replyStyle` is concise (a detailed binding is never asked with it).
 

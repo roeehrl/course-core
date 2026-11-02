@@ -8,7 +8,8 @@ import { BUILT_IN_STRATEGIES, StrategyRegistry, companionStrategy, defineRuntime
 import { composeProviders, googleAdapterFactory } from "../src/provider-composition.js";
 import { publicSuite, PUBLIC_SCRIPTED_MODELS } from "../src/agent-evals/public-suite.js";
 import { scriptedConfiguration, scriptedRuntime } from "../src/agent-evals/scripted-model.js";
-import { reportSchema, reviewerJudge, runSuite } from "../src/agent-evals/runner.js";
+import { dialogueAnswerGuard, reportSchema, reviewerJudge, runSuite } from "../src/agent-evals/runner.js";
+import { REGENERATION_NOTE } from "../src/companion-answer-guard.js";
 import { gradeDialogue, GRADERS, type EvalOutput } from "../src/agent-evals/graders.js";
 import { roleRevisions } from "../src/agent-evals/revision.js";
 import { runCli, LIVE_OPT_IN } from "../src/agent-evals/cli-main.js";
@@ -165,18 +166,30 @@ describe("scripted runs through the real provider path", () => {
   });
 
   it("the known-bad model fails: every dialogue, every protected answer, and every grader at least once", async () => {
-    const { report } = await scriptedRun("known-bad", "all");
+    const { report, scripted } = await scriptedRun("known-bad", "all");
     expect(report.passed).toBe(false);
     // Media prompts are Core's own, not the scripted model's: the privacy grader is exercised below.
     const runs = report.roles.filter((r) => r.role !== "media").flatMap((r) => r.dialogues);
     expect(runs.every((r) => !r.grade.passed)).toBe(true);
+    let guarded = 0;
     for (const run of runs) {
-      const protectedAnswer = dialogue(run.dialogueId).expect.hintLeakage;
-      if (protectedAnswer && !protectedAnswer.revealAllowed) expect(run.grade.graders.find((g) => g.grader === "hint_leakage")!.passed, run.dialogueId).toBe(false);
-      // Core's own check verifier catches every leaked check answer too, whatever the dialogue's patterns.
-      if (dialogue(run.dialogueId).checks && dialogue(run.dialogueId).expect.checkMode !== "normal")
-        expect(run.grade.graders.find((g) => g.grader === "hint_leakage")!.findings.some((f) => f.startsWith("check_answer:")), run.dialogueId).toBe(true);
+      const d = dialogue(run.dialogueId), protectedAnswer = d.expect.hintLeakage, raw = PUBLIC_SCRIPTED_MODELS["known-bad"][d.id] as EvalOutput;
+      const leaks = (grade: ReturnType<typeof gradeDialogue>) => grade.graders.find((g) => g.grader === "hint_leakage")!;
+      // Every protected answer the model wrote is a leak by the grader, and Core's own check verifier
+      // catches every leaked check answer too, whatever the dialogue's patterns.
+      if (protectedAnswer && !protectedAnswer.revealAllowed) expect(leaks(gradeDialogue(d, raw)).passed, d.id).toBe(false);
+      if (d.checks && d.expect.checkMode !== "normal") expect(leaks(gradeDialogue(d, raw)).findings.some((f) => f.startsWith("check_answer:")), d.id).toBe(true);
+      // Where Core knows a matched check's answer, the answer guard wrote the leaking reply again once
+      // and, as it leaked again, delivered Core's guiding message: what a learner gets reveals nothing.
+      if (d.role === "companion" && dialogueAnswerGuard(d)) {
+        guarded += 1;
+        expect(run.output, d.id).toMatchObject({ kind: "text", answerGuard: "fallback" });
+        expect(leaks(run.grade).passed, d.id).toBe(true);
+        const sent = scripted.requests.filter((r) => r.dialogueId === d.id);
+        expect(sent.map((r) => r.system!.endsWith(REGENERATION_NOTE)), d.id).toEqual([false, true]);
+      } else if (protectedAnswer && !protectedAnswer.revealAllowed) expect(leaks(run.grade).passed, d.id).toBe(false);
     }
+    expect(guarded).toBeGreaterThanOrEqual(5);
     for (const grader of GRADERS.filter((g) => g !== "privacy")) expect(runs.some((r) => r.grade.graders.some((g) => g.grader === grader && !g.passed)), grader).toBe(true);
     const media = dialogue("media.image.lesson-only-prompt");
     expect(gradeDialogue(media, { kind: "media_prompt", prompt: "Opening a conversation: buenas tardes, drawn for Avery Canary-Seven." }).graders.find((g) => g.grader === "privacy"))
@@ -419,7 +432,7 @@ describe("eval runner command line", () => {
     expect(a.out.join("")).toMatch(/not any real model's quality/);
     const b = io();
     expect(await runCli(["--model", "known-bad"], {}, b.io)).toBe(1);
-    expect(b.out.join("")).toMatch(/FAIL companion\.terse\.endpoint-answer\s+hint_leakage/);
+    expect(b.out.join("")).toMatch(/FAIL companion\.frustrated\.total-travel\s+hint_leakage/);
     expect(await runCli(["--model", "known-bad", "--expect-fail"], {}, io().io)).toBe(0);
     expect(await runCli(["--model", "over-triggering", "--expect-fail"], {}, io().io)).toBe(0);
     expect(await runCli(["--expect-fail"], {}, io().io)).toBe(1);
