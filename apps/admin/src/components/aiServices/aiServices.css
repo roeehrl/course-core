@@ -692,14 +692,6 @@
     inline-size: 6.75rem;
   }
 }
-/* Phones show tables as cards (styles.css); the caption is then a full-width title, not a
-   shrink-wrapped box that breaks one word per line. */
-@media (max-width: 699px) {
-  .ai-table-wrap caption {
-    display: block;
-    inline-size: 100%;
-  }
-}
 .ai-table-wrap th,
 .ai-table-wrap td {
   text-align: start;
