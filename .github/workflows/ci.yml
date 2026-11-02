@@ -385,9 +385,12 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     # Measured over 23 recent runs (Oct 2026): 29-45 min (median 38); learner Chromium 8.5-12
-    # min, learner WebKit 9.5-15.5 min, administration 10-15.5 min. The former 45-minute limit
-    # left no headroom. Each suite has its own budget; 45 min plus a 21-minute full miss: 70.
-    timeout-minutes: 70
+    # min, learner WebKit 9.5-15.5 min, administration 10-15.5 min. The learner companion redesign
+    # (Nov 2026) took the learner suites from 68 to 144 tests (2.1x; locally 24 min on Chromium
+    # and 28 on WebKit), so until hosted runs are measured they are budgeted from the slowest runs
+    # scaled by that: about 25 and 33 min. 25 + 33 + 15.5 + setup is about 76 min; plus a
+    # 21-minute full miss: 100. Re-measure from the first hosted runs and tighten.
+    timeout-minutes: 100
     services:
       postgres:
         image: postgres:17
@@ -462,10 +465,12 @@ jobs:
             ~/.cache/course-ci/apt-archives
           key: ${{ steps.browser-cache.outputs.key }}
       - name: Require learner-owned connected flows at phone, tablet and desktop sizes
-        timeout-minutes: 20
+        # 1.6 x about 25 min (the 12-minute slowest run scaled by the suite's growth; see the job).
+        timeout-minutes: 40
         run: node scripts/test-skips.mjs -- npm --prefix apps/learner run test:connected -- --forbid-only
       - name: Require learner-owned connected flows on WebKit (desktop, iPhone, iPad)
-        timeout-minutes: 25
+        # 1.6 x about 33 min (the 15.5-minute slowest run scaled by the suite's growth).
+        timeout-minutes: 53
         working-directory: apps/learner
         run: node ../../scripts/test-skips.mjs -- npm run test:connected:webkit -- --forbid-only
       # install api already installed and built administration against the fresh visuals build.
