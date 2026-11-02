@@ -15,6 +15,7 @@ import type { RunInspectorPort } from "../src/domain/runInspector";
 import { PlatformView } from "../src/views/PlatformView";
 import { IntegrationsView } from "../src/views/IntegrationsView";
 import { AuditView } from "../src/views/AuditView";
+import { PolicyHistory } from "../src/components/PolicyHistory";
 import { CancelPanel } from "../src/views/RunInspectorPanels";
 import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
@@ -412,8 +413,8 @@ describe("integrations and billed costs (Q12, U04)", () => {
     // A server extension a trusted recovery generator serves (bound by digest) counts as installed.
     expect(
       stripBidiControls(
-        screen.getByRole("row", { name: /course-numeric-creator/ }).textContent ??
-          "",
+        screen.getByRole("row", { name: /course-numeric-creator/ })
+          .textContent ?? "",
       ),
     ).toContain("Recovery generator bounded-numeric-v1");
     expect(
@@ -495,9 +496,9 @@ describe("audit export and policy history (Q12)", () => {
         client={{ platform, audit } as unknown as AdminClient}
       />,
     );
-    // A setting without a catalog name is spelled out from its code.
-    expect(await screen.findByText("pace days")).toBeVisible();
-    expect(screen.getByText("Pilot cohort needs more time.")).toBeVisible();
+    // The course's policy changes are on its Policy page, not in the workspace log.
+    expect(await screen.findByText("Workspace activity")).toBeVisible();
+    expect(screen.queryByText("Policy changes")).toBeNull();
     await user.selectOptions(screen.getByLabelText("File type"), "json");
     await user.click(screen.getByRole("button", { name: "Download" }));
     await waitFor(() => expect(platform.exportAudit).toHaveBeenCalledTimes(1));
@@ -524,8 +525,16 @@ describe("audit export and policy history (Q12)", () => {
         }
       />,
     );
-    expect(await screen.findByText("Policy changes")).toBeVisible();
+    expect(await screen.findByText("Workspace activity")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
+  });
+
+  it("shows a course's policy changes as before and after", async () => {
+    render(<PolicyHistory port={port()} courseId="course-1" />);
+    expect(await screen.findByText("Policy changes")).toBeVisible();
+    // A setting without a catalog name is spelled out from its code.
+    expect(await screen.findByText("pace days")).toBeVisible();
+    expect(screen.getByText("Pilot cohort needs more time.")).toBeVisible();
   });
 
   it("reads the export file with its digest and maps a refused range", async () => {

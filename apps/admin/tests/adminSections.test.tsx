@@ -13,7 +13,7 @@ import {
   type AdminSectionsPort,
 } from "../src/domain/adminSections";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
-import { demo } from "./helpers";
+import { atCourse, demo } from "./helpers";
 import { stripBidiControls } from "@course-core/i18n";
 import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
@@ -261,6 +261,8 @@ describe("course-declared admin sections", () => {
       base,
       { adminSections: port },
     ) as AdminClient;
+    // Declared sections are course pages.
+    atCourse();
     render(<AdminApp client={client} />);
     const nav = await screen.findByRole("navigation", {
       name: "Workspace navigation",

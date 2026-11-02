@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminApp } from "../src/AdminApp";
 import { Dialog } from "../src/components/ui";
-import { demo } from "./helpers";
+import { atCourse, demo, openAddress } from "./helpers";
 
 /** A window of the given width: `matchMedia` answers the frame's max-width queries for it and
  * tells listeners when `resize` changes it. */
@@ -47,6 +47,8 @@ afterEach(() => {
 });
 
 describe("phone and tablet navigation", () => {
+  // A course page unless a test says otherwise.
+  beforeEach(() => atCourse());
   it("shows an app bar with the section's name instead of the sidebar, and the course on phones", async () => {
     windowOfWidth(390);
     render(<AdminApp client={demo()} />);
@@ -57,20 +59,42 @@ describe("phone and tablet navigation", () => {
     const toggle = screen.getByRole("button", { name: "Open menu" });
     expect(toggle).toHaveAttribute("aria-haspopup", "dialog");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    // The course picker moves into the drawer on phones; the bar names the course instead.
-    expect(within(bar).queryByLabelText("Course")).toBeNull();
+    // The course switcher is in the drawer on phones; the bar names the course instead.
+    expect(
+      within(bar).queryByRole("button", { name: /^Switch course/ }),
+    ).toBeNull();
     expect(bar.querySelector(".app-bar-title small")).toHaveTextContent(
       "Sorting, step by step",
     );
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  it("keeps the course picker and refresh in the bar on tablets", async () => {
+  it("names the workspace under a workspace page's name on phones", async () => {
+    windowOfWidth(390);
+    openAddress("/admin/ai-services");
+    render(<AdminApp client={demo()} />);
+    await screen.findByRole("heading", { level: 1, name: "AI services" });
+    const bar = document.querySelector<HTMLElement>(".app-bar")!;
+    expect(bar.querySelector(".app-bar-title small")).toHaveTextContent(
+      "Example school",
+    );
+  });
+
+  it("keeps the breadcrumb with the course switcher and refresh in the bar on tablets", async () => {
     windowOfWidth(834);
     render(<AdminApp client={demo()} />);
     await screen.findByRole("heading", { level: 1 });
     const bar = document.querySelector<HTMLElement>(".app-bar")!;
-    expect(within(bar).getByLabelText("Course")).toBeInTheDocument();
+    const crumbs = within(bar).getByRole("navigation", {
+      name: "You are here",
+    });
+    expect(
+      within(crumbs).getByRole("button", { name: /^Switch course/ }),
+    ).toBeInTheDocument();
+    expect(within(crumbs).getByText("Course & releases")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(
       within(bar).getByRole("button", { name: "Refresh workspace" }),
     ).toBeInTheDocument();
@@ -95,21 +119,20 @@ describe("phone and tablet navigation", () => {
     });
     expect(current).toHaveAttribute("aria-current", "page");
     expect(current).toHaveFocus();
-    // The course picker and the mode badge are in the drawer on phones.
+    // The course card (back to every course, the course switcher) and the mode badge are in
+    // the drawer.
     expect(
-      within(drawer).getByRole("combobox", { name: "Course" }),
+      within(drawer).getByRole("link", { name: "All courses" }),
     ).toBeInTheDocument();
-    // The sections are grouped under four headings.
+    expect(
+      within(drawer).getByRole("button", { name: /^Switch course/ }),
+    ).toBeInTheDocument();
+    // A course's pages are grouped under three headings.
     expect(
       within(nav)
         .getAllByRole("group")
         .map((group) => group.getAttribute("aria-labelledby")),
-    ).toEqual([
-      "nav-group-course",
-      "nav-group-learners",
-      "nav-group-rules",
-      "nav-group-system",
-    ]);
+    ).toEqual(["nav-group-course", "nav-group-learners", "nav-group-rules"]);
     expect(within(drawer).getByText("Demo workspace")).toBeInTheDocument();
     // Escape (the dialog's cancel) closes it and focus returns to the menu button.
     fireEvent(drawer, new Event("cancel", { cancelable: true }));
@@ -142,6 +165,38 @@ describe("phone and tablet navigation", () => {
     expect(document.querySelector(".app-bar-title strong")).toHaveTextContent(
       "Enrollments",
     );
+  });
+
+  it("mirrors the workspace level in the drawer, and goes back and forth between the levels", async () => {
+    windowOfWidth(390);
+    const user = userEvent.setup();
+    render(<AdminApp client={demo()} />);
+    await screen.findByRole("heading", { level: 1, name: "Course & releases" });
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("link", {
+        name: "All courses",
+      }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Courses" }),
+    ).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    const drawer = screen.getByRole("dialog");
+    // The workspace's name instead of the course card, and the workspace's pages.
+    expect(within(drawer).getByText("Example school")).toBeInTheDocument();
+    expect(
+      within(drawer).queryByRole("button", { name: /^Switch course/ }),
+    ).toBeNull();
+    expect(
+      within(drawer)
+        .getAllByRole("group")
+        .map((group) => group.getAttribute("aria-labelledby")),
+    ).toEqual(["nav-group-workspace", "nav-group-server"]);
+    expect(
+      within(drawer).getByRole("button", { name: "Courses" }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   it("closes a drawer left open when the window widens to the sidebar", async () => {

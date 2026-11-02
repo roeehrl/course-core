@@ -6,6 +6,7 @@ import { OverviewError, overviewErrorMessage } from "../src/domain/overview";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
 import type { CourseOverview } from "../src/domain/overview";
 import { OverviewView } from "../src/views/OverviewView";
+import { CoursesHome } from "../src/views/CoursesHome";
 import { stripBidiControls } from "@course-core/i18n";
 import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
@@ -43,6 +44,49 @@ describe("audit log", () => {
     const refused = await client.audit!.list("ws-1", {}).catch((e) => e);
     expect(refused).toBeInstanceOf(OverviewError);
     expect(overviewErrorMessage(refused)).toMatch(/support observer/);
+  });
+
+  it("sends the course filter, and the workspace log offers every course of the workspace", async () => {
+    const urls: string[] = [];
+    const client = createFetchAdminClient({
+      baseUrl: "/api/admin",
+      fetch: async (url) => {
+        urls.push(String(url));
+        return new Response(JSON.stringify({ events: [], nextBefore: null }), {
+          status: 200,
+        });
+      },
+    });
+    await client.audit!.list("ws-1", { courseId: "c-9", limit: 5 });
+    expect(urls[0]).toBe(
+      "/api/admin/workspaces/ws-1/audit?courseId=c-9&limit=5",
+    );
+    const list = vi.fn(async () => ({ events: [], nextBefore: null }));
+    render(
+      <AuditView
+        data={workspace(["audit.read"])}
+        client={{ audit: { list } } as unknown as AdminClient}
+        courses={[
+          { id: "c1", title: "Course one" },
+          { id: "c2", title: "Course two" },
+        ]}
+      />,
+    );
+    const filter = await screen.findByRole("combobox", { name: "Course" });
+    expect(filter).toHaveValue("");
+    expect(list).toHaveBeenLastCalledWith(
+      "00000000-0000-4000-8000-000000000001",
+      { limit: 50 },
+      expect.anything(),
+    );
+    fireEvent.change(filter, { target: { value: "c2" } });
+    await vi.waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        "00000000-0000-4000-8000-000000000001",
+        { courseId: "c2", limit: 50 },
+        expect.anything(),
+      ),
+    );
   });
 
   it("shows staff details and withholds learner details", async () => {
@@ -182,15 +226,8 @@ describe("course overview", () => {
     expect(await screen.findByText("Approval queue")).toBeVisible();
     expect(text()).toContain("Robin Example · 1 lesson left · due");
     expect(text()).toContain("1 evidence record invalidated in 30 days");
-    expect(text()).toContain("oldest open job 2 minutes old");
-    expect(screen.getByText("Budget wait")).toBeVisible();
-    // AI calls that ran with an unchecked setup are named, not hidden (B08).
-    expect(
-      screen.getByText("AI ran with a setup nobody checked"),
-    ).toBeVisible();
-    expect(text()).toContain(
-      "2 AI calls in the last 7 days used a setup with no passing quality check",
-    );
+    // AI supervision health is about every course: it is on the Courses home, not here.
+    expect(text()).not.toContain("oldest open job");
   });
 
   it("renders in Hebrew with Hebrew plurals and translated states", async () => {
@@ -202,14 +239,103 @@ describe("course overview", () => {
     expect(await screen.findByText("תור האישורים")).toBeVisible();
     expect(text()).toContain("Robin Example · נשאר שיעור אחד · מועד אחרון");
     expect(screen.getByText("יומיים")).toBeVisible();
-    expect(screen.getByText("ממתינות לתקציב")).toBeVisible();
-    expect(text()).toContain("שתי קריאות AI ב-7 הימים האחרונים");
     expect(screen.getByText("פעיל")).toBeVisible();
     expect(screen.getByText("1.2.0")).toHaveAttribute("dir", "ltr");
   });
 });
 
-describe("AI jobs that need a check, on the course overview", () => {
+/** The Courses home over one course (c1) and a second one, read through c1. */
+const courses = [
+  { id: "c1", title: "Course one", description: "" },
+  { id: "c2", title: "Course two", description: "" },
+];
+const home = (
+  data: CourseWorkspace,
+  client: AdminClient,
+  onOpenAiServices = vi.fn(),
+  onOpen = vi.fn(),
+) => (
+  <CoursesHome
+    client={client}
+    data={data}
+    courses={courses}
+    lastCourseId="c1"
+    titleOf={(course) => course.title}
+    pending={false}
+    onAdd={vi.fn()}
+    onOpen={onOpen}
+    onOpenAiServices={onOpenAiServices}
+  />
+);
+
+describe("Courses home", () => {
+  it("shows what waits for staff in every course and the AI supervision health, once", async () => {
+    const quiet = {
+      ...overview,
+      approvalQueue: { ...overview.approvalQueue, writtenAnswers: 0 },
+    };
+    const load = vi.fn(async (id: string) => (id === "c1" ? overview : quiet));
+    const onOpen = vi.fn();
+    render(
+      home(
+        workspace([]),
+        { overview: { load } } as unknown as AdminClient,
+        vi.fn(),
+        onOpen,
+      ),
+    );
+    const queue = await screen.findByRole("region", {
+      name: "Waiting for staff",
+    });
+    expect(load).toHaveBeenCalledWith("c1", expect.anything());
+    expect(load).toHaveBeenCalledWith("c2", expect.anything());
+    // Only the course with something waiting is listed, with what waits.
+    expect(within(queue).getByText("Course one")).toBeVisible();
+    expect(within(queue).queryByText("Course two")).toBeNull();
+    expect(
+      within(queue).getByText("Written answers to review: 1"),
+    ).toBeVisible();
+    fireEvent.click(
+      within(queue).getByRole("button", {
+        name: "Open the overview of Course one",
+      }),
+    );
+    expect(onOpen).toHaveBeenCalledWith("c1", "overview");
+    expect(text()).toContain("oldest open job 2 minutes old");
+    expect(screen.getByText("Budget wait")).toBeVisible();
+    // AI calls that ran with an unchecked setup are named, not hidden (B08).
+    expect(
+      screen.getByText("AI ran with a setup nobody checked"),
+    ).toBeVisible();
+    expect(text()).toContain(
+      "2 AI calls in the last 7 days used a setup with no passing quality check",
+    );
+    expect(screen.getAllByText("AI supervision health")).toHaveLength(1);
+  });
+
+  it("says when nothing waits, and when a course could not be counted, in Hebrew", async () => {
+    const quiet = {
+      ...overview,
+      approvalQueue: { ...overview.approvalQueue, writtenAnswers: 0 },
+    };
+    const load = vi.fn(async (id: string) =>
+      id === "c1" ? quiet : Promise.reject(new OverviewError("FORBIDDEN")),
+    );
+    render(
+      <I18nProvider value={createAdminTranslator("he")}>
+        {home(workspace([]), { overview: { load } } as unknown as AdminClient)}
+      </I18nProvider>,
+    );
+    expect(
+      await screen.findByText("שום דבר לא ממתין לצוות באף קורס."),
+    ).toBeVisible();
+    expect(text()).toContain("קורס אחד לא נספר");
+    expect(screen.getByText("ממתינות לתקציב")).toBeVisible();
+    expect(text()).toContain("שתי קריאות AI ב-7 הימים האחרונים");
+  });
+});
+
+describe("AI jobs that need a check, on the Courses home", () => {
   const en = createAdminTranslator("en");
   const evals = {
     suite: {
@@ -297,13 +423,7 @@ describe("AI jobs that need a check, on the course overview", () => {
       qualityCheck: vi.fn(async () => started),
     };
     const open = vi.fn();
-    render(
-      <OverviewView
-        data={workspace(["provider.configure"])}
-        client={aiClient(port)}
-        onOpenAiServices={open}
-      />,
-    );
+    render(home(workspace(["provider.configure"]), aiClient(port), open));
     const card = await screen.findByTestId("overview-ai-checks");
     expect(
       within(card).getByText(en.t("overviewView.aiChecks.body", { count: 1 })),
@@ -342,10 +462,8 @@ describe("AI jobs that need a check, on the course overview", () => {
       evals: vi.fn(async () => evals),
       qualityStatus: vi.fn(async () => quality),
     };
-    const { unmount } = render(
-      <OverviewView data={workspace([])} client={aiClient(port)} />,
-    );
-    expect(await screen.findByText("Approval queue")).toBeVisible();
+    const { unmount } = render(home(workspace([]), aiClient(port)));
+    expect(await screen.findByText("Waiting for staff")).toBeVisible();
     expect(screen.queryByTestId("overview-ai-checks")).toBeNull();
     expect(port.evals).not.toHaveBeenCalled();
     unmount();
@@ -358,12 +476,9 @@ describe("AI jobs that need a check, on the course overview", () => {
       qualityStatus: vi.fn(async () => quality),
     };
     const second = render(
-      <OverviewView
-        data={workspace(["provider.configure"])}
-        client={aiClient(quiet)}
-      />,
+      home(workspace(["provider.configure"]), aiClient(quiet)),
     );
-    expect(await screen.findByText("Approval queue")).toBeVisible();
+    expect(await screen.findByText("Waiting for staff")).toBeVisible();
     await vi.waitFor(() => expect(quiet.qualityStatus).toHaveBeenCalled());
     expect(screen.queryByTestId("overview-ai-checks")).toBeNull();
     second.unmount();
@@ -371,13 +486,8 @@ describe("AI jobs that need a check, on the course overview", () => {
       evals: vi.fn(async () => Promise.reject(new Error("FORBIDDEN"))),
       qualityStatus: vi.fn(),
     };
-    render(
-      <OverviewView
-        data={workspace(["provider.configure"])}
-        client={aiClient(refused)}
-      />,
-    );
-    expect(await screen.findByText("Approval queue")).toBeVisible();
+    render(home(workspace(["provider.configure"]), aiClient(refused)));
+    expect(await screen.findByText("Waiting for staff")).toBeVisible();
     expect(screen.queryByTestId("overview-ai-checks")).toBeNull();
   });
 
@@ -389,10 +499,7 @@ describe("AI jobs that need a check, on the course overview", () => {
     };
     render(
       <I18nProvider value={he}>
-        <OverviewView
-          data={workspace(["provider.configure"])}
-          client={aiClient(port)}
-        />
+        {home(workspace(["provider.configure"]), aiClient(port))}
       </I18nProvider>,
     );
     const card = await screen.findByTestId("overview-ai-checks");

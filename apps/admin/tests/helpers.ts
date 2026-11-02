@@ -25,3 +25,10 @@ export const enrollmentContext = (expectedRevision = 1) => ({
 export async function currentContext(client: AdminClient) {
   return context((await client.getCourse("sorting")).revision);
 }
+/** Opens the app at an address, as a deep link would (before rendering it). */
+export function openAddress(path: string) {
+  window.history.replaceState(null, "", path);
+}
+/** Opens the app on a course page (Course & releases of the first demo course by default). */
+export const atCourse = (page = "releases", course = "sorting") =>
+  openAddress(`/admin/courses/${course}/${page}`);

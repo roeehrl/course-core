@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AdminApp } from "../src/AdminApp";
 import type { AdminClient } from "../src/domain/contracts";
-import { demo } from "./helpers";
+import { atCourse, demo, openAddress } from "./helpers";
 
 // The package installer has its own tests (installCourse.test.tsx); here it only finishes with the
 // catalog id a real install would report.
@@ -33,43 +33,59 @@ function installer(): AdminClient {
     getSession: vi.fn(base.getSession),
   };
 }
-const picker = () => screen.getByRole("combobox", { name: "Course" });
+/** The open course's switcher (the breadcrumb's; the sidebar card has the same one). */
+const switcher = () =>
+  screen.getAllByRole("button", { name: /^Switch course/ })[0]!;
+const openSwitcher = async () => {
+  await userEvent.click(switcher());
+  return screen.getByRole("listbox", { name: "Courses" });
+};
 
 describe("adding and managing courses", () => {
   it("offers Add a course in the switcher to installers and opens the new course when done", async () => {
     const client = installer();
+    atCourse();
     render(<AdminApp client={client} />);
     await screen.findByRole("heading", { level: 1, name: "Course & releases" });
-    const add = await within(picker()).findByRole("option", {
-      name: "Add a course…",
-    });
-    expect(add.closest("optgroup")).toHaveAttribute("label", "Workspace");
-    await userEvent.selectOptions(picker(), add);
-    // The switcher stays on the open course while the dialog runs.
-    expect(picker()).toHaveValue("sorting");
+    const list = await openSwitcher();
+    const actions = within(list).getByRole("group", { name: "Workspace" });
+    await userEvent.click(
+      within(actions).getByRole("option", { name: "Add a course…" }),
+    );
+    // The open course stays as it is while the dialog runs.
+    expect(switcher()).toHaveAccessibleName(
+      "Switch course. Open now: Sorting, step by step",
+    );
     const dialog = await screen.findByRole("dialog", { name: "Add a course" });
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Finish synthetic install" }),
     );
-    await waitFor(() => expect(picker()).toHaveValue("graphs"));
+    await waitFor(() =>
+      expect(switcher()).toHaveAccessibleName(
+        "Switch course. Open now: A first look at graphs",
+      ),
+    );
+    expect(window.location.pathname).toBe("/admin/courses/graphs/releases");
     expect(client.getSession).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("hides Add a course where installing is not possible, and Manage courses opens the Courses page", async () => {
+  it("hides Add a course where installing is not possible, and All courses opens the Courses home", async () => {
+    atCourse();
     render(<AdminApp client={demo()} />);
     await screen.findByRole("heading", { level: 1, name: "Course & releases" });
+    const list = await openSwitcher();
     expect(
-      within(picker()).queryByRole("option", { name: "Add a course…" }),
+      within(list).queryByRole("option", { name: "Add a course…" }),
     ).toBeNull();
-    await userEvent.selectOptions(
-      picker(),
-      within(picker()).getByRole("option", { name: "Manage courses" }),
+    await userEvent.click(
+      within(list).getByRole("option", { name: "All courses" }),
     );
     expect(
       await screen.findByRole("heading", { level: 1, name: "Courses" }),
     ).toBeInTheDocument();
-    expect(picker()).toHaveValue("sorting");
+    // The workspace level has no course switcher.
+    expect(screen.queryByRole("button", { name: /^Switch course/ })).toBeNull();
     // Adding is shown, disabled, with the reason.
     const addButton = screen.getByRole("button", { name: "Add a course" });
     expect(addButton).toBeDisabled();
@@ -79,18 +95,20 @@ describe("adding and managing courses", () => {
   });
 
   it("lists every course with its live version, learners and last update, and opens one", async () => {
-    render(<AdminApp client={demo()} />);
+    atCourse();
+    const first = render(<AdminApp client={demo()} />);
     await screen.findByRole("heading", { level: 1, name: "Course & releases" });
-    const nav = screen.getByRole("navigation", {
+    first.unmount();
+    // Signed in again at the app's own address: the Courses home is a workspace page.
+    openAddress("/admin/courses");
+    render(<AdminApp client={demo()} />);
+    const nav = await screen.findByRole("navigation", {
       name: "Workspace navigation",
     });
-    const courseGroup = within(nav).getByRole("group", { name: "Course" });
-    // First in the Course group.
-    expect(within(courseGroup).getAllByRole("button")[0]).toHaveTextContent(
+    const group = within(nav).getByRole("group", { name: "Workspace" });
+    // First in the Workspace group.
+    expect(within(group).getAllByRole("button")[0]).toHaveTextContent(
       "Courses",
-    );
-    await userEvent.click(
-      within(courseGroup).getByRole("button", { name: "Courses" }),
     );
     const table = await screen.findByRole("table", {
       name: "Courses in this workspace",
@@ -98,7 +116,8 @@ describe("adding and managing courses", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent("Sorting, step by step");
-    expect(rows[0]).toHaveTextContent("Open now");
+    // The course used last is marked.
+    expect(rows[0]).toHaveTextContent("Opened last");
     expect(rows[0]).toHaveTextContent("1.4.0");
     expect(within(rows[0]!).getAllByRole("cell")[1]).toHaveTextContent("3");
     expect(rows[0]).toHaveTextContent("Oct 28, 2026");
@@ -109,7 +128,11 @@ describe("adding and managing courses", () => {
         name: "Open A first look at graphs",
       }),
     );
-    await waitFor(() => expect(picker()).toHaveValue("graphs"));
+    await waitFor(() =>
+      expect(switcher()).toHaveAccessibleName(
+        "Switch course. Open now: A first look at graphs",
+      ),
+    );
     expect(
       await screen.findByRole("heading", {
         level: 1,
@@ -119,14 +142,14 @@ describe("adding and managing courses", () => {
   });
 
   it("enables Add a course on the Courses page for installers and calls the course page's button Install a new version", async () => {
+    atCourse();
     render(<AdminApp client={installer()} />);
     expect(
       await screen.findByRole("button", { name: "Install a new version" }),
     ).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Install course" })).toBeNull();
-    await userEvent.selectOptions(
-      picker(),
-      within(picker()).getByRole("option", { name: "Manage courses" }),
+    await userEvent.click(
+      within(await openSwitcher()).getByRole("option", { name: "All courses" }),
     );
     const add = await screen.findByRole("button", { name: "Add a course" });
     expect(add).toBeEnabled();
