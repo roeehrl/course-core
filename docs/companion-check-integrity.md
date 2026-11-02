@@ -209,10 +209,13 @@ verifier did not, because the lesson uses the number 2 and the example's operand
 check's own. So Core now reads every draft of a turn in check-coaching mode by the grader's own
 rule before anything is kept (`companion-answer-guard.ts`, in Core's companion strategy):
 
-- **When:** only when the server knows the answer of a check in scope: the turn matched graded
-  checks (check-coaching mode) and they have deterministic keys (a value, an option, a text answer),
-  all read back from the course release. Ordinary turns, and items graded by a rubric, tests or a
-  reviewer, are never guarded (the judge still reads the latter).
+- **When:** only when the server knows the answer of a check in scope: the turn is in check-coaching
+  mode (it matched graded checks, or an open counted question is listed with it, match
+  `open_counted`, sections "Credit" and 2) and those checks have deterministic keys (a value, an
+  option, a text answer), all read back from the course release. So another lesson's open counted
+  question, which the narrowed credit scope leaves counted, is guarded on every turn while it is
+  open. Turns with neither, and items graded by a rubric, tests or a reviewer, are never guarded
+  (the judge still reads the latter).
 - **The rule** (`companion-check-integrity.ts` `draftAnswerLeak`, `answer-leak.ts`): the patterns
   of section 3, then each numeric key's value as the `hint_leakage` grader reads a protected answer
   (digits with their own sign, English and Hebrew number words): it counts where the reply arrives
@@ -271,13 +274,11 @@ reservation:
   When the question is prepared into a job, Core runs the same match the teaching context runs when
   the call is assembled (the question, the learner's earlier questions in the lesson, the lesson's
   and its neighbours' checks and the checks open now, the counted ones listed matched or not). A
-  match, or an open counted question, reserves one companion call and one
-  judge call, each at its own limits (the judge at most 16,000 input characters and 2,048 output
+  match, or an open counted question, reserves two companion calls (the reply and the answer
+  guard's one regeneration) and one judge call, each at its own limits (the judge at most 16,000 input characters and 2,048 output
   tokens) and price, never above the job allowance; any other question reserves its own call only.
   If the match changes between preparation and the call (a check opened meanwhile), the judge finds
   no room and fails closed.
-  The same reservation also holds a second companion call for the answer guard's one regeneration
-  (section 3a), so a check-coaching question reserves two companion calls and one judge call.
 - **Room check:** before the judge is sent, the gateway checks that what the reply used plus the
   judge's ceiling for this request (its bytes, its output limit, the margin) still fits the job's
   allowance in tokens and micro-USD; otherwise it fails closed, so a job is never failed for

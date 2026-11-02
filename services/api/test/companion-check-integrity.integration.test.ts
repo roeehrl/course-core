@@ -275,33 +275,65 @@ describe('graded-check integrity of companion replies', () => {
     await mine.close();
   }, 30_000);
 
-  it('a question from another lesson that the matcher does not tie to an open counted check is still checked against it: hidden, withheld when it gives the answer, and the check stays counted', async () => {
+  it('a question from another lesson that the matcher does not tie to an open counted check is still checked against it: hidden, written again once by the answer guard, withheld when it gives the answer again, and the check stays counted', async () => {
     // A paraphrase of lesson "max"'s open, counted check, asked from lesson "min": no answer intent
     // the matcher knows, so before the guard it streamed as ordinary tutoring.
     const question = 'Walk me through finding the larger of 4 and 9.';
     const job = await prepare(question, [{ episodeId: 'max', assessmentId: 'max-a' }]), mine = follow(job.learner, job.enrollmentId);
     await mine.opened;
     reply = ['The larger of 4 and 9 is 9, ', 'because 9 is farther right on the number line.'];
-    const before = requests.length;
+    const before = requests.length, judgedBefore = judged.length;
     const outcome = (await invoke(job.request)).json();
-    expect(outcome.status).toBe('succeeded');
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: 2 * COST, tokens: 2 * (INPUT + OUTPUT) } });
     // The usual rule (the message is not taken to be about the check), the check listed as guarded,
-    // and the reply streamed into a hidden buffer.
+    // and both drafts streamed into a hidden buffer: the answer guard covers an open counted check
+    // of another lesson as it covers a matched one, so the leaking draft is written again once.
     const sent = requests.slice(before);
-    expect(sent.map(r => r.streamed)).toEqual([true]);
+    expect(sent.map(r => r.streamed)).toEqual([true, true]);
     expect(sent[0]!.request.systemInstruction).toContain('Graded checks: never state, choose, confirm or rule out');
     expect(sent[0]!.request.systemInstruction).not.toContain('Check coaching:');
+    expect(sent[1]!.request.systemInstruction).toBe(`${sent[0]!.request.systemInstruction} ${REGENERATION_NOTE}`);
+    expect(JSON.stringify(sent[1]!.request)).not.toMatch(/"expected"|correctOptionId|absoluteTolerance|farther right on the number line/);
     expect(JSON.parse(sent[0]!.request.messages[0]!.text).checkCoaching.items).toEqual([expect.objectContaining({ checkId: 'max-a', prompt: 'Maximum of 4 and 9?', match: 'open_counted' })]);
+    // Both drafts leaked, so the guard stood Core's message in and the judge never ran.
+    expect(judged.length).toBe(judgedBefore);
     await until(() => mine.frames.at(-1)?.state === 'withdrawn');
     expect(mine.frames.every(frame => frame.text === '' && frame.checking === true)).toBe(true);
     expect(mine.frames.at(-1)).toMatchObject({ state: 'withdrawn', reason: 'check_answer_withheld' });
     const coaching = checkCoachingMessage(question, gradedChecks(course).filter(check => check.id === 'max-a'));
     const [artifact] = await artifacts(job.ref.jobId);
     expect(artifact).toEqual({ kind: 'companion_message', text: coaching, withheld: expect.any(String) });
+    expect((await dispatch(job.request.operationId)).candidate).toMatchObject({ text: coaching, checkCoaching: { checkIds: ['max-a'], answerGuard: 'fallback', withheld: expect.any(String) } });
     const { applied } = await deliver(job, outcome);
     expect(applied.state).toBe('applied');
     expect((await answer(job.ref.jobId))[0].content).toBe(coaching);
     expect((await db.query("SELECT independent_eligible FROM assessment_challenges WHERE enrollment_id=$1 AND assessment_id='max-a'", [job.enrollmentId])).rows).toEqual([{ independent_eligible: true }]);
+    await mine.close();
+  }, 30_000);
+
+  it('a draft that gives away another lesson\'s open counted answer is written again by the answer guard; the clean draft is delivered, judged, and the check stays counted', async () => {
+    const question = 'Walk me through finding the larger of 4 and 9.';
+    const job = await prepare(question, [{ episodeId: 'max', assessmentId: 'max-a' }]), mine = follow(job.learner, job.enrollmentId);
+    await mine.opened;
+    const clean = 'Place both numbers on a number line: the one farther right is the larger. Try it with 3 and 7 first.';
+    queued.push(['The larger of 4 and 9 is 9.'], [clean]);
+    const before = requests.length, judgedBefore = judged.length;
+    const outcome = (await invoke(job.request)).json();
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: 2 * COST + JUDGE_COST, tokens: 2 * (INPUT + OUTPUT) + JUDGE_INPUT + JUDGE_OUTPUT } });
+    expect(requests.slice(before).map(r => [r.streamed, r.request.systemInstruction?.endsWith(REGENERATION_NOTE)])).toEqual([[true, false], [true, true]]);
+    expect(judged.length).toBe(judgedBefore + 1);
+    expect(JSON.parse(judged.at(-1)!.messages[0]!.text)).toMatchObject({ checks: [expect.objectContaining({ id: 'max-a' })], reply: clean });
+    await until(() => mine.frames.at(-1)?.state === 'complete');
+    expect(mine.frames.every(frame => frame.text === '' && frame.checking === true)).toBe(true);
+    expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: clean }]);
+    expect((await dispatch(job.request.operationId)).candidate).toEqual({ kind: 'companion_text', text: clean, episodeId: 'min', checkCoaching: { checkIds: ['max-a'], answerGuard: 'regenerated' } });
+    const { verified, applied } = await deliver(job, outcome);
+    expect(verified.state).toBe('ready');
+    expect(applied.state).toBe('applied');
+    expect((await answer(job.ref.jobId))[0].content).toBe(clean);
+    expect((await db.query("SELECT independent_eligible FROM assessment_challenges WHERE enrollment_id=$1 AND assessment_id='max-a'", [job.enrollmentId])).rows).toEqual([{ independent_eligible: true }]);
+    for (const table of ['companion_messages', 'supervisor_artifacts', 'provider_dispatches', 'learning_events'])
+      expect((await db.query(`SELECT count(*)::int AS n FROM ${table} t WHERE t::text LIKE '%The larger of 4 and 9 is 9%'`)).rows[0].n, table).toBe(0);
     await mine.close();
   }, 30_000);
 
