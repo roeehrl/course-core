@@ -161,6 +161,33 @@ for (const locale of ["en", "he"] as const) {
         name: catalog(locale, "runsView")["view.retry"],
       }),
     ).toHaveCount(0);
+    // The views keep their natural width from the reading start: never spread across a row.
+    // On a phone they are one row that scrolls sideways inside the bar.
+    const tabs = await views.locator(".button").evaluateAll((buttons) =>
+      buttons.map((b) => {
+        const r = b.getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(b);
+        return {
+          top: Math.round(r.top),
+          left: r.left,
+          right: r.right,
+          spare: r.width - text.getBoundingClientRect().width,
+        };
+      }),
+    );
+    // No view is stretched past its label and padding.
+    for (const tab of tabs) expect(tab.spare).toBeLessThanOrEqual(40);
+    const rtl = locale === "he";
+    for (let i = 1; i < tabs.length; i++)
+      if (tabs[i]!.top === tabs[i - 1]!.top)
+        expect(
+          rtl
+            ? tabs[i - 1]!.left - tabs[i]!.right
+            : tabs[i]!.left - tabs[i - 1]!.right,
+        ).toBeLessThanOrEqual(8);
+    if (page.viewportSize()!.width < 700)
+      expect(new Set(tabs.map((tab) => tab.top)).size).toBe(1);
     await expectNoSidewaysScroll(page);
   });
 

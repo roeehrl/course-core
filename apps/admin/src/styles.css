@@ -1590,6 +1590,27 @@ tbody tr:last-child > * {
   flex-grow: 1;
   font-size: var(--text-xs);
 }
+/* A view switch with many views (a <nav>: Run inspector, the draft editor, preview profiles):
+   each view keeps its natural width, from the reading start with the usual gap, so a wrapped
+   second row is never spread across the bar. On a narrow page it is one row that scrolls
+   sideways, like the section link bar. */
+nav.segmented {
+  justify-content: flex-start;
+}
+nav.segmented .button {
+  flex: none;
+}
+@container (max-width: 700px) {
+  nav.segmented {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  nav.segmented::-webkit-scrollbar {
+    display: none;
+  }
+}
 /* A radio group drawn as segments: each choice is a tappable label with its radio. */
 .segmented > legend {
   float: inline-start;
@@ -1908,7 +1929,7 @@ pre {
   .section-heading > .button {
     width: 100%;
   }
-  .segmented .button {
+  .segmented:not(nav) .button {
     flex-basis: 40%;
   }
 }
