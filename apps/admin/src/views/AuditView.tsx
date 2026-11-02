@@ -24,6 +24,7 @@ import {
   type AdminTranslator,
   type MessageKey,
 } from "../i18n";
+import auditMessages from "../i18n/messages/en/auditView.json";
 import "./workspacePages.css";
 import { AuditExport } from "../components/AuditExport";
 import { PolicyHistory } from "../components/PolicyHistory";
@@ -64,6 +65,36 @@ export function AuditView({
   );
 }
 
+/** Every kind of event the log can name in a sentence (auditView.event.<type>). */
+const EVENT_TYPES = Object.keys(auditMessages)
+  .filter(
+    (key) => key.startsWith("event.") && !/^event\.(other|unknown)$/.test(key),
+  )
+  .map((key) => key.slice("event.".length));
+
+/** The "What happened" choices: each kind of event by its sentence, grouped by area (areas
+ * with the same name share a group), groups and choices in the reader's alphabetical order. A
+ * sentence two kinds share is offered once. */
+function eventChoices(i18n: AdminTranslator) {
+  const groups = new Map<string, { type: string; label: string }[]>();
+  const seen = new Set<string>();
+  for (const type of EVENT_TYPES) {
+    const label = i18n.t(`auditView.event.${type}` as MessageKey);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    const areaKey = `auditView.area.${type.split(".")[0]}` as MessageKey;
+    const area = i18n.has(areaKey) ? i18n.t(areaKey) : "";
+    groups.set(area, [...(groups.get(area) ?? []), { type, label }]);
+  }
+  const collator = new Intl.Collator(i18n.locale);
+  return [...groups]
+    .sort(([a], [b]) => collator.compare(a, b))
+    .map(([area, types]) => ({
+      area,
+      types: types.sort((a, b) => collator.compare(a.label, b.label)),
+    }));
+}
+
 function AuditLog({
   port,
   workspaceId,
@@ -73,7 +104,9 @@ function AuditLog({
 }) {
   const id = useId();
   const t = useT();
+  const i18n = useI18n();
   const [actorKind, setActorKind] = useState<AuditQuery["actorKind"] | "">("");
+  const [type, setType] = useState("");
   const [pages, setPages] = useState<string[]>([]);
   const before = pages.at(-1);
   const page = useRemote(
@@ -83,11 +116,12 @@ function AuditLog({
         {
           ...(before ? { before } : {}),
           ...(actorKind ? { actorKind } : {}),
+          ...(type ? { type } : {}),
           limit: 50,
         },
         signal,
       ),
-    [port, workspaceId, actorKind, before],
+    [port, workspaceId, actorKind, type, before],
   );
   return (
     <div className="page-stack">
@@ -110,6 +144,30 @@ function AuditLog({
               <option value="system">{t("auditView.filter.system")}</option>
               <option value="learner">{t("auditView.filter.learner")}</option>
               <option value="agent">{t("auditView.filter.agent")}</option>
+            </select>
+          </Field>
+          <Field
+            label={t("auditView.filter.type.label")}
+            htmlFor={`${id}-type`}
+          >
+            <select
+              id={`${id}-type`}
+              value={type}
+              onChange={(e) => {
+                setType(e.target.value);
+                setPages([]);
+              }}
+            >
+              <option value="">{t("auditView.filter.type.all")}</option>
+              {eventChoices(i18n).map(({ area, types }) => (
+                <optgroup key={area} label={area}>
+                  {types.map((choice) => (
+                    <option key={choice.type} value={choice.type}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </Field>
         </div>

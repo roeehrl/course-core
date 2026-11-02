@@ -12,6 +12,8 @@
   "filter.system": "System",
   "filter.learner": "Learners",
   "filter.agent": "AI agents",
+  "filter.type.label": "What happened",
+  "filter.type.all": "Anything",
   "loading": "Loading the audit log…",
   "empty.title": "No activity",
   "empty.body": "Nothing matches this filter.",

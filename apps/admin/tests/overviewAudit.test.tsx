@@ -34,10 +34,11 @@ describe("audit log", () => {
     await client.audit!.list("ws-1", {
       before: "42",
       actorKind: "staff",
+      type: "release.published",
       limit: 20,
     });
     expect(urls[0]).toBe(
-      "/api/admin/workspaces/ws-1/audit?before=42&actorKind=staff&limit=20",
+      "/api/admin/workspaces/ws-1/audit?before=42&actorKind=staff&type=release.published&limit=20",
     );
     const refused = await client.audit!.list("ws-1", {}).catch((e) => e);
     expect(refused).toBeInstanceOf(OverviewError);
@@ -79,8 +80,9 @@ describe("audit log", () => {
       />,
     );
     // Each event is a sentence; the code and the payload are behind "Technical details".
-    expect(await screen.findByText("Course version published")).toBeVisible();
-    expect(screen.getByText("Answers submitted")).toBeVisible();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("Course version published")).toBeVisible();
+    expect(within(table).getByText("Answers submitted")).toBeVisible();
     expect(screen.getByText("releaseId")).not.toBeVisible();
     const details = screen.getAllByText("Technical details")[0]!;
     fireEvent.click(details);
@@ -88,6 +90,30 @@ describe("audit log", () => {
     expect(screen.getByText("r1")).toBeVisible();
     expect(screen.getByText("course.published")).toBeVisible();
     expect(screen.getByText("Details withheld · learner record")).toBeVisible();
+  });
+
+  it("filters by what happened, named in words, from the first page", async () => {
+    const list = vi.fn(async () => ({ nextBefore: null, events: [] }));
+    render(
+      <AuditView
+        data={workspace(["audit.read"])}
+        client={{ audit: { list } } as unknown as AdminClient}
+      />,
+    );
+    const what = await screen.findByLabelText("What happened");
+    // Choices are sentences grouped by area, never event codes.
+    const published = within(what).getByRole("option", {
+      name: "Course version published",
+    });
+    expect(published.closest("optgroup")!.label).toBe("Course");
+    expect(within(what).queryByRole("option", { name: /\./ })).toBeNull();
+    fireEvent.change(what, { target: { value: "course.published" } });
+    await screen.findByText("No activity");
+    expect(list).toHaveBeenLastCalledWith(
+      "00000000-0000-4000-8000-000000000001",
+      { type: "course.published", limit: 50 },
+      expect.anything(),
+    );
   });
 
   it("explains when the role cannot read the log", () => {

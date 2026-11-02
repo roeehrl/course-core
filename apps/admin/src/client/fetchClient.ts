@@ -1727,6 +1727,7 @@ export function createFetchAdminClient(
         const search = new URLSearchParams();
         if (query.before) search.set("before", query.before);
         if (query.actorKind) search.set("actorKind", query.actorKind);
+        if (query.type) search.set("type", query.type);
         search.set("limit", String(query.limit ?? 50));
         return direct(
           `/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`,
