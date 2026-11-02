@@ -40,6 +40,7 @@
   "courses.needs": "נדרשת",
   "courses.installed": "מותקנת כאן",
   "courses.status": "מצב",
+  "courses.generator": "מחולל תרגול {generator}",
   "providers.open": "פתיחת שירותי AI",
   "providers.allWorking": "{count, plural, one {חיבור AI אחד, והמפתח שלו עובד.} two {שני חיבורי AI, וכל המפתחות עובדים.} other {# חיבורי AI, וכל המפתחות עובדים.}} אפשר להוסיף, לבדוק או להחליף מפתחות בדף שירותי AI.",
   "providers.someFailing": "{count, plural, one {המפתח של חיבור ה-AI לא עובד.} two {מפתחות שלא עובדים: {failing} מתוך שני חיבורי AI.} other {מפתחות שלא עובדים: {failing} מתוך # חיבורי AI.}} אפשר לבדוק או להחליף אותם בדף שירותי AI."

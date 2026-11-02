@@ -212,6 +212,10 @@ function Details({
                               <td>
                                 {ext.status === "built_in" ? (
                                   t("integrationsView.compat.built_in")
+                                ) : ext.servedByGenerator ? (
+                                  t("integrationsView.courses.generator", {
+                                    generator: ext.servedByGenerator,
+                                  })
                                 ) : installed ? (
                                   <bdi>{installed}</bdi>
                                 ) : (

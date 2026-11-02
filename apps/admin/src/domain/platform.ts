@@ -169,6 +169,8 @@ export const integrationsSchema = z.object({
                 "missing",
               ]),
               servedByPriorBuild: z.boolean(),
+              /** The trusted recovery generator serving this server extension, by integrity. */
+              servedByGenerator: label.nullish(),
             }),
           )
           .max(50),

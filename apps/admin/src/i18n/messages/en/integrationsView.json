@@ -40,6 +40,7 @@
   "courses.needs": "Needs",
   "courses.installed": "Installed here",
   "courses.status": "Status",
+  "courses.generator": "Recovery generator {generator}",
   "providers.open": "Open AI services",
   "providers.allWorking": "{count, plural, one {One AI connection, and its key works.} other {# AI connections, and every key works.}} Add, test or replace keys on the AI services page.",
   "providers.someFailing": "{count, plural, one {The AI connection's key doesn't work.} other {Keys that don't work: {failing} of # AI connections.}} Test or replace them on the AI services page."
