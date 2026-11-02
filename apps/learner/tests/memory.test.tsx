@@ -525,7 +525,7 @@ describe("learner-owned memory panel through HTTP", () => {
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
     // Honest about who reads which goal: this copy is private, the profile goal is not.
-    expect(screen.getByText(/This goal is part of your private memory\. The learning goal on your profile .* course staff who can see your enrollment can read it/)).toBeVisible();
+    expect(screen.getByText(/This goal is part of your private memory\. The learning goal on your profile .* course staff who can see your place in the course can read it/)).toBeVisible();
     expect(screen.getByText(/^Your companion doesn't see these\. Course staff can't read them either/)).toBeVisible();
     fireEvent.change(goal(), { target: { value: "My unsaved goal" } });
     h.model.revision = 9;

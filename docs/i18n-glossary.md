@@ -58,6 +58,13 @@ judge only the messages where the English decides the role:
   feminine ("התוצאה תגיע"); a singular imperative such as בחר is spelled like the past ("צוות
   הקורס בחר"); אף אחד and כל אחד also count things ("יתרה לכל אחד"); and unslashed לומד, בודק
   or מנהל are also verbs.
+- **Learner app, `tutor-as-subject`.** The companion is never the subject of a gendered verb or
+  adjective (final design §7, COPY-7): המנחה צריך, המנחה רואה, המנחה יכול, המנחה עונה and the
+  other conjugated forms the learner catalog used fail, prefixed forms such as שהמנחה included.
+  Write an impersonal or passive sentence ("שאלה חדשה מוכנה ונבדקת"), or make the companion's work
+  the subject ("עזרת המנחה עוד לא הופעלה"). Slashed verb and adjective forms (אישר/ה, מסכים/ה) in
+  the companion redesign's namespaces are rejected by `apps/learner/tests/hebrewNeutral.test.ts`;
+  role nouns keep their slash.
 - **Where it cannot be decided.** A message whose English names both roles ("the companion and
   the supervisor") may use either word, so neither rule judges it. In the learner app the English
   does not decide either: learners see one helper, so "your supervisor made this for you" is
