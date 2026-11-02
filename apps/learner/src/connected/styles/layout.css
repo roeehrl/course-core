@@ -691,22 +691,20 @@ html:has(.connected-host:not(.is-compact)) body {
 html:has(.connected-host:not(.is-compact)) {
   scroll-padding-bottom: calc(88px + var(--connected-status-offset, 0px));
 }
-/* The companion never scrolls the lesson except on an explicit jump (§3.8): beside the lesson it
- * sticks inside the page's scroller (a tablet sheet is fixed over it), so the page's padding above
- * would cover its header and composer, and every caret or focus brought into view there would move
- * the lesson under it. While focus is in the companion or on its divider nothing pads the page
- * (the panel is always within the window); a jump from it ("Try question 1", "Based on") still
- * stops below the header, because the lesson's own parts keep that room as their margin. */
-html:has(.connected-host:not(.is-compact) #connected-companion:focus-within),
+/* The companion never scrolls the lesson except on an explicit jump (§3.8): beside the lesson the
+ * panel sticks inside the page's scroller, so the page's padding above would cover its header and
+ * composer, and every caret or focus brought into view there would move the lesson under it. While
+ * focus is in the panel or on its divider nothing pads the page (the panel is always within the
+ * window); a jump from it ("Try question 1", "Based on") still stops below the header, because the
+ * lesson's own parts keep that room as their margin. (A tablet's sheet is fixed over the lesson
+ * and keeps the padding that clears it.) */
+html:has(.connected-host:not(.is-compact) #connected-companion.is-panel:focus-within),
 html:has(.connected-host:not(.is-compact) .cc-shell-splitter:focus) {
   scroll-padding-block: 0 !important;
 }
-html:has(.connected-host:not(.is-compact) #connected-companion:focus-within) .connected-main *,
+html:has(.connected-host:not(.is-compact) #connected-companion.is-panel:focus-within) .connected-main *,
 html:has(.connected-host:not(.is-compact) .cc-shell-splitter:focus) .connected-main * {
   scroll-margin-block: 96px calc(88px + var(--connected-status-offset, 0px));
-}
-html:has(.connected-host:not(.is-compact) #connected-companion.is-sheet:not([hidden]):focus-within) .connected-main * {
-  scroll-margin-block-end: calc(88px + var(--connected-status-offset, 0px) + var(--sheet-h, 0px));
 }
 /* The companion is a size container: its own rules can follow the panel's width
  * (`@container cc-companion (max-width: 479px)`). */
