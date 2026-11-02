@@ -16,14 +16,9 @@ import {
   Notice,
   TechnicalDetails,
   SkeletonRows,
+  When,
 } from "../components/ui";
-import {
-  useFormatters,
-  useI18n,
-  useT,
-  type AdminTranslator,
-  type MessageKey,
-} from "../i18n";
+import { useI18n, useT, type AdminTranslator, type MessageKey } from "../i18n";
 import auditMessages from "../i18n/messages/en/auditView.json";
 import "./workspacePages.css";
 import { AuditExport } from "../components/AuditExport";
@@ -293,7 +288,6 @@ function eventSentence(type: string, i18n: AdminTranslator) {
 function AuditTable({ page }: { page: AuditPage }) {
   const t = useT();
   const i18n = useI18n();
-  const { when } = useFormatters();
   return (
     <div
       className="table-wrap"
@@ -358,7 +352,7 @@ function AuditTable({ page }: { page: AuditPage }) {
                   className="cell-date"
                   data-label={t("auditView.table.when")}
                 >
-                  {when(e.at)}
+                  <When iso={e.at} />
                 </td>
               </tr>
             );

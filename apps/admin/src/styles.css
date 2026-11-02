@@ -263,7 +263,7 @@ button svg {
 }
 .app-frame {
   display: grid;
-  grid-template-columns: 238px minmax(0, 1fr);
+  grid-template-columns: 276px minmax(0, 1fr);
   min-height: calc(100dvh - 63px);
 }
 /* The sidebar is exactly one window tall and stays in place while the page scrolls. The brand
@@ -272,7 +272,7 @@ button svg {
 .sidebar {
   background: #192e3e;
   color: #e8f0f4;
-  padding-top: 30px;
+  padding-top: 22px;
   display: flex;
   flex-direction: column;
   align-self: start;
@@ -283,7 +283,7 @@ button svg {
 }
 .sidebar > .brand {
   flex: none;
-  margin: 0 18px 28px;
+  margin: 0 14px 16px;
 }
 .sidebar-scroll {
   flex: 1 1 auto;
@@ -293,9 +293,9 @@ button svg {
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   /* Room for a focused item's ring, also when focus scrolls an item into view. */
-  padding: 12px 18px 16px;
+  padding: 10px 12px 16px;
   scroll-padding-block: 12px;
   scrollbar-width: thin;
   scrollbar-color: #4b6b80 transparent;
@@ -361,6 +361,8 @@ button svg {
   text-transform: uppercase;
   margin-bottom: -22px;
 }
+/* The sidebar is wide enough that the longest label ("Extensions & accommodations") stays on
+   one line; shell.css makes its rows compact. */
 .nav-links {
   display: flex;
   flex-direction: column;
@@ -373,12 +375,12 @@ button svg {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 7px 10px;
   background: transparent;
   color: #bfd0db;
   text-align: start;
-  min-height: 46px;
+  min-height: 38px;
   font-size: var(--text-sm);
   line-height: 1.35;
   border-radius: 10px;
@@ -600,9 +602,13 @@ button svg {
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgb(255 255 255 / 0.94);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 6px 18px -14px rgb(25 46 62 / 0.5);
+  /* Opaque, so buttons and text scrolling under it never show through; the first shadow is a
+     page-coloured ledge that fills the gap between the app bar and this bar (--sticky-top's
+     12px), so no strip of the page shows above it either. */
+  background: var(--card);
+  box-shadow:
+    0 -13px 0 0 var(--paper),
+    0 8px 16px -10px rgb(25 46 62 / 0.35);
 }
 .section-nav :is(ol, ul) {
   display: flex;
@@ -1591,20 +1597,22 @@ tbody tr:last-child > * {
   font-size: var(--text-xs);
 }
 /* A view switch with many views (a <nav>: Run inspector, the draft editor, preview profiles):
-   each view keeps its natural width, from the reading start with the usual gap, so a wrapped
-   second row is never spread across the bar. On a narrow page it is one row that scrolls
-   sideways, like the section link bar. */
+   each view keeps its natural width, from the reading start with the usual gap, on one row at
+   every width: when the views do not fit, the row scrolls sideways (a thin scrollbar shows
+   there is more) instead of wrapping into a second row. */
 nav.segmented {
   justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 nav.segmented .button {
   flex: none;
+  padding-inline: 10px;
 }
 @container (max-width: 700px) {
   nav.segmented {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
     scrollbar-width: none;
   }
   nav.segmented::-webkit-scrollbar {

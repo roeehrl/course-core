@@ -30,7 +30,7 @@ export function ExtensionTerms({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const { when } = useFormatters();
+  const { whenUtc } = useFormatters();
   /** The pool's unit code, selected inside the messages; "units" when unknown. */
   const unit = (poolId: string) =>
     pools.find((pool) => pool.poolId === poolId)?.unit ?? "units";
@@ -65,12 +65,12 @@ export function ExtensionTerms({
               <th scope="row">{t("extensionTerms.effective")}</th>
               <td>
                 {terms.currentEffectiveDeadline
-                  ? when(terms.currentEffectiveDeadline)
+                  ? whenUtc(terms.currentEffectiveDeadline)
                   : t("extensionTerms.none")}
               </td>
               <td>
                 {terms.proposedEffectiveDeadline
-                  ? when(terms.proposedEffectiveDeadline)
+                  ? whenUtc(terms.proposedEffectiveDeadline)
                   : t("extensionTerms.none")}
               </td>
             </tr>
@@ -164,7 +164,7 @@ export function ExtensionTerms({
             {t("extensionTerms.ancestor.row", {
               scope: scopeLabel(cap.scopeId),
               kind: t(`policyDetails.kind.${cap.kind}` as MessageKey),
-              date: when(cap.at),
+              date: whenUtc(cap.at),
             })}
           </p>
         ))}

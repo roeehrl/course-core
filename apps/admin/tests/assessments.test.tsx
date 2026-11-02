@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AssessmentsView } from "../src/views/AssessmentsView";
@@ -26,6 +26,7 @@ const list = (editable: boolean): AssessmentList => ({
       assessmentId: "min-a",
       type: "choice",
       prompt: "Which is smaller?",
+      lessonTitle: "Comparing two values",
       objectiveIds: ["minimum"],
       familyId: "compare",
       fixtures: 1,
@@ -199,6 +200,8 @@ describe("answer keys and test answers (Q09)", () => {
       name: /Which is smaller\?/,
     });
     expect(row).toHaveTextContent(/Choice\s*Key set\s*1 test answer/);
+    // The row names the lesson the question is asked in, above the question.
+    expect(row).toHaveTextContent(/^Comparing two valuesWhich is smaller\?/);
     expect(screen.queryByText("Right answer now:")).toBeNull();
     await userEvent.click(row);
     expect(await screen.findByText("Right answer now:")).toBeVisible();
@@ -332,9 +335,12 @@ describe("source freshness (Q09)", () => {
     });
     expect(p.sources).toHaveBeenCalledWith("c1", DRAFT, 365, expect.anything());
     expect(list).toHaveTextContent(/Old lecture notes.*Recently checked/);
-    expect(list).toHaveTextContent("Last checked 2026-02-03 (260 days ago)");
-    expect(list).toHaveTextContent("cited in 2 lesson parts");
-    expect(list).toHaveTextContent("not cited in any lesson text");
+    // A localized date with how long ago under it, and the number of citing lesson parts.
+    const rows = within(list).getAllByRole("row");
+    expect(rows[1]).toHaveTextContent(
+      "Old lecture notesexample.comFeb 3, 2026260 days ago2Recently checked",
+    );
+    expect(rows[2]).toHaveTextContent(/Oct 1, 202620 days ago0/);
     await userEvent.selectOptions(
       screen.getByLabelText("Check again after"),
       "180",

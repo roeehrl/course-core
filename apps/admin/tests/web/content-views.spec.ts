@@ -86,6 +86,13 @@ for (const locale of ["en", "he"] as const) {
       els.slice(0, 40).map((el) => el.getBoundingClientRect().height),
     ))
       expect(box).toBeLessThan(wide ? 70 : 140);
+    // Each row names its lesson, and the question itself without the lead-in many questions
+    // share ("Independent transfer check.").
+    await expect(rows.first().locator(".cv-row-context")).toHaveText(
+      /^Lesson /,
+    );
+    for (const title of await rows.locator(".cv-row-title").allInnerTexts())
+      expect(title).not.toMatch(/^Independent (transfer )?check\./);
     // No editor is rendered until a question is opened.
     await expect(page.locator(".cv-row-panel")).toHaveCount(0);
     // A lab's specification is never a heading.
@@ -252,6 +259,19 @@ for (const locale of ["en", "he"] as const) {
     // Display names start with a capital, not a raw lower-case query.
     await expect(cards.first().locator("h2")).toHaveText(/^What is/);
     expect(await squeezedText(page, ".cv-topic-text strong")).toEqual([]);
+    // Sites by name (YouTube's three hosts are one "YouTube"), and an unused topic says so.
+    await expect(
+      page.locator(".research-meta").filter({ hasText: "youtu.be" }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".research-meta").filter({ hasText: "YouTube" }).first(),
+    ).toBeAttached();
+    await expect(
+      page
+        .locator(".research-meta")
+        .filter({ hasText: text["topic.episodesNone"]! })
+        .first(),
+    ).toBeAttached();
     await expectNoSidewaysScroll(page);
   });
 }

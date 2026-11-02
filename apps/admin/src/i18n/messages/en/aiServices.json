@@ -710,10 +710,12 @@
   "check.flag.needsCheck": "Needs a check",
   "check.flag.needsApproval": "Needs an owner's approval",
   "check.flag.approveInstead": "The quality check doesn't cover this job. It keeps working as it is. An owner can approve it in AI services, under Quality check.",
-  "check.flag.estimate": "Checks this job only, with {count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}}. Uses your key. About {amount}.",
-  "check.flag.estimateJudged": "Checks this job only, with {count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}}. Uses your key. About {amount}, including {model} judging each reply's facts and whether it stays with the lesson.",
-  "check.flag.estimateJudgedSelf": "Checks this job only, with {count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}}. Uses your key. About {amount}, including {model} judging its own replies' facts and whether they stay with the lesson.",
+  "check.flag.estimate": "{count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}} · about {amount}",
+  "check.flag.estimateJudged": "{count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}} · about {amount} · {model} judges the replies",
+  "check.flag.estimateJudgedSelf": "{count, plural, one {# practice conversation} two {# practice conversations} other {# practice conversations}} · about {amount} · {model} judges its own replies",
   "check.flag.run": "Run check",
   "check.flag.runFor": "Run check for {job}",
-  "check.flag.progressLabel": "Quality check progress for {job}"
+  "check.flag.progressLabel": "Quality check progress for {job}",
+  "check.on.modelId": "Model id",
+  "check.on.judgeId": "Judge model id"
 }

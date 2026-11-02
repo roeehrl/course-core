@@ -259,10 +259,39 @@ describe("platform readiness (Q11, T03)", () => {
       screen.getByText("The newest good copy is 20 minutes old."),
     ).toBeVisible();
     expect(
-      screen.getByText(/The last restore drill took 2 minutes/),
+      screen.getByText("The last restore drill took 2 minutes, today."),
     ).toBeVisible();
     expect(screen.getByText("pg_dump_failed")).toBeVisible();
     expect(screen.getAllByText("Encrypted").length).toBeGreaterThan(0);
+  });
+
+  it("says a short drill's exact length, the same as the Backups card, and yesterday in words", async () => {
+    const base = readiness();
+    const platform = port({
+      readiness: vi.fn(async () => ({
+        ...base,
+        targets: {
+          ...base.targets,
+          rto: {
+            ...base.targets.rto,
+            lastDrillMinutes: 1,
+            lastDrillSeconds: 1,
+            drillAgeDays: 1,
+          },
+        },
+      })),
+    });
+    render(
+      <PlatformView
+        data={workspace("owner")}
+        client={{ platform } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText(
+        "The last restore drill took 1 second, yesterday.",
+      ),
+    ).toBeVisible();
   });
 
   it("notes, without warning, when the newest backup is not encrypted and how to turn encryption on", async () => {

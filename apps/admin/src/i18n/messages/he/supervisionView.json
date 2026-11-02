@@ -148,5 +148,13 @@
   "eventType.teaching_follow_up_scheduled": "נקבע המשך",
   "eventType.learner_model_proposal_created": "הוצעה העדפת למידה",
   "eventType.visual_completed": "המחשה הושלמה",
-  "eventType.enrollment_closed": "ההרשמה נסגרה"
+  "eventType.enrollment_closed": "ההרשמה נסגרה",
+  "eventType.agent_grant_created": "ניתנה גישה לסוכן",
+  "eventType.agent_grant_revoked": "בוטלה גישה לסוכן",
+  "eventType.block_read": "קריאת חלק משיעור",
+  "eventType.companion_job_changed": "בקשה למנחה השתנתה",
+  "eventType.personal_change_deferred": "שינוי אישי נדחה",
+  "eventType.supervision_control_changed": "הגדרת הפיקוח השתנתה",
+  "eventType.supervisor_authority_requested": "המפקח ביקש אישור",
+  "eventType.supervisor_authority_undone": "החלטת המפקח בוטלה"
 }

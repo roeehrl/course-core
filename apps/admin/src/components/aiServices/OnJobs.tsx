@@ -7,6 +7,8 @@ import {
   type QualityCheck,
 } from "../../domain/aiServices";
 import type { SectionProps } from "./AiServicesPage";
+import { TechnicalDetails } from "../ui";
+import { useModelName } from "./modelNames";
 import {
   Confirm,
   Ltr,
@@ -53,6 +55,7 @@ type Props = SectionProps & {
 export function OnJobs(props: Props) {
   const text = useAiText();
   const { t } = text;
+  const modelName = useModelName();
   const { data, port, workspaceId, reload, active, needing, service } = props;
   const quality = data.quality;
   const keys = useRequestKeys();
@@ -269,8 +272,9 @@ export function OnJobs(props: Props) {
                     </span>
                   ) : null}
                 </div>
+                {/* The model by its name; its id is for support. */}
                 <p>
-                  <Ltr className="mono">{role.remoteModel ?? role.modelId}</Ltr>
+                  <bdi>{modelName(role.remoteModel ?? role.modelId)}</bdi>
                 </p>
                 {state && (
                   <p className="ai-muted">
@@ -301,11 +305,27 @@ export function OnJobs(props: Props) {
                       {
                         amount: text.money(plan.estimateMicroUsd ?? 0),
                         count: plan.conversations,
-                        model: plan.judge?.remoteModel ?? "",
+                        model: modelName(plan.judge?.remoteModel ?? ""),
                       },
                     )}
                   </p>
                 )}
+                <TechnicalDetails
+                  rows={[
+                    [
+                      t("aiServices.check.on.modelId"),
+                      role.remoteModel ?? role.modelId,
+                    ],
+                    ...(plan?.judge?.remoteModel
+                      ? ([
+                          [
+                            t("aiServices.check.on.judgeId"),
+                            plan.judge.remoteModel,
+                          ],
+                        ] as [string, string][])
+                      : []),
+                  ]}
+                />
                 {((runnable && !blocked) || canTurnOff) && (
                   <div className="ai-actions ai-actions-start">
                     {runnable && !blocked && (

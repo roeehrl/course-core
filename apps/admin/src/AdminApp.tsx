@@ -784,9 +784,19 @@ function CourseWorkspace({
               )}
               {view === "people" && <PeopleView data={data} client={client} />}
               {view === "research" && (
-                <ResearchView data={data} client={client} />
+                <ResearchView
+                  data={data}
+                  client={client}
+                  onOpenAiServices={() => openView("providers")}
+                />
               )}
-              {view === "media" && <MediaView data={data} client={client} />}
+              {view === "media" && (
+                <MediaView
+                  data={data}
+                  client={client}
+                  onOpenAiServices={() => openView("providers")}
+                />
+              )}
               {view === "runs" && <RunsView data={data} client={client} />}
               {view === "overview" && (
                 <OverviewView

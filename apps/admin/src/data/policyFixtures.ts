@@ -153,6 +153,7 @@ export function demoLearningPolicy(enrollment: Enrollment): LearningPolicy {
       id: e.id,
       label: `${e.objective} · ${e.status}`,
     })),
+    conceptTitles: { "core-idea": "The core idea of the course" },
     activities: [
       { id: "notice", scopeId: "episode:notice", label: "Notice a pattern" },
       { id: "apply", scopeId: "episode:apply", label: "Apply the idea" },

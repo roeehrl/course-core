@@ -25,6 +25,18 @@ nav.nav-links {
   min-height: 44px;
   padding-block: 10px;
 }
+/* The wide window's sidebar (pointer, not touch): compact rows, so a laptop window shows most
+   sections without scrolling the list. The drawer keeps touch-sized rows. */
+.sidebar nav.nav-links {
+  gap: 12px;
+}
+.sidebar .nav-group {
+  gap: 1px;
+}
+.sidebar .nav-links .nav-group button {
+  min-height: 36px;
+  padding-block: 6px;
+}
 .nav-drawer nav.nav-links {
   gap: 14px;
 }

@@ -245,9 +245,11 @@ button.copy-text:hover {
 .page-section:focus {
   outline: none;
 }
-.objectives-disclosure > summary {
-  min-height: 0;
-  padding-block: 4px;
+/* The shared folded-list look (styles.css .quiet-details: a drawn chevron, not the browser's
+   triangle), in the link colour, since unfolding it is the card's action. */
+.quiet-details.objectives-disclosure > summary {
+  color: var(--blue);
+  cursor: pointer;
 }
 .objectives-disclosure > .objectives {
   margin-top: 12px;
@@ -318,8 +320,10 @@ table.audit-table {
 table.audit-table col.audit-col-who {
   width: 220px;
 }
+/* Room for the longest local time ("Nov 12, 2026, 12:00 PM GMT+10") and the cell's own end
+   padding, so the time never runs into the table's edge. */
 table.audit-table col.audit-col-when {
-  width: 200px;
+  width: 236px;
 }
 table.audit-table :is(th, td) {
   vertical-align: top;
@@ -359,14 +363,14 @@ table.audit-table th.audit-what[scope="row"] {
   font-size: var(--text-sm);
   color: var(--muted);
 }
-/* Narrower: the date ("Nov 2, 2026, 12:00 PM UTC") keeps the room it needs on one line; the
-   name column gives way, and a long name wraps under its badge. */
+/* Narrower: the date keeps the room it needs on one line; the name column gives way, and a long
+   name wraps under its badge. */
 @container (max-width: 900px) {
   table.audit-table col.audit-col-who {
     width: 150px;
   }
   table.audit-table col.audit-col-when {
-    width: 196px;
+    width: 228px;
   }
 }
 @media (max-width: 699px) {

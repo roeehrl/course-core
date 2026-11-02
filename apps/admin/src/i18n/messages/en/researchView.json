@@ -14,10 +14,10 @@
   "topics.empty.title": "No public research topics",
   "topics.empty.body": "This release declares no author-approved public research topics.",
   "topic.eyebrow": "Approved public topic",
-  "topic.episodes": "Episodes: {episodes}",
-  "topic.episodesNone": "Episodes: none",
-  "topic.domains": "Domains: {domains}",
-  "topic.domainsAny": "Domains: any public HTTPS host chosen by staff",
+  "topic.episodes": "Used in: {episodes}",
+  "topic.episodesNone": "Not used in a lesson yet",
+  "topic.domains": "Sites: {domains}",
+  "topic.domainsAny": "Sites: any public HTTPS site staff choose",
   "youtube.search": "Search YouTube",
   "youtube.saved": "YouTube results saved as unreviewed leads. Only this topic's approved query was sent.",
   "youtube.summary": "{count, plural, one {# YouTube result} other {# YouTube results}} · metadata only, unreviewed",
@@ -181,5 +181,6 @@
   "topics.search": "Search topics",
   "topics.noMatch": "No topic matches this search.",
   "emptyTopics.title": "Topics without sources ({count})",
-  "emptyTopics.body": "No source has been added or suggested for these topics yet."
+  "emptyTopics.body": "No source has been added or suggested for these topics yet.",
+  "youtube.status.openKey": "Add the key in AI services"
 }

@@ -23,9 +23,15 @@ import {
   Field,
   Notice,
   SkeletonRows,
+  TechnicalDetails,
 } from "../components/ui";
-import { useFormatters, useT, type MessageKey } from "../i18n";
-import { ClampedText, shortTitle } from "./contentShared";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import {
+  ClampedText,
+  questionLine,
+  sharedLeads,
+  shortTitle,
+} from "./contentShared";
 
 /**
  * Answer keys and test answers (Q09): for each question of a release, its key or rubric, the
@@ -253,6 +259,10 @@ function QuestionsCard({
     return byItem;
   }, [failures]);
   const kinds = [...new Set(list.items.map(kindKey))];
+  const leads = useMemo(
+    () => sharedLeads(list.items.map((item) => item.prompt)),
+    [list.items],
+  );
   const needle = query.trim().toLocaleLowerCase();
   const matches = list.items.filter((item) => {
     if (kind && kindKey(item) !== kind) return false;
@@ -265,6 +275,7 @@ function QuestionsCard({
     return (
       !needle ||
       item.prompt.toLocaleLowerCase().includes(needle) ||
+      (item.lessonTitle ?? "").toLocaleLowerCase().includes(needle) ||
       item.assessmentId.toLocaleLowerCase().includes(needle)
     );
   });
@@ -360,6 +371,7 @@ function QuestionsCard({
               catalogId={catalogId}
               list={list}
               item={item}
+              leads={leads}
               fixtures={fixtures.filter(
                 (f) => f.assessmentId === item.assessmentId,
               )}
@@ -393,6 +405,7 @@ function QuestionRow({
   catalogId,
   list,
   item,
+  leads,
   fixtures,
   failing,
   open,
@@ -403,6 +416,7 @@ function QuestionRow({
   catalogId: string;
   list: AssessmentList;
   item: AssessmentItem;
+  leads: Set<string>;
   fixtures: Fixture[];
   failing: number;
   open: boolean;
@@ -421,8 +435,17 @@ function QuestionRow({
         aria-controls={panel}
         onClick={onToggle}
       >
-        <span className="cv-row-title" dir="auto" title={item.prompt}>
-          {shortTitle(item.prompt)}
+        {/* The lesson it is asked in, then the question itself (without a lead-in many
+            questions share), each on one line. */}
+        <span className="cv-row-heading">
+          {item.lessonTitle && (
+            <span className="cv-row-context" dir="auto">
+              {item.lessonTitle}
+            </span>
+          )}
+          <span className="cv-row-title" dir="auto" title={item.prompt}>
+            {questionLine(item.prompt, leads) || shortTitle(item.prompt)}
+          </span>
         </span>
         <span className="cv-row-meta">
           <Badge>{t(kindKey(item))}</Badge>
@@ -625,7 +648,7 @@ function SourcesCard({
                     <th scope="col">
                       {t("assessmentsView.sources.col.checked")}
                     </th>
-                    <th scope="col">
+                    <th scope="col" className="num">
                       {t("assessmentsView.sources.col.cited")}
                     </th>
                     <th scope="col">
@@ -656,7 +679,9 @@ function SourcesCard({
 const SOURCES_PAGE = 15;
 
 function SourceRow({ source }: { source: Source }) {
-  const t = useT();
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { day } = useFormatters();
   const [copied, setCopied] = useState(false);
   const digest = DIGEST.exec(source.title)?.[0];
   const title = digest
@@ -668,47 +693,53 @@ function SourceRow({ source }: { source: Source }) {
   return (
     <tr>
       <td>
-        <a href={source.url} target="_blank" rel="noreferrer noopener">
-          <bdi>{title}</bdi>
-        </a>{" "}
-        <span className="muted" dir="ltr">
-          {source.host}
-        </span>
-        {digest && (
-          <>
-            {" "}
-            <button
-              type="button"
-              className="cv-link-button"
-              onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(digest)
-                  .then(() => setCopied(true))
-              }
+        <span className="source-cell">
+          <a href={source.url} target="_blank" rel="noreferrer noopener">
+            <bdi>{title}</bdi>
+          </a>
+          <span className="muted" dir="ltr">
+            {source.host}
+          </span>
+          {/* A fingerprint in the title is for support: folded away, copied whole. */}
+          {digest && (
+            <TechnicalDetails
+              rows={[[t("assessmentsView.sources.digest"), digest]]}
             >
-              <Copy size={14} aria-hidden="true" />{" "}
-              {copied
-                ? t("assessmentsView.sources.copied")
-                : t("assessmentsView.sources.copyDigest", {
-                    short: digest.slice(0, 8),
-                  })}
-            </button>
-          </>
+              <button
+                type="button"
+                className="cv-link-button"
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(digest)
+                    .then(() => setCopied(true))
+                }
+              >
+                <Copy size={14} aria-hidden="true" />{" "}
+                {copied
+                  ? t("assessmentsView.sources.copied")
+                  : t("assessmentsView.sources.copyDigest", {
+                      short: digest.slice(0, 8),
+                    })}
+              </button>
+            </TechnicalDetails>
+          )}
+        </span>
+      </td>
+      <td className="cell-date">
+        {source.reviewedAt === null ? (
+          t("assessmentsView.sources.noDate")
+        ) : (
+          <span className="source-checked">
+            <span>{day(source.reviewedAt)}</span>
+            <small className="muted">
+              {i18n.relativeTime(-(source.ageDays ?? 0), "day", {
+                numeric: "auto",
+              })}
+            </small>
+          </span>
         )}
       </td>
-      <td>
-        {source.reviewedAt === null
-          ? t("assessmentsView.sources.noDate")
-          : t("assessmentsView.sources.reviewed", {
-              date: source.reviewedAt,
-              days: source.ageDays ?? 0,
-            })}
-      </td>
-      <td>
-        {t("assessmentsView.sources.cited", {
-          count: source.citedBy.blocks,
-        })}
-      </td>
+      <td className="num">{i18n.number(source.citedBy.blocks)}</td>
       <td>
         <Badge tone={statusTone[source.status]}>
           {t(`assessmentsView.sources.status.${source.status}` as MessageKey)}

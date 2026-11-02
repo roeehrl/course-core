@@ -240,6 +240,8 @@ const policyLedgerFields = {
     .optional(),
 };
 export const learningPolicySchema = z.object({
+  /** Each concept's name by its id, for per-concept work limits. Older servers omit it. */
+  conceptTitles: z.record(id, z.string().max(2000)).optional(),
   enrollmentId: id,
   learnerId: id,
   revision: count,
