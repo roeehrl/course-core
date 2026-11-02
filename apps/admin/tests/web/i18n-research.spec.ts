@@ -460,7 +460,10 @@ async function untranslated(page: Page) {
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const parent = node.parentElement!;
       // Codes and ids inside the view (not the page's own dir) are exempt.
-      const exempt = parent.closest('[dir="ltr"], code, .mono, h1');
+      // Course data (the course title above each page heading) keeps its own direction.
+      const exempt = parent.closest(
+        '[dir="ltr"], [dir="auto"], code, .mono, h1',
+      );
       if (exempt && main.contains(exempt)) continue;
       let text = (node.textContent ?? "").replace(/⟦[^⟧]*⟧/g, "");
       // Longest first, so "Insertion sort" does not cut "Insertion sort explained".
