@@ -174,8 +174,11 @@ export function useSheet(
       const duration = motionDuration(aside, "--motion-m12-duration", 300);
       const ease = easing(aside, "--motion-m12-easing", "cubic-bezier(0.32, 0.72, 0, 1)");
       if (!before) {
-        // Opening: up from below the window (reduced motion: a fade).
+        // Opening: up from below the window (reduced motion: a fade), when the learner opens it;
+        // a page that loads with the sheet open (or a window that turns the panel into it) shows
+        // it in place, as the panel does (M9).
         setHeight(height);
+        if (companionOpen.lastChange() !== "action") return;
         running.current = aside.animate(
           still ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: "translateY(100%)" }, { transform: "none" }],
           { duration, easing: ease },
