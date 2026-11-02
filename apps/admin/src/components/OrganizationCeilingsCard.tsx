@@ -295,30 +295,33 @@ function CeilingsForm({
         {work("additionalMinutes", 1_000_000)}
         {work("additionalEpisodes", 10_000)}
         {work("remediationCyclesPerConcept", 100)}
-        <Field
-          label={t("organizationCeilingsCard.access")}
-          htmlFor="ceilings-access"
-        >
-          <select
-            id="ceilings-access"
-            value={draft.existingMaterialAccess}
-            disabled={!canWrite}
-            onChange={(e) =>
-              update({
-                ...draft,
-                existingMaterialAccess: e.target
-                  .value as OrganizationCeilings["existingMaterialAccess"],
-              })
-            }
+        {/* The seventh field takes the full row instead of sitting alone in a column. */}
+        <div className="span-all">
+          <Field
+            label={t("organizationCeilingsCard.access")}
+            htmlFor="ceilings-access"
           >
-            <option value="read_only">
-              {t("organizationCeilingsCard.access.read_only")}
-            </option>
-            <option value="closed">
-              {t("organizationCeilingsCard.access.closed")}
-            </option>
-          </select>
-        </Field>
+            <select
+              id="ceilings-access"
+              value={draft.existingMaterialAccess}
+              disabled={!canWrite}
+              onChange={(e) =>
+                update({
+                  ...draft,
+                  existingMaterialAccess: e.target
+                    .value as OrganizationCeilings["existingMaterialAccess"],
+                })
+              }
+            >
+              <option value="read_only">
+                {t("organizationCeilingsCard.access.read_only")}
+              </option>
+              <option value="closed">
+                {t("organizationCeilingsCard.access.closed")}
+              </option>
+            </select>
+          </Field>
+        </div>
       </div>
       <label className="check-label">
         <input
