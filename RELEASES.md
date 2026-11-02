@@ -294,8 +294,8 @@ running deployment; the candidate's own manifest remains the record of what was 
   Before, every open counted check of the course became practice. Checks of other lessons stay
   counted, and while one is open every companion reply is checked against it, whether or not the
   question seems to be about it: the reply arrives whole once checked ("Checking the reply…"),
-  never streamed, and a reply that would give its answer away is withheld before it is shown or
-  stored. Only a counted check of the question's own lesson opened after it was asked still stops
+  never streamed, and a reply that would give its answer away is written again once by the
+  answer guard, then withheld before it is shown or stored if it still would. Only a counted check of the question's own lesson opened after it was asked still stops
   the reply.
 - Migration 130 adds `assessment_challenges.assistance_reason` (`companion`, `hint`, `solution`,
   `fresh_question`), written with each downgrade so the learner app can say why a question is
