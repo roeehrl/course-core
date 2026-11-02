@@ -333,20 +333,25 @@ export function CheckDetails({
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [onlyFailed, setOnlyFailed] = useState(false);
-  const load = source.port.qualityCheckDetails?.bind(source.port);
+  // The effect depends on the port itself, not on a function made from it: a new function on
+  // every render re-ran the effect whenever the page re-rendered, aborting and repeating the
+  // request (and after a failure, retrying without being asked).
+  const { port, workspaceId } = source;
   useEffect(() => {
-    if (!open || !load || details?.checkId === check.id) return;
+    if (!open || !port.qualityCheckDetails || details?.checkId === check.id)
+      return;
     const controller = new AbortController();
     setFailed(false);
-    load(source.workspaceId, check.id, controller.signal)
+    port
+      .qualityCheckDetails(workspaceId, check.id, controller.signal)
       .then(setDetails)
       .catch(() => {
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [open, load, check.id, source.workspaceId, details, attempt]);
+  }, [open, port, check.id, workspaceId, details, attempt]);
   if (
-    !load ||
+    !port.qualityCheckDetails ||
     (check.state !== "passed" &&
       check.state !== "failed" &&
       check.reason !== JUDGE_UNAVAILABLE)
