@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { demoSession } from "../../src/data/fixtures";
 import { expectAccessible, mockConnectedAdmin } from "./connectedAdmin";
 import { courseSwitcher, workspaceNav } from "../workspaceNav";
 
@@ -107,3 +108,40 @@ for (const locale of ["en", "he"] as const)
       nav.locator(".nav-group").first().locator("button").first(),
     ).toHaveText(app["nav.courses"]!);
   });
+
+// The live server's session names everyone a generic "member"; the real role comes with the
+// course. While the session and the course load slowly, the heading's role badge is an empty
+// placeholder of the same size, never "Member", and then reads the real role.
+test("the role badge never guesses a role while the workspace loads", async ({
+  page,
+  context,
+}) => {
+  await mockConnectedAdmin(page, context);
+  const session = demoSession("administrator");
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/admin/session", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({
+      json: { ...session, actor: { ...session.actor, role: "member" } },
+    });
+  });
+  await page.route("**/api/admin/courses/sorting", async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  await page.goto("/admin/");
+  await expect(page.getByText("Loading workspace…")).toBeVisible();
+  const badge = page.locator(".page-heading .heading-role");
+  await expect(badge).toHaveClass(/is-pending/);
+  await expect(badge).toBeVisible();
+  await expect(page.getByText(/Member/)).toHaveCount(0);
+  await expect(page.getByText(/Your role/)).toHaveCount(0);
+  const pending = await badge.boundingBox();
+  release();
+  await expect(badge).toHaveText("Your role: Owner");
+  await expect(badge).not.toHaveClass(/is-pending/);
+  await expect(page.getByText(/Member/)).toHaveCount(0);
+  // The placeholder has the badge's height, so the heading does not move when the role arrives.
+  expect((await badge.boundingBox())!.height).toBeCloseTo(pending!.height, 0);
+});

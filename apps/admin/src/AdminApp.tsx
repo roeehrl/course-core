@@ -258,6 +258,22 @@ export function roleLabel(i18n: AdminTranslator, role: string) {
   const key = `adminApp.role.${role}` as MessageKey;
   return i18n.has(key) ? i18n.t(key) : role;
 }
+
+/**
+ * This person's role on the course the page reads through, or null while it is not known.
+ * The session's actor role is not a role in any workspace (the connected server sends "member"
+ * to everyone), so before the course loads only the session's entry for that course can say it;
+ * the actor role is a last resort once the course has loaded without one (the demo).
+ */
+export function knownRole(
+  session: AdminSession,
+  courseId: string,
+  workspace: { role?: string } | undefined,
+): string | null {
+  const listed = session.courses.find((course) => course.id === courseId)?.role;
+  if (workspace) return workspace.role ?? listed ?? session.actor.role;
+  return listed ?? null;
+}
 /** A fixed view, or `section:<id>` for an admin section the live release declares. */
 type ViewId = PageId;
 /** The product name, as the sidebar and the startup header show it. */
@@ -501,10 +517,13 @@ function CourseWorkspace({
     content: true,
     group: "course" as NavGroupId,
   }));
+  // This person's role here; null until it is known, so no page shows a role they do not have.
+  const role = knownRole(session, courseId, data);
   // Platform and integrations are workspace operations for owners and administrators.
   const operator =
     Boolean(client.platform) &&
-    ["owner", "admin"].includes(data?.role ?? session.actor.role);
+    role !== null &&
+    ["owner", "admin"].includes(role);
   const people = client.people;
   const offered = (id: PageId) => {
     // A page whose port this client lacks (for example the demo) is not offered.
@@ -874,7 +893,10 @@ function CourseWorkspace({
       <span className="actor-avatar">{session.actor.name.charAt(0)}</span>
       <div>
         <strong dir="auto">{session.actor.name}</strong>
-        <small>{roleLabel(i18n, data?.role ?? session.actor.role)}</small>
+        {/* While the role is not known the line keeps its height and says nothing. */}
+        <small aria-hidden={role ? undefined : true}>
+          {role ? roleLabel(i18n, role) : "\u00a0"}
+        </small>
       </div>
     </div>
   );
@@ -1001,19 +1023,25 @@ function CourseWorkspace({
             <div className="heading-meta">
               {/* Your role here, in words. The workspace data revision is a detail for support,
                   so it is the role's tooltip rather than text on the page. */}
-              <span
-                className="heading-role"
-                title={
-                  data
-                    ? t("adminApp.revision", { revision: data.revision })
-                    : undefined
-                }
-              >
-                <ShieldCheck size={14} aria-hidden="true" />
-                {t("adminApp.yourRole", {
-                  role: roleLabel(i18n, data?.role ?? session.actor.role),
-                })}
-              </span>
+              {role ? (
+                <span
+                  className="heading-role"
+                  title={
+                    data
+                      ? t("adminApp.revision", { revision: data.revision })
+                      : undefined
+                  }
+                >
+                  <ShieldCheck size={14} aria-hidden="true" />
+                  {t("adminApp.yourRole", { role: roleLabel(i18n, role) })}
+                </span>
+              ) : (
+                // Not known yet: an empty badge of the same shape, so nothing moves when it is.
+                <span className="heading-role is-pending" aria-hidden="true">
+                  <ShieldCheck size={14} />
+                  <span className="heading-role-placeholder">{"\u00a0"}</span>
+                </span>
+              )}
             </div>
           </div>
           {session.deployment?.insecureOriginsAllowed && (
