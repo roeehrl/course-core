@@ -269,7 +269,7 @@ async function connected(page: Page, context: BrowserContext, locale: string) {
     `**/api/admin/enrollments/${learner.id}/supervision`,
     (route) => route.fulfill({ json: supervision }),
   );
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
 }
 
 /**
@@ -358,7 +358,6 @@ test("overview, audit log and a course section render in Hebrew, right to left",
     page.getByRole("heading", { name: ov("queue.title") }),
   ).toBeVisible();
   await expect(page.getByText("יומיים", { exact: true })).toBeVisible();
-  await expect(page.getByText(ov("jobState.budget_wait"))).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
@@ -370,6 +369,12 @@ test("overview, audit log and a course section render in Hebrew, right to left",
     "ltr",
   );
   await expect(page.getByRole("button", { name: au("older") })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+
+  // AI supervision health is about every course: on the Courses home.
+  await openSection(page, nav("nav.courses"), {});
+  await expect(page.getByText(ov("jobState.budget_wait"))).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
@@ -405,7 +410,7 @@ test("AI supervision renders in Hebrew, right to left", async ({
 test("the run inspector renders every record view in Hebrew without overflow", async ({
   page,
 }) => {
-  await page.goto("/admin/demo?locale=he");
+  await page.goto("/admin/demo/courses/sorting/releases?locale=he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   const rv = he("runsView");
   await openSection(page, nav("nav.runs"), {});
@@ -443,7 +448,8 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
   await connected(page, context, "en-XA");
   // Overview, Audit log and the course section (its title is course data, not accented).
   for (const name of ["overview", "audit"]) {
-    await (await pseudoNav(page, name)).click();
+    // Overview is a course page, the audit log a workspace page.
+    await openSection(page, accent(enNav[`nav.${name}`]!), {});
     await expect(
       page.locator("main :is(.loading, .skeleton-rows)"),
     ).toHaveCount(0);
@@ -454,7 +460,7 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
     0,
   );
   expect(await untranslated(page, SECTION_DATA)).toEqual([]);
-  await (await pseudoNav(page, "supervision")).click();
+  await openSection(page, accent(enNav["nav.supervision"]!), {});
   await page.locator("main select").first().selectOption(learner.id);
   await expect(page.getByRole("table").first()).toBeVisible();
   expect(await untranslated(page, SUPERVISION_CODES)).toEqual([]);
@@ -465,7 +471,7 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
 test("no hardcoded text under the en-XA pseudo-locale in the run inspector", async ({
   page,
 }) => {
-  await page.goto("/admin/demo?locale=en-XA");
+  await page.goto("/admin/demo/courses/sorting/releases?locale=en-XA");
   await (await pseudoNav(page, "runs")).click();
   const views = page.locator("main nav[aria-label] button");
   await views.first().waitFor();

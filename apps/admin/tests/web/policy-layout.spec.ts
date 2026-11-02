@@ -98,7 +98,7 @@ for (const locale of ["en", "he"] as const)
       const text = LOCALES[locale];
       await page.setViewportSize({ width: size.width, height: size.height });
       await mockLargePolicy(page, context, { locale });
-      await page.goto("/admin/");
+      await page.goto("/admin/courses/sorting/releases");
       await openSection(page, text.app["nav.policy"]!);
       const main = page.locator("main");
       await expect(
@@ -162,22 +162,21 @@ for (const locale of ["en", "he"] as const)
       await picker.getByRole("searchbox").fill("");
 
       // The link bar stays in view and takes the reader to a section.
-      await main.locator(".section-nav a").nth(5).click();
+      await main.locator('.section-nav a[href="#policy-work"]').click();
       const nav = (await main.locator(".section-nav").boundingBox())!;
       expect(nav.y).toBeGreaterThanOrEqual(-1);
       expect(nav.y).toBeLessThan(80);
       const work = (await main.locator("#policy-work").boundingBox())!;
       expect(work.y).toBeGreaterThan(nav.y + nav.height - 2);
       expect(work.y).toBeLessThan(nav.y + nav.height + 60);
-      await expect(main.locator(".section-nav a").nth(5)).toHaveAttribute(
-        "aria-current",
-        "true",
-      );
+      await expect(
+        main.locator('.section-nav a[href="#policy-work"]'),
+      ).toHaveAttribute("aria-current", "true");
       await noSidewaysScroll(page);
       await shot(page, `policy-${size.name}-${locale}-work-limits`);
-      await main.locator(".section-nav a").nth(4).click();
+      await main.locator('.section-nav a[href="#policy-deadlines"]').click();
       await shot(page, `policy-${size.name}-${locale}-scopes`);
-      await main.locator(".section-nav a").nth(3).click();
+      await main.locator('.section-nav a[href="#policy-attempts"]').click();
       await shot(page, `policy-${size.name}-${locale}-attempts`);
 
       // "Show all" opens the full lists, still without sideways scrolling.
@@ -189,7 +188,7 @@ for (const locale of ["en", "he"] as const)
       expect(await oneWordPerLine(page, "main")).toEqual([]);
 
       // Summary-first settings: the form opens on request.
-      await main.locator(".section-nav a").nth(1).click();
+      await main.locator('.section-nav a[href="#policy-course"]').click();
       await main
         .locator("#policy-course .section-heading .button")
         .first()
@@ -204,18 +203,12 @@ for (const locale of ["en", "he"] as const)
       await noSidewaysScroll(page);
       await main.locator("#policy-course .action-row").scrollIntoViewIfNeeded();
       await shot(page, `policy-${size.name}-${locale}-course-settings-edit`);
-      await main.locator(".section-nav a").nth(0).click();
-      await main
-        .locator("#policy-organization .section-heading .button")
-        .first()
-        .click();
-      await expect(
-        main.locator("#policy-organization .action-row .button.primary"),
-      ).toBeDisabled();
+      // The organization's limits are a workspace page of their own, also summary first.
+      await openSection(page, text.app["nav.limits"]!);
+      await main.locator(".section-heading .button").first().click();
+      await expect(main.locator(".action-row .button.primary")).toBeDisabled();
       await noSidewaysScroll(page);
-      await main
-        .locator("#policy-organization .action-row")
-        .scrollIntoViewIfNeeded();
+      await main.locator(".action-row").scrollIntoViewIfNeeded();
       await shot(page, `policy-${size.name}-${locale}-organization-edit`);
     });
 
@@ -228,7 +221,7 @@ for (const locale of ["en", "he"] as const)
       const text = LOCALES[locale];
       await page.setViewportSize({ width: size.width, height: size.height });
       await mockLargePolicy(page, context, { locale });
-      await page.goto("/admin/");
+      await page.goto("/admin/courses/sorting/releases");
       await openSection(page, text.app["nav.allowances"]!);
       const main = page.locator("main");
       // One page heading: the view's own title is not repeated as a second heading.

@@ -25,7 +25,7 @@ async function openCheck(
 ) {
   const nav = catalog(locale, "adminApp"),
     ai = catalog(locale, "aiServices");
-  if (load) await page.goto(`/admin/?locale=${locale}`);
+  if (load) await page.goto(`/admin/ai-services?locale=${locale}`);
   await (
     await workspaceNav(page)
   )

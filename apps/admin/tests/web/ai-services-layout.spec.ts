@@ -21,7 +21,7 @@ const catalog = (locale: string, namespace: string) =>
 async function openPage(page: Page, locale: "en" | "he") {
   const nav = catalog(locale, "adminApp"),
     ai = catalog(locale, "aiServices");
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/ai-services?locale=${locale}`);
   await (
     await workspaceNav(page)
   )

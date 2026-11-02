@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
-import { openSection, workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 /** Research sources, generated media, studies and concept mappings in Hebrew and in en-XA. */
 
@@ -509,7 +509,7 @@ test("research, media, studies and concept mappings render in Hebrew right to le
 }) => {
   await wideAsDesktop(page);
   await signIn(page, "he");
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   for (const view of views) {
@@ -553,15 +553,11 @@ test("the en-XA pseudo-locale leaves no untranslated text in research, media, st
 }) => {
   await wideAsDesktop(page);
   await signIn(page, null);
-  await page.goto("/admin/?locale=en-XA");
+  await page.goto("/admin/courses/sorting/releases?locale=en-XA");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-XA");
   for (const view of views) {
     // By accessible name (accented English under en-XA), so new navigation items do not shift it.
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: accent(view.nav.en) })
-      .click();
+    await openSection(page, accent(view.nav.en), {});
     if (view.nav.en === "Concept mappings") {
       const pickers = page.locator(".mapping-pickers select");
       await pickers.nth(0).selectOption(releaseA);

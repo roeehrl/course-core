@@ -46,7 +46,7 @@ for (const locale of ["en", "he"] as const)
         `${label}: ${JSON.stringify(text)}`,
       ).toEqual({ left: edge === "left", right: edge === "right" });
     };
-    await page.goto(`/admin/demo?locale=${locale}`);
+    await page.goto(`/admin/demo/courses/sorting/releases?locale=${locale}`);
     await expect(page.locator("html")).toHaveAttribute("dir", dir);
 
     // The extension plan's two free-text fields, empty with their placeholders.

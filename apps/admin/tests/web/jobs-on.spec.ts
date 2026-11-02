@@ -31,7 +31,7 @@ const fill = (
 async function openOnJobs(page: Page, locale: "en" | "he") {
   const nav = catalog(locale, "adminApp"),
     ai = catalog(locale, "aiServices");
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/ai-services?locale=${locale}`);
   await (
     await workspaceNav(page)
   )

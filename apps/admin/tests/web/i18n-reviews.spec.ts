@@ -233,7 +233,7 @@ async function openConnected(page: Page, locale: string) {
   await page.route("**/learner-view", (route) =>
     route.fulfill({ json: learnerViewSample() }),
   );
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
 }
 
 /** RubricFindings (the appeal's criteria) is converted separately; its legends carry no <bdi>. */

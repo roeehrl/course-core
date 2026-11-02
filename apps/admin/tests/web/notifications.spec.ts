@@ -17,7 +17,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 test("the bell counts what needs attention and opens the place to act", async ({
   page,
 }) => {
-  await page.goto("/admin/demo?locale=en");
+  await page.goto("/admin/demo/courses/sorting/releases?locale=en");
   const bell = page.getByRole("button", { name: "Notifications, 4 unread" });
   await expect(bell).toBeVisible();
   await bell.click();
@@ -59,7 +59,7 @@ test("the bell counts what needs attention and opens the place to act", async ({
 });
 
 test("the bell and its panel in Hebrew, right to left", async ({ page }) => {
-  await page.goto("/admin/demo?locale=he");
+  await page.goto("/admin/demo/courses/sorting/releases?locale=he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await page.getByRole("button", { name: "התראות, 4 חדשות" }).click();
   const panel = page.getByRole("dialog", { name: "מחכה לטיפול" });

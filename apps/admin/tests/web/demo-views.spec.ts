@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
+import { forEachPage, openSection, workspaceNav } from "../workspaceNav";
 import { fieldIconOverlaps } from "../fieldIcons";
 import { trackedHebrew } from "../hebrewText";
 import { emptyFieldsAgainstPage } from "../fieldText";
@@ -45,25 +45,20 @@ for (const locale of ["en", "he"] as const)
     const nav = catalog(locale, "adminApp");
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
-    await page.goto(`/admin/demo?locale=${locale}`);
+    await page.goto(`/admin/demo/courses/sorting/releases?locale=${locale}`);
     await expect(page.locator("html")).toHaveAttribute(
       "dir",
       locale === "he" ? "rtl" : "ltr",
     );
-    for (const key of ["allowances", ...Object.keys(PORTED)])
+    // The course's own ported pages; the workspace's are checked below, once visited.
+    for (const key of ["allowances", "assessments", "media"])
       await expect(
         (await workspaceNav(page)).getByRole("button", {
           name: nav[`nav.${key}`],
           exact: true,
         }),
       ).toBeVisible();
-    const names = await workspaceNavNames(page);
-    for (const name of names) {
-      await (
-        await workspaceNav(page)
-      )
-        .getByRole("button", { name, exact: true })
-        .click();
+    const visited = await forEachPage(page, async (name) => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
       await expect(
         page.locator("main :is(.loading, .skeleton-rows)"),
@@ -99,7 +94,9 @@ for (const locale of ["en", "he"] as const)
             .analyze()
         ).violations.map((v) => `${name}: ${v.id} ${v.nodes[0]?.target}`),
       ).toEqual([]);
-    }
+    });
+    for (const key of ["allowances", ...Object.keys(PORTED)])
+      expect(visited).toContain(nav[`nav.${key}`]);
     expect(pageErrors).toEqual([]);
   });
 
@@ -110,7 +107,7 @@ test("demo ledger: approve accepted terms, refuse an exception past the course l
   page,
 }) => {
   test.setTimeout(120_000);
-  await page.goto("/admin/demo");
+  await page.goto("/admin/demo/courses/sorting/releases");
   await openSection(page, "Policy & extensions");
   await expect(
     page.getByText(

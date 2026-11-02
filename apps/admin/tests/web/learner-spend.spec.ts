@@ -32,7 +32,7 @@ for (const locale of ["en", "he"] as const)
   }) => {
     const nav = catalog(locale, "adminApp"),
       ai = catalog(locale, "aiServices");
-    await page.goto(`/admin/demo?locale=${locale}`);
+    await page.goto(`/admin/demo/ai-services?locale=${locale}`);
     await (
       await workspaceNav(page)
     )

@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { expectAccessible, mockConnectedAdmin } from "./connectedAdmin";
-import { coursePicker, workspaceNav } from "../workspaceNav";
+import { courseSwitcher, workspaceNav } from "../workspaceNav";
 
 /**
  * Adding and managing courses at the workspace level: the course switcher offers "Add a course…"
- * and "Manage courses", and the Courses page lists every course with one "Add a course" button.
+ * and "All courses", and the Courses home lists every course with one "Add a course" button.
  * English and Hebrew, desktop and phone; stubbed API (an owner who can install packages).
  *
  * Set COURSES_SHOTS to a folder to also save screenshots of the page and the dialog.
@@ -31,7 +31,7 @@ for (const locale of ["en", "he"] as const)
     const list = catalog(locale, "coursesView");
     const add = catalog(locale, "addCourse");
     await mockConnectedAdmin(page, context);
-    await page.goto(`/admin/?locale=${locale}`);
+    await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
     await expect(page.locator("html")).toHaveAttribute(
       "dir",
       locale === "he" ? "rtl" : "ltr",
@@ -39,13 +39,17 @@ for (const locale of ["en", "he"] as const)
     await expect(page.locator(".card").first()).toBeVisible();
 
     // The switcher: the workspace entries after the courses.
-    const picker = await coursePicker(page);
+    await (await courseSwitcher(page)).click();
+    const options = page.getByRole("listbox");
     await expect(
-      picker.locator("option", { hasText: app["switcher.add"]! }),
+      options.getByRole("option", { name: app["switcher.add"]! }),
     ).toHaveCount(1);
-    await picker.selectOption({ label: app["switcher.manage"]! });
+    await options
+      .getByRole("option", { name: app["switcher.manage"]! })
+      .click();
     const heading = page.getByRole("heading", { level: 1 });
     await expect(heading).toHaveText(app["nav.courses"]!);
+    await expect(page).toHaveURL(/\/admin\/courses\?/);
     await expect(page.locator(".nav-drawer")).toHaveCount(0);
     await expect(heading).toBeFocused();
 
@@ -83,17 +87,21 @@ for (const locale of ["en", "he"] as const)
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
 
-    // The switcher's entry opens the same dialog and leaves the selected course as it is.
-    const again = await coursePicker(page);
-    await again.selectOption({ label: app["switcher.add"]! });
+    // The switcher's entry opens the same dialog and leaves the open course as it is.
+    await table.getByRole("button").first().click();
+    await expect(page).toHaveURL(/\/admin\/courses\/sorting\/releases/);
+    await (await courseSwitcher(page)).click();
+    await page
+      .getByRole("listbox")
+      .getByRole("option", { name: app["switcher.add"]! })
+      .click();
     await expect(dialog).toBeVisible();
-    // (On phones the switcher sits in the drawer, which closes for the dialog.)
-    if (page.viewportSize()!.width >= 720)
-      await expect(page.locator("#course-select")).toHaveValue("sorting");
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(/\/admin\/courses\/sorting\/releases/);
+    await page.goto(`/admin/courses?locale=${locale}`);
 
-    // The Courses item leads the Course group in the navigation.
+    // The Courses item leads the Workspace group in the navigation.
     const nav = await workspaceNav(page);
     await expect(
       nav.locator(".nav-group").first().locator("button").first(),

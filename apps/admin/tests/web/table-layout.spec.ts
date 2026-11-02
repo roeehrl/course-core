@@ -108,7 +108,7 @@ for (const locale of ["en", "he"]) {
   test(`demo workspace tables are start-aligned and fit a phone (${locale})`, async ({
     page,
   }) => {
-    await page.goto(`/admin/demo?locale=${locale}`);
+    await page.goto(`/admin/demo/courses/sorting/releases?locale=${locale}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     const { tables, problems } = await everySection(page);
     // The demo shows tables (graded attempts, run details); a run that found none proves nothing.
@@ -127,7 +127,7 @@ for (const locale of ["en", "he"]) {
     await page.route("**/api/admin/workspaces/*/course-grants", (route) =>
       route.fulfill({ json: { grants: [] } }),
     );
-    await page.goto(`/admin/?locale=${locale}`);
+    await page.goto(`/admin/courses?locale=${locale}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await (
       await workspaceNav(page)

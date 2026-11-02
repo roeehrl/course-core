@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFileSync } from "node:fs";
-import { closeWorkspaceNav, coursePicker } from "../workspaceNav";
+import { closeWorkspaceNav, courseSwitcher } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -133,9 +133,7 @@ test("install a new course with approve-and-publish in one confirmed step, then 
   await expect(
     page.getByRole("button", { name: /^Version 1\.0\.0/ }),
   ).toContainText("Available to new learners");
-  await expect((await coursePicker(page)).locator("option:checked")).toHaveText(
-    "Ordering companion",
-  );
+  await expect(await courseSwitcher(page)).toContainText("Ordering companion");
   await closeWorkspaceNav(page);
   await accessible(page);
 });

@@ -51,7 +51,7 @@ for (const locale of ["he", "en"] as const)
     test(`hidden table text stays inside a scrolling .${wrapClass} (${locale})`, async ({
       page,
     }) => {
-      await page.goto(`/admin/demo?locale=${locale}`);
+      await page.goto(`/admin/demo/courses/sorting/releases?locale=${locale}`);
       await expect(page.locator("html")).toHaveAttribute(
         "dir",
         locale === "he" ? "rtl" : "ltr",

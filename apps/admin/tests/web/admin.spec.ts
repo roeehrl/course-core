@@ -1,9 +1,9 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { coursePicker, openSection } from "../workspaceNav";
+import { openSection, switchCourse } from "../workspaceNav";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/admin/demo");
+  await page.goto("/admin/demo/courses/sorting/releases");
   await expect(page.getByRole("button", { name: "New draft" })).toBeVisible();
 });
 
@@ -37,7 +37,7 @@ test("course management and reviewed release publication", async ({
   await expect(
     page.getByText("Demo release marked published. Nothing was deployed."),
   ).toBeVisible();
-  await (await coursePicker(page)).selectOption("graphs");
+  await switchCourse(page, "A first look at graphs");
   await expect(
     page.getByText(
       "A public example course about nodes, edges and finding a path.",

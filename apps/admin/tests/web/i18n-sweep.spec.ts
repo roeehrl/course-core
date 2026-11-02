@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { accent } from "@course-core/i18n";
-import { workspaceNav, workspaceNavNames } from "../workspaceNav";
+import { forEachPage } from "../workspaceNav";
 
 /**
  * Every demo view under the en-XA pseudo-locale: each translated message is wrapped in ⟦…⟧
@@ -66,18 +66,9 @@ test("every demo view leaves no untranslated text under en-XA and does not overf
   test.setTimeout(240_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.goto("/admin/demo?locale=en-XA");
-  const names = await workspaceNavNames(page);
-  expect(
-    names.some((name) => name.includes(accent(enNav["nav.overview"]!))),
-  ).toBe(true);
+  await page.goto("/admin/demo/courses/sorting/releases?locale=en-XA");
   const problems: string[] = [];
-  for (const name of names) {
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name, exact: true })
-      .click();
+  const names = await forEachPage(page, async (name) => {
     await expect(
       page.locator("main :is(.loading, .skeleton-rows)"),
     ).toHaveCount(0);
@@ -85,7 +76,9 @@ test("every demo view leaves no untranslated text under en-XA and does not overf
     for (const text of await untranslated(page))
       if (!DEMO_DATA.includes(text)) problems.push(`${name}: ${text}`);
     await expectNoHorizontalOverflow(page, `${name} (${info.project.name})`);
-  }
+  });
+  for (const key of ["nav.overview", "nav.courses", "nav.limits"])
+    expect(names.some((name) => name.includes(accent(enNav[key]!)))).toBe(true);
   expect(problems).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

@@ -37,7 +37,7 @@ const SECTIONS = {
 } as const;
 
 async function open(page: Page, locale: "en" | "he") {
-  await page.goto(`/admin/demo?locale=${locale}`);
+  await page.goto(`/admin/demo/courses/sorting/releases?locale=${locale}`);
   await expect(page.locator("html")).toHaveAttribute(
     "dir",
     locale === "he" ? "rtl" : "ltr",

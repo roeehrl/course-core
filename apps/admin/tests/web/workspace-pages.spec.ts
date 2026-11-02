@@ -4,9 +4,9 @@ import { closeWorkspaceNav, openSection, workspaceNav } from "../workspaceNav";
 
 /**
  * The shell and the operations pages at the size a real pilot reaches (workspacePagesStub):
- * the sidebar in four labelled groups, the course page without the marketing banner and with
+ * a course's sidebar in three labelled groups, the course page without the marketing banner and with
  * its long parts folded, the audit log as sentences with the raw record behind "Technical
- * details", policy changes with named settings, platform checks in full rows. Every width is a
+ * details", the course's policy changes with named settings on its Policy page, platform checks in full rows. Every width is a
  * real layout: no horizontal page scroll at 1440, 805 or 375px, in English and Hebrew.
  *
  * Set WP5_SHOTS to a folder to also save full-page screenshots of every page and width.
@@ -26,7 +26,9 @@ const NAV = {
     platform: "Platform",
     integrations: "Integrations",
     people: "People & roles",
-    groups: ["Course", "Learners", "Rules & AI", "System"],
+    policy: "Policy & extensions",
+    access: "Course access",
+    groups: ["Course", "Learners", "Rules & AI"],
   },
   he: {
     overview: "סקירה כללית",
@@ -36,7 +38,9 @@ const NAV = {
     platform: "פלטפורמה",
     integrations: "שילובים",
     people: "אנשים ותפקידים",
-    groups: ["הקורס", "לומדים", "כללים ו-AI", "מערכת"],
+    policy: "מדיניות והארכות",
+    access: "גישה לקורס",
+    groups: ["הקורס", "לומדים", "כללים ו-AI"],
   },
 } as const;
 type Locale = keyof typeof NAV;
@@ -71,7 +75,7 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
 }
 async function open(page: Page, locale: Locale) {
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
   await expect(page.locator("html")).toHaveAttribute(
     "dir",
     locale === "he" ? "rtl" : "ltr",
@@ -102,13 +106,13 @@ for (const locale of ["en", "he"] as const)
       await open(page, locale);
       const tag = `${locale}-${size.name}`;
 
-      // E14: four labelled groups; "Answer reviews"/"Answer keys" and "AI services"/"AI
-      // supervision" sit under different headings.
+      // E14: a course's pages in three labelled groups; "Answer reviews" and "Answer keys" sit
+      // under different headings.
       const nav = await workspaceNav(page);
       await expect(nav.locator(".nav-group-label")).toHaveText([
         ...text.groups,
       ]);
-      expect(await nav.locator('[role="group"]').count()).toBe(4);
+      expect(await nav.locator('[role="group"]').count()).toBe(3);
       if (size.width < 1100) await shot(page, `nav-${tag}`);
       await closeWorkspaceNav(page);
 
@@ -168,12 +172,8 @@ for (const locale of ["en", "he"] as const)
                 .length,
           ),
       ).toBe(0);
-      const changes = page.locator("table.policy-changes");
-      await expect(changes.first()).toBeVisible();
-      await expect(page.getByText("placement.assessmentIds")).toBeHidden();
-      expect(
-        await wordPerLine(changes.locator(".setting-path, td > *")),
-      ).toEqual([]);
+      // The course's policy changes are on its Policy page, not in the workspace log.
+      await expect(page.locator("table.policy-changes")).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
       await shot(page, `audit-${tag}`);
       // The raw record is one click away.
@@ -236,12 +236,27 @@ for (const locale of ["en", "he"] as const)
       await expectNoHorizontalOverflow(page);
       await shot(page, `enrollments-${tag}`);
 
-      // E11: no course access yet is said once.
-      await go(page, text.people);
+      // The course's policy changes, with named settings, on its Policy page.
+      await go(page, text.policy);
+      const changes = page.locator("table.policy-changes");
+      await expect(changes.first()).toBeVisible();
+      await expect(page.getByText("placement.assessmentIds")).toBeHidden();
+      expect(
+        await wordPerLine(changes.locator(".setting-path, td > *")),
+      ).toEqual([]);
+      await expectNoHorizontalOverflow(page);
+
+      // E11: no course access yet is said once, on the course's Course access page.
+      await go(page, text.access);
       await expect(page.locator(".card .empty").last()).toBeVisible();
       await expect(page.locator(".card:has(.empty) .notice.blue")).toHaveCount(
         0,
       );
+      await expectNoHorizontalOverflow(page);
+      await shot(page, `access-${tag}`);
+
+      // Workspace members, on the workspace's People & roles page.
+      await go(page, text.people);
       await expectNoHorizontalOverflow(page);
       // The members table fits its card: it never scrolls sideways inside it.
       expect(
