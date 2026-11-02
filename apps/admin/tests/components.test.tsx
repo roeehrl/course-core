@@ -46,9 +46,12 @@ describe("admin presentation workflows", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Refresh and try again" }),
     );
+    // The course page opens on the course's own header, not a marketing banner.
     await screen.findByRole("heading", {
-      name: /A clear path/,
+      name: "Sorting, step by step",
+      level: 2,
     });
+    expect(screen.queryByText(/A clear path/)).toBeNull();
   });
   it("presents observer restrictions without pretending they provide server authorization", async () => {
     render(<AdminApp client={demo({ role: "observer" })} />);
@@ -60,9 +63,10 @@ describe("admin presentation workflows", () => {
       screen.getByRole("button", { name: "Run inspector" }),
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Permission denied");
+    // The footer carries no developer wording about authorization.
     expect(
-      screen.getByText("Server authorization governs every action."),
-    ).toBeVisible();
+      screen.queryByText("Server authorization governs every action."),
+    ).toBeNull();
   });
   it("keeps release publication gated through the review state", async () => {
     render(<AdminApp client={demo()} />);

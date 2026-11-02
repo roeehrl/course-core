@@ -82,12 +82,12 @@ it("words coded release checks in English and Hebrew, and falls back for codes i
       params: { reason: "PUBLISH_CAPABILITY_MISSING" },
     }),
   ).toEqual({
-    label: "Installed runtime capabilities",
+    label: "Runs on this server",
     detail:
       "This host cannot run every path the course needs (PUBLISH_CAPABILITY_MISSING). Install the missing capability, then check again.",
   });
   expect(releaseCheckText(he, { code: "SDK_DIGEST_MATCHES" }).label).toBe(
-    "אימות SDK וגיבוב",
+    "חבילת הקורס נבדקה",
   );
   // A demo or older check keeps its own text; an unknown code still has a title.
   expect(releaseCheckText(he, { label: "Demo", detail: "Text" })).toEqual({

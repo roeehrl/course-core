@@ -1,6 +1,5 @@
 {
   "title": "Updates",
-  "eyebrow": "Course updater",
   "level.off": "Off — only manual checks",
   "level.check": "Check — show “Update available”, install nothing",
   "level.install": "Install — install new versions as drafts in review",
@@ -35,7 +34,7 @@
   "github.label": "GitHub link",
   "github.hint": "A public repository (its latest release) or a release tag, for example https://github.com/owner/course.",
   "directory.label": "Package directory",
-  "directory.hint": "Directories the host operator allowed (pilot coursePackageDirectories).",
+  "directory.hint": "Folders the server's operator allowed for course packages.",
   "subpath.label": "Folder or file inside it",
   "subpath.hint": "A relative path such as my-course/dist or my-course/dist/my-course-1.2.0.course.tgz. Leave empty for the directory itself.",
   "noDirectories": "No package directories are configured on this host.",
@@ -55,11 +54,17 @@
   "auto.heading": "Automatic updates",
   "auto.level.label": "Automatic level",
   "auto.level.hint": "Off by default. Existing enrollments always stay on the release they started.",
-  "auto.interval.label": "Check every (hours)",
+  "auto.interval.label": "Check every",
   "auto.interval.hint": "At least 1 hour; 24 by default. Failed checks wait longer each time (up to 7 days).",
   "auto.acknowledge": "I authorize automatic review approval and publication of new versions from this source for new learners, as me. It is refused, and the version is left as a draft in review, when the check finds a blocking problem, a host requirement that is not identical, a failing runtime check, a newer required Core or an SDK outside the supported range.",
   "auto.registry": "Also approve a packaged recovery registry whose digest differs from the registry approved for the live release. Without this, only an unchanged registry is approved automatically; a changed one waits for an owner or administrator.",
   "auto.save": "Save automatic updates",
   "auto.authorizedBy": "Automatic publication authorized by {name}.",
-  "dialog.eyebrow": "Course update"
+  "dialog.eyebrow": "Course update",
+  "auto.interval.unit": "hours",
+  "reason.role": "Only an owner or administrator can change how this course is updated.",
+  "reason.noSource": "Choose and save an update source before checking for updates.",
+  "reason.noSourceChanges": "No changes to the update source yet.",
+  "reason.noSettingsChanges": "No changes to the automatic updates yet.",
+  "reason.acknowledge": "Tick the authorization above to save automatic publication."
 }

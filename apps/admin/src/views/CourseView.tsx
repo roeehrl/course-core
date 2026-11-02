@@ -6,15 +6,17 @@ import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { VersionMoves } from "../components/VersionMoves";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type MouseEvent } from "react";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import {
   ArrowUpRight,
   Check,
   GitBranch,
   PackagePlus,
+  Pencil,
   Plus,
 } from "lucide-react";
+import "./workspacePages.css";
 import type {
   AdminClient,
   CourseWorkspace,
@@ -105,46 +107,96 @@ export function CourseView({
   const activeRelease = data.releases.find(
     (item) => item.availableForNewLearners,
   );
+  const awaitingReview = data.releases.filter(
+    (item) => item.state === "pending_review",
+  ).length;
+  const showUpdates =
+    client.mode === "connected" && Boolean(client.courseUpdates);
+  /** The page's parts, for the link bar under the course header. */
+  const sections = [
+    { id: "course-releases", label: t("courseView.releases.title") },
+    ...(showUpdates && data.course.workspaceId
+      ? [{ id: "course-updates", label: t("courseView.sections.updates") }]
+      : []),
+    ...(client.versionMoves
+      ? [{ id: "course-moves", label: t("courseView.sections.moves") }]
+      : []),
+    ...(selected
+      ? [
+          {
+            id: "course-release",
+            label: t("courseView.inspection.title", {
+              version: selected.version,
+            }),
+          },
+        ]
+      : []),
+    { id: "course-recovery", label: t("courseView.sections.recovery") },
+    { id: "course-objectives", label: t("courseView.objectives") },
+  ];
+  const jump = (id: string) => (event: MouseEvent) => {
+    event.preventDefault();
+    const target = document.getElementById(id);
+    target?.scrollIntoView({ block: "start" });
+    target?.focus({ preventScroll: true });
+  };
   return (
     <div className="page-stack">
       <ActionFeedback actions={actions} />
-      <div className="hero-card">
-        <div>
-          <p className="eyebrow">{t("courseView.hero.eyebrow")}</p>
-          <h2>
-            {i18n.rich("courseView.hero.title", undefined, {
-              br: (_children, key) => <br key={key} />,
-            })}
-          </h2>
-          <p dir="auto">{data.course.description}</p>
+      {/* The course itself first: its name, what it is, the version new learners start on. */}
+      <section
+        className="card course-header"
+        aria-labelledby="course-header-title"
+      >
+        <div className="course-header-row">
+          <div className="course-header-main">
+            <h2 id="course-header-title" dir="auto">
+              {data.course.title}
+            </h2>
+            {data.course.description && (
+              <p className="course-header-description" dir="auto">
+                {data.course.description}
+              </p>
+            )}
+            <div className="tag-row">
+              {activeRelease ? (
+                <Badge tone="green">
+                  {t("courseView.header.live", {
+                    version: activeRelease.version,
+                  })}
+                </Badge>
+              ) : (
+                <Badge tone="gold">{t("courseView.header.noLive")}</Badge>
+              )}
+              {awaitingReview > 0 && (
+                <Badge tone="gold">
+                  {t("courseView.header.awaiting", { count: awaitingReview })}
+                </Badge>
+              )}
+            </div>
+          </div>
           <Button
-            kind="primary"
             onClick={() => open("details")}
             disabled={!canWrite || actions.pending}
           >
-            {t("courseView.editDetails")}{" "}
-            <ArrowUpRight size={16} aria-hidden="true" />
+            <Pencil size={16} aria-hidden="true" />
+            {t("courseView.editDetails")}
           </Button>
         </div>
-        <div className="hero-art" aria-hidden="true">
-          <span>01</span>
-          <i />
-          <span>02</span>
-          <i />
-          <span className="gold-step">03</span>
-          <small>{t("courseView.hero.steps")}</small>
-        </div>
-      </div>
-      <div className="stats-grid">
-        <Stat
-          label={t("courseView.stat.current")}
-          value={activeRelease?.version ?? t("courseView.stat.none")}
-          detail={
-            client.mode === "demo"
-              ? t("courseView.stat.fictional")
-              : t("courseView.stat.selected")
-          }
-        />
+      </section>
+      <nav className="section-nav" aria-label={t("courseView.sections.label")}>
+        <ol>
+          {sections.map((section) => (
+            <li key={section.id}>
+              <a href={`#${section.id}`} onClick={jump(section.id)}>
+                {section.label}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </nav>
+      {/* The live version is in the header above; these are the figures to watch. */}
+      <div className="stats-grid three">
         <Stat
           label={t("courseView.stat.enrolled")}
           value={data.enrollments.length}
@@ -157,76 +209,73 @@ export function CourseView({
         />
         <Stat
           label={t("courseView.stat.awaiting")}
-          value={
-            data.releases.filter((item) => item.state === "pending_review")
-              .length
-          }
+          value={awaitingReview}
           detail={t("courseView.stat.decisions")}
         />
       </div>
-      <Card
-        title={t("courseView.releases.title")}
-        eyebrow={t("courseView.releases.eyebrow")}
-        actions={
-          <div className="button-row">
-            {canInstall && (
+      <div id="course-releases" className="page-section" tabIndex={-1}>
+        <Card
+          title={t("courseView.releases.title")}
+          actions={
+            <div className="button-row">
+              {canInstall && (
+                <Button
+                  onClick={() => {
+                    actions.clear();
+                    setInstalling(true);
+                  }}
+                  disabled={actions.pending}
+                >
+                  <PackagePlus size={16} aria-hidden="true" />
+                  {t("courseView.install")}
+                </Button>
+              )}
               <Button
-                onClick={() => {
-                  actions.clear();
-                  setInstalling(true);
-                }}
+                onClick={() => open("draft")}
+                disabled={!canWrite || actions.pending}
+              >
+                <Plus size={16} aria-hidden="true" />
+                {t("courseView.newDraft")}
+              </Button>
+            </div>
+          }
+        >
+          <PermissionHint
+            permissions={data.permissions}
+            required="course.write"
+          />
+          <div className="release-list">
+            {data.releases.map((release) => (
+              <button
+                key={release.id}
+                className={`release-row ${release.id === selected?.id ? "selected" : ""}`}
+                onClick={() => setSelectedId(release.id)}
+                aria-pressed={release.id === selected?.id}
                 disabled={actions.pending}
               >
-                <PackagePlus size={16} aria-hidden="true" />
-                {t("courseView.install")}
-              </Button>
-            )}
-            <Button
-              onClick={() => open("draft")}
-              disabled={!canWrite || actions.pending}
-            >
-              <Plus size={16} aria-hidden="true" />
-              {t("courseView.newDraft")}
-            </Button>
+                <span className="round-icon">
+                  <GitBranch size={20} aria-hidden="true" />
+                </span>
+                <span className="grow">
+                  <strong>
+                    {t("courseView.release.version", {
+                      version: release.version,
+                    })}
+                  </strong>
+                  <small dir="auto">{release.notes}</small>
+                  {release.availableForNewLearners && (
+                    <small>{t("courseView.release.available")}</small>
+                  )}
+                </span>
+                <Status value={release.state} />
+                <ArrowUpRight size={18} aria-hidden="true" />
+              </button>
+            ))}
           </div>
-        }
-      >
-        <PermissionHint
-          permissions={data.permissions}
-          required="course.write"
-        />
-        <div className="release-list">
-          {data.releases.map((release) => (
-            <button
-              key={release.id}
-              className={`release-row ${release.id === selected?.id ? "selected" : ""}`}
-              onClick={() => setSelectedId(release.id)}
-              aria-pressed={release.id === selected?.id}
-              disabled={actions.pending}
-            >
-              <span className="round-icon">
-                <GitBranch size={20} aria-hidden="true" />
-              </span>
-              <span className="grow">
-                <strong>
-                  {t("courseView.release.version", {
-                    version: release.version,
-                  })}
-                </strong>
-                <small dir="auto">{release.notes}</small>
-                {release.availableForNewLearners && (
-                  <small>{t("courseView.release.available")}</small>
-                )}
-              </span>
-              <Status value={release.state} />
-              <ArrowUpRight size={18} aria-hidden="true" />
-            </button>
-          ))}
-        </div>
-      </Card>
-      {client.mode === "connected" &&
-        client.courseUpdates &&
-        data.course.workspaceId && (
+        </Card>
+      </div>
+      {showUpdates && data.course.workspaceId && (
+        <div id="course-updates" className="page-section" tabIndex={-1}>
           <CourseUpdates
             client={client}
             courseId={data.course.id}
@@ -237,187 +286,216 @@ export function CourseView({
               else void actions.resync();
             }}
           />
-        )}
+        </div>
+      )}
       {client.versionMoves && (
-        <VersionMoves
-          client={client}
-          courseId={data.course.id}
-          onMoved={() => void actions.resync()}
-        />
+        <div id="course-moves" className="page-section" tabIndex={-1}>
+          <VersionMoves
+            client={client}
+            courseId={data.course.id}
+            onMoved={() => void actions.resync()}
+          />
+        </div>
       )}
       {selected && (
-        <Card
-          title={t("courseView.inspection.title", {
-            version: selected.version,
-          })}
-          eyebrow={t("courseView.inspection.eyebrow")}
-        >
-          <div className="split-line">
-            <Status value={selected.state} />
-            <small>{when(selected.createdAt)}</small>
-          </div>
-          <p dir="auto">{selected.notes}</p>
-          <ul className="checklist">
-            {selected.checks.map((check) => (
-              <li key={check.code ?? check.label}>
-                <span
-                  className={`check-icon ${check.passed && !check.warning ? "passed" : ""}`}
-                  aria-hidden="true"
-                >
-                  {check.passed && !check.warning ? <Check size={16} /> : "!"}
-                </span>
-                <div>
-                  <strong>{releaseCheckText(i18n, check).label}</strong>
-                  <small>{releaseCheckText(i18n, check).detail}</small>
-                </div>
-                <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
-                  {check.warning
-                    ? t("courseView.check.warning")
-                    : check.passed
-                      ? t("courseView.check.recorded")
-                      : t("courseView.check.required")}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-          {selected.state === "pending_review" && (
-            <Notice tone="gold">{t("courseView.pendingReview")}</Notice>
-          )}
-          {selected.state === "draft" && (
-            <>
-              <Button
-                kind="primary"
-                disabled={
-                  !canWrite ||
-                  actions.pending ||
-                  selected.checks.some((item) => !item.passed)
-                }
-                onClick={() => void transition(selected, "submit-review")}
-              >
-                {actions.pending
-                  ? t("courseView.saving")
-                  : t("courseView.submitReview")}
-              </Button>
-              {selected.checks.some((item) => !item.passed) && (
-                <small>{t("courseView.validationRequired")}</small>
+        <div id="course-release" className="page-section" tabIndex={-1}>
+          <Card
+            title={t("courseView.inspection.title", {
+              version: selected.version,
+            })}
+          >
+            <div className="split-line">
+              <Status value={selected.state} />
+              <small>{when(selected.createdAt)}</small>
+            </div>
+            <p dir="auto">{selected.notes}</p>
+            <ul className="checklist">
+              {selected.checks.map((check) => (
+                <li key={check.code ?? check.label}>
+                  <span
+                    className={`check-icon ${check.passed && !check.warning ? "passed" : ""}`}
+                    aria-hidden="true"
+                  >
+                    {check.passed && !check.warning ? <Check size={16} /> : "!"}
+                  </span>
+                  <div>
+                    <strong>{releaseCheckText(i18n, check).label}</strong>
+                    <small>{releaseCheckText(i18n, check).detail}</small>
+                  </div>
+                  <Badge
+                    tone={check.passed && !check.warning ? "green" : "gold"}
+                  >
+                    {check.warning
+                      ? t("courseView.check.warning")
+                      : check.passed
+                        ? t("courseView.check.recorded")
+                        : t("courseView.check.required")}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+            {selected.state === "pending_review" && (
+              <Notice tone="gold">{t("courseView.pendingReview")}</Notice>
+            )}
+            {selected.state === "published" && (
+              <Notice tone="blue">{t("courseView.immutable")}</Notice>
+            )}
+            {selected.state === "published" &&
+              selected.availableForNewLearners && (
+                <Notice>{t("courseView.selectedForNew")}</Notice>
               )}
-            </>
-          )}
-          {selected.state === "pending_review" && (
-            <>
+            {selected.state === "pending_review" && (
               <PermissionHint
                 permissions={data.permissions}
                 required="release.review"
               />
-              <Button
-                kind="primary"
-                disabled={
-                  !data.permissions.includes("release.review") ||
-                  actions.pending
-                }
-                onClick={() => void transition(selected, "approve")}
-              >
-                {actions.pending
-                  ? t("courseView.recording")
-                  : t("courseView.approveReview")}
-              </Button>
-              <Button disabled>{t("courseView.publishAfter")}</Button>
-            </>
-          )}
-          {selected.state === "approved" && (
-            <>
+            )}
+            {selected.state === "approved" && (
               <PermissionHint
                 permissions={data.permissions}
                 required="release.publish"
               />
-              <Button
-                kind="primary"
-                disabled={
-                  !data.permissions.includes("release.publish") ||
-                  actions.pending
-                }
-                onClick={() => open("publish")}
-              >
-                {t("courseView.publish")}
-              </Button>
-            </>
-          )}
-          {selected.state !== "published" &&
-            selected.state !== "archived" &&
-            client.getReleaseManifest &&
-            client.updateRelease && (
-              <Button
-                disabled={!canWrite || actions.pending}
-                onClick={() => {
-                  actions.clear();
-                  setEditingBundle(true);
-                }}
-              >
-                {t("courseView.editBundle")}
-              </Button>
             )}
-          {client.releaseEditing &&
-            (selected.state === "published" ||
-              selected.state === "archived" ||
-              canWrite ||
-              data.permissions.includes("release.review")) && (
-              <Button
-                disabled={actions.pending}
-                onClick={() => setPreviewing(true)}
-              >
-                {t("courseView.previewAsLearners")}
-              </Button>
-            )}
-          {selected.state === "published" && (
-            <>
-              <Notice tone="blue">{t("courseView.immutable")}</Notice>
-              {selected.availableForNewLearners ? (
-                <Notice>{t("courseView.selectedForNew")}</Notice>
-              ) : (
+            {/* One row of actions for this version: the next step first, then the rest. */}
+            <div className="button-row">
+              {selected.state === "draft" && (
                 <Button
+                  kind="primary"
                   disabled={
-                    !data.permissions.includes("release.publish") ||
+                    !canWrite ||
                     actions.pending ||
                     selected.checks.some((item) => !item.passed)
                   }
-                  onClick={() => {
-                    // An older release than the live one is a rollback: review its impact first.
-                    if (
-                      client.releaseSafety &&
-                      activeRelease &&
-                      Date.parse(selected.createdAt) <
-                        Date.parse(activeRelease.createdAt)
-                    ) {
-                      actions.clear();
-                      setRollingBack(true);
-                    } else void transition(selected, "activate");
-                  }}
+                  onClick={() => void transition(selected, "submit-review")}
                 >
-                  {t("courseView.useForNew")}
+                  {actions.pending
+                    ? t("courseView.saving")
+                    : t("courseView.submitReview")}
                 </Button>
               )}
-            </>
-          )}
-          <ReleaseSafetyPanel
-            data={data}
-            client={client}
-            actions={actions}
-            release={selected}
-            active={activeRelease}
-          />
-        </Card>
+              {selected.state === "pending_review" && (
+                <>
+                  <Button
+                    kind="primary"
+                    disabled={
+                      !data.permissions.includes("release.review") ||
+                      actions.pending
+                    }
+                    onClick={() => void transition(selected, "approve")}
+                  >
+                    {actions.pending
+                      ? t("courseView.recording")
+                      : t("courseView.approveReview")}
+                  </Button>
+                  <Button disabled>{t("courseView.publishAfter")}</Button>
+                </>
+              )}
+              {selected.state === "approved" && (
+                <Button
+                  kind="primary"
+                  disabled={
+                    !data.permissions.includes("release.publish") ||
+                    actions.pending
+                  }
+                  onClick={() => open("publish")}
+                >
+                  {t("courseView.publish")}
+                </Button>
+              )}
+              {selected.state === "published" &&
+                !selected.availableForNewLearners && (
+                  <Button
+                    disabled={
+                      !data.permissions.includes("release.publish") ||
+                      actions.pending ||
+                      selected.checks.some((item) => !item.passed)
+                    }
+                    onClick={() => {
+                      // An older release than the live one is a rollback: review its impact first.
+                      if (
+                        client.releaseSafety &&
+                        activeRelease &&
+                        Date.parse(selected.createdAt) <
+                          Date.parse(activeRelease.createdAt)
+                      ) {
+                        actions.clear();
+                        setRollingBack(true);
+                      } else void transition(selected, "activate");
+                    }}
+                  >
+                    {t("courseView.useForNew")}
+                  </Button>
+                )}
+              {selected.state !== "published" &&
+                selected.state !== "archived" &&
+                client.getReleaseManifest &&
+                client.updateRelease && (
+                  <Button
+                    disabled={!canWrite || actions.pending}
+                    onClick={() => {
+                      actions.clear();
+                      setEditingBundle(true);
+                    }}
+                  >
+                    {t("courseView.editBundle")}
+                  </Button>
+                )}
+              {client.releaseEditing &&
+                (selected.state === "published" ||
+                  selected.state === "archived" ||
+                  canWrite ||
+                  data.permissions.includes("release.review")) && (
+                  <Button
+                    disabled={actions.pending}
+                    onClick={() => setPreviewing(true)}
+                  >
+                    {t("courseView.previewAsLearners")}
+                  </Button>
+                )}
+            </div>
+            {selected.state === "draft" &&
+              selected.checks.some((item) => !item.passed) && (
+                <small className="button-reason">
+                  {t("courseView.validationRequired")}
+                </small>
+              )}
+            <ReleaseSafetyPanel
+              data={data}
+              client={client}
+              actions={actions}
+              release={selected}
+              active={activeRelease}
+            />
+          </Card>
+        </div>
       )}
       {/* Release-scoped: moved here from the AI services page. */}
-      <RecoveryRegistry data={data} client={client} />
-      <Card title={t("courseView.objectives")}>
-        <ol className="objectives">
-          {data.course.objectives.map((objective) => (
-            <li key={objective} dir="auto">
-              {objective}
-            </li>
-          ))}
-        </ol>
-      </Card>
+      <div id="course-recovery" className="page-section" tabIndex={-1}>
+        <RecoveryRegistry data={data} client={client} />
+      </div>
+      <div id="course-objectives" className="page-section" tabIndex={-1}>
+        <Card title={t("courseView.objectives")}>
+          {data.course.objectives.length === 0 ? (
+            <p className="muted">{t("courseView.objectives.none")}</p>
+          ) : (
+            // Long lists stay folded: the page stays short enough to find the rest.
+            <details className="objectives-disclosure">
+              <summary>
+                {t("courseView.objectives.show", {
+                  count: data.course.objectives.length,
+                })}
+              </summary>
+              <ol className="objectives">
+                {data.course.objectives.map((objective) => (
+                  <li key={objective} dir="auto">
+                    {objective}
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+        </Card>
+      </div>
       {rollingBack && selected && client.releaseSafety && (
         <RollbackDialog
           port={client.releaseSafety}

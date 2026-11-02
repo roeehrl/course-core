@@ -14,7 +14,9 @@ import {
   Loading,
   Notice,
 } from "../components/ui";
-import { useFormatters, useT, type MessageKey } from "../i18n";
+import { ArrowRight } from "lucide-react";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import "./workspacePages.css";
 
 const COMPATIBILITY_TONE = {
   compatible: "green",
@@ -29,9 +31,12 @@ const COMPATIBILITY_TONE = {
 export function IntegrationsView({
   data,
   client,
+  onOpenAiServices,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
+  /** Opens the AI services page, where AI connections are managed. */
+  onOpenAiServices?: () => void;
 }) {
   const t = useT();
   const workspaceId = data.course.workspaceId;
@@ -47,7 +52,11 @@ export function IntegrationsView({
     return <Notice tone="gold">{t("integrationsView.forbidden")}</Notice>;
   return (
     <div className="page-stack">
-      <Overview port={client.platform} workspaceId={workspaceId} />
+      <Overview
+        port={client.platform}
+        workspaceId={workspaceId}
+        onOpenAiServices={onOpenAiServices}
+      />
       <BilledCosts port={client.platform} workspaceId={workspaceId} />
     </div>
   );
@@ -56,9 +65,11 @@ export function IntegrationsView({
 function Overview({
   port,
   workspaceId,
+  onOpenAiServices,
 }: {
   port: PlatformPort;
   workspaceId: string;
+  onOpenAiServices?: (() => void) | undefined;
 }) {
   const t = useT();
   const remote = useRemote(
@@ -73,10 +84,17 @@ function Overview({
         <Button onClick={remote.reload}>{t("integrationsView.retry")}</Button>
       </div>
     );
-  return <Details value={remote.data} />;
+  return <Details value={remote.data} onOpenAiServices={onOpenAiServices} />;
 }
 
-function Details({ value }: { value: Integrations }) {
+function Details({
+  value,
+  onOpenAiServices,
+}: {
+  value: Integrations;
+  onOpenAiServices?: (() => void) | undefined;
+}) {
+  const i18n = useI18n();
   const t = useT();
   const { when } = useFormatters();
   const unknown = t("integrationsView.unknown");
@@ -86,11 +104,23 @@ function Details({ value }: { value: Integrations }) {
         <dl className="facts">
           <div>
             <dt>{t("integrationsView.runtime.core")}</dt>
-            <dd dir="ltr">{value.runtime.coreVersion ?? unknown}</dd>
+            <dd>
+              {value.runtime.coreVersion ? (
+                <bdi>{value.runtime.coreVersion}</bdi>
+              ) : (
+                unknown
+              )}
+            </dd>
           </div>
           <div>
             <dt>{t("integrationsView.runtime.sdk")}</dt>
-            <dd dir="ltr">{value.runtime.sdkVersion ?? unknown}</dd>
+            <dd>
+              {value.runtime.sdkVersion ? (
+                <bdi>{value.runtime.sdkVersion}</bdi>
+              ) : (
+                unknown
+              )}
+            </dd>
           </div>
           <div>
             <dt>{t("integrationsView.runtime.telemetry")}</dt>
@@ -102,49 +132,113 @@ function Details({ value }: { value: Integrations }) {
           </div>
         </dl>
       </Card>
-      <Card
-        title={t("integrationsView.courses.title")}
-        eyebrow={t("integrationsView.courses.eyebrow")}
-      >
+      <Card title={t("integrationsView.courses.title")}>
+        <p>{t("integrationsView.courses.intro")}</p>
         {value.courses.length === 0 ? (
           <p>{t("integrationsView.courses.empty")}</p>
         ) : (
-          value.courses.map((course) => (
-            <article className="record" key={course.catalogId}>
-              <h3 dir="auto">{course.title}</h3>
-              <p>
-                {course.liveVersion
-                  ? t("integrationsView.courses.live", {
-                      version: course.liveVersion,
-                    })
-                  : t("integrationsView.courses.noLive")}
-              </p>
-              {course.extensions.length === 0 ? (
-                <small>{t("integrationsView.courses.noExtensions")}</small>
-              ) : (
-                <ul>
-                  {course.extensions.map((ext) => (
-                    <li key={`${ext.id}@${ext.version}`}>
-                      <span dir="ltr">
-                        {ext.id} {ext.version}
-                      </span>{" "}
-                      <Badge tone={COMPATIBILITY_TONE[ext.status]}>
-                        {t(
-                          `integrationsView.compat.${ext.status}` as MessageKey,
-                        )}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {course.extensions.some(
-                (ext) =>
-                  ext.status === "missing" || ext.status === "version_mismatch",
-              ) && (
-                <Notice tone="red">{t("integrationsView.courses.fix")}</Notice>
-              )}
-            </article>
-          ))
+          value.courses.map((course) => {
+            const blocked = course.extensions.some(
+              (ext) =>
+                ext.status === "missing" || ext.status === "version_mismatch",
+            );
+            return (
+              <article className="record" key={course.catalogId}>
+                <div className="split-line">
+                  <h3 dir="auto">{course.title}</h3>
+                  <Badge tone={blocked ? "red" : "green"}>
+                    {blocked
+                      ? t("integrationsView.courses.blocked")
+                      : t("integrationsView.courses.ready")}
+                  </Badge>
+                </div>
+                <p className="muted">
+                  {course.liveVersion
+                    ? t("integrationsView.courses.live", {
+                        version: course.liveVersion,
+                      })
+                    : t("integrationsView.courses.noLive")}
+                </p>
+                {course.extensions.length === 0 ? (
+                  <small>{t("integrationsView.courses.noExtensions")}</small>
+                ) : (
+                  <div
+                    className="table-wrap"
+                    tabIndex={0}
+                    role="region"
+                    aria-label={t("integrationsView.courses.table", {
+                      course: course.title,
+                    })}
+                  >
+                    <table className="data-table requirements-table">
+                      <caption className="sr-only">
+                        {t("integrationsView.courses.table", {
+                          course: course.title,
+                        })}
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">
+                            {t("integrationsView.extensions.name")}
+                          </th>
+                          <th scope="col">
+                            {t("integrationsView.courses.needs")}
+                          </th>
+                          <th scope="col">
+                            {t("integrationsView.courses.installed")}
+                          </th>
+                          <th scope="col">
+                            {t("integrationsView.courses.status")}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {course.extensions.map((ext) => {
+                          const installed =
+                            ext.status === "built_in"
+                              ? null
+                              : value.extensions.find(
+                                  (item) => item.id === ext.id,
+                                )?.version;
+                          return (
+                            <tr key={`${ext.id}@${ext.version}`}>
+                              <th scope="row">
+                                <bdi>{ext.id}</bdi>
+                              </th>
+                              <td>
+                                <bdi>{ext.version}</bdi>
+                              </td>
+                              <td>
+                                {ext.status === "built_in" ? (
+                                  t("integrationsView.compat.built_in")
+                                ) : installed ? (
+                                  <bdi>{installed}</bdi>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td>
+                                <Badge tone={COMPATIBILITY_TONE[ext.status]}>
+                                  {t(
+                                    `integrationsView.compat.${ext.status}` as MessageKey,
+                                  )}
+                                </Badge>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {blocked && (
+                  <Notice tone="red">
+                    {t("integrationsView.courses.fix")}
+                  </Notice>
+                )}
+              </article>
+            );
+          })
         )}
       </Card>
       <Card title={t("integrationsView.extensions.title")}>
@@ -182,10 +276,7 @@ function Details({ value }: { value: Integrations }) {
           </table>
         </div>
       </Card>
-      <Card
-        title={t("integrationsView.receipts.title")}
-        eyebrow={t("integrationsView.receipts.eyebrow")}
-      >
+      <Card title={t("integrationsView.receipts.title")}>
         {value.packageReceipts.length === 0 ? (
           <p>{t("integrationsView.receipts.empty")}</p>
         ) : (
@@ -222,7 +313,16 @@ function Details({ value }: { value: Integrations }) {
                     at: when(c.at),
                   })}{" "}
                   <Badge tone={c.errorCode ? "red" : "neutral"}>
-                    <span dir="ltr">{c.errorCode ?? c.result ?? unknown}</span>
+                    {c.errorCode ? (
+                      <span dir="ltr">{c.errorCode}</span>
+                    ) : c.result &&
+                      i18n.has(
+                        `courseUpdates.result.${c.result}` as MessageKey,
+                      ) ? (
+                      t(`courseUpdates.result.${c.result}` as MessageKey)
+                    ) : (
+                      <span dir="ltr">{c.result ?? unknown}</span>
+                    )}
                   </Badge>
                 </li>
               ))}
@@ -230,39 +330,49 @@ function Details({ value }: { value: Integrations }) {
           </>
         )}
       </Card>
-      <Card title={t("integrationsView.providers.title")}>
-        {value.providers.length === 0 ? (
-          <p>{t("integrationsView.providers.empty")}</p>
-        ) : (
-          <ul className="stack">
-            {value.providers.map((p) => (
-              <li key={p.adapterId}>
-                <bdi>{p.name || p.adapterId}</bdi>{" "}
-                <Badge
-                  tone={
-                    p.keyStatus === "working"
-                      ? "green"
-                      : p.keyStatus === "untested"
-                        ? "gold"
-                        : "red"
-                  }
-                >
-                  {t(
-                    `integrationsView.key.${["working", "rejected", "untested", "unreachable"].includes(p.keyStatus) ? p.keyStatus : "other"}` as MessageKey,
-                  )}
-                </Badge>{" "}
-                {p.testedAt && (
-                  <small>
-                    {t("integrationsView.providers.tested", {
-                      at: when(p.testedAt),
-                    })}
-                  </small>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <ProvidersSummary
+        providers={value.providers}
+        onOpenAiServices={onOpenAiServices}
+      />
     </>
+  );
+}
+
+/** AI connections are managed on AI services; this page only says whether they work and links
+ * there, instead of repeating the connection list in a second presentation. */
+function ProvidersSummary({
+  providers,
+  onOpenAiServices,
+}: {
+  providers: Integrations["providers"];
+  onOpenAiServices?: (() => void) | undefined;
+}) {
+  const t = useT();
+  const working = providers.filter((p) => p.keyStatus === "working").length;
+  return (
+    <Card
+      title={t("integrationsView.providers.title")}
+      actions={
+        onOpenAiServices && (
+          <Button onClick={onOpenAiServices}>
+            {t("integrationsView.providers.open")}
+            <ArrowRight size={16} aria-hidden="true" className="flip-rtl" />
+          </Button>
+        )
+      }
+    >
+      <p>
+        {providers.length === 0
+          ? t("integrationsView.providers.empty")
+          : working === providers.length
+            ? t("integrationsView.providers.allWorking", {
+                count: providers.length,
+              })
+            : t("integrationsView.providers.someFailing", {
+                count: providers.length,
+                failing: providers.length - working,
+              })}
+      </p>
+    </Card>
   );
 }

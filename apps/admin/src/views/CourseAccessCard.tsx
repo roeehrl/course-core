@@ -95,10 +95,7 @@ export function CourseAccessCard({
     (g) => g.catalogId === course.id,
   );
   return (
-    <Card
-      title={t("courseAccessCard.title", { course: course.title })}
-      eyebrow={t("courseAccessCard.eyebrow")}
-    >
+    <Card title={t("courseAccessCard.title", { course: course.title })}>
       <p className="muted">
         {i18n.rich(
           "courseAccessCard.intro",
@@ -115,9 +112,12 @@ export function CourseAccessCard({
         )}
       </div>
       {scoped.length === 0 ? (
-        <Notice tone="blue">
-          {t("courseAccessCard.noScoped", { role: scopedRole })}
-        </Notice>
+        // With no grant either, the empty list below says this once.
+        !(list.data && grants.length === 0) && (
+          <Notice tone="blue">
+            {t("courseAccessCard.noScoped", { role: scopedRole })}
+          </Notice>
+        )
       ) : (
         <form
           className="input-grid grant-form"
@@ -218,7 +218,9 @@ export function CourseAccessCard({
         <Notice tone="red">{peopleErrorMessage(list.error, t)}</Notice>
       ) : grants.length === 0 ? (
         <EmptyState title={t("courseAccessCard.empty.title")}>
-          {t("courseAccessCard.empty.body")}
+          {scoped.length === 0
+            ? t("courseAccessCard.noScoped", { role: scopedRole })
+            : t("courseAccessCard.empty.body")}
         </EmptyState>
       ) : (
         <div

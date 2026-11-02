@@ -63,5 +63,6 @@
   "aiChecks.title": "AI jobs that need a quality check",
   "aiChecks.body": "{count, plural, one {# AI job is on but hasn't passed the current quality checks, for example after an update.} two {# AI jobs are on but haven't passed the current quality checks, for example after an update.} other {# AI jobs are on but haven't passed the current quality checks, for example after an update.}} They keep working for learners. Run a check for each one here, or open AI services for details.",
   "aiChecks.cleared": "Every AI job that is on has passed the current quality checks or has an owner's approval.",
-  "aiChecks.open": "Open AI services"
+  "aiChecks.open": "Open AI services",
+  "open": "Open {page}"
 }

@@ -1,6 +1,5 @@
 {
   "title": "Move learners to a newer version",
-  "eyebrow": "Course versions",
   "intro": "Learners stay on the version they started, even after you publish a newer one. Move them here when a newer version fixes or improves something they should get. Nothing changes until you have seen exactly what happens to each learner and confirmed it.",
   "loading": "Loading versions and learners…",
   "notCompleted": "Not completed",

@@ -1,0 +1,245 @@
+{
+  "readiness": {
+    "generatedAt": "2026-11-02T10:39:11.219Z",
+    "overall": "warning",
+    "checks": [
+      {
+        "id": "database",
+        "status": "ok",
+        "facts": {
+          "postgresMajor": 17,
+          "latencyMs": 2,
+          "migrationsApplied": 103,
+          "migrationsExpected": 103,
+          "latestMigration": "103_demo_example.sql",
+          "migrationsCurrent": true
+        }
+      },
+      {
+        "id": "temporal",
+        "status": "ok",
+        "facts": {
+          "lastWorkerContactSeconds": 4,
+          "pendingEvents": 0,
+          "oldestPendingSeconds": null,
+          "quarantinedEvents": 0
+        }
+      },
+      {
+        "id": "sandbox",
+        "status": "warning",
+        "facts": {
+          "ready": true,
+          "reason": null,
+          "slowStarts": 1,
+          "lastSlowStartSeconds": 840
+        }
+      },
+      {
+        "id": "collector",
+        "status": "ok",
+        "facts": {
+          "enabled": true,
+          "tracing": false,
+          "queuedSpans": 0,
+          "exportedSpans": 0,
+          "droppedQueueFull": 0,
+          "droppedExportFailed": 0
+        }
+      },
+      {
+        "id": "version",
+        "status": "ok",
+        "facts": {
+          "coreVersion": "0.1.50",
+          "sdkVersion": "0.5.0",
+          "nodeVersion": "26.1.0",
+          "nodeSupported": true,
+          "postgresMajor": 17,
+          "postgresSupported": true,
+          "courseSchemaVersion": 1,
+          "installedExtensions": 1
+        }
+      },
+      {
+        "id": "backups",
+        "status": "warning",
+        "facts": {
+          "lastSnapshot": {
+            "outcome": "succeeded",
+            "code": null,
+            "finishedAt": "2026-11-02T10:14:11.219Z",
+            "durationSeconds": 3,
+            "encrypted": true,
+            "coreVersion": "0.1.50",
+            "tables": 84,
+            "rows": 1240,
+            "bytes": 2097152
+          },
+          "lastBackup": {
+            "outcome": "succeeded",
+            "code": null,
+            "finishedAt": "2026-11-02T05:39:11.219Z",
+            "durationSeconds": 41,
+            "encrypted": true,
+            "coreVersion": "0.1.50",
+            "tables": 84,
+            "rows": 1240,
+            "bytes": 2097152
+          },
+          "lastRestoreDrill": {
+            "outcome": "succeeded",
+            "code": null,
+            "finishedAt": "2026-10-24T10:39:11.219Z",
+            "durationSeconds": 95,
+            "encrypted": true,
+            "coreVersion": "0.1.50",
+            "tables": 84,
+            "rows": 1240,
+            "bytes": 2097152
+          },
+          "lastFailure": null
+        }
+      }
+    ],
+    "targets": {
+      "rpo": {
+        "targetMinutes": 60,
+        "currentMinutes": 25,
+        "status": "ok"
+      },
+      "rto": {
+        "targetMinutes": 60,
+        "lastDrillMinutes": 2,
+        "drillAgeDays": 9,
+        "drillMaxAgeDays": 7,
+        "status": "warning"
+      },
+      "encryption": {
+        "latestEncrypted": true,
+        "status": "ok"
+      }
+    }
+  },
+  "integrations": {
+    "runtime": {
+      "coreVersion": "0.1.50",
+      "sdkVersion": "0.5.0",
+      "courseSchemaVersion": 1
+    },
+    "extensions": [
+      {
+        "id": "sorting-visuals",
+        "version": "1.0.0",
+        "integrity": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "capabilities": ["visual.render"],
+        "platforms": ["web"],
+        "codeReady": true,
+        "priorBuilds": 1
+      }
+    ],
+    "courses": [
+      {
+        "catalogId": "00000000-0000-4000-8000-00000000d001",
+        "courseKey": "sorting",
+        "title": "Sorting, step by step",
+        "liveVersion": "1.0.0",
+        "liveDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "extensions": [
+          {
+            "id": "sorting-visuals",
+            "version": "1.0.0",
+            "execution": "browser",
+            "status": "compatible",
+            "servedByPriorBuild": false
+          }
+        ]
+      },
+      {
+        "catalogId": "00000000-0000-4000-8000-00000000d002",
+        "courseKey": "graphs",
+        "title": "A first look at graphs",
+        "liveVersion": "1.0.0",
+        "liveDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "extensions": []
+      }
+    ],
+    "packageReceipts": [
+      {
+        "id": "00000000-0000-4000-8000-00000000d101",
+        "at": "2026-10-22T10:39:11.219Z",
+        "courseKey": "sorting",
+        "version": "1.0.0",
+        "courseDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "packageSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sourceKind": "file",
+        "repository": null,
+        "tag": null,
+        "published": true
+      }
+    ],
+    "updateChecks": [
+      {
+        "id": "00000000-0000-4000-8000-00000000d201",
+        "at": "2026-11-02T04:39:11.219Z",
+        "courseKey": "sorting",
+        "trigger": "manual",
+        "result": "up_to_date",
+        "errorCode": null,
+        "version": "1.0.0",
+        "sourceKind": "file"
+      }
+    ],
+    "providers": [
+      {
+        "adapterId": "scripted",
+        "name": "Scripted example",
+        "keyStatus": "not_needed",
+        "testedAt": null
+      }
+    ],
+    "telemetry": {
+      "export": "off",
+      "tracing": false
+    }
+  },
+  "billing": {
+    "currency": "USD",
+    "timeZone": "UTC",
+    "statements": [
+      {
+        "id": "00000000-0000-4000-8000-00000000d301",
+        "providerLabel": "Scripted example",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-09-30",
+        "billedMicroUsd": 1250000,
+        "sourceNote": "Fictional September statement",
+        "recordedBy": "Demo operator",
+        "recordedAt": "2026-10-02T09:00:00.000Z",
+        "estimate": {
+          "chargedMicroUsd": 1100000,
+          "reportedMicroUsd": 1050000,
+          "calls": 42,
+          "unsettledMicroUsd": 0
+        },
+        "differenceMicroUsd": 150000
+      }
+    ],
+    "estimatesAreEstimates": true
+  },
+  "versionMoves": {
+    "versions": [
+      {
+        "releaseId": "sorting-release",
+        "version": "1.0.0",
+        "status": "published",
+        "learners": 2,
+        "newer": []
+      }
+    ],
+    "moves": [],
+    "permissions": {
+      "move": true
+    }
+  }
+}
