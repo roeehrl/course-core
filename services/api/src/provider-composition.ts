@@ -21,8 +21,8 @@ export const providerConfigurationSchema = z.strictObject({
      * absent: the reviewer role when bound, else the companion's own model. */
     checkJudgeRole: z.enum(['reviewer', 'supervisor', 'companion']).optional(),
     /** The longest wait from sending to the reply's first byte (provider-runtime.ts RESPONSE_BOUNDS):
-     * a streamed reply's first chunk (default 20 s), a whole reply's finished response (default: none
-     * below the 60 s call bound). Below the call bound. */
+     * a streamed reply's first chunk (default 20 s), a whole reply's finished response (companion
+     * default 45 s, check judge 20 s, other roles: none below the 60 s call bound). Below the call bound. */
     firstByteTimeoutMs: z.number().int().min(5_000).max(55_000).optional(),
     /** Streamed replies: the longest wait between two chunks (default 20 s). Below the call bound. */
     streamIdleTimeoutMs: z.number().int().min(5_000).max(55_000).optional(),

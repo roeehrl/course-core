@@ -141,7 +141,7 @@ export class ProviderRuntime {
     if (!binding || binding.modelId !== plan.modelId) throw new ProviderError('INVALID_CONFIG', { submission: 'not_sent' });
     if (request.systemInstruction.length + request.prompt.length > plan.maxInputCharacters) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
     const router = capped(this.router, binding), messages = [{ role: 'user' as const, text: request.prompt }];
-    const options = { signal, timeoutMs: 60000, firstByteTimeoutMs: plan.firstByteTimeoutMs ?? RESPONSE_BOUNDS.wholeFirstByteMs };
+    const options = { signal, timeoutMs: 60000, firstByteTimeoutMs: plan.firstByteTimeoutMs ?? RESPONSE_BOUNDS.judgeFirstByteMs };
     const base = { modelId: plan.modelId, accounting: { accountingKey }, systemInstruction: request.systemInstruction, messages, maxOutputTokens: plan.maxOutputTokens };
     if (plan.capability === 'structured_assessment') {
       const result = await router.assess({ ...base, outputSchema: CHECK_JUDGE_SCHEMA }, options);
@@ -339,15 +339,21 @@ function requestBytes(request: { systemInstruction?: string | undefined; message
 }
 /**
  * How long a role's call may wait for its reply, below the 60 s call bound every strategy sets.
- * A streamed reply (the companion) must start within `firstByteMs` and keep coming with no gap
- * longer than `idleMs`; a stall ends the call at once instead of at the call bound, so the learner
- * is told and the host can ask again. A whole companion reply (no draft open, or a quality check)
- * and the check judge's verdict get the same first-byte bound: their first byte is the finished
- * response, which a learner is waiting for. Other roles' whole replies (plans, reviews, research,
- * media) get one only when the role's binding sets it. A binding's `firstByteTimeoutMs` /
- * `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
+ * A streamed reply (the companion) must start within `streamFirstByteMs` and keep coming with no
+ * gap longer than `streamIdleMs`; a stall ends the call at once instead of at the call bound, so
+ * the learner is told and the host can ask again.
+ * A whole companion reply (no draft open, or a quality check) has a first-byte bound too, but its
+ * first byte is the finished response: the bound covers the model's thinking and the whole visible
+ * answer up to the output limit, so it is `wholeFirstByteMs`, longer than a stream's first chunk.
+ * (At 20 s, a quality check with a thinking Gemini tutor ended 2 of 18 whole replies as NO_RESPONSE,
+ * 2026-11-02; streamed, the same reply needs only its first chunk within 20 s.) It stays below the
+ * call bound, so a request that gets no reply at all still ends as NO_RESPONSE and the learner's
+ * question is asked once more.
+ * The check judge's verdict is short, so it keeps `judgeFirstByteMs`. Other roles' whole replies
+ * (plans, reviews, research, media) get one only when the role's binding sets it. A binding's
+ * `firstByteTimeoutMs` / `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
  */
-export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 20_000 } as const;
+export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 45_000, judgeFirstByteMs: 20_000 } as const;
 interface ResponseBinding { firstByteTimeoutMs?: number | undefined; streamIdleTimeoutMs?: number | undefined }
 function responseBounds(binding: RoleBinding, operation: string) {
   const bounds = binding as RoleBinding & ResponseBinding, streamed = operation === 'tutorStream';

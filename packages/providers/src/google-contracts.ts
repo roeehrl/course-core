@@ -17,7 +17,9 @@ export const GOOGLE_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'] as co
  * How much a thinking model may reason before it answers, sent as `thinkingConfig`. Gemini 3 and
  * later take a level; the Gemini 2.5 series takes a token budget instead (-1 dynamic, 0 off on
  * Flash). The API refuses a request with both (400), so exactly one is configured. Thought tokens
- * count toward `maxOutputTokens`: a low level leaves room for the visible answer. Absent, the
+ * count toward `maxOutputTokens`: a low level leaves room for the visible answer, and a budget
+ * above half a request's output limit is sent as half of it (google-response.ts `thinkingBudget`).
+ * A reply whose thoughts used the whole limit is refused with reason MAX_TOKENS_THINKING. Absent, the
  * model's own default applies (medium or high on current models). See
  * https://ai.google.dev/gemini-api/docs/generate-content/thinking
  */
