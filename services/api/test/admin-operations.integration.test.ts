@@ -189,6 +189,26 @@ describe("audit export and policy history (Q12)", () => {
     expect((await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit/export?format=csv&from=2020-01-01&to=${day}`)).json().error).toBe("AUDIT_EXPORT_RANGE_INVALID");
   });
 
+  it("filters the log to one course: its learners' events and staff events that name it", async () => {
+    const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: v1 })).json().id;
+    const other = (await call(owner, "POST", `/api/workspaces/${workspace}/releases`, course("1.0.0", (c) => { c.id = `other-${randomUUID()}`; }))).json().id;
+    expect((await call(owner, "POST", `/api/releases/${other}/publish`)).statusCode).toBe(200);
+    const otherCatalog = (await call(owner, "GET", "/api/admin/session")).json().courses.find((c: { id: string }) => c.id !== catalog).id as string;
+    const list = async (courseId?: string) => {
+      const response = await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?limit=200${courseId ? `&courseId=${courseId}` : ""}`);
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json().events as { type: string; enrollmentId: string | null }[];
+    };
+    const all = await list(), mine = await list(catalog), theirs = await list(otherCatalog);
+    expect(mine.some((e) => e.enrollmentId === enrollment)).toBe(true);
+    expect(theirs.some((e) => e.enrollmentId === enrollment)).toBe(false);
+    expect(all.length).toBeGreaterThan(mine.length);
+    expect(mine.every((e) => all.some((a) => a.type === e.type))).toBe(true);
+    // A course of another workspace, or none at all, matches nothing; a malformed id is refused.
+    expect(await list(randomUUID())).toEqual([]);
+    expect((await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?courseId=nope`)).statusCode).toBe(400);
+  });
+
   it("neutralises spreadsheet formulas in CSV cells", () => {
     const row = { sequence: "1", id: "e", at: "t", actorKind: "staff" as const, actor: "=HYPERLINK(\"x\")", type: "t", enrollmentId: null, payload: { a: "b,c" }, payloadWithheld: false };
     const [, line] = auditCsv([row]).split("\r\n");

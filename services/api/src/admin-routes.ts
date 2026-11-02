@@ -1141,6 +1141,8 @@ export function registerAdminRoutes(
           limit: z.coerce.number().int().min(1).max(200).default(50),
           actorKind: z.enum(["learner", "staff", "agent", "system"]).optional(),
           type: z.string().regex(/^[a-z][a-z0-9_.]{0,99}$/).optional(),
+          // Only events about this course of the workspace (the admin's "Course" filter).
+          courseId: uuid.optional(),
         }),
         request.query ?? {},
       );
