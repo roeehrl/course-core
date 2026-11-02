@@ -1,0 +1,17 @@
+{
+  "intro": "Every course in this workspace. Open one to manage its versions, learners and settings, or add another course.",
+  "add": "Add a course",
+  "listLabel": "Courses in this workspace",
+  "col.course": "Course",
+  "col.live": "Live version",
+  "col.learners": "Enrolled learners",
+  "col.updated": "Last updated",
+  "col.actions": "Actions",
+  "live.none": "None yet",
+  "unknown": "Not shown",
+  "open": "Open",
+  "openCourse": "Open {title}",
+  "current": "Open now",
+  "empty.title": "No courses yet",
+  "empty.body": "Add a course from a course package to get started."
+}

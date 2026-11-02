@@ -3,6 +3,7 @@ import { StructuredDraftEditor } from "../components/StructuredDraftEditor";
 import { LearnerPreview } from "../components/LearnerPreview";
 import { PublishImpact } from "../components/PublishImpact";
 import { InstallCourse } from "../components/InstallCourse";
+import { installAccess } from "../components/AddCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { VersionMoves } from "../components/VersionMoves";
@@ -65,12 +66,9 @@ export function CourseView({
   const canWrite = data.permissions.includes("course.write");
   const [installing, setInstalling] = useState(false);
   const [installPending, setInstallPending] = useState(false);
-  // Installing packages is an owner/administrator action on this course's workspace.
-  const canInstall =
-    client.mode === "connected" &&
-    Boolean(client.coursePackages && data.course.workspaceId) &&
-    canWrite &&
-    ["owner", "admin"].includes(data.role ?? "");
+  // Installing packages is an owner/administrator action on this course's workspace. Here it is
+  // for new versions of this course; adding another course is on the Courses page.
+  const canInstall = installAccess(client, data).allowed;
   function open(value: typeof dialog) {
     actions.clear();
     setDialog(value);
@@ -212,7 +210,7 @@ export function CourseView({
                   disabled={actions.pending}
                 >
                   <PackagePlus size={16} aria-hidden="true" />
-                  {t("courseView.install")}
+                  {t("courseView.installVersion")}
                 </Button>
               )}
               <Button
@@ -492,7 +490,7 @@ export function CourseView({
       )}
       {installing && data.course.workspaceId && (
         <Dialog
-          title={t("courseView.install")}
+          title={t("courseView.installVersion")}
           eyebrow={t("courseView.installDialog.eyebrow")}
           className="install-dialog"
           pending={installPending}

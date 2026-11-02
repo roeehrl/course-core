@@ -1,0 +1,7 @@
+{
+  "title": "Add a course",
+  "eyebrow": "Course package",
+  "intro": "Install a course package to add a course to this workspace. A package of a course the workspace already has adds a new version to that course.",
+  "reason.unavailable": "Adding courses is not available in this workspace.",
+  "reason.role": "Only workspace owners and administrators can add courses."
+}

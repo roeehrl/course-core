@@ -33,12 +33,18 @@ export function demoSession(role: DemoRole): AdminSession {
         title: "Sorting, step by step",
         description:
           "A public example course about order, comparisons and small, useful algorithms.",
+        liveVersion: "1.4.0",
+        learners: 3,
+        updatedAt: "2026-10-28T09:00:00.000Z",
       },
       {
         id: "graphs",
         title: "A first look at graphs",
         description:
           "A public example course about nodes, edges and finding a path.",
+        liveVersion: null,
+        learners: 0,
+        updatedAt: "2026-10-30T14:30:00.000Z",
       },
     ],
   };

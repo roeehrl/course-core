@@ -87,6 +87,12 @@ export const courseSummarySchema = z.object({
   role: text.optional(),
   /** Set when access comes from a course grant that ends at this time. */
   accessExpiresAt: z.string().max(64).optional(),
+  /** The version new learners get; null when none is live yet. Older servers omit it. */
+  liveVersion: text.nullable().optional(),
+  /** Learners enrolled now (active or paused). Only for roles that read enrollments. */
+  learners: z.number().int().nonnegative().optional(),
+  /** When the course last changed (its newest version). Older servers omit it. */
+  updatedAt: z.string().max(64).optional(),
 });
 export const sessionSchema = z.object({
   actor: z.object({

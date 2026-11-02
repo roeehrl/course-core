@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   Activity,
+  BookCopy,
   BookOpen,
   Cable,
   ClipboardCheck,
@@ -58,6 +59,8 @@ import { AdminSectionView } from "./views/AdminSectionView";
 import { ConceptMappingsView } from "./views/ConceptMappingsView";
 import { PlatformView } from "./views/PlatformView";
 import { IntegrationsView } from "./views/IntegrationsView";
+import { CoursesView } from "./views/CoursesView";
+import { AddCourseDialog, installAccess } from "./components/AddCourse";
 import { useI18n, useT, type AdminTranslator, type MessageKey } from "./i18n";
 import "./shell.css";
 
@@ -76,6 +79,13 @@ const navGroups = [
 ] as const satisfies readonly { id: string; titleKey: MessageKey }[];
 type NavGroupId = (typeof navGroups)[number]["id"];
 const views = [
+  // Every course in the workspace: the one page here that is not about the selected course.
+  {
+    id: "courses",
+    titleKey: "adminApp.nav.courses",
+    icon: BookCopy,
+    group: "course",
+  },
   {
     id: "overview",
     titleKey: "adminApp.nav.overview",
@@ -196,6 +206,9 @@ const views = [
   icon: unknown;
   group: NavGroupId;
 }[];
+/** Course picker values for the workspace entries (never a course id, which is a uuid or a slug). */
+const PICK_ADD = "__add-course";
+const PICK_MANAGE = "__manage-courses";
 /** A role code from the server as a label; unknown codes are shown as they are. */
 export function roleLabel(i18n: AdminTranslator, role: string) {
   const key = `adminApp.role.${role}` as MessageKey;
@@ -509,6 +522,14 @@ function CourseWorkspace({
     heading.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: "instant" });
   };
+  /** Opens a page from the course picker, which sits in the drawer on phones. */
+  const pickView = (id: ViewId) => {
+    if (drawerShown) {
+      afterDrawer.current = "heading";
+      setDrawerOpen(false);
+    }
+    openView(id);
+  };
   const navList = (onPick: (id: ViewId) => void) => (
     <nav aria-label={t("adminApp.navigation")} className="nav-links">
       {navGroups.map((group) => {
@@ -546,6 +567,16 @@ function CourseWorkspace({
   );
   const courseTitle = (id: string, title: string) =>
     id === data?.course.id ? data.course.title : title;
+  // Adding a course installs a package into the open course's workspace.
+  const install = installAccess(client, data);
+  const [adding, setAdding] = useState(false);
+  const startAdding = () => {
+    actions.clear();
+    // From the phone drawer: the drawer closes (focus returns to the menu button after the dialog).
+    afterDrawer.current = "menu";
+    setDrawerOpen(false);
+    setAdding(true);
+  };
   const coursePicker = (
     <div className="course-picker">
       <label htmlFor="course-select">{t("adminApp.course")}</label>
@@ -553,7 +584,13 @@ function CourseWorkspace({
         id="course-select"
         dir="auto"
         value={courseId}
-        onChange={(e) => onCourseChange(e.target.value)}
+        onChange={(e) => {
+          const value = e.target.value;
+          // The workspace entries act and leave the selected course as it is.
+          if (value === PICK_ADD) startAdding();
+          else if (value === PICK_MANAGE) pickView("courses");
+          else onCourseChange(value);
+        }}
         disabled={actions.pending}
       >
         {session.courses.map((course) => (
@@ -561,6 +598,12 @@ function CourseWorkspace({
             {courseTitle(course.id, course.title)}
           </option>
         ))}
+        <optgroup label={t("adminApp.switcher.actions")}>
+          {install.allowed && (
+            <option value={PICK_ADD}>{t("adminApp.switcher.add")}</option>
+          )}
+          <option value={PICK_MANAGE}>{t("adminApp.switcher.manage")}</option>
+        </optgroup>
       </select>
     </div>
   );
@@ -705,11 +748,18 @@ function CourseWorkspace({
             <div>
               {/* The course this page belongs to, in full (the pickers and the app bar cut long
                   titles short). */}
-              {currentCourse && (
-                <p className="eyebrow page-course" dir="auto">
-                  {courseTitle(currentCourse.id, currentCourse.title)}
-                </p>
-              )}
+              {view === "courses"
+                ? // A workspace page: it names the workspace, not the selected course.
+                  currentCourse?.workspaceTitle && (
+                    <p className="eyebrow page-course" dir="auto">
+                      {currentCourse.workspaceTitle}
+                    </p>
+                  )
+                : currentCourse && (
+                    <p className="eyebrow page-course" dir="auto">
+                      {courseTitle(currentCourse.id, currentCourse.title)}
+                    </p>
+                  )}
               <h1
                 tabIndex={-1}
                 ref={heading}
@@ -752,6 +802,19 @@ function CourseWorkspace({
             <ErrorState error={actions.loadError} onRetry={actions.refresh} />
           ) : data ? (
             <div key={view}>
+              {view === "courses" && (
+                <CoursesView
+                  courses={session.courses}
+                  currentCourseId={courseId}
+                  titleOf={(course) => courseTitle(course.id, course.title)}
+                  addReason={install.allowed ? undefined : t(install.reason)}
+                  pending={actions.pending}
+                  onAdd={startAdding}
+                  onOpen={(id) =>
+                    id === courseId ? openView("course") : onCourseChange(id)
+                  }
+                />
+              )}
               {view === "course" && (
                 <CourseView
                   data={data}
@@ -832,6 +895,16 @@ function CourseWorkspace({
             <span>{t("adminApp.footer.motto")}</span>
           </footer>
         </main>
+        {adding && data?.course.workspaceId && (
+          <AddCourseDialog
+            client={client}
+            workspaceId={data.course.workspaceId}
+            currentCourseId={courseId}
+            onClose={() => setAdding(false)}
+            onOpenCourse={onOpenCourse}
+            onCurrentChanged={() => void actions.resync()}
+          />
+        )}
       </div>
     </div>
   );

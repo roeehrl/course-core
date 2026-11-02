@@ -39,8 +39,8 @@ test("install a synthetic course package by upload, then review and publish it o
   const file = info.outputPath("ordering-1.1.0.course.tgz");
   writeFileSync(file, Buffer.from(fixture.update, "base64"));
 
-  await page.getByRole("button", { name: "Install course" }).click();
-  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await page.getByRole("button", { name: "Install a new version" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install a new version" });
   await expect(
     dialog.getByRole("radio", { name: "Upload package file" }),
   ).toBeChecked();
@@ -106,8 +106,8 @@ test("install a new course with approve-and-publish in one confirmed step, then 
   const fixture = await signIn(page);
   const file = info.outputPath("ordering-companion-1.0.0.course.tgz");
   writeFileSync(file, Buffer.from(fixture.newCourse, "base64"));
-  await page.getByRole("button", { name: "Install course" }).click();
-  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await page.getByRole("button", { name: "Install a new version" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install a new version" });
   await dialog.getByLabel("Course package file").setInputFiles(file);
   await dialog.getByRole("button", { name: "Inspect package" }).click();
   await expect(
@@ -146,8 +146,8 @@ test("installing and publishing an older version than the published one needs an
   const fixture = await signIn(page);
   const file = info.outputPath("ordering-0.9.0.course.tgz");
   writeFileSync(file, Buffer.from(fixture.older, "base64"));
-  await page.getByRole("button", { name: "Install course" }).click();
-  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await page.getByRole("button", { name: "Install a new version" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install a new version" });
   await dialog.getByLabel("Course package file").setInputFiles(file);
   await dialog.getByRole("button", { name: "Inspect package" }).click();
   await expect(dialog.getByText("This is an older version")).toBeVisible();
@@ -189,8 +189,8 @@ test("a course that brings its own activity script installs only after the files
   const fixture = await signIn(page);
   const file = info.outputPath("ordering-lab-1.0.0.course.tgz");
   writeFileSync(file, Buffer.from(fixture.supplied, "base64"));
-  await page.getByRole("button", { name: "Install course" }).click();
-  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await page.getByRole("button", { name: "Install a new version" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install a new version" });
   await dialog.getByLabel("Course package file").setInputFiles(file);
   await dialog.getByRole("button", { name: "Inspect package" }).click();
   await expect(
@@ -215,8 +215,8 @@ test("a GitHub link is refused clearly when it is not a GitHub release link", as
   page,
 }) => {
   await signIn(page);
-  await page.getByRole("button", { name: "Install course" }).click();
-  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await page.getByRole("button", { name: "Install a new version" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install a new version" });
   await dialog.getByRole("radio", { name: "From GitHub" }).check();
   await dialog
     .getByLabel("GitHub link")
@@ -238,8 +238,8 @@ test(
     const fixture = await signIn(page);
     const file = info.outputPath("ordering-1.1.0.course.tgz");
     writeFileSync(file, Buffer.from(fixture.update, "base64"));
-    await page.getByRole("button", { name: "Install course" }).click();
-    const dialog = page.getByRole("dialog", { name: "Install course" });
+    await page.getByRole("button", { name: "Install a new version" }).click();
+    const dialog = page.getByRole("dialog", { name: "Install a new version" });
     await dialog.getByLabel("Course package file").setInputFiles(file);
 
     // A slow connection that then drops mid-upload: the request never reaches the server.

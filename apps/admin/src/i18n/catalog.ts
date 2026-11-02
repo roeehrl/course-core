@@ -4,6 +4,7 @@ import type { PartialCatalog } from "@course-core/i18n";
 import en_accommodationEditor from "./messages/en/accommodationEditor.json";
 import en_accountMenu from "./messages/en/accountMenu.json";
 import en_actionFeedback from "./messages/en/actionFeedback.json";
+import en_addCourse from "./messages/en/addCourse.json";
 import en_adminApp from "./messages/en/adminApp.json";
 import en_adminSectionView from "./messages/en/adminSectionView.json";
 import en_adminSections from "./messages/en/adminSections.json";
@@ -26,6 +27,7 @@ import en_courseAccessCard from "./messages/en/courseAccessCard.json";
 import en_coursePackages from "./messages/en/coursePackages.json";
 import en_courseUpdates from "./messages/en/courseUpdates.json";
 import en_courseView from "./messages/en/courseView.json";
+import en_coursesView from "./messages/en/coursesView.json";
 import en_demoClient from "./messages/en/demoClient.json";
 import en_demoHost from "./messages/en/demoHost.json";
 import en_demoPolicyClient from "./messages/en/demoPolicyClient.json";
@@ -114,6 +116,7 @@ import en_workspaceLocaleSetting from "./messages/en/workspaceLocaleSetting.json
 import he_accommodationEditor from "./messages/he/accommodationEditor.json";
 import he_accountMenu from "./messages/he/accountMenu.json";
 import he_actionFeedback from "./messages/he/actionFeedback.json";
+import he_addCourse from "./messages/he/addCourse.json";
 import he_adminApp from "./messages/he/adminApp.json";
 import he_adminSectionView from "./messages/he/adminSectionView.json";
 import he_adminSections from "./messages/he/adminSections.json";
@@ -136,6 +139,7 @@ import he_courseAccessCard from "./messages/he/courseAccessCard.json";
 import he_coursePackages from "./messages/he/coursePackages.json";
 import he_courseUpdates from "./messages/he/courseUpdates.json";
 import he_courseView from "./messages/he/courseView.json";
+import he_coursesView from "./messages/he/coursesView.json";
 import he_demoClient from "./messages/he/demoClient.json";
 import he_demoHost from "./messages/he/demoHost.json";
 import he_demoPolicyClient from "./messages/he/demoPolicyClient.json";
@@ -226,6 +230,7 @@ export const en = {
   accommodationEditor: en_accommodationEditor,
   accountMenu: en_accountMenu,
   actionFeedback: en_actionFeedback,
+  addCourse: en_addCourse,
   adminApp: en_adminApp,
   adminSectionView: en_adminSectionView,
   adminSections: en_adminSections,
@@ -248,6 +253,7 @@ export const en = {
   coursePackages: en_coursePackages,
   courseUpdates: en_courseUpdates,
   courseView: en_courseView,
+  coursesView: en_coursesView,
   demoClient: en_demoClient,
   demoHost: en_demoHost,
   demoPolicyClient: en_demoPolicyClient,
@@ -338,6 +344,7 @@ export const he: PartialCatalog<typeof en> = {
   accommodationEditor: he_accommodationEditor,
   accountMenu: he_accountMenu,
   actionFeedback: he_actionFeedback,
+  addCourse: he_addCourse,
   adminApp: he_adminApp,
   adminSectionView: he_adminSectionView,
   adminSections: he_adminSections,
@@ -360,6 +367,7 @@ export const he: PartialCatalog<typeof en> = {
   coursePackages: he_coursePackages,
   courseUpdates: he_courseUpdates,
   courseView: he_courseView,
+  coursesView: he_coursesView,
   demoClient: he_demoClient,
   demoHost: he_demoHost,
   demoPolicyClient: he_demoPolicyClient,

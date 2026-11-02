@@ -7,7 +7,7 @@
   "stat.awaiting": "ממתינות לבדיקה",
   "stat.decisions": "החלטות על גרסאות שצריך לקבל",
   "releases.title": "גרסאות הקורס",
-  "install": "התקנת קורס",
+  "installVersion": "התקנת גרסה חדשה",
   "newDraft": "טיוטה חדשה",
   "release.version": "גרסה {version}",
   "release.available": "זמינה ללומדים חדשים",

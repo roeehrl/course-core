@@ -312,6 +312,16 @@ describe("real admin access and catalog", () => {
         })
       ).statusCode,
     ).toBe(403);
+    // The session's course list counts enrolled learners only for roles that read enrollments.
+    const listed = async (who: Session) =>
+      (await req(who, "GET", "/api/admin/session"))
+        .json()
+        .courses.find((course: { id: string }) => course.id === catalogId);
+    const own = await listed(admin);
+    expect(own.learners).toBeGreaterThanOrEqual(1);
+    expect(Date.parse(own.updatedAt)).not.toBeNaN();
+    expect(own).toHaveProperty("liveVersion");
+    expect(await listed(author)).not.toHaveProperty("learners");
     expect((await snapshot(reviewer)).permissions).toContain("evidence.review");
     expect((await snapshot(reviewer)).permissions).not.toContain(
       "course.write",

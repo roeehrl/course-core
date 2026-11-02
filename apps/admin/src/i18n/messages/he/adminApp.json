@@ -48,5 +48,9 @@
   "navGroup.course": "הקורס",
   "navGroup.learners": "לומדים",
   "navGroup.rules": "כללים ו-AI",
-  "navGroup.system": "מערכת"
+  "navGroup.system": "מערכת",
+  "nav.courses": "קורסים",
+  "switcher.actions": "סביבת העבודה",
+  "switcher.add": "הוספת קורס…",
+  "switcher.manage": "ניהול קורסים"
 }

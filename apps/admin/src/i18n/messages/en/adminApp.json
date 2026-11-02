@@ -48,5 +48,9 @@
   "navGroup.course": "Course",
   "navGroup.learners": "Learners",
   "navGroup.rules": "Rules & AI",
-  "navGroup.system": "System"
+  "navGroup.system": "System",
+  "nav.courses": "Courses",
+  "switcher.actions": "Workspace",
+  "switcher.add": "Add a course…",
+  "switcher.manage": "Manage courses"
 }

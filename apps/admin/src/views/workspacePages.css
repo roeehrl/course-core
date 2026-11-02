@@ -414,3 +414,25 @@ details.setting-list bdi {
     white-space: normal;
   }
 }
+
+/* Courses: the workspace's course list. A course's workspace sits under its title, and the row's
+   Open button keeps to the end of a wide row. */
+.courses-table .courses-workspace {
+  display: block;
+  font-weight: 400;
+}
+.courses-table td.courses-actions {
+  width: 1%;
+  text-align: end;
+  white-space: nowrap;
+}
+.courses-table tbody th .badge {
+  vertical-align: middle;
+}
+@media (max-width: 699px) {
+  .courses-table td.courses-actions {
+    width: 100%;
+    padding-block-start: 8px;
+    text-align: start;
+  }
+}
