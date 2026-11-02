@@ -123,7 +123,8 @@ function Readiness({
 }
 
 function Targets({ report }: { report: Readiness }) {
-  const t = useT();
+  const i18n = useI18n();
+  const t = i18n.t;
   const { rpo, rto, encryption } = report.targets;
   return (
     <Card title={t("platformView.targets.title")}>
@@ -151,8 +152,22 @@ function Targets({ report }: { report: Readiness }) {
             {rto.lastDrillMinutes === null
               ? t("platformView.targets.rtoNone")
               : t("platformView.targets.rtoValue", {
-                  minutes: rto.lastDrillMinutes,
-                  days: rto.drillAgeDays ?? 0,
+                  // The exact length when the server sends it ("1 second"), the same figure
+                  // the Backups card shows; else the rounded-up minutes.
+                  duration:
+                    rto.lastDrillSeconds != null && rto.lastDrillSeconds < 60
+                      ? t("platformView.targets.seconds", {
+                          count: rto.lastDrillSeconds,
+                        })
+                      : t("platformView.targets.minutes", {
+                          count:
+                            rto.lastDrillSeconds != null
+                              ? Math.ceil(rto.lastDrillSeconds / 60)
+                              : rto.lastDrillMinutes,
+                        }),
+                  ago: i18n.relativeTime(-(rto.drillAgeDays ?? 0), "day", {
+                    numeric: "auto",
+                  }),
                 })}
           </dd>
         </div>

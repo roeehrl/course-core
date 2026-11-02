@@ -726,9 +726,11 @@ describe("AI services page", () => {
     const check = await screen.findByRole("region", {
       name: t("section.check"),
     });
-    expect(
-      within(check).getAllByText("gemini-9.0-flash")[0]!.closest("bdi"),
-    ).toHaveAttribute("dir", "ltr");
+    // The model by its name (the service's, else a readable form of the id), the id as its
+    // tooltip.
+    const model = within(check).getAllByTitle("gemini-9.0-flash")[0]!;
+    expect(model.tagName).toBe("BDI");
+    expect(model.textContent).toMatch(/^Gemini 9(\.0)? Flash$/);
     // Without the server's plan for the check, the page does not guess how many it runs.
     expect(
       within(check).queryByText(t("check.explain", { dialogues: 9 })),

@@ -18,8 +18,6 @@
   "card.used": "נוצלו",
   "card.state": "הניסיון הבא",
   "card.actions": "פעולות",
-  "card.usedUnlimited": "{used} (ללא הגבלה)",
-  "card.usedOf": "{used} מתוך {limit}",
   "card.granted": "{count, plural, one {ניסיון אחד נוסף באישור הצוות} other {# ניסיונות נוספים באישור הצוות}}",
   "card.full": "לא נשארו ניסיונות",
   "card.waiting": "המתנה עד {when}",
@@ -38,5 +36,7 @@
   "card.countFull": "{count, plural, one {אחת בלי ניסיונות} other {# בלי ניסיונות}}",
   "card.all": "{count, plural, one {הצגת נקודת הבקרה} other {הצגת כל # נקודות הבקרה}}",
   "card.fewer": "הצגת פחות",
-  "card.shown": "מוצגות {shown} מתוך {total}"
+  "card.shown": "מוצגות {shown} מתוך {total}",
+  "card.limit": "מגבלה",
+  "card.noLimit": "ללא הגבלה"
 }

@@ -18,5 +18,9 @@
   "approve": "Approve recovery registry",
   "copyDigest": "Copy fingerprint",
   "copyDigestFor": "Copy the fingerprint of {creator}",
-  "copied": "Copied"
+  "copied": "Copied",
+  "advanced": "Advanced (for developers): approve a new registry",
+  "advancedIntro": "Only needed when the course author sends a new recovery registry for this version, or this version has none approved yet. Paste the JSON file they provide; it replaces the approved revision.",
+  "placeholder": "Paste the registry JSON from the course author",
+  "reason.empty": "Paste a registry first."
 }

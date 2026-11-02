@@ -30,6 +30,7 @@ import { SpendingSection } from "./SpendingSection";
 import { CheckSection } from "./CheckSection";
 import { AdvancedSection } from "./AdvancedSection";
 import { SectionNav } from "../SectionNav";
+import { takeAiServicesTarget } from "./target";
 import "./aiServices.css";
 
 export interface AiData {
@@ -192,14 +193,24 @@ export function AiServicesPage({
     return handlers;
   }, []);
   const status = data ? pageStatus(data) : null;
+  const goTo = (section: SectionId | "advanced") => {
+    const target = document.getElementById(sectionAnchor(section));
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target?.scrollIntoView({ block: "start" });
+    target?.focus({ preventScroll: true });
+  };
   const jump =
     (section: SectionId | "advanced") => (event: React.MouseEvent) => {
       event.preventDefault();
-      const target = document.getElementById(sectionAnchor(section));
-      if (target instanceof HTMLDetailsElement) target.open = true;
-      target?.scrollIntoView({ block: "start" });
-      target?.focus({ preventScroll: true });
+      goTo(section);
     };
+  // Opened from another page's link to one section (target.ts): go there once it has loaded.
+  const hasData = Boolean(data);
+  useEffect(() => {
+    if (!hasData) return;
+    const section = takeAiServicesTarget();
+    if (section) goTo(section);
+  }, [hasData]);
   const issueList = (issues: Issue[]) => (
     <ul className="ai-issues">
       {issues.map((issue) => (

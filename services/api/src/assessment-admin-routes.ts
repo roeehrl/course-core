@@ -10,7 +10,7 @@ import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { adminPermissionMatrix, catalogFor, releasesFor, type Catalog, type ReleaseRow } from "./admin-routes.js";
 import { gradeDeterministic } from "./learning.js";
-import { DETERMINISTIC_ITEM_TYPES, reviewedRubric } from "./gates.js";
+import { DETERMINISTIC_ITEM_TYPES, gateItemIds, reviewedRubric } from "./gates.js";
 import { REVIEW_WINDOWS, sourceFreshness } from "./source-freshness.js";
 
 /**
@@ -70,9 +70,25 @@ async function liveFixtures(client: PoolClient, catalog: Catalog, assessmentId?:
       WHERE f.workspace_id=$1 AND f.course_key=$2 AND f.removed_at IS NULL AND ($3::text IS NULL OR f.assessment_id=$3) ORDER BY f.assessment_id,f.created_at,f.id LIMIT ${MAX_FIXTURES_PER_COURSE}`,
     [catalog.workspace_id, catalog.course_key, assessmentId ?? null])).rows;
 }
+/** The title of the lesson each question is asked in: the first lesson with it as a block, else
+ * the first lesson whose gate checks it. A question in no lesson has none. */
+export function lessonTitles(course: CourseManifest) {
+  const titles = new Map<string, string>();
+  const lessons = course.chapters.flatMap((chapter) => chapter.episodes);
+  for (const lesson of lessons)
+    for (const block of lesson.blocks)
+      if (block.type === "assessment" && !titles.has(block.assessmentId)) titles.set(block.assessmentId, lesson.title);
+  for (const lesson of lessons) {
+    const gate = lesson.gateId ? course.gates.find((g) => g.id === lesson.gateId) : undefined;
+    for (const id of gate ? gateItemIds(gate) : []) if (!titles.has(id)) titles.set(id, lesson.title);
+  }
+  return titles;
+}
 /** Course text and keys of one release's questions, for the editor. */
-function itemView(item: Assessment, course: CourseManifest, fixtures: FixtureRow[], editable: boolean) {
-  const base = { assessmentId: item.id, type: item.type, prompt: item.prompt, objectiveIds: item.objectiveIds, familyId: item.familyId, fixtures: fixtures.filter((f) => f.assessment_id === item.id).length };
+function itemView(item: Assessment, course: CourseManifest, fixtures: FixtureRow[], editable: boolean, lessons?: Map<string, string>) {
+  const lessonTitle = lessons?.get(item.id);
+  const base = { assessmentId: item.id, type: item.type, prompt: item.prompt, objectiveIds: item.objectiveIds, familyId: item.familyId, fixtures: fixtures.filter((f) => f.assessment_id === item.id).length,
+    ...(lessonTitle ? { lessonTitle } : {}) };
   if (item.type === "choice") return { ...base, kind: "key" as const, editable, options: item.options.map((o) => ({ id: o.id, text: o.text })), key: item.grading };
   if (item.type === "numeric" || item.type === "prediction" || item.type === "trace")
     return { ...base, kind: "key" as const, editable, ...(item.type === "trace" ? { steps: item.steps } : {}), key: item.grading };
@@ -165,7 +181,7 @@ export function registerAssessmentAdminRoutes(app: FastifyInstance, db: Database
       const course = release.server_bundle, editable = release.status === "draft", fixtures = await liveFixtures(client, catalog);
       return {
         release: { id: release.id, version: release.version, status: release.status, digest: release.digest, editable },
-        items: course.assessments.map((item) => itemView(item, course, fixtures, editable)),
+        items: (() => { const lessons = lessonTitles(course); return course.assessments.map((item) => itemView(item, course, fixtures, editable, lessons)); })(),
         rubrics: (course.rubrics ?? []).map((r) => ({ id: r.id, version: r.version, title: r.title, criteria: r.criteria.map(({ id, description, required }) => ({ id, description, required })),
           usedBy: course.assessments.filter((a) => reviewedRubric(course, a.id)?.rubricRef?.id === r.id).map((a) => a.id) })),
       };

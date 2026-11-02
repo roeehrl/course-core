@@ -72,7 +72,7 @@ test.describe("demo workspace", () => {
   test("policy and enrollments render in Hebrew, right to left, at phone and desktop widths", async ({
     page,
   }) => {
-    await page.goto("/admin/demo?locale=he");
+    await page.goto("/admin/demo/courses/sorting/releases?locale=he");
     await expectRightToLeft(page);
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
@@ -114,7 +114,7 @@ test.describe("demo workspace", () => {
   test("graded attempts: the policy is explained and an administrator allows one more attempt, in Hebrew at phone and desktop widths", async ({
     page,
   }) => {
-    await page.goto("/admin/demo?locale=he");
+    await page.goto("/admin/demo/courses/sorting/releases?locale=he");
     await expectRightToLeft(page);
     await openSection(page, "מדיניות והארכות", {});
     // The course setting, explained in plain words beside its two fields once the settings
@@ -127,7 +127,9 @@ test.describe("demo workspace", () => {
       "לכל נקודת בקרה יש 3 ניסיונות.",
     );
     const card = page.getByRole("region", { name: "ניסיונות לפי נקודת בקרה" });
-    await expect(card.getByRole("row").nth(2)).toContainText("3 מתוך 3");
+    await expect(card.getByRole("row").nth(2)).toContainText(
+      "33לא נשארו ניסיונות",
+    );
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
@@ -144,14 +146,14 @@ test.describe("demo workspace", () => {
     await expect(
       page.getByText("ניתן ניסיון נוסף. אפשר להתחיל אותו עכשיו."),
     ).toBeVisible();
-    await expect(card.getByRole("row").nth(2)).toContainText("3 מתוך 4");
+    await expect(card.getByRole("row").nth(2)).toContainText("34");
     await expectNoHorizontalOverflow(page);
   });
 
   test("policy and enrollments have no untranslated text under the pseudo-locale", async ({
     page,
   }) => {
-    await page.goto("/admin/demo?locale=en-XA");
+    await page.goto("/admin/demo/courses/sorting/releases?locale=en-XA");
     await openSection(page, pseudo("Policy & extensions"), {});
     await expect(page.locator(".page-intro")).toContainText(
       pseudo("Calendar deadlines decide when a learner must finish"),
@@ -347,7 +349,7 @@ test.describe("connected workspace", () => {
     page,
   }) => {
     await connected(page, "he");
-    await page.goto("/admin/");
+    await page.goto("/admin/courses/sorting/releases");
     await expectRightToLeft(page);
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
@@ -364,12 +366,10 @@ test.describe("connected workspace", () => {
           .getByRole("option", { name: "גישה לפי קורס", exact: true })
           .first(),
       ).toBeAttached();
+      // Course access is the course's own page, not part of the workspace's members.
       await expect(
         page.getByRole("heading", { name: /^גישה לקורס:/ }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: /ביטול הגישה של .*נועה כהן/ }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
 
@@ -383,6 +383,16 @@ test.describe("connected workspace", () => {
         .getByRole("dialog")
         .getByRole("button", { name: "ביטול", exact: true })
         .click();
+
+      await openSection(page, "גישה לקורס");
+      await expect(
+        page.getByRole("heading", { name: /^גישה לקורס:/ }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /ביטול הגישה של .*נועה כהן/ }),
+      ).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
 
       await openSection(page, "שיבוץ");
       await expect(page.getByText("הופעל על ידי הצוות")).toBeVisible();
@@ -402,7 +412,7 @@ test.describe("connected workspace", () => {
     page,
   }) => {
     await connected(page, "en-XA");
-    await page.goto("/admin/?locale=en-XA");
+    await page.goto("/admin/courses/sorting/releases?locale=en-XA");
     await openSection(page, pseudo("People & roles"), {});
     await expect(
       page.getByRole("heading", { name: pseudo("Workspace members") }),

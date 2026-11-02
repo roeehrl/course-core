@@ -209,5 +209,7 @@
   "area.study": "Studies",
   "area.supervision": "AI supervision",
   "area.supervisor": "Supervisor",
-  "area.workspace": "Workspace"
+  "area.workspace": "Workspace",
+  "filter.course": "Course",
+  "filter.course.all": "All courses"
 }

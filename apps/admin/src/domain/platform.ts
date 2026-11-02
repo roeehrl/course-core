@@ -114,6 +114,8 @@ export const readinessSchema = z.object({
     rto: z.object({
       targetMinutes: count,
       lastDrillMinutes: optionalCount,
+      /** The drill's exact length (newer servers): the minutes are rounded up. */
+      lastDrillSeconds: optionalCount.optional(),
       drillAgeDays: optionalCount,
       drillMaxAgeDays: count,
       status,
@@ -169,6 +171,8 @@ export const integrationsSchema = z.object({
                 "missing",
               ]),
               servedByPriorBuild: z.boolean(),
+              /** The trusted recovery generator serving this server extension, by integrity. */
+              servedByGenerator: label.nullish(),
             }),
           )
           .max(50),

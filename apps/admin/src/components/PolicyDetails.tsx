@@ -30,9 +30,11 @@ type BindingQuota = NonNullable<
 function WhyQuotas({
   quotas,
   scopes,
+  conceptTitles,
 }: {
   quotas: BindingQuota[];
   scopes: ScopePolicy[];
+  conceptTitles?: Record<string, string> | undefined;
 }) {
   const t = useT();
   const scopeNames = useScopeLabel();
@@ -88,7 +90,9 @@ function WhyQuotas({
                 {items.map((q, i) => (
                   <li key={`${q.conceptId ?? ""}:${i}`}>
                     {t("policyDetails.why.concept", {
-                      concept: q.conceptId ?? common.metric,
+                      concept: q.conceptId
+                        ? (conceptTitles?.[q.conceptId] ?? q.conceptId)
+                        : common.metric,
                       remaining: q.remaining,
                       limit: q.limit,
                     })}
@@ -116,7 +120,7 @@ export function ScopeDetails({
   actions?: ReactNode;
 }) {
   const t = useT();
-  const { when } = useFormatters();
+  const { whenUtc } = useFormatters();
   const scopeNames = useScopeLabel();
   const scopeLabel = (scopeId: string) =>
     scopeNames.byId(policy.scopes, scopeId);
@@ -146,7 +150,7 @@ export function ScopeDetails({
           <dd>
             <strong>
               {constraint.effectiveDeadline
-                ? when(constraint.effectiveDeadline)
+                ? whenUtc(constraint.effectiveDeadline)
                 : t("policyDetails.effective.none")}
             </strong>
           </dd>
@@ -155,7 +159,7 @@ export function ScopeDetails({
           <dt>{t("policyDetails.softTarget")}</dt>
           <dd>
             {scope.targetDate
-              ? when(scope.targetDate)
+              ? whenUtc(scope.targetDate)
               : t("policyDetails.notSet")}
             <small>{t("policyDetails.softTarget.note")}</small>
           </dd>
@@ -165,7 +169,7 @@ export function ScopeDetails({
           <dd>
             {scope.hardDeadline
               ? t("policyDetails.hardDeadline.value", {
-                  date: when(scope.hardDeadline.at),
+                  date: whenUtc(scope.hardDeadline.at),
                   zone: scope.hardDeadline.timeZone,
                 })
               : t("policyDetails.hardDeadline.none")}
@@ -184,12 +188,12 @@ export function ScopeDetails({
                 })}
                 <small>
                   {t("policyDetails.window.anchor", {
-                    date: when(scope.window.anchorInstant),
+                    date: whenUtc(scope.window.anchorInstant),
                   })}
                 </small>
                 <small>
                   {t("policyDetails.window.end", {
-                    date: when(scope.window.resolvedDeadline),
+                    date: whenUtc(scope.window.resolvedDeadline),
                   })}
                 </small>
                 <small>
@@ -210,7 +214,7 @@ export function ScopeDetails({
           <dt>{t("policyDetails.ultimate")}</dt>
           <dd>
             {scope.ultimateDeadline
-              ? when(scope.ultimateDeadline)
+              ? whenUtc(scope.ultimateDeadline)
               : t("policyDetails.ultimate.none")}
           </dd>
         </div>
@@ -226,7 +230,7 @@ export function ScopeDetails({
           <div>
             <dt>{t("policyDetails.grace")}</dt>
             <dd>
-              {when(scope.submissionGraceUntil)}
+              {whenUtc(scope.submissionGraceUntil)}
               <small>{t("policyDetails.grace.note")}</small>
             </dd>
           </div>
@@ -241,7 +245,7 @@ export function ScopeDetails({
           <strong>
             <bdi>{scopeLabel(deadline.scopeId)}</bdi>
           </strong>
-          <small>{when(deadline.at)}</small>
+          <small>{whenUtc(deadline.at)}</small>
         </div>
       ))}
       {!constraint.bindingDeadlines.length && (
@@ -255,7 +259,7 @@ export function ScopeDetails({
               ? t("policyDetails.why.deadline", {
                   level: scopeNames.level(constraint.binding.deadline.level),
                   scope: scopeLabel(constraint.binding.deadline.scopeId),
-                  date: when(constraint.binding.deadline.at),
+                  date: whenUtc(constraint.binding.deadline.at),
                 })
               : t("policyDetails.why.noDeadline")}
           </p>
@@ -263,6 +267,7 @@ export function ScopeDetails({
             <WhyQuotas
               quotas={constraint.binding.quotas}
               scopes={policy.scopes}
+              conceptTitles={policy.conceptTitles}
             />
           )}
         </div>
@@ -277,7 +282,7 @@ export function ScopeDetails({
                 {" · "}
                 {t(`policyDetails.kind.${deadline.kind}` as MessageKey)}
               </span>
-              <small>{when(deadline.at)}</small>
+              <small>{whenUtc(deadline.at)}</small>
             </div>
           ))}
         </>
@@ -306,9 +311,12 @@ const QUOTAS_SHOWN = 6;
 export function ScopeQuotas({
   quotas,
   scopes,
+  conceptTitles,
 }: {
   quotas: Quota[];
   scopes: ScopePolicy[];
+  /** Concept names by id (newer servers); without one a concept is named by its id. */
+  conceptTitles?: Record<string, string> | undefined;
 }) {
   const i18n = useI18n();
   const t = i18n.t;
@@ -333,6 +341,15 @@ export function ScopeQuotas({
       ]);
   const groups = [...byScope].map(([scopeId, rows]) => ({ scopeId, rows }));
   const hidden = quotas.length - visible.size;
+  const conceptRows = [
+    ...new Map(
+      [...visible].flatMap((q) =>
+        q.conceptId && conceptTitles?.[q.conceptId]
+          ? [[q.conceptId, conceptTitles[q.conceptId]!] as const]
+          : [],
+      ),
+    ),
+  ];
   return (
     <div className="stack">
       <div
@@ -373,9 +390,13 @@ export function ScopeQuotas({
                     {metricLabel(t, q.metric)}
                     {q.conceptId && (
                       <small>
-                        {t("policyDetails.quotas.concept", {
-                          concept: q.conceptId,
-                        })}
+                        {conceptTitles?.[q.conceptId] ? (
+                          <bdi>{conceptTitles[q.conceptId]}</bdi>
+                        ) : (
+                          t("policyDetails.quotas.concept", {
+                            concept: q.conceptId,
+                          })
+                        )}
                       </small>
                     )}
                   </th>
@@ -389,6 +410,12 @@ export function ScopeQuotas({
           ))}
         </table>
       </div>
+      {/* The concepts' ids, for support: the table names them. */}
+      {conceptRows.length > 0 && (
+        <TechnicalDetails
+          rows={conceptRows.map(([conceptId, title]) => [title, conceptId])}
+        />
+      )}
       {(hidden > 0 || all) && quotas.length > QUOTAS_SHOWN && (
         <div className="policy-more">
           <Button

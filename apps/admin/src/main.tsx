@@ -15,11 +15,14 @@ const EmbeddedInspector = lazy(() =>
 import "./styles.css";
 import { installImeSubmitGuard } from "./client/imeGuard";
 import { installTableCellLabels } from "./client/tableLabels";
+import { installScrollFades } from "./client/scrollFades";
 
 // An Enter that commits IME composition never submits a form (I06).
 installImeSubmitGuard();
 // Phones show tables as cards; each value is labelled with its column name.
 installTableCellLabels();
+// Rows of tabs that scroll sideways fade at the edge where there is more.
+installScrollFades();
 function Opening({ demo }: { demo?: boolean }) {
   const t = useT();
   return <p>{t(demo ? "main.openingDemo" : "main.openingInspector")}</p>;
@@ -31,7 +34,7 @@ createRoot(document.getElementById("root")!).render(
         <Suspense fallback={<Opening />}>
           <EmbeddedInspector />
         </Suspense>
-      ) : /^\/admin\/demo\/?$/.test(window.location.pathname) ? (
+      ) : /^\/admin\/demo(\/.*)?$/.test(window.location.pathname) ? (
         <Suspense fallback={<Opening demo />}>
           <DemoHost />
         </Suspense>

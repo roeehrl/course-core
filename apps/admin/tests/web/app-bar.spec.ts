@@ -38,7 +38,7 @@ const TABLETS = [
 ];
 
 async function open(page: Page, locale: Locale) {
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
   await expect(page.locator("html")).toHaveAttribute(
     "dir",
     locale === "he" ? "rtl" : "ltr",
@@ -77,7 +77,9 @@ const active = (page: Page) =>
 
 /** Tabs forward and backward past both ends; focus never leaves the drawer. */
 async function expectFocusTrapped(page: Page, drawer: Locator) {
-  const count = await drawer.locator("button:not([disabled]), select").count();
+  const count = await drawer
+    .locator("button:not([disabled]), select, a[href]")
+    .count();
   for (const key of ["Tab", "Shift+Tab"])
     for (let step = 0; step < count + 2; step++) {
       await page.keyboard.press(key);
@@ -109,9 +111,11 @@ for (const locale of ["en", "he"] as const)
       await expect(toggle).toHaveAttribute("aria-haspopup", "dialog");
       await expect(toggle).toHaveAttribute("aria-expanded", "false");
       await expect(bar.locator(".app-bar-mark")).toBeVisible();
-      await expect(bar.locator(".app-bar-title strong")).toHaveText(
-        text.course,
-      );
+      // Phones name the section in the bar; tablets show the breadcrumb (below).
+      if (phone)
+        await expect(bar.locator(".app-bar-title strong")).toHaveText(
+          text.course,
+        );
       const barBox = await box(bar);
       expect(barBox.y).toBe(0);
       expect(barBox.height).toBeLessThanOrEqual(64);
@@ -127,13 +131,21 @@ for (const locale of ["en", "he"] as const)
         expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(size.width);
         expect(controlBox.height).toBeGreaterThanOrEqual(44);
       }
-      // Tablets keep the course picker in the bar; phones name the course under the section.
+      // Tablets show the breadcrumb (with the course switcher) in the bar; phones name the
+      // course under the section.
       if (phone) {
-        await expect(bar.locator("#course-select")).toHaveCount(0);
+        await expect(bar.locator(".course-switcher")).toHaveCount(0);
         await expect(bar.locator(".app-bar-title small")).toHaveText(
           text.courseTitle,
         );
-      } else await expect(bar.locator("#course-select")).toBeVisible();
+      } else {
+        await expect(
+          bar.locator(".breadcrumb .course-switcher-button"),
+        ).toBeVisible();
+        await expect(bar.locator(".breadcrumb [aria-current=page]")).toHaveText(
+          text.course,
+        );
+      }
 
       // The page heading is in the first screen, right under the bar, without scrolling.
       expect(await scrollY(page)).toBe(0);
@@ -183,8 +195,9 @@ for (const locale of ["en", "he"] as const)
       expect(drawerBox.y).toBe(0);
       expect(drawerBox.height).toBe(size.height);
       expect(drawerBox.width).toBeLessThan(size.width - 40);
-      // On phones the course picker is the drawer's first control.
-      await expect(drawer.locator("#course-select")).toHaveCount(phone ? 1 : 0);
+      // The course card at the top of the drawer: back to every course, and the switcher.
+      await expect(drawer.locator(".level-course .level-back")).toBeVisible();
+      await expect(drawer.locator(".course-switcher-button")).toBeVisible();
       // The page behind is inert and does not move.
       expect(
         await toggle.evaluate((element) => {
@@ -227,9 +240,11 @@ for (const locale of ["en", "he"] as const)
       await expect(drawer).toHaveCount(0);
       await expect(heading).toHaveText(text.learners);
       await expect(heading).toBeFocused();
-      await expect(bar.locator(".app-bar-title strong")).toHaveText(
-        text.learners,
-      );
+      await expect(
+        bar.locator(
+          phone ? ".app-bar-title strong" : ".breadcrumb [aria-current=page]",
+        ),
+      ).toHaveText(text.learners);
       expect(await scrollY(page)).toBe(0);
       await expectNoHorizontalOverflow(page);
     }
@@ -246,7 +261,9 @@ test("wide windows keep the sidebar; a drawer left open closes when the window w
     await open(page, "en");
     await expect(page.locator(".sidebar .nav-links")).toBeVisible();
     await expect(page.locator(".nav-toggle")).toHaveCount(0);
-    await expect(page.locator(".topbar #course-select")).toBeVisible();
+    await expect(
+      page.locator(".topbar .breadcrumb .course-switcher-button"),
+    ).toBeVisible();
     await expectNoHorizontalOverflow(page);
   }
   await page.setViewportSize({ width: 1099, height: 900 });

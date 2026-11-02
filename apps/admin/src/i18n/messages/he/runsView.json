@@ -118,5 +118,5 @@
   "technical.context": "גרסת רשומת הלומד/ת",
   "technical.retryOf": "הרצה מחדש של",
   "technical.retriedAs": "הורצה מחדש בתור",
-  "event.other": "אירוע אחר ({code})"
+  "event.other": "אירוע אחר: {name}"
 }

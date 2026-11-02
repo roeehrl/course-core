@@ -25,7 +25,7 @@ async function shot(page: Page, name: string) {
 }
 
 async function open(page: Page, locale: "en" | "he") {
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
   await expect(page.locator("html")).toHaveAttribute(
     "dir",
     locale === "he" ? "rtl" : "ltr",

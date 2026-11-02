@@ -104,7 +104,7 @@ for (const locale of ["en", "he"] as const)
         },
       }),
     );
-    await page.goto(`/admin/?locale=${locale}`);
+    await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     const button = page.getByRole("button", { name: text.account });
     for (const size of SIZES) {

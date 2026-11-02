@@ -7,13 +7,13 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminApp } from "../src/AdminApp";
 import { PolicyView } from "../src/views/PolicyView";
 import { useWorkspace } from "../src/hooks/useAdmin";
 import { ErrorState } from "../src/components/ui";
 import { AdminError } from "../src/domain/errors";
-import { demo } from "./helpers";
+import { atCourse, demo } from "./helpers";
 import type {
   AdminClient,
   AdminSession,
@@ -21,6 +21,8 @@ import type {
 } from "../src/domain/contracts";
 
 describe("admin presentation workflows", () => {
+  // These workflows start on a course page, as a link to one would.
+  beforeEach(() => atCourse());
   it("renders loading and recovers from a failed session load", async () => {
     let reject!: (error: Error) => void;
     const client = demo();
@@ -142,9 +144,11 @@ describe("admin presentation workflows", () => {
   it("isolates per-course selection and renders genuine empty search states", async () => {
     render(<AdminApp client={demo()} />);
     await screen.findByRole("button", { name: "New draft" });
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Course" }),
-      "graphs",
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /^Switch course/ })[0]!,
+    );
+    await userEvent.click(
+      screen.getByRole("option", { name: "A first look at graphs" }),
     );
     await screen.findByText(
       "A public example course about nodes, edges and finding a path.",
@@ -257,7 +261,13 @@ describe("admin presentation workflows", () => {
   it("shows configuration absent and never offers a fake provider test", async () => {
     render(<AdminApp client={demo()} />);
     await screen.findByRole("button", { name: "New draft" });
-    await userEvent.click(screen.getByRole("button", { name: "AI services" }));
+    // AI services are about the whole workspace: back to every course, then the page.
+    await userEvent.click(
+      screen.getAllByRole("link", { name: "All courses" })[0]!,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "AI services" }),
+    );
     expect(
       screen.getByText(
         "This is the demo. AI services are set up on a connected server.",

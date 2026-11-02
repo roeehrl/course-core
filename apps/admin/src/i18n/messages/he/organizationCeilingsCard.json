@@ -47,5 +47,6 @@
   "summary.zone": "התאריכים נספרים לפי {zone}",
   "summary.extensions": "הארכות",
   "summary.extensionsOn": "קורסים יכולים להציע הארכות",
-  "summary.extensionsOff": "אף קורס לא יכול להציע הארכות"
+  "summary.extensionsOff": "אף קורס לא יכול להציע הארכות",
+  "denied": "רק לבעלים ולמנהלי סביבת העבודה יש גישה למגבלות הארגון."
 }

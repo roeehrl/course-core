@@ -81,7 +81,14 @@ function toLinks(rows: Row[], first: string, second: string): MappingLink[] {
 
 /** Staff-authored concept mappings between two courses. People write them; nothing is inferred.
  * Server authorization decides: only an owner or admin of both courses can save or retire. */
-export function ConceptMappingsView({ client }: { client: AdminClient }) {
+export function ConceptMappingsView({
+  client,
+  onOpenCourses,
+}: {
+  client: AdminClient;
+  /** Opens the Courses home, where a course is added. */
+  onOpenCourses?: () => void;
+}) {
   const t = useT();
   if (!client.conceptMappings)
     return (
@@ -91,10 +98,21 @@ export function ConceptMappingsView({ client }: { client: AdminClient }) {
         </EmptyState>
       </Card>
     );
-  return <MappingWorkspace port={client.conceptMappings} />;
+  return (
+    <MappingWorkspace
+      port={client.conceptMappings}
+      onOpenCourses={onOpenCourses}
+    />
+  );
 }
 
-function MappingWorkspace({ port }: { port: ConceptMappingPort }) {
+function MappingWorkspace({
+  port,
+  onOpenCourses,
+}: {
+  port: ConceptMappingPort;
+  onOpenCourses?: (() => void) | undefined;
+}) {
   const t = useT();
   const id = useId();
   const candidates = useRemote((signal) => port.candidates(signal), [port]);
@@ -121,9 +139,18 @@ function MappingWorkspace({ port }: { port: ConceptMappingPort }) {
       <Card title={t("conceptMappingsView.choose.title")}>
         <p className="muted">{t("conceptMappingsView.choose.body")}</p>
         {options.length < 2 ? (
-          <EmptyState title={t("conceptMappingsView.choose.empty.title")}>
-            {t("conceptMappingsView.choose.empty.body")}
-          </EmptyState>
+          <>
+            <EmptyState title={t("conceptMappingsView.choose.empty.title")}>
+              {t("conceptMappingsView.choose.empty.body")}
+            </EmptyState>
+            {onOpenCourses && (
+              <div className="button-row">
+                <Button onClick={onOpenCourses}>
+                  {t("conceptMappingsView.choose.empty.courses")}
+                </Button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="mapping-pickers">
             <Field

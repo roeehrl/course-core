@@ -87,7 +87,7 @@ async function expectFocusTrapped(page: Page, dialog: Locator) {
 }
 
 async function openConnected(page: Page, locale: "en" | "he") {
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/courses/sorting/releases?locale=${locale}`);
   await expect(page.locator("html")).toHaveAttribute(
     "dir",
     locale === "he" ? "rtl" : "ltr",
@@ -247,7 +247,7 @@ test("the language is chosen in the account menu, saved to the account and annou
   context,
 }) => {
   const mock = await mockConnectedAdmin(page, context);
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   const button = page.getByRole("button", { name: TEXT.en.account });
   await button.click();
   const group = page.getByRole("group", { name: "Language" });
@@ -277,7 +277,7 @@ test("signing out from the menu returns to the sign-in form", async ({
   context,
 }) => {
   const mock = await mockConnectedAdmin(page, context);
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await page.getByRole("button", { name: TEXT.en.account }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(
@@ -291,7 +291,7 @@ test("before any course exists, the first-run screen has the same header and acc
   context,
 }) => {
   await mockConnectedAdmin(page, context, { courses: false });
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await expect(page.locator(".startup-header")).toBeVisible();
   const button = page.getByRole("button", { name: TEXT.en.account });
   await button.click();
@@ -303,20 +303,23 @@ test("before any course exists, the first-run screen has the same header and acc
   await expect(button).toBeFocused();
 });
 
-test("on a tablet the top bar keeps the course picker and every action on one row", async ({
+test("on a tablet the top bar keeps the breadcrumb with the course switcher and every action on one row", async ({
   page,
   context,
 }) => {
   await page.setViewportSize({ width: 834, height: 1112 });
   await mockConnectedAdmin(page, context);
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await expect(page.locator(".notification-bell")).toBeVisible();
   const middle = async (locator: string) => {
     const box = (await page.locator(locator).boundingBox())!;
     return box.y + box.height / 2;
   };
   const row = await middle(".account-button");
-  for (const locator of ["#course-select", ".notification-bell"])
+  for (const locator of [
+    ".app-bar .course-switcher-button",
+    ".notification-bell",
+  ])
     expect(Math.abs((await middle(locator)) - row)).toBeLessThan(4);
   expect(
     await page.evaluate(

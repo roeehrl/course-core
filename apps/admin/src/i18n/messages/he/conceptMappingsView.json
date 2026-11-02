@@ -51,5 +51,6 @@
   "action.created": "נוצר",
   "action.revised": "עודכן",
   "action.retired": "הוצא משימוש",
-  "action.restored": "שוחזר"
+  "action.restored": "שוחזר",
+  "choose.empty.courses": "הוספה או פתיחה של קורס"
 }

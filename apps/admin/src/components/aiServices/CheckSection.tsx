@@ -19,6 +19,7 @@ import {
   type SectionState,
 } from "../../domain/aiServices";
 import type { SectionProps } from "./AiServicesPage";
+import { modelName, useModelName } from "./modelNames";
 import {
   ErrorSummary,
   Field,
@@ -98,6 +99,8 @@ export function isJobCheck(check: QualityCheck) {
 export function CheckSection(props: Props) {
   const text = useAiText();
   const { t } = text;
+  // Re-renders when the model lists bring the services' own model names.
+  useModelName();
   const { data, owner, reload, activate } = props;
   const draft = data.draft;
   const waiting =
@@ -173,7 +176,9 @@ export function CheckSection(props: Props) {
             {waiting.map((r) => (
               <li key={r.role}>
                 {jobName(t, r.role)} —{" "}
-                <Ltr className="mono">{r.remoteModel ?? r.modelId}</Ltr>
+                <bdi title={r.remoteModel ?? r.modelId}>
+                  {modelName(r.remoteModel ?? r.modelId)}
+                </bdi>
               </li>
             ))}
           </ul>
@@ -455,6 +460,8 @@ export function RoleChecks({
 }) {
   const text = useAiText();
   const { t } = text;
+  // Re-renders when the model lists bring the services' own model names.
+  useModelName();
   const keys = useRequestKeys();
   const latest = quality?.latest ?? null;
   const [check, setCheck] = useState<QualityCheck | null>(
@@ -573,7 +580,7 @@ export function RoleChecks({
                     {
                       amount: text.money(plan.estimateMicroUsd ?? 0),
                       count: plan.conversations,
-                      model: plan.judge?.remoteModel ?? "",
+                      model: modelName(plan.judge?.remoteModel ?? ""),
                     },
                   )}
                 </span>
@@ -746,6 +753,8 @@ function RunCheck(
 ) {
   const text = useAiText();
   const { t } = text;
+  // Re-renders when the model lists bring the services' own model names.
+  useModelName();
   const { data, port, workspaceId, reload, target, onFinished } = props;
   const draftId = target.kind === "draft" ? target.draft.id : null;
   const status: QualityStatus | null = data.quality;
@@ -846,7 +855,7 @@ function RunCheck(
                     {
                       amount: text.money(status.estimateMicroUsd),
                       count: status.conversations,
-                      model: status.judge?.remoteModel ?? "",
+                      model: modelName(status.judge?.remoteModel ?? ""),
                     },
                   )}
                 </p>

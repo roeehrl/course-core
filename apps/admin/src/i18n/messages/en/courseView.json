@@ -7,7 +7,7 @@
   "stat.awaiting": "Awaiting review",
   "stat.decisions": "Release decisions to make",
   "releases.title": "Course releases",
-  "install": "Install course",
+  "installVersion": "Install a new version",
   "newDraft": "New draft",
   "release.version": "Version {version}",
   "release.available": "Available to new learners",

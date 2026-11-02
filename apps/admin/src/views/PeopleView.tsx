@@ -12,7 +12,6 @@ import {
   type SignInReceipt,
 } from "../domain/people";
 import { useRemote } from "../hooks/useAdmin";
-import { CourseAccessCard } from "./CourseAccessCard";
 import {
   Badge,
   Button,
@@ -22,6 +21,7 @@ import {
   Field,
   Notice,
   SkeletonRows,
+  When,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT } from "../i18n";
@@ -60,7 +60,6 @@ export function PeopleView({
     <PeopleAdministration
       port={client.people}
       workspaceId={data.course.workspaceId}
-      course={{ id: data.course.id, title: data.course.title }}
     />
   );
 }
@@ -68,15 +67,13 @@ export function PeopleView({
 function PeopleAdministration({
   port,
   workspaceId,
-  course,
 }: {
   port: Port;
   workspaceId: string;
-  course: { id: string; title: string };
 }) {
   const i18n = useI18n();
   const t = i18n.t;
-  const { when, day } = useFormatters();
+  const { day } = useFormatters();
   const list = useRemote(
     (signal) => port.list(workspaceId, signal),
     [port, workspaceId],
@@ -391,9 +388,11 @@ function PeopleAdministration({
                       className="cell-date"
                       data-label={t("peopleView.column.lastSignIn")}
                     >
-                      {person.lastSignInAt
-                        ? when(person.lastSignInAt)
-                        : t("peopleView.never")}
+                      {person.lastSignInAt ? (
+                        <When iso={person.lastSignInAt} />
+                      ) : (
+                        t("peopleView.never")
+                      )}
                     </td>
                     {anyActions && (
                       <td className="row-actions" data-label="">
@@ -465,14 +464,6 @@ function PeopleAdministration({
           </table>
         </div>
       </Card>
-      {port.grants && port.grant && port.revokeGrant && (
-        <CourseAccessCard
-          port={port}
-          workspaceId={workspaceId}
-          course={course}
-          people={people}
-        />
-      )}
       {inviting && (
         <InviteDialog
           actorRole={actorRole}

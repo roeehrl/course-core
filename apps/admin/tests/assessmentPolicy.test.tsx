@@ -179,9 +179,11 @@ describe("graded attempts for one learner", () => {
     );
     const table = await screen.findByRole("table");
     const rows = within(table).getAllByRole("row");
-    expect(rows[1]).toHaveTextContent("Minimum2 of 2No attempts left");
-    expect(rows[2]).toHaveTextContent(/Maximum1 of 2Waiting until/);
-    expect(rows[3]).toHaveTextContent("Sum0 of 2Available");
+    // Used and Limit are separate columns.
+    expect(rows[0]).toHaveTextContent("CheckUsedLimitNext attempt");
+    expect(rows[1]).toHaveTextContent("Minimum22No attempts left");
+    expect(rows[2]).toHaveTextContent(/Maximum12Waiting until/);
+    expect(rows[3]).toHaveTextContent("Sum02Available");
     // Only checks the learner cannot attempt now offer the action.
     expect(within(rows[3]!).queryByRole("button")).toBeNull();
     await userEvent.click(
@@ -203,7 +205,7 @@ describe("graded attempts for one learner", () => {
     );
     expect(
       within(screen.getByRole("table")).getAllByRole("row")[1],
-    ).toHaveTextContent("Minimum2 of 3 1 allowed by staffAvailable");
+    ).toHaveTextContent("Minimum23 1 allowed by staffAvailable");
   });
   it("is read-only without the right to change policy, and says what to do on a refusal", async () => {
     const client = {

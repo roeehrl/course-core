@@ -161,6 +161,20 @@ function setup(view: UpdatesView = base, locale: "en" | "he" = "en") {
 }
 
 describe("course updates", () => {
+  it("says why an update source this host cannot offer is off", async () => {
+    setup({ ...base, directories: [], remoteFetch: "off" });
+    const folder = await screen.findByRole("radio", { name: /^Host folder/ });
+    expect(folder).toBeDisabled();
+    expect(folder).toHaveAccessibleDescription(
+      "No package directories are configured on this host.",
+    );
+    expect(
+      screen.getByRole("radio", { name: /^GitHub release/ }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/This server does not download from the internet/),
+    ).toBeVisible();
+  });
   it("saves a host-folder source by directory id and relative path", async () => {
     const { courseUpdates } = setup();
     await userEvent.click(

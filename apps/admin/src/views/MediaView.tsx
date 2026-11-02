@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import {
+  ArrowRight,
   BookMarked,
   CircleSlash,
   Clapperboard,
@@ -41,6 +42,7 @@ import {
   TechnicalDetails,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { setAiServicesTarget } from "../components/aiServices/target";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
@@ -146,9 +148,12 @@ function KindBadge({ kind }: { kind: MediaKind }) {
 export function MediaView({
   data,
   client,
+  onOpenAiServices,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
+  /** Opens AI services (a media model is chosen under its Models for each job). */
+  onOpenAiServices?: () => void;
 }) {
   const t = useT();
   const published = data.releases.filter((r) => r.state === "published");
@@ -173,11 +178,10 @@ export function MediaView({
     );
   return (
     <div className="page-stack">
-      {/* The page's standing rule, as its introduction rather than a second banner. */}
-      <p className="cv-intro">
-        <strong>{t("mediaView.reviewed.title")}</strong>{" "}
+      {/* The page's standing rule, introduced the way Research sources introduces its own. */}
+      <Notice tone="blue" title={t("mediaView.reviewed.title")}>
         {t("mediaView.reviewed.body")}
-      </p>
+      </Notice>
       {published.length > 1 && (
         <div className="field">
           <label htmlFor="media-release">{t("mediaView.release.label")}</label>
@@ -199,7 +203,12 @@ export function MediaView({
           </select>
         </div>
       )}
-      <ReleaseMedia key={releaseId} port={client.media} releaseId={releaseId} />
+      <ReleaseMedia
+        key={releaseId}
+        port={client.media}
+        releaseId={releaseId}
+        onOpenAiServices={onOpenAiServices}
+      />
     </div>
   );
 }
@@ -207,9 +216,11 @@ export function MediaView({
 function ReleaseMedia({
   port,
   releaseId,
+  onOpenAiServices,
 }: {
   port: MediaAdminPort;
   releaseId: string;
+  onOpenAiServices?: (() => void) | undefined;
 }) {
   const t = useT();
   const i18n = useI18n();
@@ -240,12 +251,13 @@ function ReleaseMedia({
         {command.message && <Notice tone="green">{command.message}</Notice>}
         {command.error !== undefined && <CommandError error={command.error} />}
       </div>
-      {!lib.liveGenerationVerified && (
+      {/* Only a configured model can be unverified: with none, the provider card says what to do. */}
+      {!lib.liveGenerationVerified && (lib.provider || lib.imageProvider) && (
         <Notice tone="gold" title={t("mediaView.unverified.title")}>
           {t("mediaView.unverified.body")}
         </Notice>
       )}
-      <ProviderCards library={lib} />
+      <ProviderCards library={lib} onOpenAiServices={onOpenAiServices} />
       <ClipCard library={lib} />
       <Card
         eyebrow={t("mediaView.title")}
@@ -402,15 +414,30 @@ const clipsReady = (library: MediaLibrary) =>
 const BILLING = new Set(["per_output_second", "per_image", "per_request"]);
 type ProviderPlan = NonNullable<MediaLibrary["provider"]>;
 /** The media models: the media role's own, and an image model bound beside a video model. */
-function ProviderCards({ library }: { library: MediaLibrary }) {
+function ProviderCards({
+  library,
+  onOpenAiServices,
+}: {
+  library: MediaLibrary;
+  onOpenAiServices?: (() => void) | undefined;
+}) {
   return (
     <>
-      <ProviderCard plan={library.provider} />
+      <ProviderCard
+        plan={library.provider}
+        onOpenAiServices={onOpenAiServices}
+      />
       {library.imageProvider && <ProviderCard plan={library.imageProvider} />}
     </>
   );
 }
-function ProviderCard({ plan: p }: { plan: ProviderPlan | null }) {
+function ProviderCard({
+  plan: p,
+  onOpenAiServices,
+}: {
+  plan: ProviderPlan | null;
+  onOpenAiServices?: (() => void) | undefined;
+}) {
   const t = useT();
   const i18n = useI18n();
   if (!p)
@@ -420,6 +447,17 @@ function ProviderCard({ plan: p }: { plan: ProviderPlan | null }) {
         title={t("mediaView.provider.none.title")}
       >
         <p className="research-empty">{t("mediaView.provider.none.body")}</p>
+        {onOpenAiServices && (
+          <Button
+            onClick={() => {
+              setAiServicesTarget("models");
+              onOpenAiServices();
+            }}
+          >
+            {t("mediaView.provider.none.open")}
+            <ArrowRight size={16} aria-hidden="true" className="flip-rtl" />
+          </Button>
+        )}
       </Card>
     );
   const video = p.kind === "video";

@@ -34,7 +34,7 @@ const one = (text: string) =>
 
 async function openAiServices(page: Page, locale: "en" | "he") {
   const nav = catalog(locale, "adminApp");
-  await page.goto(`/admin/?locale=${locale}`);
+  await page.goto(`/admin/ai-services?locale=${locale}`);
   await (
     await workspaceNav(page)
   )

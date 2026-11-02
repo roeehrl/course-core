@@ -23,7 +23,7 @@ test("an Enter that commits IME composition does not submit the sign-in form", a
     logins.push(route.request().postDataJSON());
     return route.fulfill({ status: 401, json: { error: "LOGIN_FAILED" } });
   });
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   const form = page.getByRole("form", {
     name: "Sign in with your username and password",
   });

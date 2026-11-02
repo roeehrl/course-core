@@ -118,5 +118,5 @@
   "technical.context": "Learner record version",
   "technical.retryOf": "Retry of run",
   "technical.retriedAs": "Retried as run",
-  "event.other": "Other event ({code})"
+  "event.other": "Other event: {name}"
 }

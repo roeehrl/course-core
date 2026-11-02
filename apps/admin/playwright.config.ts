@@ -21,6 +21,9 @@ export default defineConfig({
   use: {
     baseURL: origin,
     trace: "retain-on-failure",
+    // Times show in the browser's own zone (i18n useFormatters); pinned so expected text is the
+    // same on every machine.
+    timezoneId: "UTC",
     screenshot: "only-on-failure",
   },
   webServer: {

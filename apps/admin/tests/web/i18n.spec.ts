@@ -69,7 +69,7 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
   await page.route("**/api/admin/courses/sorting", (route) =>
     route.fulfill({ json: workspace }),
   );
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await expectNoModeBadge(page);
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expectNoHorizontalOverflow(page);
@@ -120,7 +120,7 @@ test("the signed-out sign-in screen switches to Hebrew without horizontal overfl
   await page.route("**/auth/options", (route) =>
     route.fulfill({ json: { loginCodes: true } }),
   );
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await page.getByLabel("Language").selectOption("he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(
@@ -140,10 +140,10 @@ test("the en-XA pseudo-locale marks every translated string", async ({
   await page.route("**/auth/options", (route) =>
     route.fulfill({ json: { loginCodes: false } }),
   );
-  await page.goto("/admin/?locale=ar-XB");
+  await page.goto("/admin/courses/sorting/releases?locale=ar-XB");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.locator("html")).toHaveAttribute("lang", "ar-XB");
-  await page.goto("/admin/?locale=en-XA");
+  await page.goto("/admin/courses/sorting/releases?locale=en-XA");
   await expect(page.getByRole("heading", { level: 2 })).toHaveText(/^⟦.+~⟧$/);
   await expectNoHorizontalOverflow(page);
 });

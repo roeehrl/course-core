@@ -79,7 +79,7 @@ function OverviewStat({
 }
 
 /** One count in a list: the row opens its page when it can; a zero is quiet. */
-function CountRow({
+export function CountRow({
   label,
   count,
   tone = "gold",
@@ -117,7 +117,10 @@ function CountRow({
   );
 }
 
-const queueKeys: Record<keyof CourseOverview["approvalQueue"], MessageKey> = {
+export const queueKeys: Record<
+  keyof CourseOverview["approvalQueue"],
+  MessageKey
+> = {
   writtenAnswers: "overviewView.queue.writtenAnswers",
   secondOpinions: "overviewView.queue.secondOpinions",
   gateReviews: "overviewView.queue.gateReviews",
@@ -130,14 +133,11 @@ const queueKeys: Record<keyof CourseOverview["approvalQueue"], MessageKey> = {
 export function OverviewView({
   data,
   client,
-  onOpenAiServices,
   onOpenView,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
-  /** Opens the AI services page. */
-  onOpenAiServices?: () => void;
-  /** Opens another workspace page (the queues and figures link to theirs). */
+  /** Opens another page (the queues and figures link to theirs). */
   onOpenView?: (view: OverviewTarget) => void;
 }) {
   const t = useT();
@@ -149,28 +149,12 @@ export function OverviewView({
         </EmptyState>
       </Card>
     );
-  const aiServices =
-    client.mode === "connected" &&
-    data.permissions.includes("provider.configure") &&
-    data.course.workspaceId &&
-    client.aiServices
-      ? { port: client.aiServices, workspaceId: data.course.workspaceId }
-      : null;
   return (
-    <>
-      {aiServices && (
-        <AiChecks
-          port={aiServices.port}
-          workspaceId={aiServices.workspaceId}
-          onOpen={onOpenAiServices}
-        />
-      )}
-      <Overview
-        port={client.overview}
-        catalogId={data.course.id}
-        onOpenView={onOpenView}
-      />
-    </>
+    <Overview
+      port={client.overview}
+      catalogId={data.course.id}
+      onOpenView={onOpenView}
+    />
   );
 }
 
@@ -180,7 +164,7 @@ export function OverviewView({
  * them off. Shown to people who can set up AI services; hidden when there is nothing to flag or
  * the status can't be read (the AI services page says why).
  */
-function AiChecks({
+export function AiChecks({
   port,
   workspaceId,
   onOpen,
@@ -428,44 +412,53 @@ function Overview({
           </ul>
         </Card>
       )}
-      {o.supervisorHealth && (
-        <Card title={t("overviewView.health.title")}>
-          {!!o.supervisorHealth.uncheckedCallsLast7Days && (
-            <Notice tone="gold" title={t("overviewView.health.uncheckedTitle")}>
-              {t("overviewView.health.uncheckedBody", {
-                count: o.supervisorHealth.uncheckedCallsLast7Days,
-              })}
-            </Notice>
-          )}
-          <p>
-            {o.supervisorHealth.oldestOpenJobAgeSeconds === null
-              ? t("overviewView.health.failed", {
-                  count: o.supervisorHealth.failedLast24h,
-                })
-              : t("overviewView.health.failedWithOldest", {
-                  count: o.supervisorHealth.failedLast24h,
-                  minutes: Math.round(
-                    o.supervisorHealth.oldestOpenJobAgeSeconds / 60,
-                  ),
-                })}
-          </p>
-          <ul className="count-list">
-            {Object.entries(o.supervisorHealth.jobsByState).map(
-              ([state, n]) => (
-                <CountRow
-                  key={state}
-                  tone={state === "failed" ? "red" : "neutral"}
-                  label={label(
-                    `overviewView.jobState.${state}`,
-                    state.replaceAll("_", " "),
-                  )}
-                  count={n}
-                />
-              ),
-            )}
-          </ul>
-        </Card>
-      )}
     </div>
+  );
+}
+
+/** How the workspace's AI supervision is doing (failed and waiting jobs, unchecked calls): about
+ * every course, so the Courses home shows it rather than one course's overview. */
+export function SupervisorHealthCard({
+  health,
+}: {
+  health: NonNullable<CourseOverview["supervisorHealth"]>;
+}) {
+  const t = useT();
+  const i18n = useI18n();
+  const label = (key: string, fallback: string) =>
+    i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
+  return (
+    <Card title={t("overviewView.health.title")}>
+      {!!health.uncheckedCallsLast7Days && (
+        <Notice tone="gold" title={t("overviewView.health.uncheckedTitle")}>
+          {t("overviewView.health.uncheckedBody", {
+            count: health.uncheckedCallsLast7Days,
+          })}
+        </Notice>
+      )}
+      <p>
+        {health.oldestOpenJobAgeSeconds === null
+          ? t("overviewView.health.failed", {
+              count: health.failedLast24h,
+            })
+          : t("overviewView.health.failedWithOldest", {
+              count: health.failedLast24h,
+              minutes: Math.round(health.oldestOpenJobAgeSeconds / 60),
+            })}
+      </p>
+      <ul className="count-list">
+        {Object.entries(health.jobsByState).map(([state, n]) => (
+          <CountRow
+            key={state}
+            tone={state === "failed" ? "red" : "neutral"}
+            label={label(
+              `overviewView.jobState.${state}`,
+              state.replaceAll("_", " "),
+            )}
+            count={n}
+          />
+        ))}
+      </ul>
+    </Card>
   );
 }

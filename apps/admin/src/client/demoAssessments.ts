@@ -62,6 +62,29 @@ const explanationRubric = (): Rubric => ({
 /** Public fictional questions for the demo courses: one of each kind the view shows. */
 function demoItems(courseId: string): AssessmentItem[] {
   const graphs = courseId === "graphs";
+  // The fictional lesson each question is asked in.
+  const lessons: Record<string, string> = graphs
+    ? {
+        "first-choice": "Neighbours and edges",
+        "count-steps": "Neighbours and edges",
+        "trace-passes": "Breadth-first search",
+        "why-it-works": "Breadth-first search",
+        "repair-loop": "Writing a neighbour list",
+      }
+    : {
+        "first-choice": "Insertion sort by hand",
+        "count-steps": "Insertion sort by hand",
+        "trace-passes": "Tracing each pass",
+        "why-it-works": "Why it works",
+        "repair-loop": "Fixing a sort",
+      };
+  return demoItemList(graphs).map((item) =>
+    lessons[item.assessmentId]
+      ? { ...item, lessonTitle: lessons[item.assessmentId] }
+      : item,
+  );
+}
+function demoItemList(graphs: boolean): AssessmentItem[] {
   return [
     {
       assessmentId: "first-choice",

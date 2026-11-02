@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
-import { Button, Card, Field, Notice } from "./ui";
+import { Button, Card, Field, Notice, TechnicalDetails } from "./ui";
 import { useI18n, type MessageKey } from "../i18n";
 import { CopyText } from "./CopyText";
 
@@ -185,34 +185,9 @@ export function RecoveryRegistry({
               })}
             </p>
           )}
-          <Field
-            label={t("recoveryRegistry.configuration")}
-            htmlFor="recovery-registry-configuration"
-          >
-            <textarea
-              id="recovery-registry-configuration"
-              dir="ltr"
-              rows={10}
-              value={draft}
-              disabled={busy}
-              onChange={(e) => setDraft(e.target.value)}
-              spellCheck={false}
-            />
-          </Field>
-          <small>{t("recoveryRegistry.configurationHint")}</small>
           {error && <Notice tone="red">{error}</Notice>}
           {notice && <Notice tone="green">{notice}</Notice>}
           <div className="button-row">
-            <Button
-              type="button"
-              kind="primary"
-              disabled={
-                busy || !registry || !runtime?.adapters.length || !draft.trim()
-              }
-              onClick={() => void approve()}
-            >
-              {t("recoveryRegistry.approve")}
-            </Button>
             <Button
               type="button"
               disabled={busy}
@@ -221,6 +196,51 @@ export function RecoveryRegistry({
               {t("recoveryRegistry.refresh")}
             </Button>
           </div>
+          {/* Approving a new registry is a developer task (the course author supplies the JSON):
+              folded away, and open only while this version has no approved registry. */}
+          <TechnicalDetails
+            summary={t("recoveryRegistry.advanced")}
+            open={registry ? !registry.configured : false}
+          >
+            <div className="stack">
+              <p>{t("recoveryRegistry.advancedIntro")}</p>
+              <Field
+                label={t("recoveryRegistry.configuration")}
+                htmlFor="recovery-registry-configuration"
+                hint={t("recoveryRegistry.configurationHint")}
+              >
+                <textarea
+                  id="recovery-registry-configuration"
+                  aria-describedby="recovery-registry-configuration-hint"
+                  dir="ltr"
+                  rows={10}
+                  value={draft}
+                  disabled={busy}
+                  placeholder={t("recoveryRegistry.placeholder")}
+                  onChange={(e) => setDraft(e.target.value)}
+                  spellCheck={false}
+                />
+              </Field>
+              <Button
+                type="button"
+                kind={draft.trim() ? "primary" : "secondary"}
+                reason={
+                  !busy && registry && runtime?.adapters.length && !draft.trim()
+                    ? t("recoveryRegistry.reason.empty")
+                    : ""
+                }
+                disabled={
+                  busy ||
+                  !registry ||
+                  !runtime?.adapters.length ||
+                  !draft.trim()
+                }
+                onClick={() => void approve()}
+              >
+                {t("recoveryRegistry.approve")}
+              </Button>
+            </div>
+          </TechnicalDetails>
         </div>
       )}
     </Card>

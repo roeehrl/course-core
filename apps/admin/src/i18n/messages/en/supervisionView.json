@@ -148,5 +148,13 @@
   "eventType.teaching_follow_up_scheduled": "Follow-up scheduled",
   "eventType.learner_model_proposal_created": "Learning preference suggested",
   "eventType.visual_completed": "Visual completed",
-  "eventType.enrollment_closed": "Enrollment closed"
+  "eventType.enrollment_closed": "Enrollment closed",
+  "eventType.agent_grant_created": "Agent access granted",
+  "eventType.agent_grant_revoked": "Agent access revoked",
+  "eventType.block_read": "Read a lesson part",
+  "eventType.companion_job_changed": "Tutor request changed",
+  "eventType.personal_change_deferred": "Personal change postponed",
+  "eventType.supervision_control_changed": "Supervision control changed",
+  "eventType.supervisor_authority_requested": "Supervisor asked for approval",
+  "eventType.supervisor_authority_undone": "Supervisor decision undone"
 }

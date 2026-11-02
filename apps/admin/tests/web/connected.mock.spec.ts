@@ -31,7 +31,7 @@ test("connected host uses the API and cookie CSRF; HTTP errors do not become dem
       await route.fulfill({ status: 409, json: { error: "STALE_REVISION" } });
     } else await route.fulfill({ json: workspace });
   });
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   await expectNoModeBadge(page);
   await expect(page.getByText("Interactive demo", { exact: true })).toHaveCount(
     0,
@@ -65,7 +65,7 @@ test("signed-out staff see an accessible username and password form; codes appea
     logins.push(route.request().postDataJSON());
     return route.fulfill({ status: 401, json: { error: "LOGIN_FAILED" } });
   });
-  await page.goto("/admin/");
+  await page.goto("/admin/courses/sorting/releases");
   const form = page.getByRole("form", {
     name: "Sign in with your username and password",
   });

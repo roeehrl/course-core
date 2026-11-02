@@ -835,6 +835,14 @@ export async function policyView(client: Sql, context: EnrollmentContext) {
     ...policyLedgerView(policy, context),
     accommodations: policy.accommodations.map((a) => ({ accommodationId: a.accommodationId, kind: a.kind, scopeId: a.adjustment.scopeId, adjustment: a.adjustment, newPolicyRevision: a.newPolicyRevision })),
     rationaleEvents: rationale.map((e) => ({ id: e.id, label: e.event_type })),
+    // A per-concept work limit names its concept: the course's concept title, else the
+    // objective's description (policy concepts are the course's objectives).
+    conceptTitles: Object.fromEntries(
+      course.objectives.map((o) => [
+        o.id,
+        (course.concepts?.find((c) => c.id === o.id)?.title ?? o.description).slice(0, 400),
+      ]),
+    ),
     // An inserted personal episode is governed by its anchor episode's scope.
     activities: episodes(course).map((e) => ({
       id: e.id,
@@ -1078,18 +1086,43 @@ export function registerAdminRoutes(
         [actor.id],
       )
     ).rows;
+    // The live version, when the course last changed and (for roles that read enrollments) how
+    // many learners are enrolled: what the workspace's course list shows. One query for all.
+    const stats = new Map(
+      (
+        await db.query<{ id: string; live_version: string | null; updated_at: Date; learners: number }>(
+          `SELECT c.id,r.version AS live_version,
+                  GREATEST(c.created_at,(SELECT max(x.created_at) FROM course_releases x WHERE x.workspace_id=c.workspace_id AND x.course_key=c.course_key)) AS updated_at,
+                  (SELECT count(*)::int FROM enrollments e JOIN course_releases er ON er.id=e.course_release_id
+                    WHERE e.workspace_id=c.workspace_id AND er.course_key=c.course_key AND e.status IN ('active','paused')) AS learners
+             FROM admin_course_catalog c LEFT JOIN course_releases r ON r.id=c.active_release_id
+            WHERE c.id=ANY($1::uuid[])`,
+          [rows.map((r) => r.id)],
+        )
+      ).rows.map((row) => [row.id, row]),
+    );
     return {
       actor: { id: actor.id, name: actor.displayName, role: "member" },
       workspaces,
-      courses: rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        description: r.description,
-        workspaceId: r.workspace_id,
-        workspaceTitle: r.workspace_title,
-        role: r.role,
-        ...(r.grant_expires_at ? { accessExpiresAt: iso(r.grant_expires_at) } : {}),
-      })),
+      courses: rows.map((r) => {
+        const stat = stats.get(r.id);
+        return {
+          id: r.id,
+          title: r.title,
+          description: r.description,
+          workspaceId: r.workspace_id,
+          workspaceTitle: r.workspace_title,
+          role: r.role,
+          ...(r.grant_expires_at ? { accessExpiresAt: iso(r.grant_expires_at) } : {}),
+          ...(stat
+            ? {
+                liveVersion: stat.live_version,
+                updatedAt: iso(stat.updated_at),
+                ...(roleCan(r.role, "enrollment.read") ? { learners: stat.learners } : {}),
+              }
+            : {}),
+        };
+      }),
       deployment: { insecureOriginsAllowed: options.insecureOriginsAllowed === true },
     };
   });
@@ -1116,6 +1149,8 @@ export function registerAdminRoutes(
           limit: z.coerce.number().int().min(1).max(200).default(50),
           actorKind: z.enum(["learner", "staff", "agent", "system"]).optional(),
           type: z.string().regex(/^[a-z][a-z0-9_.]{0,99}$/).optional(),
+          // Only events about this course of the workspace (the admin's "Course" filter).
+          courseId: uuid.optional(),
         }),
         request.query ?? {},
       );

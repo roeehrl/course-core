@@ -36,7 +36,7 @@ for (const locale of ["en", "he"] as const)
     const nav = catalog(locale, "adminApp"),
       view = catalog(locale, "enrollmentsView"),
       dir = locale === "he" ? "rtl" : "ltr";
-    await page.goto(`/admin/demo?locale=${locale}`);
+    await page.goto(`/admin/demo/courses/sorting/releases?locale=${locale}`);
     await expect(page.locator("html")).toHaveAttribute("dir", dir);
     await openSection(page, nav["nav.learners"]!);
     const search = page.getByRole("searchbox", { name: view["find"] });

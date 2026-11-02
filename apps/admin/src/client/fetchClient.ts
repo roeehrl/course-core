@@ -1728,6 +1728,7 @@ export function createFetchAdminClient(
         if (query.before) search.set("before", query.before);
         if (query.actorKind) search.set("actorKind", query.actorKind);
         if (query.type) search.set("type", query.type);
+        if (query.courseId) search.set("courseId", query.courseId);
         search.set("limit", String(query.limit ?? 50));
         return direct(
           `/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`,

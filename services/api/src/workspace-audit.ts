@@ -126,14 +126,24 @@ export function auditPayload(actorKind: string, type: string, payload: unknown) 
   return project(payload as Record<string, unknown>);
 }
 
-export async function workspaceAudit(client: Sql, workspaceId: string, query: { before?: string | undefined; limit: number; actorKind?: string | undefined; type?: string | undefined }) {
+/**
+ * Events about one course (the admin's "Course" filter): those of its learners' enrollments, and
+ * staff and system events whose payload names the course (its catalog id or key) or one of its
+ * versions. $7 is the course's catalog id, or null for every course.
+ */
+const COURSE_FILTER = `($7::uuid IS NULL OR EXISTS (SELECT 1 FROM admin_course_catalog c WHERE c.id=$7 AND c.workspace_id=l.workspace_id AND (
+    l.payload->>'catalogId' = c.id::text OR l.payload->>'courseId' IN (c.id::text, c.course_key) OR l.payload->>'courseKey' = c.course_key
+    OR EXISTS (SELECT 1 FROM course_releases r WHERE r.workspace_id=c.workspace_id AND r.course_key=c.course_key
+      AND (r.id::text = l.payload->>'releaseId' OR r.id = (SELECT e.course_release_id FROM enrollments e WHERE e.id=l.enrollment_id))))))`;
+export async function workspaceAudit(client: Sql, workspaceId: string, query: { before?: string | undefined; limit: number; actorKind?: string | undefined; type?: string | undefined; courseId?: string | undefined }) {
   const rows = (await client.query<{ sequence: string; id: string; created_at: Date; actor_kind: AuditRow['actorKind']; actor_name: string | null; event_type: string; enrollment_id: string | null; payload: unknown }>(
     `SELECT l.sequence::text,l.id,l.created_at,l.actor_kind,CASE WHEN l.actor_kind='staff' THEN u.display_name END AS actor_name,l.event_type,l.enrollment_id,
         CASE WHEN l.actor_kind IN ('staff','system') AND l.event_type = ANY($5::text[]) THEN l.payload END AS payload
        FROM learning_events l LEFT JOIN app_users u ON u.id=l.actor_id
       WHERE l.workspace_id=$1 AND ($2::bigint IS NULL OR l.sequence < $2::bigint) AND ($3::text IS NULL OR l.actor_kind=$3) AND ($4::text IS NULL OR l.event_type=$4)
+        AND ${COURSE_FILTER}
       ORDER BY l.sequence DESC LIMIT $6`,
-    [workspaceId, query.before ?? null, query.actorKind ?? null, query.type ?? null, Object.keys(AUDIT_PAYLOAD_PROJECTIONS), query.limit])).rows;
+    [workspaceId, query.before ?? null, query.actorKind ?? null, query.type ?? null, Object.keys(AUDIT_PAYLOAD_PROJECTIONS), query.limit, query.courseId ?? null])).rows;
   const events: AuditRow[] = rows.map(row => {
     const payload = auditPayload(row.actor_kind, row.event_type, row.payload);
     return { sequence: row.sequence, id: row.id, at: row.created_at.toISOString(), actorKind: row.actor_kind, actor: row.actor_name, type: row.event_type,

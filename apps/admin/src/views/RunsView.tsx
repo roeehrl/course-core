@@ -12,6 +12,7 @@ import {
   TechnicalDetails,
   SkeletonRows,
   PageIntro,
+  When,
 } from "../components/ui";
 import {
   useFormatters,
@@ -45,6 +46,7 @@ import {
   runName,
   runOutcomeSentences,
 } from "../domain/runText";
+import { sentenceCase } from "./contentShared";
 
 const strong = (children: ReactNode, key: string | number) => (
   <strong key={key}>{children}</strong>
@@ -60,15 +62,23 @@ function eventLabel(i18n: AdminTranslator, label: string) {
   if (!/^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(label)) return label;
   const key =
     `supervisionView.eventType.${label.replaceAll(".", "_")}` as MessageKey;
+  // Workspace events the audit log names (a learner run can carry some of them).
+  const audit = `auditView.event.${label}` as MessageKey;
   return i18n.has(key)
     ? i18n.t(key)
-    : i18n.t("runsView.event.other", { code: label });
+    : i18n.has(audit)
+      ? i18n.t(audit)
+      : i18n.t("runsView.event.other", {
+          name: sentenceCase(label.replace(/[._]+/g, " ")),
+        });
 }
 /** An event time: an ISO timestamp as a date and time; an older server's clock time as is. */
-function eventTime(time: string, whenExact: (iso: string) => string) {
-  return /^\d{4}-\d{2}-\d{2}T/.test(time) && !Number.isNaN(Date.parse(time))
-    ? whenExact(time)
-    : time;
+function eventTime(time: string) {
+  return /^\d{4}-\d{2}-\d{2}T/.test(time) && !Number.isNaN(Date.parse(time)) ? (
+    <When iso={time} exact />
+  ) : (
+    time
+  );
 }
 
 export function RunsView({
@@ -138,7 +148,9 @@ export function RunsView({
                 >
                   <span>
                     <strong dir="auto">{runName(i18n, run)}</strong>
-                    <small>{when(run.startedAt)}</small>
+                    <small>
+                      <When iso={run.startedAt} />
+                    </small>
                     <RunStatus value={run.status} />
                   </span>
                 </button>
@@ -186,7 +198,7 @@ export function RunDetails({
 }) {
   const t = useT();
   const i18n = useI18n();
-  const { when, whenExact } = useFormatters();
+  const { when } = useFormatters();
   const result = useRemote(
     (signal) => client.getRun(courseId, runId, signal),
     [client, courseId, runId],
@@ -339,7 +351,7 @@ export function RunDetails({
                   <h3 dir="auto" title={event.label}>
                     {eventLabel(i18n, event.label)}
                   </h3>
-                  <small>{eventTime(event.time, whenExact)}</small>
+                  <small>{eventTime(event.time)}</small>
                 </div>
                 {event.status !== "recorded" && (
                   <Badge>

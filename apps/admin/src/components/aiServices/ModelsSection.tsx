@@ -27,6 +27,7 @@ import {
 import { AiServicesError } from "../../domain/aiServices";
 import { ChangedElsewhere } from "../ChangedElsewhere";
 import { useEditableSnapshot } from "../../hooks/useEditableSnapshot";
+import { rememberModelNames } from "./modelNames";
 
 type Props = SectionProps & { state: SectionState; unsaved: boolean };
 type Choice = {
@@ -77,7 +78,10 @@ function useModelLists(props: Props) {
     for (const id of ids ? ids.split(",") : [])
       port
         .models(workspaceId, id, controller.signal)
-        .then((list) => setLists((current) => ({ ...current, [id]: list })))
+        .then((list) => {
+          rememberModelNames(list);
+          setLists((current) => ({ ...current, [id]: list }));
+        })
         .catch((error: unknown) => {
           if (!controller.signal.aborted)
             setLists((current) => ({

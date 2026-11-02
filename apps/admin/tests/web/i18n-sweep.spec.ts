@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { accent } from "@course-core/i18n";
-import { workspaceNav, workspaceNavNames } from "../workspaceNav";
+import { forEachPage } from "../workspaceNav";
 
 /**
  * Every demo view under the en-XA pseudo-locale: each translated message is wrapped in ⟦…⟧
@@ -28,14 +28,15 @@ async function expectNoHorizontalOverflow(page: Page, name: string) {
 
 /** Visible text in main with plain Latin letters outside any ⟦…⟧ frame, except data
  * (dir="ltr"/"auto", bdi, code, pre, option, a field's own text, lang="en") and English-formatted
- * dates. */
+ * dates and relative times. */
 async function untranslated(page: Page) {
   return page.evaluate(() => {
     const found: string[] = [];
     const main = document.querySelector("main")!;
     const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    // Dates and relative times come from Intl, which has no pseudo-locale (English output).
     const date =
-      /[A-Z][a-z]{2} \d{1,2}, \d{4}(, \d{1,2}:\d{2}(:\d{2})? [AP]M)?( UTC)?/g;
+      /[A-Z][a-z]{2} \d{1,2}, \d{4}(, \d{1,2}:\d{2}(:\d{2})? [AP]M)?( UTC)?|\b(in )?\d+ (second|minute|hour|day|week|month|year)s?( ago)?\b|\b(today|yesterday|tomorrow|now)\b/g;
     let depth = 0;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       let outside = "";
@@ -66,18 +67,9 @@ test("every demo view leaves no untranslated text under en-XA and does not overf
   test.setTimeout(240_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.goto("/admin/demo?locale=en-XA");
-  const names = await workspaceNavNames(page);
-  expect(
-    names.some((name) => name.includes(accent(enNav["nav.overview"]!))),
-  ).toBe(true);
+  await page.goto("/admin/demo/courses/sorting/releases?locale=en-XA");
   const problems: string[] = [];
-  for (const name of names) {
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name, exact: true })
-      .click();
+  const names = await forEachPage(page, async (name) => {
     await expect(
       page.locator("main :is(.loading, .skeleton-rows)"),
     ).toHaveCount(0);
@@ -85,7 +77,9 @@ test("every demo view leaves no untranslated text under en-XA and does not overf
     for (const text of await untranslated(page))
       if (!DEMO_DATA.includes(text)) problems.push(`${name}: ${text}`);
     await expectNoHorizontalOverflow(page, `${name} (${info.project.name})`);
-  }
+  });
+  for (const key of ["nav.overview", "nav.courses", "nav.limits"])
+    expect(names.some((name) => name.includes(accent(enNav[key]!)))).toBe(true);
   expect(problems).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

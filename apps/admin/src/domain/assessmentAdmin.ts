@@ -29,6 +29,8 @@ export const assessmentItemSchema = z.object({
   key: z.record(z.string(), z.unknown()).optional(),
   criteria: z.array(criterion).max(12).optional(),
   rubricId: text(200).optional(),
+  /** The lesson the question is asked in (newer servers). */
+  lessonTitle: text(400).optional(),
 });
 export type AssessmentItem = z.infer<typeof assessmentItemSchema>;
 export const assessmentListSchema = z.object({

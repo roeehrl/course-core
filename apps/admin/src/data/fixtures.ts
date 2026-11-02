@@ -22,6 +22,8 @@ export const allPermissions: Permission[] = [
 ];
 /** The demo's one fictional workspace, which both demo courses belong to. */
 export const DEMO_WORKSPACE_ID = "00000000-0000-4000-8000-00000000d000";
+/** The demo workspace's name (fictional). */
+export const DEMO_WORKSPACE_TITLE = "Example school";
 export type DemoRole = AdminSession["actor"]["role"];
 export function demoSession(role: DemoRole): AdminSession {
   return {
@@ -30,15 +32,23 @@ export function demoSession(role: DemoRole): AdminSession {
     courses: [
       {
         id: "sorting",
+        workspaceTitle: DEMO_WORKSPACE_TITLE,
         title: "Sorting, step by step",
         description:
           "A public example course about order, comparisons and small, useful algorithms.",
+        liveVersion: "1.4.0",
+        learners: 3,
+        updatedAt: "2026-10-28T09:00:00.000Z",
       },
       {
         id: "graphs",
+        workspaceTitle: DEMO_WORKSPACE_TITLE,
         title: "A first look at graphs",
         description:
           "A public example course about nodes, edges and finding a path.",
+        liveVersion: null,
+        learners: 0,
+        updatedAt: "2026-10-30T14:30:00.000Z",
       },
     ],
   };

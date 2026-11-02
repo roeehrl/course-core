@@ -96,7 +96,6 @@
   "learner.title": "המדיניות של הלומד/ת",
   "learner.eyebrow": "התנאים של לומד/ת אחד/ת",
   "nav.label": "בעמוד הזה",
-  "nav.organization": "מגבלות הארגון",
   "nav.course": "הגדרות הקורס",
   "nav.learner": "לומד/ת",
   "nav.attempts": "ניסיונות בבדיקה",
@@ -108,5 +107,6 @@
   "scopes.find.placeholder": "פרק או יחידת לימוד",
   "scopes.count": "{count, plural, one {רמה אחת} other {# רמות}}",
   "scopes.shown": "{shown} מתוך {total} רמות",
-  "scopes.none": "אין רמה שמתאימה לחיפוש."
+  "scopes.none": "אין רמה שמתאימה לחיפוש.",
+  "nav.history": "שינויי מדיניות"
 }

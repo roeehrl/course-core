@@ -24,7 +24,7 @@
   "targets.rpoNone": "עדיין לא דווח על גיבוי או תמונת מצב.",
   "targets.rpoHelp": "יש להפעיל תמונות מצב כל שעה (ההגדרה snapshots בקובץ config.json של הפיילוט), ואז לבדוק ביומן השירותים אם מופיע snapshot_failed.",
   "targets.rto": "חזרה לפעולה תוך {minutes} דקות",
-  "targets.rtoValue": "תרגיל השחזור האחרון נמשך {minutes} דקות, {days, plural, one {לפני יום אחד} two {לפני יומיים} other {לפני # ימים}}.",
+  "targets.rtoValue": "תרגיל השחזור האחרון נמשך {duration}, {ago}.",
   "targets.rtoNone": "עדיין לא דווח על תרגיל שחזור.",
   "targets.rtoHelp": "יש להריץ תרגיל שחזור (backup.mjs verify) על תמונת מצב עדכנית לפחות כל {days} ימים. אם הוא נכשל, הקוד שלו מופיע תחת גיבויים.",
   "check.database": "מסד הנתונים",
@@ -92,5 +92,7 @@
   "targets.encryptionOn": "העותק החדש ביותר מוצפן.",
   "targets.encryptionOff": "העותק החדש ביותר אינו מוצפן.",
   "targets.encryptionHelp": "ההצפנה אופציונלית והגיבויים עובדים גם בלעדיה, אבל עותק של גיבוי לא מוצפן חושף את הנתונים של כל הלומדים. מדריך הפיילוט מסביר איך להפעיל אותה (\"Encrypting backups with age\").",
-  "targets.intro": "כמה מידע עלול ללכת לאיבוד בתקלה, ותוך כמה זמן הפלטפורמה חוזרת לפעול."
+  "targets.intro": "כמה מידע עלול ללכת לאיבוד בתקלה, ותוך כמה זמן הפלטפורמה חוזרת לפעול.",
+  "targets.seconds": "{count, plural, one {שנייה אחת} two {שתי שניות} other {# שניות}}",
+  "targets.minutes": "{count, plural, one {דקה אחת} two {שתי דקות} other {# דקות}}"
 }

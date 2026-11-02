@@ -18,8 +18,6 @@
   "card.used": "Used",
   "card.state": "Next attempt",
   "card.actions": "Actions",
-  "card.usedUnlimited": "{used} (no limit)",
-  "card.usedOf": "{used} of {limit}",
   "card.granted": "{count, plural, one {# allowed by staff} other {# allowed by staff}}",
   "card.full": "No attempts left",
   "card.waiting": "Waiting until {when}",
@@ -38,5 +36,7 @@
   "card.countFull": "{count, plural, one {# with no attempts left} other {# with no attempts left}}",
   "card.all": "{count, plural, one {Show the check} other {Show all # checks}}",
   "card.fewer": "Show fewer",
-  "card.shown": "Showing {shown} of {total}"
+  "card.shown": "Showing {shown} of {total}",
+  "card.limit": "Limit",
+  "card.noLimit": "No limit"
 }

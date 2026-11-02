@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { errorMessage } from "../domain/errors";
-import { useI18n, useT, type MessageKey } from "../i18n";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import type { Permission } from "../domain/contracts";
 
 export function Button({
@@ -230,15 +230,18 @@ export function PageIntro({
 export function TechnicalDetails({
   summary,
   rows,
+  open,
   children,
 }: PropsWithChildren<{
   /** Another title for the disclosure; "Technical details" by default. */
   summary?: string;
   rows?: [label: string, value: ReactNode][];
+  /** Starts unfolded (for example while there is something to do inside). */
+  open?: boolean;
 }>) {
   const t = useT();
   return (
-    <details className="quiet-details">
+    <details className="quiet-details" open={open}>
       <summary>{summary ?? t("ui.technicalDetails")}</summary>
       {rows && (
         <dl>
@@ -256,6 +259,18 @@ export function TechnicalDetails({
       )}
       {children}
     </details>
+  );
+}
+/**
+ * A server time in the viewer's own time zone, with the same time in UTC as its tooltip (for
+ * comparing with logs and support). `exact` adds the seconds.
+ */
+export function When({ iso, exact }: { iso: string; exact?: boolean }) {
+  const f = useFormatters();
+  return (
+    <time dateTime={iso} title={exact ? f.whenExactUtc(iso) : f.whenUtc(iso)}>
+      {exact ? f.whenExact(iso) : f.when(iso)}
+    </time>
   );
 }
 /** Placeholder rows while a page or a section loads, in place of the content to come; the label

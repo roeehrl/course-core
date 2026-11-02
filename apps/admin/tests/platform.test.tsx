@@ -15,6 +15,7 @@ import type { RunInspectorPort } from "../src/domain/runInspector";
 import { PlatformView } from "../src/views/PlatformView";
 import { IntegrationsView } from "../src/views/IntegrationsView";
 import { AuditView } from "../src/views/AuditView";
+import { PolicyHistory } from "../src/components/PolicyHistory";
 import { CancelPanel } from "../src/views/RunInspectorPanels";
 import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
@@ -182,6 +183,14 @@ function port(over: Partial<PlatformPort> = {}): PlatformPort {
               status: "missing" as const,
               servedByPriorBuild: false,
             },
+            {
+              id: "course-numeric-creator",
+              version: "1.0.0",
+              execution: "server",
+              status: "compatible" as const,
+              servedByPriorBuild: false,
+              servedByGenerator: "bounded-numeric-v1",
+            },
           ],
         },
       ],
@@ -259,10 +268,39 @@ describe("platform readiness (Q11, T03)", () => {
       screen.getByText("The newest good copy is 20 minutes old."),
     ).toBeVisible();
     expect(
-      screen.getByText(/The last restore drill took 2 minutes/),
+      screen.getByText("The last restore drill took 2 minutes, today."),
     ).toBeVisible();
     expect(screen.getByText("pg_dump_failed")).toBeVisible();
     expect(screen.getAllByText("Encrypted").length).toBeGreaterThan(0);
+  });
+
+  it("says a short drill's exact length, the same as the Backups card, and yesterday in words", async () => {
+    const base = readiness();
+    const platform = port({
+      readiness: vi.fn(async () => ({
+        ...base,
+        targets: {
+          ...base.targets,
+          rto: {
+            ...base.targets.rto,
+            lastDrillMinutes: 1,
+            lastDrillSeconds: 1,
+            drillAgeDays: 1,
+          },
+        },
+      })),
+    });
+    render(
+      <PlatformView
+        data={workspace("owner")}
+        client={{ platform } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText(
+        "The last restore drill took 1 second, yesterday.",
+      ),
+    ).toBeVisible();
   });
 
   it("notes, without warning, when the newest backup is not encrypted and how to turn encryption on", async () => {
@@ -401,6 +439,13 @@ describe("integrations and billed costs (Q12, U04)", () => {
       />,
     );
     expect(await screen.findByText("Not installed")).toBeVisible();
+    // A server extension a trusted recovery generator serves (bound by digest) counts as installed.
+    expect(
+      stripBidiControls(
+        screen.getByRole("row", { name: /course-numeric-creator/ })
+          .textContent ?? "",
+      ),
+    ).toContain("Recovery generator bounded-numeric-v1");
     expect(
       screen.getByText(/Install the extension version this course declares/),
     ).toBeVisible();
@@ -480,9 +525,9 @@ describe("audit export and policy history (Q12)", () => {
         client={{ platform, audit } as unknown as AdminClient}
       />,
     );
-    // A setting without a catalog name is spelled out from its code.
-    expect(await screen.findByText("pace days")).toBeVisible();
-    expect(screen.getByText("Pilot cohort needs more time.")).toBeVisible();
+    // The course's policy changes are on its Policy page, not in the workspace log.
+    expect(await screen.findByText("Workspace activity")).toBeVisible();
+    expect(screen.queryByText("Policy changes")).toBeNull();
     await user.selectOptions(screen.getByLabelText("File type"), "json");
     await user.click(screen.getByRole("button", { name: "Download" }));
     await waitFor(() => expect(platform.exportAudit).toHaveBeenCalledTimes(1));
@@ -509,8 +554,16 @@ describe("audit export and policy history (Q12)", () => {
         }
       />,
     );
-    expect(await screen.findByText("Policy changes")).toBeVisible();
+    expect(await screen.findByText("Workspace activity")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
+  });
+
+  it("shows a course's policy changes as before and after", async () => {
+    render(<PolicyHistory port={port()} courseId="course-1" />);
+    expect(await screen.findByText("Policy changes")).toBeVisible();
+    // A setting without a catalog name is spelled out from its code.
+    expect(await screen.findByText("pace days")).toBeVisible();
+    expect(screen.getByText("Pilot cohort needs more time.")).toBeVisible();
   });
 
   it("reads the export file with its digest and maps a refused range", async () => {

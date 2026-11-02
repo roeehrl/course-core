@@ -47,5 +47,6 @@
   "summary.zone": "Dates counted in {zone}",
   "summary.extensions": "Extensions",
   "summary.extensionsOn": "Courses may offer extensions",
-  "summary.extensionsOff": "No course may offer extensions"
+  "summary.extensionsOff": "No course may offer extensions",
+  "denied": "Only the workspace’s owners and administrators can see its organization limits."
 }

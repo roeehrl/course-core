@@ -16,13 +16,15 @@
   gap: 12px 16px;
   align-items: flex-end;
 }
+/* The filters fill the card's whole width: a menu grows to a readable cap and the search box
+   takes the rest, so no empty band is left at the row's end. */
 .cv-toolbar > .field {
   flex: 1 1 180px;
-  max-width: 280px;
+  max-width: 360px;
 }
 .cv-toolbar > .field.cv-search {
   flex: 2 1 260px;
-  max-width: 420px;
+  max-width: none;
 }
 .cv-count {
   margin: 0;
@@ -68,6 +70,21 @@
 }
 .cv-row-summary[aria-expanded="true"] {
   background: var(--ice);
+}
+.cv-row-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cv-row-context {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 .cv-row-title {
   min-width: 0;
@@ -388,4 +405,18 @@
 .cv-queue-head h2 {
   margin: 0;
   font-size: var(--text-lg);
+}
+
+/* Answer keys → Sources: the title link, its host under it and, folded away, a fingerprint; the
+   review date with how long ago under it. */
+.source-cell,
+.source-checked {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.source-cell > .quiet-details {
+  font-size: var(--text-xs);
 }

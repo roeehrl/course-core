@@ -50,13 +50,24 @@ it("connected recovery approval shows exact installed code and revision and pres
       name: "Copy the fingerprint of bounded-numeric-v1",
     }),
   ).toHaveAttribute("title", "a".repeat(64));
+  // An approved registry keeps the JSON editor folded away under Advanced, and Approve is not
+  // the primary action until something is pasted.
+  const advanced = screen
+    .getByText("Advanced (for developers): approve a new registry")
+    .closest("details")!;
+  expect(advanced).not.toHaveAttribute("open");
   const editor = screen.getByRole("textbox", {
     name: "Recovery registry (JSON)",
+    hidden: true,
   });
-  fireEvent.change(editor, { target: { value: '{"profiles":[]}' } });
   const button = screen.getByRole("button", {
     name: "Approve recovery registry",
+    hidden: true,
   });
+  expect(button).toHaveClass("secondary");
+  expect(button).toBeDisabled();
+  fireEvent.change(editor, { target: { value: '{"profiles":[]}' } });
+  await waitFor(() => expect(button).toHaveClass("primary"));
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
   await screen.findByText(/Approval could not be confirmed/);

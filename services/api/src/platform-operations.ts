@@ -56,6 +56,23 @@ export interface PlatformOptions {
   /** Whether a supervisor worker is configured to call this API (SUPERVISOR_HOST_TOKEN). */
   supervisorConfigured: boolean;
   migrationsDirectory?: string | undefined;
+  /** The trusted recovery generators this host composed (ADAPTATION_ADAPTERS and isolated teaching
+   * adapters). A course's server extension whose integrity is one of their implementation digests is
+   * served by that generator: the adaptation registry binds to it by digest, not by extension ID. */
+  adaptationAdapters?: readonly { id: string; implementationDigest: string }[];
+}
+
+type InstalledBuild = { id: string; version: string; integrity: string; prior: boolean };
+/** Whether this host can serve one extension a course declares: an installed build of the same
+ * id, version and integrity; a trusted recovery generator whose implementation digest is that
+ * integrity; Core's declarative interpreter; or nothing. */
+export function extensionCompatibility(ext: { id: string; version: string; integrity: string; execution: string },
+  installed: readonly InstalledBuild[], adapters: readonly { id: string; implementationDigest: string }[] = []) {
+  const exact = installed.find(i => i.id === ext.id && i.version === ext.version && i.integrity === ext.integrity);
+  const generator = exact || ext.execution !== 'server' ? undefined : adapters.find(a => `sha256-${a.implementationDigest}` === ext.integrity);
+  const status = exact || generator ? 'compatible' as const : installed.some(i => i.id === ext.id) ? 'version_mismatch' as const
+    : ext.execution === 'declarative' ? 'built_in' as const : 'missing' as const;
+  return { id: ext.id, version: ext.version, execution: ext.execution, status, servedByPriorBuild: exact?.prior ?? false, servedByGenerator: generator?.id ?? null };
 }
 
 const code = (value: string) => (/^[a-z0-9_]{1,64}$/.test(value) ? value : 'other');
@@ -101,7 +118,9 @@ export async function backupStatus(client: Sql, now: Date) {
   return {
     lastSnapshot: view(snapshot), lastBackup: view(backup), lastRestoreDrill: view(drill), lastFailure: view(lastFailure),
     rpo: { targetMinutes: RECOVERY_TARGETS.rpoMinutes, currentMinutes: rpoMinutes, status: rpoStatus },
-    rto: { targetMinutes: RECOVERY_TARGETS.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: RECOVERY_TARGETS.drillMaxAgeDays, status: rtoStatus },
+    // lastDrillSeconds: the same drill's exact length (the minutes are rounded up for the target).
+    rto: { targetMinutes: RECOVERY_TARGETS.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: RECOVERY_TARGETS.drillMaxAgeDays, status: rtoStatus,
+      lastDrillSeconds: drill?.outcome === 'succeeded' ? Math.round((drill.finished_at.getTime() - drill.started_at.getTime()) / 1000) : null },
     encryption,
   };
 }
@@ -171,17 +190,13 @@ export async function platformReadiness(db: Database, options: PlatformOptions, 
 
 /** Installed runtime pieces and what each course's live release needs from them. */
 export async function integrationsView(client: Sql, workspaceId: string, options: PlatformOptions) {
-  const installed = options.installedExtensions.flatMap(e => [{ id: e.id, version: e.version, integrity: e.integrity, prior: false },
+  const installed: InstalledBuild[] = options.installedExtensions.flatMap(e => [{ id: e.id, version: e.version, integrity: e.integrity, prior: false },
     ...(e.acceptedPriorBuilds ?? []).map(p => ({ id: e.id, version: p.version, integrity: p.integrity, prior: true }))]);
   const courses = (await client.query<{ id: string; course_key: string; title: string; version: string | null; digest: string | null; manifest: CourseManifest | null }>(
     `SELECT c.id,c.course_key,c.title,r.version,r.digest,r.server_bundle AS manifest FROM admin_course_catalog c
        LEFT JOIN course_releases r ON r.id=c.active_release_id WHERE c.workspace_id=$1 ORDER BY c.title,c.id LIMIT 100`, [workspaceId])).rows
     .map(row => ({ catalogId: row.id, courseKey: row.course_key, title: row.title, liveVersion: row.version, liveDigest: row.digest,
-      extensions: (row.manifest?.extensions ?? []).slice(0, 50).map(ext => {
-        const exact = installed.find(i => i.id === ext.id && i.version === ext.version && i.integrity === ext.integrity);
-        const status = exact ? 'compatible' : installed.some(i => i.id === ext.id) ? 'version_mismatch' : ext.execution === 'declarative' ? 'built_in' : 'missing';
-        return { id: ext.id, version: ext.version, execution: ext.execution, status, servedByPriorBuild: exact?.prior ?? false };
-      }) }));
+      extensions: (row.manifest?.extensions ?? []).slice(0, 50).map(ext => extensionCompatibility(ext, installed, options.adaptationAdapters)) }));
   const events = async (type: string, limit: number) => (await client.query<{ id: string; created_at: Date; payload: Record<string, unknown> }>(
     'SELECT id,created_at,payload FROM learning_events WHERE workspace_id=$1 AND event_type=$2 ORDER BY sequence DESC LIMIT $3', [workspaceId, type, limit])).rows;
   const pick = (payload: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.map(k => [k, typeof payload[k] === 'string' || typeof payload[k] === 'boolean' ? payload[k] : null]));

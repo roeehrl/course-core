@@ -128,6 +128,8 @@ export interface RegisteredRoute { method: string; url: string; schema: Record<s
 const registeredRouteLists = new WeakMap<FastifyInstance, RegisteredRoute[]>();
 /** The routes a server created by createServer registered (HEAD routes Fastify adds for GET excluded). */
 export const registeredRoutes = (app: FastifyInstance): readonly RegisteredRoute[] => registeredRouteLists.get(app) ?? [];
+/** The admin app's workspace pages, by their address (apps/admin/src/routing.ts). */
+const ADMIN_WORKSPACE_PAGES = ['courses', 'people', 'ai-services', 'ai-supervision', 'organization-limits', 'concept-mappings', 'audit', 'platform', 'integrations'] as const;
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders;
   /** The host provider file's configuration (PROVIDER_CONFIG_FILE) that `providers` was composed from: its roles are reported by the eval gate. */
   providerConfiguration?: unknown; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
@@ -438,7 +440,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminRoutes(app, db, auth, adminRuntime);
   registerHostInventoryRoutes(app, db, auth, options.installedExtensions ?? []);
   registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
-    supervisorConfigured: Boolean(options.supervisor), migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
+    supervisorConfigured: Boolean(options.supervisor), adaptationAdapters: adaptation.adapters, migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
   const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions, courseSupplied };
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
@@ -488,6 +490,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     await app.register(serveStatic, { root: options.adminDirectory, prefix: '/admin/', wildcard: false, index: false, dotfiles: 'deny', decorateReply: !options.learnerDirectory });
     app.get('/admin', async (_request, reply) => reply.redirect('/admin/'));
     app.get('/admin/', async (_request, reply) => reply.sendFile('index.html', options.adminDirectory!));
+    // The admin app's own addresses (apps/admin/src/routing.ts): workspace pages, and each
+    // course's pages, so a deep link or a reload opens the page it names.
+    for (const page of [...ADMIN_WORKSPACE_PAGES.map((slug) => `/admin/${slug}`), '/admin/courses/:courseId', '/admin/courses/:courseId/:page', '/admin/courses/:courseId/sections/:sectionId'])
+      app.get(page, async (_request, reply) => reply.sendFile('index.html', options.adminDirectory!));
     // The debug inspector the learner app opens beside an activity for authorized staff. The page is
     // the admin app; every read and reveal it makes goes through the admin routes' own checks.
     app.get('/admin/inspector', async (_request, reply) => reply.header('Content-Security-Policy', contentSecurityPolicy("'self'")).sendFile('index.html', options.adminDirectory!));
