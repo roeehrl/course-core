@@ -1,5 +1,5 @@
 import { nextControlKey, test, expect } from "./health";
-import { box, roundButton, startLesson, thread } from "./conversation-helpers";
+import { box, roundButton, settled, startLesson, thread } from "./conversation-helpers";
 import { closeCompanion, openCompanion } from "./companion-helpers";
 import heAsk from "../../src/i18n/messages/he/askCompanionButton.json";
 
@@ -79,7 +79,16 @@ test("in Hebrew the round button sits at the bottom left of the pill, and an att
   await startLesson(page, request, { locale: "he" });
   const field = box(page);
   await field.fill("שאלה ראשונה\nושורה שנייה\nושלישית");
-  const pill = (await page.locator(".cc-chat-pill").boundingBox())!, button = (await roundButton(page).boundingBox())!, text = (await field.boundingBox())!;
+  // Measured where the sheet rests (it slides in and grows to full height on a tablet), and all
+  // three boxes from one frame.
+  await settled(page);
+  const { pill, button, text } = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const { x, y, width, height } = document.querySelector(`#connected-companion ${selector}`)!.getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    return { pill: rect(".cc-chat-pill"), button: rect(".cc-chat-send"), text: rect(".cc-chat-pill textarea") };
+  });
   expect(button.x).toBeLessThan(text.x);
   expect(button.x - pill.x).toBeLessThan(16);
   expect(pill.y + pill.height - (button.y + button.height)).toBeLessThan(12);
