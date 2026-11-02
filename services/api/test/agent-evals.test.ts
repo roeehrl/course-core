@@ -364,7 +364,7 @@ describe("a quality check on Gemini, replayed", () => {
     const runtime = composeProviders(configuration, (name) => (name === CREDENTIAL ? "offline-replay-key" : undefined), { google: googleAdapterFactory(gemini) });
     const report = await runSuite({ suite, configuration, runtime, mode: "live", roles: ["companion", "supervisor"], beforeDialogue: (d) => { current = d.id; } });
     const supervisor = report.roles.find((r) => r.role === "supervisor")!;
-    expect(report.roles.reduce((n, r) => n + r.dialogues.length, 0)).toBe(20);
+    expect(report.roles.reduce((n, r) => n + r.dialogues.length, 0)).toBe(23);
     expect(supervisor.dialogues.map((d) => d.output)).toEqual([
       expect.objectContaining({ kind: "tool_plan", tools: ["list_reviewed_resources", "get_evidence"] }),
       expect.objectContaining({ kind: "tool_plan", tools: ["list_reviewed_resources", "get_evidence", "propose_practice_check"] }),

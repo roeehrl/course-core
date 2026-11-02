@@ -88,7 +88,14 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       ...(message!.context.selectedAnchor ? { selection: message!.context.selectedAnchor } : {}),
       ...(message!.context.mediaRef ? { media: message!.context.mediaRef } : {}),
       authority: 'learner_pointed_at_this_not_evidence' as const } : undefined;
-    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}), ...(focus ? { focus } : {}),
+    // Where the lesson sits in its chapter: titles only, so the companion keeps its questions to
+    // what has been taught and can name the later lesson that covers an idea (companion-pacing.ts).
+    const chapter = course.chapters.find(row => row.episodes.some(item => item.id === episode.id));
+    const place = chapter ? chapter.episodes.findIndex(item => item.id === episode.id) : -1;
+    const titles = (rows: { title: string }[]) => rows.map(row => row.title.slice(0, 160));
+    const lessonMap = chapter && place >= 0 ? { chapter: chapter.title.slice(0, 160), earlierLessons: titles(chapter.episodes.slice(0, place)).slice(-12),
+      laterLessons: titles(chapter.episodes.slice(place + 1)).slice(0, 12) } : undefined;
+    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}), ...(focus ? { focus } : {}), ...(lessonMap ? { lessonMap } : {}),
       ...(conversation.summary ? { conversation: { scope: 'this_lesson_only' as const, earlierQuestions: { count: conversation.summary.count,
         excerpts: conversation.summary.items.map(item => item.excerpt), note: 'Extracted from the learner\'s earlier questions in this lesson; not a model summary.' } } } : {}),
       revisions:{enrollment:loaded.enrollment.revision,profile:loaded.enrollment.profile_revision,policy:policy.policyRevision,policyLedger:policy.ledgerRevision},

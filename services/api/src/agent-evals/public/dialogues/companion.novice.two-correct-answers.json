@@ -1,0 +1,113 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.novice.two-correct-answers",
+  "role": "companion",
+  "persona": "novice",
+  "description": "The learner has answered the companion's order question correctly once and now answers its second one correctly too. The reply must confirm, say what the learner has shown and end without another question, pointing back to the lesson.",
+  "source": {
+    "pack": "examples/courses/packs/number-line.json",
+    "episode": "nl-position"
+  },
+  "context": {
+    "course": {
+      "title": "Walking the number line",
+      "digest": "example:number-line-reasoning@1.0.0"
+    },
+    "episode": {
+      "id": "nl-position",
+      "title": "Positions and order",
+      "teaching": "A number line is a map with one agreed direction. Values increase as you move right and decrease as you move left. Zero is a reference point. Positive numbers lie to its right and negative numbers to its left. The minus sign describes a position relative to zero; it does not mean a number is missing or invalid.\n\nImagine these equally spaced marks: **-3, -2, -1, 0, 1, 2, 3**. Moving one interval right changes the value by one. The point -1 is to the right of -3, so -1 is the greater number. Although the digit 3 is larger than the digit 1, the complete signed numbers have the opposite order. Read the sign together with the digit.\n\nSpacing carries information. If adjacent labeled marks are 0 and 2, the interval represents two units, not one. For equally spaced marks **-4, -2, [blank], 2**, the blank is zero. Check the same interval on both sides before filling a missing label. A drawing can be wide or narrow without changing the values it represents.\n\nTry a position check before looking at a result. On marks **-6, -3, 0, 3**, what does one interval represent? It represents three units. A point one interval right of zero is therefore 3. Count intervals, not the number of printed labels: two neighboring labels have one interval between them.\n\nNow separate order from distance. The point -5 is farther from zero than -2, yet -2 is the greater value because it is farther right. If a question asks which position is greater, do not answer the distance question instead. A useful explanation names the direction: “-2 is to the right of -5.”\n\nFor optional practice, draw a short line with zero near the middle, label a consistent scale, and place two negative numbers and one positive number. You can also describe the line entirely in words. The checks use new values: one asks you to read a scale, and another asks you to apply ordering in a different situation. A wrong first check leaves fresh questions available; correcting a question you have already seen is practice rather than new independent evidence.",
+      "objectives": [
+        {
+          "id": "nl-position-objective",
+          "description": "Read an equally spaced number line and compare signed positions."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "experience": "new to negative numbers"
+      },
+      "recentHistory": [
+        {
+          "role": "learner",
+          "content": "Why is -2 greater than -5 if 5 is bigger than 2?"
+        },
+        {
+          "role": "assistant",
+          "content": "Because order on the line is read by position: -2 lies to the right of -5, so -2 is the greater number. Read the sign together with the digit. Try one: which is greater, -4 or -1?"
+        },
+        {
+          "role": "learner",
+          "content": "-1, because it is further right."
+        },
+        {
+          "role": "assistant",
+          "content": "Correct: -1 is to the right of -4, so it is the greater value. One more: on marks -6, -3, 0, 3, which is greater, -6 or -3?"
+        }
+      ]
+    },
+    "lessonMap": {
+      "chapter": "Walking the number line",
+      "earlierLessons": [],
+      "laterLessons": [
+        "Moves with direction",
+        "Distance and total travel"
+      ]
+    },
+    "question": "-3, it is to the right of -6.",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "expect": {
+    "grounding": {
+      "anchors": [
+        "right",
+        "greater",
+        "lesson"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+"
+      ]
+    },
+    "factuality": {
+      "required": [
+        {
+          "id": "minus-three-greater",
+          "statement": "-3 is greater than -6 because it lies to the right of -6.",
+          "anyOf": [
+            "-3 (?:is|lies|sits)(?: located)? (?:further |farther )?(?:to the )?right of -6",
+            "-3 is (?:the )?(?:greater|bigger|larger)",
+            "-3\\s*>\\s*-6"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "minus-six-greater",
+          "pattern": "-6 is (?:greater|bigger|larger) than -3",
+          "reason": "-3 lies to the right of -6, so -3 is greater."
+        }
+      ]
+    },
+    "pacing": {
+      "noClosingQuestion": true,
+      "repeatedSkill": [
+        "\\bwhich (?:one )?is (?:greater|bigger|larger)\\b",
+        "\\b(?:greater|bigger|larger)\\s*,?\\s*-?\\d+\\s+or\\s+-?\\d+"
+      ]
+    }
+  },
+  "judge": {
+    "criteria": [
+      {
+        "id": "stops-asking",
+        "description": "Confirms the answer, says in one line what the learner has shown and ends without a question, pointing back to the lesson."
+      }
+    ]
+  }
+}

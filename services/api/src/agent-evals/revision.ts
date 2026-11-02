@@ -52,7 +52,8 @@ const PROBE_CHECK: GradedCheck = { id: "probe-check", type: "multiple_choice", p
  * learner's message is about a graded check (a matched check, and one that is not certain, which
  * has its own note) and the Hebrew rule when the question is in Hebrew. Its reply style (`replyStyle`,
  * concise or detailed) comes from the binding, so the plain request already has the style that binding
- * is asked in. Only roles listed here get a `variants` entry, so every other role keeps its digest.
+ * is asked in. The pacing rule's strictest mode (`pacingClose`) is probed too. Only roles listed here get a
+ * `variants` entry, so every other role keeps its digest.
  * v2 adds the answer guard's regeneration (GUARDED_VARIANTS).
  */
 const PROBE_VARIANTS_VERSION = "core.role-revision-variants/2";
@@ -61,6 +62,9 @@ const PROBE_VARIANTS: Partial<Record<AgentRole, Record<string, Partial<TeachingC
     checkCoaching: { checkCoaching: checkCoachingView([{ check: PROBE_CHECK, how: "quoted", score: 1 }])! },
     checkCoachingUnresolved: { checkCoaching: checkCoachingView([{ check: PROBE_CHECK, how: "unresolved", score: 1 }])! },
     hebrew: { question: "מה ההבדל בין שני המושגים בשיעור?" },
+    // A `close` turn (companion-pacing.ts): three replies in a row asked the learner something.
+    pacingClose: { learner: { profile: {}, recentAttempts: [], recentHistory: [1, 2, 3].flatMap((n) => [
+      { role: "learner", content: `Probe answer ${n}.` }, { role: "assistant", content: `Probe reply ${n}. Probe question ${n}?` }]) }, question: "Probe answer 4." },
   },
 };
 /**

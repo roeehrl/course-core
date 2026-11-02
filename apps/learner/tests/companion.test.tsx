@@ -16,7 +16,7 @@ import {
 import { CourseApiError } from "../src/client/apiClient";
 import { createConnectedDraftStore } from "../src/connected/drafts";
 import { context, message, receipt } from "./companionFixtures";
-import { companionBridge, resetCompanionBridge } from "../src/connected/companion/bridge";
+import { companionBridge, lessonNavigator, resetCompanionBridge } from "../src/connected/companion/bridge";
 import { pressWhenReady } from "./pressWhenReady";
 
 /*
@@ -597,6 +597,33 @@ describe("whose turn it is", () => {
     expect(screen.getByRole("button", { name: "Show me how" })).toBeVisible();
     fireEvent.change(screen.getByRole("textbox", { name: "Message to your companion" }), { target: { value: "x" } });
     expect(screen.queryByRole("group", { name: "Suggested answers" })).toBeNull();
+  });
+  it("after a reply that ends a run of practice, offers 'Back to the lesson' instead of 'Your turn', keeps 'Ask another question', in English and Hebrew", async () => {
+    const answered = { ...message, id: "answer", content: "8.5", job_id: "j2", job_state: "applied" as const };
+    const closing = reply("j2", "Correct: 8.5. You have shown you can trace a prediction with new inputs. Continue with the next part of the lesson.", { context: { episodeId: "intro" } });
+    const send = vi.fn().mockResolvedValue({ ...receipt, messageId: "more", downgradedChallengeIds: [] });
+    const shown = vi.fn(() => true);
+    const off = lessonNavigator.register(shown);
+    const { unmount } = show({ messages: [{ ...message, job_state: "applied" }, asking, answered, closing], onSend: send });
+    expect(screen.queryByText("Your turn")).toBeNull();
+    const back = screen.getByRole("button", { name: "Back to the lesson" });
+    expect(back).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message to your companion" })).toHaveAttribute("placeholder", "Reply…");
+    const chips = screen.getByRole("group", { name: "Suggested answers" });
+    expect(within(chips).getAllByRole("button").map((chip) => chip.textContent)).toEqual(["Ask another question"]);
+    fireEvent.click(back);
+    await waitFor(() => expect(shown).toHaveBeenCalledWith(expect.objectContaining({ episodeId: "intro", focus: "block" })));
+    await pressWhenReady(within(chips).getByRole("button", { name: "Ask another question" }));
+    await waitFor(() => expect(send).toHaveBeenCalledWith("Ask me another question", undefined));
+    off();
+    unmount();
+    show({ messages: [{ ...message, job_state: "applied" }, asking, answered, closing] }, "he");
+    expect(screen.getByRole("button", { name: "חזרה לשיעור" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "עוד שאלת תרגול" })).toBeVisible();
+  });
+  it("keeps the usual follow-ups after an ordinary reply that did not end a run of practice", () => {
+    show({ messages: [{ ...message, job_state: "applied" }, reply("job", "The bias is added after the product.")] });
+    expect(screen.queryByRole("button", { name: "Back to the lesson" })).toBeNull();
   });
 });
 
