@@ -204,7 +204,7 @@ describe("a quick check answered in the long-answer composer", () => {
     // The key hint is the field's description.
     expect(field).toHaveAccessibleDescription(/Ctrl\+Enter to submit/);
     const submit = screen.getByRole("button", { name: "Submit check" });
-    expect(submit).toBeDisabled();
+    expect(submit).toHaveAttribute("aria-disabled", "true");
     await userEvent.type(field, "2");
     await userEvent.keyboard("{Enter}");
     expect(field).toHaveValue("2\n");
@@ -234,7 +234,7 @@ describe("a quick check answered in the long-answer composer", () => {
     expect(await screen.findByRole("textbox", { name: "התשובה" })).toBeVisible();
     expect(screen.getByText("בדיקה קצרה · לא נספרת להתקדמות")).toBeVisible();
     expect(screen.getByText("הצעה מהמנחה")).toBeVisible();
-    expect(screen.getByRole("button", { name: "שליחת הבדיקה" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "שליחת הבדיקה" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "עוד לא ברור לי" })).toBeEnabled();
   });
 });

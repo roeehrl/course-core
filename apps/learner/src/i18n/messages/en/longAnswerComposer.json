@@ -1,4 +1,7 @@
 {
   "hint.mac": "<key>⌘ Enter</key> to submit",
-  "hint.other": "<key>Ctrl+Enter</key> to submit"
+  "hint.other": "<key>Ctrl+Enter</key> to submit",
+  "saveHint.mac": "<key>⌘ Enter</key> to save",
+  "saveHint.other": "<key>Ctrl+Enter</key> to save",
+  "empty": "Write something here first."
 }

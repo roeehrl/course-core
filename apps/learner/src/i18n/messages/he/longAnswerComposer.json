@@ -1,4 +1,7 @@
 {
   "hint.mac": "<key>⌘ Enter</key> לשליחה",
-  "hint.other": "<key>Ctrl+Enter</key> לשליחה"
+  "hint.other": "<key>Ctrl+Enter</key> לשליחה",
+  "saveHint.mac": "<key>⌘ Enter</key> לשמירה",
+  "saveHint.other": "<key>Ctrl+Enter</key> לשמירה",
+  "empty": "קודם כותבים כאן משהו."
 }

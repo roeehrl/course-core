@@ -141,7 +141,8 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   await expect(panel(page).getByRole("heading", { name: "Closed with gaps" })).toBeVisible();
   await panel(page).getByRole("button", { name: /^Request a staff review/ }).click();
   const send = panel(page).getByRole("button", { name: "Send review request", exact: true });
-  await expect(send).toBeDisabled();
+  // Empty, it keeps its accent and its place in the Tab order and says it waits (aria-disabled).
+  await expect(send).toHaveAttribute("aria-disabled", "true");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await noHorizontalScroll(page);
   if (info.project.name === "phone") {

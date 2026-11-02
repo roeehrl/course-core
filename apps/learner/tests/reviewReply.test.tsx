@@ -19,7 +19,9 @@ describe("replying to a reviewer's clarification request", () => {
     expect(screen.queryByText(/AI|Unverified/)).toBeNull();
     expect(screen.getByText("Clarification asked")).toBeVisible();
     const send = screen.getByRole("button", { name: "Send reply" });
-    expect(send).toBeDisabled();
+    // Empty, it keeps its accent and its place in the Tab order, and says it waits (aria-disabled).
+    expect(send).toHaveAttribute("aria-disabled", "true");
+    expect(send).toBeEnabled();
     await userEvent.type(screen.getByLabelText("Your reply to the reviewer"), "Each comparison keeps the smaller value, so nothing seen is smaller.");
     await userEvent.click(send);
     await waitFor(() => expect(onReply).toHaveBeenCalledWith("a1", "Each comparison keeps the smaller value, so nothing seen is smaller."));
@@ -69,7 +71,7 @@ describe("replying to a reviewer's clarification request", () => {
     const { unmount } = render(<ReviewStatus loader={async () => [judged]} enrollmentId="e" episodeId="min" revision={1} onAppeal={onAppeal} />);
     await userEvent.click(await screen.findByRole("button", { name: "Ask for a second opinion" }));
     const send = screen.getByRole("button", { name: "Request a second opinion" });
-    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("aria-disabled", "true");
     await userEvent.type(screen.getByLabelText("Why should another reviewer look again?"), "My second sentence states the invariant.");
     await userEvent.click(send);
     await waitFor(() => expect(onAppeal).toHaveBeenCalledWith("a1", "My second sentence states the invariant."));
@@ -107,6 +109,6 @@ describe("written answers in Hebrew", () => {
     expect(screen.getAllByText("בהמתנה לבדיקה")[0]).toBeVisible();
     // The field keeps the interface's direction (its caret starts at the right); typed text shows in its own.
     expect(screen.getByLabelText("התגובה לבודק")).not.toHaveAttribute("dir");
-    expect(screen.getByRole("button", { name: "שליחת התגובה" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "שליחת התגובה" })).toHaveAttribute("aria-disabled", "true");
   });
 });

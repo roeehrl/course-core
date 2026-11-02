@@ -55,6 +55,9 @@ describe("reusable learner components", () => {
     expect(screen.getByText(/One clear path, at your pace/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Show a hint" })).toBeNull();
     const notes = screen.getByRole("textbox", { name: "Notes to yourself" });
+    // The key saves, and its hint says so (§4.19), not "submit".
+    expect(notes).toHaveAccessibleDescription(/Enter to save/);
+    expect(notes).not.toHaveAccessibleDescription(/submit/);
     notes.focus();
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     expect(change).toHaveBeenLastCalledWith("Look for neighbors.");

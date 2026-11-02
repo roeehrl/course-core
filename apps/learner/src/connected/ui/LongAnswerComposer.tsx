@@ -19,6 +19,8 @@ export interface LongAnswerComposerProps {
   describedBy?: string;
   /** A quiet choice before the submit on the same row ("I don't know yet"). */
   secondary?: { label: string; onPress: () => void; disabled?: boolean };
+  /** What the submit does, for the key hint: "submit" (a check, a reply) or "save" (a note). */
+  action?: "submit" | "save";
 }
 
 /**

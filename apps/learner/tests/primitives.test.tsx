@@ -277,12 +277,24 @@ describe("long-answer composer", () => {
     expect(submit).toHaveBeenCalledTimes(2);
   });
 
-  it("does not submit an empty answer", () => {
+  it("does not submit an empty answer: the submit keeps its accent, and a press says what is missing", () => {
     const submit = vi.fn();
     render(<Box onSubmit={submit} />);
-    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+    const button = screen.getByRole("button", { name: "Submit" });
+    // Like the check's "Check" (§4.1): focusable, aria-disabled, never greyed out.
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveClass("cc-ui-pill-accent");
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", metaKey: true });
     expect(submit).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Write something here first.");
+    expect(screen.getByRole("textbox")).toHaveFocus();
+    expect(screen.getByRole("textbox")).toHaveAccessibleDescription(/Write something here first\./);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(button).not.toHaveAttribute("aria-disabled");
   });
 });
 

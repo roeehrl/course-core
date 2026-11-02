@@ -480,6 +480,19 @@ button.cc-ui-chip:hover {
   justify-content: space-between;
   gap: var(--space-2);
 }
+/* A press on the submit with nothing written says so under the field (as the check does). */
+.cc-ui-long-missing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-ui-long-missing > svg {
+  flex: none;
+  margin-block-start: 2px;
+}
 .cc-ui-long-hint {
   color: var(--ink-muted);
   font: 400 var(--text-micro) var(--font-sans);

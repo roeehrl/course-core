@@ -86,6 +86,7 @@ function DemoCompanion({ step, lessonTitle, note, onNoteChange, mode }: Companio
             announce(t("companion.notes.saved"));
           }}
           submitLabel={t("companion.notes.save")}
+          action="save"
           placeholder={t("companion.notes.placeholder")}
           describedBy={saved}
           className="cc-note-demo-composer"
