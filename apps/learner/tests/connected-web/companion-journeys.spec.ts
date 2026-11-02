@@ -83,8 +83,10 @@ test("a lesson selection: Ask companion attaches it, the sent question carries i
   const turn = thread(page).locator(".cc-chat-turn.is-learner").filter({ hasText: question });
   const anchor = turn.getByRole("button", { name: /Selected: “member”/ });
   await expect(anchor).toBeVisible();
-  // The chip is above the bubble.
-  expect((await anchor.boundingBox())!.y).toBeLessThan((await turn.locator(".cc-chat-bubble").boundingBox())!.y);
+  // The chip is above the bubble (both read in one frame: the thread may still be moving to its
+  // anchored place between two separate reads).
+  expect(await turn.evaluate((node) => node.querySelector(".cc-chat-anchor")!.getBoundingClientRect().top <
+    node.querySelector(".cc-chat-bubble")!.getBoundingClientRect().top)).toBe(true);
   await expect(companionPanel(page).locator(".cc-chat-attachment")).toHaveCount(0);
   await anchor.click();
   // The part is shown and marked (M14).

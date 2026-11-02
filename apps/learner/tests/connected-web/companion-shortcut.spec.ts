@@ -36,7 +36,17 @@ test("Ctrl+Shift+. toggles the companion, not while typing, and the trigger says
   await page.keyboard.press("Control+Shift+Period");
   await expect(region).toBeHidden();
   await expect(trigger(page)).toHaveAttribute("aria-expanded", "false");
-  // Closed with focus inside it, focus goes back to the trigger.
+  // Closed with focus inside it, focus goes back where the shortcut was pressed (§6, "or the
+  // opener"): here the lesson's heading, which the click above focused.
+  const heading = page.getByRole("heading", { name: "Minimum", exact: true });
+  await expect(heading).toBeFocused();
+  await page.keyboard.press("Control+Shift+Period");
+  await expect(region).toBeFocused();
+  await page.keyboard.press("Control+Shift+Period");
+  await expect(region).toBeHidden();
+  await expect(heading).toBeFocused();
+  // Opened with focus nowhere, it goes back to the trigger.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Control+Shift+Period");
   await expect(region).toBeFocused();
   await page.keyboard.press("Control+Shift+Period");

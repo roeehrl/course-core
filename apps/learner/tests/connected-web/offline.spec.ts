@@ -132,7 +132,11 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
     .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
-  // Sent again from the new tab, its result shows under its question there (§4.1).
+  // Sent again from the new tab, its result shows under its question there (§4.1), in the lesson.
+  await reopened
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
+    .first()
+    .click();
   await expect(reopened.locator(".connected-answer-feedback.is-filled")).toContainText(/Correct\.|Let's revisit this\./);
   await expect(reopened.getByText(/^Recovered submission\./)).toHaveCount(0);
   expect(posts.keys).toEqual(firstKeys);

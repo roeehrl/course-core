@@ -81,8 +81,11 @@ test("the credit line shows only while this lesson's counted question is open, i
   await openCompanion(page);
   await expect(creditLine(page)).toHaveText("Question 1 counts. Asking now makes it practice.");
   await expect(creditLine(page)).toHaveClass(/is-notice/);
-  const described = (await composerBox(page).getAttribute("aria-describedby")) ?? "";
-  expect(described.split(" ")).toContain("cc-credit-line");
+  // Read with the message box, once: the notice slot that holds it describes the box, so the
+  // line's own id is not listed again.
+  await expect(composerBox(page)).toHaveAccessibleDescription(/Question 1 counts\. Asking now makes it practice\./);
+  expect((await composerBox(page).evaluate((box) => (box.getAttribute("aria-describedby") ?? "").split(" ")
+    .map((id) => document.getElementById(id)?.textContent ?? "").join(" "))).match(/Asking now makes it practice\./g)).toHaveLength(1);
   await expect(page.locator("#cc-credit-line")).toHaveText("Question 1 counts. Asking now makes it practice.");
   // The ⓘ by keyboard: Enter opens one paragraph, Esc closes it and returns focus.
   const info = creditLine(page).getByRole("button", { name: "How questions count" });

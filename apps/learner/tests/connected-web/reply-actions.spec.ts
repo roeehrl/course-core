@@ -56,15 +56,21 @@ test("the reply's row copies, votes, takes a comment and a report, and keeps the
   await openCompanion(page);
   const row = rowOf(page, LATEST_REPLY);
   await expect(row).toBeVisible();
-  // Copy: a check mark for 2 s and "Copied", said once.
-  await row.getByRole("button", { name: t.reply.copy, exact: true }).click();
-  await expect(row.getByRole("status")).toHaveText(t.reply.copied);
-  await expect(row.getByRole("status")).toHaveText("", { timeout: 4_000 });
+  // Copy: a check mark for 2 s and "Copied", said once by the conversation's one status region
+  // (§6); the row has no live region of its own.
+  const announcer = companionPanel(page).locator("[data-cc-announcer]");
+  await expect(companionPanel(page).getByRole("status")).toHaveCount(1);
+  const copy = row.getByRole("button", { name: t.reply.copy, exact: true });
+  await copy.click();
+  await expect(announcer).toHaveText(t.reply.copied);
+  await expect(copy.locator('svg[data-icon="check"]')).toHaveCount(1);
+  await expect(copy.locator('svg[data-icon="copy"]')).toHaveCount(1, { timeout: 4_000 });
   // Helpful: pressed at once, then "Thanks, noted." in Based on's place.
   const helpful = row.getByRole("button", { name: t.vote.helpful, exact: true });
   await helpful.click();
   await expect(helpful).toHaveAttribute("aria-pressed", "true");
-  await expect(row.getByRole("status")).toHaveText(t.reply.thanks);
+  await expect(row.locator(".cc-act-thanks")).toHaveText(t.reply.thanks);
+  await expect(announcer).toHaveText(t.reply.thanks);
   await expect.poll(() => feedback(page, enrollment)).toEqual([{ vote: "helpful", comment: null, reported: false }]);
   // Not helpful with a comment, then a report from More.
   const notHelpful = row.getByRole("button", { name: t.vote.notHelpful, exact: true });
