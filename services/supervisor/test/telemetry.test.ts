@@ -31,6 +31,12 @@ test('attribute allowlist drops unknown keys, free text and wrongly typed values
   assert.deepEqual(sanitizeAttributes({ 'gen_ai.usage.input_tokens': 1 }, ['http.route']), {});
   assert.deepEqual(sanitizeAttributes(undefined), {});
 });
+test('a provider call\'s failure reason keeps only an upper snake case code', () => {
+  for (const reason of ['MAX_TOKENS_THINKING', 'SAFETY', 'PROMPT_PROHIBITED_CONTENT', 'INVALID_ARGUMENT'])
+    assert.deepEqual(sanitizeAttributes({ 'course.provider.reason': reason }), { 'course.provider.reason': reason });
+  for (const bad of [learnerText, 'max_tokens', 'X'.repeat(65), 'SAFETY: blocked for dana@example.com', 42])
+    assert.deepEqual(sanitizeAttributes({ 'course.provider.reason': bad }), {}, String(bad));
+});
 test('correlation attributes keep only random ids, digests and a flag', () => {
   assert.deepEqual(sanitizeAttributes({ 'course.attempt.id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'course.artifact.hash': 'b'.repeat(64), 'course.client.trace_linked': true }),
     { 'course.attempt.id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'course.artifact.hash': 'b'.repeat(64), 'course.client.trace_linked': true });

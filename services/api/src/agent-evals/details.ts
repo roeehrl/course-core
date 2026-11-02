@@ -21,6 +21,8 @@ export const REPLY_LIMIT = 4000;
 export const REDACTED = "⟦redacted⟧";
 /** The stored detail's size cap, in characters (also the database's check). */
 export const DETAIL_LIMIT = 60000;
+/** A provider's cause code as ProviderError keeps it: upper snake case, never provider text. */
+const PROVIDER_REASON = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 export interface FindingDetail {
   /** The grader's finding code (graders.ts), e.g. `tool_not_allowed:get_secrets`. */
@@ -61,6 +63,9 @@ export interface DialogueDetail {
     /** Why there is no answer: the refusal's reason or the error's code. */
     reason?: string;
     truncated: boolean;
+    /** For a failed call or a refused reply: the provider's cause beyond the code (ProviderError
+     * `reason`, e.g. MAX_TOKENS_THINKING, SAFETY, EMPTY_OUTPUT). Absent when none was named. */
+    providerReason?: string;
   };
   graders: GraderDetail[];
   /** Not passed only because the judge could not run. */
@@ -195,7 +200,7 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
  * removed. `grade` is Core's own regrade of the answer.
  */
 export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: DialogueGrade, toolCalls: readonly ToolCallRecord[] = [],
-  judgement?: MeaningJudgement): DialogueDetail {
+  judgement?: MeaningJudgement, providerReason?: string | null): DialogueDetail {
   const redact = redactor(dialogue);
   let truncated = false;
   const s = (value: string, max: number) => clip(redact(value), max).text;
@@ -230,6 +235,7 @@ export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: Di
     case "error": reply.reason = output.code; break;
   }
   reply.truncated = truncated;
+  if ((output.kind === "error" || output.kind === "refusal") && providerReason && PROVIDER_REASON.test(providerReason)) reply.providerReason = providerReason;
   const findings = new Map(grade.graders.map((g) => [g.grader, g]));
   const graders: GraderDetail[] = [...GRADERS, ...grade.graders.map((g) => g.grader).filter((g) => !GRADERS.includes(g))].map((grader) => {
     const result = findings.get(grader);

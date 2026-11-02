@@ -379,6 +379,8 @@ export const qualityDialogueSchema = z.object({
     sources: z.number().int().nonnegative().optional(),
     reason: short(120).optional(),
     truncated: z.boolean(),
+    /** The provider's cause beyond the code (MAX_TOKENS_THINKING, SAFETY...), when it named one. */
+    providerReason: short(80).optional(),
   }),
   graders: z
     .array(

@@ -50,7 +50,8 @@ export const providerCallObserver: ProviderCallObserver = call => {
     const attributes = { ...base, 'gen_ai.provider.name': end.providerId, 'gen_ai.usage.input_tokens': end.tokens?.input,
       'gen_ai.usage.output_tokens': end.tokens?.output, 'course.usage.total_tokens': end.tokens?.total, 'course.provider.outcome': end.outcome,
       'course.provider.attempts': end.attempts, 'course.provider.access': end.access };
-    span.setAttributes(attributes);
+    // Why a call failed beyond its code (e.g. MAX_TOKENS_THINKING, SAFETY): on the span only, not on metrics.
+    span.setAttributes({ ...attributes, 'course.provider.reason': end.reason ?? undefined });
     if (end.outcome === 'error') span.fail(end.code ?? undefined);
     span.end();
     runtime.record('gen_ai.client.operation.duration', end.elapsedMs / 1000, { ...attributes, 'error.type': end.code });

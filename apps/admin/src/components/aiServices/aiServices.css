@@ -1054,6 +1054,11 @@
   color: var(--muted);
   white-space: normal;
 }
+/* Why the provider gave no usable answer, beside its code. */
+.ai-reply-cause {
+  margin-block-start: 4px;
+  overflow-wrap: anywhere;
+}
 /* A passage a rule failed the reply for. */
 .ai-flagged {
   padding-inline: 2px;

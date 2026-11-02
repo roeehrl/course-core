@@ -233,3 +233,47 @@ for (const locale of ["en", "he"] as const)
       fullPage: false,
     });
   });
+
+/** Screenshots for review go here when set (a stub harness; no provider is called). */
+const shots = process.env.COURSE_SCREENSHOT_DIR;
+for (const locale of ["en", "he"] as const)
+  test(`${locale}: a conversation without an answer says why the provider gave none`, async ({
+    page,
+    context,
+  }, info) => {
+    await mockConnectedAdmin(page, context);
+    await stubQualityCheck(page, { providerFailed: true });
+    const { section, ai } = await openCheck(page, locale);
+    const panel = section.locator(".ai-dialogues");
+    await panel.getByText(ai["check.details.title"]!, { exact: true }).click();
+    const terse = panel.locator(
+      '[data-dialogue="companion.terse.endpoint-answer"]',
+    );
+    await terse.locator("summary").click();
+    const none = terse.locator(".ai-reply-none");
+    await expect(none).toContainText(ai["check.details.noReply"]!);
+    // The code the rules are failed with stays as it was; the cause is said beside it.
+    await expect(none).toContainText("provider_output_incomplete");
+    const cause = terse.locator(".ai-reply-cause");
+    await expect(cause).toContainText(
+      ai["check.details.cause.MAX_TOKENS_THINKING"]!,
+    );
+    await expect(cause.locator("bdi.mono")).toHaveText("MAX_TOKENS_THINKING");
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .include(".ai-dialogues")
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+          .analyze()
+      ).violations.map((v) => `${v.id} ${v.nodes[0]?.target}`),
+    ).toEqual([]);
+    await cause.scrollIntoViewIfNeeded();
+    const name = `provider-reason-${locale}-${info.project.name}.png`;
+    await page.screenshot({
+      path: shots ? `${shots}/${name}` : info.outputPath(name),
+      fullPage: false,
+    });
+  });
