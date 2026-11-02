@@ -274,13 +274,15 @@ describe("learner spending data and the recommended per-learner limit", () => {
     expect(result.byRole.map((r: { role: string; charged: string; learners: number }) => [r.role, r.charged, r.learners]))
       .toEqual([["companion", "2000000", 4], ["media", "2000000", 1], ["supervisor", "2000000", 4]]);
     expect(result.byLesson.map((r: { episodeId: string; charged: string }) => [r.episodeId, r.charged])).toEqual([["min", "4000000"], ["max", "2000000"]]);
+    // Each lesson with its title from the learners' release (the course's own language).
+    expect(result.byLesson.map((r: { episodeTitle?: string }) => r.episodeTitle)).toEqual(["Minimum", "Maximum"]);
     // 1.84 x 1.5 = 2.76, rounded up to the next $0.50; a heavy day is 500k x 1.5 = 750k, rounded up to $0.10.
     expect(result.recommendation).toEqual({ status: "ready", microUsd: 3_000_000, dailyMicroUsd: 800_000,
       basis: { learners: 5, learnerDays: 20, windowDays: 31, margin: 1.5, p90LearnerTotalMicroUsd: 1_840_000, p90LearnerDayMicroUsd: 500_000, cappedAtWorkspaceTotal: false } });
     const top = result.rows[0];
     expect(top).toMatchObject({ enrollmentId: learners[4], courseKey: "spend-a", charged: "2000000", activeDays: 4, activeHours: 4, calls: 4,
       perDay: { p50: 500_000, p90: 500_000, max: 500_000 } });
-    expect(top.byLesson).toEqual([expect.objectContaining({ episodeId: "max", charged: "2000000", calls: 4 })]);
+    expect(top.byLesson).toEqual([expect.objectContaining({ episodeId: "max", episodeTitle: "Maximum", charged: "2000000", calls: 4 })]);
     expect(top.byDay.map((d: { day: string }) => d.day)).toEqual(["2026-01-08", "2026-01-07", "2026-01-06", "2026-01-05"]);
     // Nothing that identifies a person beyond the enrollment.
     expect(JSON.stringify(result)).not.toMatch(/Private Learner Name|synthetic:/);
@@ -320,5 +322,19 @@ describe("learner spending data and the recommended per-learner limit", () => {
       expect((await get(person, `/api/admin/workspaces/${data}/provider-spend/learners`)).statusCode).toBe(403);
     for (const query of ["?from=2026-01-01&to=2026-06-30", "?from=2026-02-01&to=2026-01-01", "?pageSize=26", "?page=0", "?extra=1"])
       expect((await get(dataOwner, `/api/admin/workspaces/${data}/provider-spend/learners${query}`)).json().error).toBe("PROVIDER_SPEND_RANGE_INVALID");
+  });
+
+  it("keeps only the id of a lesson no release names, and gives no title to spending without a lesson", async () => {
+    await spend(learners[0]!, 5, 50_000, { episode: "retired-lesson" });
+    await spend(learners[0]!, 5, 50_000, { episode: null });
+    const result = await view(dataOwner);
+    const retired = result.byLesson.find((r: { episodeId: string | null }) => r.episodeId === "retired-lesson");
+    expect(retired).toBeDefined();
+    expect(retired).not.toHaveProperty("episodeTitle");
+    expect(result.byLesson.find((r: { episodeId: string | null }) => r.episodeId === null)).not.toHaveProperty("episodeTitle");
+    expect(result.byLesson.find((r: { episodeId: string | null }) => r.episodeId === "min")).toMatchObject({ episodeTitle: "Minimum" });
+    const first = (await view(dataOwner, "&pageSize=25")).rows.find((r: { enrollmentId: string }) => r.enrollmentId === learners[0]);
+    expect(first.byLesson.find((r: { episodeId: string | null }) => r.episodeId === "retired-lesson")).not.toHaveProperty("episodeTitle");
+    expect(first.byLesson.find((r: { episodeId: string | null }) => r.episodeId === "min")).toMatchObject({ episodeTitle: "Minimum" });
   });
 });

@@ -4,7 +4,16 @@ import {
   type LearnerSpend,
   type LearnerSpendPort,
 } from "../../domain/learnerSpend";
-import { Field, Ltr, Message, errorText, jobName, useAiText } from "./shared";
+import {
+  Field,
+  Ltr,
+  Message,
+  Money,
+  NumCols,
+  errorText,
+  jobName,
+  useAiText,
+} from "./shared";
 
 const PAGE_SIZE = 10;
 const PERIODS = [7, 30, 90] as const;
@@ -54,9 +63,7 @@ export function LearnerSpendPanel({
       });
     return () => controller.abort();
   }, [open, days, page, load, workspaceId]);
-  const money = (value: string | number) => (
-    <Ltr>{text.money(Number(value))}</Ltr>
-  );
+  const money = (value: string | number) => <Money micro={value} />;
   async function use(microUsd: number) {
     if (!onUse) return;
     setUsing(true);
@@ -92,6 +99,7 @@ export function LearnerSpendPanel({
         >
           <select
             id={`${base}-period`}
+            className="ai-narrow"
             value={days}
             onChange={(event) => {
               setDays(Number(event.target.value) as (typeof PERIODS)[number]);
@@ -159,6 +167,7 @@ export function LearnerSpendPanel({
                     <caption>
                       {t("aiServices.learnerSpend.spreadCaption")}
                     </caption>
+                    <NumCols count={3} />
                     <thead>
                       <tr>
                         <th scope="col">
@@ -195,43 +204,43 @@ export function LearnerSpendPanel({
                     </tbody>
                   </table>
                 </div>
-                <Breakdown
-                  caption={t("aiServices.learnerSpend.byJob")}
-                  head={t("aiServices.history.job")}
-                  rows={data.byRole.map((r) => ({
-                    key: r.role,
-                    name: jobName(t, r.role),
-                    learners: r.learners,
-                    calls: r.calls,
-                    charged: r.charged,
-                  }))}
-                />
-                <Breakdown
-                  caption={t("aiServices.learnerSpend.byLesson")}
-                  head={t("aiServices.learnerSpend.lesson")}
-                  rows={data.byLesson.map((r) => ({
-                    key: r.episodeId ?? "",
-                    name: r.episodeId ? (
-                      <Ltr>{r.episodeId}</Ltr>
-                    ) : (
-                      t("aiServices.learnerSpend.noLesson")
-                    ),
-                    learners: r.learners,
-                    calls: r.calls,
-                    charged: r.charged,
-                  }))}
-                />
+                <div className="ai-table-pair">
+                  <Breakdown
+                    caption={t("aiServices.learnerSpend.byJob")}
+                    head={t("aiServices.history.job")}
+                    rows={data.byRole.map((r) => ({
+                      key: r.role,
+                      name: jobName(t, r.role),
+                      learners: r.learners,
+                      calls: r.calls,
+                      charged: r.charged,
+                    }))}
+                  />
+                  <Breakdown
+                    caption={t("aiServices.learnerSpend.byLesson")}
+                    head={t("aiServices.learnerSpend.lesson")}
+                    rows={data.byLesson.map((r) => ({
+                      key: r.episodeId ?? "",
+                      name: <LessonName lesson={r} />,
+                      learners: r.learners,
+                      calls: r.calls,
+                      charged: r.charged,
+                    }))}
+                  />
+                </div>
+                <LessonIds lessons={data.byLesson} />
                 <h3 className="ai-subtitle">
                   {t("aiServices.learnerSpend.listTitle")}
                 </h3>
                 <ul className="ai-learner-list">
-                  {data.rows.map((row) => (
+                  {data.rows.map((row, index) => (
                     <li key={row.enrollmentId}>
                       <details>
+                        {/* Learners by their place in the list, never by name or id; the
+                            enrollment is under "Technical details" for support. */}
                         <summary>
                           {t("aiServices.learnerSpend.learnerSummary", {
-                            learner: row.enrollmentId.slice(0, 8),
-                            course: row.courseKey,
+                            rank: first + index,
                             amount: text.money(Number(row.charged)),
                             days: row.activeDays,
                           })}
@@ -262,30 +271,28 @@ export function LearnerSpendPanel({
                             </dd>
                           </div>
                         </dl>
-                        <Breakdown
-                          caption={t("aiServices.learnerSpend.byJob")}
-                          head={t("aiServices.history.job")}
-                          rows={row.byRole.map((r) => ({
-                            key: r.role,
-                            name: jobName(t, r.role),
-                            calls: r.calls,
-                            charged: r.charged,
-                          }))}
-                        />
-                        <Breakdown
-                          caption={t("aiServices.learnerSpend.byLesson")}
-                          head={t("aiServices.learnerSpend.lesson")}
-                          rows={row.byLesson.map((r) => ({
-                            key: r.episodeId ?? "",
-                            name: r.episodeId ? (
-                              <Ltr>{r.episodeId}</Ltr>
-                            ) : (
-                              t("aiServices.learnerSpend.noLesson")
-                            ),
-                            calls: r.calls,
-                            charged: r.charged,
-                          }))}
-                        />
+                        <div className="ai-table-pair">
+                          <Breakdown
+                            caption={t("aiServices.learnerSpend.byJob")}
+                            head={t("aiServices.history.job")}
+                            rows={row.byRole.map((r) => ({
+                              key: r.role,
+                              name: jobName(t, r.role),
+                              calls: r.calls,
+                              charged: r.charged,
+                            }))}
+                          />
+                          <Breakdown
+                            caption={t("aiServices.learnerSpend.byLesson")}
+                            head={t("aiServices.learnerSpend.lesson")}
+                            rows={row.byLesson.map((r) => ({
+                              key: r.episodeId ?? "",
+                              name: <LessonName lesson={r} />,
+                              calls: r.calls,
+                              charged: r.charged,
+                            }))}
+                          />
+                        </div>
                         <Breakdown
                           caption={t("aiServices.learnerSpend.byDay")}
                           head={t("aiServices.learnerSpend.day")}
@@ -296,38 +303,53 @@ export function LearnerSpendPanel({
                             charged: r.charged,
                           }))}
                         />
+                        <details className="ai-technical">
+                          <summary>{t("aiServices.connect.technical")}</summary>
+                          <p>
+                            {t("aiServices.learnerSpend.enrollment")}{" "}
+                            <Ltr className="mono">{row.enrollmentId}</Ltr>
+                          </p>
+                          <p>
+                            {t("aiServices.learnerSpend.courseKey")}{" "}
+                            <Ltr className="mono">{row.courseKey}</Ltr>
+                          </p>
+                          <LessonIdList lessons={row.byLesson} />
+                        </details>
                       </details>
                     </li>
                   ))}
                 </ul>
-                <nav
-                  className="ai-actions"
-                  aria-label={t("aiServices.learnerSpend.pages")}
-                >
-                  <span role="status">
-                    {t("aiServices.learnerSpend.pageStatus", {
-                      first,
-                      last,
-                      total: data.totalLearners,
-                    })}
-                  </span>
-                  <button
-                    type="button"
-                    className="button"
-                    disabled={data.page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                {/* Pages only when there is more than one. */}
+                {data.totalLearners > data.pageSize && (
+                  <nav
+                    className="ai-actions ai-pager"
+                    aria-label={t("aiServices.learnerSpend.pages")}
                   >
-                    {t("aiServices.learnerSpend.previous")}
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    disabled={last >= data.totalLearners}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    {t("aiServices.learnerSpend.next")}
-                  </button>
-                </nav>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={data.page <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      {t("aiServices.learnerSpend.previous")}
+                    </button>
+                    <span role="status" className="ai-muted">
+                      {t("aiServices.learnerSpend.pageStatus", {
+                        first,
+                        last,
+                        total: data.totalLearners,
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={last >= data.totalLearners}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      {t("aiServices.learnerSpend.next")}
+                    </button>
+                  </nav>
+                )}
               </>
             )}
             <p className="ai-muted">{t("aiServices.learnerSpend.note")}</p>
@@ -448,6 +470,7 @@ function Breakdown({
     <div className="ai-table-wrap">
       <table>
         <caption>{caption}</caption>
+        <NumCols count={withLearners ? 3 : 2} />
         <thead>
           <tr>
             <th scope="col">{head}</th>
@@ -471,12 +494,54 @@ function Breakdown({
               {withLearners && <td className="num">{row.learners}</td>}
               <td className="num">{row.calls}</td>
               <td className="num">
-                <Ltr>{text.money(Number(row.charged))}</Ltr>
+                <Money micro={row.charged} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+type Lesson = { episodeId: string | null; episodeTitle?: string | undefined };
+/** A lesson by its title in the course's language; by its id from a server that sends none. */
+function LessonName({ lesson }: { lesson: Lesson }) {
+  const { t } = useAiText();
+  if (!lesson.episodeId) return <>{t("aiServices.learnerSpend.noLesson")}</>;
+  return lesson.episodeTitle ? (
+    <span dir="auto">{lesson.episodeTitle}</span>
+  ) : (
+    <Ltr>{lesson.episodeId}</Ltr>
+  );
+}
+/** Each titled lesson's id, for support: title, then id. */
+function LessonIdList({ lessons }: { lessons: Lesson[] }) {
+  const { t } = useAiText();
+  const titled = lessons.filter((l) => l.episodeId && l.episodeTitle);
+  if (!titled.length) return null;
+  return (
+    <>
+      <p>{t("aiServices.learnerSpend.lessonIds")}</p>
+      <ul className="ai-list">
+        {titled.map((l) => (
+          <li key={l.episodeId}>
+            <bdi dir="auto">{l.episodeTitle}</bdi>:{" "}
+            <Ltr className="mono">{l.episodeId}</Ltr>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+/** The lesson ids of the summary, under "Technical details". */
+function LessonIds({ lessons }: { lessons: Lesson[] }) {
+  const { t } = useAiText();
+  if (!lessons.some((l) => l.episodeId && l.episodeTitle)) return null;
+  return (
+    <details className="ai-technical">
+      <summary>{t("aiServices.connect.technical")}</summary>
+      <LessonIdList lessons={lessons} />
+    </details>
   );
 }

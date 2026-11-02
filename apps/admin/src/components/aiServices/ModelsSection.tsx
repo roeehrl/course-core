@@ -13,8 +13,8 @@ import type { SectionProps } from "./AiServicesPage";
 import {
   ErrorSummary,
   Field,
-  Ltr,
   Message,
+  SaveBar,
   Section,
   described,
   errorText,
@@ -397,23 +397,35 @@ export function ModelsSection(props: Props) {
             : t("aiServices.models.off")}
         </option>
         {options.map((group) => {
-          const items = group.models.map((m) => (
-            <option
-              key={m.remoteModel}
-              value={encode({
-                connectionId: group.connection.id,
-                remoteModel: m.remoteModel,
-              })}
-            >
-              {m.displayName && m.displayName !== m.remoteModel
-                ? `${m.displayName} (${m.remoteModel})`
-                : m.remoteModel}
-              {m.remoteModel === group.suggested
-                ? ` — ${t("aiServices.models.suggested")}`
-                : ""}
-              {!m.fits ? ` — ${t("aiServices.models.mayNotWork")}` : ""}
-            </option>
-          ));
+          const items = group.models.map((m) => {
+            // The model's name, short enough for a phone; its id only when two share a name.
+            const name =
+              m.displayName &&
+              group.models.filter((o) => o.displayName === m.displayName)
+                .length === 1
+                ? m.displayName
+                : m.displayName && m.displayName !== m.remoteModel
+                  ? `${m.displayName} (${m.remoteModel})`
+                  : m.remoteModel;
+            const label =
+              m.remoteModel === group.suggested
+                ? t("aiServices.models.optionSuggested", { model: name })
+                : name;
+            return (
+              <option
+                key={m.remoteModel}
+                title={m.remoteModel}
+                value={encode({
+                  connectionId: group.connection.id,
+                  remoteModel: m.remoteModel,
+                })}
+              >
+                {m.fits
+                  ? label
+                  : t("aiServices.models.optionMayNotWork", { model: label })}
+              </option>
+            );
+          });
           return usable.length > 1 ? (
             <optgroup
               key={group.connection.id}
@@ -456,108 +468,113 @@ export function ModelsSection(props: Props) {
           </p>
         </div>
       );
+    // One reason line under the choice: why the suggested model, naming it only when another
+    // model is chosen (the list itself marks the suggested one).
+    const suggested = suggestion ?? options[0]?.suggested;
+    const suggestedName =
+      options.flatMap((o) => o.models).find((m) => m.remoteModel === suggested)
+        ?.displayName ?? suggested;
+    const reason =
+      job === "media"
+        ? t("aiServices.models.why.media")
+        : !suggested
+          ? undefined
+          : choice?.remoteModel === suggested
+            ? t("aiServices.models.reasonChosen", {
+                why: t(`aiServices.models.why.${job}`),
+              })
+            : t("aiServices.models.reasonOther", {
+                model: suggestedName ?? "",
+                why: t(`aiServices.models.why.${job}`),
+              });
     return (
       <div className="ai-job" key={job}>
-        <div className="ai-job-heading">
-          <h3>{jobName(t, job)}</h3>
-          {NEEDED_JOBS.includes(job) && (
-            <span className="ai-tag">{t("aiServices.models.needed")}</span>
+        <div className="ai-job-info">
+          <div className="ai-job-heading">
+            <h3>{jobName(t, job)}</h3>
+            {NEEDED_JOBS.includes(job) && (
+              <span className="ai-tag">{t("aiServices.models.needed")}</span>
+            )}
+          </div>
+          <p className="ai-muted">{t(`aiServices.role.${job}.purpose`)}</p>
+        </div>
+        <div className="ai-job-choice">
+          <Field
+            id={id}
+            label={t("aiServices.models.modelFor", { job: jobName(t, job) })}
+            error={error}
+            hint={
+              !choice && loading ? (
+                t("aiServices.models.loading")
+              ) : reason ? (
+                <span className="ai-why">{reason}</span>
+              ) : undefined
+            }
+          >
+            {select}
+          </Field>
+          {choice && unavailableChoice(choice) && (
+            <Message tone="warn">
+              {t("aiServices.models.unavailableChoice", {
+                service: serviceName(
+                  t,
+                  kindOf(choice.connectionId),
+                  labelOf(choice.connectionId),
+                ),
+                model: choice.remoteModel,
+              })}
+            </Message>
+          )}
+          {failures.map(({ c, list }) => (
+            <Message tone="warn" key={c.id}>
+              {t("aiServices.models.listFailed")}{" "}
+              {keyProblemText(
+                text,
+                list.error,
+                serviceName(t, c.kind, c.label),
+              ) ?? ""}
+            </Message>
+          ))}
+          {job === "media" && choice && (
+            <MediaFields
+              base={base}
+              value={choice.media ?? { kind: "image" }}
+              imageModels={(() => {
+                const list = lists[choice.connectionId];
+                const role =
+                  list && "roles" in list
+                    ? list.roles.find((r) => r.role === "media")
+                    : undefined;
+                return list && "models" in list
+                  ? list.models
+                      .filter(
+                        (m) =>
+                          m.remoteModel !== choice.remoteModel &&
+                          (showAll ||
+                            (!!role?.method &&
+                              m.methods.includes(role.method) &&
+                              /image/i.test(m.remoteModel)) ||
+                            m.remoteModel ===
+                              choice.media?.imageModel?.remoteModel),
+                      )
+                      .map((m) => m.remoteModel)
+                  : [];
+              })()}
+              disabled={saving}
+              onChange={(media) => {
+                setChoices((current) => ({
+                  ...current,
+                  media: current.media ? { ...current.media, media } : null,
+                }));
+              }}
+            />
           )}
         </div>
-        <p className="ai-muted">{t(`aiServices.role.${job}.purpose`)}</p>
-        {job === "media" ? (
-          <p className="ai-why">{t("aiServices.models.why.media")}</p>
-        ) : (
-          (suggestion ?? options[0]?.suggested) && (
-            <p className="ai-why">
-              {t("aiServices.models.suggestedLabel")}{" "}
-              <Ltr className="mono">{suggestion ?? options[0]?.suggested}</Ltr>
-              {" — "}
-              {t(`aiServices.models.why.${job}`)}
-            </p>
-          )
-        )}
-        <Field
-          id={id}
-          label={t("aiServices.models.modelFor", { job: jobName(t, job) })}
-          error={error}
-          hint={
-            choice ? (
-              <>
-                {kindOf(choice.connectionId) && usable.length > 1
-                  ? `${labelOf(choice.connectionId)} · `
-                  : ""}
-                <Ltr className="mono">{choice.remoteModel}</Ltr>
-                {suggestion && suggestion === choice.remoteModel
-                  ? ` · ${t("aiServices.models.suggested")}`
-                  : ""}
-              </>
-            ) : loading ? (
-              t("aiServices.models.loading")
-            ) : undefined
-          }
-        >
-          {select}
-        </Field>
-        {choice && unavailableChoice(choice) && (
-          <Message tone="warn">
-            {t("aiServices.models.unavailableChoice", {
-              service: serviceName(
-                t,
-                kindOf(choice.connectionId),
-                labelOf(choice.connectionId),
-              ),
-              model: choice.remoteModel,
-            })}
-          </Message>
-        )}
-        {failures.map(({ c, list }) => (
-          <Message tone="warn" key={c.id}>
-            {t("aiServices.models.listFailed")}{" "}
-            {keyProblemText(
-              text,
-              list.error,
-              serviceName(t, c.kind, c.label),
-            ) ?? ""}
-          </Message>
-        ))}
-        {job === "media" && choice && (
-          <MediaFields
-            base={base}
-            value={choice.media ?? { kind: "image" }}
-            imageModels={(() => {
-              const list = lists[choice.connectionId];
-              const role =
-                list && "roles" in list
-                  ? list.roles.find((r) => r.role === "media")
-                  : undefined;
-              return list && "models" in list
-                ? list.models
-                    .filter(
-                      (m) =>
-                        m.remoteModel !== choice.remoteModel &&
-                        (showAll ||
-                          (!!role?.method &&
-                            m.methods.includes(role.method) &&
-                            /image/i.test(m.remoteModel)) ||
-                          m.remoteModel ===
-                            choice.media?.imageModel?.remoteModel),
-                    )
-                    .map((m) => m.remoteModel)
-                : [];
-            })()}
-            disabled={saving}
-            onChange={(media) => {
-              setChoices((current) => ({
-                ...current,
-                media: current.media ? { ...current.media, media } : null,
-              }));
-            }}
-          />
-        )}
       </div>
     );
   };
+  // "Turn on these models" is then the section's one primary action.
+  const turnOnShown = !!draft && !changed && !draft.waitingForCheck.length;
   return (
     <Section
       id="models"
@@ -606,9 +623,12 @@ export function ModelsSection(props: Props) {
           open={OPTIONAL_JOBS.some((job) => !!choices[job])}
         >
           <summary>
-            {t("aiServices.models.optional", { count: OPTIONAL_JOBS.length })}:{" "}
-            <span className="ai-muted">
-              {text.list(OPTIONAL_JOBS.map((job) => jobName(t, job)))}
+            <span>
+              {t("aiServices.models.optional", { count: OPTIONAL_JOBS.length })}
+              :{" "}
+              <span className="ai-muted">
+                {text.list(OPTIONAL_JOBS.map((job) => jobName(t, job)))}
+              </span>
             </span>
           </summary>
           {OPTIONAL_JOBS.map(jobRow)}
@@ -630,19 +650,20 @@ export function ModelsSection(props: Props) {
             onKeep={snapshot.keep}
           />
         )}
-        <div className="ai-actions">
+        <SaveBar id={`${base}-state`} changed={changed || !!draft?.stale}>
           <button
             type="submit"
-            className="button primary"
+            className={`button ${turnOnShown ? "secondary" : "primary"}`}
             disabled={
               saving || (!changed && !draft?.stale) || snapshot.changedElsewhere
             }
+            aria-describedby={`${base}-state`}
           >
             {saving
               ? t("aiServices.models.saving")
               : t("aiServices.models.save")}
           </button>
-        </div>
+        </SaveBar>
       </form>
     </Section>
   );

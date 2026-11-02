@@ -70,14 +70,10 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   await expect(models.getByLabel("Model for Images and video")).toHaveCount(0);
   await expect(
     models.getByLabel("Model for Source finder").locator("option"),
-  ).toContainText([
-    "Off",
-    "Claude Haiku 5.5 (claude-haiku-5-5) — Suggested",
-    "Claude Sonnet 5.5 (claude-sonnet-5-5)",
-  ]);
+  ).toContainText(["Off", "Claude Haiku 5.5 · suggested", "Claude Sonnet 5.5"]);
   await models
     .getByLabel("Model for Source finder")
-    .selectOption({ label: "Claude Haiku 5.5 (claude-haiku-5-5) — Suggested" });
+    .selectOption({ label: "Claude Haiku 5.5 · suggested" });
   await models.getByRole("button", { name: "Save models" }).click();
   await expect(
     // Every chosen job waits for a check, the source finder too (N07).
