@@ -15,11 +15,16 @@ Every role call has a 60 s bound (`agent-strategies.ts`). Below it (`provider-ru
 | Bound | Default | Ends as | Applies to |
 | --- | --- | --- | --- |
 | First byte: from sending until the reply's first chunk | 20 s | `NO_RESPONSE` | streamed replies (the companion) |
+| First byte of a whole reply: from sending until the finished response | 45 s (judge 20 s) | `NO_RESPONSE` | whole companion replies, the check judge |
 | Idle: between two chunks once the reply began | 20 s | `STREAM_STALLED` | streamed replies |
 | Call | 60 s | `TIMEOUT` | every call |
 
-A whole (non-streamed) reply's first byte is its finished response, so whole replies get no
-first-byte bound by default. A role may set its own: `roles.<role>.firstByteTimeoutMs` and
+A whole (non-streamed) reply's first byte is its finished response, so its first-byte bound
+covers the model's thinking and the whole answer up to the output limit: 45 s for a whole
+companion reply (no draft open, quality checks), 20 s for the check judge's short verdict, none by
+default for other roles. At 20 s, a quality check with a thinking Gemini tutor ended 2 of 18
+whole replies as `NO_RESPONSE` (2026-11-02); streamed, the same reply needs only its first chunk
+within 20 s. A role may set its own: `roles.<role>.firstByteTimeoutMs` and
 `roles.<role>.streamIdleTimeoutMs` (5,000–55,000 ms) in the provider configuration (the host file
 or a workspace's AI services setup). A role whose model thinks for long before its first visible
 text needs a longer first-byte bound. The adapter's own attempt timeout still caps both.

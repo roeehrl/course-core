@@ -1,5 +1,6 @@
 import { ModelRegistry, ProviderRouter, ProviderError, type CostEstimate, type Json, type MediaCapabilities, type MediaPrice, type OutputSchema, type UsageReceipt, type VideoJob } from '@course-core/providers';
 import type { SupervisorToolPort } from './supervisor-tool-loop.js';
+import type { CompanionAnswerGuard } from './companion-answer-guard.js';
 import { providerCallObserver } from './telemetry.js';
 import { CHECK_JUDGE_SCHEMA, judgeInputCharacters, judgeOutputTokens } from './companion-check-judge.js';
 import { AGENT_ROLES, builtInStrategies, type AgentRole, type RoleBinding, type RoleBindings, type RuntimeResult, type RuntimeStrategy,
@@ -12,6 +13,28 @@ export type { AgentRole, RoleBinding, RoleBindings, MediaPricing, TeachingContex
 export const CHECK_JUDGE_ROLES = ['reviewer', 'supervisor', 'companion'] as const;
 export interface CheckJudgePlan { role: (typeof CHECK_JUDGE_ROLES)[number]; modelId: string; capability: 'structured_assessment' | 'tutoring';
   maxInputCharacters: number; maxOutputTokens: number; firstByteTimeoutMs?: number }
+
+/** A model that may judge a quality check by meaning, and how it is asked (ProviderRuntime.meaningJudgeCandidates). */
+export interface MeaningJudgePlan { modelId: string; remoteModel: string; providerId: string; source: 'reviewer' | 'strongest' | 'tutor' | 'checked';
+  capability: 'structured_assessment' | 'tutoring'; maxOutputTokens: number }
+export const MEANING_JUDGE_OUTPUT_TOKENS = 8192;
+/** Previews, experiments and non-text variants never judge by default (as provider-suggestions.ts never suggests them). */
+const UNSTABLE_MODEL = /preview|experimental|(^|[-.])exp([-.]|$)|latest|tts|audio|image|embedding|live/;
+/**
+ * How strong a text model is by its family name, for choosing a default judge: Gemini pro over flash
+ * over flash-lite, Claude opus over sonnet over haiku. A naming rule, not a quality claim; unknown
+ * names rank lowest (the tutor's model is the last resort anyway).
+ */
+export function meaningJudgeRank(remoteModel: string) {
+  const id = remoteModel.toLowerCase();
+  return /opus|(^|[-.])pro([-.]|$)|ultra/.test(id) ? 3 : /sonnet|flash(?!-lite)/.test(id) ? 2 : /haiku|lite|nano|mini/.test(id) ? 1 : 0;
+}
+/** Version numbers in a model name, newest first (gemini-2.5-pro over gemini-2.0-pro); same numbers: the shorter, canonical name. */
+function newerModel(a: string, b: string) {
+  const x = (a.match(/\d+/g) ?? []).map(Number), y = (b.match(/\d+/g) ?? []).map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? -1) - (y[i] ?? -1); if (d) return d; }
+  return b.length - a.length;
+}
 
 /** Neutral composition target; no vendor protocol, key, endpoint or model-name logic. */
 export class ProviderRuntime {
@@ -119,7 +142,7 @@ export class ProviderRuntime {
     if (!binding || binding.modelId !== plan.modelId) throw new ProviderError('INVALID_CONFIG', { submission: 'not_sent' });
     if (request.systemInstruction.length + request.prompt.length > plan.maxInputCharacters) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
     const router = capped(this.router, binding), messages = [{ role: 'user' as const, text: request.prompt }];
-    const options = { signal, timeoutMs: 60000, firstByteTimeoutMs: plan.firstByteTimeoutMs ?? RESPONSE_BOUNDS.wholeFirstByteMs };
+    const options = { signal, timeoutMs: 60000, firstByteTimeoutMs: plan.firstByteTimeoutMs ?? RESPONSE_BOUNDS.judgeFirstByteMs };
     const base = { modelId: plan.modelId, accounting: { accountingKey }, systemInstruction: request.systemInstruction, messages, maxOutputTokens: plan.maxOutputTokens };
     if (plan.capability === 'structured_assessment') {
       const result = await router.assess({ ...base, outputSchema: CHECK_JUDGE_SCHEMA }, options);
@@ -128,13 +151,60 @@ export class ProviderRuntime {
     const result = await router.tutor(base, options);
     return { output: result.output.text, usage: result.usage };
   }
-  /** `onText` (companion only) receives the answer as it streams; see reply-drafts.ts. */
+  /**
+   * The models that may judge a quality check by meaning (agent-evals/judge.ts), best first: the
+   * reviewer job's model when it is bound; then the setup's other text models on the same connection
+   * as the tutor (or the first checked job), strongest first (meaningJudgeRank), previews and
+   * experiments left out; then the tutor's model and the checked jobs' own models as a last resort.
+   * Only ready models are listed: their connection has a key and they take text requests.
+   */
+  meaningJudgeCandidates(checked: readonly AgentRole[]): MeaningJudgePlan[] {
+    const models = this.registry.list(), plans: MeaningJudgePlan[] = [];
+    const add = (modelId: string | undefined, source: MeaningJudgePlan['source']) => {
+      const model = modelId ? models.find(m => m.id === modelId) : undefined;
+      if (!model || !model.enabled || !this.configured(model.providerId) || plans.some(p => p.modelId === model.id)) return;
+      let capability: MeaningJudgePlan['capability'] = 'structured_assessment';
+      try { this.registry.port(model.id, 'structured_assessment'); }
+      catch { try { this.registry.port(model.id, 'tutoring'); capability = 'tutoring'; } catch { return; } }
+      plans.push({ modelId: model.id, remoteModel: model.remoteModel, providerId: model.providerId, source, capability,
+        maxOutputTokens: Math.min(model.limits.maxOutputTokens ?? MEANING_JUDGE_OUTPUT_TOKENS, MEANING_JUDGE_OUTPUT_TOKENS) });
+    };
+    const reviewer = this.bindings.reviewer;
+    if (reviewer && !reviewer.mediaKind) add(reviewer.modelId, 'reviewer');
+    const anchor = this.bindings.companion?.modelId ?? checked.map(r => this.bindings[r]?.modelId).find(Boolean);
+    const connection = models.find(m => m.id === anchor)?.providerId;
+    const media = new Set(Object.values(this.bindings).flatMap(b => (b?.mediaKind ? [b.modelId, b.imageModel?.modelId] : [])));
+    const text = models.filter(m => m.providerId === connection && !media.has(m.id) && !UNSTABLE_MODEL.test(m.remoteModel.toLowerCase())
+      && m.capabilities.some(c => c === 'structured_assessment' || c === 'tutoring'));
+    for (const m of text.sort((a, b) => meaningJudgeRank(b.remoteModel) - meaningJudgeRank(a.remoteModel) || newerModel(b.remoteModel, a.remoteModel))) add(m.id, 'strongest');
+    add(this.bindings.companion?.modelId, 'tutor');
+    for (const role of checked) if (role !== 'media') add(this.bindings[role]?.modelId, 'checked');
+    return plans;
+  }
+  /** One meaning-judge call (agent-evals/judge.ts), bounded like every model request (MAX_MODEL_CONTEXT_BYTES) and by the call bound. */
+  async judgeMeaning(plan: MeaningJudgePlan, request: { systemInstruction: string; prompt: string; outputSchema: OutputSchema }, accountingKey: string,
+    signal: AbortSignal): Promise<{ output: unknown; usage: UsageReceipt }> {
+    const model = this.registry.list().find(m => m.id === plan.modelId);
+    if (!model || !this.configured(model.providerId)) throw new ProviderError('MISSING_CREDENTIAL', { submission: 'not_sent' });
+    if (request.systemInstruction.length + request.prompt.length > model.limits.maxInputCharacters) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
+    const router = capped(this.router), options = { signal, timeoutMs: 60000 };
+    const base = { modelId: plan.modelId, accounting: { accountingKey }, systemInstruction: request.systemInstruction,
+      messages: [{ role: 'user' as const, text: request.prompt }], maxOutputTokens: plan.maxOutputTokens };
+    if (plan.capability === 'structured_assessment') {
+      const result = await router.assess({ ...base, outputSchema: request.outputSchema }, options);
+      return { output: result.output, usage: result.usage };
+    }
+    const result = await router.tutor(base, options);
+    return { output: result.output.text, usage: result.usage };
+  }
+  /** `onText` (companion only) receives the answer as it streams; see reply-drafts.ts. `answerGuard`
+   * (companion only): the host's guard over the in-scope checks' keys (companion-answer-guard.ts). */
   async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>,
-    course: readonly RuntimeStrategy[] = [], onText?: (text: string) => void): Promise<RuntimeResult> {
+    course: readonly RuntimeStrategy[] = [], onText?: (text: string) => void, answerGuard?: CompanionAnswerGuard): Promise<RuntimeResult> {
     if (this.availability(role).status !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
     const { binding, strategy } = this.strategy(role, course)!;
     const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router, binding), tools, beforeModelCall,
-      ...(role === 'companion' && onText ? { onText } : {}) });
+      ...(role === 'companion' && onText ? { onText } : {}), ...(role === 'companion' && answerGuard ? { answerGuard } : {}) });
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
   }
@@ -271,15 +341,21 @@ function requestBytes(request: { systemInstruction?: string | undefined; message
 }
 /**
  * How long a role's call may wait for its reply, below the 60 s call bound every strategy sets.
- * A streamed reply (the companion) must start within `firstByteMs` and keep coming with no gap
- * longer than `idleMs`; a stall ends the call at once instead of at the call bound, so the learner
- * is told and the host can ask again. A whole companion reply (no draft open, or a quality check)
- * and the check judge's verdict get the same first-byte bound: their first byte is the finished
- * response, which a learner is waiting for. Other roles' whole replies (plans, reviews, research,
- * media) get one only when the role's binding sets it. A binding's `firstByteTimeoutMs` /
- * `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
+ * A streamed reply (the companion) must start within `streamFirstByteMs` and keep coming with no
+ * gap longer than `streamIdleMs`; a stall ends the call at once instead of at the call bound, so
+ * the learner is told and the host can ask again.
+ * A whole companion reply (no draft open, or a quality check) has a first-byte bound too, but its
+ * first byte is the finished response: the bound covers the model's thinking and the whole visible
+ * answer up to the output limit, so it is `wholeFirstByteMs`, longer than a stream's first chunk.
+ * (At 20 s, a quality check with a thinking Gemini tutor ended 2 of 18 whole replies as NO_RESPONSE,
+ * 2026-11-02; streamed, the same reply needs only its first chunk within 20 s.) It stays below the
+ * call bound, so a request that gets no reply at all still ends as NO_RESPONSE and the learner's
+ * question is asked once more.
+ * The check judge's verdict is short, so it keeps `judgeFirstByteMs`. Other roles' whole replies
+ * (plans, reviews, research, media) get one only when the role's binding sets it. A binding's
+ * `firstByteTimeoutMs` / `streamIdleTimeoutMs` (provider-composition.ts) replace the defaults.
  */
-export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 20_000 } as const;
+export const RESPONSE_BOUNDS = { streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 45_000, judgeFirstByteMs: 20_000 } as const;
 interface ResponseBinding { firstByteTimeoutMs?: number | undefined; streamIdleTimeoutMs?: number | undefined }
 function responseBounds(binding: RoleBinding, operation: string) {
   const bounds = binding as RoleBinding & ResponseBinding, streamed = operation === 'tutorStream';

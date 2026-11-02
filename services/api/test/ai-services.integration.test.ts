@@ -303,6 +303,69 @@ describe("AI services", () => {
     expect((await call(owner, "DELETE", base + "/drafts/current")).json()).toEqual({ discarded: true });
   });
 
+  it("stops offering a model the provider answered \"not found\" for, reads the model list again and forgets it with a new key", async () => {
+    // What a quality check records when the tutor's model answers 404 (provider-quality-checks.ts).
+    const mark = (remoteModel: string) => db.query(
+      `INSERT INTO provider_unavailable_models(workspace_id,connection_id,remote_model,reason_code,provider_status,provider_reason)
+       VALUES($1,$2,$3,'PROVIDER_GUIDE_MODEL_UNAVAILABLE',404,'NOT_FOUND')
+       ON CONFLICT (workspace_id,connection_id,remote_model) DO UPDATE SET marked_at=clock_timestamp()`, [workspace, connectionId, remoteModel]);
+    const listing = async () => {
+      const r = await call(owner, "GET", `${base}/connections/${connectionId}/models`);
+      expect(r.statusCode, r.body).toBe(200);
+      return r.json() as { models: { remoteModel: string }[]; unavailable: { remoteModel: string }[]; roles: { role: string; suggested: string | null }[] };
+    };
+    const names = (list: Awaited<ReturnType<typeof listing>>) => list.models.map((m) => m.remoteModel);
+    const suggested = (list: Awaited<ReturnType<typeof listing>>, role: string) => list.roles.find((r) => r.role === role)!.suggested;
+    expect(names(await listing())).toContain("gemini-8.5-pro");
+    const reads = stub.requests.length;
+    await mark("gemini-8.5-pro");
+    await mark("gemini-9.0-flash");
+    // The cached list predates the finding, so the provider's model list (metadata only) is read again.
+    let list = await listing();
+    expect(stub.requests.length).toBe(reads + 1);
+    expect(names(list)).not.toContain("gemini-8.5-pro");
+    expect(names(list)).not.toContain("gemini-9.0-flash");
+    expect(list.unavailable.map((m) => m.remoteModel)).toEqual(["gemini-8.5-pro", "gemini-9.0-flash"]);
+    // Neither is suggested any more: the next stable flash is, and no stable pro model is left.
+    expect(suggested(list, "companion")).toBe("gemini-8.5-flash");
+    expect(suggested(list, "reviewer")).toBeNull();
+    // A draft cannot newly choose one; a job keeping the model it has on now is left alone.
+    const current = await revision();
+    const refused = await call(owner, "POST", base + "/drafts", { baseRevision: current, assignments: {
+      companion: { connectionId, remoteModel: "gemini-9.0-flash" }, supervisor: { connectionId, remoteModel: "gemini-9.0-flash" },
+      reviewer: { connectionId, remoteModel: "gemini-8.5-pro" } } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toEqual({ error: "PROVIDER_GUIDE_MODEL_UNAVAILABLE", details: { roles: ["reviewer"] } });
+    const kept = await call(owner, "POST", base + "/drafts", { baseRevision: current, assignments: {
+      companion: { connectionId, remoteModel: "gemini-9.0-flash" }, supervisor: { connectionId, remoteModel: "gemini-9.0-flash" },
+      research: { connectionId, remoteModel: "gemini-8.5-flash" } } });
+    expect(kept.statusCode, kept.body).toBe(200);
+    expect((await call(owner, "DELETE", base + "/drafts/current")).json()).toEqual({ discarded: true });
+    // Cached again: no new read until something changes.
+    await listing();
+    expect(stub.requests.length).toBe(reads + 1);
+    // The provider's list stops naming one: a fresh read (after a newer finding) forgets it.
+    const pro = catalog.models.findIndex((m) => m.name === "models/gemini-8.5-pro");
+    const [removed] = catalog.models.splice(pro, 1);
+    try {
+      await mark("gemini-9.0-flash");
+      list = await listing();
+      expect(list.unavailable.map((m) => m.remoteModel)).toEqual(["gemini-9.0-flash"]);
+      expect((await db.query("SELECT remote_model FROM provider_unavailable_models WHERE workspace_id=$1", [workspace])).rows)
+        .toEqual([{ remote_model: "gemini-9.0-flash" }]);
+    } finally {
+      catalog.models.splice(pro, 0, removed!);
+    }
+    // A new key for the connection may reach what the old one could not: the findings go.
+    const replaced = await call(owner, "PUT", `${base}/connections/${connectionId}/key`, { expectedRevision: await revision(), idempotencyKey: key(),
+      key: goodKey.replace("7Q2c", "9S4e") });
+    expect(replaced.statusCode, replaced.body).toBe(200);
+    list = await listing();
+    expect(list.unavailable).toEqual([]);
+    expect(names(list)).toContain("gemini-9.0-flash");
+    expect(suggested(list, "companion")).toBe("gemini-9.0-flash");
+  });
+
   it("saves money-only limits and a default limit for each learner that new learners get", async () => {
     const enrollment = await seedEnrollment();
     const budgets = (await call(owner, "GET", base + "/budgets")).json();

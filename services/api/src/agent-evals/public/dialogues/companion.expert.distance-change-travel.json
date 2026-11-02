@@ -42,7 +42,7 @@
       "anchors": [
         "|finish - start|",
         "route",
-        "signed",
+        "sign",
         "never negative"
       ],
       "minAnchors": 2,
@@ -58,14 +58,22 @@
       "required": [
         {
           "id": "distance-nonnegative",
+          "statement": "Distance, the gap between two positions, is never negative.",
           "anyOf": [
-            "never negative",
+            "never (?:be )?negative",
             "non-?negative",
-            "cannot be negative"
+            "(?:cannot|can't|can not|can never|could never|will never|won't) be negative",
+            "(?:isn't|is not|not) negative",
+            "regardless of (?:the )?(?:direction|sign|order)",
+            "magnitude",
+            "absolute",
+            "(?:always )?positive or zero",
+            "zero or (?:more|positive|greater)"
           ]
         },
         {
           "id": "travel-needs-route",
+          "statement": "Total travel cannot be read from the endpoints alone: it needs the route, adding every leg, because a route can double back.",
           "anyOf": [
             "need(?:s)? the route",
             "(?:each|every) leg",

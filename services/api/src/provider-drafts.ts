@@ -263,6 +263,18 @@ export class ProviderDrafts {
     const catalogs = new Map<string, Awaited<ReturnType<ProviderConnections["catalog"]>>>();
     for (const connectionId of byConnection.keys())
       catalogs.set(connectionId, await this.connections.catalog(workspace, version!, connectionId));
+    // A model the provider answered "not found" for in a quality check cannot be newly chosen. A job
+    // that keeps the model it has on now is left alone (saving other jobs must not need a change there).
+    const current = version ? roleModels(providerConfigurationSchema.parse(version.configuration)) : {};
+    const refused = Object.entries(input.assignments).filter(([role, choice]) => {
+      if (!choice) return false;
+      const marked = new Set(catalogs.get(choice.connectionId)?.unavailable.map((m) => m.remote_model) ?? []);
+      const on = current[role];
+      const picked = [choice.remoteModel, ...(choice.media?.imageModel ? [choice.media.imageModel.remoteModel] : [])];
+      const kept = [on?.remoteModel, on?.imageRemoteModel];
+      return on?.connectionId === choice.connectionId ? picked.some((m) => marked.has(m) && !kept.includes(m)) : picked.some((m) => marked.has(m));
+    }).map(([role]) => role);
+    if (refused.length) throw new ApiError(409, "PROVIDER_GUIDE_MODEL_UNAVAILABLE", "PROVIDER_GUIDE_MODEL_UNAVAILABLE", { roles: refused });
     return this.store(actor, workspace, async (_client, old) => {
       let configuration: Configuration = old
         ? providerConfigurationSchema.parse(old.configuration)

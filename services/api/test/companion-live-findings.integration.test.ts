@@ -277,16 +277,16 @@ describe('live companion findings', () => {
     expect((await db.query('SELECT configuration FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=1', [workspaceId])).rows[0].configuration).toEqual(legacy);
     const price = { versionId: 'x', currency: 'USD' as const, inputMicroUsdPerMillionTokens: INPUT_PRICE,
       outputMicroUsdPerMillionTokens: OUTPUT_PRICE, cachedInputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null };
-    // One companion call and one check-judge call (no reviewer bound: the companion's own model, at
-    // the judge's output limit of 2048 tokens), together.
+    // Two companion calls (the reply and the answer guard's one regeneration) and one check-judge call
+    // (no reviewer bound: the companion's own model, at the judge's output limit of 2048 tokens), together.
     const judge = { maxInputCharacters: 12000, maxOutputTokens: 2048 };
     const expected = companionReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, { limits: judge, pricing: price }, jobPolicy.allowance)!;
     const unbounded = { microUsd: Number.MAX_SAFE_INTEGER, tokens: Number.MAX_SAFE_INTEGER };
-    expect(expected).toEqual({ microUsd: roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, unbounded)!.microUsd + roleReservation(judge, price, unbounded)!.microUsd,
-      tokens: 12000 * 4 + 4096 + 4096 + 12000 * 4 + 2048 + 4096 });
+    expect(expected).toEqual({ microUsd: 2 * roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, unbounded)!.microUsd + roleReservation(judge, price, unbounded)!.microUsd,
+      tokens: 2 * (12000 * 4 + 4096 + 4096) + 12000 * 4 + 2048 + 4096 });
     const own = roleReservation({ maxInputCharacters: 12000, maxOutputTokens: 4096 }, price, jobPolicy.allowance)!;
     const bound = await transaction(db, client => service.bind(client, workspaceId));
-    // An ordinary question holds only its own call; one in check-coaching mode also holds the judge's.
+    // An ordinary question holds only its own call; one in check-coaching mode also holds the regeneration's and the judge's.
     expect(bound!.roleAllowances).toEqual({ companion: own });
     expect(bound!.checkModeAllowance).toEqual(expected);
     expect(expected.microUsd).toBeLessThan(ALLOWANCE);

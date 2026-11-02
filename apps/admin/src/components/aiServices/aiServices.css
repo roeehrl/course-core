@@ -67,6 +67,15 @@
   margin-block-start: 4px;
   color: var(--ink);
 }
+/* A draft waiting for a check or a price while the models that are on keep working. */
+.ai-status-pending {
+  margin-block-start: 6px;
+  color: var(--ink);
+}
+.ai-status-pending p {
+  display: inline;
+  margin: 0;
+}
 .ai-toc ol {
   display: flex;
   flex-wrap: wrap;
@@ -895,6 +904,10 @@
 .ai-dialogue.failed {
   border-inline-start-color: var(--red);
 }
+/* The judge could not run: neither passed nor failed. */
+.ai-dialogue.undetermined {
+  border-inline-start-color: var(--muted);
+}
 .ai-dialogue > summary {
   display: flex;
   flex-direction: column;
@@ -1041,6 +1054,11 @@
   color: var(--muted);
   white-space: normal;
 }
+/* Why the provider gave no usable answer, beside its code. */
+.ai-reply-cause {
+  margin-block-start: 4px;
+  overflow-wrap: anywhere;
+}
 /* A passage a rule failed the reply for. */
 .ai-flagged {
   padding-inline: 2px;
@@ -1119,6 +1137,25 @@
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--rose);
+}
+.ai-rule-results > li.undetermined {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f0f3f4;
+}
+/* Which model judged a rule by meaning, and its reasons. */
+.ai-judged-by {
+  margin-block: 4px 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ai-judged {
+  padding-inline-start: 20px;
+}
+.ai-judge-reasons {
+  flex-basis: 100%;
+  margin: 0;
+  padding-inline-start: 18px;
 }
 .ai-rule-result-head {
   display: flex;

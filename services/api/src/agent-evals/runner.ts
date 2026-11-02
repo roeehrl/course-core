@@ -3,15 +3,20 @@ import { z } from "zod";
 import { ProviderError, type Json, type UsageReceipt } from "@course-core/providers";
 import type { SupervisorToolPort } from "../supervisor-tool-loop.js";
 import type { ProviderRuntime } from "../provider-runtime.js";
-import { EVAL_ROLES, GRADER_VERSION, REPORT_SCHEMA, dialoguesFor, sha256, teachingContext, type Dialogue, type EvalRole, type EvalSuite } from "./suite.js";
-import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput } from "./graders.js";
+import { EVAL_ROLES, GRADER_VERSION, REPORT_SCHEMA, dialogueCheckMatches, dialoguesFor, sha256, teachingContext, type Dialogue, type EvalRole, type EvalSuite } from "./suite.js";
+import { answerText, evalOutputSchema, gradeDialogue, type DialogueGrade, type EvalOutput, type MeaningJudgement } from "./graders.js";
+import { judgeable } from "./judge.js";
 import { roleRevisions } from "./revision.js";
 import { answeredRefusalReason } from "../output-refusal.js";
+import { companionAnswerGuard, type CompanionAnswerGuard } from "../companion-answer-guard.js";
 
 /** Advisory LLM-judge verdict. Never part of `passed`, never accepted as gate evidence. */
 export interface AdvisoryJudgement { kind: "llm_judge_advisory"; state: "judged" | "refused" | "failed"; criteria: { id: string; met: boolean }[]; reason?: string }
 export type AdvisoryJudge = (dialogue: Dialogue, output: EvalOutput, signal: AbortSignal) => Promise<AdvisoryJudgement>;
-export interface DialogueRun { dialogueId: string; output: EvalOutput; grade: DialogueGrade; advisory?: AdvisoryJudgement }
+/** A quality check's meaning judge (judge.ts): judges grounding and factuality of one answer; never throws. */
+export type MeaningJudge = (role: EvalRole, dialogue: Dialogue, output: EvalOutput, signal: AbortSignal) => Promise<MeaningJudgement>;
+/** `judgement`: the meaning judge's, when the run had one. A recorded report's judgement is never trusted (gate.ts). */
+export interface DialogueRun { dialogueId: string; output: EvalOutput; grade: DialogueGrade; advisory?: AdvisoryJudgement; judgement?: MeaningJudgement }
 /** One tool call a tool-loop run made: the tool's name and the arguments the model gave it. */
 export interface ToolCallRecord { name: string; args: unknown }
 /** What one model call returned, for the host's cost accounting: the provider's usage receipt and
@@ -36,7 +41,10 @@ export interface EvalReport {
 /** What a stored runtime result is, for grading. `tools` are the tool calls a tool-loop run made. */
 export function evalOutput(content: unknown, tools: readonly string[] = []): EvalOutput {
   const value = content as { kind?: string; text?: unknown; summary?: unknown; needs?: unknown; reason?: unknown; sources?: unknown; criteria?: unknown };
-  if (value?.kind === "companion_text" && typeof value.text === "string") return { kind: "text", text: value.text.slice(0, 32000) };
+  if (value?.kind === "companion_text" && typeof value.text === "string") {
+    const guarded = (value as { checkCoaching?: { answerGuard?: unknown } }).checkCoaching?.answerGuard;
+    return { kind: "text", text: value.text.slice(0, 32000), ...(guarded === "regenerated" || guarded === "fallback" ? { answerGuard: guarded } : {}) };
+  }
   if (value?.kind === "supervised_plan" && typeof value.summary === "string") return { kind: "tool_plan", summary: value.summary.slice(0, 16000), tools: tools.slice(0, 16) };
   if (value?.kind === "research_candidate" && typeof value.text === "string") return { kind: "research", text: value.text.slice(0, 32000), sources: Array.isArray(value.sources) ? Math.min(512, value.sources.length) : 0 };
   if (value?.kind === "rubric_suggestion") {
@@ -65,6 +73,11 @@ export async function runSuite(options: {
   /** Called after each dialogue's model call with its usage, before grading continues. */
   afterCall?: (call: CallRecord) => void | Promise<void>;
   judge?: AdvisoryJudge; signal?: AbortSignal;
+  /** Judges grounding and factuality by meaning after each answer (a quality check); absent: their pattern graders. */
+  meaningJudge?: MeaningJudge;
+  /** Whether the answer guard's one regeneration fits the conversation's reservation (a quality
+   * check's budget, companion-answer-guard.ts); absent: always (offline scripted runs). */
+  admitRegeneration?: (dialogue: Dialogue, request: Parameters<CompanionAnswerGuard["admitRegeneration"]>[0]) => boolean | Promise<boolean>;
 }): Promise<EvalReport> {
   const { suite, runtime } = options, signal = options.signal ?? new AbortController().signal;
   const bound = runtime.strategyContracts().bound as Partial<Record<string, string>>;
@@ -88,7 +101,11 @@ export async function runSuite(options: {
           output = request && typeof request.prompt === "string" ? { kind: "media_prompt", prompt: request.prompt.slice(0, 70000) } : { kind: "error", code: "NO_REQUEST" };
         } else {
           const called: string[] = [];
-          const result = await runtime.execute(role, context, `agent-eval-${role}-${index}`, signal, scriptedTools(dialogue, called, toolCalls));
+          // The companion's answer guard over the dialogue's checks, as the gateway builds it over a
+          // course's: a quality check grades what a learner would be given.
+          const admit = options.admitRegeneration;
+          const guard = role === "companion" ? dialogueAnswerGuard(dialogue, admit ? (request) => admit(dialogue, request) : undefined) : undefined;
+          const result = await runtime.execute(role, context, `agent-eval-${role}-${index}`, signal, scriptedTools(dialogue, called, toolCalls), undefined, [], undefined, guard);
           usage = result.usage;
           output = evalOutput(result.content, called);
         }
@@ -101,7 +118,8 @@ export async function runSuite(options: {
         output = refused ? { kind: "refusal", reason: refused } : { kind: "error", code: error instanceof ProviderError ? error.code : "UNEXPECTED" };
       }
       await options.afterCall?.({ role, dialogue, usage, error: failure, toolCalls });
-      const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output) };
+      const judgement = options.meaningJudge && judgeable(output) ? await options.meaningJudge(role, dialogue, output, signal) : undefined;
+      const run: DialogueRun = { dialogueId: dialogue.id, output, grade: gradeDialogue(dialogue, output, judgement), ...(judgement ? { judgement } : {}) };
       if (options.judge && dialogue.judge && answerText(output) !== null) run.advisory = await options.judge(dialogue, output, signal);
       runs.push(run);
     }
@@ -112,6 +130,14 @@ export async function runSuite(options: {
     mode: options.mode, ...(options.model ? { model: options.model } : {}), configuration: options.configuration, roles, skipped,
     passed: roles.length > 0 && roles.every((r) => r.passed),
   };
+}
+
+/** The answer guard of a companion dialogue: over the checks its question matches (the ones its
+ * context coaches on, suite.ts `teachingContext`), with their keys from the fixture. Undefined
+ * when no matched check has a deterministic key. */
+export function dialogueAnswerGuard(dialogue: Dialogue, admitRegeneration?: CompanionAnswerGuard["admitRegeneration"]) {
+  return companionAnswerGuard({ checks: dialogueCheckMatches(dialogue).map((m) => m.check), question: dialogue.context.question,
+    lessonText: dialogue.context.episode.teaching, ...(admitRegeneration ? { admitRegeneration } : {}) });
 }
 
 /** Deterministic tools for a tool-loop dialogue: each answers from the dialogue's fixture and the
@@ -158,7 +184,8 @@ export const reportSchema = z.strictObject({
   configuration: z.unknown(),
   roles: z.array(z.strictObject({
     role: z.enum(EVAL_ROLES as [EvalRole, ...EvalRole[]]), strategy: z.string().max(200), revisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
-    dialogues: z.array(z.strictObject({ dialogueId: z.string().max(120), output: evalOutputSchema, grade: z.unknown().optional(), advisory: z.unknown().optional() })).max(200),
+    dialogues: z.array(z.strictObject({ dialogueId: z.string().max(120), output: evalOutputSchema, grade: z.unknown().optional(), advisory: z.unknown().optional(),
+      judgement: z.unknown().optional() })).max(200),
     passed: z.boolean(),
   })).min(1).max(EVAL_ROLES.length),
   skipped: z.array(z.unknown()).max(10),

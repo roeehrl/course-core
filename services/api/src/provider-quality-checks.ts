@@ -11,7 +11,10 @@ import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { upgradeLegacyProviderConfiguration } from "./provider-defaults.js";
 import { evaluateActivation, roleChecks, uncheckedRoles, type ProviderEvaluations, type VersionEvaluation } from "./agent-evals/gate.js";
-import { runSuite, type CallRecord, type EvalReport, type ToolCallRecord } from "./agent-evals/runner.js";
+import { runSuite, type CallRecord, type EvalReport, type MeaningJudge, type ToolCallRecord } from "./agent-evals/runner.js";
+import { JUDGE_SCHEMA, TYPICAL_JUDGE_TOKENS, judgeRequest, judgementOf } from "./agent-evals/judge.js";
+import { answerText, type MeaningJudgement } from "./agent-evals/graders.js";
+import type { MeaningJudgePlan } from "./provider-runtime.js";
 import { dialogueDetail, type DialogueDetail } from "./agent-evals/details.js";
 import type { DialogueGrade } from "./agent-evals/graders.js";
 import { covers, dialoguesFor, EVAL_ROLES, type Dialogue, type EvalRole } from "./agent-evals/suite.js";
@@ -21,6 +24,7 @@ import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-c
 import { jobPolicySchema, type WorkspaceProviders } from "./provider-setup.js";
 import { roleModels } from "./provider-drafts.js";
 import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal.js";
+import { regenerationFits } from "./companion-answer-guard.js";
 
 /**
  * Quality checks run from the admin "AI services" page. The server runs Core's eval suite against
@@ -46,9 +50,21 @@ import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal
  *   report: Core regrades the answers and a pass lets the waiting models turn on.
  * - A provider fault (key, quota, network, a refused request) stops the run and records no result; the
  *   reason is kept, with the first faulting call's job, HTTP status and the provider's documented
- *   reason code (`reason_detail`), so a refusal is diagnosable without logs.
+ *   reason code (`reason_detail`), so a refusal is diagnosable without logs. A "not found" answer
+ *   for the job's model (NOT_FOUND) also records that model as unavailable for the connection
+ *   (`provider_unavailable_models`), so the model picker stops offering and suggesting it.
  *   A run past its deadline, or left behind by a stopped server, ends as an error and keeps what it
  *   may have spent charged.
+ *
+ * Grounding and factuality are judged by meaning (agent-evals/judge.ts): after each answer a judge
+ * model reads the lesson, the stated facts, the learner's turns and the reply and answers a
+ * structured verdict. The judge is the reviewer job's model when one is set, else the setup's
+ * strongest stable text model on the tutor's connection, else the tutor's model (labelled when it
+ * judges itself). Each judge call is a paid call like a conversation: it is in the estimate, it
+ * reserves the per-request allowance (ledger ref `${id}:j${n}`) and settles from its usage. A judge
+ * that cannot answer (fault, invalid verdict) leaves that conversation undetermined: a job with no
+ * failure but an undetermined conversation is not recorded, and the check says the judge could not
+ * run (`PROVIDER_QUALITY_CHECK_JUDGE_UNAVAILABLE`) instead of passing or failing it.
  *
  * A finished check (passed or failed) also keeps, per practice conversation, what it tests, what
  * the model was given, the model's answer (bounded, `agent-evals/details.ts`) and each rule's result
@@ -88,24 +104,35 @@ interface CheckRow {
   deadline_at: Date; created_at: Date; finished_at: Date | null;
 }
 /** `reason` names why a conversation has no answer to grade (e.g. `provider_output_invalid`); absent when it was answered. */
-interface RoleOutcome { role: EvalRole; passed: boolean; dialogues: number; failed: { dialogueId: string; graders: string[]; reason?: string }[] }
+/** `undetermined`: the job had no failure, but the judge could not run on some conversation, so it has no result. */
+interface RoleOutcome { role: EvalRole; passed: boolean; dialogues: number; failed: { dialogueId: string; graders: string[]; reason?: string }[]; undetermined?: true }
+/** The check's meaning judge: its model, how it is asked, and its saved price. */
+interface JudgeChoice { plan: MeaningJudgePlan; pricing: ModelPricing }
 /**
  * The first provider fault of a stopped check: the job, Core's provider code, the HTTP status and
  * the provider's documented reason code (`ProviderError.reason`). Codes and numbers only.
  */
 interface FaultDetail { role: EvalRole; providerCode: string; status: number | null; providerReason: string | null }
+/** A job's model the provider answered "not found" for, recorded in `provider_unavailable_models`. */
+interface UnavailableModel { connectionId: string; remoteModel: string; status: number | null; providerReason: string | null }
 /** One practice conversation's stored detail, in the check's order (`position`). */
 interface DialogueRow { position: number; role: EvalRole; dialogueId: string; passed: boolean; detail: DialogueDetail }
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-/** Provider codes that mean the provider or the key failed, not the model's answer. */
-const PROVIDER_FAULTS: Record<string, string> = {
+/**
+ * Provider codes that mean the provider, the key or the workspace's own setup failed, not the
+ * model's answer. Only NOT_FOUND (the provider's HTTP 404) says the service lacks the model; the
+ * runtime's own UNKNOWN_MODEL (the job's model is not in this workspace's model registry) and
+ * CAPABILITY_MISMATCH (the bound model is not set up with what the job needs) are local setup
+ * problems with their own codes.
+ */
+export const PROVIDER_FAULTS: Readonly<Record<string, string>> = {
   MISSING_CREDENTIAL: "PROVIDER_METADATA_CREDENTIAL_MISSING",
   AUTHENTICATION: "PROVIDER_METADATA_KEY_INVALID",
   PERMISSION_DENIED: "PROVIDER_METADATA_PERMISSION_DENIED",
   NOT_FOUND: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
-  UNKNOWN_MODEL: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+  UNKNOWN_MODEL: "PROVIDER_QUALITY_CHECK_MODEL_NOT_CONFIGURED",
   THROTTLED: "PROVIDER_METADATA_RATE_LIMITED",
   SUBSCRIPTION_QUOTA_EXHAUSTED: "PROVIDER_METADATA_QUOTA_EXHAUSTED",
   SUBSCRIPTION_EXPIRED: "PROVIDER_METADATA_BILLING_REQUIRED",
@@ -119,7 +146,7 @@ const PROVIDER_FAULTS: Record<string, string> = {
   NETWORK_ERROR: "PROVIDER_METADATA_NETWORK",
   TIMEOUT: "PROVIDER_METADATA_TIMEOUT",
   ADAPTER_UNAVAILABLE: "PROVIDER_METADATA_UNSUPPORTED",
-  CAPABILITY_MISMATCH: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+  CAPABILITY_MISMATCH: "PROVIDER_QUALITY_CHECK_CAPABILITY_MISSING",
   INVALID_CONFIG: "PROVIDER_CONFIGURATION_INVALID",
 };
 class StopRun extends Error {}
@@ -188,7 +215,7 @@ export class ProviderQualityChecks {
   private async plan(client: Database | PoolClient, workspace: string, target: Target, only?: EvalRole, scope: "needed" | "on" = "on") {
     const suite = this.providers.evalSuite, old = await this.providers.version(client, workspace);
     const nothing = (code: string) => ({ target, draft: null, old, configuration: null, jobPolicy: null, runtime: null, roles: [], conversations: 0,
-      reserve: { microUsd: 0, tokens: 0 }, blocked: { code } as { code: string; roles?: EvalRole[]; neededMicroUsd?: number; availableMicroUsd?: number },
+      judge: null, judged: 0, judgeEstimateMicroUsd: 0, reserve: { microUsd: 0, tokens: 0 }, blocked: { code } as { code: string; roles?: EvalRole[]; neededMicroUsd?: number; availableMicroUsd?: number },
       estimateMicroUsd: 0 } as const);
     let draft: Awaited<ReturnType<ProviderQualityChecks["draft"]>> | null = null, configuration: Configuration, jobPolicy, needed: EvalRole[];
     let secrets: Record<string, string>;
@@ -236,7 +263,17 @@ export class ProviderQualityChecks {
         estimateMicroUsd: pricing ? estimateMicroUsd(pricing, dialogues.map((d) => typicalUsage(d, maxToolRounds))) : null });
     }
     const conversations = roles.reduce((n, r) => n + r.conversations, 0), paid = roles.reduce((n, r) => n + (r.paid ? r.conversations : 0), 0);
-    const reserve = { microUsd: paid * jobPolicy.allowance.microUsd, tokens: paid * jobPolicy.allowance.tokens };
+    // The meaning judge (agent-evals/judge.ts) judges every paid conversation's answer: the first
+    // ready candidate with a saved token price. One judge call per paid conversation.
+    let judge: JudgeChoice | null = null;
+    if (paid) for (const plan of runtime.meaningJudgeCandidates(roles.map((r) => r.role))) {
+      const found = await pricingInForce(client, workspace, plan.modelId);
+      if (found && pricingCovers(found, "tokens")) { judge = { plan, pricing: found }; break; }
+    }
+    const judged = judge ? paid : 0;
+    const judgeEstimate = judge ? estimateMicroUsd(judge.pricing, Array.from({ length: judged },
+      () => ({ calls: 1, inputTokens: TYPICAL_JUDGE_TOKENS.input, outputTokens: TYPICAL_JUDGE_TOKENS.output }))) : 0;
+    const reserve = { microUsd: (paid + judged) * jobPolicy.allowance.microUsd, tokens: (paid + judged) * jobPolicy.allowance.tokens };
     const budget = (await client.query<{ limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }>(
       "SELECT limit_micro_usd,limit_tokens,used_micro_usd,used_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1", [workspace])).rows[0];
     const available = { microUsd: Math.max(0, Number(budget?.limit_micro_usd ?? 0) - Number(budget?.used_micro_usd ?? 0)),
@@ -247,14 +284,22 @@ export class ProviderQualityChecks {
       : !roles.length ? { code: "PROVIDER_QUALITY_CHECK_NOT_NEEDED" }
       : keyless.length ? { code: "PROVIDER_QUALITY_CHECK_KEY_MISSING", roles: keyless }
       : unpriced.length ? { code: "PROVIDER_QUALITY_CHECK_PRICES_MISSING", roles: unpriced }
+      // No model that could judge has a price (every checked model is priced, so this is rare).
+      : paid && !judge ? { code: "PROVIDER_QUALITY_CHECK_PRICES_MISSING", roles: roles.filter((r) => r.paid).map((r) => r.role) }
       // Nothing to reserve (only media is checked): no spending limit is needed.
       : !paid ? null
       : !budget || Number(budget.limit_micro_usd) === 0 ? { code: "PROVIDER_QUALITY_CHECK_LIMIT_MISSING" }
       : available.microUsd < reserve.microUsd || available.tokens < reserve.tokens
         ? { code: "PROVIDER_QUALITY_CHECK_BUDGET_REACHED", neededMicroUsd: reserve.microUsd, availableMicroUsd: available.microUsd }
       : null;
-    return { target, draft, old, configuration, jobPolicy, runtime, roles, conversations, reserve, blocked,
-      estimateMicroUsd: roles.reduce((n, r) => n + (r.estimateMicroUsd ?? 0), 0) };
+    return { target, draft, old, configuration, jobPolicy, runtime, roles, conversations, reserve, blocked, judge, judged, judgeEstimateMicroUsd: judgeEstimate,
+      estimateMicroUsd: roles.reduce((n, r) => n + (r.estimateMicroUsd ?? 0), 0) + judgeEstimate };
+  }
+  /** Who would judge a plan's conversations, how many and at what estimate; `self` when it is a model being checked. */
+  private judgeView(plan: Awaited<ReturnType<ProviderQualityChecks["plan"]>>) {
+    const judge = plan.judge;
+    return judge ? { remoteModel: judge.plan.remoteModel, conversations: plan.judged, estimateMicroUsd: plan.judgeEstimateMicroUsd,
+      self: plan.roles.some((r) => r.modelId === judge.plan.modelId) } : null;
   }
 
   private view(row: CheckRow, charged: number | null = null) {
@@ -322,7 +367,7 @@ export class ProviderQualityChecks {
       for (const r of onAll.roles) {
         const alone = await this.plan(client, workspace, "active", r.role);
         onRoles.push({ role: r.role, remoteModel: r.remoteModel, conversations: alone.conversations, priced: !r.paid || !!r.pricing,
-          estimateMicroUsd: alone.estimateMicroUsd, reserveMicroUsd: alone.reserve.microUsd,
+          estimateMicroUsd: alone.estimateMicroUsd, reserveMicroUsd: alone.reserve.microUsd, judge: this.judgeView(alone),
           blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : alone.blocked });
       }
       const activeRoles = onRoles.filter((r) => needing.roles.some((n) => n.role === r.role));
@@ -334,13 +379,15 @@ export class ProviderQualityChecks {
         conversations: offered ? plan.conversations : 0,
         estimateMicroUsd: offered ? plan.estimateMicroUsd : 0,
         reserveMicroUsd: offered ? plan.reserve.microUsd : 0,
+        /** The model that judges grounding and factuality, its calls and their share of the estimate. */
+        judge: offered ? this.judgeView(plan) : null,
         typicalTokens: TYPICAL_TOKENS,
         blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : plan.blocked,
         latest: latest ? this.view(latest, await this.charged(client, latest.id)) : null,
         activeRoles,
         onRoles,
         onAll: onAll.roles.length ? { conversations: onAll.conversations, estimateMicroUsd: onAll.estimateMicroUsd,
-          reserveMicroUsd: onAll.reserve.microUsd, blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : onAll.blocked } : null,
+          reserveMicroUsd: onAll.reserve.microUsd, judge: this.judgeView(onAll), blocked: running ? { code: "PROVIDER_QUALITY_CHECK_RUNNING" } : onAll.blocked } : null,
       };
     });
   }
@@ -411,6 +458,18 @@ export class ProviderQualityChecks {
             VALUES($1,'quality_check',$2,1,$3,NULL,$4,$5,'reserved',$6,$7,$6)`, [randomUUID(), `${id}:${n}`, workspace, role.role, role.modelId, allowance.microUsd, allowance.tokens]);
           events.push({ kind: "reserved", role: role.role, microUsd: allowance.microUsd, modelId: role.modelId, basis: "reserved_ceiling" });
         }
+      // Each paid conversation's judge call reserves the same allowance, at ref `${id}:j${n}` (n as above).
+      const judge = locked.judge;
+      if (judge) {
+        let m = 0;
+        for (const role of locked.roles)
+          for (let i = 0; i < role.conversations; i++, m++) {
+            if (!role.paid) continue;
+            await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
+              VALUES($1,'quality_check',$2,1,$3,NULL,$4,$5,'reserved',$6,$7,$6)`, [randomUUID(), `${id}:j${m}`, workspace, role.role, judge.plan.modelId, allowance.microUsd, allowance.tokens]);
+            events.push({ kind: "reserved", role: role.role, microUsd: allowance.microUsd, modelId: judge.plan.modelId, basis: "reserved_ceiling" });
+          }
+      }
       await client.query("UPDATE supervisor_workspace_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE workspace_id=$1",
         [workspace, locked.reserve.microUsd, locked.reserve.tokens]);
       onCommit(client, () => recordSpendEvents(events));
@@ -418,7 +477,7 @@ export class ProviderQualityChecks {
         payload: { checkId: id, target, draftId: locked.draft?.id ?? null, roles, conversations: locked.conversations, estimateMicroUsd: locked.estimateMicroUsd,
           reservedMicroUsd: locked.reserve.microUsd }, idempotencyKey: `provider.quality_check.started:${id}` });
       const runtime = locked.runtime, configuration = locked.configuration, pricing = new Map(locked.roles.flatMap((r) => (r.pricing ? [[r.role, r.pricing] as const] : [])));
-      launch = () => this.launch(actor, workspace, row, runtime, configuration, pricing);
+      launch = () => this.launch(actor, workspace, row, runtime, configuration, pricing, judge, allowance);
       return this.view(row, locked.reserve.microUsd);
     });
     launch?.();
@@ -426,21 +485,24 @@ export class ProviderQualityChecks {
   }
 
   private launch(actor: Actor, workspace: string, row: CheckRow, runtime: ReturnType<typeof composeProviders>, configuration: Configuration,
-    pricing: Map<EvalRole, ModelPricing>) {
-    const task = this.run(actor, workspace, row, runtime, configuration, pricing)
+    pricing: Map<EvalRole, ModelPricing>, judge: JudgeChoice | null, allowance: { microUsd: number; tokens: number }) {
+    const task = this.run(actor, workspace, row, runtime, configuration, pricing, judge, allowance)
       .catch(() => this.finish(actor, workspace, row.id, { state: "error", reason: "PROVIDER_QUALITY_CHECK_FAILED" }, "uncertain").catch(() => undefined))
       .finally(() => this.running.delete(row.id));
     this.running.set(row.id, task);
   }
 
   private async run(actor: Actor, workspace: string, row: CheckRow, runtime: ReturnType<typeof composeProviders>, configuration: Configuration,
-    pricing: Map<EvalRole, ModelPricing>) {
+    pricing: Map<EvalRole, ModelPricing>, judge: JudgeChoice | null, allowance: { microUsd: number; tokens: number }) {
     const signal = AbortSignal.timeout(Math.max(1, row.deadline_at.getTime() - Date.now()));
     let index = 0, fault: string | null = null, detail: FaultDetail | null = null;
     const toolCalls = new Map<string, readonly ToolCallRecord[]>();
+    // Why a conversation's call failed beyond its code (ProviderError.reason), for its details.
+    const providerReasons = new Map<string, string>();
     const settle = async (call: CallRecord) => {
       const ref = `${row.id}:${index++}`, error = call.error;
       if (call.toolCalls.length) toolCalls.set(`${call.role}:${call.dialogue.id}`, call.toolCalls);
+      if (error instanceof ProviderError && error.reason) providerReasons.set(`${call.role}:${call.dialogue.id}`, error.reason);
       const code = error instanceof ProviderError ? error.code : error ? "UNEXPECTED" : null;
       if (code && Object.hasOwn(PROVIDER_FAULTS, code) && !(code === "TIMEOUT" && signal.aborted) && !fault) {
         fault = PROVIDER_FAULTS[code]!;
@@ -449,6 +511,28 @@ export class ProviderQualityChecks {
       }
       await this.settleCall(workspace, row.id, ref, call, pricing.get(call.role) ?? null);
     };
+    // The meaning judge, right after each answer (runSuite calls it after `settle`, so the answer's
+    // position is index - 1). Its call is settled like the answer's; it never stops the run.
+    const judgements = new Map<string, MeaningJudgement>();
+    const bound = configuration.roles as Partial<Record<string, { modelId: string }>>;
+    const meaningJudge: MeaningJudge | undefined = judge ? async (role, dialogue, output, signal) => {
+      const position = index - 1, reply = answerText(output) ?? "";
+      const identity = { model: judge.plan.remoteModel, self: bound[role]?.modelId === judge.plan.modelId };
+      let answered: { output: unknown; usage: UsageReceipt } | null = null, failure: unknown = null;
+      // Past the deadline nothing is sent; the reservation is released when the check finishes.
+      if (signal.aborted) return judgementOf(identity, null, reply, "deadline");
+      try {
+        answered = await runtime.judgeMeaning(judge.plan, { ...judgeRequest(dialogue, reply), outputSchema: JUDGE_SCHEMA },
+          `agent-eval-judge-${role}-${position}`, signal);
+      } catch (error) { failure = error; }
+      await this.settleLedger(workspace, row.id, `${row.id}:j${position}`, answered?.usage ?? (failure instanceof ProviderError ? failure.usage ?? null : null),
+        failure, judge.pricing, false);
+      const judgement = judgementOf(identity, answered?.output, reply,
+        // A structured answer the adapter refused as not matching the schema is an invalid verdict too.
+        failure ? (failure instanceof ProviderError ? (failure.code === "INVALID_RESPONSE" ? "verdict_invalid" : failure.code.toLowerCase()) : "unexpected") : undefined);
+      judgements.set(`${role}:${dialogue.id}`, judgement);
+      return judgement;
+    } : undefined;
     let report: EvalReport | null = null;
     try {
       report = await runSuite({ suite: this.providers.evalSuite, configuration, runtime, mode: "live", roles: row.roles, signal,
@@ -457,40 +541,66 @@ export class ProviderQualityChecks {
           await this.options.beforeDialogue?.(dialogue);
           if (signal.aborted) throw new StopRun();
         },
-        afterCall: settle });
+        // The companion's answer guard may write a leaking reply again once (companion-answer-guard.ts):
+        // that call is part of the conversation, charged to its ledger row, and runs only when it fits
+        // the conversation's reservation (the job allowance) at the role's price.
+        admitRegeneration: (dialogue, request) => regenerationFits(request, allowance, pricing.get(dialogue.role) ?? null),
+        afterCall: settle, ...(meaningJudge ? { meaningJudge } : {}) });
     } catch (error) {
       if (!(error instanceof StopRun)) throw error;
     }
     if (signal.aborted) return this.finish(actor, workspace, row.id, { state: "error", reason: "PROVIDER_QUALITY_CHECK_TIMEOUT" }, "not_started");
-    if (fault || !report) return this.finish(actor, workspace, row.id, { state: "error", reason: fault ?? "PROVIDER_QUALITY_CHECK_FAILED", detail }, "not_started");
-    // Recorded exactly as an uploaded report: Core regrades every answer against its own suite.
-    let recorded: Awaited<ReturnType<ProviderEvaluations["record"]>>;
-    try {
-      recorded = await this.evaluations.record(actor, workspace, { idempotencyKey: `quality-check:${row.id}`, report });
+    if (fault || !report) {
+      // The provider said the job's model is not there (HTTP 404 NOT_FOUND) although its model list
+      // may still name it: record that, so the model picker stops offering it (provider-connections.ts).
+      const failed = detail as FaultDetail | null, model = failed?.providerCode === "NOT_FOUND" ? roleModels(configuration)[failed.role] : undefined;
+      const unavailable = model?.connectionId && model.remoteModel
+        ? { connectionId: model.connectionId, remoteModel: model.remoteModel, status: failed!.status, providerReason: failed!.providerReason } : null;
+      return this.finish(actor, workspace, row.id, { state: "error", reason: fault ?? "PROVIDER_QUALITY_CHECK_FAILED", detail, unavailable }, "not_started");
+    }
+    // A job with no failure whose judge could not run on some conversation has no result: it is not
+    // recorded (neither passed nor failed). Every other job is recorded as an uploaded report is:
+    // Core regrades every answer against its own suite, with the judge's verdicts for the judged graders.
+    const undetermined = new Set(report.roles.filter((r) => r.dialogues.some((d) => d.grade.undetermined)
+      && r.dialogues.every((d) => d.grade.passed || d.grade.undetermined)).map((r) => r.role));
+    const recordable = { ...report, roles: report.roles.filter((r) => !undetermined.has(r.role)) };
+    let recorded: Awaited<ReturnType<ProviderEvaluations["record"]>> = { results: [] };
+    if (recordable.roles.length) try {
+      recorded = await this.evaluations.record(actor, workspace, { idempotencyKey: `quality-check:${row.id}`, report: recordable }, judgements);
     } catch (error) {
       const reason = error instanceof ApiError && error.code === "FORBIDDEN" ? "PROVIDER_QUALITY_CHECK_SCOPE_CHANGED" : "PROVIDER_QUALITY_CHECK_FAILED";
       return this.finish(actor, workspace, row.id, { state: "error", reason }, "not_started");
     }
-    const outcome: RoleOutcome[] = recorded.results.map((r) => {
-      const grades = r.grades as { dialogueId: string; passed: boolean; graders: { grader: string; passed: boolean; findings: string[] }[] }[];
-      return { role: r.role as EvalRole, passed: r.outcome === "passed", dialogues: grades.length,
-        failed: grades.filter((g) => !g.passed).map((g) => {
-          const reason = noAnswerReason(g.graders);
-          return { dialogueId: g.dialogueId, graders: g.graders.filter((x) => !x.passed).map((x) => x.grader), ...(reason ? { reason } : {}) };
-        }) };
+    const failures = (grades: readonly DialogueGrade[]) => grades.filter((g) => !g.passed).map((g) => {
+      const reason = noAnswerReason(g.graders);
+      return { dialogueId: g.dialogueId, graders: g.graders.filter((x) => !x.passed).map((x) => x.grader), ...(reason ? { reason } : {}) };
+    });
+    const outcome: RoleOutcome[] = report.roles.flatMap((run): RoleOutcome[] => {
+      if (undetermined.has(run.role)) {
+        const grades = run.dialogues.map((d) => d.grade);
+        return [{ role: run.role, passed: false, dialogues: grades.length, failed: failures(grades), undetermined: true }];
+      }
+      const r = recorded.results.find((x) => x.role === run.role);
+      if (!r) return [];
+      const grades = r.grades as DialogueGrade[];
+      return [{ role: r.role as EvalRole, passed: r.outcome === "passed", dialogues: grades.length, failed: failures(grades) }];
     });
     // Each conversation's detail, in the order it ran, graded by Core's own regrade.
     const dialogues: DialogueRow[] = [], suite = this.providers.evalSuite;
     for (const run of report.roles) {
-      const grades = new Map((recorded.results.find((r) => r.role === run.role)?.grades as DialogueGrade[] | undefined ?? []).map((g) => [g.dialogueId, g]));
+      const grades = new Map((undetermined.has(run.role) ? run.dialogues.map((d) => d.grade)
+        : recorded.results.find((r) => r.role === run.role)?.grades as DialogueGrade[] | undefined ?? []).map((g) => [g.dialogueId, g]));
       for (const d of run.dialogues) {
         const fixture = suite.dialogues.find((x) => x.id === d.dialogueId), grade = grades.get(d.dialogueId);
         if (!fixture || !grade) continue;
         dialogues.push({ position: dialogues.length, role: run.role, dialogueId: d.dialogueId, passed: grade.passed,
-          detail: dialogueDetail(fixture, d.output, grade, toolCalls.get(`${run.role}:${d.dialogueId}`)) });
+          detail: dialogueDetail(fixture, d.output, grade, toolCalls.get(`${run.role}:${d.dialogueId}`), judgements.get(`${run.role}:${d.dialogueId}`),
+            providerReasons.get(`${run.role}:${d.dialogueId}`)) });
       }
     }
-    return this.finish(actor, workspace, row.id, { state: outcome.every((o) => o.passed) ? "passed" : "failed", reason: null, outcome, dialogues }, "not_started");
+    // A failure stands; otherwise a job the judge could not finish leaves the check without a result.
+    const state = outcome.some((o) => !o.passed && !o.undetermined) ? "failed" : outcome.some((o) => o.undetermined) ? "error" : "passed";
+    return this.finish(actor, workspace, row.id, { state, reason: state === "error" ? "PROVIDER_QUALITY_CHECK_JUDGE_UNAVAILABLE" : null, outcome, dialogues }, "not_started");
   }
 
   /**
@@ -513,14 +623,16 @@ export class ProviderQualityChecks {
   }
 
   /** Settles one conversation's ledger row from what the provider reported, and counts progress. */
-  private async settleCall(workspace: string, id: string, ref: string, call: CallRecord, pricing: ModelPricing | null) {
-    const error = call.error;
+  private settleCall(workspace: string, id: string, ref: string, call: CallRecord, pricing: ModelPricing | null) {
+    return this.settleLedger(workspace, id, ref, call.usage, call.error, pricing, true);
+  }
+  /** Settles one paid call's ledger row (a conversation's answer, or its judge call with `progress` false). */
+  private async settleLedger(workspace: string, id: string, ref: string, usage: UsageReceipt | null, error: unknown, pricing: ModelPricing | null, progress: boolean) {
     const notSent = error instanceof ProviderError && error.submission === "not_sent" && !error.usage?.attempts.length;
     const rejected = error && !notSent ? definiteRejection(error) : null;
     // A reply the provider returned in full (usage reported) that the adapter's output checks refused
     // is a definite outcome (output-refusal.ts): it is paid like an answer, never held as uncertain.
     const refused = error ? answeredRefusalReason(error) : null, answered = !error || refused !== null;
-    const usage: UsageReceipt | null = call.usage;
     // No pricing (a media conversation, which holds no ledger row): nothing to price.
     const cost = answered && usage && pricing ? priceUsage(usage, pricing).cost : null;
     const totals = usage?.attempts.map((a) => a.tokens.total) ?? [];
@@ -530,7 +642,7 @@ export class ProviderQualityChecks {
       const open = (await client.query<{ reserved_micro_usd: string; reserved_tokens: string; model_id: string | null; role: string }>(
         "SELECT reserved_micro_usd,reserved_tokens,model_id,role FROM provider_spend_ledger WHERE source='quality_check' AND source_ref=$1 AND attempt=1 AND state='reserved' AND settled_at IS NULL FOR UPDATE",
         [ref])).rows[0];
-      await client.query("UPDATE provider_quality_checks SET completed_dialogues=LEAST(total_dialogues,completed_dialogues+1) WHERE id=$1 AND state='running'", [id]);
+      if (progress) await client.query("UPDATE provider_quality_checks SET completed_dialogues=LEAST(total_dialogues,completed_dialogues+1) WHERE id=$1 AND state='running'", [id]);
       if (!open) return;
       const reserved = Number(open.reserved_micro_usd), reservedTokens = Number(open.reserved_tokens), events: SpendEvent[] = [];
       let release = 0, releaseTokens = 0;
@@ -559,7 +671,8 @@ export class ProviderQualityChecks {
   }
 
   private async finish(actor: Actor, workspace: string, id: string,
-    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null; dialogues?: DialogueRow[] },
+    result: { state: "passed" | "failed" | "error"; reason: string | null; outcome?: RoleOutcome[]; detail?: FaultDetail | null; dialogues?: DialogueRow[];
+      unavailable?: UnavailableModel | null },
     open: "not_started" | "uncertain") {
     await afterCommitTransaction(this.db, async (client) => {
       const done = await client.query(
@@ -568,11 +681,19 @@ export class ProviderQualityChecks {
       // Conversations never sent (stopped early) release their reservation.
       await this.closeOpenCalls(client, workspace, id, open);
       if (!done.rowCount) return;
+      const unavailable = result.unavailable;
+      if (unavailable)
+        await client.query(`INSERT INTO provider_unavailable_models(workspace_id,connection_id,remote_model,reason_code,provider_status,provider_reason,check_id)
+          VALUES($1,$2,$3,'PROVIDER_GUIDE_MODEL_UNAVAILABLE',$4,$5,$6) ON CONFLICT (workspace_id,connection_id,remote_model) DO UPDATE SET
+          provider_status=EXCLUDED.provider_status,provider_reason=EXCLUDED.provider_reason,check_id=EXCLUDED.check_id,marked_at=clock_timestamp()`,
+        [workspace, unavailable.connectionId, unavailable.remoteModel, unavailable.status !== null && unavailable.status >= 100 && unavailable.status <= 599 ? unavailable.status : null,
+          unavailable.providerReason?.slice(0, 128) ?? null, id]);
       for (const d of result.dialogues ?? [])
         await client.query(`INSERT INTO provider_quality_check_dialogues(check_id,workspace_id,position,role,dialogue_id,passed,detail)
           VALUES($1,$2,$3,$4,$5,$6,$7)`, [id, workspace, d.position, d.role, d.dialogueId, d.passed, JSON.stringify(d.detail)]);
       await appendEvent(client, { workspaceId: workspace, actorId: actor.id, actorKind: "staff", type: "provider.quality_check.finished",
-        payload: { checkId: id, state: result.state, reason: result.reason, ...(result.detail ? { reasonDetail: result.detail } : {}), chargedMicroUsd: await this.charged(client, id),
+        payload: { checkId: id, state: result.state, reason: result.reason, ...(result.detail ? { reasonDetail: result.detail } : {}),
+          ...(unavailable ? { unavailableModel: { connectionId: unavailable.connectionId, remoteModel: unavailable.remoteModel } } : {}), chargedMicroUsd: await this.charged(client, id),
           roles: (result.outcome ?? []).map((o) => ({ role: o.role, passed: o.passed })) },
         idempotencyKey: `provider.quality_check.finished:${id}` });
     });

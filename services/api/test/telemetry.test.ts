@@ -21,7 +21,7 @@ it('sandbox and provider-call instrumentation record only status, counts, model 
   next = 'timeout'; expect((await sandbox.grade(input)).status).toBe('timeout');
   next = 'setup_timeout'; expect((await sandbox.grade(input)).status).toBe('setup_timeout');
   const end = providerCallObserver({ operation: 'tutor', modelId: 'tutor-model' })!;
-  end({ outcome: 'error', code: 'THROTTLED', providerId: 'vendor', attempts: 2, tokens: { input: 5, output: null, total: null }, access: 'subscription', elapsedMs: 50 });
+  end({ outcome: 'error', code: 'THROTTLED', reason: 'RATE_LIMIT_EXCEEDED', providerId: 'vendor', attempts: 2, tokens: { input: 5, output: null, total: null }, access: 'subscription', elapsedMs: 50 });
   await telemetry().shutdown();
   const spans = receiver.spans();
   const graded = spans.filter(span => span.name === 'sandbox.grade');
@@ -35,7 +35,7 @@ it('sandbox and provider-call instrumentation record only status, counts, model 
   expect(call.kind).toBe(3);
   expect(call.attributes).toEqual({ 'gen_ai.operation.name': 'generate_content', 'gen_ai.request.model': 'tutor-model', 'course.provider.operation': 'tutor',
     'gen_ai.provider.name': 'vendor', 'gen_ai.usage.input_tokens': 5, 'course.provider.outcome': 'error', 'course.provider.attempts': 2,
-    'course.provider.access': 'subscription', 'error.type': 'THROTTLED' });
+    'course.provider.access': 'subscription', 'course.provider.reason': 'RATE_LIMIT_EXCEEDED', 'error.type': 'THROTTLED' });
   const metrics = receiver.metrics().map(metric => metric.name);
   expect(metrics).toEqual(expect.arrayContaining(['course.sandbox.job.duration', 'course.sandbox.setup.duration', 'gen_ai.client.operation.duration', 'gen_ai.client.token.usage']));
   const raw = receiver.received.map(entry => entry.raw).join('\n');

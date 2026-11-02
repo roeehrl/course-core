@@ -90,6 +90,13 @@ export const modelListSchema = z.object({
     )
     .max(400),
   truncated: z.boolean(),
+  /** Models the service answered "not found" for in a quality check: no longer offered (older servers omit it). */
+  unavailable: z
+    .array(
+      z.object({ remoteModel: z.string().max(2048), markedAt: z.string() }),
+    )
+    .max(400)
+    .optional(),
   roles: z.array(
     z.object({
       role: job,
@@ -266,6 +273,8 @@ export const qualityCheckSchema = z.object({
             }),
           )
           .max(200),
+        /** No failure, but the judge could not run on some conversation: the job has no result. */
+        undetermined: z.boolean().optional(),
       }),
     )
     .max(5),
@@ -370,6 +379,8 @@ export const qualityDialogueSchema = z.object({
     sources: z.number().int().nonnegative().optional(),
     reason: short(120).optional(),
     truncated: z.boolean(),
+    /** The provider's cause beyond the code (MAX_TOKENS_THINKING, SAFETY...), when it named one. */
+    providerReason: short(80).optional(),
   }),
   graders: z
     .array(
@@ -378,9 +389,23 @@ export const qualityDialogueSchema = z.object({
         applies: z.boolean(),
         passed: z.boolean(),
         findings: z.array(findingSchema).max(12),
+        /** A rule a reviewer model judged by meaning: which model, whether it judged itself, its reasons; or that it could not run. */
+        judge: z
+          .object({
+            model: short(200),
+            self: z.boolean(),
+            state: z.enum(["judged", "unavailable"]),
+            reasons: z.array(short(500)).max(6),
+            reason: short(80).optional(),
+          })
+          .optional(),
+        /** The judge could not run: this rule neither passed nor failed. */
+        undetermined: z.boolean().optional(),
       }),
     )
     .max(20),
+  /** Not passed only because the judge could not run. */
+  undetermined: z.boolean().optional(),
 });
 export type QualityDialogue = z.infer<typeof qualityDialogueSchema>;
 export type QualityFinding = z.infer<typeof findingSchema>;
@@ -399,6 +424,17 @@ export const qualityDetailsSchema = z.object({
     .max(5),
 });
 export type QualityDetails = z.infer<typeof qualityDetailsSchema>;
+/** The model that judges grounding and factuality by meaning, its calls and their share of the estimate. */
+const qualityJudgeSchema = z
+  .object({
+    remoteModel: z.string().max(2048),
+    conversations: z.number().int().nonnegative(),
+    estimateMicroUsd: micro,
+    self: z.boolean(),
+  })
+  .nullable()
+  .optional();
+export type QualityJudge = z.infer<typeof qualityJudgeSchema>;
 /** Why a check cannot start now, with what the message needs. */
 const qualityBlockedSchema = z.object({
   code: z.string().max(100),
@@ -424,6 +460,8 @@ export const qualityStatusSchema = z.object({
   conversations: z.number().int().nonnegative(),
   estimateMicroUsd: micro,
   reserveMicroUsd: micro,
+  /** Who judges the check's conversations; older servers omit it. */
+  judge: qualityJudgeSchema,
   blocked: qualityBlockedSchema.nullable(),
   latest: qualityCheckSchema.nullable(),
   /**
@@ -439,6 +477,7 @@ export const qualityStatusSchema = z.object({
         priced: z.boolean(),
         estimateMicroUsd: micro.nullable(),
         reserveMicroUsd: micro,
+        judge: qualityJudgeSchema,
         blocked: qualityBlockedSchema.nullable(),
       }),
     )
@@ -458,6 +497,7 @@ export const qualityStatusSchema = z.object({
         priced: z.boolean(),
         estimateMicroUsd: micro.nullable(),
         reserveMicroUsd: micro,
+        judge: qualityJudgeSchema,
         blocked: qualityBlockedSchema.nullable(),
       }),
     )
@@ -469,6 +509,7 @@ export const qualityStatusSchema = z.object({
       conversations: z.number().int().nonnegative(),
       estimateMicroUsd: micro,
       reserveMicroUsd: micro,
+      judge: qualityJudgeSchema,
       blocked: qualityBlockedSchema.nullable(),
     })
     .nullable()
@@ -891,13 +932,22 @@ export type Issue =
   | { section: "spending"; kind: "spending" }
   | { section: "spending"; kind: "learnerLimit" };
 export interface PageStatus {
+  /** Whether learners get AI help now: judged on the active setup only, never on a draft. */
   on: boolean;
   sections: Record<SectionId, SectionState>;
+  /** While off: what is still missing before AI services are on (draft steps included). */
   issues: Issue[];
+  /**
+   * While on: what a saved draft still needs before it replaces the models that are on (a quality
+   * check, a price, turning it on). Learners keep the active models meanwhile.
+   */
+  pending: Issue[];
 }
 /**
  * What the page says: per section a status, and for the page the list of what is still missing
- * before AI services are on (each with the section that fixes it).
+ * before AI services are on (each with the section that fixes it). "On" is the active setup's
+ * state: a draft waiting for a check or a price never turns AI services off, it is listed in
+ * `pending` instead.
  */
 export function pageStatus(input: {
   connections: Connections;
@@ -932,6 +982,11 @@ export function pageStatus(input: {
 
   const active = activeRoles(input.setup.configuration);
   const draft = input.draft;
+  // Learners lose AI help only when the active setup lacks something; the draft's steps don't count.
+  let activeBroken = issues.length > 0;
+  if (NEEDED_JOBS.some((role) => !active.some((a) => a.role === role)))
+    activeBroken = true;
+  const draftIssues: Issue[] = [];
   const missing = NEEDED_JOBS.filter(
     (role) =>
       !active.some((a) => a.role === role) &&
@@ -945,7 +1000,7 @@ export function pageStatus(input: {
     models = { tone: "warn", pill: "waitingCheck" };
   else if (draft) {
     models = { tone: "warn", pill: "notOn" };
-    issues.push({ section: "models", kind: "notOn" });
+    draftIssues.push({ section: "models", kind: "notOn" });
   } else models = { tone: "ok", pill: "done" };
 
   let check: SectionState;
@@ -955,7 +1010,7 @@ export function pageStatus(input: {
       pill: "waitingCheck",
       count: draft.waitingForCheck.length,
     };
-    issues.push({
+    draftIssues.push({
       section: "check",
       kind: "check",
       count: draft.waitingForCheck.length,
@@ -979,8 +1034,15 @@ export function pageStatus(input: {
   if (!groups.length) prices = { tone: "idle", pill: "nothingYet" };
   else if (unpriced) {
     prices = { tone: "warn", pill: "priceNeeded", count: unpriced };
-    issues.push({ section: "prices", kind: "prices", count: unpriced });
+    draftIssues.push({ section: "prices", kind: "prices", count: unpriced });
   } else prices = { tone: "ok", pill: "done" };
+  // The models that are on need their prices; a draft's unpriced model waits with the draft.
+  if (
+    priceGroups(active, null, input.pricing).some(
+      (g) => g.roles.some((r) => r !== "media") && !g.priced,
+    )
+  )
+    activeBroken = true;
 
   const total = Number(input.budgets?.workspace.limit_micro_usd ?? 0),
     perLearner = Number(input.budgets?.defaultEnrollment.limit_micro_usd ?? 0),
@@ -996,10 +1058,31 @@ export function pageStatus(input: {
     spending = { tone: "warn", pill: "learnerLimitNeeded" };
     issues.push({ section: "spending", kind: "learnerLimit" });
   } else spending = { tone: "ok", pill: "done" };
+  if (issues.some((i) => i.section === "spending")) activeBroken = true;
+  if (activeBroken) {
+    // Off: every step, in page order, including the draft's (they are the way to turn it on).
+    const order: SectionId[] = [
+      "connections",
+      "models",
+      "check",
+      "prices",
+      "spending",
+    ];
+    const all = [...issues, ...draftIssues].sort(
+      (a, b) => order.indexOf(a.section) - order.indexOf(b.section),
+    );
+    return {
+      on: false,
+      sections: { connections, models, prices, spending, check },
+      issues: all,
+      pending: [],
+    };
+  }
   return {
-    on: issues.length === 0,
+    on: true,
     sections: { connections, models, prices, spending, check },
-    issues,
+    issues: [],
+    pending: draftIssues,
   };
 }
 export {

@@ -7,6 +7,8 @@ import enFirst from "../../src/i18n/messages/en/firstRun.json" with { type: "jso
 import heFirst from "../../src/i18n/messages/he/firstRun.json" with { type: "json" };
 import enSignIn from "../../src/i18n/messages/en/signIn.json" with { type: "json" };
 import heSignIn from "../../src/i18n/messages/he/signIn.json" with { type: "json" };
+import { suggestedPrice } from "../../../../services/api/src/price-table.ts";
+import { usdInput } from "../../src/domain/aiServices";
 
 type Locale = "en" | "he";
 type Args = Record<string, string | number>;
@@ -445,21 +447,26 @@ for (const locale of ["en", "he"] as Locale[]) {
     ).toBeVisible();
 
     // Prices: filled in from Google's pricing page with its date; the owner confirms with Save.
+    // The real server suggests the bundled table's rates for today, so the expected rates and
+    // the announced-change note come from that table on today's date, not from fixed values.
+    const table = suggestedPrice("google", "gemini-3.8-flash", new Date())!;
     const prices = page.locator("#ai-prices");
     await expect(
       prices.getByLabel(t("prices.input"), { exact: true }),
-    ).toHaveValue("0.75");
+    ).toHaveValue(usdInput(table.inputMicroUsdPerMillionTokens));
     await expect(
       prices.getByLabel(t("prices.output"), { exact: true }),
-    ).toHaveValue("3.75");
+    ).toHaveValue(usdInput(table.outputMicroUsdPerMillionTokens));
     await expect(prices.locator(".ai-price-suggestion")).toBeVisible();
     await expect(prices.locator(".ai-price-suggestion a")).toHaveAttribute(
       "href",
       "https://ai.google.dev/gemini-api/docs/pricing",
     );
-    await expect(
-      prices.getByText(t("prices.changeSaved"), { exact: false }),
-    ).toBeVisible();
+    const changeNote = prices.getByText(t("prices.changeSaved"), {
+      exact: false,
+    });
+    if (table.change) await expect(changeNote).toBeVisible();
+    else await expect(changeNote).toHaveCount(0);
     await accessible(page);
     await prices.screenshot({
       path: info.outputPath(`07-prices-prefilled-${locale}.png`),

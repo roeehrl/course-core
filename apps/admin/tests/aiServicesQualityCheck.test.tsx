@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -697,7 +697,23 @@ describe("running the quality check from the page", () => {
   });
 });
 
+// The prices card compares an announced change with today's date (a warning within
+// CHANGE_WARNING_DAYS, a note before that). These tests pin the clock to the day the table was
+// checked, 72 days before the 1 January 2027 change they use, so they do not change with the
+// real date. Only Date is faked: the page's own timers and Testing Library's waits stay real.
+const PRICE_TABLE_DAY = "2026-10-21T12:00:00Z";
+function pinClockToPriceTableDay() {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(PRICE_TABLE_DAY);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 describe("prefilled prices", () => {
+  pinClockToPriceTableDay();
   const pricing = (changeFrom: string | null) => ({
     requirePricing: true,
     settingsRevision: 0,
@@ -827,6 +843,7 @@ describe("prefilled prices", () => {
 });
 
 describe("a price change already scheduled", () => {
+  pinClockToPriceTableDay();
   const later = "2027-01-01T00:00:00.000Z";
   const version = (
     n: number,
@@ -1250,6 +1267,178 @@ describe("model suggestions", () => {
     fireEvent.click(within(models).getByLabelText(t("models.showAll")));
     expect(names().join(" ")).toMatch(/gemini-3.5-flash-lite/);
     expect(names().join(" ")).toMatch(/gemini-3-flash-preview/);
+  });
+
+  it('warns when the chosen model is one the service answered "not found" for, and no longer lists it', async () => {
+    // The pilot's case: the draft's tutor model passed models.list but Google answered 404 to the check.
+    const waiting: Draft = {
+      ...draft(true),
+      roles: [
+        { ...role("companion", "failed"), remoteModel: "gemini-2.5-pro" },
+        role("supervisor", "passed"),
+      ],
+      waitingForCheck: ["companion"],
+    };
+    const port = fakePort({
+      currentDraft: vi.fn().mockResolvedValue(waiting),
+      // The server leaves the refused model out of the list and names it under `unavailable`.
+      models: vi.fn().mockResolvedValue({
+        ...modelList(["gemini-3.8-flash", "gemini-3.1-pro"]),
+        unavailable: [
+          { remoteModel: "gemini-2.5-pro", markedAt: new Date().toISOString() },
+        ],
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const models = await screen.findByRole("region", {
+      name: t("section.models"),
+    });
+    expect(
+      await within(models).findByText(
+        t("models.unavailableChoice", {
+          service: t("service.google"),
+          model: "gemini-2.5-pro",
+        }),
+      ),
+    ).toBeInTheDocument();
+    // Only the tutor's row warns: the planner's model is fine.
+    expect(
+      within(models).getAllByText(
+        t("models.unavailableChoice", {
+          service: t("service.google"),
+          model: "gemini-2.5-pro",
+        }),
+      ),
+    ).toHaveLength(1);
+    const tutor = within(models).getByLabelText(
+      t("models.modelFor", { job: t("role.companion.name") }),
+    );
+    // The refused model shows only as the current choice, not as a listed model to pick.
+    const listed = Array.from(tutor.querySelectorAll("option")).filter((o) =>
+      (o.textContent ?? "").includes("gemini-2.5-pro"),
+    );
+    expect(listed.map((o) => o.textContent)).toEqual(["gemini-2.5-pro"]);
+    fireEvent.click(within(models).getByLabelText(t("models.showAll")));
+    expect(
+      Array.from(tutor.querySelectorAll("option"))
+        .map((o) => o.textContent ?? "")
+        .filter((name) => name.includes("gemini-2.5-pro")),
+    ).toEqual(["gemini-2.5-pro"]);
+  });
+
+  it("says a check stopped because the service doesn't have a job's model, in English and Hebrew", async () => {
+    const notFound = check({
+      state: "error",
+      reason: "PROVIDER_GUIDE_MODEL_UNAVAILABLE",
+      reasonDetail: {
+        role: "companion",
+        providerCode: "NOT_FOUND",
+        status: 404,
+        providerReason: "NOT_FOUND",
+      },
+      chargedMicroUsd: 0,
+    });
+    const port = fakePort({
+      qualityStatus: vi.fn().mockResolvedValue(status({ latest: notFound })),
+    });
+    const { unmount } = render(
+      <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+    );
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(
+        t("check.run.modelUnavailable", {
+          service: t("service.google"),
+          job: t("role.companion.name"),
+        }),
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    unmount();
+    render(
+      <I18nProvider value={hebrew}>
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />
+      </I18nProvider>,
+    );
+    const heRegion = await screen.findByRole("region", {
+      name: he("section.check"),
+    });
+    expect(
+      await within(heRegion).findByText(
+        he("check.run.modelUnavailable", {
+          service: he("service.google"),
+          job: he("role.companion.name"),
+        }).replace(/\s+/g, " "),
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says a check stopped on this workspace's own setup, not the service's model list, in English and Hebrew", async () => {
+    const stopped = (reason: string, providerCode: string) =>
+      check({
+        state: "error",
+        reason,
+        reasonDetail: {
+          role: "supervisor",
+          providerCode,
+          status: null,
+          providerReason: null,
+        },
+        chargedMicroUsd: 0,
+      });
+    for (const [reason, providerCode, key] of [
+      [
+        "PROVIDER_QUALITY_CHECK_MODEL_NOT_CONFIGURED",
+        "UNKNOWN_MODEL",
+        "check.run.modelNotConfigured",
+      ],
+      [
+        "PROVIDER_QUALITY_CHECK_CAPABILITY_MISSING",
+        "CAPABILITY_MISMATCH",
+        "check.run.capabilityMissing",
+      ],
+    ] as const) {
+      const port = fakePort({
+        qualityStatus: vi
+          .fn()
+          .mockResolvedValue(status({ latest: stopped(reason, providerCode) })),
+      });
+      const { unmount } = render(
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+      );
+      const region = await checkRegion();
+      expect(
+        await within(region).findByText(
+          t(key, { job: t("role.supervisor.name") }),
+          { exact: false },
+        ),
+      ).toBeInTheDocument();
+      // Never the service's "model isn't available" message.
+      expect(region.textContent).not.toContain(t("err.modelUnavailable"));
+      expect(region.textContent).not.toContain(
+        t("check.run.modelUnavailable", {
+          service: t("service.google"),
+          job: t("role.supervisor.name"),
+        }),
+      );
+      unmount();
+      render(
+        <I18nProvider value={hebrew}>
+          <AiServicesPage workspaceId={workspace} port={port} role="owner" />
+        </I18nProvider>,
+      );
+      const heRegion = await screen.findByRole("region", {
+        name: he("section.check"),
+      });
+      expect(
+        await within(heRegion).findByText(
+          he(key, { job: he("role.supervisor.name") }).replace(/\s+/g, " "),
+          { exact: false },
+        ),
+      ).toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it("classifies special-purpose models, keeping image models for the images job", () => {

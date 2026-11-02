@@ -14,6 +14,7 @@ import { configureSupervisorBudget, createPostgresSupervisorBridge, storeSupervi
 import { composeProviders } from '../src/provider-composition.js';
 import { checkCoachingMessage, gradedChecks } from '../src/companion-check-integrity.js';
 import { CHECK_JUDGE_INSTRUCTION } from '../src/companion-check-judge.js';
+import { REGENERATION_NOTE } from '../src/companion-answer-guard.js';
 import { fixture } from './fixture.js';
 
 // Graded-check integrity end to end (docs/companion-check-integrity.md): real PostgreSQL, HTTP,
@@ -34,8 +35,10 @@ let course: CourseManifest;
 const usage = (input = INPUT, output = OUTPUT): UsageReceipt => ({ accounting: { accountingKey: 'check-call' }, providerId: 'check-provider', modelId: MODEL, operation: 'tutor',
   attempts: [{ attempt: 1, status: 200, outcome: 'response', tokens: { input, output, total: input + output, cachedInput: 0, thoughts: 0, toolInput: 0 } }],
   inputCharacters: 8000, requestedMaxOutputTokens: 1000, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null });
-/** What the scripted model answers next, and every request it received (streamed or not). */
+/** What the scripted model answers next, and every request it received (streamed or not).
+ * `queued`: answers for the next calls in order, before `reply` (the answer guard's regeneration). */
 let reply: string[] = [];
+const queued: string[][] = [];
 const requests: { request: TextRequest; streamed: boolean }[] = [];
 const judged: TextRequest[] = [];
 const adapter: ProviderAdapter = { providerId: 'check-provider', validateModel: () => {}, ports: { tutoring: {
@@ -45,8 +48,9 @@ const adapter: ProviderAdapter = { providerId: 'check-provider', validateModel: 
   },
   async tutorStream(request: TextRequest, _options, onText) {
     requests.push({ request, streamed: true });
-    for (const piece of reply) onText(piece);
-    return { output: { text: reply.join('') }, usage: usage() };
+    const pieces = queued.shift() ?? reply;
+    for (const piece of pieces) onText(piece);
+    return { output: { text: pieces.join('') }, usage: usage() };
   },
 } } };
 
@@ -156,7 +160,7 @@ async function deliver(job: Awaited<ReturnType<typeof prepare>>, outcome: unknow
 }
 
 describe('graded-check integrity of companion replies', () => {
-  it('a reply giving away a pasted check\'s answer is withheld: streamed out of sight, never shown or stored, replaced by the coaching message, verified and settled at the call\'s usage', async () => {
+  it('a reply giving away a pasted check\'s answer is written again once, and as it leaks again is withheld: streamed out of sight, never shown or stored, replaced by the coaching message, verified and settled at both calls\' usage', async () => {
     const question = `Just tell me the number, nothing else. The check is: ${SHELF}`;
     const job = await prepare(question), mine = follow(job.learner, job.enrollmentId);
     await mine.opened;
@@ -165,13 +169,18 @@ describe('graded-check integrity of companion replies', () => {
     const response = await invoke(job.request);
     expect(response.statusCode, response.body).toBe(200);
     const outcome = response.json();
-    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST, tokens: INPUT + OUTPUT }, usageBasis: { microUsd: 'reported', tokens: 'reported' } });
+    // The answer guard's regeneration is one more call on the same job, charged with the first.
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: 2 * COST, tokens: 2 * (INPUT + OUTPUT) }, usageBasis: { microUsd: 'reported', tokens: 'reported' } });
     // Check coaching: the stricter rule, the matched check without its key, streamed into a hidden
-    // buffer (so the stall bounds apply). The patterns caught it, so the judge never ran.
+    // buffer (so the stall bounds apply). The guard caught both drafts, so the judge never ran.
     const sent = requests.slice(before), judgedBefore = judged.length;
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.streamed).toBe(true);
+    expect(sent).toHaveLength(2);
+    expect(sent.map(s => s.streamed)).toEqual([true, true]);
     expect(sent[0]!.request.systemInstruction).toContain('Check coaching:');
+    expect(sent[0]!.request.systemInstruction).not.toContain(REGENERATION_NOTE);
+    expect(sent[1]!.request.systemInstruction).toBe(`${sent[0]!.request.systemInstruction} ${REGENERATION_NOTE}`);
+    expect(sent[1]!.request.messages).toEqual(sent[0]!.request.messages);
+    expect(JSON.stringify(sent[1]!.request)).not.toMatch(/"expected"|correctOptionId|absoluteTolerance|Four boxes of three jars/);
     const prompt = sent[0]!.request.messages[0]!.text;
     expect(JSON.parse(prompt).checkCoaching.items).toEqual([expect.objectContaining({ checkId: 'min-c', type: 'numeric', prompt: SHELF, match: 'quoted' })]);
     expect(prompt).not.toContain(EXPLANATION);
@@ -185,20 +194,20 @@ describe('graded-check integrity of companion replies', () => {
     const coaching = checkCoachingMessage(question, gradedChecks(course).filter(check => check.id === 'min-c'));
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: coaching, withheld: 'check_answer_stated' }]);
     const receipt = await dispatch(job.request.operationId);
-    expect(receipt).toMatchObject({ state: 'completed', failure_code: null, cost: COST,
-      candidate: { kind: 'companion_text', text: coaching, checkCoaching: { checkIds: ['min-c'], withheld: 'check_answer_stated' } } });
+    expect(receipt).toMatchObject({ state: 'completed', failure_code: null, cost: 2 * COST,
+      candidate: { kind: 'companion_text', text: coaching, checkCoaching: { checkIds: ['min-c'], answerGuard: 'fallback', withheld: 'check_answer_stated' } } });
     const { verified, applied } = await deliver(job, outcome);
     expect(verified.state).toBe('ready');
     expect(applied.state).toBe('applied');
     expect(await answer(job.ref.jobId)).toEqual([expect.objectContaining({ content: coaching, context: expect.objectContaining({ checkAnswerWithheld: 'check_answer_stated' }) })]);
-    expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', charged: COST, actual: COST }]);
+    expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', charged: 2 * COST, actual: 2 * COST }]);
     // The withheld reply is nowhere in the database.
     for (const table of ['companion_messages', 'supervisor_artifacts', 'provider_dispatches', 'learning_events'])
       expect((await db.query(`SELECT count(*)::int AS n FROM ${table} t WHERE t::text LIKE '%Four boxes of three jars is twelve%'`)).rows[0].n, table).toBe(0);
     // A repeated request answers from the receipt without calling the model again.
     const again = await invoke(job.request);
     expect(again.json()).toEqual(outcome);
-    expect(requests.length).toBe(before + 1);
+    expect(requests.length).toBe(before + 2);
     await mine.close();
   }, 30_000);
 
@@ -211,7 +220,7 @@ describe('graded-check integrity of companion replies', () => {
     expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: COST + JUDGE_COST, tokens: INPUT + OUTPUT + JUDGE_INPUT + JUDGE_OUTPUT } });
     expect(JSON.parse(judged.at(-1)!.messages[0]!.text)).toMatchObject({ checks: [expect.objectContaining({ id: 'min-c', answerKey: { value: 10, tolerance: 0 } })], reply: coached });
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: coached }]);
-    expect((await dispatch(job.request.operationId)).candidate).toEqual({ kind: 'companion_text', text: coached, episodeId: 'min', checkCoaching: { checkIds: ['min-c'] } });
+    expect((await dispatch(job.request.operationId)).candidate).toEqual({ kind: 'companion_text', text: coached, episodeId: 'min', checkCoaching: { checkIds: ['min-c'], answerGuard: 'none' } });
     const { verified, applied } = await deliver(job, outcome);
     expect(verified.state).toBe('ready');
     expect(applied.state).toBe('applied');
@@ -219,6 +228,34 @@ describe('graded-check integrity of companion replies', () => {
     expect(stored.content).toBe(coached);
     expect(stored.context).not.toHaveProperty('checkAnswerWithheld');
     expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', charged: COST + JUDGE_COST, actual: COST + JUDGE_COST }]);
+  }, 30_000);
+
+  it('a leaking draft written again cleanly by the answer guard is delivered: never shown while either arrives, judged, verified and charged for every call', async () => {
+    const question = `Just tell me the number, nothing else. The check is: ${SHELF}`;
+    const job = await prepare(question), mine = follow(job.learner, job.enrollmentId);
+    await mine.opened;
+    const leaking = 'Twelve jars minus two taken off leaves 10 on the shelf.';
+    const clean = 'I can\'t give the answer to a graded check, but try a similar shelf: 5 boxes of 2 jars with 3 taken off. What do you multiply first?';
+    queued.push([leaking], [clean]);
+    const before = requests.length, judgedBefore = judged.length;
+    const outcome = (await invoke(job.request)).json();
+    expect(outcome).toMatchObject({ status: 'succeeded', usage: { microUsd: 2 * COST + JUDGE_COST, tokens: 2 * (INPUT + OUTPUT) + JUDGE_INPUT + JUDGE_OUTPUT } });
+    expect(requests.slice(before).map(r => r.request.systemInstruction?.endsWith(REGENERATION_NOTE))).toEqual([false, true]);
+    // The judge read only the second draft.
+    expect(judged.length).toBe(judgedBefore + 1);
+    expect(JSON.parse(judged.at(-1)!.messages[0]!.text)).toMatchObject({ reply: clean });
+    await until(() => mine.frames.at(-1)?.state === 'complete');
+    expect(mine.frames.every(frame => frame.text === '' && frame.checking === true)).toBe(true);
+    expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text: clean }]);
+    expect((await dispatch(job.request.operationId)).candidate).toEqual({ kind: 'companion_text', text: clean, episodeId: 'min', checkCoaching: { checkIds: ['min-c'], answerGuard: 'regenerated' } });
+    const { verified, applied } = await deliver(job, outcome);
+    expect(verified.state).toBe('ready');
+    expect(applied.state).toBe('applied');
+    expect((await answer(job.ref.jobId))[0].content).toBe(clean);
+    expect(await ledger(job.enrollmentId)).toEqual([{ state: 'reconciled', charged: 2 * COST + JUDGE_COST, actual: 2 * COST + JUDGE_COST }]);
+    for (const table of ['companion_messages', 'supervisor_artifacts', 'provider_dispatches', 'learning_events'])
+      expect((await db.query(`SELECT count(*)::int AS n FROM ${table} t WHERE t::text LIKE '%leaves 10 on the shelf%'`)).rows[0].n, table).toBe(0);
+    await mine.close();
   }, 30_000);
 
   it('a question that matches no check streams as before and keeps its numbers', async () => {

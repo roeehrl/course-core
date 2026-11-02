@@ -17,7 +17,8 @@ import { telemetry } from './telemetry.js';
 import { replyDrafts, type ReplyDrafts } from './reply-drafts.js';
 import { pricedStatus, pricingDecision, pricingInForce, requiresPricing } from './provider-costs.js';
 import { answeredRefusalReason } from './output-refusal.js';
-import { guardCompanionReply, type CheckReplyJudge, type JudgeVerdict } from './companion-check-integrity.js';
+import { guardCompanionReply, releaseChecks, type CheckReplyJudge, type GradedCheck, type JudgeVerdict } from './companion-check-integrity.js';
+import { companionAnswerGuard, regenerationFits, type CompanionAnswerGuard } from './companion-answer-guard.js';
 import { checkJudgeRequest, judgeRequestBytes, judgeTokenBound, parseCheckJudgeVerdict } from './companion-check-judge.js';
 import { judgeCeilingMicroUsd } from './role-reservation.js';
 import type { TeachingContext } from './agent-strategies.js';
@@ -249,6 +250,11 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         pricing = decision.pricing;
         const context = await teachingContext(db, operation.ref, operation.input.context);
         assembled = context;
+        // The keys of the checks a companion turn is coached on, host-only, read before anything is
+        // sent: the answer guard and the reply's check below use them (companion-check-integrity.ts).
+        const coachedIds = body.role === 'companion' ? context.checkCoaching?.items.map(item => item.checkId) ?? [] : [];
+        const coachedChecks: GradedCheck[] | null = coachedIds.length
+          ? await releaseChecks(db, body.job.workspaceId, operation.input.context.courseReleaseId, coachedIds) : null;
         // Strategies the course release declared, bound by Core to narrow its own (course-strategies.ts).
         // A declaration's tool references name tools the course declares, so both are read.
         const release = (await db.query<{ digest: string; strategies: unknown; tools: unknown }>(`SELECT r.digest,r.server_bundle->'agentStrategies' AS strategies,
@@ -310,10 +316,32 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
           ? (options.drafts ?? replyDrafts()).open({ enrollmentId: body.job.enrollmentId, jobId: body.job.jobId, messageId,
             checking: Boolean(context.checkCoaching?.items.length) }) : null;
         if (body.role === 'companion' && typeof messageId === 'string' && context.checkCoaching?.items.length) { checkMode = { messageId }; checked = 'failed'; }
+        // The answer guard (companion-answer-guard.ts) over the coached checks' keys (read above) is
+        // kept on the host: a draft that gives an answer away is written again once, within the
+        // job's reservation, then replaced by Core's guiding message. Only when every coached check
+        // was read back (otherwise the reply is withheld below, check_keys_unavailable).
+        const answerGuard: CompanionAnswerGuard | undefined = coachedChecks && coachedChecks.length === new Set(coachedIds).size
+          ? companionAnswerGuard({ checks: coachedChecks, question: context.question, lessonText: context.episode.teaching,
+            // The regeneration is one more companion call on the same allowance: it runs only when what
+            // the first call used, the second call's ceiling and the check judge's bound that must
+            // follow (it fails closed without room) all fit the job's reservation, in tokens and,
+            // priced, in micro-USD; and only when a judge can run at all (else the reply is withheld).
+            admitRegeneration: async request => {
+              const plan = selected.checkJudge();
+              if (!plan) return false;
+              const found = await pricingInForce(db, body.job.workspaceId, plan.modelId);
+              const judgePricing = found && pricingCovers(found, 'tokens') ? found : null;
+              if (!judgePricing && await requiresPricing(db, body.job.workspaceId)) return false;
+              // The judge's bound for a draft the size of the first (its own check below stays authoritative).
+              const judgeRequest = checkJudgeRequest({ checks: coachedChecks, reply: request.draft, question: context.question });
+              const judgeCeiling = judgePricing ? judgeCeilingMicroUsd(judgeRequestBytes(judgeRequest), plan.maxOutputTokens, judgePricing) : 0;
+              return judgeCeiling !== null && regenerationFits(request, body.checkpoint.allowance, pricing,
+                { tokens: judgeTokenBound(judgeRequest, plan.maxOutputTokens), microUsd: judgeCeiling });
+            } }) : undefined;
         let generated: Awaited<ReturnType<ProviderRuntime['execute']>>;
         try {
           generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course,
-            draft ? draft.push : undefined);
+            draft ? draft.push : undefined, answerGuard);
         } catch (error) { watching?.(); watching = null; throw error; }
         usage = generated.usage;
         const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
@@ -364,7 +392,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         // its place, charged at what the calls used.
         const guarded = generated.role === 'companion'
           ? await guardCompanionReply(db, { workspaceId: body.job.workspaceId, courseReleaseId: operation.input.context.courseReleaseId, lessonText: context.episode.teaching },
-            context.question, generated.content, judge)
+            context.question, generated.content, judge, coachedChecks ? { ids: coachedIds, checks: coachedChecks } : undefined)
           : { content: generated.content, withheld: null };
         // The job's cancellation is watched through the judge's call too (the learner's Stop ends it).
         watching?.(); watching = null;

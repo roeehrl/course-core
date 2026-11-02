@@ -119,7 +119,13 @@ The admin "AI services" page uses these routes (all under
   `409 PROVIDER_CONNECTION_IN_USE {roles}`.
 - `GET /connections/:id/models`: the stored key's model list (cached for ten minutes per key)
   with each job's method and a suggested model (`src/provider-suggestions.ts`, naming rules
-  only, never prices).
+  only, never prices). A model a quality check found missing at the provider (HTTP 404
+  `NOT_FOUND`, migration 129) is left out of the list and the suggestions and named under
+  `unavailable`, even while the provider's list still names it; `POST /drafts` refuses to newly
+  choose it (`409 PROVIDER_GUIDE_MODEL_UNAVAILABLE {roles}`), and a job keeping the model it has
+  on now is left alone. A cached list older than such a finding is read again; a fresh, complete
+  list forgets findings for models it no longer names, and a new key for the connection forgets
+  them all. Nothing here calls a model.
 - `POST /drafts` `{baseRevision, assignments: {job: {connectionId, remoteModel} | null}}` and
   `POST /drafts/json` `{baseRevision, configuration, jobPolicy}` store the workspace's single
   open draft (migration 088); `GET /drafts/current`, `DELETE /drafts/current`. A draft
@@ -134,8 +140,10 @@ The admin "AI services" page uses these routes (all under
 - `POST /turn-off` `{expectedRevision, idempotencyKey, role}` (owners and administrators)
   turns one job of the active setup off: a new active version without that job, so learners
   get no answer from it from now on, as before it was on. Unfinished jobs are asked to stop,
-  as after any model change. Its approval and check results stay recorded; an open draft
-  moves onto the new version without the job. Idempotent per key (a setup receipt), audited
+  as after any model change. Its check results stay recorded, but every owner approval of the
+  job's revision (and of course strategies run on it) is withdrawn (migration 128), so turning
+  the same model on again needs a passing check or a fresh approval; an open draft moves onto
+  the new version without the job. Idempotent per key (a setup receipt), audited
   as `provider.role.turned_off`; a job already off changes nothing (`turnedOff: false`).
   `409 PROVIDER_ROLE_IN_USE {roles}` when another job names it as its check judge.
 - `PUT /service-keys/youtube` `{key | null}` stores the YouTube search key.
@@ -524,9 +532,10 @@ called, and the reply is replaced by Core's coaching message (fail closed).
 
 A streamed reply (the companion) must start within 20 s of sending and never pause for more than
 20 s, below every call's 60 s bound. A reply about a graded check streams too, into a hidden
-buffer, under the same bounds. A whole companion reply (no draft open, quality checks) and the
-check judge's verdict must arrive within 20 s as well, since a learner is waiting for them; other
-roles' whole replies keep the 60 s bound. A role may set its own:
+buffer, under the same bounds. A whole companion reply (no draft open, quality checks) must
+arrive within 45 s: its first byte is the finished response, so the bound covers the model's
+thinking and the whole answer up to the output limit. The check judge's short verdict must arrive
+within 20 s. Other roles' whole replies keep the 60 s bound. A role may set its own:
 `roles.<role>.firstByteTimeoutMs` (a streamed reply's first chunk; a whole reply's finished
 response) and `roles.<role>.streamIdleTimeoutMs`, each 5,000–55,000 ms. What a call that ends
 this way costs, Core's automatic second ask, and the owner's decision on a call whose cost stayed

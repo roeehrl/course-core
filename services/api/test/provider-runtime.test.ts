@@ -223,7 +223,7 @@ describe('response bounds of a role call (live finding B-2)', () => {
   const companion = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 1000 };
   const supervisor = { modelId: 'portable:custom', maxInputCharacters: 20000, maxOutputTokens: 1000 };
 
-  it('a streamed reply must start within 20 s and never pause longer than 20 s, below the 60 s call bound; a whole companion reply and the check judge get the same first-byte bound', async () => {
+  it('a streamed reply must start within 20 s and never pause longer than 20 s, below the 60 s call bound; a whole companion reply gets 45 s for its finished response, the check judge 20 s', async () => {
     const { runtime, calls } = bounded({ companion, supervisor });
     await runtime.execute('companion', context(), 'k1', new AbortController().signal, undefined, undefined, [], () => {});
     await runtime.execute('companion', context(), 'k2', new AbortController().signal);
@@ -240,14 +240,14 @@ describe('response bounds of a role call (live finding B-2)', () => {
     await expect(runtime.judgeCheckReply(plan, { systemInstruction: 'judge', prompt: '{}' }, 'k5', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     expect(calls.map(c => [c.operation, c.options.timeoutMs, c.options.firstByteTimeoutMs, c.options.idleTimeoutMs])).toEqual([
       ['tutorStream', 60000, 20000, 20000],
-      // A whole reply's first byte is its finished response, which a learner is waiting for.
-      ['tutor', 60000, 20000, undefined],
+      // A whole reply's first byte is its finished response: the bound covers thinking and the whole answer.
+      ['tutor', 60000, 45000, undefined],
       // Other roles' whole replies (plans) get one only when the role sets it.
       ['assess', 60000, undefined, undefined],
       ['tutorStream', 60000, 20000, 20000],
       ['assess', 60000, 20000, undefined],
     ]);
-    expect(RESPONSE_BOUNDS).toEqual({ streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 20_000 });
+    expect(RESPONSE_BOUNDS).toEqual({ streamFirstByteMs: 20_000, streamIdleMs: 20_000, wholeFirstByteMs: 45_000, judgeFirstByteMs: 20_000 });
   });
 
   it('the check judge is the companion\'s checkJudgeRole, else the reviewer, else the companion; a judge that does not fit is refused before sending', async () => {

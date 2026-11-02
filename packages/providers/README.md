@@ -172,7 +172,18 @@ from the visible `output`, and inside `total`. A response stopped at the output 
 (`MAX_TOKENS`, Claude `max_tokens`) is `INCOMPLETE_OUTPUT` with its usage kept on the error,
 unless a tutoring request sets `allowCutShort: true`: then a reply with at least
 `MIN_CUT_SHORT_CHARACTERS` (200) visible characters is returned as `{ text, cutShort: true }`.
-Assessment and research output is never accepted when cut off.
+Assessment and research output is never accepted when cut off. A configured `budget` above half
+a request's `maxOutputTokens` is sent as half of it (when that is at least 512, every 2.5 model's
+minimum), so the thoughts cannot use the whole limit; `0` and `-1` are sent as they are.
+
+**Why a Google reply was refused.** The error's `reason` names the cause (`GOOGLE_OUTPUT_REASONS`,
+codes only): `BLOCKED` carries the finish reason (`SAFETY`, `RECITATION`...), `SAFETY` for a
+blocked rating or `PROMPT_<blockReason>`; `INCOMPLETE_OUTPUT` carries `MAX_TOKENS_THINKING` (the
+limit was reached with no visible text while the model thought), `MAX_TOKENS`, `NO_FINISH_REASON`
+(a stream that ended unfinished) or the finish reason (`OTHER`...); `INVALID_RESPONSE` carries
+`NO_CANDIDATE`, `THOUGHTS_ONLY` (finished after thinking with no visible text) or `EMPTY_OUTPUT`.
+None of these is `NO_RESPONSE`: that code only means the first-byte bound expired before any
+response arrived (for a whole reply, before the finished response).
 
 `assess({...request, outputSchema})` uses a bounded, provider-neutral schema descriptor:
 
@@ -344,7 +355,7 @@ cancellation contract, so the package does not invent one.
   Telemetry callbacks that throw/reject cannot replay or fail a paid call.
 - `new ProviderRouter(registry, { observe })` reports each routed call to an optional
   observer: at start `{ operation, modelId }`, at the end outcome (`response`/`error`),
-  static error code, provider ID, attempt count, summed input/output/total tokens (`null`
+  static error code and reason (`ProviderError.reason`), provider ID, attempt count, summed input/output/total tokens (`null`
   when any attempt did not report one), access kind and elapsed milliseconds. It has no
   prompt, output, accounting key, credential or URL, and the package still imports no
   tracing SDK; the host maps it to OpenTelemetry. A throwing observer is ignored.

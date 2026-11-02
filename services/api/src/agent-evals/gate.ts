@@ -8,7 +8,7 @@ import { transaction, type Database } from "../database.js";
 import { ApiError, requireCondition } from "../errors.js";
 import { composeProviders, providerConfigurationSchema } from "../provider-composition.js";
 import type { WorkspaceProviders } from "../provider-setup.js";
-import { gradeDialogue } from "./graders.js";
+import { gradeDialogue, type MeaningJudgement } from "./graders.js";
 import { roleRevisions, strategyRevision, type ConfigurationShape } from "./revision.js";
 import { courseStrategiesFor } from "../course-strategies.js";
 import type { RuntimeStrategy } from "../agent-strategies.js";
@@ -47,8 +47,11 @@ async function evidence(client: Sql, workspace: string, role: string, digest: st
   const passed = (await client.query<{ id: string; created_at: Date }>(
     "SELECT id,created_at FROM provider_eval_results WHERE workspace_id=$1 AND role=$2 AND revision_digest=$3 AND suite_digest=$4 AND outcome='passed' ORDER BY created_at DESC,id LIMIT 1",
     [workspace, role, digest, suiteDigest])).rows[0];
+  // An approval withdrawn by turning its job off (provider_eval_override_revocations) is no evidence.
   const override = passed ? undefined : (await client.query<{ id: string; created_at: Date }>(
-    "SELECT id,created_at FROM provider_eval_overrides WHERE workspace_id=$1 AND role=$2 AND revision_digest=$3 AND suite_digest=$4 ORDER BY created_at DESC,id LIMIT 1",
+    `SELECT o.id,o.created_at FROM provider_eval_overrides o WHERE o.workspace_id=$1 AND o.role=$2 AND o.revision_digest=$3 AND o.suite_digest=$4
+       AND NOT EXISTS (SELECT 1 FROM provider_eval_override_revocations v WHERE v.override_id=o.id)
+     ORDER BY o.created_at DESC,o.id LIMIT 1`,
     [workspace, role, digest, suiteDigest])).rows[0];
   const latest = (await client.query<{ id: string; outcome: string; suite_digest: string; created_at: Date }>(
     "SELECT id,outcome,suite_digest,created_at FROM provider_eval_results WHERE workspace_id=$1 AND role=$2 AND revision_digest=$3 ORDER BY created_at DESC,id LIMIT 1",
@@ -110,9 +113,26 @@ async function activatedWithoutCurrentEvidence(client: Sql, suite: EvalSuite, de
   if (!decision || decision.grandfathered || decision.decision === "not_covered") return true;
   const table = decision.resultId ? "provider_eval_results" : decision.overrideId ? "provider_eval_overrides" : null;
   if (!table) return false;
-  const row = (await client.query<{ suite_digest: string }>(`SELECT suite_digest FROM ${table} WHERE id=$1`,
-    [decision.resultId ?? decision.overrideId])).rows[0];
-  return !row || row.suite_digest !== suite.digest;
+  const row = (await client.query<{ suite_digest: string; revoked: boolean }>(
+    `SELECT suite_digest,${table === "provider_eval_overrides" ? "EXISTS (SELECT 1 FROM provider_eval_override_revocations v WHERE v.override_id=$1)" : "false"} AS revoked
+     FROM ${table} WHERE id=$1`, [decision.resultId ?? decision.overrideId])).rows[0];
+  return !row || row.revoked || row.suite_digest !== suite.digest;
+}
+/**
+ * Withdraws every owner approval of `role` at the given revisions (turning the job off): from now on
+ * none of them lets that revision turn on without a check. Each approval is withdrawn once (its own
+ * append-only row); a check result is evidence of a run and stays. Returns the approvals withdrawn.
+ */
+export async function revokeApprovals(client: PoolClient, input: { workspace: string; role: AgentRole; revisionDigests: readonly string[];
+  providerRevision: number; actorId: string }) {
+  if (!input.revisionDigests.length) return [];
+  return (await client.query<{ override_id: string }>(
+    `INSERT INTO provider_eval_override_revocations(override_id,workspace_id,reason,provider_revision,actor_id)
+     SELECT o.id,o.workspace_id,'role_turned_off',$4,$5 FROM provider_eval_overrides o
+     WHERE o.workspace_id=$1 AND o.role=$2 AND o.revision_digest=ANY($3::text[])
+       AND NOT EXISTS (SELECT 1 FROM provider_eval_override_revocations v WHERE v.override_id=o.id)
+     ON CONFLICT (override_id) DO NOTHING RETURNING override_id`,
+    [input.workspace, input.role, [...new Set(input.revisionDigests)], input.providerRevision, input.actorId])).rows.map((r) => r.override_id);
 }
 /** Plain per-role check states for the admin page: what a role still needs before activation. */
 export function roleChecks(evaluated: Awaited<ReturnType<typeof evaluateActivation>>) {
@@ -280,8 +300,11 @@ export class ProviderEvaluations {
       .map((r) => ({ ...r, createdAt: iso(r.createdAt), failed: (r.grades as { dialogueId: string; passed: boolean; graders: { grader: string; passed: boolean }[] }[])
         .filter((g) => !g.passed).map((g) => ({ dialogueId: g.dialogueId, graders: g.graders.filter((x) => !x.passed).map((x) => x.grader) })), grades: undefined }));
     const overrides = (await this.db.query(
-      `SELECT id,role,revision_digest AS "revisionDigest",suite_digest AS "suiteDigest",reason,actor_id AS "actorId",created_at AS "createdAt"
-       FROM provider_eval_overrides WHERE workspace_id=$1 ORDER BY created_at DESC,id LIMIT 50`, [workspace])).rows.map((r) => ({ ...r, createdAt: iso(r.createdAt) }));
+      `SELECT o.id,o.role,o.revision_digest AS "revisionDigest",o.suite_digest AS "suiteDigest",o.reason,o.actor_id AS "actorId",o.created_at AS "createdAt",
+         v.created_at AS "revokedAt"
+       FROM provider_eval_overrides o LEFT JOIN provider_eval_override_revocations v ON v.override_id=o.id
+       WHERE o.workspace_id=$1 ORDER BY o.created_at DESC,o.id LIMIT 50`, [workspace])).rows
+      .map((r) => ({ ...r, createdAt: iso(r.createdAt), revokedAt: r.revokedAt ? iso(r.revokedAt) : null }));
     return {
       suite: { id: suite.id, version: suite.version, digest: suite.digest, dialogues: suite.dialogues.length,
         coverage: [...new Set(suite.dialogues.map((d) => d.role))].map((role) => ({ role, dialogues: suite.dialogues.filter((d) => d.role === role).length })) },
@@ -298,8 +321,11 @@ export class ProviderEvaluations {
    * Records a runner report (`npm run eval:agents -- --report FILE`). Core does not trust the
    * report's own grades: it recomputes the revision digest from the report's configuration and
    * regrades every answer with its own graders and suite. Failed results are recorded too.
+   * `judgements` (keyed `role:dialogueId`) come only from Core's own quality check, in process: the
+   * meaning judge's verdicts for grounding and factuality. A report's own `judgement` fields are
+   * ignored; an uploaded report is graded by the pattern graders.
    */
-  async record(actor: Actor, workspace: string, raw: unknown) {
+  async record(actor: Actor, workspace: string, raw: unknown, judgements?: ReadonlyMap<string, MeaningJudgement>) {
     // Authorize before parsing and regrading a report of up to 1 MB; the transaction below checks again.
     await transaction(this.db, (client) => this.member(client, actor, workspace, ["owner", "admin"]));
     const parsed = recordSchema.safeParse(raw);
@@ -323,7 +349,7 @@ export class ProviderEvaluations {
       const outputs = new Map(run.dialogues.map((d) => [d.dialogueId, d.output]));
       requireCondition(outputs.size === run.dialogues.length && outputs.size === dialogues.length && dialogues.every((d) => outputs.has(d.id)),
         "PROVIDER_EVAL_REPORT_INCOMPLETE", 400);
-      const grades = dialogues.map((d) => gradeDialogue(d, outputs.get(d.id)!));
+      const grades = dialogues.map((d) => gradeDialogue(d, outputs.get(d.id)!, judgements?.get(`${run.role}:${d.id}`)));
       return { role: run.role, revisionDigest: run.revisionDigest, grades, outcome: grades.every((g) => g.passed) ? "passed" as const : "failed" as const };
     });
     const requestDigest = sha256(canonicalJson({ workspace, report }));

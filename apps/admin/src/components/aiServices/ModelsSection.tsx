@@ -312,6 +312,15 @@ export function ModelsSection(props: Props) {
       setSaving(false);
     }
   }
+  /** Whether the service answered "not found" for this choice in a quality check. */
+  const unavailableChoice = (choice: NonNullable<Choice>) => {
+    const list = lists[choice.connectionId];
+    return (
+      !!list &&
+      "models" in list &&
+      !!list.unavailable?.some((m) => m.remoteModel === choice.remoteModel)
+    );
+  };
   const jobRow = (job: Job) => {
     const id = `${base}-${job}`;
     const choice = choices[job];
@@ -490,6 +499,18 @@ export function ModelsSection(props: Props) {
         >
           {select}
         </Field>
+        {choice && unavailableChoice(choice) && (
+          <Message tone="warn">
+            {t("aiServices.models.unavailableChoice", {
+              service: serviceName(
+                t,
+                kindOf(choice.connectionId),
+                labelOf(choice.connectionId),
+              ),
+              model: choice.remoteModel,
+            })}
+          </Message>
+        )}
         {failures.map(({ c, list }) => (
           <Message tone="warn" key={c.id}>
             {t("aiServices.models.listFailed")}{" "}

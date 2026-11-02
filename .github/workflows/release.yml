@@ -29,14 +29,14 @@ jobs:
       commit: ${{ steps.identity.outputs.commit }}
       tag: ${{ steps.identity.outputs.tag }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
           submodules: false
           lfs: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
           package-manager-cache: false
@@ -87,14 +87,14 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.identity.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
           submodules: false
           lfs: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
           package-manager-cache: false
@@ -153,7 +153,7 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/course-core-candidates/*
       - id: upload
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: course-core-${{ needs.identity.outputs.tag }}-${{ needs.identity.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/course-core-candidates/

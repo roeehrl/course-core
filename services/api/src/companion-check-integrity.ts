@@ -34,6 +34,7 @@
  */
 import type { PoolClient } from 'pg';
 import type { Database } from './database.js';
+import { keyAnswerPatterns, normalize, revealedPatterns } from './answer-leak.js';
 
 /** A deterministic answer key of a graded check. Host-only: never sent to a model. */
 export type CheckKey = { kind: 'option'; index: number } | { kind: 'number'; value: number; tolerance: number } | { kind: 'text'; value: string };
@@ -805,6 +806,33 @@ export function findCheckAnswerLeak(reply: string, checks: readonly GradedCheck[
   return null;
 }
 
+/**
+ * The `hint_leakage` rule (agent-evals/graders.ts), in one place: which of `patterns` (protected
+ * answers, answer-leak.ts `revealingMatch`) the reply reveals, and Core's graded-check verifier on
+ * `checks` (`findCheckAnswerLeak`). The grader passes a dialogue's own patterns; the companion's
+ * answer guard passes the patterns of the checks' keys (`draftAnswerLeak`). `normalized`: the reply
+ * already in answer-leak.ts `normalize` form, when the caller has it.
+ */
+export function answerLeakFindings(reply: string, input: { patterns?: readonly string[]; checks: readonly GradedCheck[]; question?: string; scope?: LeakScope; normalized?: string }) {
+  const patterns = input.patterns ?? [];
+  return { revealed: patterns.length ? revealedPatterns(patterns, input.normalized ?? normalize(reply)) : [],
+    check: findCheckAnswerLeak(reply, input.checks, input.question ?? '', input.scope ?? {}) };
+}
+/**
+ * Whether a draft reveals the answer of one of the checks in scope, by the grader's rule with the
+ * checks' keys as its protected answers: the verifier's patterns, then a key's value stated as a
+ * result (in digits or words, with its own sign; the lesson's numbers stay usable as operands and
+ * starting points). The gateway, the companion verifier and the answer guard all apply it.
+ */
+export function draftAnswerLeak(reply: string, checks: readonly GradedCheck[], question = '', scope: LeakScope = {}): CheckLeak | null {
+  const owners: string[] = [], patterns: string[] = [];
+  for (const check of checks) for (const pattern of keyAnswerPatterns(check.keys)) { patterns.push(pattern); owners.push(check.id); }
+  const found = answerLeakFindings(reply, { patterns, checks, question, scope });
+  if (found.check) return found.check;
+  const first = found.revealed[0];
+  return first === undefined ? null : { reason: 'check_answer_stated', checkId: owners[first]! };
+}
+
 // ---------------------------------------------------------------------------
 // The coaching message delivered in place of a withheld reply
 // ---------------------------------------------------------------------------
@@ -851,7 +879,9 @@ export type JudgeVerdict = { verdict: 'kept' } | { verdict: 'leak'; findings: st
 export type CheckReplyJudge = (input: { checks: readonly GradedCheck[]; reply: string; question: string }) => Promise<JudgeVerdict>;
 /** The companion strategy's output in check-coaching mode (agent-strategies.ts). */
 interface CoachedReply { kind: 'companion_text'; text: string; episodeId?: string; cutShort?: true;
-  checkCoaching: { checkIds: string[]; lessonNumbers?: number[]; withheld?: WithheldReason } }
+  checkCoaching: { checkIds: string[]; lessonNumbers?: number[]; withheld?: WithheldReason; answerGuard?: AnswerGuardOutcome } }
+type AnswerGuardOutcome = 'none' | 'regenerated' | 'fallback';
+const GUARD_OUTCOMES: readonly unknown[] = ['none', 'regenerated', 'fallback'];
 const coachedIds = (content: unknown): string[] | null => {
   const ids = record(record(content)?.checkCoaching)?.checkIds;
   return Array.isArray(ids) && ids.length && ids.every(id => typeof id === 'string') ? ids as string[] : null;
@@ -863,21 +893,30 @@ const coachedIds = (content: unknown): string[] | null => {
  * or that could not be judged (fail closed), is replaced by the coaching message (`withheld` names
  * why); every other output is returned unchanged, with the lesson numbers the check used recorded
  * on its check-coaching mark so the companion verifier repeats the same check. When the matched
- * checks cannot be read back, nothing can be verified and the reply is withheld as well.
+ * checks cannot be read back, nothing can be verified and the reply is withheld as well. The
+ * patterns are the answer guard's (`draftAnswerLeak`), so a reply Core's strategy already guarded
+ * passes them; a reply the guard replaced (`answerGuard: 'fallback'`) is kept as Core's message with
+ * the leak's reason. `preloaded`: the checks, when the caller already read them for the guard.
  */
 export async function guardCompanionReply(db: Sql, scope: { workspaceId: string; courseReleaseId: string; lessonText?: string }, question: string, content: unknown,
-  judge: CheckReplyJudge): Promise<{ content: unknown; withheld: WithheldReason | null; judged: JudgeVerdict | null }> {
+  judge: CheckReplyJudge, preloaded?: { ids: readonly string[]; checks: readonly GradedCheck[] }): Promise<{ content: unknown; withheld: WithheldReason | null; judged: JudgeVerdict | null }> {
   const ids = coachedIds(content), value = record(content);
   if (!ids || value?.kind !== 'companion_text' || typeof value.text !== 'string') return { content, withheld: null, judged: null };
-  const checks = await releaseChecks(db, scope.workspaceId, scope.courseReleaseId, ids);
+  const same = preloaded && new Set(preloaded.ids).size === new Set(ids).size && ids.every(id => preloaded.ids.includes(id));
+  const checks = same ? preloaded.checks : await releaseChecks(db, scope.workspaceId, scope.courseReleaseId, ids);
   const numbers = scope.lessonText ? lessonNumbers(scope.lessonText) : [];
   const complete = checks.length === new Set(ids).size;
-  const leak = complete ? findCheckAnswerLeak(value.text, checks, question, { lessonNumbers: numbers }) : null;
+  const marks = record(value.checkCoaching), guarded = GUARD_OUTCOMES.includes(marks?.answerGuard) ? marks!.answerGuard as AnswerGuardOutcome : null;
+  // The answer guard already stood Core's message in for a draft that leaked twice
+  // (companion-answer-guard.ts): it is Core's own text, recorded with the leak's reason, never judged.
+  const stoodIn = complete && guarded === 'fallback' && (WITHHELD_REASONS as readonly unknown[]).includes(marks?.withheld) && value.text === checkCoachingMessage(question, checks)
+    ? marks!.withheld as WithheldReason : null;
+  const leak = complete && !stoodIn ? draftAnswerLeak(value.text, checks, question, { lessonNumbers: numbers }) : null;
   let judged: JudgeVerdict | null = null;
-  if (complete && !leak) judged = await judge({ checks, reply: value.text, question });
-  const withheld: WithheldReason | null = !complete ? 'check_keys_unavailable' : leak ? leak.reason
-    : judged?.verdict === 'leak' ? 'check_answer_judged' : judged?.verdict === 'unavailable' ? 'check_judge_unavailable' : null;
-  const mark = { checkIds: ids, ...(numbers.length ? { lessonNumbers: numbers } : {}) };
+  if (complete && !leak && !stoodIn) judged = await judge({ checks, reply: value.text, question });
+  const withheld: WithheldReason | null = !complete ? 'check_keys_unavailable' : stoodIn ?? (leak ? leak.reason
+    : judged?.verdict === 'leak' ? 'check_answer_judged' : judged?.verdict === 'unavailable' ? 'check_judge_unavailable' : null);
+  const mark = { checkIds: ids, ...(numbers.length ? { lessonNumbers: numbers } : {}), ...(guarded ? { answerGuard: guarded } : {}) };
   if (!withheld) return { content: { ...value, checkCoaching: mark }, withheld: null, judged };
   const reply: CoachedReply = { kind: 'companion_text', text: checkCoachingMessage(question, checks),
     ...(typeof value.episodeId === 'string' ? { episodeId: value.episodeId } : {}), checkCoaching: { ...mark, withheld } };
@@ -903,5 +942,5 @@ export async function storedReplyKeepsChecks(db: Sql, ref: { jobId: string; enro
   const question = (await db.query<{ content: string }>("SELECT content FROM companion_messages WHERE job_id=$1 AND enrollment_id=$2 AND role='learner' LIMIT 1", [ref.jobId, ref.enrollmentId])).rows[0]?.content ?? '';
   const recorded = record(record(dispatch?.candidate)?.checkCoaching)?.lessonNumbers;
   const numbers = Array.isArray(recorded) ? recorded.filter(finite).slice(0, 400) : [];
-  return !findCheckAnswerLeak(text, checks, question, { lessonNumbers: numbers });
+  return !draftAnswerLeak(text, checks, question, { lessonNumbers: numbers });
 }

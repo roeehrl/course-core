@@ -22,6 +22,20 @@ describe("conversation details of a quality check", () => {
     expect(leaked.graders.find((g) => g.grader === "privacy")).toMatchObject({ applies: true, passed: false });
   });
 
+  it("keeps the provider's cause of a failed or refused reply beside its code, and only a cause code", () => {
+    const id = "companion.expert.distance-change-travel", d = dialogue(id);
+    const of = (output: EvalOutput, reason?: string | null) => dialogueDetail(d, output, gradeDialogue(d, output), [], undefined, reason).reply;
+    expect(of({ kind: "refusal", reason: "provider_output_incomplete" }, "MAX_TOKENS_THINKING"))
+      .toEqual({ kind: "refusal", text: null, reason: "provider_output_incomplete", providerReason: "MAX_TOKENS_THINKING", truncated: false });
+    expect(of({ kind: "error", code: "INVALID_RESPONSE" }, "THOUGHTS_ONLY")).toMatchObject({ reason: "INVALID_RESPONSE", providerReason: "THOUGHTS_ONLY" });
+    // The finding code the graders and the settlement pass match is unchanged.
+    expect(gradeDialogue(d, { kind: "refusal", reason: "provider_output_incomplete" }).graders[0]!.findings[0]).toBe("no_answer:provider_output_incomplete");
+    // No cause named, a cause that is not a code, or an answer: nothing is added.
+    expect(of({ kind: "error", code: "NO_RESPONSE" })).not.toHaveProperty("providerReason");
+    expect(of({ kind: "error", code: "BLOCKED" }, "blocked for dana@example.com")).not.toHaveProperty("providerReason");
+    expect(of({ kind: "text", text: "Distance is |finish - start|." }, "SAFETY")).not.toHaveProperty("providerReason");
+  });
+
   it("keeps at most about 4 KB of the reply and says it was cut", () => {
     const long = detail("companion.novice.signed-order", { kind: "text", text: "Read the sign with the digit. ".repeat(400) });
     expect(long.reply.truncated).toBe(true);
