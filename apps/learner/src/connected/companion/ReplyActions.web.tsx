@@ -6,6 +6,7 @@ import { useI18n, type Translate } from "../../i18n";
 import { IconButton } from "../ui/IconButton.web";
 import { MetaLine } from "../ui/MetaLine.web";
 import { PillButton } from "../ui/PillButton.web";
+import { useAnnounce } from "../ui/Announcer.web";
 import { StatusLine } from "../ui/StatusLine.web";
 import { BasedOnBlock, BasedOnChip, WithheldChip, WithheldLine, basedOnContent, partNumber, questionOf } from "./BasedOn.web";
 import type { LessonTarget } from "./bridge";
@@ -71,7 +72,13 @@ export function ReplyActions({ message, messages, conversation, latest, context,
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const notHelpful = useRef<HTMLDivElement>(null);
   const timeId = useId(), basedId = useId(), footnoteId = useId();
+  // "Copied" and "Thanks, noted." are said by the conversation's one status region (§6), not a
+  // live region of each reply.
+  const announce = useAnnounce();
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  useEffect(() => {
+    if (votes.thanked) announce(t("replyActions.thanks"));
+  }, [votes.thanked]);
   if (message.role !== "assistant" || message.content === "[deleted]" || message.content === "[erased]") return null;
   const withheld = companionWithheldNote(message);
   const based = basedOnContent(message, messages, conversation.server);
@@ -96,7 +103,6 @@ export function ReplyActions({ message, messages, conversation, latest, context,
       () => setFailed(true),
     );
   });
-  const status = votes.thanked ? t("replyActions.thanks") : copied ? t("replyActions.copied") : "";
   const active = basedOpen || footnoteOpen || votes.noteOpen;
   return (
     <div className={`cc-act-reply${latest ? " is-latest" : ""}${active ? " is-active" : ""}`}>
@@ -114,6 +120,7 @@ export function ReplyActions({ message, messages, conversation, latest, context,
                   if (!done) return;
                   clearTimeout(copiedTimer.current);
                   setCopied(true);
+                  announce(t("replyActions.copied"), { again: true });
                   copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS);
                 });
               }}
@@ -136,7 +143,7 @@ export function ReplyActions({ message, messages, conversation, latest, context,
         {!votes.thanked && (withheld
           ? <WithheldChip open={footnoteOpen} controls={footnoteId} onToggle={() => setFootnoteOpen((open) => !open)} />
           : based && <BasedOnChip content={based} messages={messages} open={basedOpen} controls={basedId} onToggle={() => setBasedOpen((open) => !open)} />)}
-        <span role="status" className={votes.thanked ? "cc-act-thanks" : "cc-ui-sr-only"}>{status}</span>
+        {votes.thanked && <span className="cc-act-thanks">{t("replyActions.thanks")}</span>}
       </div>
       {withheld && <WithheldLine id={footnoteId} open={footnoteOpen} />}
       <VoteNote state={votes} onClosed={() => notHelpful.current?.querySelectorAll("button")[1]?.focus()} />

@@ -134,8 +134,11 @@ describe("credit honesty in the companion", () => {
     companion();
     const line = screen.getByTestId("credit-line");
     expect(line).toHaveTextContent("Question 1 counts. Asking now makes it practice.");
-    expect(field()).toHaveAttribute("aria-describedby", expect.stringContaining(CREDIT_LINE_ID));
     expect(document.getElementById(CREDIT_LINE_ID)).toHaveTextContent("Question 1 counts. Asking now makes it practice.");
+    // Read once when the box gets focus: the line sits in the notice slot, which describes the box,
+    // so its own id is not listed again.
+    const described = (field().getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+    expect(described.match(/Asking now makes it practice\./g)).toHaveLength(1);
     const info = screen.getByRole("button", { name: "How questions count" });
     expect(info).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(info);

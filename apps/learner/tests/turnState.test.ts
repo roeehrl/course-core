@@ -41,4 +41,10 @@ describe("whose turn it is (final design §3.3, G2)", () => {
     expect(turnState(thread).showMeHow).toBe(true);
     expect(questionTurnsInARow([...thread.slice(0, 2), { ...message, id: "x" }, reply("Fine.", {}, "b"), ...thread.slice(2)])).toBe(2);
   });
+  it("never offers 'Show me how' under a hint that stands in for a counted check's answer (§3.7)", () => {
+    const hints: CompanionMessage[] = [];
+    for (const n of [1, 2, 3]) hints.push({ ...message, id: `q${n}` }, reply(`Try the first step ${n}.`, { checkAnswerWithheld: "check_answer_given" }, `h${n}`));
+    expect(questionTurnsInARow(hints)).toBe(3);
+    expect(turnState(hints)).toMatchObject({ yourTurn: true, withheldHint: true, showMeHow: false });
+  });
 });

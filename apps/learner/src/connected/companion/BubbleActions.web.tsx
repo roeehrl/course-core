@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import type { CompanionMessage } from "../../client/companionClient";
 import { companionCanAskAgain, companionHasPending } from "../../client/companionClient";
 import { useT } from "../../i18n";
+import { useAnnounce } from "../ui/Announcer.web";
 import { MetaLine } from "../ui/MetaLine.web";
 import { companionBridge } from "./bridge";
 import { BubbleMenu } from "./BubbleMenu.web";
@@ -25,9 +26,6 @@ export interface BubbleActionsProps {
   onExclude?: (messageId: string, excluded: boolean) => void;
 }
 
-/** How long Copy shows its check mark. */
-const COPIED_MS = 2000;
-
 /**
  * Beside a learner's message (final design §3.7, §3.4): More (Copy, "Edit and resend", Delete
  * with its confirm) and, under the message, "Not used in later answers" when later answers leave
@@ -43,9 +41,8 @@ export function BubbleActions({ message, latest, inProgress, onDelete, onEditRes
   const t = useT();
   const more = useRef<HTMLButtonElement>(null);
   const [confirm, setConfirm] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // "Copied" is said by the conversation's one status region (§6).
+  const announce = useAnnounce();
   if (message.role !== "learner") return null;
   const deleted = message.content === "[deleted]" || message.content === "[erased]";
   if (deleted) return null;
@@ -60,17 +57,13 @@ export function BubbleActions({ message, latest, inProgress, onDelete, onEditRes
           triggerRef={more}
           onCopy={() => {
             void copyText(message.content).then((done) => {
-              if (!done) return;
-              clearTimeout(timer.current);
-              setCopied(true);
-              timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+              if (done) announce(t("bubbleActions.copied"), { again: true });
             });
           }}
           onEdit={canEdit ? () => (onEditResend ? onEditResend(message) : companionBridge.compose({ source: "edit", text: message.content })) : undefined}
           onDelete={canDelete ? () => setConfirm(true) : undefined}
         />
       </div>
-      <span className="cc-ui-sr-only" role="status">{copied ? t("bubbleActions.copied") : ""}</span>
       {message.excluded && <MetaLine icon="eye-off" className="cc-act-footnote-line">{t("bubbleActions.excluded")}</MetaLine>}
       {canDelete && onDelete && (
         <DeleteConfirm
@@ -79,7 +72,11 @@ export function BubbleActions({ message, latest, inProgress, onDelete, onEditRes
           onCancel={() => setConfirm(false)}
           onDelete={async () => {
             if (inProgress) return;
+            const log = more.current?.closest<HTMLElement>('[role="log"]');
             await onDelete(message.id);
+            // The question, its menu and this popover go: the focus goes to the thread, which keeps
+            // the reading place, instead of falling to the page (as Jump to latest does).
+            log?.focus({ preventScroll: true });
             setConfirm(false);
             conversationActions.changedEverywhere({ deleted: message.id });
           }}

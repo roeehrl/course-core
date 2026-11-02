@@ -225,6 +225,14 @@ function ConversationBody({
       field.setSelectionRange(text.length, text.length);
     });
   }, [save]);
+  /** Puts a question's text back in the box without losing what is there (§3.6: a draft is kept
+   * until the server accepts it): an empty box takes it; a box with another draft keeps that draft
+   * and takes the text after it, on a new paragraph. */
+  const putBack = useCallback((text: string) => {
+    const current = latest.current.value;
+    if (!current.trim() || current.trim() === text.trim()) return fill(text);
+    fill(`${current.replace(/\s+$/u, "")}\n\n${text}`);
+  }, [fill]);
 
   const [locals, setLocals] = useState<LocalTurn[]>([]);
   const [stops, setStops] = useState<Record<string, LocalStop>>({});
@@ -398,7 +406,14 @@ function ConversationBody({
     ...(closed && !closed.exhausted ? { closed: closed.allowance } : {}),
     credit: needsConsent,
   });
-  const showPill = !exhausted && (inLesson || value.trim().length > 0);
+  // Outside a lesson the pill shows with the draft carried from the lesson (Send off, "Keep
+  // drafting. Send it from a lesson.", §3.6) and stays while the learner is on this page, even when
+  // they empty it; an empty thread outside a lesson has no pill (§3.10). Only a closed course with
+  // no questions left takes it away in a lesson.
+  const draftedOutside = useRef(false);
+  if (inLesson) draftedOutside.current = false;
+  else if (value.trim()) draftedOutside.current = true;
+  const showPill = !exhausted && (inLesson || draftedOutside.current);
   const blocked = !inLesson || (Boolean(unavailable) && !exhausted);
   const button: SendStopState = stopping
     ? "stopping"
@@ -528,7 +543,7 @@ function ConversationBody({
       if (beforeSent) {
         cancelledHere.current.add(messageId);
         setStops(({ [messageId]: _, ...rest }) => rest);
-        if (!latest.current.value) fill(text);
+        putBack(text);
         announce(replyAnnouncement("cancelled", t));
       } else setStops((all) => ({ ...all, [messageId]: { state: "stopped", partial } }));
     } catch {
@@ -663,8 +678,14 @@ function ConversationBody({
     if (layout?.placement === "sheet") companionOpen.setDetent("collapsed");
     lessonNavigator.show(target);
   };
-  const askAgain = (text: string) => fill(text);
-  const sendChip = (text: string) => void submit(text, { fromBox: false });
+  // "Ask again" puts the question back in the box, after whatever the learner has written since.
+  const askAgain = (text: string) => putBack(text);
+  // A chip is the learner's turn: it goes, and the focus stays in the message box, as after a send
+  // (§6), instead of falling to the page with the chip row.
+  const sendChip = (text: string) => {
+    void submit(text, { fromBox: false });
+    composer.current?.focus();
+  };
 
   // What the conversation held when it was first read: those replies are there, not arriving, so
   // they do not fade in (M1, M7 are for what arrives).
@@ -685,6 +706,10 @@ function ConversationBody({
   });
   const latestQuestion = unsaved ? undefined : shown.findLast((message) => message.role === "learner")?.id;
   const latestReply = lastReply?.id;
+  // The reply whose actions stay shown: the newest one while nothing was asked after it. Once a
+  // newer question is on its way (preparing, streaming, stopped, held), the earlier reply's row
+  // shows on hover or focus only (§3.7).
+  const settledReply = unsaved ? undefined : turn.latestReplyId;
   const items: React.ReactNode[] = [];
   let previous: CompanionMessage | undefined;
   let lessonOf: string | null | undefined;
@@ -699,7 +724,11 @@ function ConversationBody({
     // The lesson a message belongs to: its own, or (a reply saved before replies carried their
     // lesson) its question's. A divider names it where it changes.
     const question = message.role === "assistant" && message.job_id ? shown.find((row) => row.role === "learner" && row.job_id === message.job_id) : undefined;
-    const episode = message.context.episodeId ?? question?.context.episodeId ?? null;
+    // A deleted question keeps no lesson: its line stands where it was, in the lesson around it,
+    // and never starts a lesson of its own (§3.4).
+    const episode = message.role === "learner" && deleted(message) && !message.context.episodeId
+      ? first ? (shown.slice(shown.indexOf(message) + 1).find((row) => !deleted(row))?.context.episodeId ?? null) : lessonOf ?? null
+      : message.context.episodeId ?? question?.context.episodeId ?? null;
     if (first || episode !== lessonOf) {
       if (!first && lessonOf) items.push(<CreditLineBeforeDivider key={`credit-${message.id}`} episodeId={lessonOf} server={server} />);
       const label = lessonLabel(episode, context.episodeId, episodeTitles, t);
@@ -772,14 +801,14 @@ function ConversationBody({
               message={message}
               messages={messages}
               conversation={conversation}
-              latest={message.id === latestReply}
+              latest={message.id === settledReply}
               context={context}
               busy={correcting}
               {...(exclude ? { onExclude: exclude } : {})}
             />
             </div>
           }
-          chips={chipsShown ? <ChipRow chips={replyChips(turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} fresh={arriving(message.id)} label={t("conversation.suggestions")} /> : undefined}
+          chips={chipsShown ? <ChipRow chips={replyChips(needsConsent ? { ...turn, showMeHow: false } : turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} fresh={arriving(message.id)} label={t("conversation.suggestions")} /> : undefined}
         />,
       );
     }
@@ -791,9 +820,25 @@ function ConversationBody({
     if (saved && messages.some((message) => message.id === saved)) continue;
     const footer: BubbleFooter | undefined =
       item.status === "held"
-        ? { kind: "held", onCancel: () => { updateLocal(item.key, null); if (!latest.current.value) fill(item.text); } }
+        ? {
+            kind: "held",
+            onCancel: () => {
+              updateLocal(item.key, null);
+              putBack(item.text);
+              announce(replyAnnouncement("cancelled", t));
+            },
+          }
         : item.status === "failed"
-          ? { kind: "sendFailed", onRetry: () => void submit(item.text, { ...(item.consent ? { consent: item.consent } : {}), fromBox: false, key: item.key }) }
+          ? {
+              kind: "sendFailed",
+              onRetry: () => {
+                // The text went back to the box: sent again, it leaves the box as a send does (and
+                // comes back if this try fails too). The focus stays in the box.
+                const inBox = latest.current.value === item.text;
+                void submit(item.text, { ...(item.consent ? { consent: item.consent } : {}), fromBox: inBox, key: item.key });
+                composer.current?.focus();
+              },
+            }
           : item.status === "unconfirmed"
             ? { kind: "unconfirmed", ...(onRefresh ? { onRefresh: () => { updateLocal(item.key, null); onRefresh(); } } : {}) }
             : undefined;

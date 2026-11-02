@@ -179,7 +179,10 @@ describe("the round button", () => {
     expect(button).toHaveAttribute("aria-keyshortcuts", "Enter Control+Enter Meta+Enter");
     type("Ready");
     expect(button).not.toHaveAttribute("aria-disabled");
-    expect(button).toHaveAttribute("title", "Send (Enter)");
+    // Its tip is a drawn tooltip (Composer-states 10, 12) that describes it, not a native title.
+    expect(button).not.toHaveAttribute("title");
+    expect(button).toHaveAccessibleDescription("Send (Enter)");
+    expect(document.getElementById(button.getAttribute("aria-describedby")!)).toHaveAttribute("role", "tooltip");
     button.focus();
     again({ messages: [running], onCancelQuestion: vi.fn() });
     const stop = screen.getByRole("button", { name: "Stop reply" });
@@ -222,7 +225,7 @@ describe("the round button", () => {
   it("in Hebrew names the button, its shortcut and the key hint", () => {
     show({}, "he");
     type("שאלה");
-    expect(screen.getByRole("button", { name: "שליחה" })).toHaveAttribute("title", "שליחה (Enter)");
+    expect(screen.getByRole("button", { name: "שליחה" })).toHaveAccessibleDescription("שליחה (Enter)");
     expect(createLearnerTranslator("he").t("composer.keyHint")).toBe("Enter לשליחה · Shift+Enter לשורה חדשה");
   });
 });

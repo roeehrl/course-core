@@ -1,4 +1,4 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useId } from "react";
 import { Icon } from "../../components/icons/Icon.web";
 import { useT } from "../../i18n";
 
@@ -25,13 +25,16 @@ export interface SendStopButtonProps {
 /**
  * Send and Stop are one element in every state, so focus never drops when a reply starts or ends
  * (§6). 36 px (44 under a coarse pointer), at the bottom inline end of the pill; its icon crossfades
- * (M4) and never mirrors.
+ * (M4) and never mirrors. Its tip ("Stop (Esc)", "Sends when you're back online", "Send (Enter)") is
+ * drawn as a small tooltip (Composer-states 10, 12) on hover after a short wait and at once on
+ * keyboard focus, and describes the button, so the key and the consequence are heard too.
  */
 export const SendStopButton = forwardRef<HTMLButtonElement, SendStopButtonProps>(function SendStopButton(
   { state, onSend, onStop, describedBy },
   ref,
 ) {
   const t = useT();
+  const tipId = useId();
   const stop = state === "running" || state === "stopping";
   const disabled = state === "empty" || state === "over" || state === "blocked";
   const name = stop ? t("sendStopButton.stop") : t("connectedCompanion.send.send");
@@ -41,18 +44,18 @@ export const SendStopButton = forwardRef<HTMLButtonElement, SendStopButtonProps>
       ? t("sendStopButton.offlineTip")
       : state === "ready"
         ? t("sendStopButton.sendTip")
-        : name;
+        : undefined;
   return (
+    <span className="cc-chat-send-wrap" data-tip={state === "offline" ? "side" : "above"}>
     <button
       ref={ref}
       type="button"
       className="cc-chat-send"
       data-state={state}
       aria-label={name}
-      title={tip}
       aria-disabled={disabled || undefined}
       aria-busy={state === "stopping" || undefined}
-      aria-describedby={disabled ? describedBy : undefined}
+      aria-describedby={disabled ? describedBy : tip ? tipId : undefined}
       aria-keyshortcuts={stop ? KEYS_STOP : KEYS_SEND}
       onClick={() => {
         if (state === "stopping" || disabled) return;
@@ -73,5 +76,11 @@ export const SendStopButton = forwardRef<HTMLButtonElement, SendStopButtonProps>
         </span>
       )}
     </button>
+    {tip && (
+      <span id={tipId} role="tooltip" className="cc-chat-send-tip">
+        {tip}
+      </span>
+    )}
+    </span>
   );
 });

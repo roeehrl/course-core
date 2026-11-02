@@ -119,7 +119,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   useLayoutEffect(() => {
     const field = box.current;
     if (!field) return;
-    const present = [noticeId, ...attached.map((item) => `${chipsId}-${item.key}`), CREDIT_LINE_ID].filter((id) => document.getElementById(id));
+    const shown = [noticeId, ...attached.map((item) => `${chipsId}-${item.key}`), CREDIT_LINE_ID]
+      .map((id) => document.getElementById(id))
+      .filter((element): element is HTMLElement => element !== null);
+    // Each sentence is read once: the credit line inside the notice slot is read with the slot.
+    const present = shown.filter((element) => !shown.some((other) => other !== element && other.contains(element))).map((element) => element.id);
     if (present.length) field.setAttribute("aria-describedby", present.join(" "));
     else field.removeAttribute("aria-describedby");
   });
@@ -210,7 +214,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           </div>
           {confirm ?? (
             (metaStart || count) && (
-              <div className="cc-chat-meta">
+              <div className={`cc-chat-meta${creditInMeta ? " has-credit" : ""}`}>
                 <span className="cc-chat-meta-start">{metaStart}</span>
                 {count}
               </div>

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeleteConfirm } from "../src/connected/companion/DeleteConfirm.web";
 import { BubbleActions } from "../src/connected/companion/BubbleActions.web";
+import { Announcer } from "../src/connected/ui/Announcer.web";
 import { companionBridge, resetCompanionBridge, type ComposeRequest } from "../src/connected/companion/bridge";
 import { createLearnerTranslator, I18nProvider } from "../src/i18n";
 import type { CompanionMessage } from "../src/client/companionClient";
@@ -94,15 +95,28 @@ describe("the learner's message menu", () => {
     expect(screen.getByRole("menuitem", { name: "Delete question" })).toBeVisible();
   });
 
+  it("after a delete, the focus goes to the thread instead of falling to the page", async () => {
+    const user = userEvent.setup();
+    const remove = vi.fn().mockResolvedValue(undefined);
+    render(<div role="log" tabIndex={0} aria-label="Saved companion messages"><BubbleActions message={question} latest inProgress={false} onDelete={remove} /></div>);
+    await user.click(screen.getByRole("button", { name: "Message options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete question" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("q"));
+    await waitFor(() => expect(screen.getByRole("log")).toHaveFocus());
+  });
+
   it("copies the question and says “Copied”, and notes a question later answers leave out", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    render(<BubbleActions message={{ ...question, excluded: true }} latest inProgress={false} />);
+    render(<Announcer><BubbleActions message={{ ...question, excluded: true }} latest inProgress={false} /></Announcer>);
     expect(screen.getByText("Not used in later answers")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Message options" }));
     await user.click(screen.getByRole("menuitem", { name: "Copy" }));
     expect(writeText).toHaveBeenCalledWith("Why isn't it 9?");
-    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    // Said by the conversation's one status region (§6), not a region of the bubble.
+    await waitFor(() => expect(document.querySelector("[data-cc-announcer]")).toHaveTextContent("Copied"));
+    expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 });

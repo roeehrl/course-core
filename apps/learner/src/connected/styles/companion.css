@@ -565,6 +565,53 @@ button.cc-chat-anchor:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+/* The round button's tip (Composer-states 10, 12): a small --ink tooltip above it ("Stop (Esc)",
+ * "Send (Enter)"), or beside it toward the box when offline; shown on hover after a short wait and
+ * at once on keyboard focus. */
+.cc-chat-send-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.cc-chat-send-tip {
+  position: absolute;
+  z-index: 2;
+  inset-block-end: calc(100% + 13px);
+  inset-inline-end: -6px;
+  padding-block: var(--space-1);
+  padding-inline: var(--space-2);
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--surface);
+  font: 400 var(--text-micro) var(--font-sans);
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgb(24 50 55 / 15%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--motion-m7-duration) var(--motion-m7-easing),
+    visibility 0s linear var(--motion-m7-duration);
+}
+.cc-chat-send-wrap[data-tip="side"] > .cc-chat-send-tip {
+  inset-block: 50% auto;
+  inset-inline-end: calc(100% + var(--space-1));
+  inline-size: max-content;
+  max-inline-size: 110px;
+  padding-inline: 6px;
+  white-space: normal;
+  translate: 0 -50%;
+}
+.cc-chat-send:hover + .cc-chat-send-tip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 500ms;
+}
+.cc-chat-send:focus-visible + .cc-chat-send-tip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
 .cc-chat-stop-square {
   inline-size: 12px;
   block-size: 12px;
@@ -604,6 +651,19 @@ button.cc-chat-anchor:focus-visible {
   min-block-size: 16px;
   margin-block-start: calc(-1 * var(--space-1));
   padding-inline: var(--space-4);
+}
+/* The credit line moved here takes the line's whole start (Composer-states 9): one line under the
+ * pill at the 400 px panel, its ⓘ right after the sentence, not pushed to the far end. */
+.cc-chat-meta.has-credit {
+  justify-content: flex-start;
+  padding-inline: var(--space-1);
+}
+.cc-chat-meta.has-credit > .cc-chat-meta-start {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+.cc-chat-meta.has-credit .cc-credit-line-text {
+  flex: 0 1 auto;
 }
 .cc-chat-key-hint,
 .cc-chat-count {
@@ -661,7 +721,8 @@ button.cc-chat-anchor:focus-visible {
   }
   .cc-chat-jump,
   .cc-chat-jump[data-visible="false"],
-  .cc-chat-send {
+  .cc-chat-send,
+  .cc-chat-send-tip {
     transition: none;
   }
 }
@@ -675,6 +736,9 @@ button.cc-chat-anchor:focus-visible {
   }
   .cc-chat-send {
     border: 1px solid ButtonText;
+  }
+  .cc-chat-send-tip {
+    border: 1px solid CanvasText;
   }
   .cc-chat-skeleton > span {
     background: CanvasText;

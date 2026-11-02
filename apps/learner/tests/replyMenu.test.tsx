@@ -8,6 +8,7 @@ import { lessonNavigator, resetCompanionBridge } from "../src/connected/companio
 import type { CompanionFeedback, CompanionMessage } from "../src/client/companionClient";
 import { connectedSnapshot } from "./connectedFixtures";
 import { context } from "./companionFixtures";
+import { Announcer } from "../src/connected/ui/Announcer.web";
 
 // More in a reply's action row, and the row around it (final design §3.7, §5): a keyboard menu that
 // leaves a reply out of later answers (or uses it again) and reports a problem; the reuse toggle's
@@ -17,8 +18,11 @@ import { context } from "./companionFixtures";
 const reply: CompanionMessage = { id: "a", role: "assistant", content: "Compare them on a number line.", context: { episodeId: "intro" },
   created_at: "2026-01-02T10:01:00Z", job_id: "job", feedback: null, excluded: false };
 function renderReply(props: Partial<React.ComponentProps<typeof ReplyActions>> = {}) {
-  return render(<ReplyActions message={reply} messages={[reply]} conversation={{ enrollmentId: "e", episodeTitles: {} }} latest context={context} busy="" {...props} />);
+  // Inside the conversation's one status region, which says "Copied" (§6).
+  return render(<Announcer><ReplyActions message={reply} messages={[reply]} conversation={{ enrollmentId: "e", episodeTitles: {} }} latest context={context} busy="" {...props} /></Announcer>);
 }
+const announcer = () => document.querySelector<HTMLElement>("[data-cc-announcer]")!;
+
 afterEach(() => {
   conversationActions.publish("e", null);
   resetCompanionBridge();
@@ -47,7 +51,7 @@ describe("a reply's More menu", () => {
     expect(more).toHaveFocus();
     await user.keyboard("{Enter}{End}{Enter}");
     expect(report).toHaveBeenCalledWith("a", { vote: null, report: true });
-    expect(await screen.findByText("Thanks, noted.")).toBeVisible();
+    expect(await screen.findByText("Thanks, noted.", { selector: ".cc-act-thanks" })).toBeVisible();
     await user.click(more);
     await user.click(screen.getByRole("menuitem", { name: "Don't use in later answers" }));
     expect(exclude).toHaveBeenCalledWith("a", true);
@@ -84,10 +88,15 @@ describe("the rest of the row", () => {
     expect(time.textContent).toMatch(/\d{1,2}:\d{2}/);
     await act(async () => copy.click());
     expect(writeText).toHaveBeenCalledWith("Compare them on a number line.");
-    expect(screen.getByRole("status")).toHaveTextContent("Copied");
-    expect(copy.querySelector("svg")).toBeTruthy();
+    // Said once by the conversation's status region; the row has no live region of its own.
+    expect(screen.getAllByRole("status")).toEqual([announcer()]);
+    expect(announcer()).toHaveTextContent("Copied");
+    expect(copy.querySelector('svg[data-icon="check"]')).toBeTruthy();
     act(() => vi.advanceTimersByTime(2000));
-    expect(screen.getByRole("status")).toHaveTextContent("");
+    expect(copy.querySelector('svg[data-icon="copy"]')).toBeTruthy();
+    // A second copy is said again.
+    await act(async () => copy.click());
+    expect(announcer().textContent!.trim()).toBe("Copied");
   });
 
   it("offers “Try question 1” on the latest reply about an open check, which shows its answer field", async () => {

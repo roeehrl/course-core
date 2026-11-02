@@ -470,8 +470,22 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     // platformKey covers every field of the report that can change.
   }, [api, platformKey]);
   const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
+  // Outside a lesson the message box keeps the draft of the lesson the learner just left ("Keep
+  // drafting. Send it from a lesson.", §3.6): still there on the course page, and back in that
+  // lesson with them. A draft begun outside any lesson goes into the next lesson whose box is empty.
+  const lastLesson = useRef<{ scope: string; episodeId: string } | null>(null);
+  if (episodeId) lastLesson.current = { scope, episodeId };
+  const draftEpisode = episodeId ?? (lastLesson.current?.scope === scope ? lastLesson.current.episodeId : undefined);
   const answerKey = `${scope}:${codeQuestion ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
-    draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
+    draftKey = `${scope}:companion:${draftEpisode ?? "roadmap"}`;
+  useEffect(() => {
+    if (!episodeId) return;
+    const outside = `${scope}:companion:roadmap`;
+    const begun = drafts.read(outside);
+    if (!begun.trim() || drafts.read(draftKey).trim()) return;
+    drafts.write(draftKey, begun);
+    drafts.write(outside, "");
+  }, [drafts, scope, episodeId]);
   const answer = drafts.has(answerKey)
       ? drafts.read(answerKey)
       : codeQuestion

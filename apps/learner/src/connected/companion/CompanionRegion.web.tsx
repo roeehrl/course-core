@@ -140,13 +140,26 @@ export function CompanionRegion({
     if (!episode) throw new Error("Open a lesson first");
     const interactiveContext = visualContext();
     return transactQuiet(async () => {
-      const result = await chat.send(newest.current, {
-        episodeId: episode.id,
-        ...(context.blockId ? { blockId: context.blockId } : {}),
-        content,
-        ...(interactiveContext ? { interactiveContext } : {}),
-        ...(consent === true ? { allowAssessmentAssistance: true as const } : {}),
-      });
+      const send = () =>
+        chat.send(newest.current, {
+          episodeId: episode.id,
+          ...(context.blockId ? { blockId: context.blockId } : {}),
+          content,
+          ...(interactiveContext ? { interactiveContext } : {}),
+          ...(consent === true ? { allowAssessmentAssistance: true as const } : {}),
+        });
+      let result: CompanionReceipt;
+      try {
+        result = await send();
+      } catch (cause) {
+        if (!(cause instanceof CourseApiError) || cause.code !== "STALE_REVISION") throw cause;
+        // The course moved on before this page drew it (a check started a moment ago): nothing was
+        // saved. It is read again and the question goes once more, against what is there now; a
+        // counted question now open makes the server ask for the learner's choice first (§3.11),
+        // which the conversation shows in place of a failure.
+        learn(await refresh(server.enrollmentId));
+        result = await send();
+      }
       // A queued receipt is authoritative even if the subsequent snapshot GET fails.
       // Reflect only the explicit assistance downgrade; never infer a passed check.
       setServer((current) =>

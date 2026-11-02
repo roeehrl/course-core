@@ -65,7 +65,8 @@ test("the companion says when it is offline, holds the question with Cancel, and
   await expect(notice).toHaveText("You're offline. Your message sends when you reconnect.");
   let posted = 0;
   page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/companion")) posted++; });
-  await expect(send).toHaveAttribute("title", "Sends when you're back online");
+  // Its tip is drawn at the button (Composer-states 12) and describes it.
+  await expect(send).toHaveAccessibleDescription("Sends when you're back online");
   await send.click();
   const log = page.getByRole("log", { name: "Saved companion messages" });
   const held = log.locator(".cc-chat-turn.is-learner").filter({ hasText: "Asked while the train is in a tunnel." });

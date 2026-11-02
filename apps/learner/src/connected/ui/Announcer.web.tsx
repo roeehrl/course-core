@@ -1,12 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
-type Announce = (message: string) => void;
+/** `again`: a sentence the learner caused once more ("Copied" for a second reply) is said again. */
+type Announce = (message: string, options?: { again?: boolean }) => void;
 const AnnounceContext = createContext<Announce>(() => {});
 
 /**
  * One hidden live region per AI surface, present from the first render (a region added together
  * with its text is often not read). `useAnnounce()` inside it says a sentence once: the same
- * sentence again is not repeated until a different one was said.
+ * sentence again is not repeated until a different one was said, unless it is asked for `again`.
  */
 export function Announcer({
   children,
@@ -19,10 +20,13 @@ export function Announcer({
 }) {
   const [message, setMessage] = useState("");
   const last = useRef("");
-  const announce = useCallback<Announce>((next) => {
-    if (next === last.current) return;
+  const repeat = useRef(false);
+  const announce = useCallback<Announce>((next, options) => {
+    if (next === last.current && !options?.again) return;
+    // The same sentence again changes the region's text by a no-break space, so it is read again.
+    repeat.current = next === last.current ? !repeat.current : false;
     last.current = next;
-    setMessage(next);
+    setMessage(repeat.current ? `${next}\u00a0` : next);
   }, []);
   return (
     <AnnounceContext.Provider value={announce}>

@@ -305,7 +305,10 @@ describe("persisted companion integration", () => {
     expect(screen.getByText("You're offline. Your message sends when you reconnect.")).toBeVisible();
     // Send stays enabled, with its clock badge.
     const button = screen.getByRole("button", { name: "Send" });
-    expect(button).toHaveAttribute("title", "Sends when you're back online");
+    // Its tip is a drawn tooltip that describes it (Composer-states 12), not a native title.
+    expect(button).not.toHaveAttribute("title");
+    expect(button).toHaveAccessibleDescription("Sends when you're back online");
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("Sends when you're back online");
     fireEvent.click(button);
     expect(send).not.toHaveBeenCalled();
     const log = screen.getByRole("log");
@@ -348,7 +351,8 @@ describe("streamed companion replies (T01)", () => {
     expect(status()).not.toHaveTextContent("Compare them");
     expect(row.querySelector('[data-cc-caret="live"]')).not.toBeNull();
     const stop = screen.getByRole("button", { name: "Stop reply" });
-    expect(stop).toHaveAttribute("title", "Stop (Esc)");
+    expect(stop).not.toHaveAttribute("title");
+    expect(stop).toHaveAccessibleDescription("Stop (Esc)");
     expect(companionState([pending], { online: true, awaitingChoice: false, drafts: [draft()] })).toBe("replying");
   });
 
@@ -454,7 +458,7 @@ describe("streamed companion replies (T01)", () => {
 
   it("shows the same states in Hebrew", () => {
     show({ messages: [{ ...message, job_state: "queued" }], onCancelQuestion: vi.fn(), drafts: [draft({ text: "", shown: false })] }, "he");
-    expect(screen.getByRole("button", { name: "עצירת התשובה" })).toHaveAttribute("title", "עצירה (Esc)");
+    expect(screen.getByRole("button", { name: "עצירת התשובה" })).toHaveAccessibleDescription("עצירה (Esc)");
     expect(screen.getByRole("log", { name: "הודעות שמורות עם המנחה" })).toBeVisible();
   });
 });
@@ -668,5 +672,90 @@ describe("the companion's state comes from the server's availability", () => {
     expect(screen.getByText("Couldn't refresh the conversation. Your draft is safe.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the learner's place and text are never lost (verify round 2)", () => {
+  const box = () => screen.getByRole("textbox", { name: "Message to your companion" });
+  const asking = reply("job", "What happens to x first?", { context: { episodeId: "intro", asksLearner: true } });
+
+  it("keeps the focus in the message box after an answer chip is sent", async () => {
+    const send = vi.fn().mockResolvedValue({ ...receipt, messageId: "answer", downgradedChallengeIds: [] });
+    show({ messages: [{ ...message, job_state: "applied" }, asking], onSend: send });
+    const chip = within(screen.getByRole("group", { name: "Suggested answers" })).getByRole("button", { name: "I'm not sure" });
+    chip.focus();
+    fireEvent.click(chip);
+    await waitFor(() => expect(send).toHaveBeenCalledWith("I'm not sure", undefined));
+    expect(box()).toHaveFocus();
+  });
+
+  it("Try again sends the text that came back to the box and takes it out of the box, the focus in it", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new CourseApiError("INVALID_REQUEST", 400)).mockResolvedValue({ ...receipt, downgradedChallengeIds: [] });
+    const change = vi.fn();
+    show({ draft: "Failing question", onDraftChange: change, onSend: send });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(box()).toHaveValue("Failing question");
+    await pressWhenReady(retry);
+    expect(send).toHaveBeenLastCalledWith("Failing question", undefined);
+    expect(box()).toHaveValue("");
+    expect(box()).toHaveFocus();
+    await waitFor(() => expect(change).toHaveBeenLastCalledWith(""));
+  });
+
+  it("Cancel on a question held offline puts its text after a newer draft and says so", () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    show({ draft: "Held question text" });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.change(box(), { target: { value: "A newer draft" } });
+    fireEvent.click(within(screen.getByRole("log")).getByRole("button", { name: "Cancel" }));
+    expect(box()).toHaveValue("A newer draft\n\nHeld question text");
+    expect(status()).toHaveTextContent("Question cancelled. Your text is back in the box.");
+  });
+
+  it("Ask again keeps what the learner wrote since and adds the question after it", () => {
+    show({ messages: [{ ...message, job_state: "cancelled", job_sent: true }] });
+    fireEvent.change(box(), { target: { value: "draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
+    expect(box()).toHaveValue("draft\n\nWhy does it change?");
+  });
+
+  it("an earlier reply gives up its shown actions while the next question is answered", () => {
+    const first = reply("job", "Compare them on a number line.");
+    const { again } = show({ messages: [{ ...message, job_state: "applied" }, first] });
+    expect(document.querySelector(".cc-act-reply")).toHaveClass("is-latest");
+    again({ messages: [{ ...message, job_state: "applied" }, first, { ...message, id: "m2", job_id: "job2", content: "And then?", created_at: "2026-01-02T10:01:00Z", job_state: "running" }] });
+    expect(document.querySelector(".cc-act-reply")).not.toHaveClass("is-latest");
+  });
+
+  it("a deleted question stays in its lesson: no 'Lesson not recorded', no second divider", () => {
+    show({
+      messages: [
+        { ...message, content: "[deleted]", context: {}, job_state: "applied", created_at: "2026-01-02T10:00:00Z" },
+        { ...message, id: "m2", job_id: "job2", content: "Second question", created_at: "2026-01-02T10:01:00Z", job_state: "applied" },
+        reply("job2", "Second answer.", { created_at: "2026-01-02T10:02:00Z" }),
+      ],
+    });
+    const log = screen.getByRole("log");
+    expect(within(log).getByText("You deleted a question.")).toBeVisible();
+    expect(within(log).queryByText("Lesson not recorded")).toBeNull();
+    expect(within(log).getAllByText("Notice change")).toHaveLength(1);
+  });
+
+  it("has one status region for the conversation: Copied is said there, not by the reply", async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    show({ messages: [{ ...message, job_state: "applied" }, reply("job", "One."), { ...message, id: "m2", job_id: "job2", job_state: "applied", created_at: "2026-01-02T10:01:00Z" }, reply("job2", "Two.", { created_at: "2026-01-02T10:02:00Z" })] });
+    const region = document.querySelector(".cc-chat")!.parentElement!;
+    expect(region.querySelectorAll('[role="status"]')).toHaveLength(1);
+    await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Copy" })[0]!));
+    expect(status()).toHaveTextContent("Copied");
+  });
+
+  it("keeps the pill outside a lesson once it holds a draft, even emptied: send off, the drafting placeholder", () => {
+    const { again } = show({ context: { ...context, episodeId: undefined, independentChallengeIds: [] }, draft: "Can b be negative" });
+    expect(box()).toHaveValue("Can b be negative");
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute("aria-disabled", "true");
+    again({ draft: "" });
+    expect(box()).toHaveAttribute("placeholder", "Keep drafting. Send it from a lesson.");
   });
 });

@@ -6,6 +6,7 @@ import { THANKS_MS } from "../src/connected/companion/VoteControls.web";
 import { conversationActions, type ConversationActions } from "../src/connected/companion/conversationActions";
 import type { CompanionFeedback, CompanionMessage } from "../src/client/companionClient";
 import { context } from "./companionFixtures";
+import { Announcer } from "../src/connected/ui/Announcer.web";
 
 // Helpful / Not helpful on a companion reply (final design §3.7): pressed at once, "Thanks, noted."
 // for 3 s once saved (and announced), the optional "What was wrong?" field, and a vote that was not
@@ -18,8 +19,11 @@ function publish(vote: ConversationActions["vote"]) {
 }
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 function renderReply(message: CompanionMessage = reply) {
-  return render(<ReplyActions message={message} messages={[message]} conversation={{ enrollmentId: "e", episodeTitles: {} }} latest context={context} busy="" />);
+  return render(<Announcer><ReplyActions message={message} messages={[message]} conversation={{ enrollmentId: "e", episodeTitles: {} }} latest context={context} busy="" /></Announcer>);
 }
+const announcer = () => document.querySelector<HTMLElement>("[data-cc-announcer]")!;
+const thanks = () => document.querySelector<HTMLElement>(".cc-act-thanks");
+
 afterEach(() => {
   conversationActions.publish("e", null);
   vi.useRealTimers();
@@ -38,14 +42,15 @@ describe("votes on a reply", () => {
     expect(notHelpful).toHaveAttribute("aria-pressed", "false");
     expect(vote).toHaveBeenCalledWith("a", { vote: "helpful" });
     await flush();
-    // Said in the row's live region, visible where the chip was.
-    const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("Thanks, noted.");
-    expect(status).toHaveClass("cc-act-thanks");
+    // Visible where the chip was, and said by the conversation's one status region (§6), not a
+    // live region of the row.
+    expect(thanks()).toHaveTextContent("Thanks, noted.");
+    expect(thanks()).not.toHaveAttribute("role");
+    expect(announcer()).toHaveTextContent("Thanks, noted.");
     act(() => vi.advanceTimersByTime(THANKS_MS - 1));
-    expect(status).toHaveTextContent("Thanks, noted.");
+    expect(thanks()).toHaveTextContent("Thanks, noted.");
     act(() => vi.advanceTimersByTime(1));
-    expect(status).toHaveTextContent("");
+    expect(thanks()).toBeNull();
     fireEvent.click(helpful);
     expect(helpful).toHaveAttribute("aria-pressed", "false");
     expect(vote).toHaveBeenLastCalledWith("a", { vote: null });
@@ -76,7 +81,8 @@ describe("votes on a reply", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     // Focus does not drop to the page when the field closes: it goes back to Not helpful.
     expect(notHelpful).toHaveFocus();
-    expect(screen.getByRole("status")).toHaveTextContent("Thanks, noted.");
+    expect(thanks()).toHaveTextContent("Thanks, noted.");
+    expect(announcer()).toHaveTextContent("Thanks, noted.");
   });
 
   it("goes back to the saved vote and says the change was not saved when the vote fails", async () => {
@@ -91,7 +97,8 @@ describe("votes on a reply", () => {
     expect(screen.getByRole("button", { name: "Helpful" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByText("That change wasn't saved. Refresh and try again.")).toBeVisible();
-    expect(screen.getByRole("status")).toHaveTextContent("");
+    expect(thanks()).toBeNull();
+    expect(announcer()).not.toHaveTextContent("Thanks, noted.");
   });
 
   it("offers no votes where the client takes none (the demo)", () => {

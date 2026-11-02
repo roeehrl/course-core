@@ -59,7 +59,7 @@ export interface TurnState {
   yourTurn: boolean;
   /** That reply is a hint in place of a counted check's answer. */
   withheldHint: boolean;
-  /** Three or more question turns in a row. */
+  /** Three or more question turns in a row, the latest not a withheld-answer hint. */
   showMeHow: boolean;
 }
 
@@ -70,10 +70,13 @@ export function turnState(messages: readonly CompanionMessage[], { inProgress = 
   if (inProgress || !last || last.role !== "assistant" || deleted(last))
     return { yourTurn: false, withheldHint: false, showMeHow: false };
   const yourTurn = asksLearner(last);
+  const withheldHint = isWithheldHint(last);
   return {
     latestReplyId: last.id,
     yourTurn,
-    withheldHint: isWithheldHint(last),
-    showMeHow: yourTurn && questionTurnsInARow(messages) >= 3,
+    withheldHint,
+    // "Show me how" asks for a solution: never under a hint that stands in for a counted check's
+    // answer (§3.7: no chip asks for a counted check's answer).
+    showMeHow: yourTurn && !withheldHint && questionTurnsInARow(messages) >= 3,
   };
 }
