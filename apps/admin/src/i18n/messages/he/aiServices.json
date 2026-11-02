@@ -361,6 +361,7 @@
   "learnerSpend.learnerSummary": "לומד/ת {rank} · {amount} · {days, plural, one {יום פעיל אחד} two {יומיים פעילים} other {# ימים פעילים}}",
   "learnerSpend.enrollment": "הרשמה:",
   "learnerSpend.courseKey": "קורס:",
+  "learnerSpend.lessonIds": "מזהי השיעורים:",
   "learnerSpend.typicalDay": "יום רגיל",
   "learnerSpend.highestDay": "היום הגבוה ביותר",
   "learnerSpend.activeHours": "שעות פעילות",

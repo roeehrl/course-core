@@ -221,17 +221,14 @@ export function LearnerSpendPanel({
                     head={t("aiServices.learnerSpend.lesson")}
                     rows={data.byLesson.map((r) => ({
                       key: r.episodeId ?? "",
-                      name: r.episodeId ? (
-                        <Ltr>{r.episodeId}</Ltr>
-                      ) : (
-                        t("aiServices.learnerSpend.noLesson")
-                      ),
+                      name: <LessonName lesson={r} />,
                       learners: r.learners,
                       calls: r.calls,
                       charged: r.charged,
                     }))}
                   />
                 </div>
+                <LessonIds lessons={data.byLesson} />
                 <h3 className="ai-subtitle">
                   {t("aiServices.learnerSpend.listTitle")}
                 </h3>
@@ -290,11 +287,7 @@ export function LearnerSpendPanel({
                             head={t("aiServices.learnerSpend.lesson")}
                             rows={row.byLesson.map((r) => ({
                               key: r.episodeId ?? "",
-                              name: r.episodeId ? (
-                                <Ltr>{r.episodeId}</Ltr>
-                              ) : (
-                                t("aiServices.learnerSpend.noLesson")
-                              ),
+                              name: <LessonName lesson={r} />,
                               calls: r.calls,
                               charged: r.charged,
                             }))}
@@ -320,6 +313,7 @@ export function LearnerSpendPanel({
                             {t("aiServices.learnerSpend.courseKey")}{" "}
                             <Ltr className="mono">{row.courseKey}</Ltr>
                           </p>
+                          <LessonIdList lessons={row.byLesson} />
                         </details>
                       </details>
                     </li>
@@ -507,5 +501,47 @@ function Breakdown({
         </tbody>
       </table>
     </div>
+  );
+}
+
+type Lesson = { episodeId: string | null; episodeTitle?: string | undefined };
+/** A lesson by its title in the course's language; by its id from a server that sends none. */
+function LessonName({ lesson }: { lesson: Lesson }) {
+  const { t } = useAiText();
+  if (!lesson.episodeId) return <>{t("aiServices.learnerSpend.noLesson")}</>;
+  return lesson.episodeTitle ? (
+    <span dir="auto">{lesson.episodeTitle}</span>
+  ) : (
+    <Ltr>{lesson.episodeId}</Ltr>
+  );
+}
+/** Each titled lesson's id, for support: title, then id. */
+function LessonIdList({ lessons }: { lessons: Lesson[] }) {
+  const { t } = useAiText();
+  const titled = lessons.filter((l) => l.episodeId && l.episodeTitle);
+  if (!titled.length) return null;
+  return (
+    <>
+      <p>{t("aiServices.learnerSpend.lessonIds")}</p>
+      <ul className="ai-list">
+        {titled.map((l) => (
+          <li key={l.episodeId}>
+            <bdi dir="auto">{l.episodeTitle}</bdi>:{" "}
+            <Ltr className="mono">{l.episodeId}</Ltr>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+/** The lesson ids of the summary, under "Technical details". */
+function LessonIds({ lessons }: { lessons: Lesson[] }) {
+  const { t } = useAiText();
+  if (!lessons.some((l) => l.episodeId && l.episodeTitle)) return null;
+  return (
+    <details className="ai-technical">
+      <summary>{t("aiServices.connect.technical")}</summary>
+      <LessonIdList lessons={lessons} />
+    </details>
   );
 }

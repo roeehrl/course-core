@@ -361,6 +361,7 @@
   "learnerSpend.learnerSummary": "Learner {rank} · {amount} · {days, plural, one {# active day} two {# active days} other {# active days}}",
   "learnerSpend.enrollment": "Enrollment:",
   "learnerSpend.courseKey": "Course:",
+  "learnerSpend.lessonIds": "Lesson ids:",
   "learnerSpend.typicalDay": "Typical day",
   "learnerSpend.highestDay": "Highest day",
   "learnerSpend.activeHours": "Active hours",

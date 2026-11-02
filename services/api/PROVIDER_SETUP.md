@@ -210,7 +210,8 @@ workspace role with `enrollment.read`; a course grant does not open it) reads th
 for at most 93 UTC days: the number of learners and learner-days with AI cost, the median,
 90th percentile and highest spend of a learner's day, of an active hour (an hour with a
 learning event the learner sent or an AI call for them) and of a learner's total; totals by
-job and by lesson; reserved (estimate), charged and actual (priced from the provider's reported
+job and by lesson (each lesson with its title, `episodeTitle`, in the course's language, when a
+release of the window's learners names it; otherwise only its id); reserved (estimate), charged and actual (priced from the provider's reported
 usage, reconciled calls only) amounts; and a page of at most 25 learners, highest spend first,
 each by enrollment id and course with their days, lessons and jobs. No names, emails or learner
 text. With at least 5 learners and 20 learner-days it recommends a limit for each learner: the

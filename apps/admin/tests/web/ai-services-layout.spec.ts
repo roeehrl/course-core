@@ -162,6 +162,15 @@ for (const locale of ["en", "he"] as const) {
     await expect(
       learners.locator(".ai-learner-list summary").first(),
     ).not.toContainText(/[0-9a-f]{8}/);
+    // Lessons by title; the id is under "Technical details".
+    const byLesson = learners
+      .getByRole("table", { name: ai["learnerSpend.byLesson"] })
+      .first();
+    await expect(byLesson).toContainText("Moves with direction");
+    await expect(byLesson).not.toContainText("fnd-e01-01");
+    const technical = learners.locator(":scope > .ai-form > .ai-technical");
+    await technical.locator("summary").click();
+    await expect(technical).toContainText("fnd-e01-01");
     // The totals: none alone on a row of its own beside empty columns.
     const totals = learners.locator(":scope > .ai-form > .ai-totals > div");
     const tops = new Set<number>();
