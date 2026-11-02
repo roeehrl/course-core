@@ -120,19 +120,6 @@
   font-weight: 400;
 }
 
-/* A form's own actions: the one primary first, at the reading start, with the reason it cannot be
-   used yet beside it. */
-.policy-form-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-.policy-form-actions .policy-reason {
-  color: var(--muted);
-  font-size: var(--text-xs);
-}
-
 /* "Show all" under a shortened list or table. */
 .policy-more {
   display: flex;
@@ -244,10 +231,6 @@
   padding: var(--dialog-pad-block) var(--dialog-pad-inline) 12px;
   background: var(--paper);
   box-shadow: 0 1px 0 var(--line);
-}
-.dialog.policy-dialog .dialog-footer .policy-reason {
-  color: var(--muted);
-  font-size: var(--text-xs);
 }
 .dialog.policy-dialog .segmented {
   margin: 0;

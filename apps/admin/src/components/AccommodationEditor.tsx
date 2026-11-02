@@ -175,7 +175,7 @@ export function AccommodationEditor({
         </>
       )}
       {Boolean(error) && <ErrorState error={error} />}
-      <div className="policy-form-actions action-row">
+      <div className="action-row">
         <Button
           onClick={() =>
             void run(async () =>

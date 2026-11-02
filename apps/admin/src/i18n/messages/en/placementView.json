@@ -94,6 +94,5 @@
   "group.on": "Include this chapter",
   "group.off": "Leave this chapter out",
   "form.noChanges": "No changes yet.",
-  "form.invalid": "Each number must be within the range shown under its field.",
-  "form.unsaved": "You have unsaved changes."
+  "form.invalid": "Each number must be within the range shown under its field."
 }

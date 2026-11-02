@@ -168,7 +168,7 @@ export function CourseUpdates({
       </Card>
     );
   const canConfigure = view.permissions.configure;
-  // Why a button is off, said once under the buttons it concerns (linked to them).
+  // Why a save button is off, said under it (Button `reason`); "Check now" sits beside it.
   const sourceReason =
     !pending && (!canConfigure || !view.source || !sourceEdit.edited);
   const settingsReason =
@@ -335,7 +335,15 @@ export function CourseUpdates({
           <Button
             type="submit"
             kind="primary"
-            aria-describedby={sourceReason ? `${id}-source-reason` : undefined}
+            reason={
+              !sourceReason
+                ? ""
+                : !canConfigure
+                  ? t("courseUpdates.reason.role")
+                  : !view.source
+                    ? t("courseUpdates.reason.noSource")
+                    : t("courseUpdates.reason.noSourceChanges")
+            }
             disabled={
               pending ||
               !canConfigure ||
@@ -347,7 +355,6 @@ export function CourseUpdates({
           </Button>
           <Button
             type="button"
-            aria-describedby={sourceReason ? `${id}-source-reason` : undefined}
             disabled={pending || !canConfigure || !view.source}
             onClick={checkNow}
           >
@@ -356,15 +363,6 @@ export function CourseUpdates({
               : t("courseUpdates.checkNow")}
           </Button>
         </div>
-        {sourceReason && (
-          <small className="button-reason" id={`${id}-source-reason`}>
-            {!canConfigure
-              ? t("courseUpdates.reason.role")
-              : !view.source
-                ? t("courseUpdates.reason.noSource")
-                : t("courseUpdates.reason.noSourceChanges")}
-          </small>
-        )}
       </form>
       {check?.result === "update_available" && (
         <section
@@ -530,8 +528,12 @@ export function CourseUpdates({
           <Button
             type="submit"
             kind="primary"
-            aria-describedby={
-              settingsReason ? `${id}-settings-reason` : undefined
+            reason={
+              !settingsReason
+                ? ""
+                : !settingsEdit.edited
+                  ? t("courseUpdates.reason.noSettingsChanges")
+                  : t("courseUpdates.reason.acknowledge")
             }
             disabled={
               pending ||
@@ -545,13 +547,6 @@ export function CourseUpdates({
             {t("courseUpdates.auto.save")}
           </Button>
         </div>
-        {settingsReason && (
-          <small className="button-reason" id={`${id}-settings-reason`}>
-            {!settingsEdit.edited
-              ? t("courseUpdates.reason.noSettingsChanges")
-              : t("courseUpdates.reason.acknowledge")}
-          </small>
-        )}
         {view.settings.level === "publish" && view.settings.acknowledgedBy && (
           <small>
             {t("courseUpdates.auto.authorizedBy", {

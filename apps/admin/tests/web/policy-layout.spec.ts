@@ -195,12 +195,14 @@ for (const locale of ["en", "he"] as const)
         .first()
         .click();
       await expect(
-        main.locator("#policy-course .policy-form-actions .button.primary"),
+        main.locator("#policy-course .action-row .button.primary"),
       ).toBeDisabled();
+      // Why it is off, under the button (Button reason).
+      await expect(
+        main.locator("#policy-course .action-row .button-reason"),
+      ).toBeVisible();
       await noSidewaysScroll(page);
-      await main
-        .locator("#policy-course .policy-form-actions")
-        .scrollIntoViewIfNeeded();
+      await main.locator("#policy-course .action-row").scrollIntoViewIfNeeded();
       await shot(page, `policy-${size.name}-${locale}-course-settings-edit`);
       await main.locator(".policy-nav a").nth(0).click();
       await main
@@ -208,13 +210,11 @@ for (const locale of ["en", "he"] as const)
         .first()
         .click();
       await expect(
-        main.locator(
-          "#policy-organization .policy-form-actions .button.primary",
-        ),
+        main.locator("#policy-organization .action-row .button.primary"),
       ).toBeDisabled();
       await noSidewaysScroll(page);
       await main
-        .locator("#policy-organization .policy-form-actions")
+        .locator("#policy-organization .action-row")
         .scrollIntoViewIfNeeded();
       await shot(page, `policy-${size.name}-${locale}-organization-edit`);
     });

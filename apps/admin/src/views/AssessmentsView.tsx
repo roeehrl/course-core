@@ -1126,7 +1126,13 @@ function KeyEditor({
                 disabled={
                   pending || !checked || (impact!.result.failing > 0 && !accept)
                 }
-                aria-describedby={checked ? undefined : `${id}-why`}
+                reason={
+                  checked
+                    ? ""
+                    : explanation.trim()
+                      ? t("assessmentsView.key.checkFirst")
+                      : t("assessmentsView.key.explainFirst")
+                }
               >
                 {t("assessmentsView.key.save")}
               </Button>
@@ -1136,13 +1142,6 @@ function KeyEditor({
               >
                 {t("assessmentsView.key.check")}
               </Button>
-              {!checked && (
-                <span className="button-reason" id={`${id}-why`}>
-                  {explanation.trim()
-                    ? t("assessmentsView.key.checkFirst")
-                    : t("assessmentsView.key.explainFirst")}
-                </span>
-              )}
             </div>
           </div>
         </form>
@@ -1394,15 +1393,10 @@ function FixturesEditor({
               kind="primary"
               type="submit"
               disabled={pending || !filled}
-              aria-describedby={filled ? undefined : `${id}-why`}
+              reason={filled ? "" : t("assessmentsView.fixtures.fillFirst")}
             >
               {t("assessmentsView.fixtures.add")}
             </Button>
-            {!filled && (
-              <span className="button-reason" id={`${id}-why`}>
-                {t("assessmentsView.fixtures.fillFirst")}
-              </span>
-            )}
           </div>
         </div>
       </form>
@@ -1581,15 +1575,10 @@ function CriteriaEditor({
           disabled={
             pending || !changed || rows.some((r) => !r.description.trim())
           }
-          aria-describedby={changed ? undefined : `${id}-why`}
+          reason={changed ? "" : t("assessmentsView.rubric.noChanges")}
         >
           {t("assessmentsView.rubric.save")}
         </Button>
-        {!changed && (
-          <span className="button-reason" id={`${id}-why`}>
-            {t("assessmentsView.rubric.noChanges")}
-          </span>
-        )}
       </div>
     </form>
   );

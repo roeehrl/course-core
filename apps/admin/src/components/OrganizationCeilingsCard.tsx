@@ -382,11 +382,11 @@ function CeilingsForm({
         </Field>
       )}
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <div className="policy-form-actions action-row">
+      <div className="action-row">
         <Button
           type="button"
           kind="primary"
-          aria-describedby={blocked ? "ceilings-blocked" : undefined}
+          reason={blocked || ""}
           disabled={flight.pending || Boolean(blocked)}
           onClick={() =>
             void flight.run(async () => {
@@ -429,11 +429,6 @@ function CeilingsForm({
         >
           {t("organizationCeilingsCard.cancel")}
         </Button>
-        {blocked && (
-          <span id="ceilings-blocked" className="policy-reason button-reason">
-            {blocked}
-          </span>
-        )}
       </div>
     </Card>
   );

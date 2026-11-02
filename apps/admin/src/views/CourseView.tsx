@@ -366,6 +366,11 @@ export function CourseView({
                     actions.pending ||
                     selected.checks.some((item) => !item.passed)
                   }
+                  reason={
+                    selected.checks.some((item) => !item.passed)
+                      ? t("courseView.validationRequired")
+                      : ""
+                  }
                   onClick={() => void transition(selected, "submit-review")}
                 >
                   {actions.pending
@@ -453,12 +458,6 @@ export function CourseView({
                   </Button>
                 )}
             </div>
-            {selected.state === "draft" &&
-              selected.checks.some((item) => !item.passed) && (
-                <small className="button-reason">
-                  {t("courseView.validationRequired")}
-                </small>
-              )}
             <ReleaseSafetyPanel
               data={data}
               client={client}

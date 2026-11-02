@@ -129,7 +129,7 @@ export function PolicyMigrationEditor({
       </Field>
       {syntax && <Notice tone="red">{syntax}</Notice>}
       {Boolean(error) && <ErrorState error={error} />}
-      <div className="policy-form-actions action-row">
+      <div className="action-row">
         <Button onClick={() => void previewChange()} disabled={pending}>
           {pending
             ? t("policyMigrationEditor.validating")

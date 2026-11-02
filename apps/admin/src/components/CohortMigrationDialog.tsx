@@ -95,7 +95,7 @@ export function CohortMigrationDialog({
         />
       </Field>
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <div className="policy-form-actions action-row">
+      <div className="action-row">
         <Button
           disabled={flight.pending || !instant}
           onClick={() =>
