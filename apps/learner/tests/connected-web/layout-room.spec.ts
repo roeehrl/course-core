@@ -10,6 +10,8 @@ import enDock from "../../src/i18n/messages/en/companionDock.json";
 import heDock from "../../src/i18n/messages/he/companionDock.json";
 import enConnectivity from "../../src/i18n/messages/en/connectivity.json";
 import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
+import enSplitter from "../../src/i18n/messages/en/panelSplitter.json";
+import heSplitter from "../../src/i18n/messages/he/panelSplitter.json";
 
 /*
  * Room for what sits at the window's edges, on every device project (Chromium desktop, phone and
@@ -17,15 +19,16 @@ import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
  * - the connection status never covers the lesson's buttons: on a phone the learning pane ends
  *   above it, beside the companion pane it is a band the page's end makes room for, and a lesson
  *   scrolled to its end keeps its next-step button in view above it;
- * - the companion pane's title and close button are never under the sticky header, at any scroll
- *   position of the page or of the pane (they slid 50-75 px under it near the end of the page);
- * - the button that shows the companion never covers lesson text: beside the lesson it is in the
- *   header, on a phone in its own row under the learning pane (on tablets it floated over the
- *   lesson mid-page).
+ * - the companion panel's title and close button are never under the sticky header, at any scroll
+ *   position of the page or of the panel (they slid 50-75 px under it near the end of the page);
+ *   the panel is flush with the window's inline end (no inset), 400 px wide by default and never
+ *   under 360; the sheet's title and close button stay in view while its conversation scrolls;
+ * - the button that shows the companion never covers lesson text: it is in the header on every
+ *   size (on tablets it once floated over the lesson mid-page, on phones it had a row of its own).
  */
 const text = {
-  en: { host: enHost, preview: enPreview, lesson: enLesson, dock: enDock, connectivity: enConnectivity },
-  he: { host: heHost, preview: hePreview, lesson: heLesson, dock: heDock, connectivity: heConnectivity },
+  en: { host: enHost, preview: enPreview, lesson: enLesson, dock: enDock, connectivity: enConnectivity, splitter: enSplitter },
+  he: { host: heHost, preview: hePreview, lesson: heLesson, dock: heDock, connectivity: heConnectivity, splitter: heSplitter },
 } as const;
 type Locale = keyof typeof text;
 type Box = { x: number; y: number; width: number; height: number };
@@ -92,10 +95,11 @@ for (const locale of ["en", "he"] as const) {
       const before = await lessonPlace(page);
       if (!(await dock.isVisible())) await tap(page, ".connected-companion-trigger");
       await expect(dock).toBeVisible();
-      if (compact) expect(await lessonPlace(page), "opening the sheet").toEqual(before);
+      const sheet = (await dock.getAttribute("data-placement")) === "sheet";
+      if (sheet) expect(await lessonPlace(page), "opening the sheet").toEqual(before);
       await page.waitForTimeout(150);
-      if (compact) await page.keyboard.press("Escape");
-      else await tap(page, "#connected-companion .connected-dock-title button");
+      if (sheet) await page.keyboard.press("Escape");
+      else await tap(page, `#connected-companion [aria-label="${text[locale].dock.close}"]`);
       await expect(dock).toBeHidden();
       await page.waitForTimeout(150);
       expect(await lessonPlace(page), `round ${round}: closing the companion`).toEqual(before);
@@ -130,7 +134,8 @@ for (const locale of ["en", "he"] as const) {
     await page.screenshot({ path: info.outputPath(`offline-at-the-end-${locale}.png`) });
     if (compact) {
       // A phone: the learning pane ends above the status, so at no scroll position can it cover
-      // the lesson or one of its buttons.
+      // the lesson or one of its buttons. The companion opened as a sheet takes the bottom and the
+      // status moves above it.
       for (const y of await positions(page, true)) {
         await scrollTo(page, true, y);
         const pane = await box(page, ".connected-main");
@@ -144,6 +149,16 @@ for (const locale of ["en", "he"] as const) {
         }), [room, pane] as const);
         expect(covered, `buttons under the status at ${y}`).toEqual([]);
       }
+      await tap(page, ".connected-companion-trigger");
+      const sheet = page.locator("#connected-companion");
+      await expect(sheet).toBeVisible();
+      await sheet.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+      const above = (await status.boundingBox())!, top = (await sheet.boundingBox())!;
+      expect(above.y + above.height, "the status sits above the sheet").toBeLessThanOrEqual(top.y + 1);
+      const pane = await box(page, ".connected-main");
+      expect(pane.y + pane.height, "the pane ends above the status and the sheet").toBeLessThanOrEqual(above.y);
+      await page.keyboard.press("Escape");
+      await expect(sheet).toBeHidden();
     } else {
       // Beside the companion pane: a band across the window's end, opaque like the header; the
       // page's end makes room for it, and the companion pane ends above it.
@@ -185,17 +200,23 @@ for (const locale of ["en", "he"] as const) {
     const close = dock.getByRole("button", { name: t.dock.close, exact: true });
     await lengthen(page, { lesson: 900 });
     const viewport = page.viewportSize()!;
-    if (compact) {
-      // A phone: the show button has its own row under the learning pane, never over it.
-      await expect(show).toBeVisible();
-      for (const y of await positions(page, true)) {
-        await scrollTo(page, true, y);
-        const pane = await box(page, ".connected-main"), button = (await show.boundingBox())!;
-        expect(button.y, `the companion button covers the lesson at ${y}`).toBeGreaterThanOrEqual(pane.y + pane.height);
+    // The show button is in the header on every size, so it can never cover lesson text.
+    await expect(page.locator(".connected-header").locator(".connected-companion-trigger")).toBeVisible();
+    if ((await show.getAttribute("aria-expanded")) !== "true") {
+      for (const y of await positions(page, compact)) {
+        await scrollTo(page, compact, y);
+        const button = (await show.boundingBox())!, bar = await box(page, ".connected-header");
+        expect(area(button, bar), `the companion button left the header at ${y}`).toBeCloseTo(button.width * button.height, 0);
       }
-      // The sheet keeps its title and close button at its top while a long conversation scrolls.
+      await scrollTo(page, compact, 0);
       await show.click();
-      await expect(dock).toBeVisible();
+    }
+    await expect(dock).toBeVisible();
+    await expect(show).toHaveAttribute("aria-expanded", "true");
+    // Measured where it rests, after it slid or faded in.
+    await dock.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    if ((await dock.getAttribute("data-placement")) === "sheet") {
+      // The sheet keeps its title and close button at its top while a long conversation scrolls.
       await lengthen(page, { companion: 2400 });
       for (const top of [0, 600, 1200, 100_000]) {
         await dock.evaluate((el, y) => { el.scrollTop = y; }, top);
@@ -208,26 +229,27 @@ for (const locale of ["en", "he"] as const) {
       await page.screenshot({ path: info.outputPath(`sheet-${locale}.png`) });
       await close.click();
       await expect(dock).toBeHidden();
+      await expect(show).toBeFocused();
     } else {
       const header = await box(page, ".connected-header");
       const below = header.y + header.height;
-      // Beside the lesson the show button is in the header, so it can never cover lesson text.
-      if (!(await dock.isVisible())) {
-        await expect(page.locator(".connected-header").locator(".connected-companion-trigger")).toBeVisible();
-        for (const y of await positions(page, false)) {
-          await scrollTo(page, false, y);
-          const button = (await show.boundingBox())!, bar = await box(page, ".connected-header");
-          expect(area(button, bar), `the companion button left the header at ${y}`).toBeCloseTo(button.width * button.height, 0);
-        }
-        await scrollTo(page, false, 0);
-        await show.click();
-      }
-      await expect(dock).toBeVisible();
+      // Flush with the window's inline end (no inset), 400 px wide by default, never under 360.
+      const pane = (await dock.boundingBox())!;
+      expect(Math.round(pane.width)).toBe(400);
+      const edge = locale === "he" ? pane.x : viewport.width - (pane.x + pane.width);
+      const scrollbar = await page.evaluate(() => window.innerWidth - document.documentElement.clientWidth);
+      expect(edge, "the panel is flush with the window's end").toBeLessThanOrEqual(scrollbar + 0.5);
+      const splitter = page.getByRole("separator", { name: t.splitter.label });
+      await splitter.focus();
+      await page.keyboard.press("Home");
+      await expect.poll(async () => Math.round((await dock.boundingBox())!.width)).toBe(360);
+      await page.keyboard.press("Enter");
+      await expect.poll(async () => Math.round((await dock.boundingBox())!.width)).toBe(400);
       await lengthen(page, { companion: 2400 });
       const check = async (where: string) => {
         const pane = (await dock.boundingBox())!;
-        expect(pane.y, `${where}: the pane starts under the header`).toBeGreaterThanOrEqual(below);
-        expect(pane.y + pane.height, `${where}: the pane ends in the window`).toBeLessThanOrEqual(viewport.height);
+        expect(pane.y, `${where}: the panel starts under the header`).toBeGreaterThanOrEqual(below - 1);
+        expect(pane.y + pane.height, `${where}: the panel ends in the window`).toBeLessThanOrEqual(viewport.height);
         for (const part of [title, close]) {
           const b = (await part.boundingBox())!;
           expect(b.y, `${where}: the companion title or close button is under the header`).toBeGreaterThanOrEqual(below);
@@ -238,13 +260,13 @@ for (const locale of ["en", "he"] as const) {
         await scrollTo(page, false, y);
         await check(`page at ${y}`);
       }
-      // The live finding was at the page's end: check it there with the pane scrolled too.
+      // The live finding was at the page's end: check it there with the panel scrolled too.
       for (const top of [0, 800, 100_000]) {
         await dock.evaluate((el, y) => { el.scrollTop = y; }, top);
-        await check(`page end, pane at ${top}`);
+        await check(`page end, panel at ${top}`);
       }
       await page.screenshot({ path: info.outputPath(`pane-at-the-end-${locale}.png`) });
-      // Closing it puts the show button back in the header and focus on it.
+      // Closing it leaves the show button in the header, with focus on it.
       await close.click();
       await expect(dock).toBeHidden();
       await expect(show).toBeFocused();

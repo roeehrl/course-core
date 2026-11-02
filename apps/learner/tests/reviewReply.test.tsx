@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewStatus, type WrittenReview } from "../src/components/ReviewStatus";
 
+/** The reviewer's note is one line with "Reviewer:" set in bold. */
+const note = (text: string) => (_: string, el: Element | null) => el?.tagName === "P" && el.textContent === text;
+
 const asked: WrittenReview = { attemptId: "a1", episodeId: "min", submittedAt: "2026-10-14T00:00:00.000Z", status: "needs_clarification",
   learnerNote: "Why is the kept value the minimum?", canReply: true, continuesAttemptId: null,
   criteria: [{ id: "invariant", description: "States the invariant.", required: true, met: false, quote: null, note: null }] };
@@ -11,24 +14,41 @@ describe("replying to a reviewer's clarification request", () => {
   it("lets the learner answer in their own words and sends the reply for review", async () => {
     const onReply = vi.fn(async () => {});
     render(<ReviewStatus loader={async () => [asked]} enrollmentId="e" episodeId="min" revision={1} onReply={onReply} />);
-    expect(await screen.findByText("Reviewer: Why is the kept value the minimum?")).toBeVisible();
-    const send = screen.getByRole("button", { name: "Send reply for review" });
-    expect(send).toBeDisabled();
+    expect(await screen.findByText(note("Reviewer: Why is the kept value the minimum?"))).toBeVisible();
+    // A person's note: no AI badge.
+    expect(screen.queryByText(/AI|Unverified/)).toBeNull();
+    expect(screen.getByText("Clarification asked")).toBeVisible();
+    const send = screen.getByRole("button", { name: "Send reply" });
+    // Empty, it keeps its accent and its place in the Tab order, and says it waits (aria-disabled).
+    expect(send).toHaveAttribute("aria-disabled", "true");
+    expect(send).toBeEnabled();
     await userEvent.type(screen.getByLabelText("Your reply to the reviewer"), "Each comparison keeps the smaller value, so nothing seen is smaller.");
     await userEvent.click(send);
     await waitFor(() => expect(onReply).toHaveBeenCalledWith("a1", "Each comparison keeps the smaller value, so nothing seen is smaller."));
   });
+  it("replies in the long-answer composer: Enter adds a line and Ctrl+Enter sends", async () => {
+    const onReply = vi.fn(async () => {});
+    render(<ReviewStatus loader={async () => [asked]} enrollmentId="e" episodeId="min" revision={1} onReply={onReply} />);
+    const field = await screen.findByLabelText("Your reply to the reviewer");
+    expect(field).toHaveAttribute("placeholder", "Write your reply…");
+    expect(field).toHaveAccessibleDescription(/Ctrl\+Enter to submit/);
+    await userEvent.type(field, "The kept value only gets smaller.{Enter}So it is the minimum.");
+    expect(onReply).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(onReply).toHaveBeenCalledWith("a1", "The kept value only gets smaller.\nSo it is the minimum."));
+  });
   it("shows only the reviewer's note while clarification is requested, never per-criterion findings", async () => {
     const leaky = { ...asked, criteria: [{ id: "invariant", description: "States the invariant.", required: true, met: true, quote: "the kept value never exceeds", note: "Nearly there" }] };
     render(<ReviewStatus loader={async () => [leaky]} enrollmentId="e" episodeId="min" revision={1} onReply={vi.fn()} />);
-    expect(await screen.findByText("Reviewer: Why is the kept value the minimum?")).toBeVisible();
+    expect(await screen.findByText(note("Reviewer: Why is the kept value the minimum?"))).toBeVisible();
     expect(screen.getByLabelText("Your reply to the reviewer")).toBeVisible();
     expect(screen.queryByText(/States the invariant/)).toBeNull();
     expect(screen.queryByText(/Nearly there/)).toBeNull();
   });
   it("offers no reply once answered or when no clarification was asked", async () => {
     render(<ReviewStatus loader={async () => [{ ...asked, canReply: false }, { ...asked, attemptId: "a2", status: "pending_review", learnerNote: null, canReply: false, continuesAttemptId: "a1" }]} enrollmentId="e" episodeId="min" revision={1} onReply={vi.fn()} />);
-    expect(await screen.findByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+    expect(await screen.findByText("Your reply")).toBeVisible();
+    expect(screen.getAllByText("Waiting for review")[0]).toBeVisible();
     expect(screen.queryByLabelText("Your reply to the reviewer")).toBeNull();
   });
 
@@ -36,12 +56,12 @@ describe("replying to a reviewer's clarification request", () => {
     const checked: WrittenReview = { ...asked, status: "met", learnerNote: null, canReply: false, canAppeal: true, appeal: null, confirmedBy: "automatic_check",
       criteria: [{ id: "invariant", description: "States the invariant.", required: true, met: true, quote: "the kept value never exceeds", note: null }] };
     const { unmount } = render(<ReviewStatus loader={async () => [checked]} enrollmentId="e" episodeId="min" revision={1} onAppeal={vi.fn()} />);
-    expect(await screen.findByText("Checked automatically · criteria met")).toBeVisible();
-    expect(screen.getByText(/fixed check confirmed each criterion from your own quoted words/)).toBeVisible();
+    expect(await screen.findByText("Checked automatically")).toBeVisible();
+    expect(screen.getByText("The course's fixed check confirmed each criterion from your own words. You can still ask a person for a second opinion.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Ask for a second opinion" })).toBeVisible();
     unmount();
     render(<ReviewStatus loader={async () => [{ ...checked, confirmedBy: "reviewer" }]} enrollmentId="e" episodeId="min" revision={1} />);
-    expect(await screen.findByText("Reviewed · criteria met")).toBeVisible();
+    expect(await screen.findByText("Criteria met")).toBeVisible();
     expect(screen.queryByText(/fixed check/)).toBeNull();
   });
 
@@ -51,13 +71,14 @@ describe("replying to a reviewer's clarification request", () => {
     const { unmount } = render(<ReviewStatus loader={async () => [judged]} enrollmentId="e" episodeId="min" revision={1} onAppeal={onAppeal} />);
     await userEvent.click(await screen.findByRole("button", { name: "Ask for a second opinion" }));
     const send = screen.getByRole("button", { name: "Request a second opinion" });
-    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("aria-disabled", "true");
     await userEvent.type(screen.getByLabelText("Why should another reviewer look again?"), "My second sentence states the invariant.");
     await userEvent.click(send);
     await waitFor(() => expect(onAppeal).toHaveBeenCalledWith("a1", "My second sentence states the invariant."));
     unmount();
     render(<ReviewStatus loader={async () => [{ ...judged, status: "met", canAppeal: false, appeal: { state: "changed", note: "Invariant is stated." } }]} enrollmentId="e" episodeId="min" revision={1} onAppeal={onAppeal} />);
     expect(await screen.findByText(/Second opinion changed the decision\./)).toHaveTextContent("Reviewer: Invariant is stated.");
+    expect(screen.getByText(/Second opinion changed the decision\./).querySelector("strong")).toHaveTextContent("Reviewer:");
     expect(screen.queryByRole("button", { name: "Ask for a second opinion" })).toBeNull();
   });
 
@@ -65,7 +86,7 @@ describe("replying to a reviewer's clarification request", () => {
     const judged: WrittenReview = { ...asked, status: "not_met", learnerNote: null, canReply: false, canAppeal: false, appeal: null, regrade: { outcome: "changed", at: "2026-10-20T00:00:00.000Z" } };
     render(<ReviewStatus loader={async () => [judged]} enrollmentId="e" episodeId="min" revision={1} onAppeal={vi.fn()} />);
     expect(await screen.findByText("Course staff regraded this answer and changed the decision.")).toBeVisible();
-    expect(screen.getByText("Reviewed · not yet")).toBeVisible();
+    expect(screen.getByText("Not yet")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Ask for a second opinion" })).toBeNull();
   });
 });
@@ -82,11 +103,12 @@ describe("written answers in Hebrew", () => {
     );
     expect(await screen.findByRole("region", { name: "התשובות הכתובות שלך" })).toBeVisible();
     expect(screen.getByText("התבקשה הבהרה")).toBeVisible();
-    const note = screen.getByText((_, el) => el?.tagName === "P" && stripBidiControls(el.textContent ?? "") === "הערת הבודק/ת: Why is the kept value the minimum?");
-    expect(note.textContent).toContain("⁨"); // the reviewer's note is isolated inside right-to-left text
-    expect(screen.getByText((_, el) => el?.tagName === "STRONG" && stripBidiControls(el.textContent ?? "") === "התשובה שלך · ממתינה לבדיקה")).toBeVisible();
+    const noteLine = screen.getByText((_, el) => el?.tagName === "P" && stripBidiControls(el.textContent ?? "") === "הערת הבודק: Why is the kept value the minimum?");
+    expect(noteLine.textContent).toContain("⁨"); // the reviewer's note is isolated inside right-to-left text
+    expect(screen.getByText("התגובה שלך")).toBeVisible();
+    expect(screen.getAllByText("בהמתנה לבדיקה")[0]).toBeVisible();
     // The field keeps the interface's direction (its caret starts at the right); typed text shows in its own.
-    expect(screen.getByLabelText("התשובה שלך לבודק/ת")).not.toHaveAttribute("dir");
-    expect(screen.getByRole("button", { name: "שליחת התשובה לבדיקה" })).toBeDisabled();
+    expect(screen.getByLabelText("התגובה לבודק")).not.toHaveAttribute("dir");
+    expect(screen.getByRole("button", { name: "שליחת התגובה" })).toHaveAttribute("aria-disabled", "true");
   });
 });

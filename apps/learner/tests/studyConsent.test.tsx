@@ -22,8 +22,8 @@ describe("research study consent", () => {
     render(<StudyConsent api={a as never} server={connectedSnapshot()} mode="prompt" onChanged={onChanged} />);
     expect(await screen.findByRole("heading", { name: "Join a research study? Ordering study" })).toBeVisible();
     expect(screen.getByText(/A fair, random draw places you/)).toBeVisible();
-    expect(screen.getByText("your conversations with the AI companion")).toBeVisible();
-    expect(screen.getByText("The full course: the AI companion and personal AI supervision, as usual.")).toBeVisible();
+    expect(screen.getByText("Your conversations with your companion")).toBeVisible();
+    expect(screen.getByText("The full course, with your companion.")).toBeVisible();
     expect(screen.getByText(/Saying no changes nothing/)).toBeVisible();
     const join = screen.getByRole("button", { name: "Join the study" });
     expect(join).toBeDisabled();
@@ -33,6 +33,27 @@ describe("research study consent", () => {
     expect(onChanged).toHaveBeenCalled();
     // The prompt is for undecided learners only.
     await waitFor(() => expect(screen.queryByRole("heading", { name: /Join a research study/ })).toBeNull());
+  });
+
+  it("keeps the prompt, busy, until the course is reloaded as joined, and still closes it when the reload fails", async () => {
+    for (const outcome of ["loaded", "failed"] as const) {
+      const a = api({ revision: 3, study, participation: null }, { revision: 4, study, participation: joined });
+      let finish!: () => void;
+      const reload = new Promise<void>((resolve, reject) => {
+        finish = () => (outcome === "loaded" ? resolve() : reject(new Error("offline")));
+      });
+      const { unmount } = render(<StudyConsent api={a as never} server={connectedSnapshot()} mode="prompt" onChanged={() => reload} />);
+      await userEvent.click(await screen.findByRole("checkbox", { name: "I have read this and agree to take part" }));
+      await userEvent.click(screen.getByRole("button", { name: "Join the study" }));
+      await waitFor(() => expect(a.command).toHaveBeenCalled());
+      // Saved, but the course the learner would press Start in is not the joined one yet.
+      expect(screen.getByRole("heading", { name: "Join a research study? Ordering study" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Join the study" })).toBeDisabled();
+      finish();
+      await waitFor(() => expect(screen.queryByRole("heading", { name: /Join a research study/ })).toBeNull());
+      expect(screen.queryByRole("alert")).toBeNull();
+      unmount();
+    }
   });
 
   it("'Not now' hides the prompt without joining", async () => {
@@ -48,7 +69,14 @@ describe("research study consent", () => {
     const a = api({ revision: 4, study, participation: joined }, { revision: 5, study, participation: left });
     render(<StudyConsent api={a as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
     expect(await screen.findByText("P0123456789")).toBeVisible();
-    expect(screen.getByText(/Your version: The fixed lesson path/)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Your version of the course" })).toBeVisible();
+    expect(screen.getAllByText("The fixed lesson path: your companion is off.")[0]).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Never collected" })).toBeVisible();
+    expect(screen.getByText("Your conversations with your companion")).toBeVisible();
+    // Every version, with the learner's own marked.
+    await userEvent.click(screen.getByText("What each version includes"));
+    expect(screen.getByText("The full course, with your companion.")).toBeVisible();
+    expect(screen.getByText("Your version")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Leave the study" }));
     const group = screen.getByRole("group", { name: "Confirm leaving the study" });
     expect(group).toHaveTextContent(/your data is left out of the study/);
@@ -69,7 +97,7 @@ describe("research study consent", () => {
 
   it("does not mention timing when the study does not ask for it", async () => {
     render(<StudyConsent api={api({ revision: 3, study, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
-    expect(await screen.findByText("your study code (not your name or email)")).toBeVisible();
+    expect(await screen.findByText("Your study code (not your name or email)")).toBeVisible();
     expect(screen.queryByText(/how many other buttons you try first/)).toBeNull();
   });
 
@@ -88,9 +116,22 @@ describe("research study consent", () => {
   it("words the codes the server sends, and shows a code it has no words for as the code", async () => {
     const newer = { ...study, versions: ["fixed", "future_arm"], collected: ["study_code", "future_measure"] };
     render(<StudyConsent api={api({ revision: 3, study: newer, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
-    expect(await screen.findByText("The fixed lesson path: the AI companion and personal AI supervision are off for you.")).toBeVisible();
+    expect(await screen.findByText("The fixed lesson path: your companion is off.")).toBeVisible();
     expect(screen.getByText("future_arm")).toBeVisible();
     expect(screen.getByText("future_measure")).toBeVisible();
     expect(screen.queryByText("study_code")).toBeNull();
+  });
+});
+
+describe("research study arms in Hebrew", () => {
+  it("names each version with one name for the helper", async () => {
+    const { I18nProvider, createLearnerTranslator } = await import("../src/i18n");
+    // Another study: "Not now" above hid this one's prompt for the session.
+    const a = api({ revision: 3, study: { ...study, id: "00000000-0000-4000-8000-000000000052", versions: ["fixed", "chat_only", "supervisor"] }, participation: null });
+    render(<I18nProvider value={createLearnerTranslator("he")}><StudyConsent api={a as never} server={connectedSnapshot()} mode="prompt" onChanged={vi.fn()} /></I18nProvider>);
+    expect(await screen.findByText("מסלול השיעורים הקבוע, בלי המנחה.")).toBeVisible();
+    expect(screen.getByText("שיעורים עם המנחה; שינויים אישיים כבויים.")).toBeVisible();
+    expect(screen.getByText("הקורס המלא, עם המנחה.")).toBeVisible();
+    expect(screen.getByText("השיחות עם המנחה")).toBeVisible();
   });
 });

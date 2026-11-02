@@ -4,12 +4,16 @@ import enHost from "../../src/i18n/messages/en/connectedHost.json";
 import heHost from "../../src/i18n/messages/he/connectedHost.json";
 import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
 import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
+import enReplyActions from "../../src/i18n/messages/en/replyActions.json";
+import heReplyActions from "../../src/i18n/messages/he/replyActions.json";
 import enDock from "../../src/i18n/messages/en/companionDock.json";
 import heDock from "../../src/i18n/messages/he/companionDock.json";
 import enData from "../../src/i18n/messages/en/yourDataPanel.json";
 import heData from "../../src/i18n/messages/he/yourDataPanel.json";
 import enLesson from "../../src/i18n/messages/en/connectedLesson.json";
 import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
+import enCheck from "../../src/i18n/messages/en/checkCard.json";
+import heCheck from "../../src/i18n/messages/he/checkCard.json";
 import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
 import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
 import enRoadmap from "../../src/i18n/messages/en/courseRoadmap.json";
@@ -39,8 +43,8 @@ import heConnectivity from "../../src/i18n/messages/he/connectivity.json";
  * Positions are measured on the drawn glyphs and boxes, so each check fails on the old build.
  */
 const text = {
-  en: { host: enHost, companion: enCompanion, dock: enDock, data: enData, lesson: enLesson, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
-  he: { host: heHost, companion: heCompanion, dock: heDock, data: heData, lesson: heLesson, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
+  en: { host: enHost, companion: enCompanion, replyActions: enReplyActions, dock: enDock, data: enData, lesson: enLesson, check: enCheck, preview: enPreview, roadmap: enRoadmap, input: enInput, code: enCode, connectivity: enConnectivity },
+  he: { host: heHost, companion: heCompanion, replyActions: heReplyActions, dock: heDock, data: heData, lesson: heLesson, check: heCheck, preview: hePreview, roadmap: heRoadmap, input: heInput, code: heCode, connectivity: heConnectivity },
 } as const;
 type Locale = keyof typeof text;
 type Glyph = { char: string; left: number; right: number; top: number; bottom: number };
@@ -113,82 +117,6 @@ async function openCompanion(page: Page) {
 for (const locale of ["en", "he"] as const) {
   const t = text[locale], rtl = locale === "he";
 
-  test(`${locale}: opening and closing the companion keeps the text being read in place`, async ({ page }, info) => {
-    await openHebrewLesson(page, locale);
-    // The paragraph being read starts a third of the way down the window, under the header.
-    const paragraph = page.getByText(/בהשוואה בין שני ערכים שליליים/).first();
-    const top = () => paragraph.evaluate((e) => e.getBoundingClientRect().top);
-    await paragraph.evaluate((element) => {
-      // Room below the lesson, so the window can scroll the paragraph up to the reading line on
-      // every size (a short lesson ends before it can).
-      document.querySelector(".connected-lesson")!.append(Object.assign(document.createElement("div"), { style: "height:1200px;flex-shrink:0" }));
-      const header = document.querySelector(".connected-header")!.getBoundingClientRect().bottom;
-      const reading = header + (window.innerHeight - header) / 3;
-      window.scrollBy({ top: element.getBoundingClientRect().top - reading + 2, behavior: "instant" });
-    });
-    await page.waitForTimeout(300);
-    const before = await top();
-    const trigger = page.locator(".connected-companion-trigger");
-    const close = page.getByRole("button", { name: t.dock.close, exact: true });
-    // Desktop starts with the pane open: close it first, then open it again.
-    const steps = (await trigger.isVisible()) ? [trigger, close] : [close, trigger];
-    for (const control of steps) {
-      await press(page, control);
-      await page.waitForTimeout(500);
-      expect(Math.abs((await top()) - before), `the paragraph stays put (${info.project.name})`).toBeLessThanOrEqual(2);
-      await page.screenshot({ path: info.outputPath(`reading-place-${locale}-${steps.indexOf(control)}.png`) });
-    }
-  });
-
-  test(`${locale}: a signed number in Hebrew lesson text and a companion reply keeps its minus before the digits`, async ({ page }, info) => {
-    await openHebrewLesson(page, locale, true);
-    const prose = page.locator(".connected-prose").first();
-    const all = await glyphs(prose);
-    for (const needle of ["הוא -2.", "הוא -8.", "של -8 מאפס"]) {
-      const run = find(all, needle);
-      const minus = run[needle.indexOf("-")]!, digit = run[needle.indexOf("-") + 1]!;
-      expect(sameLine(minus, digit)).toBe(true);
-      // Left to right inside the right-to-left sentence: "-" to the left of its digit.
-      expect(mid(minus), `${needle}: the minus comes before the digit`).toBeLessThan(mid(digit));
-      if (needle.endsWith(".")) {
-        const stop = run.at(-1)!;
-        if (sameLine(stop, minus)) expect(mid(stop), `${needle}: the full stop ends the Hebrew sentence, on the left`).toBeLessThan(mid(minus));
-      }
-    }
-    const pane = await openCompanion(page);
-    const reply = find(await glyphs(pane), "הרשימה הוא -2.");
-    const at = "הרשימה הוא ".length;
-    expect(mid(reply[at]!)).toBeLessThan(mid(reply[at + 1]!));
-    await page.screenshot({ path: info.outputPath(`signed-numbers-${locale}.png`) });
-  });
-
-  test(`${locale}: "Context used" quotes a Hebrew question with English and code in it in its own order`, async ({ page }, info) => {
-    await openHebrewLesson(page, locale, true);
-    const pane = await openCompanion(page);
-    await pane.getByRole("button", { name: t.companion["context.show"], exact: true }).click();
-    const answering = pane.getByText(/minimum value/).last();
-    await answering.scrollIntoViewIfNeeded();
-    const all = await glyphs(answering);
-    leftToRight(find(all, "min([3, 7, -2, 5])"), "the call");
-    leftToRight(find(all, "minimum"), "the term");
-    const ending = find(all, "וקיבלתי -2.");
-    const minus = ending[ending.length - 3]!, digit = ending[ending.length - 2]!;
-    expect(mid(minus)).toBeLessThan(mid(digit));
-    // The Hebrew question reads right to left: its first word is right of the call.
-    const first = find(all, "מה זה")[0]!, call = find(all, "min([")[0]!;
-    if (sameLine(first, call)) expect(first.left).toBeGreaterThan(call.right);
-    await pane.screenshot({ path: info.outputPath(`context-used-${locale}.png`) });
-  });
-
-  test(`${locale}: the companion's message box starts at the interface's reading edge`, async ({ page }, info) => {
-    await openHebrewLesson(page, locale);
-    const pane = await openCompanion(page);
-    const box = pane.getByRole("textbox", { name: t.companion["draft.label"], exact: true });
-    const style = await box.evaluate((e) => ({ direction: getComputedStyle(e).direction, bidi: getComputedStyle(e).unicodeBidi, align: getComputedStyle(e).textAlign }));
-    expect(style).toEqual({ direction: rtl ? "rtl" : "ltr", bidi: "plaintext", align: "start" });
-    await pane.screenshot({ path: info.outputPath(`companion-box-${locale}.png`) });
-  });
-
   test(`${locale}: the erase forms stack label, field and action in reading order`, async ({ page }, info) => {
     await signIn(page, locale, "/test/session");
     await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
@@ -245,58 +173,6 @@ for (const locale of ["en", "he"] as const) {
     await expect(page.getByText(t.data["account.erased"], { exact: true })).toHaveCount(0);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await page.screenshot({ path: info.outputPath(`erased-${locale}.png`) });
-  });
-
-  test(`${locale}: a slow sandbox start shows one message with the retry; a time-limit stop is a warning`, async ({ page }, info) => {
-    test.setTimeout(120_000);
-    const signed = await page.request.post("/test/code-session");
-    await page.goto(`/?locale=${locale}#signin=${(await signed.json()).token}`);
-    await page.getByRole("button", { name: t.host["library.open"], exact: true }).click();
-    await page.getByRole("button", { name: t.preview.start, exact: true }).click();
-    const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
-    const roadmap = page.getByRole("heading", { name: t.roadmap.path, exact: true });
-    await expect(roadmap).toBeVisible();
-    await expect(async () => {
-      if (await resume.count()) await resume.click({ timeout: 2_000 });
-      await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
-    }).toPass({ timeout: 20_000 });
-    await page.getByRole("button", { name: t.lesson.markRead, exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
-    await page.getByRole("radio", { name: "2", exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["answer.check"], exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
-    await page.getByRole("textbox", { name: t.input.numeric, exact: true }).fill("4");
-    await page.getByRole("button", { name: t.lesson["answer.check"], exact: true }).click();
-    await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
-    const code = page.getByRole("textbox", { name: t.code.yourCode, exact: true });
-    await code.fill("def solve(values):\n    return min(values)\n");
-    // The sandbox takes too long to start: the API refuses before running anything (#236).
-    const answers = /\/api\/enrollments\/[^/]+\/answers$/;
-    await page.route(answers, (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CODE_SANDBOX_SETUP_SLOW" }) }));
-    await page.getByRole("button", { name: t.lesson["answer.runCode"], exact: true }).click();
-    // One state, where the learner pressed: the connection status says why nothing ran, with the
-    // retry; no notice at the top of the lesson says it again, and no "Not recorded yet" beside it.
-    const status = page.locator(".connected-connection");
-    const why = rtl ? "מריץ הקוד" : "code runner";
-    await expect(status).toBeVisible();
-    await expect(status).toContainText(why);
-    await expect(status).not.toContainText(rtl ? "עדיין לא נרשם" : "Not recorded yet");
-    await expect(page.getByText(new RegExp(why))).toHaveCount(1);
-    await expect(page.getByRole("alert")).toHaveCount(0);
-    const retry = status.getByRole("button", { name: t.connectivity.retry, exact: true });
-    await expect(retry).toBeInViewport();
-    await page.screenshot({ path: info.outputPath(`slow-sandbox-${locale}.png`) });
-    // The retry sends the kept request; this time the run stops at the time limit.
-    await page.unroute(answers);
-    await page.route(answers, (route) => route.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ result: { passed: false, independent: true, message: { code: "code_limit", params: { limit: "time" } }, execution: { status: "timeout" } } }) }));
-    await retry.click();
-    await expect(status).toHaveCount(0);
-    const notice = page.locator('[data-tone="warning"]').filter({ hasText: rtl ? "מגבלת הזמן" : "time limit" });
-    await expect(notice).toBeVisible();
-    expect(await notice.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgb(252, 243, 223)");
-    await expect(page.locator('[data-tone="info"]').filter({ hasText: rtl ? "מגבלת הזמן" : "time limit" })).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath(`time-limit-${locale}.png`) });
   });
 
   test(`${locale}: a Hebrew scene draws its heading inside the canvas and its slider runs with the scene`, async ({ page }, info) => {

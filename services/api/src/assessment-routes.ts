@@ -127,7 +127,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         requireCondition(!(await enrollmentPlacement(client, context.enrollment, context.release.server_bundle)).unassistedOnly, 'PLACEMENT_UNASSISTED_ONLY', 409);
       const assessment = findAssessment(context.release.server_bundle, challenge.assessment_id)!, explanation = explanationOf(assessment);
       requireCondition(DETERMINISTIC_ITEM_TYPES.has(assessment.type) && explanation !== undefined, 'EVALUATOR_NOT_CONFIGURED', 409);
-      await client.query("UPDATE assessment_challenges SET assistance='solution',independent_eligible=false WHERE id=$1", [input.challengeId]);
+      await client.query("UPDATE assessment_challenges SET assistance='solution',assistance_reason='solution',independent_eligible=false WHERE id=$1", [input.challengeId]);
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.assisted', payload: { challengeId: input.challengeId, assistance: 'solution', independentEligible: false }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { explanation, independentEligible: false, revision: context.enrollment.revision + 1 };

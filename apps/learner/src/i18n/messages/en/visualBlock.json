@@ -5,7 +5,5 @@
   "textEquivalent": "Illustration · text equivalent",
   "unavailable": "This illustration is unavailable. Ask your course team for its explanation.",
   "native.note": "The interactive renderer is available in the web learner. Native rendering is not yet connected.",
-  "web.rendererUnavailable": "This renderer is unavailable here. The course explanation remains available.",
-  "pointer": "Point your companion at a part",
-  "noPart": "No part selected"
+  "web.rendererUnavailable": "This renderer is unavailable here. The course explanation remains available."
 }

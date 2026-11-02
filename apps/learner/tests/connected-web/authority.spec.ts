@@ -91,10 +91,11 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   ).toBeVisible();
   expect(enrollmentWrites).toBe(1);
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
-  await expect(
-    page.getByText("Correct. 2 is below 5.", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  // The server's verdict, in place under the question: the verdict line, then the explanation.
+  const feedback = page.locator(".connected-check .connected-answer-feedback");
+  await expect(feedback.locator(".cc-check-verdict")).toHaveText("Correct.");
+  await expect(feedback.locator(".cc-check-explanation")).toHaveText("2 is below 5.");
   await expect(
     page.getByRole("button", { name: "Finish this lesson →", exact: true }),
   ).toBeDisabled();
@@ -104,7 +105,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await page
     .getByRole("textbox", { name: "Your numeric answer", exact: true })
     .fill("4");
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByText("Your independent checks are complete.", { exact: true }),
   ).toBeVisible();

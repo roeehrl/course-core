@@ -2,6 +2,7 @@ import {resolveResearchInputWithin} from './research-store.js';
 import {researchCandidateSchema,type ResearchCandidate} from './research-contracts.js';
 import { rubricRefusalSchema, rubricSuggestionSchema, type RubricRefusal, type RubricSuggestion } from './rubric-assist-contracts.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
+import { replyAsksLearner } from './companion-turn.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DatabaseWake } from './database-wake.js';
 import type { FastifyInstance } from 'fastify';
@@ -398,12 +399,17 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
         ...(a.content.cutShort ? { cutShort: true } : {}),
         // Core's coaching message stood in for a reply that gave away a check's answer (a code only).
         ...(a.content.withheld ? { checkAnswerWithheld: a.content.withheld } : {}),
-        ...(question?.episode_id ? { episodeId: question.episode_id, blockId: question.block_id, answersMessageId: question.message_id } : {}) }), ref.jobId]);
+        ...(question?.episode_id ? { episodeId: question.episode_id, blockId: question.block_id, answersMessageId: question.message_id } : {}),
+        // The reply ends by asking the learner something (companion-turn.ts); written only when it does.
+        ...(replyAsksLearner(a.content.text, { withheld: Boolean(a.content.withheld) }) ? { asksLearner: true } : {}) }), ref.jobId]);
     // An answer that arrives while the learner is away waits in their notifications (notifications.ts).
     if (!(await learnerPresent(client, ref.enrollmentId))) {
       const learner = (await client.query<{ user_id: string }>('SELECT user_id FROM enrollments WHERE id=$1', [ref.enrollmentId])).rows[0]!;
       await notifyUser(client, { workspaceId: ref.workspaceId, userId: learner.user_id, audience: 'learner', kind: 'reply_ready', enrollmentId: ref.enrollmentId,
-        params: { episodeId: question?.episode_id?.slice(0, 200) ?? null }, link: `/enrollments/${ref.enrollmentId}/companion`, dedupeKey: `reply-ready:${targetId}` });
+        // Ids only: the lesson, the part, the question and the reply, so the learner's app can open the reply in place.
+        params: { episodeId: question?.episode_id?.slice(0, 200) ?? null, blockId: question?.block_id?.slice(0, 200) ?? null,
+          questionMessageId: question?.message_id ?? null, replyMessageId: targetId },
+        link: `/enrollments/${ref.enrollmentId}/companion`, dedupeKey: `reply-ready:${targetId}` });
     }
   } else if (a.content.kind === 'rubric_suggestion') {
     // A draft for a human reviewer: no evidence, grade or learner-visible change.

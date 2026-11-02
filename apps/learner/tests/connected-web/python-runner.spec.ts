@@ -31,10 +31,10 @@ async function openCodeCheck(page: Page) {
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await fill(page.getByRole("textbox", { name: "Your numeric answer", exact: true }), "4");
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Your code", exact: true })).toBeVisible();
 }

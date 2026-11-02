@@ -51,8 +51,11 @@ export interface GradedCheck {
   keys: CheckKey[];
 }
 /** `unresolved`: the learner asked about a check's answer but which check is not certain; the turn
- * is coached generically and every candidate is verified. */
-export type CheckMatchKind = 'quoted' | 'described' | 'referenced' | 'earlier_message' | 'unresolved';
+ * is coached generically and every candidate is verified. `open_counted`: a check with an open
+ * attempt that still counts (the credit scope leaves other lessons' questions counted), which the
+ * message was not matched to: the turn is not taken to be about it, but its reply is verified
+ * against it all the same, so a paraphrase the matcher misses cannot carry its answer. */
+export type CheckMatchKind = 'quoted' | 'described' | 'referenced' | 'earlier_message' | 'unresolved' | 'open_counted';
 export interface CheckMatch { check: GradedCheck; how: CheckMatchKind; score: number }
 /** What the model is told in check-coaching mode (TeachingContext.checkCoaching). No key, ever. */
 export interface CheckCoaching {
@@ -75,6 +78,7 @@ const MAX_MATCHES = 3;
 /** Candidates of a turn whose check is not certain (all are coached and verified). */
 const MAX_CANDIDATES = 4;
 const COACHING_NOTE = 'The learner\'s message is about the answer to these graded checks of the course. Their answers are withheld from you on purpose: coach without giving, choosing, confirming or ruling out any answer.';
+const OPEN_COUNTED_NOTE = 'These graded checks have an open attempt that still counts. The learner\'s message is not known to be about them: answer it as usual, but never give, choose, confirm, rule out or narrow down their answers, or work through their own numbers or scenario.';
 const UNRESOLVED_NOTE = 'The learner is asking about the answer to one of this lesson\'s graded checks, but which one is not certain: these are the candidates. Their answers are withheld from you on purpose: do not give, choose, confirm or rule out an answer for any of them. Ask which check they mean when it matters, and coach on the ideas.';
 
 // ---------------------------------------------------------------------------
@@ -549,13 +553,20 @@ export function matchGradedChecks(input: { question: string; earlier?: readonly 
   return direct.matches;
 }
 
-/** The model-facing view of the matched checks: prompts and options, never a key. */
-export function checkCoachingView(matches: readonly CheckMatch[]): CheckCoaching | undefined {
-  if (!matches.length) return undefined;
-  return { note: matches.some(match => match.how === 'unresolved') ? UNRESOLVED_NOTE : COACHING_NOTE,
-    items: matches.map(({ check, how }) => ({ checkId: check.id, type: check.type, prompt: check.prompt.slice(0, 400),
+/** The model-facing view of the matched checks, then of the open counted checks the message was
+ * not matched to (`counted`, guarded all the same): prompts and options, never a key. */
+export function checkCoachingView(matches: readonly CheckMatch[], counted: readonly GradedCheck[] = []): CheckCoaching | undefined {
+  const matched = new Set(matches.map(match => match.check.id));
+  const all = [...matches, ...counted.filter(check => !matched.has(check.id)).map(check => ({ check, how: 'open_counted' as const }))];
+  if (!all.length) return undefined;
+  const note = !matches.length ? OPEN_COUNTED_NOTE : matches.some(match => match.how === 'unresolved') ? UNRESOLVED_NOTE : COACHING_NOTE;
+  return { note: all.length > matches.length && matches.length ? `${note} ${OPEN_COUNTED_NOTE}` : note,
+    items: all.map(({ check, how }) => ({ checkId: check.id, type: check.type, prompt: check.prompt.slice(0, 400),
       ...(check.options.length ? { options: check.options.map(text => text.slice(0, 160)) } : {}), match: how })) };
 }
+/** Whether the message itself is about a graded check's answer (the stricter coaching rule), not
+ * only guarded over open counted checks. */
+export const coachesOnChecks = (coaching: CheckCoaching | undefined) => Boolean(coaching?.items.some(item => item.match !== 'open_counted'));
 
 // ---------------------------------------------------------------------------
 // Verification (deterministic, high precision)

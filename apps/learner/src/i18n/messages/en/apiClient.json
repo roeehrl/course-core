@@ -38,7 +38,7 @@
   "error.PENDING_CORRUPT": "A saved request could not be safely recovered. Contact your course team before making another change.",
   "error.NETWORK_UNCERTAIN": "The connection was interrupted. Retry the saved request to confirm whether it was received.",
   "error.COVERAGE_REQUIRED": "Finish the reading steps before completing this episode.",
-  "error.FRESH_EVIDENCE_ITEM_REQUIRED": "This checkpoint needs a new independent question. Your supervisor must prepare and verify one; repeating a revealed answer will not grant credit.",
+  "error.FRESH_EVIDENCE_ITEM_REQUIRED": "This checkpoint needs a new independent question. A new one is being prepared and checked; repeating a revealed answer will not count.",
   "error.DEADLINE_REACHED": "This learning window has ended. You can review the closure or any available extension offer.",
   "error.PREREQUISITE_NOT_READY": "Finish the current required episode before opening this one.",
   "error.EVALUATOR_NOT_CONFIGURED": "The grader is not configured for this exercise yet. Your draft is preserved; no result or credit has been recorded.",

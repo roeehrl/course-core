@@ -1,8 +1,8 @@
 import type { ContextCapsule } from "@course-core/sdk";
-import type { CourseApi, ServerSnapshot } from "./apiClient";
+import { CourseApiError, type CourseApi, type ServerSnapshot } from "./apiClient";
 import type { VisualInteractionContext } from "../components/VisualBlock";
 import { companionFocus, type FocusSelection } from "./companionFocus";
-import { englishTranslator, type MessageKey, type Translate } from "../i18n";
+import { randomId } from "./webCrypto";
 export interface CompanionContext extends Pick<
   ContextCapsule,
   "enrollmentId" | "courseDigest"
@@ -75,7 +75,21 @@ export interface CompanionMessage {
     /** Assistant messages: Core's hint stands in for a reply it did not keep, because the reply gave
      * away a graded check's answer or could not be checked (a reason code only). */
     checkAnswerWithheld?: string;
+    /** Assistant messages: the reply ends by asking the learner something (Core decides, from the
+     * stored text; services/api/src/companion-turn.ts). Absent on older rows. */
+    asksLearner?: boolean;
+    /** Learner messages: the check the learner attached, with its number in the lesson ("Question 2"). */
+    attachedCheck?: { challengeId: string; ordinal: number };
+    /** Learner messages: what the learner pointed at in the lesson, as the server resolved it. */
+    selectedAnchor?: { kind: string; blockId?: string; excerpt?: string; lineStart?: number; lineEnd?: number; label?: string };
+    /** Learner messages: the course video and position the learner sent with the question. */
+    mediaRef?: { mediaId: string; blockId?: string; playbackSeconds?: number | null };
+    /** Learner messages: the open checks this message turned into practice, with their numbers. */
+    downgraded?: { challengeId: string; ordinal: number }[];
+    downgradedChallengeIds?: string[];
   };
+  /** Assistant messages: the learner's vote on the reply and whether they reported it (null: none). */
+  feedback?: CompanionFeedback | null;
   /** Assistant messages: the capsule its answer was built from (null if not recorded). */
   context_used?: CompanionContextUsed | null;
   /** Learner messages: the learner asked the companion not to use it again. */
@@ -155,6 +169,18 @@ export interface CompanionReceipt {
   state: "queued";
   downgradedChallengeIds: string[];
 }
+/** The learner's feedback on a reply, as the conversation reads it (never the comment). */
+export type CompanionFeedback = { vote: "helpful" | "not_helpful" | null; reported: boolean };
+/** A change to it: the vote (null takes it back), and a comment or a report when given. */
+export type CompanionVote = { vote: "helpful" | "not_helpful" | null; comment?: string; report?: boolean };
+/** One page of the conversation, oldest first. */
+export interface CompanionPage {
+  messages: readonly CompanionMessage[];
+  /** Older messages remain. */
+  earlier: boolean;
+  /** The cursor that reads them, or null. */
+  before: string | null;
+}
 export interface ContextualCompanionClient {
   load(
     enrollmentId: string,
@@ -168,8 +194,27 @@ export interface ContextualCompanionClient {
       content: string;
       allowAssessmentAssistance?: true;
       interactiveContext?: VisualInteractionContext;
+      /** An open check the message is about (the check's own "Ask the companion"). */
+      challengeId?: string;
     },
   ): Promise<CompanionReceipt>;
+  /** The learner's vote on a reply, an optional comment, or a report of a problem. Only the
+   * enrollment and its revision of the snapshot are used. */
+  vote?(
+    snapshot: Pick<ServerSnapshot, "enrollmentId" | "revision">,
+    messageId: string,
+    input: CompanionVote,
+  ): Promise<{ messageId: string; feedback: CompanionFeedback }>;
+  /** Messages older than the ones loaded: the page before `before` (a cursor a read returned),
+   * whether more remain and the cursor that reads them. */
+  loadEarlier?(
+    enrollmentId: string,
+    before: string,
+    signal?: AbortSignal,
+  ): Promise<CompanionPage>;
+  /** For messages `load` returned: whether older messages remain and the cursor that reads them
+   * (undefined when the client does not page). */
+  pageOf?(messages: readonly CompanionMessage[]): { earlier: boolean; before: string | null } | undefined;
   /** Delete one of the learner's questions, its answer and what was derived from it. */
   deleteMessage?(
     snapshot: ServerSnapshot,
@@ -212,41 +257,85 @@ const contextUsedValid = (value: unknown): boolean => {
     typeof used.constraints.independentAssessmentActive === "boolean"
   );
 };
+const feedbackValid = (value: unknown): boolean =>
+  value === undefined || value === null ||
+  (typeof value === "object" &&
+    [null, "helpful", "not_helpful"].includes((value as CompanionFeedback).vote) &&
+    typeof (value as CompanionFeedback).reported === "boolean");
 export function createCompanionClient(
   api: CourseApi,
 ): ContextualCompanionClient {
+  // What each read said about older messages, kept with the messages it returned.
+  const pages = new WeakMap<readonly CompanionMessage[], { earlier: boolean; before: string | null }>();
+  async function page(id: string, query: string, signal?: AbortSignal): Promise<CompanionPage> {
+    const result = await api.request<{ messages: CompanionMessage[]; earlier?: unknown; before?: unknown }>(
+      `/api/enrollments/${encodeURIComponent(id)}/companion${query}`,
+      "GET",
+      undefined,
+      { signal },
+    );
+    if (
+      !Array.isArray(result.messages) ||
+      result.messages.some(
+        (m) =>
+          !m ||
+          typeof m.id !== "string" ||
+          !["learner", "assistant"].includes(m.role) ||
+          typeof m.content !== "string" ||
+          m.content.length > 32000 ||
+          !m.context ||
+          typeof m.context !== "object" ||
+          !contextUsedValid(m.context_used) ||
+          (m.excluded !== undefined && typeof m.excluded !== "boolean") ||
+          !feedbackValid(m.feedback),
+      )
+    )
+      // i18n-ignore: malformed-response diagnostic; callers show their own message
+      throw new Error("Invalid companion message response");
+    // An API from before paging sends neither: nothing older can be read.
+    const before = typeof result.before === "string" && result.before.length <= 200 ? result.before : null;
+    return { messages: result.messages, earlier: result.earlier === true && before !== null, before };
+  }
   return {
     async load(id, signal) {
-      const result = await api.request<{ messages: CompanionMessage[] }>(
-        `/api/enrollments/${encodeURIComponent(id)}/companion`,
-        "GET",
-        undefined,
-        { signal },
-      );
-      if (
-        !Array.isArray(result.messages) ||
-        result.messages.some(
-          (m) =>
-            !m ||
-            typeof m.id !== "string" ||
-            !["learner", "assistant"].includes(m.role) ||
-            typeof m.content !== "string" ||
-            m.content.length > 32000 ||
-            !m.context ||
-            typeof m.context !== "object" ||
-            !contextUsedValid(m.context_used) ||
-            (m.excluded !== undefined && typeof m.excluded !== "boolean"),
-        )
-      )
+      const read = await page(id, "", signal);
+      pages.set(read.messages, { earlier: read.earlier, before: read.before });
+      return read.messages;
+    },
+    pageOf: (messages) => pages.get(messages),
+    async loadEarlier(id, before, signal) {
+      return page(id, `?before=${encodeURIComponent(before)}`, signal);
+    },
+    async vote(snapshot, messageId, input) {
+      // A vote is a small upsert that fences nothing: sent straight, not through the command queue
+      // (api.command), so it never holds back a question being sent. A revision that moved on
+      // meanwhile is read again once.
+      const send = (revision: number) =>
+        api.request<{ messageId: string; feedback: CompanionFeedback }>(
+          `/api/enrollments/${encodeURIComponent(snapshot.enrollmentId)}/companion/messages/${encodeURIComponent(messageId)}/feedback`,
+          "POST",
+          { ...input, expectedRevision: revision, idempotencyKey: randomId() },
+        );
+      let result;
+      try {
+        result = await send(snapshot.revision);
+      } catch (error) {
+        if (!(error instanceof CourseApiError) || error.code !== "STALE_REVISION") throw error;
+        const current = await api.request<{ revision: number }>(`/api/enrollments/${encodeURIComponent(snapshot.enrollmentId)}`);
+        result = await send(current.revision);
+      }
+      if (!result || result.messageId !== messageId || !feedbackValid(result.feedback) || !result.feedback)
         // i18n-ignore: malformed-response diagnostic; callers show their own message
-        throw new Error("Invalid companion message response");
-      return result.messages;
+        throw new Error("Invalid companion feedback receipt");
+      return result;
     },
     async send(snapshot, input) {
       // The learner's chosen focus goes with this message only, against this course version.
       const focus = companionFocus.get();
       const result = await api.command<CompanionReceipt>(snapshot, "companion", {
         ...input,
+        // A check attached in the companion goes with this message, unless the caller named one.
+        ...(focus.check && !input.challengeId ? { challengeId: focus.check.challengeId } : {}),
         uiRevision: snapshot.revision,
         ...(focus.selection
           ? {
@@ -331,243 +420,24 @@ function focusPayload(selection: FocusSelection) {
     };
   return { ...selection };
 }
-/** The companion's overall state, from saved messages and the browser:
- * offline, waiting for the learner, building or checking a reply, still
- * working on a question that is waiting for the service, queued, service
- * unavailable (not configured), or available. A question that is waiting
- * never makes the whole companion unavailable: past messages stay readable and
- * the learner can cancel, retry or ask something else. Never derived from
- * provider text. */
-export type CompanionState =
-  | "offline"
-  | "waiting_for_you"
-  | "replying"
-  | "building"
-  | "checking"
-  | "paused"
-  | "still_working"
-  | "queued"
-  | "unavailable"
-  | "available";
-/** Job states of a question whose reply is held up (service busy, budget, uncertain call). */
-const WAITING_STATES = ["waiting", "budget_wait", "blocked", "deferred"];
-/** Job states while the reply is being built: the provider call is out. */
-const RUNNING_STATES = ["running", "leased", "processing", "analyzing", "building", "evaluating"];
-/** Job states while a written reply is checked before it is stored. */
-const CHECKING_STATES = ["verifying", "ready"];
-/** Spending limits a held question can name (supervisor-bridge.ts BudgetCeiling). */
-const CEILINGS = ["workspace", "enrollment", "daily", "artifact"];
-/** Help is paused for this question: a spending limit holds it back. */
-export const companionHeldByLimit = (message: CompanionMessage) =>
-  message.role === "learner" && message.job_state === "budget_wait" && CEILINGS.includes(message.job_ceiling ?? "");
-/** Withheld reasons (companion-check-integrity.ts WITHHELD_REASONS) for a reply that could not be
- * checked, as opposed to one that gave an answer away. */
-const UNVERIFIED_REASONS = ["check_judge_unavailable", "check_keys_unavailable"];
-/** What a stored hint says about the reply it replaced: it gave away a check's answer, or it could
- * not be checked. Undefined for an ordinary reply. */
-export function companionWithheldNote(message: CompanionMessage): "answer" | "unverified" | undefined {
-  const reason = message.role === "assistant" && message.content !== "[deleted]" ? message.context.checkAnswerWithheld : undefined;
-  if (typeof reason !== "string" || !reason) return;
-  return UNVERIFIED_REASONS.includes(reason) ? "unverified" : "answer";
-}
-/** The reply being written for one question, if the event stream brought one (and it is not yet
- * replaced by the stored reply). */
-export function companionDraftFor(
-  message: CompanionMessage,
-  messages: readonly CompanionMessage[],
-  drafts: readonly CompanionDraft[] = [],
-): CompanionDraft | undefined {
-  if (message.role !== "learner") return;
-  return drafts.find((draft) => draft.messageId === message.id &&
-    !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId));
-}
-/**
- * Whether the reply to a question is under way: its call was sent. That is known from the stream
- * the moment the gateway sends the call (a draft opens, before any text), or from the saved job
- * (running, or a call recorded as started). Then the learner is offered Stop, not "Stop waiting".
- */
-export function companionReplyStarted(message: CompanionMessage, draft?: CompanionDraft): boolean {
-  if (message.role !== "learner" || message.content === "[deleted]" || !companionHasPending([message])) return false;
-  if (draft) return draft.state === "streaming" || draft.state === "complete";
-  return RUNNING_STATES.includes(message.job_state ?? "") || CHECKING_STATES.includes(message.job_state ?? "");
-}
-export function companionState(
-  messages: readonly CompanionMessage[],
-  input: { online: boolean; awaitingChoice: boolean; drafts?: readonly CompanionDraft[] },
-): CompanionState {
-  if (!input.online) return "offline";
-  if (input.awaitingChoice) return "waiting_for_you";
-  // A reply is being written where the learner can see it (its call was sent; the first text may
-  // not have arrived yet): one status, not one per word.
-  const live = input.drafts?.filter((draft) => draft.state === "streaming" &&
-    !messages.some((m) => m.role === "assistant" && m.job_id === draft.jobId) &&
-    messages.some((m) => m.id === draft.messageId && companionHasPending([m]))) ?? [];
-  // A reply about a graded check is written out of sight and checked before it is shown.
-  if (live.some((draft) => !draft.checking)) return "replying";
-  if (live.length) return "checking";
-  // A question whose reply was withdrawn or stopped on the stream is over for the learner even
-  // before its saved job says so: the status does not keep saying a reply is being built.
-  const open = messages.filter((message) => {
-    if (message.role !== "learner" || !companionHasPending([message])) return false;
-    const draft = companionDraftFor(message, messages, input.drafts);
-    return draft?.state !== "withdrawn" && draft?.state !== "cancelled";
-  });
-  if (open.some((m) => RUNNING_STATES.includes(m.job_state ?? "")))
-    return "building";
-  if (open.some((m) => CHECKING_STATES.includes(m.job_state ?? "")))
-    return "checking";
-  // A spending limit holds a question: help is paused, said plainly.
-  if (open.some(companionHeldByLimit)) return "paused";
-  // Only a missing service configuration makes the companion unavailable.
-  if (
-    open.some(
-      (m) =>
-        m.job_reason === "configuration_missing" ||
-        m.job_state === "configuration_pending",
-    )
-  )
-    return "unavailable";
-  if (open.some((m) => WAITING_STATES.includes(m.job_state ?? "")))
-    return "still_working";
-  if (open.length) return "queued";
-  return "available";
-}
-/** The companion's overall state, in the translator's locale. */
-export function companionStateText(state: CompanionState, t: Translate = englishTranslator().t): string {
-  return t(`companionClient.state.${state}` as MessageKey);
-}
-/** Only known public state labels are shown; provider error/reason text is never surfaced.
- * `draft` is the reply being written for this question (companionDraftFor), which is newer than
- * the saved job: a draft that opened means the call was sent.
- *
- * One label per outcome, so the card never says two things at once (0.1.58 qualification): a
- * reply that stalled part way reads as stalled, not also as refused by the checks; a stopped
- * reply reads as stopped; a reply Core withheld because it gave away a graded check's answer
- * reads as withheld until Core's hint replaces it. The withdrawn or stopped draft itself shows
- * nothing more (DraftReply): this label is the only place that says what happened. */
-export function companionJobLabel(
-  message: CompanionMessage,
-  t: Translate = englishTranslator().t,
-  draft?: CompanionDraft,
-): string | undefined {
-  if (message.role !== "learner") return;
-  if (message.job_reason === "configuration_missing")
-    return t("companionClient.job.configurationMissing");
-  // Saved outcomes that are final come first: they are newer than any draft the stream sent.
-  if (message.job_stalled === true) return t("companionClient.job.stalled");
-  if (message.refusal_reason === "provider_stream_stalled") return t("companionClient.job.stalledPartWay");
-  // Core closed the call because the question was cancelled (the learner's Stop, staff, erasure).
-  if (message.refusal_reason === "provider_stream_stopped") return t("companionClient.job.cancelledSent");
-  if (companionCouldNotAnswer(message)) return t("companionClient.job.couldNotAnswer");
-  if (draft && companionHasPending([message])) {
-    if (draft.checking && (draft.state === "streaming" || draft.state === "complete")) return t("companionClient.job.checkingReply");
-    if (draft.state === "streaming") return t("companionClient.job.writing");
-    if (draft.state === "complete") return t("companionClient.job.checking");
-    // Stopped by the learner: the call had been sent, so what it used is counted.
-    if (draft.state === "cancelled") return t("companionClient.job.cancelledSent");
-    // Withdrawn before it was kept: said by why, until the saved outcome replaces it.
-    return t(draft.reason === "check_answer_withheld" ? "companionClient.job.withheld"
-      : draft.reason === "check_unverified" ? "companionClient.job.unverified"
-      : draft.reason === "provider_failed" ? "companionClient.job.interrupted"
-        : draft.reason ? "companionClient.job.notShown" : "companionClient.job.withdrawn");
-  }
-  if (companionHeldByLimit(message))
-    return t(message.job_ceiling === "workspace" ? "companionClient.job.pausedWorkspace"
-      : message.job_ceiling === "enrollment" ? "companionClient.job.pausedLearner"
-        : message.job_ceiling === "artifact" ? "companionClient.job.pausedLessonToday" : "companionClient.job.pausedToday");
-  switch (message.job_state) {
-    case "running":
-    case "leased":
-    case "processing":
-    case "analyzing":
-    case "building":
-    case "evaluating":
-      return t("companionClient.job.writing");
-    case "verifying":
-    case "ready":
-      return t("companionClient.job.checking");
-    case "applied":
-    case "completed":
-    case "succeeded":
-    case "done":
-      return t("companionClient.job.processed");
-    case "cancelled":
-      // Honest about cost: a question stopped after its call was sent may still be charged for
-      // what that call used; one cancelled before anything was sent costs nothing. A draft that
-      // opened proves the call had been sent even before the job's snapshot says so.
-      return t(message.job_sent || draft ? "companionClient.job.cancelledSent" : "companionClient.job.cancelled");
-    case "refused":
-      // Never prepared into a job (refused or quarantined before any call): nothing was used.
-      return t("companionClient.job.refused");
-    case "failed":
-    case "dead":
-    case "dead_letter":
-      return t("companionClient.job.unavailable");
-    case "configuration_pending":
-      return t("companionClient.job.configurationMissing");
-    case "waiting":
-    case "budget_wait":
-    case "blocked":
-    case "deferred":
-      return t("companionClient.job.stillWorking");
-    default:
-      return t("companionClient.job.queued");
-  }
-}
-/** The reply was produced but refused by Core's checks before it could be shown (a definite end,
- * not a delay): the learner can ask again. A reply that stopped part way, or that Core stopped
- * because the question was cancelled, is not a refusal (companionReplyStalled, the Stop). */
-export function companionCouldNotAnswer(message: CompanionMessage): boolean {
-  return message.role === "learner" && message.job_state === "failed" &&
-    message.refusal_reason !== "provider_stream_stalled" && message.refusal_reason !== "provider_stream_stopped" &&
-    (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
-}
-/** The AI service did not answer the question in time: no reply came at all, or the reply
- * stopped coming part way (Core kept nothing of it). Not the companion refusing it. */
-export function companionReplyStalled(message: CompanionMessage): boolean {
-  return message.role === "learner" && (message.job_stalled === true || message.refusal_reason === "provider_stream_stalled");
-}
-/** No reply will come for this question (it stalled, failed, or was refused or not answered):
- * the learner sees why and can ask it again. */
-export function companionReplyUnavailable(message: CompanionMessage): boolean {
-  return message.role === "learner" && message.content !== "[deleted]" && (message.job_stalled === true ||
-    ["failed", "refused", "dead", "dead_letter"].includes(message.job_state ?? ""));
-}
-/** A question that ended without an answer the learner can use: Core refused the reply, no reply
- * will come (it stalled, failed or was refused), or the question was cancelled or its reply
- * stopped. It offers "Ask this question again", which puts its text back in the draft to send as
- * a new question. */
-export function companionCanAskAgain(message: CompanionMessage, draft?: CompanionDraft): boolean {
-  if (message.role !== "learner" || message.content === "[deleted]") return false;
-  return companionCouldNotAnswer(message) || companionReplyUnavailable(message) || message.job_state === "cancelled" || draft?.state === "cancelled";
-}
-/** A pending question the learner may cancel or ask again: queued or held up, not once its reply
- * is under way (a draft opened, or the job is running or checking): that one offers Stop. */
-export function companionCanCancel(message: CompanionMessage, draft?: CompanionDraft): boolean {
-  return message.role === "learner" && message.content !== "[deleted]" && companionHasPending([message]) && !draft &&
-    !companionReplyStarted(message);
-}
-export function companionHasPending(
-  messages: readonly CompanionMessage[],
-): boolean {
-  return messages.some(
-    (message) =>
-      message.role === "learner" &&
-      // A stalled question is over: nothing more will come for it.
-      message.job_stalled !== true &&
-      ![
-        "applied",
-        "refused",
-        "cancelled",
-        "completed",
-        "succeeded",
-        "done",
-        "failed",
-        "dead",
-        "dead_letter",
-      ].includes(message.job_state ?? ""),
-  );
-}
+// The companion's states and job labels live in companionStates.ts; re-exported here so callers
+// and the app's public index keep importing them from the client.
+export {
+  companionCanAskAgain,
+  companionCanCancel,
+  companionCouldNotAnswer,
+  companionDraftFor,
+  companionHasPending,
+  companionHeldByLimit,
+  companionJobLabel,
+  companionReplyStalled,
+  companionReplyStarted,
+  companionReplyUnavailable,
+  companionState,
+  companionStateText,
+  companionWithheldNote,
+  type CompanionState,
+} from "./companionStates";
 
 /** TeX commands read as their symbol in a plain excerpt. */
 const TEX_SYMBOLS: Readonly<Record<string, string>> = {

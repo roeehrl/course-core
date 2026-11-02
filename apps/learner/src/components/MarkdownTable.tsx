@@ -1,10 +1,11 @@
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useT } from "../i18n";
-import { colors } from "./ui";
+import { colors } from "../theme/colors";
 import type { Align, Inline } from "./markdown";
 
-const textAlign = (align: Align) => (align === "center" ? "center" : align === "end" ? "right" : "auto");
+// Text at the start, numbers (an end-aligned column) at the end, never centred (final design §3.3).
+const textAlign = (align: Align) => (align === "end" ? "right" : "auto");
 
 /** A Markdown table on native: equal columns in a frame that scrolls sideways on a narrow screen
  * (the web app uses a real table, MarkdownTable.web.tsx). */
@@ -22,9 +23,9 @@ export function MarkdownTable({
   const t = useT();
   const width = Math.max(header.length * 120, 280);
   const row = (cells: Inline[][], key: string, head: boolean) => (
-    <View key={key} role="row" style={{ flexDirection: "row", borderTopWidth: head || key === "r0" ? 0 : 1, borderColor: colors.line, backgroundColor: head ? colors.mint : colors.white }}>
+    <View key={key} role="row" style={{ flexDirection: "row", borderTopWidth: head || key === "r0" ? 0 : 1, borderColor: colors.line, backgroundColor: head ? colors.surface2 : colors.surface }}>
       {cells.map((cell, index) => (
-        <Text key={index} role={head ? "columnheader" : "cell"} style={{ flex: 1, padding: 10, color: head ? colors.ink : colors.muted, fontWeight: head ? "600" : "400", textAlign: textAlign(align[index] ?? null) }}>
+        <Text key={index} role={head ? "columnheader" : "cell"} style={{ flex: 1, padding: 10, color: colors.ink, fontWeight: head ? "600" : "400", textAlign: textAlign(align[index] ?? null) }}>
           {renderInline(cell, `${key}c${index}`)}
         </Text>
       ))}

@@ -391,7 +391,11 @@
       "core:services/api/test/agent-tools.integration.test.ts::reads the minimal projection: context, profile, evidence and history, never keys or private notes"
     ],
     "D05": [
-      "core:apps/learner/tests/companion.test.tsx"
+      "core:apps/learner/tests/companion.test.tsx",
+      "core:apps/learner/tests/companionActions.test.tsx",
+      "core:apps/learner/tests/companionClient.test.tsx",
+      "core:apps/learner/tests/companionCredit.test.tsx",
+      "core:apps/learner/tests/companionDock.test.tsx"
     ],
     "D06": [
       "core:services/api/test/google-model-setup.test.ts",
@@ -601,9 +605,13 @@
       "core:services/api/test/placement.integration.test.ts"
     ],
     "I02": [
+      "core:apps/learner/tests/connected-web/companion-consent.spec.ts",
+      "core:apps/learner/tests/connected-web/companion-responsive.spec.ts",
       "core:apps/learner/tests/connected-web/companion.spec.ts"
     ],
     "I03": [
+      "core:apps/learner/tests/connected-web/companion-consent.spec.ts",
+      "core:apps/learner/tests/connected-web/companion-responsive.spec.ts",
       "core:apps/learner/tests/connected-web/companion.spec.ts"
     ],
     "I04": [
@@ -876,9 +884,12 @@
       "core:services/api/test/google-model-setup.test.ts::sets image models up on the Interactions API (image_interaction)"
     ],
     "P01": [
-      "core:apps/learner/tests/components.test.tsx"
+      "core:apps/learner/tests/components.test.tsx",
+      "core:apps/learner/tests/demoCompanion.test.tsx"
     ],
     "P04": [
+      "core:apps/learner/tests/connected-web/companion-consent.spec.ts",
+      "core:apps/learner/tests/connected-web/companion-responsive.spec.ts",
       "core:apps/learner/tests/connected-web/companion.spec.ts",
       "core:apps/learner/tests/web/code.spec.ts",
       "core:apps/learner/tests/web/connected.spec.ts"
@@ -908,13 +919,15 @@
       "core:apps/admin/tests/gateReviews.test.tsx::shows the decision's reason and criteria in the reviewer's language",
       "core:apps/learner/tests/connectedLesson.test.tsx::return point after a detour (P12)",
       "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner",
-      "core:services/api/browser/learner.spec.ts::P12: revisiting a finished lesson"
+      "core:services/api/browser/learner-checks.spec.ts::P12: revisiting a finished lesson"
     ],
     "P13": [
-      "core:apps/learner/tests/components.test.tsx"
+      "core:apps/learner/tests/components.test.tsx",
+      "core:apps/learner/tests/demoCompanion.test.tsx"
     ],
     "P14": [
-      "core:apps/learner/tests/components.test.tsx"
+      "core:apps/learner/tests/components.test.tsx",
+      "core:apps/learner/tests/demoCompanion.test.tsx"
     ],
     "Q02": [
       "core:apps/admin/tests/real/overview-audit.real.spec.ts::overview, course-scoped access with revocation, and a privacy-preserving audit log",
@@ -1121,7 +1134,7 @@
       "core:services/api/test/visual-accessibility.test.ts"
     ],
     "T01": [
-      "core:apps/learner/tests/companion.test.tsx::shows a streaming draft labelled as unchecked, outside the live announcements",
+      "core:apps/learner/tests/companion.test.tsx::outside the live announcements",
       "core:apps/learner/tests/companionRenders.test.tsx::a companion answer re-renders the companion, not the lesson",
       "core:apps/learner/tests/connected-web/companion-network.spec.ts::the open companion pane reads on events, keeps one stream across revisions, and does not poll",
       "core:packages/providers/test/streaming.test.mjs::Anthropic stream: stream:true on the Messages body",
@@ -1216,7 +1229,7 @@
     ],
     "I01": [
       "core:apps/learner/tests/connected-web/option-tap.spec.ts::tapping an answer option always selects it",
-      "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane",
+      "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024",
       "core:apps/learner/tests/pressRightAfterRender.test.tsx::takes a press on an option the moment it is shown unlocked",
       "core:apps/learner/tests/windowClass.test.ts",
       "core:services/api/browser/press-after-render.spec.ts::a tap on an option the moment a check appears always chooses it"

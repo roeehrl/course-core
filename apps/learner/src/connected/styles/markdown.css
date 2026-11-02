@@ -1,0 +1,225 @@
+/* Markdown in lessons and the companion (MarkdownContent.tsx): code blocks, tables and display
+ * formulas that scroll sideways (CodeBlock.web.tsx, MarkdownTable.web.tsx, MathFormula.web.tsx)
+ * and the streaming caret. Colours are tokens (tokens.css). */
+
+/* Formulas (MathFormula.web.tsx): MathML drawn from the parsed TeX. */
+.math-formula math {
+  color: inherit;
+}
+.math-formula mi.is-bold {
+  font-weight: 700;
+}
+.math-formula mtable {
+  border-spacing: 0.8em 0.25em;
+}
+.math-formula mtd.is-start {
+  text-align: left;
+}
+.math-formula.is-display:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Code blocks (CodeBlock.web.tsx, final design §3.3): `--surface-2`, radius 12, a 32 px header
+ * with the language and Copy, the code left to right in its own sideways scroller. */
+.markdown-code {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  overflow: hidden;
+}
+.markdown-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-block-size: 32px;
+  padding-inline: var(--space-3) var(--space-1);
+  border-block-end: 1px solid var(--line);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.markdown-code-language {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markdown-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: max(28px, var(--target));
+  padding-block: 0;
+  padding-inline: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+  font: 600 var(--text-meta) var(--font-sans);
+  cursor: pointer;
+}
+.markdown-code-copy:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+.markdown-code-copy:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.markdown-code-body {
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  font: 400 var(--text-code) var(--font-mono);
+  white-space: pre;
+  tab-size: 2;
+}
+.markdown-code-body:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* Markdown tables (MarkdownTable.web.tsx): radius 12, a 1 px `--line` frame, the header row on
+ * `--surface-2`, text at the start and numbers at the end in tabular figures, never centred. A
+ * table wider than its column scrolls sideways, and a soft shadow at the edge shows there is more
+ * (the covers scroll with the content). */
+.markdown-table {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background:
+    linear-gradient(to right, var(--surface) 30%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 30%, transparent) right center / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--line-strong), transparent) left center / 16px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--line-strong), transparent) right center / 16px 100% no-repeat scroll,
+    var(--surface);
+}
+.markdown-table-grid {
+  min-inline-size: 100%;
+  border-collapse: collapse;
+  color: var(--ink);
+  font: 400 var(--text-button) var(--font-sans);
+}
+.markdown-table-grid th {
+  position: sticky;
+  inset-block-start: 0;
+  padding-block: var(--space-2);
+  padding-inline: 10px;
+  border-block-end: 1px solid var(--line);
+  background: var(--surface-2);
+  font: 600 var(--text-meta) var(--font-sans);
+  vertical-align: bottom;
+}
+.markdown-table-grid td {
+  padding-block: var(--space-2);
+  padding-inline: 10px;
+  vertical-align: top;
+}
+.markdown-table-grid tr + tr td {
+  border-block-start: 1px solid var(--line);
+}
+.markdown-table-grid .is-number {
+  font-variant-numeric: tabular-nums;
+}
+/* A table or display formula wider than its space (the companion pane is narrow) scrolls
+ * sideways. Then it shows a scrollbar that does not fade out and a line saying it scrolls, not
+ * only a shadow at its edge (MarkdownTable.web.tsx, MathFormula.web.tsx). */
+.markdown-wide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar,
+.math-formula.is-overflowing::-webkit-scrollbar {
+  height: 8px;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar-track,
+.math-formula.is-overflowing::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+.markdown-table.is-overflowing::-webkit-scrollbar-thumb,
+.math-formula.is-overflowing::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 4px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .markdown-table.is-overflowing,
+  .math-formula.is-overflowing {
+    scrollbar-color: var(--line-strong) var(--surface-2);
+  }
+}
+.markdown-scroll-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font: 400 var(--text-micro) var(--font-sans);
+  color: var(--ink-muted);
+}
+/* An arrow toward the hidden side: the end of the table's or formula's own direction, which can
+ * differ from the reply's (an English table in a Hebrew reply hides its end on the right). */
+.markdown-scroll-hint::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-style: solid;
+  border-color: var(--ink-muted);
+  border-width: 0 2px 2px 0;
+}
+.markdown-scroll-hint[data-toward="right"]::after {
+  transform: rotate(-45deg);
+}
+.markdown-scroll-hint[data-toward="left"]::after {
+  transform: rotate(135deg);
+}
+.markdown-table:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The streaming caret (M6): 2 × 18 px after the last character, pulsing while frames arrive and
+ * still once they stop (MarkdownContent `caret`). */
+[data-cc-caret] {
+  display: inline-block;
+  inline-size: 2px;
+  block-size: 18px;
+  margin-inline-start: 2px;
+  vertical-align: text-bottom;
+  background: var(--ink);
+}
+[data-cc-caret="live"] {
+  animation: markdown-caret var(--motion-m6-duration) var(--motion-m6-easing) infinite;
+}
+@keyframes markdown-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-cc-caret="live"] {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  [data-cc-caret] {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+  .markdown-code,
+  .markdown-table {
+    border: 1px solid CanvasText;
+  }
+}

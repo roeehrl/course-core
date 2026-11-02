@@ -1,7 +1,7 @@
 import React, { startTransition, useEffect, useId, useRef, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import { practiceRunner, type RunResult } from "./pythonRunner";
-import { Button } from "../components/ui";
+import { Icon } from "../components/icons/Icon.web";
 import { useI18n } from "../i18n";
 
 /**
@@ -68,6 +68,16 @@ export function componentResult(stdout: string, outputs: GeneratedComponent["out
   }
 }
 
+/** What the last press of "Run the model" ended in. */
+type Outcome = "none" | "updated" | "failed" | "badOutput" | "unavailable";
+
+/**
+ * The model's panel (§4.6, 18b): its values, "Run the model" (which keeps its width while Python
+ * loads and runs), a results box whose room is kept from the start, and the sandbox note, always
+ * shown. Values that do not run are said under the values, with the first one focused to change;
+ * output that looks wrong is hidden and said in the results box; a browser that cannot run models
+ * says so in place of the button. The description above the panel always has the same information.
+ */
 export function GeneratedComponentPanel({ component, loadRunner = practiceRunner }: { component: GeneratedComponent; loadRunner?: () => Promise<Runner | null> }) {
   const i18n = useI18n(),
     t = i18n.t,
@@ -75,20 +85,33 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
   const [values, setValues] = useState<Record<string, number>>(() => Object.fromEntries(component.inputs.map((i) => [i.name, i.initial])));
   const [phase, setPhase] = useState<"idle" | "loading" | "running">("idle");
   const [result, setResult] = useState<Record<string, number | string> | null>(null);
-  const [status, setStatus] = useState("");
+  const [outcome, setOutcome] = useState<Outcome>("none");
   const mounted = useRef(true);
+  const firstField = useRef<HTMLInputElement>(null);
+  const cannotRun = useRef<HTMLParagraphElement>(null);
+  /** A run found this browser cannot run models: its line takes the focus the button had. */
+  const focusCannotRun = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  const busy = phase !== "idle";
   async function run() {
-    setStatus("");
+    if (busy) return;
+    setOutcome("none");
+    setPhase("loading");
     const runner = await loadRunner().catch(() => null);
-    if (!runner) return mounted.current && setStatus(t("generatedComponent.unavailable"));
+    if (!mounted.current) return;
+    if (!runner) {
+      // The button goes; the line that replaces it takes the focus it had (once it is drawn).
+      focusCannotRun.current = true;
+      setPhase("idle");
+      setOutcome("unavailable");
+      return;
+    }
     let stdout = "";
-    setPhase("running");
     const outcome = await runner.run(componentProgram(component.source, values), null, {
       onOutput: (stream, text) => {
         if (stream === "stdout" && stdout.length < 65_536) stdout += text;
@@ -99,26 +122,37 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
     setPhase("idle");
     const parsed = outcome.status === "ok" ? componentResult(stdout, component.outputs) : null;
     setResult(parsed);
-    setStatus(outcome.status === "unavailable" ? t("generatedComponent.unavailable")
-      : outcome.status !== "ok" ? t("generatedComponent.failed")
-        : parsed ? t("generatedComponent.updated") : t("generatedComponent.badOutput"));
+    const next: Outcome = outcome.status === "unavailable" ? "unavailable" : outcome.status !== "ok" ? "failed" : parsed ? "updated" : "badOutput";
+    if (next === "unavailable") focusCannotRun.current = true;
+    setOutcome(next);
   }
-  const busy = phase !== "idle";
+  // Values that did not run: the first one is ready to change, once the values are enabled again.
+  // A browser that cannot run the model: the line takes the focus once it is on the page (never a
+  // frame timer, which a slow render can beat, leaving the focus on the page with the button gone).
+  useEffect(() => {
+    if (outcome === "failed") firstField.current?.focus();
+    if (outcome === "unavailable" && focusCannotRun.current) {
+      focusCannotRun.current = false;
+      cannotRun.current?.focus();
+    }
+  }, [outcome]);
   // Before a run, at the starting position, the verified starting values are shown instead of nothing.
   const atStart = component.inputs.every((input) => values[input.name] === input.initial);
-  const shown = result ?? (atStart && component.start ? component.start.outputs : null);
+  const shown = outcome === "badOutput" ? null : result ?? (atStart && component.start ? component.start.outputs : null);
   const value = (item: number | string | undefined) =>
     item === undefined ? t("generatedComponent.notRun") : typeof item === "number" ? i18n.number(item, { maximumFractionDigits: 6 }) : String(item);
+  const showValues = outcome !== "badOutput" && outcome !== "unavailable";
+  const bdi = { bdi: (children: React.ReactNode, key: string | number) => <bdi key={key}>{children}</bdi> };
   return (
     <section className="connected-component" aria-labelledby={`${id}-title`}>
       <h3 id={`${id}-title`}>{component.title}</h3>
-      <p className="connected-muted" id={`${id}-note`}>{t("generatedComponent.note")}</p>
       <fieldset disabled={busy}>
-        <legend>{t("generatedComponent.controls")}</legend>
-        {component.inputs.map((input) => (
+        <legend className="cc-ui-sr-only">{t("generatedComponent.controls")}</legend>
+        {component.inputs.map((input, index) => (
           <label key={input.name} className="connected-component-control">
             <span>{input.label}</span>
             <input
+              ref={index === 0 ? firstField : undefined}
               type="number"
               inputMode="decimal"
               min={input.min}
@@ -133,25 +167,56 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
           </label>
         ))}
       </fieldset>
-      <Button
-        label={phase === "loading" ? t("generatedComponent.loading") : phase === "running" ? t("generatedComponent.running") : t("generatedComponent.run")}
-        kind="primary"
-        disabled={busy}
-        describedBy={`${id}-note`}
-        onPress={() => void run()}
-      />
-      <div aria-live="polite">
-        {status && <p className="connected-muted">{status}</p>}
-        {result === null && shown && <p className="connected-muted">{t("generatedComponent.startChecked")}</p>}
-        <dl className="connected-component-results" aria-label={t("generatedComponent.results")}>
-          {component.outputs.map((output) => (
-            <div key={output.name}>
-              <dt>{output.label}</dt>
-              <dd>{shown === null ? t("generatedComponent.notRun") : value(shown[output.name])}</dd>
-            </div>
-          ))}
-        </dl>
+      {outcome === "failed" && (
+        <p className="cc-ui-status is-error cc-ai-model-line" role="alert">
+          <Icon name="alert-circle" size={16} />
+          <span>{t("generatedComponent.failed")}</span>
+          <button type="button" className="cc-ui-text-button" onClick={() => firstField.current?.focus()}>
+            {t("generatedComponent.tryOther")}
+          </button>
+        </p>
+      )}
+      {outcome === "unavailable" ? (
+        <p ref={cannotRun} className="cc-ui-status is-error cc-ai-model-line" role="alert" tabIndex={-1}>
+          <Icon name="alert-circle" size={16} />
+          <span>{t("generatedComponent.unavailable")}</span>
+        </p>
+      ) : (
+        <button
+          type="button"
+          className="cc-ui-pill cc-ui-pill-accent cc-ui-pill-40 cc-ai-model-run"
+          aria-disabled={busy || undefined}
+          aria-describedby={`${id}-note`}
+          onClick={() => void run()}
+        >
+          {busy && <span className="cc-ai-spinner" aria-hidden="true" />}
+          <span>{phase === "loading" ? i18n.rich("generatedComponent.loading", undefined, bdi) : phase === "running" ? t("generatedComponent.running") : t("generatedComponent.run")}</span>
+        </button>
+      )}
+      {/* The results' room is kept from the start, so a run never moves what follows. */}
+      <div className="cc-ai-model-results" aria-live="polite">
+        {outcome === "updated" && <p className="cc-ai-model-status">{t("generatedComponent.updated")}</p>}
+        {outcome === "badOutput" && (
+          <p className="cc-ui-status is-error">
+            <Icon name="alert-circle" size={16} />
+            <span>{t("generatedComponent.badOutput")}</span>
+          </p>
+        )}
+        {/* No values at all when the output looked wrong or the browser cannot run the model; the
+            description above has them. */}
+        {showValues && result === null && shown && <p className="cc-ai-model-status">{t("generatedComponent.startChecked")}</p>}
+        {showValues && (
+          <dl className="connected-component-results" aria-label={t("generatedComponent.results")}>
+            {component.outputs.map((output) => (
+              <div key={output.name}>
+                <dt>{output.label}</dt>
+                <dd>{shown === null ? t("generatedComponent.notRun") : value(shown[output.name])}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
       </div>
+      <p className="cc-ai-model-note" id={`${id}-note`}>{t("generatedComponent.note")}</p>
     </section>
   );
 }

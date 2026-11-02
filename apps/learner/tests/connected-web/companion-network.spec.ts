@@ -1,17 +1,22 @@
 import { expect, test, type Page } from "./health";
+import { companionPanel } from "./companion-helpers";
 
 /* With the companion open beside the lesson, the conversation is read when something happens
  * (an event on the enrollment's stream, a new course revision, the panel opening), not on a
- * timer, and one event stream serves the whole visit. The window size is set here, so the
+ * timer, and one event stream serves the whole visit; earlier pages of a long conversation are read
+ * only on request. The window size is set here, so the
  * test runs once per engine (@desktop-window). */
 
 function watchCompanion(page: Page) {
-  const seen = { streams: 0, reads: 0 };
+  const seen = { streams: 0, reads: 0, earlier: 0 };
   page.on("request", (request) => {
     if (request.method() !== "GET") return;
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url()), path = url.pathname;
     if (/^\/api\/enrollments\/[^/]+\/events\/stream$/.test(path)) seen.streams++;
-    if (/^\/api\/enrollments\/[^/]+\/companion$/.test(path)) seen.reads++;
+    // Earlier pages ("Show earlier messages") are read only when the learner asks.
+    if (!/^\/api\/enrollments\/[^/]+\/companion$/.test(path)) return;
+    if (url.searchParams.has("before")) seen.earlier++;
+    else seen.reads++;
   });
   return seen;
 }
@@ -33,7 +38,7 @@ test("the open companion pane reads on events, keeps one stream across revisions
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Your companion" })).toBeVisible();
+  await expect(companionPanel(page)).toBeVisible();
   await expect.poll(() => seen.streams).toBe(1);
 
   // Idle with the pane open: no reads at all (the pane used to read every 3 s).
@@ -54,13 +59,14 @@ test("the open companion pane reads on events, keeps one stream across revisions
   // quietly (at most one slow safety read in this window).
   await page.getByRole("radio", { name: "2", exact: true }).click();
   await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("Why is 2 the smallest?");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await page.getByRole("button", { name: "Switch to practice & send" }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Send as practice" }).click();
   await expect(page.getByText("Why is 2 the smallest?", { exact: true })).toBeVisible();
   await page.waitForTimeout(1500);
   const waiting = seen.reads;
   await page.waitForTimeout(7000);
   expect(seen.reads - waiting).toBeLessThanOrEqual(1);
   expect(seen.streams).toBe(1);
+  expect(seen.earlier).toBe(0);
   expect(errors).toEqual([]);
 });

@@ -1,0 +1,19 @@
+{
+  "state.offline": "You're offline. Your message sends when you reconnect.",
+  "state.waiting_for_you": "Waiting to send",
+  "state.building": "Preparing a reply…",
+  "state.checking": "Checking the reply…",
+  "state.still_working": "Still working on it. You can keep reading or stop it.",
+  "state.queued": "Preparing a reply…",
+  "state.unavailable": "Your companion isn't on for this course yet. You can still ask; questions are saved and answered once it's on.",
+  "state.available": "Companion",
+  "state.replying": "Companion is replying",
+  "state.paused": "Help is paused for now. Your question is saved, and course staff know.",
+  "job.held": "Waiting to send",
+  "job.checking": "Checking the reply…",
+  "job.noReply": "No reply came through.",
+  "job.partway": "The reply stopped partway.",
+  "job.removed": "This reply was removed because it didn't pass the course's checks.",
+  "job.stopped": "You stopped this reply.",
+  "job.notSent": "This question couldn't be sent. Edit it and try again."
+}

@@ -88,7 +88,7 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await editor.focus();
   await page.keyboard.press("Tab");
   await expect(
-    page.getByRole("button", { name: "Run code & check" }),
+    page.getByRole("button", { name: "Check", exact: true }),
   ).toBeFocused();
   await page.setViewportSize({ width: 834, height: 1112 });
   await expect(editor).toHaveValue(solution);
@@ -106,18 +106,22 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await page
     .getByRole("textbox", { name: "Message to your companion" })
     .fill("Help me with this code.");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Switch to practice & send" }),
+    page.getByRole("button", { name: "Send as practice" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Keep independent attempt" }).click();
+  await page.getByRole("button", { name: "Keep it counted" }).click();
   await page.getByRole("button", { name: "Close companion" }).click();
   await expect(editor).toHaveValue(solution);
-  await page.getByRole("button", { name: "Run code & check" }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  // "Check" keeps its place and says "Checking…" while the server grades.
   await expect(
-    page.getByRole("button", { name: "Checking code…" }),
+    page.getByRole("button", { name: "Checking…", exact: true }),
   ).toBeDisabled();
-  await expect(page.getByText(/grader is not configured/)).toBeVisible();
+  // The grader could not run: said in the check, under the code, with a retry; nothing is claimed.
+  const feedback = page.locator(".connected-check .connected-answer-feedback");
+  await expect(feedback).toContainText("Couldn't check your answer. Your answer is kept; try again.");
+  await expect(feedback.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
   expect(submissions).toHaveLength(1);
   expect(submissions[0]).toMatchObject({
     challengeId: "code-challenge",
@@ -144,7 +148,7 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
   await open();
   await expect(editor).toHaveValue("");
   await expect(
-    page.getByRole("button", { name: "Run code & check" }),
+    page.getByRole("button", { name: "Check", exact: true }),
   ).toBeDisabled();
   expect(errors).toEqual([]);
 });
@@ -154,7 +158,7 @@ test("unknown language cannot submit or claim success; oversized imports preserv
   const { submissions } = await codeHost(page, "javascript");
   const editor = page.getByRole("textbox", { name: "Your code" });
   await expect(
-    page.getByRole("button", { name: "Run code & check" }),
+    page.getByRole("button", { name: "Check", exact: true }),
   ).toBeDisabled();
   await expect(
     page.getByText(/exercise uses an unsupported language/),

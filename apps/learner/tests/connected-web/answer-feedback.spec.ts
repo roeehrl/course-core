@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./health";
+import { closeCompanion } from "./companion-helpers";
 import enHost from "../../src/i18n/messages/en/connectedHost.json";
 import heHost from "../../src/i18n/messages/he/connectedHost.json";
 import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
@@ -7,14 +8,19 @@ import enRoadmap from "../../src/i18n/messages/en/courseRoadmap.json";
 import heRoadmap from "../../src/i18n/messages/he/courseRoadmap.json";
 import enLesson from "../../src/i18n/messages/en/connectedLesson.json";
 import heLesson from "../../src/i18n/messages/he/connectedLesson.json";
+import enCheck from "../../src/i18n/messages/en/checkCard.json";
+import heCheck from "../../src/i18n/messages/he/checkCard.json";
+import enFeedback from "../../src/i18n/messages/en/answerFeedback.json";
+import heFeedback from "../../src/i18n/messages/he/answerFeedback.json";
 
-// The result of "Check answer" shows in the check, beside the answer just given, and is in the
-// window afterwards at every size (on a phone the notice above the lesson was out of sight); it is
-// announced through a live region that was already on the page. The sticky answer bar is opaque,
-// so lesson text scrolling under it never shows through.
+// The result of "Check" shows in place under the question and the answer just given (§4.1): a
+// verdict line, then the explanation. It is in the window afterwards at every size (on a phone the
+// notice above the lesson was out of sight) and announced once, through the check's own status
+// region, which was already on the page. The sticky answer bar is opaque, so lesson text scrolling
+// under it never shows through.
 const text = {
-  en: { host: enHost, preview: enPreview, roadmap: enRoadmap, lesson: enLesson },
-  he: { host: heHost, preview: hePreview, roadmap: heRoadmap, lesson: heLesson },
+  en: { host: enHost, preview: enPreview, roadmap: enRoadmap, lesson: enLesson, check: enCheck, feedback: enFeedback },
+  he: { host: heHost, preview: hePreview, roadmap: heRoadmap, lesson: heLesson, check: heCheck, feedback: heFeedback },
 } as const;
 type Locale = keyof typeof text;
 
@@ -30,12 +36,12 @@ async function openCheck(page: Page, locale: Locale) {
   await page.getByRole("button", { name: t.preview.start, exact: true }).click();
   await page.getByRole("button", { name: t.roadmap["next.startCourse"], exact: true }).click();
   await page.getByRole("button", { name: t.lesson.markRead, exact: true }).click();
-  await page.getByRole("button", { name: t.lesson["check.start"], exact: true }).click();
+  await page.getByRole("button", { name: t.check["check.start"], exact: true }).click();
   await expect(page.getByRole("radio", { name: "2", exact: true })).toBeVisible();
 }
 
 for (const locale of ["en", "he"] as const) {
-  test(`the result of Check answer is in the window beside the check and announced (${locale})`, async ({ page }) => {
+  test(`the result of Check is in the window beside the check and announced (${locale})`, async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await openCheck(page, locale);
@@ -44,19 +50,24 @@ for (const locale of ["en", "he"] as const) {
     await expect(region).toHaveAttribute("role", "status");
     await expect(region).toHaveText("");
     await page.getByRole("radio", { name: "2", exact: true }).click();
-    const check = page.getByRole("button", { name: text[locale].lesson["answer.check"], exact: true });
+    const check = page.getByRole("button", { name: text[locale].check["answer.check"], exact: true });
     // The learner is at the answer actions, as after reading the question to its end.
     await check.scrollIntoViewIfNeeded();
     await check.click();
-    await expect(region).toContainText("2 is below 5.");
+    // The verdict line, then the explanation on its own line, under the question.
+    await expect(region.locator(".cc-check-verdict")).toHaveText(text[locale].feedback["verdict.correct"]);
+    await expect(region.locator(".cc-check-explanation")).toHaveText("2 is below 5.");
+    expect(await page.getByText("Which is smaller?", { exact: true }).evaluate((prompt, slot) =>
+      Boolean(prompt.compareDocumentPosition(slot!) & Node.DOCUMENT_POSITION_FOLLOWING), await region.elementHandle())).toBe(true);
     await expect(region).toBeInViewport({ ratio: 1 });
-    // It is not also shown above the lesson.
+    // It is not also shown above the lesson, and one live region says it.
     await expect(page.getByText(/2 is below 5\./)).toHaveCount(1);
+    await expect(page.locator('[role="status"], [role="alert"], [aria-live]').filter({ hasText: "2 is below 5." })).toHaveCount(1);
     // The check's heading, right above it, is in view too and has focus.
     await expect(page.locator("#connected-check-title")).toBeFocused();
     await expect(page.locator("#connected-check-title")).toBeInViewport();
     // Starting the next check clears it, and the next result fills the same region.
-    await page.getByRole("button", { name: text[locale].lesson["check.start"], exact: true }).click();
+    await page.getByRole("button", { name: text[locale].check["check.start"], exact: true }).click();
     await expect(region).toHaveText("");
     expect(errors).toEqual([]);
   });
@@ -74,8 +85,10 @@ test("the sticky answer bar is opaque: lesson text under it never shows through"
   expect(style.opacity).toBe("1");
   // rgb(...) is opaque; rgba(..., a) and color(... / a) carry an alpha below 1.
   expect(style.background).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
-  // The reading folds away, so a tall window can hold the whole check; a short one makes the bar stick.
-  await page.setViewportSize({ width: page.viewportSize()!.width, height: 480 });
+  // The reading folds away, so a tall window can hold the whole check; a short one makes the bar
+  // stick. The companion is closed first: open, it would stay open as the short window's sheet.
+  await closeCompanion(page);
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 470 });
   // The layout settles after the resize; scroll only once the lesson column scrolls on its own.
   await expect
     .poll(() => page.locator(".connected-main").evaluate((el) => el.scrollHeight > el.clientHeight + 1))

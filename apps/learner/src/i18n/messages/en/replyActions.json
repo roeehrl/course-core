@@ -1,0 +1,12 @@
+{
+  "group": "Message actions",
+  "copy": "Copy",
+  "copied": "Copied",
+  "thanks": "Thanks, noted.",
+  "tryQuestion": "Try question {number, number}",
+  "backToPart": "Back to Part {number, number}",
+  "excluded": "Not used in later answers",
+  "time.yesterday": "Yesterday {time}",
+  "time.other": "{date} {time}",
+  "error.correct": "That change wasn't saved. Refresh and try again."
+}

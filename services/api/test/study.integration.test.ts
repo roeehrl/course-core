@@ -96,6 +96,11 @@ async function dispositionOf(bridge: ReturnType<typeof createPostgresSupervisorB
 }
 
 let testDatabase: TestDatabase | undefined;
+/** Each test here makes several round trips to its own Postgres copy: well under a second on
+ * an idle machine, several on a saturated one, where vitest's 5 s default cut them off. Like the
+ * other database suites, they get room for that; a test that hangs still fails. */
+const databaseTests = { timeout: 30_000 };
+
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
@@ -138,7 +143,7 @@ describe("allocation", () => {
   });
 });
 
-describe("study administration", () => {
+describe("study administration", databaseTests, () => {
   it("role matrix: owners and admins manage and export; instructors and reviewers read aggregates; others nothing", async () => {
     for (const who of [instructor, reviewer, observer]) expect((await call(who, "POST", `/api/admin/courses/${course}/studies`, definition())).statusCode).toBe(403);
     const draft = (await ok(call(admin, "POST", `/api/admin/courses/${course}/studies`, definition()))).study;
@@ -197,7 +202,7 @@ describe("study administration", () => {
   });
 });
 
-describe("consent and arms", () => {
+describe("consent and arms", databaseTests, () => {
   it("consent is explicit, separate from enrollment and learner-only", async () => {
     const learner = await learnerOf();
     expect(await studyView(learner)).toMatchObject({ study: null, participation: null });
@@ -350,7 +355,7 @@ describe("consent and arms", () => {
   });
 });
 
-describe("research export", () => {
+describe("research export", databaseTests, () => {
   it("is pseudonymous: arm, instrument scores, timings and completion only; never names, emails, free text or chat", async () => {
     const study = await createStudy();
     const canary = "CANARY-" + randomUUID();

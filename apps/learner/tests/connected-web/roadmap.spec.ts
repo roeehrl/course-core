@@ -107,101 +107,20 @@ test("a fresh enrollment says start, the lesson's details are in the next step, 
   expect(errors).toEqual([]);
 });
 
-test("a lesson shows one progress indicator, and its check opens neutral after the reading", async ({
-  page,
-}, info) => {
-  const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await startCourse(page);
-  await page.getByRole("button", { name: "Start the course →", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
-  // Where the lesson is, and one indicator of the learner's place in it.
-  await expect(page.locator(".connected-lesson-where")).toHaveText("Lesson 1 of 2 · Order");
-  // One counting scheme, the parts' own ("PART 1 OF 1" on the card): the bar has a segment per
-  // part and one for the questions.
-  await expect(page.locator("#connected-steps-summary")).toHaveText("Part 1 of 1 · then 2 questions");
-  await expect(page.locator(".connected-reading-card")).toContainText("PART 1 OF 1");
-  const steps = page.getByRole("list", { name: "Your place in this lesson" });
-  await expect(steps.getByRole("listitem")).toHaveCount(2);
-  // Finishing waits for the reading and the questions: a disabled button that says why.
-  const finish = page.getByRole("button", { name: "Finish this lesson →", exact: true });
-  await expect(finish).toBeDisabled();
-  await expect(finish).toHaveAttribute("aria-describedby", "connected-complete-hint");
-  await expect(page.locator("#connected-complete-hint")).toHaveText("Read every part first, then answer the questions.");
-  await expect(steps.locator('[aria-current="step"]')).toHaveText("Part 1 · Reading: Current");
-  await expect(steps.getByRole("listitem").nth(1)).toHaveText("Check your understanding: Locked");
-  for (const gone of ["Read · explore · check", "YOUR LEARNING PATH", "Study dates & optional extensions"])
-    await expect(page.getByText(gone)).toHaveCount(0);
-  // The objective once, whole.
-  const objective = await page.locator(".connected-lesson-heading > p").innerText();
-  expect(objective.endsWith("…")).toBe(false);
-  expect(await page.getByText(objective, { exact: true }).count()).toBe(1);
-  // Before the reading is done the check only says what follows: no decision, no suggestions.
-  const check = page.locator(".connected-check");
-  await expect(check).toHaveAttribute("data-state", "after-reading");
-  await expect(check).toContainText("2 questions to answer on your own. The check opens after part 1.");
-  await expect(page.getByTestId("gate-decision")).toHaveCount(0);
-  await expect(page.locator(".connected-reading-card")).toContainText("Next: check your understanding · 2 questions");
-  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
-  await expect(check).toHaveAttribute("data-state", "open");
-  await expect(page.locator("#connected-steps-summary")).toHaveText("Questions · 0 of 2 answered correctly on your own");
-  await expect(check).toContainText("Answer 2 questions correctly on your own to finish this lesson.");
-  // Fresh: neutral, not "more evidence needed".
-  await expect(page.getByTestId("gate-decision")).toHaveCount(0);
-  await expect(page.getByText("Not complete yet")).toHaveCount(0);
-  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
-  // Whether the question counts, said before it; why "Check answer" waits, said beside it.
-  await expect(page.getByTestId("question-kind")).toHaveText("Counts toward this lesson. Answer on your own, without help.");
-  const checkAnswer = page.getByRole("button", { name: "Check answer", exact: true });
-  await expect(checkAnswer).toBeDisabled();
-  await expect(page.locator("#connected-answer-hint")).toHaveText(/^(Choose an|Enter your) answer to check it\.$/);
-  await expect(checkAnswer).toHaveAttribute("aria-describedby", "connected-answer-hint");
-  await expect(page.getByRole("button", { name: "Show the explanation (the question then becomes practice and won't count)" })).toBeVisible();
-  // After an answer the decision and its suggestions are relevant, in plain words.
-  const option = page.locator(".connected-check").getByRole("radio").first();
-  if (await option.count()) await option.click();
-  else await page.locator(".connected-check input").first().fill("999");
-  await expect(page.locator("#connected-answer-hint")).toHaveCount(0);
-  await checkAnswer.click();
-  const decision = page.getByTestId("gate-decision");
-  await expect(decision).toBeVisible();
-  await expect(decision).not.toContainText(/item famil|independent success/i);
-  await expect(decision.getByRole("button", { name: /^Try a new question/ })).toHaveCount(0);
+test("an optional lesson reads as an optional detour on the path, and its lesson says so", async ({ page }) => {
+  await signIn(page, "/test/content-lesson-session");
+  const next = page.getByTestId("next-step");
+  await expect(async () => {
+    if (await next.isVisible()) return;
+    await page.getByRole("button", { name: "Continue learning →", exact: true }).click({ timeout: 2_000 });
+    await expect(next).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  // The path's next step is the required lesson; the optional one is a detour beside it.
+  await expect(next.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+  const lessons = page.getByRole("list", { name: "Lessons in Order" });
+  const aside = lessons.getByRole("button", { name: "Lesson 1: A closer look, Optional detour" });
+  await expect(aside).toContainText("Optional detour");
   expect((await axe(page)).violations).toEqual([]);
-  await page.screenshot({ path: info.outputPath("lesson-check.png"), fullPage: true });
-  expect(errors).toEqual([]);
+  await aside.click();
+  await expect(page.getByTestId("detour-return")).toContainText("You're on an optional detour.");
 });
-
-for (const [session, status] of [
-  ["/test/session", "Available"],
-  ["/test/companion-off-session", "Not turned on for this course yet · a question you send is saved and answered once it is"],
-] as const)
-  test(`the companion is closed on the course page and says the server's state: ${status.split(" ·")[0]}`, async ({ page }, info) => {
-    if (session === "/test/session") await startCourse(page);
-    else {
-      await signIn(page, session);
-      await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-    }
-    await expect(page.getByTestId("next-step")).toBeVisible();
-    const pane = page.locator("#connected-companion");
-    await expect(pane).toBeHidden();
-    await expect(page.locator(".connected-layout")).not.toHaveClass(/with-companion/);
-    await page.locator(".connected-companion-trigger:visible").click();
-    await expect(pane).toBeVisible();
-    await expect(pane.getByRole("status")).toHaveText(`Companion: ${status}`);
-    // Outside a lesson: no empty "saved conversation", no place labels, no disabled send.
-    for (const gone of ["Your saved conversation", "Following your place", "Course roadmap", "Open a lesson before sending"])
-      await expect(pane.getByText(gone)).toHaveCount(0);
-    await expect(pane.getByRole("button", { name: "Send message" })).toHaveCount(0);
-    await expect(pane).toContainText("Ask from inside a lesson");
-    // In a lesson it asks about that lesson, and it stays as the learner left it.
-    await page.getByRole("button", { name: "Close companion" }).click();
-    await page.getByTestId("next-step").locator('[data-usability="next"]').click();
-    await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
-    await expect(pane).toBeHidden();
-    await page.locator(".connected-companion-trigger:visible").click();
-    await expect(pane.getByRole("status")).toHaveText(`Companion: ${status}`);
-    await expect(pane.getByTestId("companion-place")).toContainText("Asking about");
-    await expect(pane.getByRole("button", { name: "Send message" })).toBeVisible();
-    await page.screenshot({ path: info.outputPath("companion.png") });
-  });

@@ -44,6 +44,14 @@ async function command(action: string, body: Record<string, unknown>) {
   expect(r.statusCode, action + " " + r.body).toBe(200);
   return r.json();
 }
+/** A stored reply to the learner's question, which they mark Not helpful with a comment and report. */
+async function replyFeedback() {
+  const job = randomUUID(), reply = randomUUID();
+  await db.query("INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES($1,$2,$3,$4,'companion','applied',1,'{}'::jsonb)",
+    [job, enrollment, workspace, "lifecycle-" + job]);
+  await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES($1,$2,'assistant','Because nothing is smaller.','{}'::jsonb,$3)", [reply, enrollment, job]);
+  await command(`companion/messages/${reply}/feedback`, { vote: "not_helpful", comment: "My feedback " + canary, report: true });
+}
 /** Every row of every application table, as text, that still contains the canary. */
 const canaryHits = () => tablesContaining(db, canary);
 const erase = (who: Session, body: Record<string, unknown> = {}) =>
@@ -84,6 +92,7 @@ afterAll(async () => {
 
 describe("learner data export and erasure", () => {
   it("exports a learner's own complete record without grading keys, to them or an owner only", async () => {
+    await replyFeedback();
     const r = await call(learner, "GET", `/api/enrollments/${enrollment}/export`);
     expect(r.statusCode, r.body).toBe(200);
     expect(r.headers["content-disposition"]).toContain(`enrollment-${enrollment}.json`);
@@ -91,6 +100,7 @@ describe("learner data export and erasure", () => {
     expect(doc).toMatchObject({ format: "course-core.enrollment-export", formatVersion: 1 });
     expect(doc.enrollment.profile.goal).toContain(canary);
     expect(doc.companion.items.some((m: { content: string }) => m.content.includes(canary))).toBe(true);
+    expect(doc.companionFeedback.items).toEqual([expect.objectContaining({ vote: "not_helpful", comment: "My feedback " + canary, reported: true })]);
     expect(doc.attempts.items).toHaveLength(1);
     expect(doc.attempts.items[0].response).toBe(4);
     expect(doc.evidence.items.length).toBeGreaterThan(0);
@@ -101,8 +111,8 @@ describe("learner data export and erasure", () => {
     const byOwner = await call(owner, "GET", `/api/enrollments/${enrollment}/export`);
     expect(byOwner.statusCode).toBe(200);
     // Through either path, a staff copy leaves out the companion conversation and the learner model.
-    expect(byOwner.json()).toMatchObject({ audience: "staff", companion: null, learnerModel: null });
-    for (const marker of ["Why does the minimum work? ", "Model goal ", "I think I know this ", "Thoughts "]) {
+    expect(byOwner.json()).toMatchObject({ audience: "staff", companion: null, companionFeedback: null, learnerModel: null });
+    for (const marker of ["Why does the minimum work? ", "My feedback ", "Model goal ", "I think I know this ", "Thoughts "]) {
       expect(r.body).toContain(marker + canary);
       expect(byOwner.body).not.toContain(marker + canary);
     }
@@ -113,6 +123,7 @@ describe("learner data export and erasure", () => {
   });
 
   it("erases personal content everywhere, keeps an auditable skeleton and blocks further use", async () => {
+    await replyFeedback();
     expect((await canaryHits()).length).toBeGreaterThan(0);
     expect((await erase(learner, { confirmation: "ERASE" })).json().error).toBe("ERASURE_CONFIRMATION_REQUIRED");
     expect((await erase(await session("instructor"))).statusCode).toBe(404);
@@ -120,6 +131,7 @@ describe("learner data export and erasure", () => {
     expect(erased.statusCode, erased.body).toBe(200);
     expect(erased.json()).toMatchObject({ status: "erased", replayed: false });
     expect(erased.json().counts.companionMessages).toBeGreaterThan(0);
+    expect(erased.json().counts.companionReplyFeedback).toBe(1);
     expect(erased.json().counts.attempts).toBe(1);
     // No table anywhere still holds the learner's private text.
     expect(await canaryHits()).toEqual([]);

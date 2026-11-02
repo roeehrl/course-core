@@ -1,0 +1,18 @@
+{
+  "announce.replied": "Companion replied: {text}",
+  "announce.repliedLong": "Companion replied. Use heading navigation to read it.",
+  "announce.replying": "Companion is replying",
+  "announce.slow": "Still working on it. You can keep reading or stop it.",
+  "announce.stalled": "The reply may not finish. You can ask again.",
+  "announce.offline": "Connection lost. The reply continues when you're back online.",
+  "announce.stopped": "Reply stopped",
+  "announce.stopFailed": "Couldn't stop the reply. Try again, or delete the question.",
+  "announce.ended": "Couldn't reply. You can ask again.",
+  "announce.cancelled": "Question cancelled. Your text is back in the box.",
+  "announce.held": "Waiting to send",
+  "announce.backOnline": "Back online. Sending your question.",
+  "announce.notSent": "This question couldn't be sent. Edit it and try again.",
+  "announce.sendFailed": "Couldn't send. Your text is back in the box.",
+  "announce.unconfirmed": "We couldn't confirm your message was saved. Check the conversation before sending it again.",
+  "announce.canAskAgain": "You can ask again"
+}

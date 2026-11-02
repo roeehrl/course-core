@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ANSWER_MESSAGE_CODES, CODE_LIMITS, answerMessage } from '../src/answer-messages.js';
 import { SKILL_STATES, skillStateExplanation } from '../src/learner-model.js';
+import { WORDED_PRACTICE_REASONS } from '../src/learner-snapshot.js';
 
 // The API sends learner-facing reasons as codes, never sentences (docs/i18n.md). The 0.1.56
 // qualification found the learner model's English skill-state reason on the Hebrew profile. Each
@@ -16,6 +17,8 @@ describe('learner codes have learner-app messages in every locale', () => {
   const cases: [string, string, readonly string[], (code: string) => string][] = [
     ['skill-state reasons', 'learnerMemoryPanel', SKILL_STATES, (c) => `why.${c}`],
     ['answer feedback', 'answerFeedback', ANSWER_MESSAGE_CODES, (c) => `message.${c}`],
+    // Why a question is practice: the check's reason line (a fresh question has none).
+    ['practice reasons', 'kindLine', WORDED_PRACTICE_REASONS, (c) => `reason.${c}`],
   ];
   for (const [name, namespace, codes, key] of cases)
     it(name, () => {

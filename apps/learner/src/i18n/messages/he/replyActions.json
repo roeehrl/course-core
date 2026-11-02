@@ -1,0 +1,12 @@
+{
+  "group": "פעולות להודעה",
+  "copy": "העתקה",
+  "copied": "הועתק",
+  "thanks": "תודה, נרשם.",
+  "tryQuestion": "לנסות את שאלה {number, number}",
+  "backToPart": "חזרה לחלק {number, number}",
+  "excluded": "לא בשימוש בתשובות הבאות",
+  "time.yesterday": "אתמול {time}",
+  "time.other": "{date} {time}",
+  "error.correct": "השינוי לא נשמר. אפשר לרענן ולנסות שוב."
+}

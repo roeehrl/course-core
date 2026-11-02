@@ -1,0 +1,101 @@
+/* Asking the companion from the lesson (connected/companion/AskFromLesson.web.tsx). Rules use
+ * the cc-ask- prefix. */
+
+/* The floating "Ask companion" button beside a selection (final design §3.9, M18): 32 px (44
+ * coarse), the menu shadow, sparkle 16 + 6 + label. Placed by script in window coordinates. */
+.cc-ask-float {
+  position: fixed;
+  z-index: 1050;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-block-size: max(32px, var(--target));
+  margin: 0;
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  animation: cc-ask-appear var(--motion-m18-duration) var(--motion-m18-easing);
+}
+.cc-ask-float:hover {
+  background: var(--surface-2);
+}
+.cc-ask-float:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+@keyframes cc-ask-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The outline pills under a video and an illustration: sparkle 16 + 6 + label. */
+.cc-ask-pill {
+  gap: 6px;
+  padding-inline: var(--space-3) 14px;
+}
+
+/* Under a loaded video player: "Ask about this moment" at the toolbar's inline end. */
+.cc-ask-media-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-block-size: 44px;
+}
+
+/* "Ask about this part" and its menu, titled "Which part?", with 44 px rows. */
+.cc-ask-part {
+  align-self: flex-start;
+  max-inline-size: 100%;
+}
+/* In the page body, placed by script under the pill (the lesson's parts paint over their insides). */
+.cc-ask-part-menu {
+  position: fixed;
+  inset: auto;
+  inline-size: max-content;
+  min-inline-size: 220px;
+  max-inline-size: min(320px, calc(100vw - 32px));
+}
+.cc-ask-part-title {
+  box-sizing: border-box;
+  min-block-size: 24px;
+  padding-block: var(--space-1) 0;
+  padding-inline: var(--space-3);
+  color: var(--ink-muted);
+  font: 600 var(--text-meta) var(--font-sans);
+}
+.cc-ask-part-item {
+  justify-content: space-between;
+  min-block-size: 44px;
+  font: 400 var(--text-button) var(--font-sans);
+}
+/* The focus ring stays inside the menu's edge. */
+.cc-ask-part-item:focus-visible {
+  outline-offset: -2px;
+}
+.cc-ask-part-item > span {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  .cc-ask-float {
+    border-color: CanvasText;
+  }
+  .cc-ask-part-item[aria-checked="true"] {
+    outline: 1px solid CanvasText;
+  }
+}

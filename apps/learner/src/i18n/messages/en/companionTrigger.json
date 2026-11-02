@@ -1,0 +1,6 @@
+{
+  "name": "Companion",
+  "unread": "{count, plural, one {Companion, 1 new reply} other {Companion, # new replies}}",
+  "suggestion": "Companion, a suggestion to review",
+  "tooltip": "Companion ({keys})"
+}

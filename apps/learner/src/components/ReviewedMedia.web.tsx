@@ -4,6 +4,10 @@ import { mediaAvailability } from "../connected/resources";
 import { YouTubePlayer } from "./YouTubePlayer.web";
 import type { ReviewedMediaProps } from "./ReviewedMedia";
 import { companionFocus } from "../client/companionFocus";
+import { companionBridge, useCompanionAvailable } from "../connected/companion/bridge";
+import { focusAfterAsk } from "../connected/companion/selectionAttach";
+import { Icon } from "./icons/Icon.web";
+import { useCoarsePointer } from "../connected/ui/media";
 import { useT } from "../i18n";
 export function ReviewedMedia({
   media,
@@ -13,6 +17,8 @@ export function ReviewedMedia({
   companionAvailable = true,
 }: ReviewedMediaProps) {
   const t = useT();
+  const offered = useCompanionAvailable() && companionAvailable;
+  const coarse = useCoarsePointer();
   const [loadedKey, setLoadedKey] = useState(""),
     [position, setPosition] = useState<() => number | undefined>();
   const status = mediaAvailability(media, accessClosed, now, required, t);
@@ -53,23 +59,30 @@ export function ReviewedMedia({
           <span className="connected-sr">{t("reviewedMedia.newTab")}</span>
         </a>
       )}
-      {media && companionAvailable && (
-        <button
-          type="button"
-          className="connected-button"
-          onClick={() => {
-            const seconds = position?.();
-            companionFocus.setMedia({
-              mediaId: media.id,
-              label: t("reviewedMedia.video"),
-              ...(seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
-                ? { playbackSeconds: Math.round(seconds * 10) / 10 }
-                : {}),
-            });
-          }}
-        >
-          {position ? t("reviewedMedia.askAtPoint") : t("reviewedMedia.ask")}
-        </button>
+      {/* Under a loaded player: asking about the moment it is at. */}
+      {media && offered && status.videoId && status.canLoad && loadedKey === key && (
+        <div className="cc-ask-media-bar">
+          <button
+            type="button"
+            className="cc-ui-pill cc-ui-pill-outline cc-ui-pill-36 cc-ask-pill"
+            onClick={(event) => {
+              // The moment the player is at goes with the next message, and the companion opens.
+              const seconds = position?.();
+              const player = event.currentTarget.parentElement?.parentElement ?? null;
+              companionFocus.setMedia({
+                mediaId: media.id,
+                label: t("reviewedMedia.video"),
+                ...(seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
+                  ? { playbackSeconds: Math.round(seconds * 10) / 10 }
+                  : {}),
+              }, player);
+              companionBridge.compose({ source: "video", focus: focusAfterAsk(event, coarse) });
+            }}
+          >
+            <Icon name="sparkle" size={16} />
+            <span>{t("reviewedMedia.askMoment")}</span>
+          </button>
+        </div>
       )}
       <div className="connected-media-text">
         <h3>{t("reviewedMedia.alternative")}</h3>
