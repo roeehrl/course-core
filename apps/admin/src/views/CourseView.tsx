@@ -148,39 +148,41 @@ export function CourseView({
         className="card course-header"
         aria-labelledby="course-header-title"
       >
-        <div className="course-header-main">
-          <h2 id="course-header-title" dir="auto">
-            {data.course.title}
-          </h2>
-          {data.course.description && (
-            <p className="course-header-description" dir="auto">
-              {data.course.description}
-            </p>
-          )}
-          <div className="tag-row">
-            {activeRelease ? (
-              <Badge tone="green">
-                {t("courseView.header.live", {
-                  version: activeRelease.version,
-                })}
-              </Badge>
-            ) : (
-              <Badge tone="gold">{t("courseView.header.noLive")}</Badge>
+        <div className="course-header-row">
+          <div className="course-header-main">
+            <h2 id="course-header-title" dir="auto">
+              {data.course.title}
+            </h2>
+            {data.course.description && (
+              <p className="course-header-description" dir="auto">
+                {data.course.description}
+              </p>
             )}
-            {awaitingReview > 0 && (
-              <Badge tone="gold">
-                {t("courseView.header.awaiting", { count: awaitingReview })}
-              </Badge>
-            )}
+            <div className="tag-row">
+              {activeRelease ? (
+                <Badge tone="green">
+                  {t("courseView.header.live", {
+                    version: activeRelease.version,
+                  })}
+                </Badge>
+              ) : (
+                <Badge tone="gold">{t("courseView.header.noLive")}</Badge>
+              )}
+              {awaitingReview > 0 && (
+                <Badge tone="gold">
+                  {t("courseView.header.awaiting", { count: awaitingReview })}
+                </Badge>
+              )}
+            </div>
           </div>
+          <Button
+            onClick={() => open("details")}
+            disabled={!canWrite || actions.pending}
+          >
+            <Pencil size={16} aria-hidden="true" />
+            {t("courseView.editDetails")}
+          </Button>
         </div>
-        <Button
-          onClick={() => open("details")}
-          disabled={!canWrite || actions.pending}
-        >
-          <Pencil size={16} aria-hidden="true" />
-          {t("courseView.editDetails")}
-        </Button>
       </section>
       <nav className="section-nav" aria-label={t("courseView.sections.label")}>
         <ol>
