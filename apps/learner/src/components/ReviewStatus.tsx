@@ -1,6 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { isAbortError } from "../client/apiClient";
-import { useT, type MessageKey } from "../i18n";
+import { Icon } from "./icons/Icon";
+import type { IconName } from "./icons/icons";
+import { LongAnswerComposer } from "../connected/ui/LongAnswerComposer";
+import { StatusLine } from "../connected/ui/StatusLine";
+import { Tag } from "../connected/ui/Tag";
+import { useI18n, useT, type MessageKey } from "../i18n";
+
+const STATUS_ICONS: Record<WrittenReview["status"], IconName> = {
+  pending_review: "clock",
+  met: "check",
+  not_met: "rotate-ccw",
+  needs_clarification: "quote",
+};
 
 export interface WrittenReview {
   attemptId: string;
@@ -34,7 +46,8 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
   /** Only open conversations: a request awaiting the learner's reply, or a reply awaiting review. */
   openOnly?: boolean; title?: string; className?: string; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal;
 }) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   const title = titleProp ?? t("reviewStatus.title");
   const [items, setItems] = useState<WrittenReview[]>([]);
   useEffect(() => {
@@ -46,26 +59,32 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
     return () => controller.abort();
   }, [loader, enrollmentId, episodeId, placementOnly, openOnly, revision]);
   if (!items.length) return null;
+  // A person's note, even one that grew from an AI draft only staff saw: no AI badge (§4.14).
+  const reviewerNote = (note: string) =>
+    i18n.rich("reviewStatus.reviewerNote", { note }, { strong: (children, key) => <strong key={key}>{children as React.ReactNode}</strong> }) as React.ReactNode;
+  const chip = (item: WrittenReview) => {
+    const automatic = item.status === "met" && item.confirmedBy === "automatic_check";
+    const key: MessageKey = automatic ? "reviewStatus.status.automaticMet" : (`reviewStatus.status.${item.status}` as MessageKey);
+    return <Tag className="cc-prof-chip" icon={automatic ? "shield-check" : STATUS_ICONS[item.status]} label={t(key)} />;
+  };
   return (
     <section className={className ? `connected-reviews ${className}` : "connected-reviews"} aria-label={title}>
       <h3>{title}</h3>
-      <ul>
+      <ul className="cc-prof-reviews">
         {items.map((item) => (
           <li key={item.attemptId}>
-            <strong>
-              {(() => {
-                const status = t(
-                  item.status === "met" && item.confirmedBy === "automatic_check"
-                    ? "reviewStatus.status.automaticMet"
-                    : (`reviewStatus.status.${item.status}` as MessageKey),
-                );
-                return item.continuesAttemptId ? t("reviewStatus.replyStatus", { status }) : status;
-              })()}
-            </strong>
+            <p className="cc-prof-review-status">
+              {item.continuesAttemptId && <span className="cc-prof-detail">{t("reviewStatus.replyStatus")}</span>}
+              {chip(item)}
+            </p>
             {item.status === "met" && item.confirmedBy === "automatic_check" && (
-              <p className="connected-muted">{t("reviewStatus.automaticCheck")}</p>
+              <p className="cc-prof-detail">{t("reviewStatus.automaticCheck")}</p>
             )}
-            {item.learnerNote && <p>{t("reviewStatus.reviewerNote", { note: item.learnerNote })}</p>}
+            {item.learnerNote && (
+              <p className="cc-prof-note">
+                {reviewerNote(item.learnerNote)}
+              </p>
+            )}
             {item.canReply && onReply && <ReplyBox attemptId={item.attemptId} onReply={onReply} />}
             {item.appeal && (
               <p>
@@ -76,7 +95,12 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
                       ? "reviewStatus.appeal.changed"
                       : "reviewStatus.appeal.upheld",
                 )}
-                {item.appeal.note && <> {t("reviewStatus.reviewerNote", { note: item.appeal.note })}</>}
+                {item.appeal.note && (
+                  <>
+                    {" "}
+                    {reviewerNote(item.appeal.note)}
+                  </>
+                )}
               </p>
             )}
             {item.regrade && (
@@ -85,13 +109,16 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
             {item.canAppeal && onAppeal && <AppealBox attemptId={item.attemptId} onAppeal={onAppeal} />}
             {/* A clarification request shows only the reviewer's note and the reply box. */}
             {(item.status === "met" || item.status === "not_met") && (
-              <ul>
+              <ul className="cc-prof-criteria" aria-label={t("reviewStatus.criteria")}>
                 {item.criteria.map((c) => (
                   <li key={c.id}>
-                    {c.met ? "✓" : "○"}{" "}
-                    <bdi>{c.description}</bdi>
-                    {c.quote && <span> — <q dir="auto">{c.quote}</q></span>}
-                    {c.note && <span className="connected-muted"> — <bdi>{c.note}</bdi></span>}
+                    <Icon name={c.met ? "check" : "x"} size={16} />
+                    <span className="cc-ui-sr-only">{t(c.met ? "reviewStatus.criterion.met" : "reviewStatus.criterion.notMet")}</span>
+                    <span>
+                      <bdi>{c.description}</bdi>
+                      {c.quote && <span> — <q dir="auto">{c.quote}</q></span>}
+                      {c.note && <span className="connected-muted"> — <bdi>{c.note}</bdi></span>}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -103,36 +130,41 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
   );
 }
 
-/** Answer the reviewer's question in your own words. The reply is reviewed with
- * your earlier answer; it is not graded automatically. */
+/** Answer the reviewer's question in your own words, in the long-answer composer (Enter adds a
+ * line, Cmd/Ctrl+Enter sends). The reply is reviewed with your earlier answer; it is not graded
+ * automatically. */
 function ReplyBox({ attemptId, onReply }: { attemptId: string; onReply: ReviewReply }) {
   const t = useT();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const id = "reply-" + attemptId;
+  async function send() {
+    setBusy(true);
+    setError("");
+    try {
+      await onReply(attemptId, text.trim());
+      setText("");
+    } catch {
+      setError(t("reviewStatus.reply.error"));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <form
-      className="connected-reply"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        setError("");
-        try {
-          await onReply(attemptId, text.trim());
-          setText("");
-        } catch {
-          setError(t("reviewStatus.reply.error"));
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <label htmlFor={id}>{t("reviewStatus.reply.label")}</label>
-      <textarea id={id} rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
-      <button type="submit" disabled={busy || text.trim().length < 20}>{t("reviewStatus.reply.submit")}</button>
-      {error && <p role="alert">{error}</p>}
-    </form>
+    <div className="connected-reply">
+      <LongAnswerComposer
+        id={"reply-" + attemptId}
+        className="cc-prof-composer"
+        label={t("reviewStatus.reply.label")}
+        placeholder={t("reviewStatus.reply.placeholder")}
+        value={text}
+        onChange={(value) => setText(value.slice(0, 8000))}
+        busy={busy}
+        submitLabel={t("reviewStatus.reply.submit")}
+        onSubmit={() => void send()}
+      />
+      {error && <div role="alert"><StatusLine tone="error" text={error} /></div>}
+    </div>
   );
 }
 
@@ -143,33 +175,36 @@ function AppealBox({ attemptId, onAppeal }: { attemptId: string; onAppeal: Revie
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const id = "appeal-" + attemptId;
   if (!open)
     return (
-      <button type="button" className="connected-link-button" onClick={() => setOpen(true)}>
+      <button type="button" className="cc-ui-text-button cc-prof-text-button" onClick={() => setOpen(true)}>
         {t("reviewStatus.appeal.ask")}
       </button>
     );
+  async function send() {
+    setBusy(true);
+    setError("");
+    try {
+      await onAppeal(attemptId, reason.trim());
+    } catch {
+      setError(t("reviewStatus.appeal.error"));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <form
-      className="connected-reply"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        setError("");
-        try {
-          await onAppeal(attemptId, reason.trim());
-        } catch {
-          setError(t("reviewStatus.appeal.error"));
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <label htmlFor={id}>{t("reviewStatus.appeal.label")}</label>
-      <textarea id={id} rows={2} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
-      <button type="submit" disabled={busy || reason.trim().length < 10}>{t("reviewStatus.appeal.submit")}</button>
-      {error && <p role="alert">{error}</p>}
-    </form>
+    <div className="connected-reply">
+      <LongAnswerComposer
+        id={"appeal-" + attemptId}
+        className="cc-prof-composer"
+        label={t("reviewStatus.appeal.label")}
+        value={reason}
+        onChange={(value) => setReason(value.slice(0, 2000))}
+        busy={busy}
+        submitLabel={t("reviewStatus.appeal.submit")}
+        onSubmit={() => void send()}
+      />
+      {error && <div role="alert"><StatusLine tone="error" text={error} /></div>}
+    </div>
   );
 }

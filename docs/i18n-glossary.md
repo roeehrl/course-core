@@ -58,6 +58,13 @@ judge only the messages where the English decides the role:
   feminine ("התוצאה תגיע"); a singular imperative such as בחר is spelled like the past ("צוות
   הקורס בחר"); אף אחד and כל אחד also count things ("יתרה לכל אחד"); and unslashed לומד, בודק
   or מנהל are also verbs.
+- **Learner app, `tutor-as-subject`.** The companion is never the subject of a gendered verb or
+  adjective (final design §7, COPY-7): המנחה צריך, המנחה רואה, המנחה יכול, המנחה עונה and the
+  other conjugated forms the learner catalog used fail, prefixed forms such as שהמנחה included.
+  Write an impersonal or passive sentence ("שאלה חדשה מוכנה ונבדקת"), or make the companion's work
+  the subject ("עזרת המנחה עוד לא הופעלה"). Slashed verb and adjective forms (אישר/ה, מסכים/ה) in
+  the companion redesign's namespaces are rejected by `apps/learner/tests/hebrewNeutral.test.ts`;
+  role nouns keep their slash.
 - **Where it cannot be decided.** A message whose English names both roles ("the companion and
   the supervisor") may use either word, so neither rule judges it. In the learner app the English
   does not decide either: learners see one helper, so "your supervisor made this for you" is
@@ -95,7 +102,7 @@ judge only the messages where the English decides the role:
 | regrade | בדיקה מחדש | |
 | appeal / dispute | ערעור | evidence dispute → ערעור על ראיה |
 | companion / tutor (the learner-facing AI tutor) | המנחה | owner-approved 2026-10-24; plural המנחים. Construct forms: מנחה ה-AI where the AI nature matters, מנחה הלומדים for the companion job in admin (AI services). Learners see one helper: the companion and the supervisor are both המנחה ("המנחה לא משתמש בתוצאה הזו", never "המלווה והמנחה"); personal AI supervision → ההנחיה האישית של ה-AI, also where a learner message is about supervision work rather than the helper ("עוצרים את ההנחיה האישית של ה-AI בקורס לפני המחיקה…", never "עוצרים את המנחים"). Never מלווה |
-| you (the learner's own messages in the conversation with the tutor) | השאלה שלך | heading of the learner's own message and of their lines in "context used"; never the slash form את/ה |
+| you (the learner's own messages in the conversation with the tutor) | השאלה שלך / ההודעה שלך | השאלה שלך heads the question a reply answers ("Your question" in Based on); ההודעה שלך names one of the learner's earlier messages a reply used ("You: “…”" in Based on); never the slash form את/ה |
 | supervisor (AI agent, staff-facing) | המפקח | admin only, next to פיקוח AI; learners never see המפקח |
 | supervision | פיקוח | AI supervision → פיקוח AI |
 | teaching hypothesis | השערת הוראה | |

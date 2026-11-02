@@ -46,13 +46,13 @@ function deferred() {
   return { job, finish };
 }
 
-/** Disabled until `job` settles, as "Check answer" is while a request runs. */
+/** Disabled until `job` settles, as "Check" is while a request runs. */
 function SaveWhenReady({ job, onPress }: { job: Promise<void>; onPress: () => void }) {
   const [busy, setBusy] = useState(true);
   useEffect(() => {
     void job.then(() => setBusy(false));
   }, [job]);
-  return <Button label="Check answer" kind="primary" disabled={busy} onPress={onPress} />;
+  return <Button label="Check" kind="primary" disabled={busy} onPress={onPress} />;
 }
 
 /** A check whose options are locked until `job` settles, then answered through `onChange`. */
@@ -80,7 +80,7 @@ describe("a learner control pressed right after async work changed it", () => {
   it("takes a press on a button the moment it is shown enabled", async () => {
     const { job, finish } = deferred(), onPress = vi.fn();
     render(<SaveWhenReady job={job} onPress={onPress} />);
-    const button = () => screen.getByRole("button", { name: "Check answer" });
+    const button = () => screen.getByRole("button", { name: "Check" });
     expect(button()).toBeDisabled();
     const seen = await pressAtFirstSight(finish, button, (el) => !el.hasAttribute("disabled"), (el) => fireEvent.click(el));
     expect(seen).toBe(true);
@@ -116,16 +116,16 @@ describe("a learner control pressed right after async work changed it", () => {
     const onPress = vi.fn(), onChange = vi.fn();
     render(
       <>
-        <Button label="Check answer" disabled onPress={onPress} />
+        <Button label="Check" disabled onPress={onPress} />
         <ChoiceList label="Your answer" value="" disabled onChange={onChange} options={[{ id: "a", label: "Two" }]} />
       </>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Check answer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
     fireEvent.click(screen.getByRole("radio", { name: "Two" }));
     fireEvent.keyDown(screen.getByRole("radio", { name: "Two" }), { key: "Enter" });
     expect(onPress).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Check answer" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
     expect(screen.getByRole("radio", { name: "Two" })).toHaveAttribute("tabindex", "-1");
   });
 });
@@ -136,7 +136,7 @@ describe("focus kept clear of the sticky answer actions", () => {
   /** An option whose lower part runs on under the answer actions. */
   function lesson() {
     document.body.innerHTML = `<div class="connected-lesson-keeper"><div role="radio" tabindex="0">Five</div>
-      <div class="connected-answer-actions"><button>Check answer</button></div></div>`;
+      <div class="connected-answer-actions"><button>Check</button></div></div>`;
     const option = document.querySelector<HTMLElement>('[role="radio"]')!, bar = document.querySelector<HTMLElement>(".connected-answer-actions")!;
     option.getBoundingClientRect = () => ({ top: 516, bottom: 672, left: 39, right: 351, width: 312, height: 156, x: 39, y: 516 }) as DOMRect;
     bar.getBoundingClientRect = () => ({ top: 599, bottom: 731, left: 29, right: 361, width: 332, height: 132, x: 29, y: 599 }) as DOMRect;

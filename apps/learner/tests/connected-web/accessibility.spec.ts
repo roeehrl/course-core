@@ -1,10 +1,12 @@
 import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
+import { closeCompanion, openCompanion } from "./companion-helpers";
 
-/* I04/I05/P05/S12 on the connected lesson: 44 px targets in the lesson and the
- * companion, prose line length, reflow at 200% and 400% browser zoom, forced
- * colours, and the answer actions staying above an on-screen keyboard. The
- * manual screen-reader traversal is in docs/accessibility.md. */
+/* I04/I05/P05/S12 on the connected lesson: control targets in the lesson and the
+ * companion (24 px with a fine pointer, 44 px with a coarse one), prose line length, reflow at 200% and 400% browser zoom
+ * (the course page, the lesson with its check and the companion, with no two-way scrolling
+ * outside code, tables and math), forced colours on the same surfaces, and the answer actions
+ * staying above an on-screen keyboard. The manual screen-reader traversal is in docs/accessibility.md. */
 
 declare global {
   interface Window {
@@ -67,7 +69,8 @@ async function openCheck(page: Page) {
   ).toBeVisible();
 }
 
-/** Every visible control in `scope` smaller than 44×44 CSS px. Inline links in
+/** Every visible control in `scope` smaller than its minimum target: 24×24 CSS px under a fine
+ * pointer, 44×44 under a coarse one (touch; the phone and tablet projects emulate it). Inline links in
  * running text are exempt (WCAG 2.5.5/2.5.8 inline exception); a native radio or
  * checkbox counts by its whole label. */
 async function smallTargets(page: Page, scope: string) {
@@ -81,6 +84,7 @@ async function smallTargets(page: Page, scope: string) {
       ),
     );
     const small: string[] = [];
+    const minimum = window.matchMedia("(pointer: coarse)").matches ? 44 : 24;
     for (const control of new Set(controls)) {
       if (control.closest("[hidden]") || control.getClientRects().length === 0)
         continue;
@@ -95,7 +99,7 @@ async function smallTargets(page: Page, scope: string) {
         ? (control.closest("label") ?? control)
         : control;
       const rect = target.getBoundingClientRect();
-      if (rect.width < 44 - 0.5 || rect.height < 44 - 0.5)
+      if (rect.width < minimum - 0.5 || rect.height < minimum - 0.5)
         small.push(
           `${(target.getAttribute("aria-label") ?? target.textContent ?? target.tagName).trim().slice(0, 40)} ${Math.round(rect.width)}×${Math.round(rect.height)}`,
         );
@@ -104,7 +108,24 @@ async function smallTargets(page: Page, scope: string) {
   }, scope);
 }
 
-test("44 px targets across the connected lesson, header and companion", async ({
+/** What scrolls or overflows sideways: the page itself, and any box that scrolls sideways outside
+ * code, tables and math (the only places a reader may scroll in two directions, final design §6). */
+async function sidewaysScroll(page: Page) {
+  return page.evaluate(() => {
+    const wide = (el: Element) => el.scrollWidth > el.clientWidth + 1;
+    const found = wide(document.documentElement) ? ["page"] : [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".connected-host *, .connected-portal *"))) {
+      if (!wide(el) || el.getClientRects().length === 0) continue;
+      const overflow = getComputedStyle(el).overflowX;
+      if (overflow !== "auto" && overflow !== "scroll") continue;
+      if (el.closest('pre, code, table, math, [role="math"], .math-formula, .markdown-table, .connected-code-editor, .connected-practice-output')) continue;
+      found.push(`${el.tagName.toLowerCase()}.${String(el.className).split(" ").slice(0, 2).join(".")} ${el.scrollWidth}>${el.clientWidth}`);
+    }
+    return found;
+  });
+}
+
+test("control targets across the connected lesson, header and companion: 24 px, 44 px on touch", async ({
   page,
 }) => {
   await openCheck(page);
@@ -112,7 +133,7 @@ test("44 px targets across the connected lesson, header and companion", async ({
     await smallTargets(page, ".connected-header, .connected-lesson-keeper"),
   ).toEqual([]);
   const trigger = page.locator(".connected-companion-trigger");
-  if (await trigger.isVisible()) await trigger.click();
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   await expect(page.locator("#connected-companion")).toBeVisible();
   expect(
     await smallTargets(
@@ -120,10 +141,28 @@ test("44 px targets across the connected lesson, header and companion", async ({
       "#connected-companion, .connected-companion-trigger",
     ),
   ).toEqual([]);
-  if (await page.getByRole("dialog", { name: "Your companion" }).isVisible())
-    await page.keyboard.press("Escape");
+  if (await page.locator(".connected-host.is-compact").count()) await closeCompanion(page);
   await page.locator(".connected-menu-toggle").click();
   expect(await smallTargets(page, ".connected-menu-panel")).toEqual([]);
+  // Under a coarse pointer the companion's own controls are 44×44 at least (final design §1.3):
+  // Send and Stop, Close, Expand, the sheet handle, Jump to latest and the height buttons.
+  if (await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)) {
+    await page.keyboard.press("Escape");
+    const panel = await openCompanion(page);
+    const sizes = await panel
+      .getByRole("button", { name: /^(Send|Stop reply|Close companion|Expand|Jump to latest)$/ })
+      .or(panel.locator("[data-companion-control]"))
+      .evaluateAll((nodes) => nodes.filter((node) => node.getClientRects().length).map((node) => {
+        const rect = node.getBoundingClientRect();
+        return `${(node.getAttribute("aria-label") ?? node.textContent ?? "").trim()} ${Math.round(rect.width)}×${Math.round(rect.height)}`;
+      }));
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const size of sizes) {
+      const [w, h] = size.split(" ").at(-1)!.split("×").map(Number);
+      expect(Math.min(w!, h!), size).toBeGreaterThanOrEqual(44);
+    }
+    await closeCompanion(page);
+  }
 });
 
 test("lesson prose keeps a readable line length (I04)", async ({ page }, info) => {
@@ -177,8 +216,9 @@ test("lesson prose keeps a readable line length (I04)", async ({ page }, info) =
   }
   expect(measure.overflow).toBeLessThanOrEqual(1);
   if (info.project.name.endsWith("desktop"))
-    // The card keeps the full column; only the prose measure is narrower.
-    expect(measure.prose).toBeLessThan(measure.card - 80);
+    // The lesson is set to the 680 px reading measure, centred in its column (final design §2.1),
+    // and the prose fills its card.
+    expect(measure.card).toBeLessThanOrEqual(681);
   else
     // Phones and tablets: the prose uses the card's width, no forced narrow column.
     expect(measure.prose).toBeGreaterThan(Math.min(measure.card - 80, 300));
@@ -219,7 +259,25 @@ for (const [zoom, factor, physical] of [
         ).matches,
       })),
     ).toEqual({ ratio: factor, width: size.width, resolution: true });
-    await openCheck(page);
+    // The course page first: its cards and the next-step button reflow too.
+    const token = (await (await page.request.post("/test/session")).json()).token;
+    await page.goto(`/#signin=${token}`);
+    await page
+      .getByRole("article")
+      .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+      .getByRole("button", { name: "Open course", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Start course", exact: true }).click();
+    const start = page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ });
+    await expect(start).toBeVisible();
+    expect(await sidewaysScroll(page), "course page").toEqual([]);
+    await start.scrollIntoViewIfNeeded();
+    await expect(start).toBeInViewport();
+    await start.click();
+    await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+    await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "2", exact: true })).toBeVisible();
+    expect(await sidewaysScroll(page), "lesson with its check").toEqual([]);
     const overflow = await page.evaluate(() => {
       const wide = (el: Element) => el.scrollWidth > el.clientWidth + 1;
       return [
@@ -235,7 +293,7 @@ for (const [zoom, factor, physical] of [
     });
     expect(overflow).toEqual([]);
     for (const control of [
-      page.getByRole("button", { name: "Check answer", exact: true }),
+      page.getByRole("button", { name: "Check", exact: true }),
       page.locator(".connected-menu-toggle"),
       page.locator(".connected-companion-trigger"),
     ]) {
@@ -265,40 +323,82 @@ for (const [zoom, factor, physical] of [
     });
     // The physical window is unchanged: 1280 device pixels wide.
     expect(shot.readUInt32BE(16)).toBe(physical.width);
+    // The companion reflows as well: its controls stay reachable and nothing in it scrolls sideways.
+    const panel = await openCompanion(page);
+    expect(await sidewaysScroll(page), "companion").toEqual([]);
+    for (const name of ["Close companion", "Send"]) {
+      const control = panel.getByRole("button", { name, exact: true });
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport();
+    }
+    await page.screenshot({ path: info.outputPath(`zoom-${zoom.replace("%", "")}-companion.png`) });
+    await closeCompanion(page);
     await context.close();
   });
+
+/** Controls, cards and notices with no visible edge once forced colours remove every fill. */
+async function edgeless(page: Page) {
+  return page.evaluate(() => {
+    const noEdge = (el: Element) => {
+      const style = getComputedStyle(el);
+      return style.borderTopStyle === "none" || parseFloat(style.borderTopWidth) === 0;
+    };
+    const label = (el: Element) =>
+      (el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 40);
+    const shown = (el: Element) => !el.closest("[hidden]") && el.getClientRects().length > 0;
+    return {
+      controls: Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '.connected-host button, .connected-host [role="button"], .connected-host summary',
+        ),
+      )
+        .filter(shown)
+        .filter(noEdge)
+        .map(label),
+      // The base app's cards and notices (React Native cards, Notice, the reading card, menus).
+      surfaces: Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '.connected-reading-card, .connected-menu-panel, .connected-signin, .connected-activity, .connected-policy-panel, .connected-toast, .connected-host [data-tone]',
+        ),
+      )
+        .filter(shown)
+        .filter(noEdge)
+        .map((el) => `${el.className || el.getAttribute("data-tone")}: ${label(el)}`),
+    };
+  });
+}
 
 test("forced colours keep every control and the current step visible", async ({
   page,
   browserName,
 }) => {
   await page.emulateMedia({ forcedColors: "active" });
-  await openCheck(page);
+  // The course page: every control and card keeps an edge.
+  const token = (await (await page.request.post("/test/session")).json()).token;
+  await page.goto(`/#signin=${token}`);
+  await page
+    .getByRole("article")
+    .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })).toBeVisible();
   // Every engine CI runs emulates forced colours; losing that fails instead of skipping.
   expect(
     await page.evaluate(() => matchMedia("(forced-colors: active)").matches),
   ).toBe(true);
-  const borderless = await page.evaluate(() =>
-    Array.from(
-      document.querySelectorAll<HTMLElement>(
-        '.connected-host button, .connected-host [role="button"], .connected-host summary',
-      ),
-    )
-      .filter((el) => !el.closest("[hidden]") && el.getClientRects().length > 0)
-      .filter((el) => {
-        const style = getComputedStyle(el);
-        return (
-          style.borderTopStyle === "none" ||
-          parseFloat(style.borderTopWidth) === 0
-        );
-      })
-      .map((el) =>
-        (el.getAttribute("aria-label") ?? el.textContent ?? "")
-          .trim()
-          .slice(0, 40),
-      ),
-  );
-  expect(borderless).toEqual([]);
+  expect(await edgeless(page), "course page").toEqual({ controls: [], surfaces: [] });
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
+  await expect(page.getByRole("button", { name: "Mark this part read", exact: true })).toBeVisible();
+  expect(await edgeless(page), "lesson").toEqual({ controls: [], surfaces: [] });
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await expect(page.getByRole("radio", { name: "2", exact: true })).toBeVisible();
+  expect(await edgeless(page), "check").toEqual({ controls: [], surfaces: [] });
+  // The companion: its controls keep their edges too, docked or as a sheet.
+  await openCompanion(page);
+  expect((await edgeless(page)).controls, "companion").toEqual([]);
+  await closeCompanion(page);
   const current = page.locator('.connected-step[aria-current="step"]');
   expect(
     parseFloat(
@@ -326,7 +426,7 @@ test("the answer actions stay above an on-screen keyboard", async ({
   if (info.project.name.endsWith("desktop"))
     await page.setViewportSize({ width: 390, height: 844 });
   await openCheck(page);
-  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  const check = page.getByRole("button", { name: "Check", exact: true });
   // The learner is at the question; a keyboard then covers where the actions
   // would naturally be.
   await page

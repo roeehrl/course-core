@@ -16,7 +16,8 @@
  *   failure) is unread again. An unencrypted backup is not a problem here, only an overdue one.
  * - Learner notifications record something that happened: the course moved to a newer version, a
  *   move to a newer version is offered, an answer from the tutor arrived while they were away.
- *   notifyUser adds them, idempotently per person and key.
+ *   notifyUser adds them, idempotently per person and key. A reply's lesson title and question
+ *   excerpt are read when it is listed (replyDetails), never stored with it.
  *
  * Bounded: at most MAX_PER_PERSON rows per person and audience, read ones are deleted after
  * READ_RETENTION_DAYS and every one after MAX_AGE_DAYS, a list returns at most LIST_LIMIT rows,
@@ -258,12 +259,47 @@ export async function listNotifications(client: Sql, input: { userId: string; au
     'SELECT count(*)::int AS n FROM notifications WHERE user_id=$1 AND audience=$2 AND ($3::uuid IS NULL OR workspace_id=$3) AND read_at IS NULL',
     [input.userId, input.audience, input.workspaceId ?? null])).rows[0]!.n;
   const page = rows.slice(0, input.limit), last = page.at(-1);
+  const replies = input.audience === 'learner' ? await replyDetails(client, input.userId, page.filter(row => row.kind === 'reply_ready').map(row => row.id)) : new Map<string, ReplyDetails>();
   return {
     unread,
     items: page.map(row => ({ id: row.id, kind: row.kind, params: row.params, link: row.link, enrollmentId: row.enrollment_id, workspaceId: row.workspace_id,
-      createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), read: row.read_at !== null })),
+      createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), read: row.read_at !== null, ...replies.get(row.id) })),
     nextCursor: rows.length > input.limit && last ? encodeCursor(last.at, last.id) : null,
   };
+}
+
+/** How much of the learner's question a reply notification quotes. */
+export const QUESTION_EXCERPT_CHARS = 80;
+interface ReplyDetails { lessonTitle: string | null; questionExcerpt: string | null }
+/**
+ * What a "your companion replied" notification says about itself, read when it is listed (nothing
+ * more is stored, so erasing or deleting the question needs no change here): the lesson's title in
+ * the enrollment's current course version (null when that version no longer has the lesson) and
+ * the start of the learner's own question (null once it was deleted or erased). Only the reader's
+ * own enrollment and that enrollment's own question are read, whatever ids the parameters hold.
+ */
+async function replyDetails(client: Sql, userId: string, ids: string[]): Promise<Map<string, ReplyDetails>> {
+  if (!ids.length) return new Map();
+  const rows = (await client.query<{ id: string; lesson_title: string | null; question: string | null }>(
+    `SELECT n.id,
+        (SELECT ep->>'title' FROM jsonb_array_elements(COALESCE(r.learner_bundle->'chapters','[]'::jsonb)) ch,
+            jsonb_array_elements(COALESCE(ch->'episodes','[]'::jsonb)) ep
+          WHERE ep->>'id'=n.params->>'episodeId' LIMIT 1) AS lesson_title,
+        CASE WHEN m.content IN ('[deleted]','[erased]') THEN NULL ELSE left(m.content,$3) END AS question
+      FROM notifications n
+      LEFT JOIN enrollments e ON e.id=n.enrollment_id AND e.user_id=n.user_id
+      LEFT JOIN course_releases r ON r.id=e.course_release_id
+      LEFT JOIN companion_messages m ON e.id IS NOT NULL AND m.enrollment_id=e.id AND m.role='learner'
+        AND m.id::text=n.params->>'questionMessageId'
+      WHERE n.id=ANY($1::uuid[]) AND n.user_id=$2`, [ids, userId, QUESTION_EXCERPT_CHARS * 4])).rows;
+  return new Map(rows.map(row => [row.id, { lessonTitle: row.lesson_title || null, questionExcerpt: excerpt(row.question) }]));
+}
+/** The first characters of a question on one line, with an ellipsis when it goes on. */
+function excerpt(text: string | null): string | null {
+  const line = text?.replace(/\s+/g, ' ').trim();
+  if (!line) return null;
+  const chars = Array.from(line);
+  return chars.length > QUESTION_EXCERPT_CHARS ? `${chars.slice(0, QUESTION_EXCERPT_CHARS).join('').trimEnd()}…` : line;
 }
 // The database's own text of the time, so the cursor keeps its microseconds.
 const encodeCursor = (at: string, id: string) => Buffer.from(`${at}|${id}`).toString('base64url');

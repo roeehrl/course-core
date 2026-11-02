@@ -26,14 +26,31 @@ const TEXT = {
     close: (title: string) => new RegExp(`^Close \\W*${title}\\W*$`),
     cancel: "Cancel",
     passkeysClose: "Close",
+    openReply: "Open reply",
+    replied: "Your companion replied about “Sorting, step by step”.",
   },
   he: {
     dialogs: ["שינוי סיסמה", "מפתחות גישה"],
     close: (title: string) => new RegExp(`^סגירת \\W*${title}\\W*$`),
     cancel: "ביטול",
     passkeysClose: "סגירה",
+    openReply: "פתיחת התשובה",
+    replied: /התקבלה תשובה מהמנחה על .*Sorting, step by step/,
   },
 } as const;
+
+const REPLY_ROW = {
+  id: "00000000-0000-4000-8000-0000000000b1",
+  kind: "reply_ready",
+  params: { episodeId: "intro", blockId: "reading", questionMessageId: "00000000-0000-4000-8000-0000000000b2", replyMessageId: "00000000-0000-4000-8000-0000000000b3" },
+  link: "/enrollments/00000000-0000-4000-8000-0000000000b4/companion",
+  enrollmentId: "00000000-0000-4000-8000-0000000000b4",
+  createdAt: "2026-10-31T10:00:00.000Z",
+  updatedAt: "2026-10-31T10:00:00.000Z",
+  read: false,
+  lessonTitle: "Sorting, step by step",
+  questionExcerpt: "Why does the largest value move to the end after one pass?",
+};
 
 /** Saves a screenshot next to the test's output, and in SHOTS_DIR when it is set. */
 async function shot(page: Page, info: TestInfo, name: string) {
@@ -119,6 +136,10 @@ for (const locale of ["en", "he"] as const) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await mockSignedInLearner(page);
+    // One reply that arrived while the learner was away (read later than the mock's empty list).
+    await page.route("**/api/me/notifications", (route) =>
+      route.fulfill({ json: { unread: 1, nextCursor: null, items: [REPLY_ROW] } }),
+    );
     await open(page, locale);
     const at = await scrollDown(page);
     const toggle = page.locator(".connected-menu-toggle");
@@ -178,10 +199,20 @@ for (const locale of ["en", "he"] as const) {
       if (await page.getByRole("dialog").count()) await page.keyboard.press("Escape");
     }
 
-    // The notifications: opened and closed with Escape.
+    // The notifications, with a reply row (one button the width of the panel, final design
+    // §4.8): opened and closed with Escape.
     const bell = page.locator(".connected-bell");
     await tap(page, bell);
-    await expect(page.locator(".connected-notifications-panel")).toBeVisible();
+    const notifications = page.locator(".connected-notifications-panel");
+    await expect(notifications).toBeVisible();
+    const row = notifications.getByRole("button", { name: text.openReply, exact: true });
+    await expect(row).toContainText(text.replied);
+    const [rowBox, panelBox] = [(await row.boundingBox())!, (await notifications.boundingBox())!];
+    expect.soft(rowBox.height).toBeGreaterThanOrEqual(64);
+    expect.soft(rowBox.width).toBeGreaterThan(panelBox.width - 24);
+    expect.soft(panelBox.x).toBeGreaterThanOrEqual(0);
+    expect.soft(panelBox.x + panelBox.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await shot(page, info, `${locale}-notifications-open`);
     await expectStill(page, at, "notifications opened");
     await page.keyboard.press("Escape");
     await expect(page.locator(".connected-notifications-panel")).toBeHidden();

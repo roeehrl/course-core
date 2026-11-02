@@ -39,7 +39,7 @@ test("a learner with personal changes is offered the new version, sees what it d
   await expect(offer).toHaveCount(0);
   const notice = page.getByRole("status", { name: "Your course was updated" });
   await expect(notice).toContainText("moved from version 1.0.0 to version 2.0.0");
-  await expect(notice).toContainText("As you chose, your personal changes were set aside for the new version.");
+  await expect(notice).toContainText("Your personal changes are archived, not deleted.");
   await accessible(page);
   expect(errors).toEqual([]);
 });

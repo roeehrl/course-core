@@ -1,0 +1,328 @@
+/* The learner's notifications (Notifications.web.tsx): a bell beside the course menu and its
+ * panel (final design §4.8). Each row is one button, 64 px at least: the icon, what happened, a
+ * second line (a reply's question and time) and an `--accent` dot while it is new. */
+
+.connected-notifications {
+  position: relative;
+}
+.connected-header .connected-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  border-radius: var(--radius-pill);
+}
+.connected-bell-disc {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.connected-bell-disc svg {
+  display: block;
+}
+.connected-header .connected-bell:hover .connected-bell-disc,
+.connected-header .connected-bell[aria-expanded="true"] .connected-bell-disc {
+  background: var(--line);
+}
+/* Something new: an 8 px `--accent` dot with a ring of the disc's colour (final design §3.1). */
+.connected-bell-dot {
+  position: absolute;
+  top: 5px;
+  inset-inline-end: 6px;
+  box-sizing: content-box;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface-2);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+.connected-notifications-panel {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + var(--space-2));
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  transform-origin: top right;
+  animation: cc-note-open var(--motion-m16-duration) var(--motion-m16-easing);
+}
+.connected-notifications-panel:dir(rtl) {
+  transform-origin: top left;
+}
+.connected-notifications-panel[hidden] {
+  display: none !important;
+}
+@keyframes cc-note-open {
+  from {
+    opacity: 0;
+    transform: scale(var(--motion-m16-scale));
+  }
+}
+.connected-notifications-heading {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+}
+.connected-notifications-note {
+  margin: var(--space-1) var(--space-3) var(--space-2);
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connected-header .connected-notifications-panel .cc-note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  margin: 0;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+}
+.connected-header .connected-notifications-panel button.cc-note-row {
+  cursor: pointer;
+}
+/* Inside the scrolling list, so the panel's edge never clips it. */
+.connected-header .connected-notifications-panel button.cc-note-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.connected-notifications-heading:focus {
+  outline: none;
+}
+.connected-header .connected-notifications-panel button.cc-note-row:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.connected-header .connected-notifications-panel button.cc-note-row:disabled {
+  cursor: default;
+}
+.cc-note-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--ink-muted);
+}
+.cc-note-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+.cc-note-what {
+  color: var(--ink);
+  font: 400 var(--text-button) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+li.unread .cc-note-what {
+  font-weight: 600;
+}
+.cc-note-meta {
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.cc-note-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-block-start: calc((var(--text-button-line) - 8px) / 2);
+  border-radius: var(--radius-pill);
+}
+li.unread .cc-note-dot {
+  background: var(--accent);
+}
+.connected-header .connected-notifications-panel .cc-note-mark,
+.connected-header .connected-notifications-panel .cc-note-retry {
+  align-self: flex-start;
+  min-height: max(32px, var(--target));
+  margin: 0;
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font: 600 var(--text-button) var(--font-sans);
+}
+.connected-header .connected-notifications-panel .cc-note-retry {
+  padding-inline: var(--space-1);
+}
+.connected-header .connected-notifications-panel .cc-note-mark:hover:not(:disabled),
+.connected-header .connected-notifications-panel .cc-note-retry:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (forced-colors: active) {
+  li.unread .cc-note-dot,
+  .connected-bell-dot {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+}
+@media (max-width: 600px) {
+  /* On a phone the list spans the screen under the header rather than hanging off the bell. */
+  .connected-notifications-panel {
+    position: fixed;
+    top: 72px;
+    inset-inline: 16px;
+    width: auto;
+  }
+}
+
+/* The demo's companion (components/Companion.web.tsx, final design §4.19), the content of the real
+ * panel or sheet: the line that says no AI is connected, authored guidance as a companion turn
+ * with its label line, the hint chip, and notes in the long-answer composer pinned at the bottom
+ * with "Saved on this device." on the composer's meta row. Like the real conversation (.cc-chat),
+ * it fills the body of the panel or sheet: the guidance scrolls, the notes stay (§2.4), so the
+ * panel or sheet itself never scrolls and "Save note" is on screen at Half, at Full and in a short
+ * panel, with the hint open or not. */
+.cc-note-demo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  row-gap: var(--space-2);
+  box-sizing: border-box;
+  block-size: 100%;
+  min-block-size: 0;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-note-demo .cc-note-demo-header {
+  min-block-size: 48px;
+}
+.cc-note-demo-thread {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 16 + 8 at the top, as before the thread scrolled on its own. */
+  padding: calc(var(--space-4) + var(--space-2)) var(--space-4) var(--space-5);
+  outline: none;
+}
+.cc-note-demo-thread:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.cc-note-demo-intro,
+.cc-note-demo-place {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-note-demo-place {
+  margin-block-start: var(--space-1);
+}
+/* Authored guidance is there from the start: it does not fade in as a reply would (M1). */
+.cc-note-demo-turn {
+  margin-block-start: var(--space-4);
+}
+@keyframes cc-note-enter {
+  from {
+    opacity: 0;
+  }
+}
+.cc-note-demo-prose {
+  max-inline-size: 65ch;
+  margin: var(--space-2) 0 0;
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-note-demo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+.cc-note-demo-chips .cc-ui-chip {
+  padding-inline: 12px 14px;
+}
+.cc-note-demo-chips .cc-ui-chip .cc-ui-icon {
+  color: var(--ink-muted);
+}
+.cc-note-demo-chips .cc-ui-chip[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cc-note-demo-hint .cc-note-demo-prose {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  animation: cc-note-enter var(--motion-m17-duration) var(--motion-m17-easing) both;
+}
+/* The composer's label, field and meta row join this grid, so the saved line sits at the start
+ * of the meta row. */
+.cc-note-demo-notes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+.cc-note-demo-notes .cc-note-demo-composer {
+  display: contents;
+}
+.cc-note-demo-notes .cc-ui-long-label,
+.cc-note-demo-notes .cc-ui-long-field {
+  grid-column: 1 / -1;
+}
+.cc-note-demo-notes .cc-ui-long-field {
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding: var(--space-3) var(--space-4);
+  resize: none;
+}
+.cc-note-demo-notes .cc-ui-long-meta {
+  grid-column: 2;
+  grid-row: 3;
+  justify-content: flex-end;
+}
+/* Meta, not micro: it says where the notes are (14 px in Hebrew, final design §1.2). */
+.cc-note-demo-saved {
+  grid-column: 1;
+  grid-row: 3;
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+@media (forced-colors: active) {
+  .cc-note-demo-hint .cc-note-demo-prose {
+    border: 1px solid CanvasText;
+  }
+}

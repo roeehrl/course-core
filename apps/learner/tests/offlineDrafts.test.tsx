@@ -132,8 +132,10 @@ describe("saved requests survive a closed tab", () => {
   it("a new page sends the saved request once with its original key, and other tabs see it", async () => {
     const storage = memoryStorage();
     const sent: string[] = [];
+    const bodies: string[] = [];
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
       if (init?.method === "POST") {
+        bodies.push(String(init.body));
         sent.push(JSON.parse(String(init.body)).idempotencyKey);
         if (sent.length === 1) throw new Error("offline");
         return json({ result: { passed: true } });
@@ -147,7 +149,7 @@ describe("saved requests survive a closed tab", () => {
       csrf: () => "t",
     });
     await expect(
-      first.command(snapshot, "answers", { challengeId: "c", answer: "2" }),
+      first.command(snapshot, "answers", { challengeId: "c", answer: "2" }, { shown: { challengeId: "c", episodeId: "e" } }),
     ).rejects.toMatchObject({
       code: "NETWORK_UNCERTAIN",
     });
@@ -173,7 +175,10 @@ describe("saved requests survive a closed tab", () => {
     await reopened.load("enrollment-a");
     expect(sent).toHaveLength(2);
     expect(sent[1]).toBe(sent[0]);
-    expect(reopened.takeRecovered("enrollment-a")?.action).toBe("answers");
+    // With the question it was for, so the check can show the result under it (§4.1); the
+    // question itself was never sent.
+    expect(reopened.takeRecovered("enrollment-a")).toMatchObject({ action: "answers", shown: { challengeId: "c", episodeId: "e" } });
+    expect(bodies.every((body) => !body.includes("episodeId"))).toBe(true);
     expect(reopened.pendingAction("enrollment-a")).toBeNull();
     // The first tab learns from shared storage that nothing is waiting any more.
     expect(first.hasPending("enrollment-a")).toBe(false);

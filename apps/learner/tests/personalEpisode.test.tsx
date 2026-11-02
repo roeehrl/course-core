@@ -33,6 +33,14 @@ describe("personal inserted episodes", () => {
     const { course, snapshot } = presentation(withInsertedEpisode("optional"));
     render(<CourseRoadmap course={course} snapshot={snapshot} compact onOpenLesson={vi.fn()} onPlacement={vi.fn()} />);
     expect(screen.getByText("Change, one step at a time")).toBeVisible();
-    expect(screen.getAllByText("Personal · optional")).toHaveLength(1);
+    // A chip, never a colour of its own.
+    const chip = screen.getByText("Personal, optional");
+    expect(chip).toHaveClass("cc-ui-tag", "cc-ai-personal");
+  });
+  it("labels a required personal lesson \"Personal\"", () => {
+    const { course, snapshot } = presentation(withInsertedEpisode());
+    render(<CourseRoadmap course={course} snapshot={snapshot} compact onOpenLesson={vi.fn()} onPlacement={vi.fn()} />);
+    expect(screen.getByText("Personal", { exact: true })).toHaveClass("cc-ui-tag");
+    expect(screen.queryByText("Personal, optional")).toBeNull();
   });
 });

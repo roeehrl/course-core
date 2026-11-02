@@ -90,10 +90,20 @@ export function keyboardInset(
   return Math.max(0, Math.round(visibleBottom - (visual.offsetTop + visual.height)));
 }
 
-/** Keeps the CSS variable `--keyboard-inset` on `host` up to date, so sticky
- * actions (`bottom: var(--keyboard-inset)`) stay above the on-screen keyboard.
- * The container is the element the lesson scrolls in: the compact layout's own
- * scroll pane, otherwise the window. */
+/** How much of the window's bottom an on-screen keyboard covers now (0 without one): the gap
+ * between the layout viewport's bottom and the visual viewport's. */
+export function keyboardHeight(): number {
+  if (typeof window === "undefined") return 0;
+  return keyboardInset(window.innerHeight, window.innerHeight, window.visualViewport);
+}
+
+/** Keeps two CSS variables on `host` up to date while an on-screen keyboard opens and closes:
+ * `--keyboard-inset`, how much of the lesson's scroll container it covers, so sticky actions
+ * (`bottom: var(--keyboard-inset)`) stay above it; and `--kb`, how much of the window it covers,
+ * which the companion sheet reserves under its composer (its CSS prefers
+ * `env(keyboard-inset-height)` where the browser reports one). Written on the element, never through
+ * React state, once per frame at most. The container is the element the lesson scrolls in: the
+ * compact layout's own scroll pane, otherwise the window. */
 export function useKeyboardInset(
   host: { current: HTMLElement | null },
   container: () => Element | null,
@@ -111,6 +121,7 @@ export function useKeyboardInset(
         const bottom = element ? element.getBoundingClientRect().bottom : window.innerHeight;
         const inset = keyboardInset(bottom, window.innerHeight, window.visualViewport);
         host.current?.style.setProperty("--keyboard-inset", `${inset}px`);
+        host.current?.style.setProperty("--kb", `${keyboardHeight()}px`);
       });
     };
     update();

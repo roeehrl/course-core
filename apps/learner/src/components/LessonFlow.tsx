@@ -8,7 +8,18 @@ import type {
   Step,
 } from "../domain/types";
 import { useI18n } from "../i18n";
+import { palette } from "../theme/palette";
 import { Badge, Button, ChoiceList, colors, Field, Notice, Eyebrow, styles, Heading, textDirection, webDir } from "./ui";
+
+/** The diagram's stage is a dark surface in both themes, so what is drawn on it takes the dark
+ * theme's tokens (light ink, the bright accent and companion hues, the strong line). */
+const onStage = {
+  label: palette.dark.accent,
+  bars: [palette.dark.accent, palette.dark.companion],
+  value: palette.dark.onStage,
+  rule: palette.dark.lineStrong,
+  caption: palette.dark.ink,
+} as const;
 
 export function LessonFlow({
   lesson,
@@ -132,7 +143,7 @@ export function LessonFlow({
             overflow: "hidden",
           }}
         >
-          <Eyebrow style={{ color: "#9CE2CA", padding: 22 }}>
+          <Eyebrow style={{ color: onStage.label, padding: 22 }}>
             {step.diagram.label}
           </Eyebrow>
           <View
@@ -160,12 +171,12 @@ export function LessonFlow({
                       (Math.abs(value) /
                         Math.max(1, ...step.diagram!.values.map(Math.abs))) *
                         92,
-                    backgroundColor: i % 2 ? "#D4B7F0" : "#99DFC5",
+                    backgroundColor: onStage.bars[i % 2],
                     borderRadius: 8,
                   }}
                 />
                 <Text
-                  style={{ color: "#F0F9F5", fontSize: 24, fontWeight: "600" }}
+                  style={{ color: onStage.value, fontSize: 24, fontWeight: "600" }}
                 >
                   {i18n.number(value)}
                 </Text>
@@ -175,9 +186,9 @@ export function LessonFlow({
           <Text
             style={{
               borderTopWidth: 1,
-              borderColor: "#466167",
+              borderColor: onStage.rule,
               padding: 20,
-              color: "#E0EEEA",
+              color: onStage.caption,
               fontSize: 14,
               lineHeight: 23,
             }}

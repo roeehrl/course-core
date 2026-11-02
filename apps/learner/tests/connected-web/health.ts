@@ -38,3 +38,8 @@ export const test = base.extend<{ rendererHealth: void; companionPane: "open" | 
 });
 export { expect };
 export type { Locator, Page } from "@playwright/test";
+/** The key that moves focus to the next control, buttons included. Safari's engine leaves buttons
+ * out of plain Tab unless the learner turned on "Press Tab to highlight each item"; Option+Tab
+ * reaches every control there, so a test of the Tab order of buttons presses that. */
+export const nextControlKey = (browserName: string, back = false) =>
+  `${browserName === "webkit" ? "Alt+" : ""}${back ? "Shift+" : ""}Tab`;

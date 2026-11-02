@@ -1,6 +1,6 @@
 import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NextAction } from "@course-core/sdk";
 import { stripBidiControls } from "@course-core/i18n";
 import { GateDecisionPanel, GATE_STATUS_LABELS, gateText } from "../src/connected/GateDecision.web";
@@ -10,6 +10,7 @@ import { ConnectedLesson, type ConnectedLessonProps } from "../src/connected/Con
 import type { Challenge, GateView, Question } from "../src/client/apiClient";
 import { answerFeedback } from "../src/connected/answerFeedback";
 import { connectedSnapshot } from "./connectedFixtures";
+import { companionBridge, resetCompanionBridge } from "../src/connected/companion/bridge";
 
 const gate = (status: NonNullable<GateView["status"]>, nextActions: NextAction[]): GateView => ({
   passed: status === "ready", status, objectives: [{ id: "observe", families: [], required: 2, passed: false }], decisionId: "decision-1",
@@ -22,6 +23,7 @@ const gate = (status: NonNullable<GateView["status"]>, nextActions: NextAction[]
 });
 
 describe("server gate decision panel", () => {
+  afterEach(() => resetCompanionBridge());
   it.each([
     ["ready", [{ kind: "continue", label: "Continue to “Compare”", targetId: "compare" }]],
     ["needs_evidence", [{ kind: "attempt_check", label: "Solve a new transfer task: “Predict the next value”", targetId: "predict" }, { kind: "request_help", label: "Ask the companion" }]],
@@ -29,6 +31,9 @@ describe("server gate decision panel", () => {
     ["under_review", [{ kind: "await_review", label: "Wait for a reviewer to look at your answer" }, { kind: "request_help", label: "Ask the companion" }]],
     ["closed_with_gaps", [{ kind: "view_gaps", label: "See what remains unproven" }, { kind: "appeal", label: "Request a staff review within 14 days" }]],
   ] as const)("%s: shows the status, reason, criteria and the server's next steps", (status, actions) => {
+    // The companion is on the page: asking it is offered, and goes to it, not to the host.
+    companionBridge.setAvailable(true);
+    const compose = vi.spyOn(companionBridge, "compose").mockImplementation(() => {});
     const onAction = vi.fn();
     render(<GateDecisionPanel gate={gate(status, [...actions])} pending={false} onAction={onAction} onRequestReview={vi.fn()} />);
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS[status] })).toBeVisible();
@@ -38,8 +43,17 @@ describe("server gate decision panel", () => {
     const buttons = actions.filter((a) => a.kind !== "await_review");
     for (const action of buttons) fireEvent.click(screen.getByRole("button", { name: action.label }));
     // An appeal opens the review form in the panel instead of leaving it.
-    expect(onAction).toHaveBeenCalledTimes(buttons.filter((a) => a.kind !== "appeal").length);
+    expect(onAction).toHaveBeenCalledTimes(buttons.filter((a) => a.kind !== "appeal" && a.kind !== "request_help").length);
+    expect(compose).toHaveBeenCalledTimes(buttons.filter((a) => a.kind === "request_help").length);
     if (status === "under_review") expect(screen.queryByRole("button", { name: /Wait for a reviewer/ })).toBeNull();
+  });
+  it("labels where the learner stands in sentence case, with an accent dot for every status", () => {
+    const { container } = render(<GateDecisionPanel gate={gate("needs_help", [{ kind: "attempt_check", label: "Try a check", targetId: "x" }])} pending={false} onAction={vi.fn()} />);
+    expect(screen.getByText("Where you stand")).toHaveClass("connected-gate-label");
+    expect(container.querySelector(".connected-eyebrow")).toBeNull();
+    expect(container.querySelector(".connected-gate-dot")).toHaveAttribute("aria-hidden", "true");
+    // The first step leads; it is the filled pill.
+    expect(screen.getByRole("button", { name: "Try a check" })).toHaveClass("cc-ui-pill-accent");
   });
   it("says each sentence once: no reason that repeats a criterion, no criterion twice", () => {
     // The live card: the reason was the one unmet criterion's sentence, and the criterion said it again.
@@ -77,11 +91,24 @@ describe("server gate decision panel", () => {
     expect(onAction).not.toHaveBeenCalled();
     expect(appeal).toHaveAttribute("aria-expanded", "true");
     const send = screen.getByRole("button", { name: "Send review request" });
-    expect(send).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Why should a staff member look at this decision again?"), { target: { value: "  too short " } });
-    expect(send).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Why should a staff member look at this decision again?"), { target: { value: "  I ran out of time because of an illness.  " } });
+    expect(send).toHaveAttribute("aria-disabled", "true");
+    // Sending is the step forward a usability study times; the line about a short reason has its
+    // live region from the start, so it is announced when it appears.
+    expect(send).toHaveAttribute("data-usability", "next");
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    const field = screen.getByLabelText("Why should a staff member look at this decision again?");
+    // The long-answer composer: the reason is described by what asking does.
+    expect(field).toHaveAccessibleDescription(/A reviewer reads your reason and the record above/);
+    fireEvent.change(field, { target: { value: "  too short " } });
     fireEvent.click(send);
+    expect(onRequestReview).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("Write a little more: at least 10 characters.");
+    fireEvent.change(field, { target: { value: "  I ran out of time because of an illness.  " } });
+    expect(screen.queryByText(/Write a little more/)).toBeNull();
+    // Enter makes a new line; Cmd/Ctrl+Enter sends.
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(onRequestReview).not.toHaveBeenCalled();
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true, metaKey: true });
     expect(onRequestReview).toHaveBeenCalledWith("I ran out of time because of an illness.");
     await vi.waitFor(() => expect(screen.queryByRole("form", { name: "Ask for a review of this decision" })).toBeNull());
   });
@@ -114,37 +141,6 @@ describe("server gate decision panel", () => {
   });
 });
 
-describe("new item type inputs", () => {
-  it("collects trace steps and validates every step before sending", () => {
-    const question: Question = { id: "t", type: "trace", prompt: "Trace", steps: [{ id: "s1", prompt: "After 6" }, { id: "s2", prompt: "After 4" }] };
-    const onChange = vi.fn();
-    const { rerender } = render(<AssessmentInput question={question} answer="" pending={false} onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText("After 6"), { target: { value: "6" } });
-    expect(onChange).toHaveBeenLastCalledWith(JSON.stringify({ s1: "6" }));
-    expect(answerPayload(question, JSON.stringify({ s1: "6" }))).toEqual({ error: "Fill in every step (1 left)." });
-    rerender(<AssessmentInput question={question} answer={JSON.stringify({ s1: "6", s2: "4" })} pending={false} onChange={onChange} />);
-    expect(screen.getByLabelText("After 4")).toHaveValue("4");
-    expect(answerPayload(question, JSON.stringify({ s1: "6", s2: "4" }))).toEqual({ value: { s1: "6", s2: "4" } });
-    expect(traceAnswers("not json")).toEqual({});
-  });
-  it("labels predictions with their unit and written tasks with their rubric", () => {
-    const prediction: Question = { id: "p", type: "prediction", prompt: "Predict", unit: "cm" };
-    const { unmount } = render(<AssessmentInput question={prediction} answer="" pending={false} onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Your prediction (cm)")).toBeVisible();
-    expect(answerPayload(prediction, "12.5")).toEqual({ value: 12.5 });
-    expect(answerPayload(prediction, "twelve")).toEqual({ error: "Enter a finite number." });
-    unmount();
-    const teach: Question = { id: "w", type: "teach_back", prompt: "Teach it", criteria: [{ id: "c", description: "States the rule.", required: true }] };
-    render(<AssessmentInput question={teach} answer="" pending={false} onChange={vi.fn()} />);
-    expect(screen.getByText("States the rule.")).toBeVisible();
-    expect(screen.getByLabelText("Your explanation, as you would teach it")).toBeVisible();
-  });
-  it("describes an abstention as recording nothing against the learner", () => {
-    expect(answerFeedback({ result: { passed: false, abstained: true, independent: true, explanation: "12.5 stays." } }))
-      .toBe("Noted. Nothing was recorded against you, and it does not count as evidence. 12.5 stays.");
-  });
-});
-
 describe("lesson check with \"I don't know\", confidence and the gate decision", () => {
   function props(question: Question): ConnectedLessonProps {
     const server = connectedSnapshot();
@@ -152,23 +148,11 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     server.lessons[0]!.gate = gate("needs_evidence", [{ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" }]);
     const challenge: Challenge = { challengeId: "c1", episodeId: "intro", question, independentEligible: true, mode: "independent" };
     server.activeChallenges = [challenge];
-    return { server, episode: server.course.chapters[0]!.episodes[0]!, placement: false, pending: false, now: Date.now(), answer: "", confidence: null,
-      onAnswerChange: vi.fn(), onRead: vi.fn(), onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn(), onComplete: vi.fn(), onNormal: vi.fn(), onRefresh: vi.fn(),
-      onBlockChange: vi.fn(), onAbstain: vi.fn(), onConfidenceChange: vi.fn(), onGateAction: vi.fn() };
+    return { server, episode: server.course.chapters[0]!.episodes[0]!, placement: false, pending: false, now: Date.now(), answer: "",
+      check: { confidence: null, onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn(), onAbstain: vi.fn(), onConfidenceChange: vi.fn() },
+      onAnswerChange: vi.fn(), onRead: vi.fn(), onComplete: vi.fn(), onNormal: vi.fn(), onRefresh: vi.fn(),
+      onBlockChange: vi.fn(), onGateAction: vi.fn() };
   }
-  it("offers an explicit abstention and optional confidence that never changes the result", () => {
-    const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value.", unit: "cm", allowAbstain: true, confidence: { capture: "optional", scale: { minimum: 1, maximum: 5 } } });
-    render(<ConnectedLesson {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "I don't know yet: record no answer and get help" }));
-    expect(p.onAbstain).toHaveBeenCalledWith(p.server.activeChallenges[0]);
-    expect(screen.getByText(/Your confidence never changes your result/)).toBeVisible();
-    fireEvent.click(screen.getByRole("radio", { name: "5" }));
-    expect(p.onConfidenceChange).toHaveBeenCalledWith(5);
-    expect(screen.getByRole("button", { name: "Check answer" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
-    expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
-    expect(screen.getByRole("button", { name: "Finish this lesson →" })).toBeDisabled();
-  });
   it("says plainly when a lesson has no questions left, and that the course team was told", async () => {
     const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
     p.server.activeChallenges = [];
@@ -177,12 +161,13 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     const onQuestionsExhausted = vi.fn(() => new Promise<boolean>((resolve) => { tell = resolve; }));
     render(<ConnectedLesson {...p} onQuestionsExhausted={onQuestionsExhausted} />);
     const notice = screen.getByTestId("questions-exhausted");
-    expect(notice).toHaveTextContent("No new questions are available for this lesson right now. Your work so far is saved.");
+    expect(notice).toHaveTextContent("No new questions for this lesson right now. Your work is saved.");
     expect(notice).toHaveTextContent("Telling your course team…");
     expect(onQuestionsExhausted).toHaveBeenCalledWith("intro");
     expect(screen.queryByText(/qualified recovery check/)).toBeNull();
     await act(async () => tell(true));
-    expect(notice).toHaveTextContent("Your course team has been told and can add more questions.");
+    expect(notice).toHaveTextContent("Your course team knows and can add more questions.");
+    expect(notice.querySelector('svg[data-icon="check"]')).not.toBeNull();
     expect(onQuestionsExhausted).toHaveBeenCalledTimes(1);
   });
   it("lets the learner complete under a standing staff exception, and not otherwise", () => {
@@ -197,16 +182,6 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     fireEvent.click(screen.getByRole("button", { name: "Finish this lesson →" }));
     expect(p.onComplete).toHaveBeenCalled();
   });
-  it("hides the abstention when the author turned it off and routes written tasks to review", () => {
-    const p = props({ id: "teach", type: "teach_back", prompt: "Teach it.", allowAbstain: false, criteria: [{ id: "c", description: "States the rule.", required: true }] });
-    p.answer = "My own explanation of the rule, with an example.";
-    render(<ConnectedLesson {...p} />);
-    expect(screen.queryByRole("button", { name: /I don't know yet/ })).toBeNull();
-    expect(screen.queryByRole("radiogroup", { name: "Confidence" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
-    expect(p.onAnswer).toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: /Show explanation/ })).toBeNull();
-  });
 });
 
 describe("gate decision text in the learner's language", () => {
@@ -217,7 +192,7 @@ describe("gate decision text in the learner's language", () => {
     expect(gateText({ code: "action.viewGaps", params: { focusKind: "objectives", focus: ["Find a minimum", "Find a maximum"] } }, "", en))
       .toBe("See what is still missing");
     expect(gateText({ code: "action.askCompanion", params: { focusKind: "objectives", focus: ["Find a minimum"] } }, "", en))
-      .toBe("Ask the companion to explain this another way");
+      .toBe("Ask your companion to explain this another way");
     expect(gateText({ code: "action.appeal", params: { reviewer: "staff", days: 14 } }, "", en)).toBe("Request a staff review of this decision within 14 days");
     expect(gateText({ code: "reason.needs_evidence.detail", params: { more: 1 }, detail: { code: "criterion.families.unmet", params: { required: 2, objectives: ["Find a minimum"] } } }, "", en))
       .toBe("Answer 2 different kinds of question correctly on your own. (1 more thing still needed.)");

@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createCourseApi } from "../src/client/apiClient";
@@ -109,7 +109,10 @@ describe("teaching hypotheses panel through HTTP", () => {
     expect(await screen.findByText("You may be choosing the largest value instead of the smallest.")).toBeVisible();
     expect(screen.getByText("Possible mix-up")).toBeVisible();
     expect(screen.getByText("An idea to check")).toBeVisible();
-    expect(screen.getByText(/Noticed from a check answer · Tentative · based on 1 observation/)).toBeVisible();
+    // Source, certainty and topic on their own lines: no "·" chain.
+    expect(screen.getByText("Noticed from a check answer")).toBeVisible();
+    expect(screen.getByText("Tentative: based on 1 observation")).toBeVisible();
+    expect(screen.getByText(`About: ${connected.course.objectives[0]!.description}`)).toBeVisible();
     expect(screen.getByText(/None of this changes your progress/)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Show evidence for this idea" }));
     expect(screen.getByText(/Check answer supporting/)).toBeVisible();
@@ -157,11 +160,13 @@ describe("teaching hypotheses panel through HTTP", () => {
     render(<TeachingHypothesesPanel {...h.props} />);
     await userEvent.click(await screen.findByRole("button", { name: "Ask for a quick check of this idea" }));
     expect(await screen.findByText("Which is the smallest of 4, 9 and 2?")).toBeVisible();
-    expect(screen.getByText("Quick check · does not count toward progress")).toBeVisible();
-    const group = screen.getByRole("radiogroup", { name: "Quick check answer" });
+    expect(screen.getByText("Quick check · doesn't count toward progress")).toBeVisible();
+    // Written by AI, so it carries the Unverified pill.
+    expect(screen.getByText("Unverified")).toBeVisible();
+    const group = screen.getByRole("radiogroup", { name: "Your answer" });
     await userEvent.click(within(group).getByRole("radio", { name: "9" }));
     await userEvent.click(screen.getByRole("button", { name: "Submit check" }));
-    expect(await screen.findByText(/it does not count toward your progress/)).toBeVisible();
+    expect(await screen.findByText("Thanks. This helps your companion; it doesn't count toward your progress.")).toBeVisible();
     expect(screen.getByText(/Not quite. 2 is below 4 and 9./)).toBeVisible();
     expect(h.posts.at(-1)).toMatchObject({ path: `${base}/probes/${runId}/answer`, body: { answer: "nine" } });
     await waitFor(() => expect(screen.getByText("Supported by your answers")).toBeVisible());
@@ -173,11 +178,64 @@ describe("teaching hypotheses panel through HTTP", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Show ask for a quick check" }));
     await userEvent.type(screen.getByRole("textbox", { name: "What do you think is confusing you? (optional)" }), "I read the first number.");
     await userEvent.click(screen.getByRole("button", { name: "Ask for a check" }));
-    expect(await screen.findByText("A quick check is ready above.")).toBeVisible();
+    // A confirmation is one status line, not a coloured notice box.
+    expect((await screen.findByText("A quick check is ready above.")).closest(".cc-ui-status")).not.toBeNull();
     expect(h.posts[0]!.body).toMatchObject({ objectiveId: connected.course.objectives[0]!.id, note: "I read the first number." });
-    await userEvent.click(screen.getByRole("button", { name: "I don’t know" }));
+    await userEvent.click(screen.getByRole("button", { name: "I don't know yet" }));
     expect(await screen.findByText(/nothing was marked wrong/)).toBeVisible();
     expect(h.posts.at(-1)!.body).toMatchObject({ abstain: true });
+  });
+});
+
+describe("a quick check answered in the long-answer composer", () => {
+  const numeric = (): HypothesisSnapshot => ({
+    ...snapshot(),
+    items: [{ ...snapshot().items[0]!, status: "probing", source: "supervisor" }],
+    probes: [{ probeRunId: runId, probeId: "probe", hypothesisIds: [id], requestedBy: "supervisor", state: "scheduled",
+      question: { id: "item", type: "numeric", prompt: "What is the smallest of 4, 9 and 2?" },
+      outcome: null, scheduledAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-08T00:00:00Z", answeredAt: null, countsAsEvidence: false }],
+  });
+  it("adds a line on Enter, submits on Ctrl+Enter or Submit check, never while an input method composes", async () => {
+    const h = harness(numeric());
+    render(<TeachingHypothesesPanel {...h.props} />);
+    const field = await screen.findByRole("textbox", { name: "Your answer" });
+    expect(screen.getByText("Suggested by your companion")).toBeVisible();
+    expect(screen.getByText("Unverified")).toBeVisible();
+    // The key hint is the field's description.
+    expect(field).toHaveAccessibleDescription(/Ctrl\+Enter to submit/);
+    const submit = screen.getByRole("button", { name: "Submit check" });
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    await userEvent.type(field, "2");
+    await userEvent.keyboard("{Enter}");
+    expect(field).toHaveValue("2\n");
+    expect(h.posts).toHaveLength(0);
+    // A composition's Enter commits the text; it never submits.
+    fireEvent.compositionStart(field);
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true, isComposing: true, keyCode: 229 });
+    fireEvent.compositionEnd(field);
+    expect(h.posts).toHaveLength(0);
+    // Safari sends the committing Enter just after compositionend; that one is ignored too.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(h.posts.at(-1)).toMatchObject({ path: `${base}/probes/${runId}/answer`, body: { answer: 2 } }));
+    expect(await screen.findByText("Thanks. This helps your companion; it doesn't count toward your progress.")).toBeVisible();
+  });
+  it("offers I don't know yet beside the composer", async () => {
+    const h = harness(numeric());
+    render(<TeachingHypothesesPanel {...h.props} />);
+    await userEvent.click(await screen.findByRole("button", { name: "I don't know yet" }));
+    await waitFor(() => expect(h.posts.at(-1)!.body).toMatchObject({ abstain: true }));
+    expect(await screen.findByText(/You chose “I don't know yet”\. That helps too; nothing was marked wrong\./)).toBeVisible();
+  });
+  it("words the quick check in Hebrew", async () => {
+    const { I18nProvider, createLearnerTranslator } = await import("../src/i18n");
+    const h = harness(numeric());
+    render(<I18nProvider value={createLearnerTranslator("he")}><TeachingHypothesesPanel {...h.props} /></I18nProvider>);
+    expect(await screen.findByRole("textbox", { name: "התשובה" })).toBeVisible();
+    expect(screen.getByText("בדיקה קצרה · לא נספרת להתקדמות")).toBeVisible();
+    expect(screen.getByText("הצעה מהמנחה")).toBeVisible();
+    expect(screen.getByRole("button", { name: "שליחת הבדיקה" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "עוד לא ברור לי" })).toBeEnabled();
   });
 });
 
@@ -219,10 +277,11 @@ describe("idea lifetime", () => {
     expect(screen.getByText("An idea to check")).toBeVisible();
   });
 
-  it("says the tutor does not see ideas while personal lesson support is off", async () => {
+  it("says the companion does not see ideas while personal lesson support is off", async () => {
     const h = harness({ ...snapshot(), automaticIdeas: false });
     render(<TeachingHypothesesPanel {...h.props} />);
-    expect(await screen.findByText(/your AI tutor does not see these ideas/)).toBeVisible();
+    expect(await screen.findByText(/^Personal support is off, so your companion doesn't see these ideas\./)).toBeVisible();
+    expect(screen.queryByText(/tutor/)).toBeNull();
   });
 });
 
@@ -230,12 +289,12 @@ describe("hypothesis client contract", () => {
   it("says when personal lesson support is off that answers suggest no ideas, and says nothing when it is on", async () => {
     const off = harness({ ...snapshot(), items: [], automaticIdeas: false });
     const { unmount } = render(<TeachingHypothesesPanel {...off.props} />);
-    expect(await screen.findByText(/Personal lesson support is off, so your answers and questions do not suggest ideas on their own/)).toBeVisible();
+    expect(await screen.findByText(/Your answers and questions don't suggest ideas on their own/)).toBeVisible();
     unmount();
     const on = harness({ ...snapshot(), automaticIdeas: true });
     render(<TeachingHypothesesPanel {...on.props} />);
     expect(await screen.findByText("You may be choosing the largest value instead of the smallest.")).toBeVisible();
-    expect(screen.queryByText(/Personal lesson support is off/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Personal support is off/)).not.toBeInTheDocument();
     expect(() => parseHypothesisSnapshot({ ...snapshot(), automaticIdeas: "yes" }, enrollmentId)).toThrow();
   });
 

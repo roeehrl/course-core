@@ -28,6 +28,6 @@ export async function openProfile(page: Page) {
   // loading state, so once this heading is visible their spinners are present
   // until the reads finish.
   await expect(page.getByRole("heading", { name: "Personal lesson support", exact: true })).toBeVisible();
-  for (const label of ["Loading supervisor information", "Loading learning memory", "Loading teaching ideas"])
+  for (const label of ["Loading your companion's work", "Loading learning memory", "Loading teaching ideas"])
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
 }

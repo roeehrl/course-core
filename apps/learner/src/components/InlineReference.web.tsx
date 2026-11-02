@@ -1,5 +1,6 @@
 import React from "react";
 import { safeHttpsUrl } from "../connected/resources";
+import { colors } from "../theme/colors";
 import type { InlineReferenceProps } from "./InlineReference";
 export function InlineReference({ label, href }: InlineReferenceProps) {
   const safe = safeHttpsUrl(href);
@@ -9,7 +10,7 @@ export function InlineReference({ label, href }: InlineReferenceProps) {
       target="_blank"
       rel="noopener noreferrer"
       style={{
-        color: "#087B69",
+        color: colors.accent,
         textDecoration: "underline",
         textUnderlineOffset: 3,
       }}

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   Text,
   useWindowDimensions,
@@ -8,12 +9,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Companion } from "./components/Companion";
+import { DemoCompanionDock, DemoCompanionSlot } from "./components/DemoCompanionDock";
+import { Icon } from "./components/icons/Icon";
+import { LivePressable } from "./components/LivePressable";
 import { CourseRoadmap } from "./components/CourseRoadmap";
 import { LessonFlow } from "./components/LessonFlow";
 import { Overlay } from "./components/Overlay";
 import { PlacementEntry } from "./components/PlacementEntry";
 import { ProfileEditor } from "./components/ProfileEditor";
-import { Badge, Button, colors, Notice, styles } from "./components/ui";
+import { Badge, Button, Notice, styles } from "./components/ui";
 import {
   draftKey,
   effectiveLayout,
@@ -30,6 +34,7 @@ import { useLearner } from "./hooks/useLearner";
 import { useApiErrorLocale } from "./client/apiClient";
 import { useT, type MessageKey } from "./i18n";
 import { useReadingFocus } from "./hooks/useReadingFocus";
+import { colors as tokens } from "./theme/colors";
 
 export interface LearnerAppProps {
   course: Course;
@@ -79,6 +84,10 @@ function LearnerWorkspace({
     dimensions.fontScale,
   );
   const [dialog, setDialog] = useState<"profile" | "placement" | "companion">();
+  // On the web the companion is the real companion's frame (DemoCompanionDock.web.tsx): a docked
+  // panel or a nonmodal sheet, its trigger drawn in the header; native keeps the page's own.
+  const web = Platform.OS === "web";
+  const [companionSlot, setCompanionSlot] = useState<HTMLElement | null>(null);
   const scroll = useRef<ScrollView>(null);
   const content = useRef<View>(null);
   const route = session.route;
@@ -135,98 +144,115 @@ function LearnerWorkspace({
       mode={snapshot?.mode ?? "demo"}
     />
   );
+  // The header runs the window's full width above the page and the companion's panel (on the
+  // web it is outside the page's scroll view, so opening the panel never moves its controls);
+  // native keeps it at the top of the page.
+  const header = (
+    <View
+      testID="demo-header"
+      style={{
+        backgroundColor: tokens.surface,
+        borderBottomWidth: 1,
+        borderColor: tokens.line,
+      }}
+    >
+      <View
+        style={[
+          styles.spread,
+          {
+            width: "100%",
+            maxWidth: 1280,
+            alignSelf: "center",
+            paddingHorizontal: layout.compact ? 20 : 40,
+            paddingVertical: 18,
+          },
+        ]}
+      >
+        <View style={styles.row}>
+          <View
+            style={{
+              width: 35,
+              height: 35,
+              borderRadius: 10,
+              backgroundColor: tokens.accent,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text
+              style={{
+                color: tokens.onAccent,
+                fontSize: 23,
+                fontWeight: "700",
+              }}
+            >
+              {/* i18n-ignore: logo letter of the product name, not translated */}
+              c
+            </Text>
+          </View>
+          {/* The product name stays Latin and left to right in every locale. */}
+          <Text
+            style={{
+              color: tokens.ink,
+              fontSize: 21,
+              letterSpacing: -0.8,
+              fontWeight: "700",
+              writingDirection: "ltr",
+            }}
+          >
+            {/* i18n-ignore: product name wordmark, not translated */}
+            course<Text style={{ color: tokens.accent }}>{/* i18n-ignore: product name wordmark */}core</Text>
+          </Text>
+        </View>
+        {/* Shrinks to the window, so on the narrowest phones its buttons wrap instead of running
+            past its edge. */}
+        <View style={[styles.row, { gap: 6, flexShrink: 1 }]}>
+          {snapshot && (
+            <>
+              <Button
+                label={t("learnerApp.nav.path")}
+                kind="quiet"
+                onPress={() => navigate({ screen: "roadmap" })}
+                disabled={pending}
+              />
+              {web && <DemoCompanionSlot onSlot={setCompanionSlot} />}
+              {!web && !layout.companionPane && (
+                <CompanionNavButton
+                  label={t("learnerApp.nav.companion")}
+                  onPress={() => openDialog("companion")}
+                  disabled={pending}
+                />
+              )}
+              <Button
+                label={t("learnerApp.nav.profile")}
+                onPress={() => openDialog("profile")}
+                disabled={pending}
+              />
+            </>
+          )}
+        </View>
+      </View>
+    </View>
+  );
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.paper }}
+      style={{ flex: 1, backgroundColor: tokens.page }}
       onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}
     >
+      <DemoCompanionDock
+        width={Math.min(dimensions.width, containerWidth)}
+        height={dimensions.height}
+        headerSlot={companionSlot}
+        header={web ? header : null}
+        companion={web && snapshot ? companion : null}
+        {...(lesson?.title ? { lessonTitle: lesson.title } : {})}
+      >
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ flexGrow: 1 }}
       >
-        <View
-          style={{
-            backgroundColor: colors.white,
-            borderBottomWidth: 1,
-            borderColor: colors.line,
-          }}
-        >
-          <View
-            style={[
-              styles.spread,
-              {
-                width: "100%",
-                maxWidth: 1280,
-                alignSelf: "center",
-                paddingHorizontal: layout.compact ? 20 : 40,
-                paddingVertical: 18,
-              },
-            ]}
-          >
-            <View style={styles.row}>
-              <View
-                style={{
-                  width: 35,
-                  height: 35,
-                  borderRadius: 10,
-                  backgroundColor: colors.teal,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.white,
-                    fontSize: 23,
-                    fontWeight: "700",
-                  }}
-                >
-                  {/* i18n-ignore: logo letter of the product name, not translated */}
-                  c
-                </Text>
-              </View>
-              {/* The product name stays Latin and left to right in every locale. */}
-              <Text
-                style={{
-                  color: colors.ink,
-                  fontSize: 21,
-                  letterSpacing: -0.8,
-                  fontWeight: "700",
-                  writingDirection: "ltr",
-                }}
-              >
-                {/* i18n-ignore: product name wordmark, not translated */}
-                course<Text style={{ color: colors.teal }}>{/* i18n-ignore: product name wordmark */}core</Text>
-              </Text>
-            </View>
-            <View style={[styles.row, { gap: 6 }]}>
-              {snapshot && (
-                <>
-                  <Button
-                    label={t("learnerApp.nav.path")}
-                    kind="quiet"
-                    onPress={() => navigate({ screen: "roadmap" })}
-                    disabled={pending}
-                  />
-                  {!layout.companionPane && (
-                    <Button
-                      label={t("learnerApp.nav.companion")}
-                      kind="quiet"
-                      onPress={() => openDialog("companion")}
-                      disabled={pending}
-                    />
-                  )}
-                  <Button
-                    label={t("learnerApp.nav.profile")}
-                    onPress={() => openDialog("profile")}
-                    disabled={pending}
-                  />
-                </>
-              )}
-            </View>
-          </View>
-        </View>
+        {!web && header}
         {!snapshot ? (
           <View style={{ padding: 40, gap: 20 }}>
             {error ? (
@@ -236,7 +262,7 @@ function LearnerWorkspace({
               </>
             ) : (
               <>
-                <ActivityIndicator color={colors.teal} />
+                <ActivityIndicator color={tokens.accent} />
                 <Text accessibilityLiveRegion="polite" style={styles.body}>
                   {t("learnerApp.loading")}
                 </Text>
@@ -288,7 +314,7 @@ function LearnerWorkspace({
             )}
             <View
               style={{
-                flexDirection: layout.companionPane ? "row" : "column",
+                flexDirection: !web && layout.companionPane ? "row" : "column",
                 gap: 40,
                 alignItems: "flex-start",
               }}
@@ -370,17 +396,20 @@ function LearnerWorkspace({
                   />
                 )}
               </View>
-              {layout.companionPane && (
+              {!web && layout.companionPane && (
+                // The companion beside the page (final design §2.1): 400 px wide, a flat surface
+                // with a hairline, never narrower than the panel of the connected app.
                 <View
                   testID="companion-pane"
                   style={{
-                    width: 288,
-                    padding: 22,
-                    gap: 20,
-                    backgroundColor: colors.white,
+                    width: 400,
+                    flexShrink: 0,
+                    paddingHorizontal: 16,
+                    paddingBottom: 16,
+                    backgroundColor: tokens.surface,
                     borderWidth: 1,
-                    borderColor: colors.line,
-                    borderRadius: 20,
+                    borderColor: tokens.line,
+                    borderRadius: 18,
                   }}
                 >
                   {companion}
@@ -392,7 +421,7 @@ function LearnerWorkspace({
                 styles.spread,
                 {
                   borderTopWidth: 1,
-                  borderColor: colors.line,
+                  borderColor: tokens.line,
                   paddingTop: 20,
                   marginTop: 8,
                 },
@@ -410,6 +439,7 @@ function LearnerWorkspace({
           </View>
         )}
       </ScrollView>
+      </DemoCompanionDock>
       {dialog && snapshot && (
         <Overlay title={t(`learnerApp.dialog.${dialog}` as MessageKey)} onClose={closeDialog}>
           {dialog === "companion" ? (
@@ -447,5 +477,42 @@ function LearnerWorkspace({
         </Overlay>
       )}
     </SafeAreaView>
+  );
+}
+
+/**
+ * The demo's way to the companion on narrow windows, drawn like the connected app's companion
+ * trigger (final design §3.1): a 44 px pill with the companion glyph and "Companion".
+ */
+function CompanionNavButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <LivePressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      aria-disabled={!!disabled}
+      disabled={disabled}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        minWidth: 44,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingStart: 12,
+        paddingEnd: 16,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: tokens.lineStrong,
+        backgroundColor: hovered && !disabled ? tokens.surface2 : tokens.surface,
+        opacity: !disabled && pressed ? 0.8 : 1,
+      })}
+    >
+      <Icon name="sparkle" size={18} />
+      <Text style={{ color: disabled ? tokens.inkMuted : tokens.ink, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>{label}</Text>
+    </LivePressable>
   );
 }

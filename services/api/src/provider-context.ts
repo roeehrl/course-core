@@ -18,6 +18,7 @@ import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { capsuleFacts, constraintSnapshot, retrieveConversation, simulationState, storeCapsule, type CompanionCapsule, type QuestionFocus } from './context-capsule.js';
 import { effectiveDigestSql } from './carried-digest.js';
 import { questionCheckCoaching } from './companion-check-scope.js';
+import { companionCreditScope } from './companion-ask-route.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
@@ -40,7 +41,8 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const episodeId=input.episodeId??loaded.enrollment.current_episode_id;
     const episode=episodeId?course.chapters.flatMap(chapter=>chapter.episodes).find(episode=>episode.id===episodeId):course.chapters[0]?.episodes[0];
     requireCondition(episode, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
-    const message = input.messageId ? (await client.query<{ content: string; created_at: Date; context: QuestionFocus & { courseDigest?: string; episodeId?: string; interactiveContext?: SemanticVisualContext } }>(
+    const message = input.messageId ? (await client.query<{ content: string; created_at: Date; context: QuestionFocus & { courseDigest?: string; episodeId?: string; interactiveContext?: SemanticVisualContext;
+      attachedCheck?: { challengeId?: string } } }>(
       "SELECT content,created_at,context FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner'", [input.messageId, ref.enrollmentId])).rows[0] : undefined;
     // Only this lesson's conversation in this course version, bounded and referenced; never other lessons
     // or messages the learner excluded. Earlier questions become an extractive summary naming its sources.
@@ -48,7 +50,13 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       ...(input.messageId ? { currentMessageId: input.messageId } : {}), ...(message ? { before: message.created_at } : {}) });
     const question = input.messageId ? message?.content : 'Review the saved learning event and identify any teaching support that is needed.';
     requireCondition(question, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
-    const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
+    // An open counted question the companion must not help with: for a question, one in its credit
+    // scope (its lesson's, or the one attached), which asking made practice, so one still counted
+    // opened after it was asked; another lesson's stays counted and is guarded instead (check
+    // coaching below). Any other job is told of every open counted question.
+    const counted = (await client.query<{ id: string; episode_id: string }>('SELECT id,episode_id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true',
+      [ref.enrollmentId])).rows;
+    const activeRows = message ? companionCreditScope(counted, message.context.episodeId ?? episode.id, message.context.attachedCheck?.challengeId) : counted;
     // The course's graded checks this question is about, open or not (companion-check-integrity.ts):
     // only their prompts and options reach the model, never a key. The same match sized the
     // question's reservation when it was prepared (companion-check-scope.ts).
@@ -88,7 +96,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       teaching: episode.blocks.filter(block => block.type === 'text').map(block => block.type === 'text' ? block.markdown : '').join('\n\n'),
       objectives: course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).map(({ id, description }) => ({ id, description })) },
       learner: { profile: loaded.enrollment.profile, recentHistory: conversation.history, understanding, recentAttempts }, question,
-      constraints: { deadline: effectiveDeadline, expansionAllowed: resolvedPolicy.minimumExpansionProbe.allowed, independentAssessmentActive: Boolean(active.rowCount),resolvedPolicy } };
+      constraints: { deadline: effectiveDeadline, expansionAllowed: resolvedPolicy.minimumExpansionProbe.allowed, independentAssessmentActive: activeRows.length > 0,resolvedPolicy } };
     const facts = await capsuleFacts(client, ref.enrollmentId, episode, episode.gateId);
     const capsule = { schemaVersion: 1 as const, kind: 'companion_context_capsule' as const, enrollmentId: ref.enrollmentId, courseDigest: loaded.release.digest,
       pathRevision: loaded.release.planRevision ?? null, planDigest: loaded.release.planDigest ?? null, episodeId: episode.id, blockId: input.blockId ?? null,

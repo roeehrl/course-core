@@ -1,7 +1,5 @@
 {
-  "example": "דוגמה",
-  "codeRegion": "קוד {language}, אפשר לגלול",
-  "exampleRegion": "קוד לדוגמה, אפשר לגלול",
   "tableRegion": "טבלה, ניתנת לגלילה",
-  "scrollHint": "אפשר לגלול הצידה כדי לראות את השאר"
+  "scrollHint": "אפשר לגלול הצידה כדי לראות את השאר",
+  "tableScrollHint": "אפשר לגלול הצידה לשאר הטבלה"
 }

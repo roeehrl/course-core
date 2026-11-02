@@ -5,18 +5,20 @@ import enPreview from "../../src/i18n/messages/en/enrollmentPreview.json";
 import hePreview from "../../src/i18n/messages/he/enrollmentPreview.json";
 import enCompanion from "../../src/i18n/messages/en/connectedCompanion.json";
 import heCompanion from "../../src/i18n/messages/he/connectedCompanion.json";
+import enBasedOn from "../../src/i18n/messages/en/basedOn.json";
+import heBasedOn from "../../src/i18n/messages/he/basedOn.json";
 
 /*
  * Text in one direction embedded in a sentence in the other, as the learner sees it (0.1.58
  * qualification), on every device project and both engines, in English and Hebrew:
- * - a quotation in "Context used" keeps its quotation marks at its own start and end, also when
+ * - a quotation in "Based on" keeps its quotation marks at its own start and end, also when
  *   it wraps (in Hebrew the marks of an English quotation landed beside the end of its first line);
  * - the course page's due-date line reads its label, then the date, in the sentence's direction.
  * Positions are measured on the drawn glyphs, so the checks fail on the old rendering.
  */
 const text = {
-  en: { host: enHost, preview: enPreview, companion: enCompanion },
-  he: { host: heHost, preview: hePreview, companion: heCompanion },
+  en: { host: enHost, preview: enPreview, companion: enCompanion, basedOn: enBasedOn },
+  he: { host: heHost, preview: hePreview, companion: heCompanion, basedOn: heBasedOn },
 } as const;
 type Locale = keyof typeof text;
 type Rect = { left: number; right: number; top: number; bottom: number };
@@ -86,7 +88,7 @@ for (const locale of ["en", "he"] as const) {
     await page.screenshot({ path: info.outputPath(`due-date-${locale}.png`) });
   });
 
-  test(`${locale}: quotations in "Context used" keep their marks at their own start and end`, async ({ page }, info) => {
+  test(`${locale}: quotations in "Based on" keep their marks at their own start and end`, async ({ page }, info) => {
     const t = text[locale];
     await signIn(page, locale, "/test/companion-context-rich-session");
     const resume = page.getByRole("button", { name: t.host["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
@@ -97,7 +99,11 @@ for (const locale of ["en", "he"] as const) {
     }).toPass({ timeout: 20_000 });
     const pane = page.locator("#connected-companion");
     if (!(await pane.isVisible())) await page.locator(".connected-companion-trigger").click();
-    await page.getByRole("button", { name: t.companion["context.show"], exact: true }).click();
+    await page.locator("#connected-companion").getByRole("button", { name: new RegExp(`^${t.basedOn["chip.short"]}`) }).click();
+    // The earlier messages come after the question in the block, under their own label.
+    const block = page.getByRole("region", { name: t.basedOn.region, exact: true });
+    const labels = await block.locator(".cc-act-based-label").allTextContents();
+    expect(labels.indexOf(t.basedOn.earlier)).toBeGreaterThan(labels.indexOf(t.basedOn.question));
     // An English reply quoted in the sentence; long enough to wrap in the pane on every size.
     const reply = page.locator("#connected-companion div[dir]").filter({ hasText: /Minimum means no greater than any other member/ }).last();
     await reply.scrollIntoViewIfNeeded();
@@ -110,9 +116,9 @@ for (const locale of ["en", "he"] as const) {
     follows(open![0]!, open![1]!, false);
     follows(close![close!.length - 2]!, close![close!.length - 1]!, false);
     // The label comes first in the sentence's direction, then the quotation.
-    const label = await glyphs(page, "#connected-companion", rtl ? "המנחה:" : "Companion:");
+    const label = await glyphs(page, "#connected-companion", rtl ? "תשובת המנחה:" : "Companion:");
     if (rtl) expect(label![0]!.left, "the label is at the line's start, on the right").toBeGreaterThan(open![1]!.left);
     else expect(label![0]!.right).toBeLessThan(open![1]!.left);
-    await page.screenshot({ path: info.outputPath(`context-used-${locale}.png`) });
+    await page.screenshot({ path: info.outputPath(`based-on-${locale}.png`) });
   });
 }
