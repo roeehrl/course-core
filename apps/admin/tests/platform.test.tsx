@@ -182,6 +182,14 @@ function port(over: Partial<PlatformPort> = {}): PlatformPort {
               status: "missing" as const,
               servedByPriorBuild: false,
             },
+            {
+              id: "course-numeric-creator",
+              version: "1.0.0",
+              execution: "server",
+              status: "compatible" as const,
+              servedByPriorBuild: false,
+              servedByGenerator: "bounded-numeric-v1",
+            },
           ],
         },
       ],
@@ -401,6 +409,13 @@ describe("integrations and billed costs (Q12, U04)", () => {
       />,
     );
     expect(await screen.findByText("Not installed")).toBeVisible();
+    // A server extension a trusted recovery generator serves (bound by digest) counts as installed.
+    expect(
+      stripBidiControls(
+        screen.getByRole("row", { name: /course-numeric-creator/ }).textContent ??
+          "",
+      ),
+    ).toContain("Recovery generator bounded-numeric-v1");
     expect(
       screen.getByText(/Install the extension version this course declares/),
     ).toBeVisible();
