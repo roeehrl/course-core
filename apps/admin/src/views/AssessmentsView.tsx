@@ -1240,13 +1240,14 @@ function FixturesEditor({
                   {t(
                     `assessmentsView.fixtures.expected.${f.expected}` as MessageKey,
                   )}
-                </Badge>{" "}
-                <bdi>{answerText(item, f.answer)}</bdi>
+                </Badge>
+                <span className="cv-fixture-answer" dir="auto">
+                  {answerText(item, f.answer)}
+                </span>
                 {f.label && (
-                  <span className="muted">
-                    {" "}
-                    · <bdi>{f.label}</bdi>
-                  </span>
+                  <small className="muted" dir="auto">
+                    {f.label}
+                  </small>
                 )}
               </span>
               <Button
