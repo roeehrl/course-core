@@ -165,6 +165,8 @@ test("the panel's content slides in for all of M9, and closing fades it out towa
       const aside = document.querySelector<HTMLElement>("#connected-companion")!;
       return {
         hidden: aside.hidden,
+        inert: aside.inert,
+        ariaHidden: aside.getAttribute("aria-hidden"),
         entering: aside.dataset.entering === "true",
         opacity: Number(getComputedStyle(aside).opacity),
         shift: getComputedStyle(aside.querySelector(".cc-shell-body")!).transform,
@@ -179,11 +181,16 @@ test("the panel's content slides in for all of M9, and closing fades it out towa
   // 60 ms into the 150 ms close it is still drawn, fading, its content moving toward the end.
   const closing = await pressAndRead('#connected-companion [aria-label="Close companion"]', 60);
   expect(closing.hidden).toBe(false);
+  // Hidden from assistive technology while drawn, and out of the tab order with it (axe
+  // aria-hidden-focus): nothing inside can be reached during the motion.
+  expect(closing.ariaHidden).toBe("true");
+  expect(closing.inert).toBe(true);
   expect(closing.opacity).toBeLessThan(1);
   expect(closing.opacity).toBeGreaterThan(0);
   expect(closing.shift).not.toBe("none");
   await expect(companion(page)).toBeHidden();
   await expect(page.locator("#connected-companion[data-leaving]")).toHaveCount(0);
+  expect(await companion(page).evaluate((aside) => (aside as HTMLElement).inert)).toBe(false);
 });
 
 for (const locale of ["en", "he"] as const) {

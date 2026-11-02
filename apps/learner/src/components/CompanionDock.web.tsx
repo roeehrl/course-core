@@ -311,6 +311,9 @@ function useExitMotion(panel: React.RefObject<HTMLElement | null>, docked: boole
     const shift = parseFloat(style.getPropertyValue("--motion-m9-shift")) || 0;
     const towardEnd = style.direction === "rtl" ? -shift : shift;
     aside.hidden = false;
+    // Gone for keyboard and screen reader users while it plays: inert takes the controls out of
+    // the tab order, so nothing focusable is left inside the hidden subtree.
+    aside.inert = true;
     aside.setAttribute("aria-hidden", "true");
     aside.dataset.leaving = "true";
     Object.assign(aside.style, { position: "fixed", top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px`, height: `${box.height}px` });
@@ -326,6 +329,7 @@ function useExitMotion(panel: React.RefObject<HTMLElement | null>, docked: boole
     const done = () => {
       for (const key of ["position", "top", "left", "width", "height"] as const) aside.style[key] = "";
       aside.removeAttribute("aria-hidden");
+      aside.inert = false;
       delete aside.dataset.leaving;
       if (!companionOpen.get().open) aside.hidden = true;
     };
