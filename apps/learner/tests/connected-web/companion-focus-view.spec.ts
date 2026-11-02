@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "./health";
 import { companion, lengthenLesson, openLesson, settled, trigger } from "./shell-helpers";
+import { openCompanion } from "./companion-helpers";
+import enHost from "../../src/i18n/messages/en/connectedHost.json";
 
 /*
  * Focus view (final design §2.2, G7): Expand gives the companion the area under the app header,
@@ -94,6 +96,39 @@ test("Esc leaves focus view, and focus view lasts for the browser session", { ta
   await openLesson(fresh);
   await expect(companion(fresh)).toHaveAttribute("data-view", "docked");
   await fresh.close();
+});
+
+test("“Try question 1” in focus view goes back beside the lesson, shows the check and focuses its answer", { tag: "@desktop-window" }, async ({ page }) => {
+  // A conversation whose latest reply offers "Try question 1" (services/api/browser/fixtures/actions.ts).
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const response = await page.request.post("/test/actions-session", { data: {} });
+  expect(response.ok()).toBe(true);
+  const { token } = (await response.json()) as { token: string };
+  await page.goto(`/?locale=en#signin=${token}`);
+  const resume = page.getByRole("button", { name: enHost["library.continue"], exact: true }).or(page.getByTestId("next-step").getByRole("button"));
+  const check = page.locator(".connected-check");
+  await expect(async () => {
+    if (await resume.count()) await resume.first().click({ timeout: 2_000 });
+    await expect(check).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await openCompanion(page);
+  await companion(page).getByRole("button", { name: "Expand", exact: true }).click();
+  await expect(companion(page)).toHaveAttribute("data-view", "focus");
+  const main = page.locator("#connected-learning");
+  await expect(main).toBeHidden();
+  const tryIt = companion(page).getByRole("button", { name: /^Try question \d+$/ }).last();
+  await expect(tryIt).toBeVisible();
+  await tryIt.click();
+  // Back beside the lesson, the panel still open; the check in view, marked (M14), its answer
+  // field focused.
+  await expect(companion(page)).toHaveAttribute("data-view", "docked");
+  await expect(companion(page)).toBeVisible();
+  await expect(main).toBeVisible();
+  expect(await main.evaluate((element) => (element as HTMLElement).inert)).toBe(false);
+  await expect(check).toBeInViewport();
+  await expect(check).toHaveAttribute("data-cc-highlight", /hold|fade/);
+  const answer = check.getByRole("textbox").or(check.locator("input")).first();
+  await expect(answer).toBeFocused();
 });
 
 test("a phone or tablet has no focus view: the sheet has no Expand", async ({ page }) => {

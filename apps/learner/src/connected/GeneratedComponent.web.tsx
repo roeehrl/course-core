@@ -89,6 +89,8 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
   const mounted = useRef(true);
   const firstField = useRef<HTMLInputElement>(null);
   const cannotRun = useRef<HTMLParagraphElement>(null);
+  /** A run found this browser cannot run models: its line takes the focus the button had. */
+  const focusCannotRun = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -103,10 +105,11 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
     const runner = await loadRunner().catch(() => null);
     if (!mounted.current) return;
     if (!runner) {
+      // The button goes; the line that replaces it takes the focus it had (once it is drawn).
+      focusCannotRun.current = true;
       setPhase("idle");
       setOutcome("unavailable");
-      // The button goes; the line that replaces it takes the focus it had.
-      return requestAnimationFrame(() => cannotRun.current?.focus());
+      return;
     }
     let stdout = "";
     const outcome = await runner.run(componentProgram(component.source, values), null, {
@@ -120,12 +123,18 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
     const parsed = outcome.status === "ok" ? componentResult(stdout, component.outputs) : null;
     setResult(parsed);
     const next: Outcome = outcome.status === "unavailable" ? "unavailable" : outcome.status !== "ok" ? "failed" : parsed ? "updated" : "badOutput";
+    if (next === "unavailable") focusCannotRun.current = true;
     setOutcome(next);
-    if (next === "unavailable") requestAnimationFrame(() => cannotRun.current?.focus());
   }
   // Values that did not run: the first one is ready to change, once the values are enabled again.
+  // A browser that cannot run the model: the line takes the focus once it is on the page (never a
+  // frame timer, which a slow render can beat, leaving the focus on the page with the button gone).
   useEffect(() => {
     if (outcome === "failed") firstField.current?.focus();
+    if (outcome === "unavailable" && focusCannotRun.current) {
+      focusCannotRun.current = false;
+      cannotRun.current?.focus();
+    }
   }, [outcome]);
   // Before a run, at the starting position, the verified starting values are shown instead of nothing.
   const atStart = component.inputs.every((input) => values[input.name] === input.initial);

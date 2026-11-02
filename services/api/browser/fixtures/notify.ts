@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { transaction } from "../../src/database.js";
 import type { FixtureContext } from "./index.js";
 
 /** The lesson and part of the ordering course a question is asked about. */
@@ -38,12 +39,15 @@ export async function register(ctx: FixtureContext): Promise<void> {
         WHERE m.id::text=$1 AND m.role='learner'`, [String(body.questionId)])).rows[0];
     if (!question) return { replied: false, reason: "question_not_found" };
     const jobId = randomUUID(), replyId = randomUUID();
-    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
-      VALUES ($1,$2,$3,$4,'companion','applied',1,'{}',$5)`, [jobId, question.enrollment_id, question.workspace_id, `browser-notify-${jobId}`,
-      JSON.stringify({ reason: null, applicationReceiptId: null })]);
-    await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [question.id, jobId]);
-    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
-      [replyId, question.enrollment_id, String(body.answer ?? "A stored reply.").slice(0, 4000), JSON.stringify({ episodeId: LESSON.episodeId }), jobId]);
+    // In one transaction, as a real reply is applied: a read never finds the job finished without its reply.
+    await transaction(db, async (client) => {
+      await client.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
+        VALUES ($1,$2,$3,$4,'companion','applied',1,'{}',$5)`, [jobId, question.enrollment_id, question.workspace_id, `browser-notify-${jobId}`,
+        JSON.stringify({ reason: null, applicationReceiptId: null })]);
+      await client.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [question.id, jobId]);
+      await client.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
+        [replyId, question.enrollment_id, String(body.answer ?? "A stored reply.").slice(0, 4000), JSON.stringify({ episodeId: LESSON.episodeId }), jobId]);
+    });
     if (body.away)
       await ctx.notifyUser(db, { workspaceId: question.workspace_id, userId: question.user_id, audience: "learner", kind: "reply_ready",
         enrollmentId: question.enrollment_id, link: `/enrollments/${question.enrollment_id}/companion`, dedupeKey: `reply-ready:${replyId}`,

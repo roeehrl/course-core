@@ -1,12 +1,16 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 
+/** The column a popover stays inside, besides the window: the lesson's, beside the companion. */
+const COLUMN = ".connected-main";
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]';
 
 /**
  * A small anchored, non-modal dialog (280 or 320 px): the ⓘ explanations, a delete confirm, the
  * About and Unverified notes. It moves focus to `initialFocus` or its first control, closes on Esc
  * and on a click outside, and returns focus to its anchor. It sits under the anchor (above it when
- * there is no room below), inside the window with a 16 px margin. M16.
+ * there is no room below), inside the window with a 16 px margin and, from the lesson, inside the
+ * lesson's column: it starts at the anchor's inline start, or ends at its inline end where it would
+ * cross the column's end. M16.
  */
 export function Popover({
   open,
@@ -40,10 +44,18 @@ export function Popover({
       const node = box.current;
       if (!rect || !node) return;
       const rtl = getComputedStyle(node).direction === "rtl";
-      const room = window.innerWidth - 16;
       const w = node.offsetWidth || width;
+      // Inside the window, and inside the lesson column for an anchor in the lesson, so a note
+      // never runs over the companion docked beside it (16 px margins).
+      const column = anchor.current?.closest(COLUMN)?.getBoundingClientRect();
+      const start = Math.max(16, column ? column.left + 16 : 16);
+      const end = Math.min(window.innerWidth - 16, column ? column.right - 16 : Infinity);
+      // From the anchor's inline start; where that crosses the column's inline end, it ends where
+      // the anchor ends instead.
       let left = rtl ? rect.right - w : rect.left;
-      left = Math.max(16, Math.min(left, room - w));
+      if (!rtl && left + w > end) left = rect.right - w;
+      if (rtl && left < start) left = rect.left;
+      left = Math.max(start, Math.min(left, end - w));
       const height = node.offsetHeight;
       const below = rect.bottom + 8;
       const top = below + height > window.innerHeight - 16 && rect.top - 8 - height >= 16 ? rect.top - 8 - height : below;

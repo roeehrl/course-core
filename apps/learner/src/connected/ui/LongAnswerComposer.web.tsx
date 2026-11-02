@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Icon } from "../../components/icons/Icon.web";
 import { createCompositionTracker, isMac, isSubmitChord, type CompositionTracker } from "./keys";
+import { useCoarsePointer } from "./media";
 import type { LongAnswerComposerProps } from "./LongAnswerComposer";
 
 export type { LongAnswerComposerProps } from "./LongAnswerComposer";
@@ -9,12 +10,13 @@ export type { LongAnswerComposerProps } from "./LongAnswerComposer";
 /**
  * A field for a long answer (final design §4.13): the visible label above, radius 16, at least
  * 112 px, Enter makes a new line and Cmd/Ctrl+Enter submits (never while an input method is
- * composing), and one meta row: the key hint at its start, then the optional quiet choice ("I don't
- * know yet") and the submit as an accent pill at its end (the Ideas-quick-check and
- * Reviewer-feedback artboards). Like the check's "Check" (§4.1), an empty field does not grey the
- * submit out: it keeps its accent and its place in the Tab order (`aria-disabled`), and a press
- * says under the field what is missing and puts the learner in it. Only a submit in progress (or
- * a field that takes nothing) disables it.
+ * composing), and one meta row: the key hint at its start (fine pointers only, as in the
+ * companion's composer, §3.6: a touch keyboard has no ⌘ or Ctrl, and the submit says how), then the
+ * optional quiet choice ("I don't know yet") and the submit as an accent pill at its end (the
+ * Ideas-quick-check and Reviewer-feedback artboards). Like the check's "Check" (§4.1), an empty
+ * field does not grey the submit out: it keeps its accent and its place in the Tab order
+ * (`aria-disabled`), and a press says under the field what is missing and puts the learner in it.
+ * Only a submit in progress (or a field that takes nothing) disables it.
  */
 export function LongAnswerComposer({
   label,
@@ -37,6 +39,7 @@ export function LongAnswerComposer({
   const hint = `${field}-hint`;
   const missing = `${field}-missing`;
   const area = useRef<HTMLTextAreaElement>(null);
+  const keyHint = !useCoarsePointer();
   const tracker = useRef<CompositionTracker | null>(null);
   useEffect(() => {
     tracker.current = createCompositionTracker(area.current);
@@ -70,7 +73,7 @@ export function LongAnswerComposer({
         value={value}
         placeholder={placeholder}
         disabled={disabled}
-        aria-describedby={[emptyPress ? missing : "", hint, describedBy].filter(Boolean).join(" ")}
+        aria-describedby={[emptyPress ? missing : "", keyHint ? hint : "", describedBy].filter(Boolean).join(" ") || undefined}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
           if (!isSubmitChord(event) || tracker.current?.isComposing(event)) return;
@@ -85,15 +88,17 @@ export function LongAnswerComposer({
         </p>
       )}
       <div className="cc-ui-long-meta">
-        <span id={hint} className="cc-ui-long-hint">
-          {i18n.rich(
-            action === "save"
-              ? isMac() ? "longAnswerComposer.saveHint.mac" : "longAnswerComposer.saveHint.other"
-              : isMac() ? "longAnswerComposer.hint.mac" : "longAnswerComposer.hint.other",
-            undefined,
-            key,
-          )}
-        </span>
+        {keyHint && (
+          <span id={hint} className="cc-ui-long-hint">
+            {i18n.rich(
+              action === "save"
+                ? isMac() ? "longAnswerComposer.saveHint.mac" : "longAnswerComposer.saveHint.other"
+                : isMac() ? "longAnswerComposer.hint.mac" : "longAnswerComposer.hint.other",
+              undefined,
+              key,
+            )}
+          </span>
+        )}
         <span className="cc-ui-long-actions">
           {secondary && (
             <button type="button" className="cc-ui-text-button" disabled={secondary.disabled} onClick={secondary.onPress}>

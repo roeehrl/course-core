@@ -45,6 +45,20 @@ it("says so when models cannot run here, and keeps the text alternative as the w
   expect(screen.getByText("This runs in your browser, offline, and never counts as an answer.")).toBeVisible();
 });
 
+it("moves the focus the button had to the line as soon as it is drawn, with no frame to wait for", async () => {
+  // A slow page: no animation frame comes before the line is on the page (or at all).
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  try {
+    render(<GeneratedComponentPanel component={component} loadRunner={async () => null} />);
+    const button = screen.getByRole("button", { name: "Run the model" });
+    button.focus();
+    await act(async () => { fireEvent.click(button); });
+    expect(screen.getByRole("alert")).toHaveFocus();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it("names each state of a run on the button, which stays in place, and keeps the results' room", async () => {
   let finish!: () => void;
   let phase!: (phase: "loading" | "running") => void;

@@ -23,7 +23,7 @@ import { Announcer, useAnnounce } from "../ui/Announcer.web";
 import { ringComposer } from "../ui/highlight";
 import { placeholderAttachment } from "./AttachmentChips.web";
 import { BubbleActions } from "./BubbleActions.web";
-import { companionBridge, lessonNavigator, type LessonTarget } from "./bridge";
+import { companionBridge, type LessonTarget } from "./bridge";
 import { CompanionTurn } from "./CompanionTurn.web";
 import { Composer, MESSAGE_MAX, type ComposerHandle } from "./Composer.web";
 import { DecisionLine } from "./DecisionLine.web";
@@ -31,7 +31,7 @@ import { EarlierMessages } from "./EarlierMessages.web";
 import { EmptyState } from "./EmptyState.web";
 import { LearnerTurn, turnAnchor, type BubbleFooter } from "./LearnerTurn.web";
 import { chooseNotice, type PausedCeiling } from "./notices";
-import { companionOpen, useCompanionOpenValue } from "./openState";
+import { useCompanionOpenValue } from "./openState";
 import { composerPlaceholder } from "./placeholder";
 import { dismissRecovered, useRecoveredMessage } from "./recovered";
 import { ReplyActions } from "./ReplyActions.web";
@@ -49,6 +49,7 @@ import {
   type ReplyView,
 } from "./replyStates";
 import { ReplyRow } from "./ReplyRow.web";
+import { showInLesson } from "./showInLesson";
 import type { SendStopState } from "./SendStopButton.web";
 import { Thread, type ThreadHandle } from "./Thread.web";
 import { continueText, DateDivider, DATE_GAP_MS, DeletedLine, LessonDivider, lessonLabel, VersionLine } from "./ThreadLines.web";
@@ -688,11 +689,9 @@ function ConversationBody({
   const exclude = onExcludeContext
     ? (messageId: string, excluded: boolean) => correct(messageId, () => onExcludeContext(messageId, excluded))
     : undefined;
-  const showLesson = (target: LessonTarget) => {
-    // On a sheet the lesson needs the room first.
-    if (layout?.placement === "sheet") companionOpen.setDetent("collapsed");
-    lessonNavigator.show(target);
-  };
+  // The anchor chip above a question is a jump like "Try question 1": the sheet makes room and
+  // focus view goes back beside the lesson first (showInLesson).
+  const showLesson = (target: LessonTarget) => showInLesson(target, context.episodeId);
   // "Ask again" puts the question back in the box, after whatever the learner has written since.
   const askAgain = (text: string) => putBack(text);
   // A chip is the learner's turn: it goes, and the focus stays in the message box, as after a send

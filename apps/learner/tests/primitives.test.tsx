@@ -277,6 +277,23 @@ describe("long-answer composer", () => {
     expect(submit).toHaveBeenCalledTimes(2);
   });
 
+  it("shows the key hint to a fine pointer only: a touch keyboard has no ⌘ or Ctrl, the submit says how", async () => {
+    matchMediaReturning(["(pointer: coarse)"]);
+    const submit = vi.fn();
+    const { container } = render(<Box onSubmit={submit} />);
+    const field = screen.getByRole("textbox", { name: "Your answer" });
+    expect(container.querySelector(".cc-ui-long-hint")).toBeNull();
+    expect(screen.queryByText(/Enter to submit/)).toBeNull();
+    expect(field).not.toHaveAttribute("aria-describedby");
+    // The text submit stays the way to submit; a hardware keyboard's chord still works.
+    fireEvent.change(field, { target: { value: "x" } });
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(submit).toHaveBeenCalledOnce();
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
+    expect(submit).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
   it("does not submit an empty answer: the submit keeps its accent, and a press says what is missing", () => {
     const submit = vi.fn();
     render(<Box onSubmit={submit} />);

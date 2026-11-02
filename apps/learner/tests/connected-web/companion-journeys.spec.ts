@@ -208,7 +208,12 @@ test("the panel's Tab order: header, thread, Jump to latest, the notice's action
   await helpRow(page).getByRole("button", { name: "Ask the companion", exact: true }).click();
   const panel = companionPanel(page);
   await expect(panel.locator(".cc-chat-attachment")).toContainText("Question 1");
-  // Away from the end: Jump to latest shows.
+  // The panel has finished opening: its motion has ended and the thread has opened at the latest
+  // (the thread does that once it is laid out, which can be a frame after the panel shows; a
+  // scroll made before it would be undone by it). Then, away from the end, Jump to latest shows.
+  await settled(page);
+  await expect.poll(() => thread(page).evaluate((log) => new Promise<number>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.round(log.scrollHeight - log.clientHeight - log.scrollTop))))))).toBeLessThanOrEqual(2);
   await thread(page).evaluate((log) => log.scrollTo({ top: 0 }));
   const jump = panel.getByRole("button", { name: "Jump to latest" });
   await expect(jump).toBeVisible();

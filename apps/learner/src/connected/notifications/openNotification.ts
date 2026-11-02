@@ -32,8 +32,9 @@ const afterRender = (fn: () => void) => requestAnimationFrame(() => requestAnima
 /**
  * Opens what a notification is about (final design §4.8). A reply goes to the lesson it came
  * from: the part it was asked about is shown and marked (lessonNavigator, held until the lesson
- * has mounted) and the companion opens with the start of the reply at the top of its thread. The
- * message box takes focus with a fine pointer only, so a touch keyboard does not cover the reply.
+ * has mounted; focus view first goes back beside the lesson) and the companion opens with the start
+ * of the reply at the top of its thread. The message box takes focus with a fine pointer only, so a
+ * touch keyboard does not cover the reply.
  * A reply whose lesson left the course, an older reply without its ids, and every other
  * notification open the course page (with the companion, for a reply).
  */
@@ -48,7 +49,15 @@ export function openNotificationTarget(target: NotificationTarget, host: Notific
         host.openEpisode(episodeId);
         // The pane of the lesson about to show, not the course page's.
         if (target.companion) host.companionOpen.open("notification", { surface: "lesson" });
-        if (target.blockId) lessonNavigator.show({ episodeId, blockId: target.blockId });
+        if (target.blockId) {
+          const block = { episodeId, blockId: target.blockId };
+          // Focus view hides the lesson: the companion goes back beside it, and the part is shown
+          // once the lesson is on the page again.
+          if (host.companionOpen.get().view === "focus") {
+            host.companionOpen.setView("docked");
+            afterRender(() => void lessonNavigator.show(block));
+          } else lessonNavigator.show(block);
+        }
       } else {
         host.setEpisodeId(undefined);
         host.setView("learn");
