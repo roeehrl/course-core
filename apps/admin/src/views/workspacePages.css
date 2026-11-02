@@ -207,7 +207,9 @@ button.copy-text:hover {
 
 /* ---------------------------------------------------------------------- Course & releases */
 /* The course itself, in one compact block: name, a short description, the live version. */
-section.card.course-header {
+/* The card stays a column like every card; its one row holds the text and the button. */
+.course-header-row {
+  display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-start;
@@ -237,7 +239,7 @@ section.card.course-header {
   line-clamp: 3;
   overflow: hidden;
 }
-.course-header > .button {
+.course-header-row > .button {
   flex: none;
 }
 /* The link bar under the course header is WP1's shared .section-nav (styles.css). */
