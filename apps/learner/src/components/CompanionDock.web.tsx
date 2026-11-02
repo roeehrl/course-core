@@ -335,6 +335,12 @@ function useExitMotion(panel: React.RefObject<HTMLElement | null>, docked: boole
     };
     animation.onfinish = done;
     animation.oncancel = done;
-    return () => animation.cancel();
+    // Opened again mid-motion: the panel is back at once (a cancel event comes only later), so
+    // the focus moved into it on opening is not refused by a panel still inert.
+    return () => {
+      animation.onfinish = animation.oncancel = null;
+      animation.cancel();
+      done();
+    };
   }, [panel, open, docked]);
 }
