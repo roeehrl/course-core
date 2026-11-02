@@ -243,6 +243,12 @@ for (const locale of ["en", "he"] as const)
         0,
       );
       await expectNoHorizontalOverflow(page);
+      // The members table fits its card: it never scrolls sideways inside it.
+      expect(
+        await page
+          .locator(".table-wrap:has(table.people-table)")
+          .evaluate((wrap) => wrap.scrollWidth - wrap.clientWidth),
+      ).toBeLessThanOrEqual(1);
       await shot(page, `people-${tag}`);
       expect(errors).toEqual([]);
     });
