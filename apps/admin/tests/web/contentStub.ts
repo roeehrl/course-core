@@ -502,3 +502,72 @@ export async function stubResearch(page: Page, { youtube = true } = {}) {
     }),
   );
 }
+
+/** Stubs Answer reviews with every queue empty, as on a course nobody has submitted to yet. */
+export async function stubReviews(page: Page) {
+  await page.route(`${COURSE}/rubric-reviews`, (route) =>
+    route.fulfill({ json: { pending: [] } }),
+  );
+  await page.route(`${COURSE}/rubric-appeals`, (route) =>
+    route.fulfill({ json: { appeals: [] } }),
+  );
+  await page.route(`${COURSE}/gate-reviews`, (route) =>
+    route.fulfill({ json: { reviews: [] } }),
+  );
+  await page.route(`${COURSE}/evidence-disputes`, (route) =>
+    route.fulfill({ json: { disputes: [], truncated: false } }),
+  );
+}
+
+/** Stubs Studies with one recruiting study and a free release for a new one. */
+export async function stubStudies(page: Page) {
+  const release = (n: number, version: string) => ({
+    id: uuid(6000 + n),
+    version,
+    status: "published",
+    placementEnabled: true,
+    items: [],
+  });
+  await page.route(`${COURSE}/studies`, (route) =>
+    route.fulfill({
+      json: {
+        canManage: true,
+        canExport: true,
+        releases: [release(1, "1.0.0"), release(2, "1.1.0")],
+        studies: [
+          {
+            id: uuid(6100),
+            releaseId: uuid(6001),
+            title: "Worked examples first",
+            purpose: "We compare a fixed path with the full supervisor.",
+            state: "recruiting",
+            revision: 2,
+            arms: (["fixed", "supervisor"] as const).map((id) => ({
+              id,
+              label: id === "fixed" ? "Fixed path" : "Full supervisor",
+              behaviour: id,
+              explanation: "Assigned at random when the learner consents.",
+              consented: 6,
+              withdrawn: 0,
+            })),
+            instruments: { pre: [], post: [], transfer: [], delayed: [] },
+            minCellSize: 5,
+            usabilityMeasures: false,
+            usabilityTrials: null,
+            seedDigest: "a".repeat(64),
+            consent: {
+              eligible: 14,
+              consented: 12,
+              withdrawn: 0,
+              undecided: 2,
+            },
+            createdAt: iso(9000),
+            openedAt: iso(8000),
+            closedAt: null,
+            warnings: [],
+          },
+        ],
+      },
+    }),
+  );
+}
