@@ -174,11 +174,47 @@ export function judgedDetails() {
   return copy;
 }
 
+/**
+ * The same details with one tutor conversation that got no usable answer: a thinking model used
+ * its whole output limit for thinking (the adapter's reason MAX_TOKENS_THINKING), so every rule
+ * failed with `no_answer:provider_output_incomplete`. Synthetic, in the server's stored shape.
+ */
+export function providerFailedDetails() {
+  const copy = structuredClone(details) as unknown as {
+    roles: { dialogues: Record<string, unknown>[] }[];
+  };
+  const dialogue = copy.roles
+    .flatMap((r) => r.dialogues)
+    .find((d) => d.dialogueId === "companion.terse.endpoint-answer")!;
+  dialogue.passed = false;
+  dialogue.reply = {
+    kind: "refusal",
+    text: null,
+    reason: "provider_output_incomplete",
+    providerReason: "MAX_TOKENS_THINKING",
+    truncated: false,
+  };
+  dialogue.graders = (dialogue.graders as Record<string, unknown>[]).map(
+    (g) => ({
+      ...g,
+      applies: true,
+      passed: false,
+      findings: [{ code: "no_answer:provider_output_incomplete" }],
+    }),
+  );
+  return copy;
+}
+
 /** Routes the AI services API; `recorded: false` serves a check an older Core ran (no details kept),
- * `judged` the details a meaning judge left (`judgedDetails`). */
+ * `judged` the details a meaning judge left (`judgedDetails`), `providerFailed` a conversation
+ * without an answer and the provider's reason (`providerFailedDetails`). */
 export async function stubQualityCheck(
   page: Page,
-  options: { recorded?: boolean; judged?: boolean } = {},
+  options: {
+    recorded?: boolean;
+    judged?: boolean;
+    providerFailed?: boolean;
+  } = {},
 ) {
   const requests = { details: 0 };
   const ws = "**/api/admin/workspaces/*";
@@ -265,7 +301,9 @@ export async function stubQualityCheck(
             }
           : options.judged
             ? judgedDetails()
-            : details,
+            : options.providerFailed
+              ? providerFailedDetails()
+              : details,
     });
   });
   return requests;

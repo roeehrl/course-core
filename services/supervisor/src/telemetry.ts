@@ -55,6 +55,9 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.provider.outcome': oneOf('response', 'error'),
   'course.provider.attempts': integer(0, 100),
   'course.provider.access': oneOf('subscription', 'api_key_fallback'),
+  // Why a provider call failed beyond its code (ProviderError.reason: MAX_TOKENS_THINKING, SAFETY,
+  // INVALID_ARGUMENT...): upper snake case of at most 64 characters, never provider text.
+  'course.provider.reason': matching(/^[A-Z][A-Z0-9_]{0,63}$/),
   'course.usage.total_tokens': count,
   'course.usage.tokens_basis': oneOf('reported', 'reserved_ceiling'),
   'course.cost.estimate_micro_usd': count,

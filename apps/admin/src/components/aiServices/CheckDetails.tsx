@@ -712,6 +712,16 @@ function Received({ dialogue }: { dialogue: QualityDialogue }) {
   );
 }
 
+/** Provider causes the page explains in words; any other code is shown as it is. */
+const PROVIDER_CAUSES = new Set([
+  "MAX_TOKENS_THINKING",
+  "MAX_TOKENS",
+  "THOUGHTS_ONLY",
+  "EMPTY_OUTPUT",
+  "NO_CANDIDATE",
+  "NO_FINISH_REASON",
+  "SAFETY",
+]);
 /** The model's answer as returned, with the failing passages marked. */
 function Reply({
   dialogue,
@@ -739,6 +749,16 @@ function Reply({
               <Ltr className="mono">{reply.reason}</Ltr>
             </>
           )}
+        </p>
+      )}
+      {reply.text === null && reply.providerReason && (
+        <p className="ai-reply-cause">
+          {PROVIDER_CAUSES.has(reply.providerReason)
+            ? t(
+                `aiServices.check.details.cause.${reply.providerReason}` as AiKey,
+              )
+            : t("aiServices.check.details.cause.other")}{" "}
+          <Ltr className="mono">{reply.providerReason}</Ltr>
         </p>
       )}
       {reply.truncated && (

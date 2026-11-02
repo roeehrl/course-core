@@ -496,9 +496,12 @@ export class ProviderQualityChecks {
     const signal = AbortSignal.timeout(Math.max(1, row.deadline_at.getTime() - Date.now()));
     let index = 0, fault: string | null = null, detail: FaultDetail | null = null;
     const toolCalls = new Map<string, readonly ToolCallRecord[]>();
+    // Why a conversation's call failed beyond its code (ProviderError.reason), for its details.
+    const providerReasons = new Map<string, string>();
     const settle = async (call: CallRecord) => {
       const ref = `${row.id}:${index++}`, error = call.error;
       if (call.toolCalls.length) toolCalls.set(`${call.role}:${call.dialogue.id}`, call.toolCalls);
+      if (error instanceof ProviderError && error.reason) providerReasons.set(`${call.role}:${call.dialogue.id}`, error.reason);
       const code = error instanceof ProviderError ? error.code : error ? "UNEXPECTED" : null;
       if (code && Object.hasOwn(PROVIDER_FAULTS, code) && !(code === "TIMEOUT" && signal.aborted) && !fault) {
         fault = PROVIDER_FAULTS[code]!;
@@ -586,7 +589,8 @@ export class ProviderQualityChecks {
         const fixture = suite.dialogues.find((x) => x.id === d.dialogueId), grade = grades.get(d.dialogueId);
         if (!fixture || !grade) continue;
         dialogues.push({ position: dialogues.length, role: run.role, dialogueId: d.dialogueId, passed: grade.passed,
-          detail: dialogueDetail(fixture, d.output, grade, toolCalls.get(`${run.role}:${d.dialogueId}`), judgements.get(`${run.role}:${d.dialogueId}`)) });
+          detail: dialogueDetail(fixture, d.output, grade, toolCalls.get(`${run.role}:${d.dialogueId}`), judgements.get(`${run.role}:${d.dialogueId}`),
+            providerReasons.get(`${run.role}:${d.dialogueId}`)) });
       }
     }
     // A failure stands; otherwise a job the judge could not finish leaves the check without a result.
