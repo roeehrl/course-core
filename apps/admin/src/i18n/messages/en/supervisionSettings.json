@@ -38,6 +38,7 @@
   "preview.affected": "It applies to {learners, plural, one {# learner} other {# learners}} who opted in, and {actions, plural, one {# teaching action} other {# teaching actions}} still in progress.",
   "preview.removed": "{count, plural, one {# tool} other {# tools}} will no longer be used:",
   "preview.added": "{count, plural, one {# tool} other {# tools}} will become available:",
+  "preview.toolKind": "{family} ({count})",
   "effect.records_recommendations_only": "Recommendations are recorded for staff to read; nothing is started.",
   "effect.no_new_teaching_actions": "No new teaching work starts for any learner.",
   "effect.scheduled_follow_ups_end": "Follow-ups already scheduled end when they come due.",
@@ -67,6 +68,7 @@
   "requests.kind.paid_ceiling": "Higher AI spending limit",
   "requests.proposal.paid_ceiling": "Proposed limit: {amount}",
   "requests.proposal.objectives": "Objectives: {objectives}",
+  "requests.proposal.objectiveCount": "{count, plural, one {One objective} other {# objectives}}",
   "requests.state.approved": "approved",
   "requests.state.rejected": "declined",
   "requests.state.expired": "expired",
@@ -98,5 +100,8 @@
   "confirmation.people_only.help": "No conversation checkpoint is confirmed automatically, even where the course allows it. Answers wait in Reviews until someone on staff decides. Learners may wait longer.",
   "effect.people_confirm_every_conversation": "Every conversation checkpoint will wait for a person on staff.",
   "effect.checkpoints_as_authored": "Conversation checkpoints follow what each course sets.",
-  "preview.waitingConversations": "{count, plural, =0 {No conversation answers are waiting for review now.} one {# conversation answer is waiting for review now.} other {# conversation answers are waiting for review now.}}"
+  "preview.waitingConversations": "{count, plural, =0 {No conversation answers are waiting for review now.} one {# conversation answer is waiting for review now.} other {# conversation answers are waiting for review now.}}",
+  "admission.summary": "What the supervisor reads, and what it costs",
+  "noChanges": "No changes yet.",
+  "requests.emptyBody": "Nothing changes until you approve a request here."
 }

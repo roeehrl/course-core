@@ -169,9 +169,18 @@ export function registerSupervisorAuthorityRoutes(app: FastifyInstance, db: Data
     const actor = await auth.authenticate(request), { workspaceId } = parse(z.object({ workspaceId: uuid }), request.params);
     return transaction(db, async client => {
       requireCondition(roleCan(await workspaceRole(client, actor, workspaceId), 'supervision.settings'), 'FORBIDDEN', 403);
-      const rows = (await client.query<RequestRow & { display_name: string }>(`SELECT r.*,COALESCE(e.profile->>'displayName','') AS display_name FROM supervisor_authority_requests r
-        JOIN enrollments e ON e.id=r.enrollment_id WHERE r.workspace_id=$1 AND r.approver='staff' AND e.status<>'erased' ORDER BY (r.state='pending') DESC,r.created_at DESC LIMIT 100`, [workspaceId])).rows;
-      return { requests: rows.map(row => ({ ...view(row), enrollmentId: row.enrollment_id, learnerName: row.display_name })) };
+      // The objectives a request names, by their course text, from the learner's course version
+      // (`proposal.objectives`, added beside `objectiveIds`; an id the version lacks keeps the id).
+      const rows = (await client.query<RequestRow & { display_name: string; course_objectives: { id: string; description: string }[] | null }>(`SELECT r.*,COALESCE(e.profile->>'displayName','') AS display_name,
+          CASE WHEN r.proposal ? 'objectiveIds' THEN (SELECT jsonb_agg(jsonb_build_object('id',o->>'id','description',o->>'description')) FROM jsonb_array_elements(c.server_bundle->'objectives') o
+            WHERE r.proposal->'objectiveIds' ? (o->>'id')) END AS course_objectives
+        FROM supervisor_authority_requests r JOIN enrollments e ON e.id=r.enrollment_id JOIN course_releases c ON c.id=e.course_release_id
+        WHERE r.workspace_id=$1 AND r.approver='staff' AND e.status<>'erased' ORDER BY (r.state='pending') DESC,r.created_at DESC LIMIT 100`, [workspaceId])).rows;
+      return { requests: rows.map(row => {
+        const base = view(row), names = new Map((row.course_objectives ?? []).map(o => [o.id, o.description]));
+        const objectives = base.proposal.objectiveIds?.map(id => ({ id, description: names.get(id) ?? id }));
+        return { ...base, proposal: { ...base.proposal, ...(objectives ? { objectives } : {}) }, enrollmentId: row.enrollment_id, learnerName: row.display_name };
+      }) };
     });
   });
   app.post(`${admin}/:requestId/decision`, { bodyLimit: 4096 }, async request => {

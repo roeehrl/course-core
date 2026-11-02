@@ -1,43 +1,139 @@
+import { useState, type ReactNode } from "react";
 import { useScopeLabel } from "./scopeLabel";
 import type { LearningPolicy, Quota, ScopePolicy } from "../domain/policy";
-import { Badge, Card, EmptyState, Notice } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Notice,
+  TechnicalDetails,
+} from "./ui";
 import {
   useFormatters,
   useI18n,
+  useT,
   type MessageKey,
   type Translate,
 } from "../i18n";
 
 export const metricLabel = (t: Translate, metric: Quota["metric"]) =>
   t(`policyDetails.metric.${metric}` as MessageKey);
+
+type BindingQuota = NonNullable<
+  LearningPolicy["constraints"][number]["binding"]
+>["quotas"][number];
+
+/** The binding work limits in a few lines: one per kind of limit and the level that sets it.
+ * A per-concept limit (one row per concept, often dozens) becomes one line with a count, and
+ * the concepts themselves fold away under it. */
+function WhyQuotas({
+  quotas,
+  scopes,
+}: {
+  quotas: BindingQuota[];
+  scopes: ScopePolicy[];
+}) {
+  const t = useT();
+  const scopeNames = useScopeLabel();
+  const groups = new Map<string, BindingQuota[]>();
+  for (const quota of quotas) {
+    const key = `${quota.metric}\u0000${quota.scopeId}\u0000${quota.level}`;
+    groups.set(key, [...(groups.get(key) ?? []), quota]);
+  }
+  return (
+    <ul className="policy-why">
+      {[...groups.values()].map((items) => {
+        const first = items[0]!;
+        const common = {
+          metric: metricLabel(t, first.metric),
+          level: scopeNames.level(first.level),
+          scope: scopeNames.byId(scopes, first.scopeId),
+        };
+        if (items.length === 1 && !first.conceptId)
+          return (
+            <li key={`${first.metric}:${first.scopeId}`}>
+              {t("policyDetails.why.quota", {
+                ...common,
+                remaining: first.remaining,
+                limit: first.limit,
+              })}
+            </li>
+          );
+        const remaining = items.map((q) => q.remaining);
+        const min = Math.min(...remaining),
+          max = Math.max(...remaining);
+        const uniform =
+          min === max && items.every((q) => q.limit === first.limit);
+        return (
+          <li key={`${first.metric}:${first.scopeId}`}>
+            {uniform
+              ? t("policyDetails.why.group.same", {
+                  ...common,
+                  count: items.length,
+                  remaining: min,
+                  limit: first.limit,
+                })
+              : t("policyDetails.why.group.range", {
+                  ...common,
+                  count: items.length,
+                  min,
+                  max,
+                })}
+            <details>
+              <summary>
+                {t("policyDetails.why.group.show", { count: items.length })}
+              </summary>
+              <ul>
+                {items.map((q, i) => (
+                  <li key={`${q.conceptId ?? ""}:${i}`}>
+                    {t("policyDetails.why.concept", {
+                      concept: q.conceptId ?? common.metric,
+                      remaining: q.remaining,
+                      limit: q.limit,
+                    })}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function ScopeDetails({
   scope,
   constraint,
   policy,
+  actions,
 }: {
   scope: ScopePolicy;
   constraint: LearningPolicy["constraints"][number];
   policy: LearningPolicy;
+  /** Actions on this level (an accommodation, an exceptional grant). */
+  actions?: ReactNode;
 }) {
-  const i18n = useI18n();
-  const t = i18n.t;
+  const t = useT();
   const { when } = useFormatters();
   const scopeNames = useScopeLabel();
   const scopeLabel = (scopeId: string) =>
     scopeNames.byId(policy.scopes, scopeId);
+  const ancestors = constraint.deadlines.filter(
+    (d) => d.scopeId !== scope.scopeId || d.kind === "ultimate",
+  );
   return (
     <Card
       title={scopeNames.name(scope, scope.scopeId)}
       titleDir="auto"
       eyebrow={t("policyDetails.calendarPolicy")}
+      actions={actions}
     >
-      <div className="split-line">
+      <div className="tag-row">
         <Badge tone={scope.mode === "bounded" ? "blue" : "gold"}>
           {t(`policyDetails.mode.${scope.mode}` as MessageKey)}
         </Badge>
-        <small className="mono" dir="ltr">
-          {scope.policyId}
-        </small>
       </div>
       <Notice tone="blue">
         {scope.mode === "open_ended"
@@ -45,6 +141,16 @@ export function ScopeDetails({
           : t("policyDetails.bounded")}
       </Notice>
       <dl className="facts vertical policy-facts">
+        <div>
+          <dt>{t("policyDetails.effective")}</dt>
+          <dd>
+            <strong>
+              {constraint.effectiveDeadline
+                ? when(constraint.effectiveDeadline)
+                : t("policyDetails.effective.none")}
+            </strong>
+          </dd>
+        </div>
         <div>
           <dt>{t("policyDetails.softTarget")}</dt>
           <dd>
@@ -94,21 +200,6 @@ export function ScopeDetails({
                     ),
                   })}
                 </small>
-                <small>
-                  {i18n.rich(
-                    "policyDetails.window.anchorId",
-                    {
-                      id: scope.window.anchorId,
-                    },
-                    {
-                      id: (children, key) => (
-                        <span key={key} className="mono" dir="ltr">
-                          {children}
-                        </span>
-                      ),
-                    },
-                  )}
-                </small>
               </>
             ) : (
               t("policyDetails.window.none")
@@ -121,16 +212,6 @@ export function ScopeDetails({
             {scope.ultimateDeadline
               ? when(scope.ultimateDeadline)
               : t("policyDetails.ultimate.none")}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("policyDetails.effective")}</dt>
-          <dd>
-            <strong>
-              {constraint.effectiveDeadline
-                ? when(constraint.effectiveDeadline)
-                : t("policyDetails.effective.none")}
-            </strong>
           </dd>
         </div>
         <div>
@@ -179,44 +260,49 @@ export function ScopeDetails({
               : t("policyDetails.why.noDeadline")}
           </p>
           {constraint.binding.quotas.length > 0 && (
-            <ul>
-              {constraint.binding.quotas.map((q, i) => (
-                <li key={i}>
-                  {t("policyDetails.why.quota", {
-                    metric: q.conceptId
-                      ? t("policyDetails.metricWithConcept", {
-                          metric: metricLabel(t, q.metric),
-                          concept: q.conceptId,
-                        })
-                      : metricLabel(t, q.metric),
-                    level: scopeNames.level(q.level),
-                    scope: scopeLabel(q.scopeId),
-                    remaining: q.remaining,
-                    limit: q.limit,
-                  })}
-                </li>
-              ))}
-            </ul>
+            <WhyQuotas
+              quotas={constraint.binding.quotas}
+              scopes={policy.scopes}
+            />
           )}
         </div>
       )}
-      <h3>{t("policyDetails.ancestorCaps")}</h3>
-      {constraint.deadlines
-        .filter((d) => d.scopeId !== scope.scopeId || d.kind === "ultimate")
-        .map((deadline, i) => (
-          <div className="cap-row" key={i}>
-            <span>
-              {t("policyDetails.ancestorCaps.row", {
-                scope: scopeLabel(deadline.scopeId),
-                kind: t(`policyDetails.kind.${deadline.kind}` as MessageKey),
-              })}
-            </span>
-            <small>{when(deadline.at)}</small>
-          </div>
-        ))}
+      {ancestors.length > 0 && (
+        <>
+          <h3>{t("policyDetails.ancestorCaps")}</h3>
+          {ancestors.map((deadline, i) => (
+            <div className="cap-row" key={i}>
+              <span>
+                <bdi>{scopeLabel(deadline.scopeId)}</bdi>
+                {" · "}
+                {t(`policyDetails.kind.${deadline.kind}` as MessageKey)}
+              </span>
+              <small>{when(deadline.at)}</small>
+            </div>
+          ))}
+        </>
+      )}
+      <TechnicalDetails
+        rows={[
+          [t("policyDetails.technical.policy"), scope.policyId],
+          [t("policyDetails.technical.scope"), scope.scopeId],
+          ...(scope.window
+            ? ([
+                [t("policyDetails.technical.anchor"), scope.window.anchorId],
+              ] as [string, string][])
+            : []),
+        ]}
+      />
     </Card>
   );
 }
+
+/** How many work limits the table shows before "Show all". */
+const QUOTAS_SHOWN = 6;
+
+/** The work limits on this level's path, grouped by the level that sets them (its name once, as
+ * the group's heading). A long list (one limit per concept) shows its first rows and any limit
+ * that is used up; "Show all" opens the rest. */
 export function ScopeQuotas({
   quotas,
   scopes,
@@ -227,60 +313,103 @@ export function ScopeQuotas({
   const i18n = useI18n();
   const t = i18n.t;
   const scopeNames = useScopeLabel();
+  const [all, setAll] = useState(false);
   if (!quotas.length)
     return (
       <EmptyState title={t("policyDetails.quotas.empty.title")}>
         {t("policyDetails.quotas.empty.body")}
       </EmptyState>
     );
+  const visible = new Set(
+    quotas.filter((q, i) => all || i < QUOTAS_SHOWN || q.remaining === 0),
+  );
+  // One group per level, in the order the levels first appear.
+  const byScope = new Map<string, Quota[]>();
+  for (const quota of quotas)
+    if (visible.has(quota))
+      byScope.set(quota.scopeId, [
+        ...(byScope.get(quota.scopeId) ?? []),
+        quota,
+      ]);
+  const groups = [...byScope].map(([scopeId, rows]) => ({ scopeId, rows }));
+  const hidden = quotas.length - visible.size;
   return (
-    <div
-      className="table-wrap"
-      tabIndex={0}
-      role="region"
-      aria-label={t("policyDetails.quotas.region")}
-    >
-      <table>
-        <caption>{t("policyDetails.quotas.caption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("policyDetails.quotas.scopeMetric")}</th>
-            <th scope="col" className="num">
-              {t("policyDetails.quotas.limit")}
-            </th>
-            <th scope="col" className="num">
-              {t("policyDetails.quotas.consumed")}
-            </th>
-            <th scope="col" className="num">
-              {t("policyDetails.quotas.reserved")}
-            </th>
-            <th scope="col" className="num">
-              {t("policyDetails.quotas.remaining")}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {quotas.map((q, i) => (
-            <tr key={i}>
-              <th scope="row">
-                <bdi>{scopeNames.byId(scopes, q.scopeId)}</bdi>
-                <small>
-                  {q.conceptId
-                    ? t("policyDetails.metricWithConcept", {
-                        metric: metricLabel(t, q.metric),
-                        concept: q.conceptId,
-                      })
-                    : metricLabel(t, q.metric)}
-                </small>
+    <div className="stack">
+      <div
+        className="table-wrap"
+        tabIndex={0}
+        role="region"
+        aria-label={t("policyDetails.quotas.region")}
+      >
+        <table>
+          <caption>{t("policyDetails.quotas.caption")}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("policyDetails.quotas.metric")}</th>
+              <th scope="col" className="num">
+                {t("policyDetails.quotas.limit")}
               </th>
-              <td className="num">{i18n.number(q.limit)}</td>
-              <td className="num">{i18n.number(q.consumed)}</td>
-              <td className="num">{i18n.number(q.reserved)}</td>
-              <td className="num">{i18n.number(q.remaining)}</td>
+              <th scope="col" className="num">
+                {t("policyDetails.quotas.consumed")}
+              </th>
+              <th scope="col" className="num">
+                {t("policyDetails.quotas.reserved")}
+              </th>
+              <th scope="col" className="num">
+                {t("policyDetails.quotas.remaining")}
+              </th>
             </tr>
+          </thead>
+          {groups.map((group, g) => (
+            <tbody key={`${group.scopeId}:${g}`}>
+              <tr className="policy-group-row">
+                <th scope="colgroup" colSpan={5}>
+                  <bdi>{scopeNames.byId(scopes, group.scopeId)}</bdi>
+                </th>
+              </tr>
+              {group.rows.map((q, i) => (
+                <tr key={`${q.metric}:${q.conceptId ?? ""}:${i}`}>
+                  <th scope="row">
+                    {metricLabel(t, q.metric)}
+                    {q.conceptId && (
+                      <small>
+                        {t("policyDetails.quotas.concept", {
+                          concept: q.conceptId,
+                        })}
+                      </small>
+                    )}
+                  </th>
+                  <td className="num">{i18n.number(q.limit)}</td>
+                  <td className="num">{i18n.number(q.consumed)}</td>
+                  <td className="num">{i18n.number(q.reserved)}</td>
+                  <td className="num">{i18n.number(q.remaining)}</td>
+                </tr>
+              ))}
+            </tbody>
           ))}
-        </tbody>
-      </table>
+        </table>
+      </div>
+      {(hidden > 0 || all) && quotas.length > QUOTAS_SHOWN && (
+        <div className="policy-more">
+          <Button
+            type="button"
+            aria-expanded={all}
+            onClick={() => setAll((value) => !value)}
+          >
+            {all
+              ? t("policyDetails.quotas.fewer")
+              : t("policyDetails.quotas.all", { count: quotas.length })}
+          </Button>
+          {!all && (
+            <span>
+              {t("policyDetails.quotas.shown", {
+                shown: visible.size,
+                total: quotas.length,
+              })}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

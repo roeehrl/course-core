@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { StrictMode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminApp } from "../src/AdminApp";
+import { Dialog } from "../src/components/ui";
 import { demo } from "./helpers";
 
 /** A window of the given width: `matchMedia` answers the frame's max-width queries for it and
@@ -94,7 +96,20 @@ describe("phone and tablet navigation", () => {
     expect(current).toHaveAttribute("aria-current", "page");
     expect(current).toHaveFocus();
     // The course picker and the mode badge are in the drawer on phones.
-    expect(within(drawer).getByLabelText("Course")).toBeInTheDocument();
+    expect(
+      within(drawer).getByRole("combobox", { name: "Course" }),
+    ).toBeInTheDocument();
+    // The sections are grouped under four headings.
+    expect(
+      within(nav)
+        .getAllByRole("group")
+        .map((group) => group.getAttribute("aria-labelledby")),
+    ).toEqual([
+      "nav-group-course",
+      "nav-group-learners",
+      "nav-group-rules",
+      "nav-group-system",
+    ]);
     expect(within(drawer).getByText("Demo workspace")).toBeInTheDocument();
     // Escape (the dialog's cancel) closes it and focus returns to the menu button.
     fireEvent(drawer, new Event("cancel", { cancelable: true }));
@@ -155,5 +170,63 @@ describe("phone and tablet navigation", () => {
     await screen.findByRole("heading", { level: 1 });
     expect(document.querySelector(".sidebar")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Open menu" })).toBeNull();
+  });
+
+  it("opens and stays open under StrictMode, as on the development server", async () => {
+    // Browsers fire `close` after close() in a later task. Under StrictMode the drawer's effect
+    // runs twice (open, close, open): the first close's event arrives once it is open again.
+    const close = vi
+      .spyOn(HTMLDialogElement.prototype, "close")
+      .mockImplementation(function (this: HTMLDialogElement) {
+        this.removeAttribute("open");
+        setTimeout(() => this.dispatchEvent(new Event("close")));
+      });
+    windowOfWidth(390);
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <AdminApp client={demo()} />
+      </StrictMode>,
+    );
+    await screen.findByRole("heading", { level: 1 });
+    const toggle = screen.getByRole("button", { name: "Open menu" });
+    await user.click(toggle);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.getByRole("dialog", { name: "Menu" })).toHaveAttribute(
+      "open",
+    );
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Menu" })).getByRole("button", {
+        name: "Close menu",
+      }),
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.queryByRole("dialog", { name: "Menu" })).toBeNull();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    close.mockRestore();
+  });
+
+  it("keeps a dialog open under StrictMode", async () => {
+    const close = vi
+      .spyOn(HTMLDialogElement.prototype, "close")
+      .mockImplementation(function (this: HTMLDialogElement) {
+        this.removeAttribute("open");
+        setTimeout(() => this.dispatchEvent(new Event("close")));
+      });
+    const onClose = vi.fn();
+    render(
+      <StrictMode>
+        <Dialog title="Confirm" onClose={onClose}>
+          <p>Body</p>
+        </Dialog>
+      </StrictMode>,
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.getByRole("dialog", { name: "Confirm" })).toHaveAttribute(
+      "open",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    close.mockRestore();
   });
 });

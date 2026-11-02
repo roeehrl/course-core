@@ -13,6 +13,8 @@ const sums = z.object({
   reconciledCharged: amount,
 });
 const id = z.string().max(200);
+/** A lesson's title in the course's language; older servers send only its id. */
+const lessonTitle = { episodeTitle: z.string().max(200).optional() };
 export const learnerSpendSchema = z.object({
   from: z.string(),
   to: z.string(),
@@ -31,7 +33,13 @@ export const learnerSpendSchema = z.object({
     .array(sums.extend({ role: z.string().max(32), learners: z.number() }))
     .max(8),
   byLesson: z
-    .array(sums.extend({ episodeId: id.nullable(), learners: z.number() }))
+    .array(
+      sums.extend({
+        episodeId: id.nullable(),
+        ...lessonTitle,
+        learners: z.number(),
+      }),
+    )
     .max(20),
   page: z.number().int().positive(),
   pageSize: z.number().int().positive().max(25),
@@ -45,7 +53,9 @@ export const learnerSpendSchema = z.object({
         activeHours: z.number().int().nonnegative(),
         perDay: spread,
         byRole: z.array(sums.extend({ role: z.string().max(32) })).max(8),
-        byLesson: z.array(sums.extend({ episodeId: id.nullable() })).max(10),
+        byLesson: z
+          .array(sums.extend({ episodeId: id.nullable(), ...lessonTitle }))
+          .max(10),
         byDay: z
           .array(
             z.object({

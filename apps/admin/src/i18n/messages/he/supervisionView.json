@@ -136,5 +136,17 @@
   "deliveryReason.SUPERVISOR_INPUT_NOT_FOUND": "מה שהבקשה התייחסה אליו כבר לא קיים",
   "deliveryReason.SUPERVISOR_UNCONFIGURED": "פיקוח AI לא הוגדר",
   "deliveryReason.SUPERVISOR_INVALID_CONFIGURATION": "הגדרות פיקוח ה-AI לא תקינות",
-  "deliveryReason.SUPERVISOR_SCOPE_MISMATCH": "היא התייחסה ללומד/ת אחר/ת או לקורס אחר"
+  "deliveryReason.SUPERVISOR_SCOPE_MISMATCH": "היא התייחסה ללומד/ת אחר/ת או לקורס אחר",
+  "eventType.session_ended": "מפגש הלמידה הסתיים",
+  "eventType.supervisor_applied": "שינוי של המפקח הוחל",
+  "eventType.supervisor_event_refused": "בקשה של המפקח נדחתה",
+  "eventType.supervisor_event_requeued": "בקשה של המפקח נשלחה שוב",
+  "eventType.placement_started": "השיבוץ התחיל",
+  "eventType.placement_finished": "השיבוץ הסתיים",
+  "eventType.placement_accepted": "תוצאת השיבוץ התקבלה",
+  "eventType.placement_declined": "השיבוץ נדחה",
+  "eventType.teaching_follow_up_scheduled": "נקבע המשך",
+  "eventType.learner_model_proposal_created": "הוצעה העדפת למידה",
+  "eventType.visual_completed": "המחשה הושלמה",
+  "eventType.enrollment_closed": "ההרשמה נסגרה"
 }

@@ -93,7 +93,9 @@ test("calendar policy, exact before/after terms and learner-only consent", async
     page.getByText("14 calendar days from scope started"),
   ).toBeVisible();
   await expect(
-    page.getByRole("table", { name: "Inherited work caps and current usage" }),
+    page.getByRole("table", {
+      name: "Work limits on this path and how much is used",
+    }),
   ).toContainText("240");
   await page
     .getByRole("button", { name: "Preview calendar extension" })
@@ -139,8 +141,10 @@ test("calendar policy, exact before/after terms and learner-only consent", async
   await expect(
     page.getByText("Awaiting exact learner consent", { exact: true }),
   ).toBeVisible();
-  // Every offer shows its digest; the demo also seeds a granted and an accepted offer.
-  await expect(page.getByText(/termsDigest: [a-f0-9]{64}/)).toHaveCount(3);
+  // The demo also seeds a granted and an accepted offer. Their digests are technical details,
+  // never running text.
+  await expect(page.locator("#policy-offers article.record")).toHaveCount(3);
+  await expect(page.locator("main")).not.toContainText("termsDigest");
   await expect(
     page.getByText(/no deadline, work cap or allowance balance changed/),
   ).toBeVisible();
@@ -157,7 +161,9 @@ test("calendar policy, exact before/after terms and learner-only consent", async
   await page
     .getByRole("button", { name: /Chapter · Open exploration/ })
     .click();
-  await expect(page.getByText("open-ended mode")).toBeVisible();
+  await expect(
+    page.getByText(/This level has no deadline of its own/),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Preview calendar extension" }),
   ).toBeDisabled();

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import { SkeletonRows } from "../ui";
 import {
   learnerLimitMode,
   parseUsd,
@@ -12,6 +13,9 @@ import {
   Field,
   Ltr,
   Message,
+  Money,
+  NumCols,
+  SaveBar,
   jobName,
   Section,
   described,
@@ -191,7 +195,7 @@ export function SpendingSection(props: Props) {
           }}
         >
           <ErrorSummary errors={errors} />
-          <div className="ai-grid">
+          <div className="ai-grid ai-spending-fields">
             <Field
               id={totalId}
               label={t("aiServices.spending.total")}
@@ -334,11 +338,12 @@ export function SpendingSection(props: Props) {
               onKeep={snapshot.keep}
             />
           )}
-          <div className="ai-actions">
+          <SaveBar id={`${base}-state`} changed={changed}>
             <button
               type="submit"
               className="button primary"
               disabled={saving || !changed || snapshot.changedElsewhere}
+              aria-describedby={`${base}-state`}
             >
               {saving
                 ? t("aiServices.spending.saving")
@@ -350,7 +355,7 @@ export function SpendingSection(props: Props) {
                     ? t("aiServices.spending.noSpend")
                     : t("aiServices.spending.allow", { amount: form.total })}
             </button>
-          </div>
+          </SaveBar>
         </form>
       )}
       {/* Calls whose cost stayed unknown wait here for the owner's decision. */}
@@ -418,14 +423,16 @@ function SpendHistory({
       });
     return () => controller.abort();
   }, [open, period, port, workspaceId]);
-  const money = (value: string) => <Ltr>{text.money(Number(value))}</Ltr>;
+  const money = (value: string) => <Money micro={value} />;
   return (
     <details
       className="ai-history"
       onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}
     >
       <summary>{t("aiServices.history.title")}</summary>
-      {!view && open && <p role="status">{t("aiServices.history.loading")}</p>}
+      {!view && open && (
+        <SkeletonRows label={t("aiServices.history.loading")} rows={3} />
+      )}
       {view === "failed" && (
         <Message tone="error">{t("aiServices.err.unavailable")}</Message>
       )}
@@ -449,37 +456,13 @@ function SpendHistory({
             <p className="ai-muted">{t("aiServices.history.empty")}</p>
           ) : (
             <>
-              <div className="ai-table-wrap">
-                <table>
-                  <caption>{t("aiServices.history.byJob")}</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">{t("aiServices.history.job")}</th>
-                      <th scope="col" className="num">
-                        {t("aiServices.history.calls")}
-                      </th>
-                      <th scope="col" className="num">
-                        {t("aiServices.history.charged")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {view.byRole.map((row) => (
-                      <tr key={row.role}>
-                        <th scope="row">{jobName(t, row.role)}</th>
-                        <td className="num">{row.calls}</td>
-                        <td className="num">{money(row.charged)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
               <Field
                 id={`${base}-period`}
                 label={t("aiServices.history.period")}
               >
                 <select
                   id={`${base}-period`}
+                  className="ai-narrow"
                   value={period}
                   onChange={(event) =>
                     setPeriod(event.target.value as "day" | "month")
@@ -489,32 +472,61 @@ function SpendHistory({
                   <option value="month">{t("aiServices.history.month")}</option>
                 </select>
               </Field>
-              <div className="ai-table-wrap">
-                <table>
-                  <caption>{t("aiServices.history.byPeriod")}</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">{t("aiServices.history.when")}</th>
-                      <th scope="col" className="num">
-                        {t("aiServices.history.calls")}
-                      </th>
-                      <th scope="col" className="num">
-                        {t("aiServices.history.charged")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {view.byPeriod.map((row) => (
-                      <tr key={row.period}>
-                        <th scope="row">
-                          <Ltr>{row.period}</Ltr>
+              <div className="ai-table-pair">
+                <div className="ai-table-wrap">
+                  <table>
+                    <caption>{t("aiServices.history.byJob")}</caption>
+                    <NumCols count={2} />
+                    <thead>
+                      <tr>
+                        <th scope="col">{t("aiServices.history.job")}</th>
+                        <th scope="col" className="num">
+                          {t("aiServices.history.calls")}
                         </th>
-                        <td className="num">{row.calls}</td>
-                        <td className="num">{money(row.charged)}</td>
+                        <th scope="col" className="num">
+                          {t("aiServices.history.charged")}
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {view.byRole.map((row) => (
+                        <tr key={row.role}>
+                          <th scope="row">{jobName(t, row.role)}</th>
+                          <td className="num">{row.calls}</td>
+                          <td className="num">{money(row.charged)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="ai-table-wrap">
+                  <table>
+                    <caption>{t("aiServices.history.byPeriod")}</caption>
+                    <NumCols count={2} />
+                    <thead>
+                      <tr>
+                        <th scope="col">{t("aiServices.history.when")}</th>
+                        <th scope="col" className="num">
+                          {t("aiServices.history.calls")}
+                        </th>
+                        <th scope="col" className="num">
+                          {t("aiServices.history.charged")}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {view.byPeriod.map((row) => (
+                        <tr key={row.period}>
+                          <th scope="row">
+                            <Ltr>{row.period}</Ltr>
+                          </th>
+                          <td className="num">{row.calls}</td>
+                          <td className="num">{money(row.charged)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           )}

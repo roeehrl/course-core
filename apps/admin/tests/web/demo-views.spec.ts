@@ -65,7 +65,9 @@ for (const locale of ["en", "he"] as const)
         .getByRole("button", { name, exact: true })
         .click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
-      await expect(page.locator("main .loading")).toHaveCount(0);
+      await expect(
+        page.locator("main :is(.loading, .skeleton-rows)"),
+      ).toHaveCount(0);
       await expect(page.locator('main [role="alert"]')).toHaveCount(0);
       const ported = Object.entries(PORTED).find(
         ([key]) => nav[`nav.${key}`] === name,
@@ -133,7 +135,7 @@ test("demo ledger: approve accepted terms, refuse an exception past the course l
     .first()
     .click();
   await page
-    .getByRole("button", { name: "Exceptional grant for this scope" })
+    .getByRole("button", { name: "Exceptional grant", exact: true })
     .click();
   const exception = page.getByRole("dialog", { name: "Exceptional grant" });
   await exception
@@ -189,7 +191,9 @@ test("demo ledger: approve accepted terms, refuse an exception past the course l
 
   // The allowances view reads the same ledger: the approved offer is no longer pending.
   await openSection(page, "Extensions & accommodations");
-  await expect(page.locator("main .loading")).toHaveCount(0);
+  await expect(page.locator("main :is(.loading, .skeleton-rows)")).toHaveCount(
+    0,
+  );
   await expect(page.locator("main")).not.toContainText(
     "Approve learner-accepted terms",
   );

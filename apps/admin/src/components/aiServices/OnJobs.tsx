@@ -36,6 +36,9 @@ type Props = SectionProps & {
   shownAbove: string | null;
   /** The service the jobs that are on use, for key messages. */
   service: string;
+  /** False when the open draft's check above is the section's main action: then nothing here is
+   * a primary button. */
+  primary?: boolean;
 };
 
 /**
@@ -115,6 +118,10 @@ export function OnJobs(props: Props) {
       : null);
   const checkable = active.filter((r) => !!planOf(r.role)).length;
   const showAll = !!all && checkable > 1;
+  // One primary action: "Check all jobs that are on" when it is offered, else a job's own check;
+  // none when the draft's check above leads the section.
+  const leads = props.primary !== false;
+  const jobRunClass = leads && !showAll ? "primary" : "secondary";
   const allBlocked = blockedFor(all?.blocked);
   const anyRunning =
     running ||
@@ -304,7 +311,7 @@ export function OnJobs(props: Props) {
                     {runnable && !blocked && (
                       <button
                         type="button"
-                        className="button primary"
+                        className={`button ${jobRunClass}`}
                         disabled={starting !== null || anyRunning}
                         aria-label={t("aiServices.check.flag.runFor", { job })}
                         onClick={() => void start(role.role)}
@@ -317,7 +324,7 @@ export function OnJobs(props: Props) {
                     {canTurnOff && (
                       <button
                         type="button"
-                        className="button secondary"
+                        className="button quiet danger ai-apart"
                         disabled={turning}
                         aria-label={t("aiServices.check.on.turnOffFor", {
                           job,
@@ -364,7 +371,7 @@ export function OnJobs(props: Props) {
               <div className="ai-actions ai-actions-start">
                 <button
                   type="button"
-                  className="button primary"
+                  className={`button ${leads ? "primary" : "secondary"}`}
                   disabled={starting !== null || anyRunning}
                   onClick={() => void start("all")}
                 >

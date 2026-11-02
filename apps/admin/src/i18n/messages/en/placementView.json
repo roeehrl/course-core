@@ -39,7 +39,7 @@
   "run.questions": "{count, plural, one {# question} other {# questions}}",
   "run.stopReason": "· {reason}",
   "state.declined": "declined",
-  "state.in_progress": "in_progress",
+  "state.in_progress": "in progress",
   "state.finished": "finished",
   "state.accepted": "accepted",
   "stopReason.continuing": "continuing",
@@ -56,7 +56,7 @@
   "exemption.label": "Exemption: {title}",
   "exemption.placed": "<title>{title}</title> · placed out in run {run} on version {version}",
   "exemption.placedAt": "<title>{title}</title> · placed out in run {run} on version {version} · {date}",
-  "evidence": "{assessment} ({family}) · {result, select, correct {correct} other {not correct}} · {mode, select, independent {independent} other {assisted}}",
+  "evidence": "{assessment} · {result, select, correct {correct} other {not correct}} · {mode, select, independent {independent} other {assisted}}",
   "evidence.invalidated": "invalidated",
   "evidence.otherVersion": "other version",
   "revoke.reason": "Reason to put it back on the path",
@@ -86,5 +86,13 @@
   "status.not_placeable": "Stays on the path: an objective is not placeable",
   "status.no_questions": "Stays on the path: no questions left",
   "status.protected_by_author": "Always kept (author)",
-  "status.protected_by_staff": "Always kept (your setting)"
+  "status.protected_by_staff": "Always kept (your setting)",
+  "group.other": "Not linked to a chapter",
+  "group.total": "{on} of {total} included",
+  "group.count": "{on} of {total}",
+  "group.allOn": "Include all",
+  "group.on": "Include this chapter",
+  "group.off": "Leave this chapter out",
+  "form.noChanges": "No changes yet.",
+  "form.invalid": "Each number must be within the range shown under its field."
 }

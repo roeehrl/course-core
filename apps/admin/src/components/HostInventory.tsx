@@ -23,11 +23,15 @@ export function HostInventory({
     digest?: string;
   }>({ pending: false });
   return (
-    <Card title={t("hostInventory.title")} eyebrow={t("hostInventory.eyebrow")}>
+    <Card title={t("hostInventory.title")}>
       <p>{t("hostInventory.intro")}</p>
-      <p>
-        {t("hostInventory.howTo")} <code dir="ltr">{COMMAND}</code>
-      </p>
+      {/* The author's command line is a detail for them, not something to do here. */}
+      <details>
+        <summary>{t("hostInventory.howTo")}</summary>
+        <pre className="command-line" dir="ltr">
+          <code>{COMMAND}</code>
+        </pre>
+      </details>
       <small>{t("hostInventory.privacy")}</small>
       {state.error !== undefined && (
         <Notice tone="red">{platformErrorMessage(state.error, t)}</Notice>

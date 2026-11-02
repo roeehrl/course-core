@@ -12,7 +12,16 @@ import {
   type SupervisionSettingsPort,
 } from "../domain/supervision";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, Card, Field, Loading, Notice } from "../components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Notice,
+  SkeletonRows,
+  TechnicalDetails,
+} from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
 
@@ -35,7 +44,7 @@ export function SupervisionSettingsCard({
   port: SupervisionSettingsPort;
   workspaceId: string;
 }) {
-  const { t } = useI18n();
+  const { t, list } = useI18n();
   const label = useLabel();
   const id = useId();
   const view = useRemote(
@@ -54,7 +63,7 @@ export function SupervisionSettingsCard({
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionSettings.loading")} />;
+    return <SkeletonRows label={t("supervisionSettings.loading")} rows={4} />;
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   const saved = view.data;
@@ -62,6 +71,31 @@ export function SupervisionSettingsCard({
   const chosenFamilies = families ?? saved.permittedToolFamilies;
   const chosenConfirmation = confirmation ?? saved.conversationConfirmation;
   const allFamilies = saved.families ?? [];
+  // Tools by their kind ("Research (2), Visuals (1)"), from the families the server lists; a
+  // tool of no listed kind (an older server) is named by its id.
+  const familyOf = new Map(
+    allFamilies.flatMap((family) =>
+      family.tools.map((tool) => [tool.id, family.id] as const),
+    ),
+  );
+  const toolKinds = (ids: string[]) => {
+    const counts = new Map<string, number>();
+    const unknown: string[] = [];
+    for (const tool of ids) {
+      const family = familyOf.get(tool);
+      if (family) counts.set(family, (counts.get(family) ?? 0) + 1);
+      else unknown.push(tool);
+    }
+    return list([
+      ...[...counts].map(([family, count]) =>
+        t("supervisionSettings.preview.toolKind", {
+          family: label(`supervisionSettings.family.${family}`, family),
+          count,
+        }),
+      ),
+      ...unknown,
+    ]);
+  };
   const choiceKey = `${chosenLevel}:${chosenConfirmation}:${[...chosenFamilies].sort().join(",")}`;
   const unchanged =
     chosenLevel === saved.autonomyLevel &&
@@ -114,8 +148,11 @@ export function SupervisionSettingsCard({
       className="supervision-settings"
     >
       <div className="stack">
-        <p>{t("supervisionSettings.intro")}</p>
-        <p>{t("supervisionSettings.admission")}</p>
+        <p className="muted">{t("supervisionSettings.intro")}</p>
+        <details className="quiet-details">
+          <summary>{t("supervisionSettings.admission.summary")}</summary>
+          <p>{t("supervisionSettings.admission")}</p>
+        </details>
         <fieldset className="stack">
           <legend className="section-title">
             {t("supervisionSettings.autonomy.title")}
@@ -128,12 +165,11 @@ export function SupervisionSettingsCard({
                 value={value}
                 checked={chosenLevel === value}
                 onChange={() => setLevel(value)}
-              />{" "}
+              />
               <span>
                 <strong>
                   {t(`supervisionSettings.autonomy.${value}` as MessageKey)}
                 </strong>
-                <br />
                 <span className="muted">
                   {t(
                     `supervisionSettings.autonomy.${value}.help` as MessageKey,
@@ -160,12 +196,11 @@ export function SupervisionSettingsCard({
                       : chosenFamilies.filter((f) => f !== family.id),
                   )
                 }
-              />{" "}
+              />
               <span>
                 <strong>
                   {label(`supervisionSettings.family.${family.id}`, family.id)}
                 </strong>
-                <br />
                 <span className="muted">
                   {label(
                     `supervisionSettings.family.${family.id}.help`,
@@ -189,12 +224,11 @@ export function SupervisionSettingsCard({
                 value={value}
                 checked={chosenConfirmation === value}
                 onChange={() => setConfirmation(value)}
-              />{" "}
+              />
               <span>
                 <strong>
                   {t(`supervisionSettings.confirmation.${value}` as MessageKey)}
                 </strong>
-                <br />
                 <span className="muted">
                   {t(
                     `supervisionSettings.confirmation.${value}.help` as MessageKey,
@@ -241,9 +275,7 @@ export function SupervisionSettingsCard({
                 {t("supervisionSettings.preview.removed", {
                   count: previewed.toolsRemoved.length,
                 })}{" "}
-                <span dir="ltr" className="muted">
-                  {previewed.toolsRemoved.join(", ")}
-                </span>
+                {toolKinds(previewed.toolsRemoved)}
               </p>
             )}
             {previewed.toolsAdded.length > 0 && (
@@ -251,10 +283,35 @@ export function SupervisionSettingsCard({
                 {t("supervisionSettings.preview.added", {
                   count: previewed.toolsAdded.length,
                 })}{" "}
-                <span dir="ltr" className="muted">
-                  {previewed.toolsAdded.join(", ")}
-                </span>
+                {toolKinds(previewed.toolsAdded)}
               </p>
+            )}
+            {previewed.toolsAdded.length + previewed.toolsRemoved.length >
+              0 && (
+              <TechnicalDetails
+                rows={[
+                  ...(previewed.toolsRemoved.length
+                    ? [
+                        [
+                          t("supervisionSettings.preview.removed", {
+                            count: previewed.toolsRemoved.length,
+                          }),
+                          previewed.toolsRemoved.join(", "),
+                        ] as [string, string],
+                      ]
+                    : []),
+                  ...(previewed.toolsAdded.length
+                    ? [
+                        [
+                          t("supervisionSettings.preview.added", {
+                            count: previewed.toolsAdded.length,
+                          }),
+                          previewed.toolsAdded.join(", "),
+                        ] as [string, string],
+                      ]
+                    : []),
+                ]}
+              />
             )}
             {previewed.warnings.map((warning) => (
               <Notice key={warning} tone="gold">
@@ -263,22 +320,26 @@ export function SupervisionSettingsCard({
             ))}
           </Notice>
         )}
-        <div className="tag-row">
-          <Button disabled={pending || unchanged} onClick={() => void check()}>
-            <Eye size={16} aria-hidden="true" />{" "}
-            {t("supervisionSettings.check")}
-          </Button>
+        <div className="button-row">
           <Button
             kind="primary"
             disabled={pending || unchanged || !previewed}
             onClick={() => void save()}
+            reason={
+              unchanged
+                ? t("supervisionSettings.noChanges")
+                : !previewed
+                  ? t("supervisionSettings.checkFirst")
+                  : ""
+            }
           >
             {t("supervisionSettings.save")}
           </Button>
+          <Button disabled={pending || unchanged} onClick={() => void check()}>
+            <Eye size={16} aria-hidden="true" />{" "}
+            {t("supervisionSettings.check")}
+          </Button>
         </div>
-        {!unchanged && !previewed && (
-          <p className="muted">{t("supervisionSettings.checkFirst")}</p>
-        )}
       </div>
     </Card>
   );
@@ -292,7 +353,7 @@ export function AuthorityQueueCard({
   port: SupervisionSettingsPort;
   workspaceId: string;
 }) {
-  const { t } = useI18n();
+  const { t, list } = useI18n();
   const { when, money } = useFormatters();
   const label = useLabel();
   const view = useRemote(
@@ -304,7 +365,12 @@ export function AuthorityQueueCard({
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionSettings.requests.loading")} />;
+    return (
+      <SkeletonRows
+        label={t("supervisionSettings.requests.loading")}
+        rows={4}
+      />
+    );
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   async function decide(
@@ -347,11 +413,18 @@ export function AuthorityQueueCard({
       ? t("supervisionSettings.requests.proposal.paid_ceiling", {
           amount: money(Math.round(r.proposal.limitMicroUsd / 10_000)),
         })
-      : r.proposal.objectiveIds
+      : r.proposal.objectives?.length
         ? t("supervisionSettings.requests.proposal.objectives", {
-            objectives: r.proposal.objectiveIds.join(", "),
+            objectives: list(
+              r.proposal.objectives.map((o) => `\u2068${o.description}\u2069`),
+            ),
           })
-        : "";
+        : r.proposal.objectiveIds?.length
+          ? // An older server sends ids only: say how many, the ids are under Technical details.
+            t("supervisionSettings.requests.proposal.objectiveCount", {
+              count: r.proposal.objectiveIds.length,
+            })
+          : "";
   return (
     <Card
       title={t("supervisionSettings.requests.title")}
@@ -366,11 +439,13 @@ export function AuthorityQueueCard({
           )}
         </div>
         {pendingRequests.length === 0 ? (
-          <p className="muted">{t("supervisionSettings.requests.empty")}</p>
+          <EmptyState title={t("supervisionSettings.requests.empty")}>
+            {t("supervisionSettings.requests.emptyBody")}
+          </EmptyState>
         ) : (
           <ul className="stack">
             {pendingRequests.map((r) => (
-              <li key={r.requestId} className="stack">
+              <li key={r.requestId} className="record">
                 <strong>
                   {label(`supervisionSettings.requests.kind.${r.kind}`, r.kind)}
                 </strong>
@@ -386,7 +461,8 @@ export function AuthorityQueueCard({
                 {r.reason && (
                   <span className="muted" dir="auto">
                     {t("supervisionSettings.requests.reason", {
-                      reason: r.reason,
+                      // The supervisor's words keep their own direction.
+                      reason: `\u2068${r.reason}\u2069`,
                     })}
                   </span>
                 )}
@@ -395,6 +471,13 @@ export function AuthorityQueueCard({
                     {t("supervisionSettings.requests.authorsAct")}
                   </span>
                 )}
+                {r.proposal.objectiveIds?.length ? (
+                  <TechnicalDetails>
+                    <p className="mono" dir="ltr">
+                      {r.proposal.objectiveIds.join(", ")}
+                    </p>
+                  </TechnicalDetails>
+                ) : null}
                 <div className="tag-row">
                   <Button
                     kind="primary"
@@ -467,7 +550,9 @@ export function LearnerBudgetCard({
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionSettings.budget.loading")} />;
+    return (
+      <SkeletonRows label={t("supervisionSettings.budget.loading")} rows={4} />
+    );
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   const b: LearnerBudget = view.data;

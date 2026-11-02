@@ -395,6 +395,10 @@ describe('separate authority for goal, grading and paid-ceiling changes (B06)', 
 
     const rejected = await requestAuthority(learner, id, { kind: 'grading_standard', reason: 'The rubric is stricter than the lesson.', objectiveIds: ['minimum'] });
     const second = (await db.query('SELECT id FROM supervisor_authority_requests WHERE job_id=$1', [rejected.ref.jobId])).rows[0].id;
+    // The queue names the request's objectives by their course text, beside their ids.
+    const named = (await app.inject({ url: `/api/admin/workspaces/${workspace}/supervision/requests`, headers: headers(owner) })).json().requests.find((r: any) => r.requestId === second);
+    expect(named.proposal).toEqual({ objectiveIds: ['minimum'], objectives: [{ id: 'minimum', description: expect.stringMatching(/\S/) }] });
+    expect(named.proposal.objectives[0].description).not.toBe('minimum');
     const no = await app.inject({ method: 'POST', url: `/api/admin/workspaces/${workspace}/supervision/requests/${second}/decision`, headers: headers(owner),
       payload: { idempotencyKey: randomUUID(), decision: 'reject' } });
     expect(no.json().state).toBe('rejected');

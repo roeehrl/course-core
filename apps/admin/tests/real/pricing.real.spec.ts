@@ -57,7 +57,8 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await spending.getByText("Spending so far").click();
   const totals = spending.locator("dl.ai-totals");
   await expect(totals).toContainText("Charged now$0.10");
-  await expect(totals).toContainText("Actual cost of priced calls$0.00096");
+  // Under a cent shows as "<$0.01"; the exact amount is the tooltip.
+  await expect(totals).toContainText("Actual cost of priced calls<$0.01");
   await expect(totals).toContainText("Held for calls in flight$0.10");
   await expect(spending.getByRole("table", { name: "By job" })).toContainText(
     "Learner tutor",

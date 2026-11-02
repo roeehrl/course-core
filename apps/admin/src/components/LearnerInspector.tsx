@@ -19,7 +19,7 @@ import type {
 } from "../domain/learnerView";
 import { runInspectorErrorMessage } from "../domain/runInspector";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, EmptyState, Loading, Notice, Status } from "./ui";
+import { Badge, Button, EmptyState, Notice, Status, SkeletonRows } from "./ui";
 import {
   englishTranslator,
   useFormatters,
@@ -498,7 +498,7 @@ function EpisodeRuns({
     [port, access.enrollmentId, episodeId],
   );
   if (runs.loading)
-    return <Loading label={t("learnerInspector.runs.loading")} />;
+    return <SkeletonRows label={t("learnerInspector.runs.loading")} rows={4} />;
   if (runs.error || !runs.data)
     return (
       <Notice tone="red">{runInspectorErrorMessage(runs.error, t)}</Notice>

@@ -26,7 +26,12 @@ export interface AiText {
   locale: string;
   dir: "ltr" | "rtl";
   t: (key: MessageKey, args?: MessageArgs) => string;
+  /** An amount to the cent; under a cent, "<$0.01" (`moneyExact` has every digit). */
   money: (microUsd: number) => string;
+  /** An amount with all its digits (to a millionth of a dollar), for a title or technical detail. */
+  moneyExact: (microUsd: number) => string;
+  /** A whole number with the locale's grouping (529,152). */
+  count: (value: number) => string;
   date: (value: string | Date) => string;
   relative: (iso: string) => string;
   list: (items: string[]) => string;
@@ -39,15 +44,27 @@ export function useAiText(): AiText {
       dir: i18n.dir,
       t: (key, args) => i18n.t(key, args),
       money: (microUsd) => {
-        const usd = microUsd / 1000000,
-          small = usd > 0 && usd < 0.01;
-        return i18n
-          .currency(usd, "USD", {
-            minimumFractionDigits: small ? 4 : 2,
-            maximumFractionDigits: small ? 6 : 2,
-          })
-          .replace(/[\u200e\u200f]/g, "");
+        const usd = microUsd / 1000000;
+        const format = (value: number) =>
+          i18n
+            .currency(value, "USD", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+            .replace(/[\u200e\u200f]/g, "");
+        return usd > 0 && usd < 0.01 ? `<${format(0.01)}` : format(usd);
       },
+      moneyExact: (microUsd) =>
+        i18n
+          .currency(microUsd / 1000000, "USD", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 6,
+          })
+          .replace(/[\u200e\u200f]/g, ""),
+      count: (value) =>
+        new Intl.NumberFormat(i18n.locale, { maximumFractionDigits: 0 }).format(
+          value,
+        ),
       date: (value) => i18n.date(value, "medium"),
       relative: (iso) => i18n.relativeFrom(iso),
       list: (items) => i18n.list(items),
@@ -89,6 +106,56 @@ export function Ltr({
     <bdi dir="ltr" className={className}>
       {children}
     </bdi>
+  );
+}
+/** A spent amount to the cent, left to right; the exact amount is its tooltip when they differ. */
+export function Money({ micro }: { micro: number | string }) {
+  const text = useAiText();
+  const value = Number(micro);
+  const shown = text.money(value),
+    exact = text.moneyExact(value);
+  return (
+    <bdi dir="ltr" title={exact !== shown ? exact : undefined}>
+      {shown}
+    </bdi>
+  );
+}
+/**
+ * The end of a form: its save button first (at the start of the line, as on the other admin
+ * pages), then whether there is anything to save, so a disabled button says why.
+ */
+export function SaveBar({
+  id,
+  changed,
+  children,
+}: PropsWithChildren<{
+  /** The id of the state line, for the button's `aria-describedby`. */
+  id: string;
+  changed: boolean;
+}>) {
+  const { t } = useAiText();
+  return (
+    <div className="ai-actions action-row ai-save-bar">
+      {children}
+      <span
+        id={id}
+        className={`button-reason ai-save-state${changed ? " unsaved" : ""}`}
+      >
+        {changed ? t("aiServices.save.unsaved") : t("aiServices.save.none")}
+      </span>
+    </div>
+  );
+}
+/** A table's columns: the name column takes the rest; every number column has the same width, so
+ * sibling tables line up. */
+export function NumCols({ count }: { count: number }) {
+  return (
+    <colgroup>
+      <col />
+      {Array.from({ length: count }, (_, i) => (
+        <col key={i} className="ai-col-num" />
+      ))}
+    </colgroup>
   );
 }
 export const sectionAnchor = (section: SectionId | "advanced") =>

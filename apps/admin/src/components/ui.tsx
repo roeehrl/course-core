@@ -25,14 +25,40 @@ import type { Permission } from "../domain/contracts";
 export function Button({
   kind = "secondary",
   children,
+  reason,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   kind?: "primary" | "secondary" | "quiet" | "danger";
+  /** Why the button cannot be used yet ("No changes yet"): shown on one line under a disabled
+   * button and linked to it as its description. Ignored while the button is enabled. */
+  reason?: string;
 }) {
-  return (
-    <button {...props} className={`button ${kind} ${props.className ?? ""}`}>
+  const reasonId = useId();
+  const button = (
+    <button
+      {...props}
+      className={`button ${kind} ${props.className ?? ""}`}
+      aria-describedby={
+        props.disabled && reason
+          ? [props["aria-describedby"], reasonId].filter(Boolean).join(" ")
+          : props["aria-describedby"]
+      }
+    >
       {children}
     </button>
+  );
+  // With a `reason` the button always sits in the same wrapper, so it keeps its place in the tree
+  // (and its focus) when it turns disabled while an action runs.
+  if (reason === undefined) return button;
+  return (
+    <span className="button-with-reason">
+      {button}
+      {props.disabled && reason && (
+        <small className="button-reason" id={reasonId}>
+          {reason}
+        </small>
+      )}
+    </span>
   );
 }
 export function Badge({
@@ -181,6 +207,74 @@ export function EmptyState({
     </div>
   );
 }
+/**
+ * The one way a page opens under its title (the shell draws the title): a short muted line on
+ * what the page is for, and the page's main action, if it has one, at the line's end.
+ */
+export function PageIntro({
+  children,
+  action,
+}: PropsWithChildren<{ action?: ReactNode }>) {
+  return (
+    <div className="page-intro">
+      <p>{children}</p>
+      {action}
+    </div>
+  );
+}
+/**
+ * Identifiers and codes kept for support (a policy id, an error code, a stored record), folded
+ * away under "Technical details" so the owner reads sentences, not codes. `rows` lists label and
+ * value pairs (the values left to right, in a monospace face); other content goes in children.
+ */
+export function TechnicalDetails({
+  summary,
+  rows,
+  children,
+}: PropsWithChildren<{
+  /** Another title for the disclosure; "Technical details" by default. */
+  summary?: string;
+  rows?: [label: string, value: ReactNode][];
+}>) {
+  const t = useT();
+  return (
+    <details className="quiet-details">
+      <summary>{summary ?? t("ui.technicalDetails")}</summary>
+      {rows && (
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>
+                <span className="mono" dir="ltr">
+                  {value}
+                </span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {children}
+    </details>
+  );
+}
+/** Placeholder rows while a page or a section loads, in place of the content to come; the label
+ * is read out once. */
+export function SkeletonRows({
+  label,
+  rows = 6,
+}: {
+  label: string;
+  rows?: number;
+}) {
+  return (
+    <div className="skeleton-rows" role="status" aria-label={label}>
+      {Array.from({ length: rows }, (_, i) => (
+        <span key={i} aria-hidden="true" />
+      ))}
+    </div>
+  );
+}
 export function PermissionHint({
   permissions,
   required,
@@ -261,19 +355,22 @@ export function lockPageScroll() {
   };
 }
 /**
- * Marks a scrolling dialog with `data-more-below` while part of it is below its bottom edge, so
- * its sticky actions (styles.css, .dialog-footer) show a divider only when content scrolls under
- * them.
+ * Marks a scrolling dialog with `data-more-below` while part of it is below its bottom edge, and
+ * `data-scrolled` once it has scrolled from the top, so its sticky actions (styles.css,
+ * .dialog-footer) and its sticky title (.dialog-heading) show a divider only when content
+ * scrolls under them.
  */
 export function useMoreBelow(ref: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
-    const update = () =>
+    const update = () => {
       element.toggleAttribute(
         "data-more-below",
         element.scrollTop + element.clientHeight < element.scrollHeight - 1,
       );
+      element.toggleAttribute("data-scrolled", element.scrollTop > 1);
+    };
     update();
     element.addEventListener("scroll", update, { passive: true });
     const sizes =
@@ -377,8 +474,10 @@ export function Dialog({
       }}
       onClose={() => {
         // A browser can close a modal dialog without a cancel event (Chrome does on a repeated
-        // Escape). Keep React's state in step instead of leaving an invisible dialog open.
-        if (unmounting.current) return;
+        // Escape). Keep React's state in step instead of leaving an invisible dialog open. The
+        // event comes a task after close(): one from an effect that ran twice (StrictMode on the
+        // development server) arrives when the dialog is open again, and is not a close.
+        if (unmounting.current || ref.current?.open) return;
         if (latest.current.pending) ref.current?.showModal();
         else latest.current.onClose();
       }}

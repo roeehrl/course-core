@@ -153,6 +153,16 @@ export const authorityRequestSchema = z.object({
   proposal: z.object({
     goal: z.string().max(300).optional(),
     objectiveIds: z.array(z.string().max(128)).max(10).optional(),
+    /** The same objectives by their course text (servers from before this field send ids only). */
+    objectives: z
+      .array(
+        z.object({
+          id: z.string().max(128),
+          description: z.string().max(2000),
+        }),
+      )
+      .max(10)
+      .optional(),
     limitMicroUsd: z.number().int().nonnegative().optional(),
   }),
   reason: z.string().max(500).nullable(),

@@ -513,7 +513,7 @@ export async function stubJobsOn(
 }
 
 /** A model list of the Google connection: `unavailable` names models Google answered 404 for. */
-function googleModels(models: string[], unavailable: string[] = []) {
+export function googleModels(models: string[], unavailable: string[] = []) {
   return {
     connectionId: "connection-1",
     kind: "google",

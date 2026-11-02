@@ -25,5 +25,6 @@
   "none": "none",
   "noDebit": "No allowance pool is debited.",
   "reason": "Reason",
-  "reason.hint": "A reference such as a ticket or decision number, not personal details."
+  "reason.hint": "A reference such as a ticket or decision number, not personal details.",
+  "cancel": "Cancel"
 }

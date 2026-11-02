@@ -272,7 +272,11 @@ describe("demo answer keys", () => {
           ),
         ).toBeTruthy(),
       );
-      expect(screen.getByText("· Picks the largest value")).toBeTruthy();
+      // One line per question; its test answers show once it is open.
+      await userEvent.click(
+        screen.getByRole("button", { name: /Insertion sort on \[4, 2, 7\]/ }),
+      );
+      expect(screen.getByText("Picks the largest value")).toBeTruthy();
       expect(
         screen.getByText("Explain the idea of this course in your own words."),
       ).toBeTruthy();
@@ -291,6 +295,11 @@ describe("demo answer keys", () => {
       </I18nProvider>,
     );
     const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: /Insertion sort on \[4, 2, 7\]/,
+      }),
+    );
     await waitFor(() =>
       expect(
         screen.getAllByRole("button", { name: /check/i }).length,

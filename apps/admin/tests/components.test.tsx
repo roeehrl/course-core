@@ -46,9 +46,12 @@ describe("admin presentation workflows", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Refresh and try again" }),
     );
+    // The course page opens on the course's own header, not a marketing banner.
     await screen.findByRole("heading", {
-      name: /A clear path/,
+      name: "Sorting, step by step",
+      level: 2,
     });
+    expect(screen.queryByText(/A clear path/)).toBeNull();
   });
   it("presents observer restrictions without pretending they provide server authorization", async () => {
     render(<AdminApp client={demo({ role: "observer" })} />);
@@ -60,9 +63,10 @@ describe("admin presentation workflows", () => {
       screen.getByRole("button", { name: "Run inspector" }),
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Permission denied");
+    // The footer carries no developer wording about authorization.
     expect(
-      screen.getByText("Server authorization governs every action."),
-    ).toBeVisible();
+      screen.queryByText("Server authorization governs every action."),
+    ).toBeNull();
   });
   it("keeps release publication gated through the review state", async () => {
     render(<AdminApp client={demo()} />);
@@ -163,17 +167,19 @@ describe("admin presentation workflows", () => {
     await screen.findByText("14 calendar days from scope started");
     expect(
       screen.getByRole("table", {
-        name: "Inherited work caps and current usage",
+        name: "Work limits on this path and how much is used",
       }),
     ).toHaveTextContent("240");
     expect(screen.getByText("Maximum days per grant")).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: /Chapter · Open exploration/ }),
     );
-    expect(screen.getByText("open-ended mode")).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Chapter · Open exploration" }),
+    ).toBeVisible();
     expect(
       screen.getByText(
-        /Applicable ancestor deadlines and work caps still bind/,
+        /Deadlines and work limits from the levels above still apply/,
       ),
     ).toBeVisible();
     expect(

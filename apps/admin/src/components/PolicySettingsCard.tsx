@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type PropsWithChildren, type ReactNode } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type {
   PolicySettings,
@@ -6,9 +6,20 @@ import type {
 } from "../domain/policyLedger";
 import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
-import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorState,
+  Field,
+  Notice,
+  SkeletonRows,
+} from "./ui";
 import { ExtensionPoolsEditor } from "./ExtensionPoolsEditor";
-import { AssessmentPolicyFields } from "./AssessmentPolicy";
+import {
+  AssessmentPolicyFields,
+  useAssessmentPolicySummary,
+} from "./AssessmentPolicy";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import { serverMessageText } from "../domain/serverMessages";
 
@@ -23,35 +34,44 @@ export function PolicySettingsCard({
   client,
   courseId,
   canWrite,
-}: {
+  actions,
+  children,
+}: PropsWithChildren<{
   client: AdminClient;
   courseId: string;
   canWrite: boolean;
-}) {
+  /** Course-wide actions for the card's heading (a deadline change for every learner). */
+  actions?: ReactNode;
+}>) {
   const t = useT();
   const remote = useRemote(
     (signal) => client.getPolicySettings!(courseId, signal),
     [client, courseId],
   );
+  if (remote.data && !remote.loading)
+    return (
+      <SettingsForm
+        key={remote.data.revision}
+        view={remote.data}
+        client={client}
+        courseId={courseId}
+        canWrite={canWrite}
+        actions={actions}
+      >
+        {children}
+      </SettingsForm>
+    );
   return (
     <Card
       title={t("policySettingsCard.title")}
       eyebrow={t("policySettingsCard.eyebrow")}
+      actions={actions}
     >
+      {children}
       {remote.loading ? (
-        <Loading label={t("policySettingsCard.loading")} />
-      ) : remote.error ? (
-        <ErrorState error={remote.error} onRetry={remote.reload} />
+        <SkeletonRows label={t("policySettingsCard.loading")} rows={4} />
       ) : (
-        remote.data && (
-          <SettingsForm
-            key={remote.data.revision}
-            view={remote.data}
-            client={client}
-            courseId={courseId}
-            canWrite={canWrite}
-          />
-        )
+        <ErrorState error={remote.error} onRetry={remote.reload} />
       )}
     </Card>
   );
@@ -62,12 +82,15 @@ function SettingsForm({
   client,
   courseId,
   canWrite,
-}: {
+  actions,
+  children,
+}: PropsWithChildren<{
   view: PolicySettingsView;
   client: AdminClient;
   courseId: string;
   canWrite: boolean;
-}) {
+  actions?: ReactNode;
+}>) {
   const i18n = useI18n();
   const t = i18n.t;
   const { when } = useFormatters();
@@ -83,7 +106,9 @@ function SettingsForm({
   );
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState(false);
   const flight = useSingleFlight();
+  const attempts = useAssessmentPolicySummary();
   const update = (next: PolicySettings) => {
     setDraft(next);
     setPreview(undefined);
@@ -93,6 +118,29 @@ function SettingsForm({
     preview &&
     JSON.stringify(preview.preview?.settings) === JSON.stringify(draft);
   const feasibility = reviewed ? preview.preview?.feasibility : undefined;
+  const changed = JSON.stringify(draft) !== JSON.stringify(current.settings);
+  const canCheck = canWrite && Boolean(client.previewPolicySettings);
+  const canSave = canWrite && Boolean(client.savePolicySettings);
+  // Why Save cannot be pressed yet, in the order the steps are taken.
+  const blocked = !changed
+    ? t("policySettingsCard.blocked.noChanges")
+    : !reviewed
+      ? t("policySettingsCard.blocked.check")
+      : !reason.trim()
+        ? t("policySettingsCard.blocked.reason")
+        : "";
+  const cancel = () => {
+    setDraft(structuredClone(current.settings));
+    setPreview(view.preview ? view : undefined);
+    setReason("");
+    flight.setError(undefined);
+    setEditing(false);
+  };
+  const shown = current.settings;
+  const minutes = (value: number | null) =>
+    value === null
+      ? t("policySettingsCard.summary.notDeclared")
+      : t("policySettingsCard.summary.minutes", { count: value });
   const number = (
     labelText: string,
     idText: string,
@@ -111,20 +159,177 @@ function SettingsForm({
       />
     </Field>
   );
+  const status = (
+    <p className="policy-meta">
+      <Badge tone={current.source === "configured" ? "blue" : "gold"}>
+        {current.source === "configured"
+          ? t("policySettingsCard.revision", { revision: current.revision })
+          : t("policySettingsCard.defaults")}
+      </Badge>
+      {current.changedAt && (
+        <span>
+          {t("policySettingsCard.saved", { date: when(current.changedAt) })}
+        </span>
+      )}
+    </p>
+  );
+  const feasibilityBlock = feasibility && (
+    <div className="stack" aria-label={t("policySettingsCard.feasibility")}>
+      <h3>{t("policySettingsCard.feasibility")}</h3>
+      <Notice tone={feasibility.feasible ? "green" : "red"}>
+        {feasibility.feasible
+          ? t("policySettingsCard.feasible")
+          : t("policySettingsCard.infeasible")}
+      </Notice>
+      {feasibility.issues.length > 0 && (
+        <ul className="policy-why">
+          {feasibility.issues.map((issue, index) => (
+            <li key={index}>
+              <Badge tone={issue.severity === "error" ? "red" : "gold"}>
+                {t(
+                  `policySettingsCard.severity.${issue.severity}` as MessageKey,
+                )}
+              </Badge>{" "}
+              {label(`policySettingsCard.issue.${issue.code}`, issue.message)}
+              {issue.neededMinutes !== undefined && (
+                <>
+                  {" "}
+                  {t("policySettingsCard.issue.needs", {
+                    needed: issue.neededMinutes,
+                    available: issue.availableMinutes ?? 0,
+                  })}
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {feasibility.alternatives.length > 0 && (
+        <p>
+          {t("policySettingsCard.alternatives", {
+            list: feasibility.alternatives
+              .map((a) =>
+                label(
+                  `policySettingsCard.alternative.${a}`,
+                  a.replaceAll("_", " "),
+                ),
+              )
+              .join("; "),
+          })}
+        </p>
+      )}
+    </div>
+  );
+  if (!editing)
+    return (
+      <Card
+        title={t("policySettingsCard.title")}
+        eyebrow={t("policySettingsCard.eyebrow")}
+        actions={
+          (canWrite || actions) && (
+            <div className="policy-actions">
+              {canWrite && (
+                <Button type="button" onClick={() => setEditing(true)}>
+                  {t("policySettingsCard.edit")}
+                </Button>
+              )}
+              {actions}
+            </div>
+          )
+        }
+      >
+        {children}
+        {status}
+        <p className="muted">{t("policySettingsCard.summary.intro")}</p>
+        {message && <Notice tone="green">{message}</Notice>}
+        <dl className="policy-summary">
+          <div>
+            <dt>{t("policySettingsCard.zone")}</dt>
+            <dd>
+              <span dir="ltr">{shown.timeZone}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>{t("policySettingsCard.approval")}</dt>
+            <dd>
+              {shown.extensions.approval === "learner"
+                ? t("policySettingsCard.approval.learner")
+                : t("policySettingsCard.approval.learnerAndAdmin")}
+              <small>
+                {t("policySettingsCard.summary.offers", {
+                  hours: shown.extensions.offerCooldownHours,
+                  count: shown.extensions.maxOutstandingOffersPerScope,
+                })}
+              </small>
+            </dd>
+          </div>
+          <div>
+            <dt>{t("policySettingsCard.summary.attempts")}</dt>
+            <dd>
+              {shown.assessment.maxGradedAttemptsPerCheck === null
+                ? t("policySettingsCard.summary.attemptsUnlimited")
+                : t("policySettingsCard.summary.attemptsLimit", {
+                    count: shown.assessment.maxGradedAttemptsPerCheck,
+                  })}
+              <small>{attempts(shown.assessment)}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>{t("policySettingsCard.summary.allowances")}</dt>
+            <dd>
+              {shown.extensionPools.length
+                ? t("policySettingsCard.summary.allowancesCount", {
+                    count: shown.extensionPools.length,
+                  })
+                : t("policySettingsCard.summary.allowancesNone")}
+              {shown.extensions.ultimateDeadline && (
+                <small>
+                  {t("policySettingsCard.summary.ultimate", {
+                    date: when(shown.extensions.ultimateDeadline),
+                  })}
+                </small>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("policySettingsCard.summary.pace")}</dt>
+            <dd>
+              {shown.pacing.studyMinutesPerDay === null
+                ? t("policySettingsCard.summary.notDeclared")
+                : t("policySettingsCard.summary.perDay", {
+                    count: shown.pacing.studyMinutesPerDay,
+                  })}
+              <small>
+                {t("policySettingsCard.summary.perEpisode", {
+                  value: minutes(shown.pacing.minutesPerRequiredEpisode),
+                })}
+              </small>
+            </dd>
+          </div>
+          <div>
+            <dt>{t("policySettingsCard.summary.headroom")}</dt>
+            <dd>
+              {t("policySettingsCard.summary.headroomValue", {
+                core: shown.headroom.core.additionalMinutes,
+                final: shown.headroom.finalAssessment.additionalMinutes,
+              })}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("policySettingsCard.questions")}</dt>
+            <dd>{i18n.number(shown.closedQuestionBudget)}</dd>
+          </div>
+        </dl>
+        {feasibilityBlock}
+      </Card>
+    );
   return (
-    <div className="stack">
-      <div className="tag-row">
-        <Badge tone={current.source === "configured" ? "blue" : "gold"}>
-          {current.source === "configured"
-            ? t("policySettingsCard.revision", { revision: current.revision })
-            : t("policySettingsCard.defaults")}
-        </Badge>
-        {current.changedAt && (
-          <small>
-            {t("policySettingsCard.saved", { date: when(current.changedAt) })}
-          </small>
-        )}
-      </div>
+    <Card
+      title={t("policySettingsCard.title")}
+      eyebrow={t("policySettingsCard.eyebrow")}
+    >
+      {children}
+      {status}
       <Notice tone="blue">{t("policySettingsCard.notice")}</Notice>
       <div className="input-grid">
         <Field
@@ -352,70 +557,7 @@ function SettingsForm({
           })
         }
       />
-      {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      {message && <Notice tone="green">{message}</Notice>}
-      {canWrite && client.previewPolicySettings && (
-        <Button
-          disabled={flight.pending}
-          onClick={() =>
-            void flight.run(async () =>
-              setPreview(await client.previewPolicySettings!(courseId, draft)),
-            )
-          }
-        >
-          {t("policySettingsCard.previewButton")}
-        </Button>
-      )}
-      {feasibility && (
-        <div className="stack" aria-label={t("policySettingsCard.feasibility")}>
-          <h3>{t("policySettingsCard.feasibility")}</h3>
-          <Notice tone={feasibility.feasible ? "green" : "red"}>
-            {feasibility.feasible
-              ? t("policySettingsCard.feasible")
-              : t("policySettingsCard.infeasible")}
-          </Notice>
-          {feasibility.issues.length > 0 && (
-            <ul>
-              {feasibility.issues.map((issue, index) => (
-                <li key={index}>
-                  <Badge tone={issue.severity === "error" ? "red" : "gold"}>
-                    {t(
-                      `policySettingsCard.severity.${issue.severity}` as MessageKey,
-                    )}
-                  </Badge>{" "}
-                  {label(
-                    `policySettingsCard.issue.${issue.code}`,
-                    issue.message,
-                  )}
-                  {issue.neededMinutes !== undefined && (
-                    <>
-                      {" "}
-                      {t("policySettingsCard.issue.needs", {
-                        needed: issue.neededMinutes,
-                        available: issue.availableMinutes ?? 0,
-                      })}
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {feasibility.alternatives.length > 0 && (
-            <p>
-              {t("policySettingsCard.alternatives", {
-                list: feasibility.alternatives
-                  .map((a) =>
-                    label(
-                      `policySettingsCard.alternative.${a}`,
-                      a.replaceAll("_", " "),
-                    ),
-                  )
-                  .join("; "),
-              })}
-            </p>
-          )}
-        </div>
-      )}
+      {feasibilityBlock}
       {reviewed &&
         preview.preview &&
         preview.preview.calendar.some((row) => row.transitions.length > 0) && (
@@ -492,22 +634,24 @@ function SettingsForm({
             })()}
           </Notice>
         )}
-      {canWrite && client.savePolicySettings && reviewed && (
-        <div className="stack">
-          <Field
-            label={t("policySettingsCard.reason")}
-            htmlFor="settings-reason"
-          >
-            <input
-              id="settings-reason"
-              maxLength={1000}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
+      {changed && (
+        <Field label={t("policySettingsCard.reason")} htmlFor="settings-reason">
+          <input
+            id="settings-reason"
+            maxLength={1000}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Field>
+      )}
+      {Boolean(flight.error) && <ErrorState error={flight.error} />}
+      <div className="action-row">
+        {canSave && (
           <Button
+            type="button"
             kind="primary"
-            disabled={flight.pending || !reason.trim()}
+            reason={blocked || ""}
+            disabled={flight.pending || Boolean(blocked)}
             onClick={() =>
               void flight.run(async () => {
                 const saved = await client.savePolicySettings!(courseId, {
@@ -517,6 +661,7 @@ function SettingsForm({
                 });
                 setCurrent(saved);
                 setReason("");
+                setEditing(false);
                 setMessage(
                   saved.message !== undefined
                     ? serverMessageText(i18n, saved.message)
@@ -527,8 +672,31 @@ function SettingsForm({
           >
             {t("policySettingsCard.save")}
           </Button>
-        </div>
-      )}
-    </div>
+        )}
+        {canCheck && (
+          <Button
+            type="button"
+            disabled={flight.pending || Boolean(reviewed)}
+            onClick={() =>
+              void flight.run(async () =>
+                setPreview(
+                  await client.previewPolicySettings!(courseId, draft),
+                ),
+              )
+            }
+          >
+            {t("policySettingsCard.previewButton")}
+          </Button>
+        )}
+        <Button
+          type="button"
+          kind="quiet"
+          disabled={flight.pending}
+          onClick={cancel}
+        >
+          {t("policySettingsCard.cancel")}
+        </Button>
+      </div>
+    </Card>
   );
 }

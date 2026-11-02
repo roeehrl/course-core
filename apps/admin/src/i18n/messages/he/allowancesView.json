@@ -1,5 +1,4 @@
 {
-  "heading": "הארכות והתאמות",
   "intro": "הזמן והעבודה הנוספים של כל הלומדים במקום אחד: הצעות שממתינות לאישורך, מה שהוענק או הותאם, וכמה נוצל מכל מכסה.",
   "show": "הצגה",
   "tab.pending": "ממתין לאישור",
@@ -28,7 +27,7 @@
   "rejected": "נדחה עבור {name}. שום דבר לא נוכה מהמכסה.",
   "offers.title": "כל הצעות ההארכה",
   "offers.eyebrow": "החדשות קודם",
-  "offers.empty": "עדיין אין הצעות הארכה.",
+  "offers.empty": "עדיין אין הצעות הארכה",
   "col.learner": "לומד/ת",
   "col.where": "איפה",
   "col.what": "מה",
@@ -43,7 +42,7 @@
   "state.superseded": "הוחלפה בשינוי מדיניות",
   "accommodations.title": "התאמות, השהיות והתאמות בגלל תקלה",
   "accommodations.eyebrow": "נפרדות מהמכסות; כל אחת אושרה על ידי צוות הקורס",
-  "accommodations.empty": "עדיין אין התאמות.",
+  "accommodations.empty": "עדיין אין התאמות",
   "accommodations.row": "{learner} · {scope} · {date}",
   "accommodations.batch": "(חלק מהתאמה קבוצתית)",
   "kind.accommodation": "התאמה",
@@ -51,9 +50,15 @@
   "kind.outage": "תקלה",
   "pools.title": "ניצול המכסות",
   "pools.eyebrow": "לומדים פעילים בלבד",
-  "pools.empty": "אין מכסות בשימוש.",
+  "pools.empty": "אין מכסות בשימוש",
   "pools.row": "נוצלו {used} מתוך {total} {unit, select, calendar_day {ימים קלנדריים} scope_calendar_day {ימים קלנדריים} planned_minute {דקות מתוכננות} episode {יחידות לימוד} other {יחידות}} אצל {learners, plural, one {לומד/ת אחד/ת} other {# לומדים}} ({grants, plural, one {הענקה אחת} other {# הענקות}})",
   "batches.title": "התאמות קבוצתיות אחרונות",
   "batches.eyebrow": "מי החיל/ה אותן ולמה",
-  "batches.row": "{what} עבור {scope}, {count, plural, one {לומד/ת אחד/ת} other {# לומדים}}, על ידי {by} ב-{date}."
+  "batches.row": "{what} עבור {scope}, {count, plural, one {לומד/ת אחד/ת} other {# לומדים}}, על ידי {by} ב-{date}.",
+  "offers.empty.body": "הצעות שנשלחו ללומדים מופיעות כאן, החדשות קודם.",
+  "accommodations.empty.body": "התאמות, השהיות מאושרות והתאמות בגלל תקלה מופיעות כאן אחרי שצוות הקורס מחיל אותן.",
+  "pools.empty.body": "כשלומד/ת מקבל/ת הארכה, המכסה שלה מופיעה כאן עם כמה נוצל ממנה.",
+  "pools.name": "{unit, select, calendar_day {ימים קלנדריים} scope_calendar_day {ימים קלנדריים} planned_minute {דקות מתוכננות} episode {יחידות לימוד} other {יחידות}} · {scope}",
+  "pools.nameOnly": "{unit, select, calendar_day {ימים קלנדריים} scope_calendar_day {ימים קלנדריים} planned_minute {דקות מתוכננות} episode {יחידות לימוד} other {יחידות}}",
+  "pending.pool": "{pool} ({amount})"
 }

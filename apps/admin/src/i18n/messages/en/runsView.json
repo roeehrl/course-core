@@ -1,5 +1,4 @@
 {
-  "heading": "Follow the work, not a black box.",
   "intro": "Inspectable inputs, context references, tool decisions and reviewable outputs.",
   "privacyNotice": "This inspector shows operational records and concise decision explanations. Private model reasoning and hidden chain-of-thought are not requested or displayed.",
   "list.title": "Supervisor runs",
@@ -23,9 +22,7 @@
   "providerAttempts": "{count, plural, one {# reported provider attempt} other {# reported provider attempts}}",
   "providerAttempts.unavailable": "Provider attempt count unavailable",
   "artifacts": "{count, plural, one {# artifact} other {# artifacts}}",
-  "retryOf": "Retry of {run}",
   "retried": "Retried",
-  "retriedAs": "Retried as {run}",
   "context.reference": "Reference",
   "context.source": "Source",
   "context.visibility": "Visibility",
@@ -110,5 +107,16 @@
   "status.revoked": "revoked",
   "status.not_started": "not started",
   "status.in_flight": "in progress",
-  "status.uncertain": "outcome uncertain"
+  "status.uncertain": "outcome uncertain",
+  "retryOfRun": "Retry of an earlier run",
+  "list.count": "{count, plural, one {# run} other {# runs}}",
+  "list.pick": "Run",
+  "list.option": "{run} · {when} · {status}",
+  "actionsNav": "Run actions",
+  "started": "Started {when}",
+  "technical.runId": "Run ID",
+  "technical.context": "Learner record version",
+  "technical.retryOf": "Retry of run",
+  "technical.retriedAs": "Retried as run",
+  "event.other": "Other event ({code})"
 }

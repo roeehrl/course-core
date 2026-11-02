@@ -249,8 +249,8 @@ describe("course updates", () => {
         name: /I authorize automatic review approval and publication/,
       }),
     );
-    await userEvent.clear(screen.getByLabelText("Check every (hours)"));
-    await userEvent.type(screen.getByLabelText("Check every (hours)"), "6");
+    await userEvent.clear(screen.getByLabelText("Check every"));
+    await userEvent.type(screen.getByLabelText("Check every"), "6");
     await userEvent.click(save);
     await waitFor(() =>
       expect(courseUpdates.saveSettings).toHaveBeenCalledWith("cat-1", {
@@ -270,12 +270,22 @@ describe("course updates", () => {
 
   it("keeps an automatic-updates edit when the source is saved", async () => {
     const { courseUpdates } = setup(withSource);
-    const interval = await screen.findByLabelText("Check every (hours)");
+    const interval = await screen.findByLabelText("Check every");
     await userEvent.clear(interval);
     await userEvent.type(interval, "6");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Save update source" }),
+    // Saving the source needs a change to it: until then the button says why it is off.
+    const saveSource = screen.getByRole("button", {
+      name: "Save update source",
+    });
+    expect(saveSource).toBeDisabled();
+    expect(
+      screen.getByText("No changes to the update source yet."),
+    ).toBeVisible();
+    await userEvent.type(
+      screen.getByLabelText("Folder or file inside it"),
+      "2",
     );
+    await userEvent.click(saveSource);
     await waitFor(() => expect(courseUpdates.saveSource).toHaveBeenCalled());
     await screen.findByText(/Update source saved/);
     expect(interval).toHaveValue(6);
@@ -298,7 +308,7 @@ describe("course updates", () => {
           },
         }) as never,
     );
-    const interval = await screen.findByLabelText("Check every (hours)");
+    const interval = await screen.findByLabelText("Check every");
     await userEvent.clear(interval);
     await userEvent.type(interval, "6");
     await userEvent.click(
@@ -340,7 +350,7 @@ describe("course updates", () => {
           },
         }) as never,
     );
-    const interval = await screen.findByLabelText("Check every (hours)");
+    const interval = await screen.findByLabelText("Check every");
     await userEvent.clear(interval);
     await userEvent.type(interval, "6");
     await userEvent.click(
@@ -413,7 +423,8 @@ describe("course updates", () => {
     const facts = stripBidiControls(document.body.textContent ?? "");
     expect(facts).toContain("אוטומטית · מעודכן");
     expect(facts).toContain("אחרי שני ניסיונות שנכשלו");
-    expect(screen.getByText("1.0.0")).toHaveAttribute("dir", "ltr");
+    // The version keeps its own direction inline, beside its Hebrew label.
+    expect(screen.getByText("1.0.0").tagName).toBe("BDI");
     expect(document.body.textContent).not.toMatch(
       /Newest installed|failed attempts/,
     );

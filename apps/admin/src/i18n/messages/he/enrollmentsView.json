@@ -1,5 +1,4 @@
 {
-  "heading": "כל לומד/ת, בהקשר המלא.",
   "intro": "פרופיל, גרסה מוצמדת, התקדמות והראיות שמאחוריה.",
   "newEnrollment": "הרשמה חדשה",
   "title": "הרשמות",
@@ -17,7 +16,6 @@
   "evidenceStatus.stale": "לא עדכנית",
   "noMatch.title": "אין לומדים מתאימים",
   "noMatch.body": "אפשר לנסות שם או מזהה לומד/ת אחר.",
-  "profile.eyebrow": "פרופיל ההרשמה",
   "profile.edit": "עריכת הפרופיל",
   "noGoal": "לא הוגדרה מטרת למידה.",
   "pinnedRelease": "גרסה מוצמדת",
@@ -48,7 +46,6 @@
   "progress.label": "ההתקדמות של {name} במטרות הלמידה",
   "progress.note": "ההתקדמות משקפת ראיות שהתקבלו. עריכת פרופיל לא מעניקה קרדיט.",
   "evidence.title": "ראיות והחלטות",
-  "evidence.eyebrow": "רשומות עם גרסאות",
   "evidence.receipt": "אישור: {id}",
   "evidence.stale": "אי אפשר לאשר את הראיה הזו לפי המחוון הנוכחי. נדרשת הגשה חדשה.",
   "evidence.reviewLabel": "בדיקת הראיה: {objective}",
@@ -79,5 +76,7 @@
   "review.reject": "דחיית הראיה",
   "review.note": "הערת בדיקה",
   "review.recording": "רושמים…",
-  "review.record": "רישום הבדיקה"
+  "review.record": "רישום הבדיקה",
+  "reference.copy": "העתקת המזהה",
+  "reference.copied": "הועתק"
 }

@@ -14,8 +14,8 @@ import {
   Card,
   Dialog,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { isolate } from "@course-core/i18n";
 import { useT } from "../i18n";
@@ -81,7 +81,7 @@ export function StoryboardsCard({
     >
       <p className="media-hint">{t("mediaView.storyboards.intro")}</p>
       {boards.loading && !boards.data ? (
-        <Loading label={t("mediaView.storyboards.loading")} />
+        <SkeletonRows label={t("mediaView.storyboards.loading")} rows={3} />
       ) : boards.error || !boards.data ? (
         <Notice tone="red">{mediaErrorMessage(boards.error, t)}</Notice>
       ) : boards.data.length === 0 ? (

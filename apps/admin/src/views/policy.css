@@ -1,0 +1,189 @@
+/* Policy & extensions and Extensions & accommodations. Page-specific layout only; the shared
+   primitives (cards, buttons, fields, tables) come from styles.css. */
+
+/* A section the link bar can reach (a link stops below the bar: styles.css, :root:has(.section-nav)). */
+.policy-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.policy-section:focus {
+  outline: none;
+}
+.policy-section:empty {
+  display: none;
+}
+
+/* A card's actions sit at the end of its heading and wrap below it on a narrow screen. */
+.policy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* One quiet line of record facts (revisions, the last save) under a heading. */
+.policy-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* Settings shown before they are edited: a two-column list of what is in force. */
+.policy-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 28px;
+  margin: 0;
+}
+.policy-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-block-end: 12px;
+  border-block-end: 1px solid var(--line);
+}
+.policy-summary dt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.policy-summary dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+.policy-summary dd small {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+/* "Show all" under a shortened list or table. */
+.policy-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* Scope list: searchable, with compact items. Its sticky place beside the detail and its own
+   scroll are the shared .master-detail's. */
+.policy-scope-picker .selector-item {
+  min-height: 0;
+  padding: 10px 12px;
+  gap: 8px;
+}
+.policy-scope-picker .selector-item > span {
+  min-width: 0;
+}
+.policy-scope-picker .selector-item .badge {
+  margin-block-start: 6px;
+}
+.policy-scope-picker .selector-item small {
+  margin-block-start: 4px;
+  color: var(--muted);
+}
+.policy-scope-picker .policy-scope-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* The quota lines behind "What sets these limits", grouped by kind of limit. */
+.policy-why {
+  margin: 0;
+  padding-inline-start: 20px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.policy-why li + li {
+  margin-block-start: 6px;
+}
+.policy-why details summary {
+  min-height: 36px;
+  padding-block: 6px;
+}
+.policy-why details ul {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* A row group's heading inside a table: the scope a set of work limits belongs to. */
+.policy-group-row th {
+  background: #f4f6f7;
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.dialog.policy-dialog .segmented {
+  margin: 0;
+  border: 0;
+}
+
+/* Extensions & accommodations: the introduction with the page's one action at its end, and a
+   compact two-way view switch (the chosen view drawn like a chosen segment, not a second
+   primary button). */
+.allowances-view-switch {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.allowances-view-switch .button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.allowances-view-switch .button[aria-pressed="true"] {
+  background: #fff;
+  box-shadow: 0 0 0 1px #aebec8;
+  color: var(--ink);
+}
+.allowances-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.allowances-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+.allowances-list > li:last-child {
+  border-block-end: 0;
+}
+.allowances-list > li small {
+  color: var(--muted);
+}
+
+@container (max-width: 560px) {
+  .allowances-view-switch {
+    align-self: stretch;
+  }
+  .allowances-view-switch .button {
+    flex: 1 1 0;
+  }
+  .policy-summary {
+    grid-template-columns: 1fr;
+  }
+  .policy-actions,
+  .policy-actions .button {
+    width: 100%;
+  }
+}

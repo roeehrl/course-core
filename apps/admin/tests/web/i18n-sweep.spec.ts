@@ -78,7 +78,9 @@ test("every demo view leaves no untranslated text under en-XA and does not overf
     )
       .getByRole("button", { name, exact: true })
       .click();
-    await expect(page.locator("main .loading")).toHaveCount(0);
+    await expect(
+      page.locator("main :is(.loading, .skeleton-rows)"),
+    ).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
     for (const text of await untranslated(page))
       if (!DEMO_DATA.includes(text)) problems.push(`${name}: ${text}`);

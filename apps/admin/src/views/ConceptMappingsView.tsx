@@ -18,8 +18,8 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { isolate } from "@course-core/i18n";
@@ -101,7 +101,9 @@ function MappingWorkspace({ port }: { port: ConceptMappingPort }) {
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState("");
   if (candidates.loading && !candidates.data)
-    return <Loading label={t("conceptMappingsView.loadingCourses")} />;
+    return (
+      <SkeletonRows label={t("conceptMappingsView.loadingCourses")} rows={6} />
+    );
   if (candidates.error || !candidates.data)
     return (
       <Notice tone="red">
@@ -116,10 +118,7 @@ function MappingWorkspace({ port }: { port: ConceptMappingPort }) {
       options.find((o) => o.releaseId === second)?.catalogId;
   return (
     <div className="page-stack">
-      <Card
-        title={t("conceptMappingsView.choose.title")}
-        eyebrow={t("conceptMappingsView.choose.eyebrow")}
-      >
+      <Card title={t("conceptMappingsView.choose.title")}>
         <p className="muted">{t("conceptMappingsView.choose.body")}</p>
         {options.length < 2 ? (
           <EmptyState title={t("conceptMappingsView.choose.empty.title")}>
@@ -262,7 +261,9 @@ function PairEditor({
     [pair.data, first],
   );
   if (pair.loading && !pair.data)
-    return <Loading label={t("conceptMappingsView.loadingMapping")} />;
+    return (
+      <SkeletonRows label={t("conceptMappingsView.loadingMapping")} rows={6} />
+    );
   if (pair.error || !pair.data || !names)
     return (
       <Notice tone="red">{conceptMappingErrorMessage(pair.error, t)}</Notice>

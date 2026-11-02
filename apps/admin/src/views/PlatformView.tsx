@@ -16,10 +16,11 @@ import {
   Button,
   Card,
   EmptyState,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import "./workspacePages.css";
 
 const TONE = {
   ok: "green",
@@ -81,7 +82,8 @@ function Readiness({
     (signal) => port.readiness(workspaceId, signal),
     [port, workspaceId],
   );
-  if (remote.loading) return <Loading label={t("platformView.loading")} />;
+  if (remote.loading)
+    return <SkeletonRows label={t("platformView.loading")} rows={6} />;
   if (remote.error || !remote.data)
     return (
       <div className="stack">
@@ -93,6 +95,7 @@ function Readiness({
   return (
     <div className="page-stack">
       <Card
+        className="platform-overall"
         title={t("platformView.overall.title")}
         actions={
           <Button kind="quiet" onClick={remote.reload}>
@@ -123,10 +126,8 @@ function Targets({ report }: { report: Readiness }) {
   const t = useT();
   const { rpo, rto, encryption } = report.targets;
   return (
-    <Card
-      title={t("platformView.targets.title")}
-      eyebrow={t("platformView.targets.eyebrow")}
-    >
+    <Card title={t("platformView.targets.title")}>
+      <p className="muted">{t("platformView.targets.intro")}</p>
       <dl className="facts">
         <div>
           <dt>
@@ -191,10 +192,11 @@ function Targets({ report }: { report: Readiness }) {
 function CheckCard({ check }: { check: ReadinessCheck }) {
   const t = useT();
   return (
-    <Card title={t(`platformView.check.${check.id}` as MessageKey)}>
-      <p>
-        <StatusBadge status={check.status} />
-      </p>
+    <Card
+      className="check-card"
+      title={t(`platformView.check.${check.id}` as MessageKey)}
+      actions={<StatusBadge status={check.status} />}
+    >
       <p>{t(`platformView.about.${check.id}` as MessageKey)}</p>
       <Facts check={check} />
       {(check.status === "failing" || check.status === "warning") && (
@@ -237,7 +239,7 @@ function Facts({ check }: { check: ReadinessCheck }) {
   switch (check.id) {
     case "database":
       return (
-        <dl className="facts">
+        <dl className="check-facts">
           <Fact label={t("platformView.fact.postgres")}>
             {check.facts.postgresMajor}
           </Fact>
@@ -255,13 +257,22 @@ function Facts({ check }: { check: ReadinessCheck }) {
                 })}
           </Fact>
           <Fact label={t("platformView.fact.latestMigration")}>
-            {ltr(check.facts.latestMigration)}
+            {check.facts.latestMigration ? (
+              <bdi
+                className="cell-truncate"
+                title={check.facts.latestMigration}
+              >
+                {check.facts.latestMigration}
+              </bdi>
+            ) : (
+              unknown
+            )}
           </Fact>
         </dl>
       );
     case "temporal":
       return (
-        <dl className="facts">
+        <dl className="check-facts">
           <Fact label={t("platformView.fact.lastContact")}>
             {check.facts.lastWorkerContactSeconds === null
               ? t("platformView.never")
@@ -286,7 +297,7 @@ function Facts({ check }: { check: ReadinessCheck }) {
       );
     case "sandbox":
       return (
-        <dl className="facts">
+        <dl className="check-facts">
           <Fact label={t("platformView.fact.ready")}>
             {yesNo(check.facts.ready)}
           </Fact>
@@ -313,7 +324,7 @@ function Facts({ check }: { check: ReadinessCheck }) {
       );
     case "collector":
       return (
-        <dl className="facts">
+        <dl className="check-facts">
           <Fact label={t("platformView.fact.export")}>
             {yesNo(check.facts.enabled)}
           </Fact>
@@ -332,7 +343,7 @@ function Facts({ check }: { check: ReadinessCheck }) {
       );
     case "version":
       return (
-        <dl className="facts">
+        <dl className="check-facts">
           <Fact label={t("platformView.fact.core")}>
             {ltr(check.facts.coreVersion)}
           </Fact>
@@ -355,7 +366,7 @@ function Facts({ check }: { check: ReadinessCheck }) {
       );
     case "backups":
       return (
-        <dl className="facts">
+        <dl className="check-facts">
           <Fact label={t("platformView.fact.lastSnapshot")}>
             <Run run={check.facts.lastSnapshot} />
           </Fact>

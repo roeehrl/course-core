@@ -199,7 +199,7 @@ export function VersionMoves({
     });
 
   const card = (children: React.ReactNode) => (
-    <Card title={t("versionMoves.title")} eyebrow={t("versionMoves.eyebrow")}>
+    <Card title={t("versionMoves.title")}>
       {notice && <Notice tone="green">{notice}</Notice>}
       {error && (
         <Notice tone="red" title={t("versionMoves.notCompleted")}>

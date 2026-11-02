@@ -53,8 +53,8 @@ describe("server labels worded in the admin", () => {
         categoryCode: "Course workspace",
       }).success,
     ).toBe(false);
-    expect(en("adminApp.workspace")).toBe("Course workspace");
-    expect(he("adminApp.workspace")).not.toMatch(/[A-Za-z]/);
+    expect(en("adminApp.title")).toBe("Administration");
+    expect(he("adminApp.title")).not.toMatch(/[A-Za-z]/);
     expect(
       workspaceSchema.shape.enrollments.element.shape.profile.safeParse(
         profile(""),

@@ -44,7 +44,7 @@
   "requested": "הבקשה נרשמה. אפשר לבדוק את המצב שלה למטה: בקשה שנדחתה נשמרת עם הסיבה, ולא מתבצע חיוב.",
   "provider.eyebrow": "ספק",
   "provider.none.title": "אין ספק מדיה",
-  "provider.none.body": "יש להקצות מודל וידאו לתפקיד המדיה בעמוד ספקי AI, עם מחירון שנבדק.",
+  "provider.none.body": "כדי ליצור קליפים, בוחרים מודל וידאו ל„תמונות ווידאו” בעמוד שירותי AI, תחת „מודל לכל משימה”, ומגדירים לו מחיר תחת „מחירים”. קליפים מדויקים מהמחשות הקורס עובדים גם בלי מודל.",
   "provider.title": "יצירת וידאו",
   "provider.model": "מודל",
   "provider.clip": "קליפ",
@@ -143,7 +143,7 @@
   "clips.title": "קליפים מדויקים מהמחשות הקורס",
   "clips.ready": "מוכן. {count, plural, one {המחשה מאומתת אחת של הקורס} other {# המחשות מאומתות של הקורס}} אפשר להפוך, פריים אחר פריים, לקליפ וידאו בשרת הזה, ללא עלות.",
   "clips.noVisuals": "בגרסה הזו אין המחשות של הקורס ליצירת קליפים.",
-  "clips.toolchainMissing": "לא הוגדר בשרת הזה. מנהל/ת מגדיר/ה את CLIP_RASTERIZER_PATH ואת CLIP_FFMPEG_PATH (ראו את ה-README של ה-API) ומפעיל/ה מחדש את ה-API.",
+  "clips.toolchainMissing": "עדיין לא הוגדר בשרת הזה. מי שמפעיל/ה את השרת יכול/ה להפעיל קליפים מדויקים, והם לא עולים כסף.",
   "request.what": "מה ליצור",
   "request.mode.video": "קליפ וידאו שנוצר (בתשלום)",
   "request.mode.image": "תמונה שנוצרה (בתשלום)",
@@ -243,5 +243,7 @@
   "shots.remove": "הסרה",
   "shots.removeLabel": "הסרת צילום {number, number}",
   "clip.formatMp4": "MP4",
-  "clip.formatWebm": "WebM"
+  "clip.formatWebm": "WebM",
+  "jobs.requestReason": "צריך מודל מדיה בשירותי AI, או המחשות של הקורס שאפשר להפוך לקליפ.",
+  "clips.toolchainSetup": "מגדירים ל-API את CLIP_RASTERIZER_PATH ואת CLIP_FFMPEG_PATH (ראו את ה-README של ה-API), ואז מפעילים מחדש את ה-API."
 }

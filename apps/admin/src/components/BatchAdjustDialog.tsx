@@ -73,6 +73,15 @@ export function BatchAdjustDialog({
   const ready =
     (count(days) || (kind === "accommodation" && count(minutes))) &&
     (everyone || chosen.length > 0);
+  const blocked = !ready
+    ? t("batchAdjustDialog.blocked.choose")
+    : !preview
+      ? t("batchAdjustDialog.blocked.preview")
+      : !preview.enrollments.length
+        ? t("batchAdjustDialog.blocked.nobody")
+        : !reason.trim()
+          ? t("batchAdjustDialog.blocked.reason")
+          : "";
   const name = (displayName: string | null) =>
     displayName ?? t("batchAdjustDialog.unnamed");
   const refusal = (code: string) => {
@@ -85,6 +94,7 @@ export function BatchAdjustDialog({
       eyebrow={t("batchAdjustDialog.eyebrow")}
       onClose={onClose}
       pending={flight.pending}
+      className="policy-dialog"
     >
       <Notice tone="gold">{t("batchAdjustDialog.notice")}</Notice>
       <fieldset className="segmented">
@@ -152,9 +162,9 @@ export function BatchAdjustDialog({
           />
         </Field>
       )}
-      <fieldset className="stack">
+      <fieldset className="segmented">
         <legend>{t("batchAdjustDialog.who")}</legend>
-        <label className="check-label">
+        <label>
           <input
             type="radio"
             name="batch-who"
@@ -166,7 +176,7 @@ export function BatchAdjustDialog({
           />
           {t("batchAdjustDialog.who.everyone", { count: active.length })}
         </label>
-        <label className="check-label">
+        <label>
           <input
             type="radio"
             name="batch-who"
@@ -178,8 +188,11 @@ export function BatchAdjustDialog({
           />
           {t("batchAdjustDialog.who.some")}
         </label>
-        {!everyone &&
-          active.map((enrollment) => (
+      </fieldset>
+      {!everyone && (
+        <fieldset className="stack">
+          <legend>{t("batchAdjustDialog.who.chosen")}</legend>
+          {active.map((enrollment) => (
             <label className="check-label" key={enrollment.id}>
               <input
                 type="checkbox"
@@ -196,23 +209,9 @@ export function BatchAdjustDialog({
               <bdi>{learnerName(t, enrollment)}</bdi>
             </label>
           ))}
-      </fieldset>
+        </fieldset>
+      )}
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <div>
-        <Button
-          type="button"
-          disabled={flight.pending || !ready}
-          onClick={() =>
-            void flight.run(async () =>
-              setPreview(
-                await client.previewAccommodationBatch!(courseId, request()),
-              ),
-            )
-          }
-        >
-          {t("batchAdjustDialog.preview")}
-        </Button>
-      </div>
       {preview && (
         <div
           className="stack"
@@ -265,50 +264,67 @@ export function BatchAdjustDialog({
             </div>
           )}
           {preview.enrollments.length > 0 && (
-            <>
-              <Field
-                label={t("batchAdjustDialog.reason")}
-                htmlFor="batch-reason"
-                hint={t("batchAdjustDialog.reason.hint")}
-              >
-                <input
-                  id="batch-reason"
-                  maxLength={300}
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-              </Field>
-              <div>
-                <div className="dialog-footer">
-                  <Button
-                    type="button"
-                    kind="primary"
-                    disabled={flight.pending || !reason.trim()}
-                    onClick={() =>
-                      void flight.run(async () => {
-                        const result = await client.applyAccommodationBatch!(
-                          courseId,
-                          {
-                            batchId: preview.batchId,
-                            previewDigest: preview.previewDigest,
-                            reason: reason.trim(),
-                          },
-                        );
-                        onApplied(result);
-                        onClose();
-                      })
-                    }
-                  >
-                    {t("batchAdjustDialog.apply", {
-                      count: preview.enrollments.length,
-                    })}
-                  </Button>
-                </div>
-              </div>
-            </>
+            <Field
+              label={t("batchAdjustDialog.reason")}
+              htmlFor="batch-reason"
+              hint={t("batchAdjustDialog.reason.hint")}
+            >
+              <input
+                id="batch-reason"
+                maxLength={300}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </Field>
           )}
         </div>
       )}
+      <div className="dialog-footer">
+        <Button
+          type="button"
+          kind="primary"
+          reason={blocked || ""}
+          disabled={flight.pending || Boolean(blocked)}
+          onClick={() =>
+            void flight.run(async () => {
+              const result = await client.applyAccommodationBatch!(courseId, {
+                batchId: preview!.batchId,
+                previewDigest: preview!.previewDigest,
+                reason: reason.trim(),
+              });
+              onApplied(result);
+              onClose();
+            })
+          }
+        >
+          {preview?.enrollments.length
+            ? t("batchAdjustDialog.apply", {
+                count: preview.enrollments.length,
+              })
+            : t("batchAdjustDialog.applyNone")}
+        </Button>
+        <Button
+          type="button"
+          disabled={flight.pending || !ready || Boolean(preview)}
+          onClick={() =>
+            void flight.run(async () =>
+              setPreview(
+                await client.previewAccommodationBatch!(courseId, request()),
+              ),
+            )
+          }
+        >
+          {t("batchAdjustDialog.preview")}
+        </Button>
+        <Button
+          type="button"
+          kind="quiet"
+          disabled={flight.pending}
+          onClick={onClose}
+        >
+          {t("batchAdjustDialog.cancel")}
+        </Button>
+      </div>
     </Dialog>
   );
 }

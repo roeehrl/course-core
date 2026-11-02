@@ -318,8 +318,8 @@ describe("AI drafts in the written-answer review queue", () => {
     expect(screen.getByText("States the invariant.").tagName).toBe("BDI");
     expect(screen.getByRole("radio", { name: "בקשת הבהרה" })).toBeVisible();
     expect(screen.getByRole("button", { name: "שמירת הבדיקה" })).toBeVisible();
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-      "Explain the minimum.",
-    );
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Explain the minimum." }),
+    ).toBeVisible();
   });
 });

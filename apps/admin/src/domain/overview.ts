@@ -107,6 +107,8 @@ export type AuditPage = z.infer<typeof auditSchema>;
 export interface AuditQuery {
   before?: string;
   actorKind?: "learner" | "staff" | "agent" | "system";
+  /** One kind of event ("release.published"); the server matches it exactly. */
+  type?: string;
   limit?: number;
 }
 

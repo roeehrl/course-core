@@ -1,6 +1,5 @@
 {
   "title": "Download the audit log",
-  "eyebrow": "For a review or a records request",
   "intro": "The file follows the same rule as this page: what learners and AI agents did is listed without its details. The download itself is recorded in the log.",
   "formatLabel": "File type",
   "format.csv": "CSV (spreadsheets)",

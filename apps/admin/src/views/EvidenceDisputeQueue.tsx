@@ -15,8 +15,10 @@ import {
   Field,
   Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { QueueHeading } from "./contentShared";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' open disputes of their own evidence. Staff resolve one by reviewing the evidence:
@@ -36,15 +38,17 @@ export function EvidenceDisputeQueue({
   );
   const [message, setMessage] = useState("");
   return (
-    <section className="page-stack" aria-labelledby="evidence-dispute-heading">
-      <h2 id="evidence-dispute-heading" className="section-title">
-        {t("evidenceDisputeQueue.title")}
-      </h2>
-      <div aria-live="polite">
+    <section className="cv-queue" aria-labelledby="evidence-dispute-heading">
+      <QueueHeading
+        id="evidence-dispute-heading"
+        title={t("evidenceDisputeQueue.title")}
+        count={queue.data?.disputes.length}
+      />
+      <div aria-live="polite" className="cv-live">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.loading ? (
-        <Loading label={t("evidenceDisputeQueue.loading")} />
+        <SkeletonRows label={t("evidenceDisputeQueue.loading")} rows={2} />
       ) : queue.error || !queue.data ? (
         <Notice tone="red">
           {evidenceDisputeErrorMessage(queue.error, t)}

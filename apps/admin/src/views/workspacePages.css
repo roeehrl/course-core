@@ -1,0 +1,416 @@
+/* Overview, Course & releases, Enrollments, People, Audit log, Platform and Integrations.
+   This file loads before styles.css (the views import it ahead of the app's stylesheet), so each
+   rule that refines a shared one is one step more specific than it. */
+
+/* ------------------------------------------------------------------ figures that open a page */
+button.stat.stat-link {
+  position: relative;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+button.stat.stat-link:hover {
+  border-color: #aebec8;
+  box-shadow: 0 6px 18px rgb(25 46 62 / 0.08);
+}
+.stat-link .stat-label {
+  font-size: var(--text-xs);
+  padding-inline-end: 22px;
+}
+.stat-link .stat-arrow {
+  position: absolute;
+  inset-block-start: 20px;
+  inset-inline-end: 16px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------- counts: two columns of label and figure */
+.count-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 32px;
+  font-size: var(--text-sm);
+}
+.count-list > li {
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+.count-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+button.count-row {
+  cursor: pointer;
+}
+button.count-row:hover {
+  background: var(--ice);
+}
+button.count-row > svg {
+  flex: none;
+  color: var(--muted);
+}
+.count-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.count-row-value {
+  flex: none;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+/* A zero is not news: it reads quieter than a count that needs someone. */
+.count-row-value.zero {
+  min-width: 24px;
+  text-align: end;
+  font-weight: 400;
+  color: var(--muted);
+}
+@container (max-width: 640px) {
+  .count-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ------------------------------------------------------------------------------ Platform */
+/* Six checks: three to a row on a wide page, two on a tablet, one on a phone, so no row is
+   left half empty; cards in a row share one height. */
+.page-stack > .readiness-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+@container (max-width: 1040px) {
+  .page-stack > .readiness-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 640px) {
+  .page-stack > .readiness-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.check-card > .section-heading {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.check-card > .section-heading > div {
+  min-width: 0;
+}
+.check-card > .section-heading > .badge {
+  flex: none;
+}
+.check-card > p {
+  margin: 0;
+}
+/* A check's figures: one per line, the label at the start and the value at the end. Long
+   values (a backup's time, duration and size) wrap under their label instead of squeezing it. */
+.check-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+}
+.check-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 16px;
+  padding-block: 8px;
+  border-top: 1px solid var(--line);
+}
+.check-facts dt {
+  color: var(--muted);
+}
+.check-facts dd {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  margin-inline-start: auto;
+  text-align: end;
+  overflow-wrap: break-word;
+}
+.check-facts dd .badge {
+  margin-inline-start: 6px;
+}
+/* "Check again" stays beside the title, also on a phone. */
+.platform-overall > .section-heading {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.platform-overall > .section-heading > .button {
+  flex: none;
+  width: auto;
+}
+pre.command-line {
+  margin: 0 0 8px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--ice);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------- an identifier behind a copy button */
+button.copy-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--blue);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+button.copy-text:hover {
+  background: var(--ice);
+}
+
+/* ------------------------------------------------------------------------------ Enrollments */
+/* The learner's name and "Edit profile" share the header row on every width: the button keeps
+   its own size instead of becoming a full-width bar between the name and the status. */
+.enrollment-profile > .section-heading {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.enrollment-profile > .section-heading > div {
+  min-width: 0;
+}
+.enrollment-profile > .section-heading > .button {
+  flex: none;
+  width: auto;
+}
+
+/* ---------------------------------------------------------------------- Course & releases */
+/* The course itself, in one compact block: name, a short description, the live version. */
+/* The card stays a column like every card; its one row holds the text and the button. */
+.course-header-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+.course-header-main {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.course-header-main h2 {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+.course-header-description {
+  margin: 0;
+  max-width: 75ch;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.course-header-row > .button {
+  flex: none;
+}
+/* The link bar under the course header is the shared SectionNav (styles.css .section-nav). */
+.page-section:focus {
+  outline: none;
+}
+.objectives-disclosure > summary {
+  min-height: 0;
+  padding-block: 4px;
+}
+.objectives-disclosure > .objectives {
+  margin-top: 12px;
+}
+/* The update source: one choice per line, each a tappable row with its radio. */
+fieldset.update-source {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+fieldset.update-source > legend {
+  padding: 0 0 6px;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+fieldset.update-source > .choice-row {
+  max-width: 460px;
+}
+/* A number with its unit: sized for the number, not the card. */
+.input-with-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.input-with-unit > input {
+  width: 12ch;
+}
+.creator-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.creator-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-block: 10px;
+  border-top: 1px solid var(--line);
+}
+.creator-list > li > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.creator-list small {
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------------------- Audit log */
+/* What happened takes the room; who and when keep narrow, fixed columns. Every cell starts at
+   the top, so a row with technical details open still reads across. */
+table.audit-table {
+  table-layout: fixed;
+  width: 100%;
+}
+table.audit-table col.audit-col-who {
+  width: 220px;
+}
+table.audit-table col.audit-col-when {
+  width: 200px;
+}
+table.audit-table :is(th, td) {
+  vertical-align: top;
+}
+table.audit-table th.audit-what[scope="row"] {
+  font-size: var(--text-sm);
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.audit-what > span {
+  display: block;
+}
+.audit-sentence {
+  font-weight: 650;
+}
+.audit-what > span.audit-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.audit-withheld {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+}
+.audit-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.audit-page {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+/* Narrower: the date ("Nov 2, 2026, 12:00 PM UTC") keeps the room it needs on one line; the
+   name column gives way, and a long name wraps under its badge. */
+@container (max-width: 900px) {
+  table.audit-table col.audit-col-who {
+    width: 150px;
+  }
+  table.audit-table col.audit-col-when {
+    width: 196px;
+  }
+}
+@media (max-width: 699px) {
+  table.audit-table {
+    table-layout: auto;
+  }
+}
+
+/* Policy changes: the setting's name has the room; before and after share the rest. */
+table.policy-changes {
+  table-layout: fixed;
+  width: 100%;
+}
+table.policy-changes col.policy-col-setting {
+  width: 40%;
+}
+table.policy-changes :is(th, td) {
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+.setting-path-sep {
+  color: var(--muted);
+}
+.setting-value-cut bdi {
+  overflow-wrap: anywhere;
+}
+details.setting-list > summary {
+  min-height: 0;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+details.setting-list ul {
+  margin: 6px 0 0;
+  padding-inline-start: 18px;
+  font-size: var(--text-xs);
+}
+details.setting-list bdi {
+  overflow-wrap: anywhere;
+}
+
+/* People & roles on a tablet: the last sign-in wraps to two lines, so the person's name keeps
+   its line and the row's actions stay inside the table. */
+@container (max-width: 900px) {
+  .people-table td.cell-date {
+    white-space: normal;
+  }
+}

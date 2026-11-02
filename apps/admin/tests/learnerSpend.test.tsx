@@ -114,6 +114,39 @@ describe("learner spending panel", () => {
     ).toBeInTheDocument();
   });
 
+  it("names lessons by title, keeps their ids under Technical details, and falls back to the id", async () => {
+    const view = demoLearnerSpendView(
+      { ...lastDays(30, NOW), page: 1, pageSize: 3 },
+      { now: () => NOW },
+    );
+    const [titled, untitled] = view.byLesson.filter((l) => l.episodeId);
+    expect(titled && untitled).toBeTruthy();
+    const withTitle = learnerSpendSchema.parse({
+      ...view,
+      byLesson: view.byLesson.map((l) =>
+        l === titled ? { ...l, episodeTitle: "Moves with direction" } : l,
+      ),
+    });
+    render(
+      <LearnerSpendPanel
+        load={() => Promise.resolve(withTitle)}
+        workspaceId="w"
+      />,
+    );
+    fireEvent.click(screen.getByText(t("learnerSpend.title")));
+    // The summary's table comes first; each learner has its own below.
+    const [table] = await screen.findAllByRole("table", {
+      name: t("learnerSpend.byLesson"),
+    });
+    expect(table).toHaveTextContent("Moves with direction");
+    expect(table).not.toHaveTextContent(titled!.episodeId!);
+    // A lesson the server sends no title for keeps its id.
+    expect(table).toHaveTextContent(untitled!.episodeId!);
+    expect(
+      screen.getAllByText(t("learnerSpend.lessonIds"))[0]!.closest("details"),
+    ).toHaveTextContent(titled!.episodeId!);
+  });
+
   it("says how much data is missing, and shows a failed load as unavailable", async () => {
     const short = demoLearnerSpendView(
       { ...lastDays(2, NOW), page: 1, pageSize: 10 },

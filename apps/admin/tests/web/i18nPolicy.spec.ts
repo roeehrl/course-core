@@ -77,9 +77,9 @@ test.describe("demo workspace", () => {
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
       await openSection(page, "מדיניות והארכות", {});
-      await expect(
-        page.getByRole("heading", { name: "שני שעונים. גבולות ברורים." }),
-      ).toBeVisible();
+      await expect(page.locator(".page-intro")).toContainText(
+        "מועדים אחרונים בלוח השנה קובעים מתי לומד/ת צריך/ה לסיים; מגבלות העבודה קובעות כמה עבודה נוספת אפשר להוסיף",
+      );
       await expect(
         page.getByRole("heading", { name: "תחומי המדיניות" }),
       ).toBeVisible();
@@ -102,9 +102,9 @@ test.describe("demo workspace", () => {
       await expectAccessible(page);
 
       await openSection(page, "הרשמות");
-      await expect(
-        page.getByRole("heading", { name: "כל לומד/ת, בהקשר המלא." }),
-      ).toBeVisible();
+      await expect(page.locator(".page-intro")).toContainText(
+        "פרופיל, גרסה מוצמדת, התקדמות והראיות שמאחוריה",
+      );
       await expect(page.getByLabel("חיפוש לומד/ת")).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
@@ -117,7 +117,9 @@ test.describe("demo workspace", () => {
     await page.goto("/admin/demo?locale=he");
     await expectRightToLeft(page);
     await openSection(page, "מדיניות והארכות", {});
-    // The course setting, explained in plain words beside its two fields.
+    // The course setting, explained in plain words beside its two fields once the settings
+    // summary is opened for editing.
+    await page.getByRole("button", { name: "עריכת הגדרות הקורס" }).click();
     await expect(page.getByLabel("מספר ניסיונות לכל נקודת בקרה")).toHaveValue(
       "3",
     );
@@ -151,9 +153,9 @@ test.describe("demo workspace", () => {
   }) => {
     await page.goto("/admin/demo?locale=en-XA");
     await openSection(page, pseudo("Policy & extensions"), {});
-    await expect(
-      page.getByRole("heading", { name: pseudo("Two clocks. Clear limits.") }),
-    ).toBeVisible();
+    await expect(page.locator(".page-intro")).toContainText(
+      pseudo("Calendar deadlines decide when a learner must finish"),
+    );
     await page
       .getByRole("button", { name: pseudo("Preview calendar extension") })
       .click();
@@ -164,9 +166,9 @@ test.describe("demo workspace", () => {
       await untranslatedText(page, "#main-content", ["Chapter · Foundations"]),
     ).toEqual([]);
     await openSection(page, pseudo("Enrollments"), {});
-    await expect(
-      page.getByRole("heading", { name: pseudo("Every learner, in context.") }),
-    ).toBeVisible();
+    await expect(page.locator(".page-intro")).toContainText(
+      pseudo("Profile, pinned release, progress and the evidence behind it."),
+    );
     expect(
       await untranslatedText(page, "#main-content", ["Alex Example"]),
     ).toEqual([]);

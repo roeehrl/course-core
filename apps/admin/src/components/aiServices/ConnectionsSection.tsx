@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { TechnicalDetails } from "../ui";
 import { Eye, EyeOff, ExternalLink, LoaderCircle } from "lucide-react";
 import {
   AiServicesError,
@@ -432,13 +433,12 @@ function AddConnection({
         )}
       </div>
       {outcome.kind === "failed" && (
-        <details className="ai-technical">
-          <summary>{t("aiServices.connect.technical")}</summary>
+        <TechnicalDetails>
           <p>
             {t("aiServices.connect.technicalCode")}:{" "}
             <Ltr className="mono">{outcome.code}</Ltr>
           </p>
-        </details>
+        </TechnicalDetails>
       )}
       {outcome.kind === "failed" && unreachable(outcome.code) && (
         <details className="ai-untested">
@@ -471,17 +471,7 @@ function AddConnection({
         />
       </Field>
       {failure && <Message tone="error">{failure}</Message>}
-      <div className="ai-actions">
-        {cancellable && (
-          <button
-            type="button"
-            className="button secondary"
-            onClick={onCancel}
-            disabled={saving}
-          >
-            {t("aiServices.connect.cancel")}
-          </button>
-        )}
+      <div className="ai-actions ai-save-bar">
         <button
           type="submit"
           className="button primary"
@@ -496,6 +486,16 @@ function AddConnection({
             ? t("aiServices.connect.saving")
             : t("aiServices.connect.save")}
         </button>
+        {cancellable && (
+          <button
+            type="button"
+            className="button secondary"
+            onClick={onCancel}
+            disabled={saving}
+          >
+            {t("aiServices.connect.cancel")}
+          </button>
+        )}
       </div>
       {badChars && (
         <p id={`${base}-blocked`} className="ai-hint">
@@ -698,15 +698,7 @@ function ConnectionRow({
               setKeyError(undefined);
             }}
           />
-          <div className="ai-actions">
-            <button
-              type="button"
-              className="button secondary"
-              disabled={busy}
-              onClick={() => setMode("view")}
-            >
-              {t("aiServices.connect.cancel")}
-            </button>
+          <div className="ai-actions ai-save-bar">
             <button
               type="submit"
               className="button primary"
@@ -716,6 +708,14 @@ function ConnectionRow({
               {busy
                 ? t("aiServices.connect.saving")
                 : t("aiServices.row.replaceSave")}
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy}
+              onClick={() => setMode("view")}
+            >
+              {t("aiServices.connect.cancel")}
             </button>
           </div>
           {badChars && (
@@ -747,7 +747,7 @@ function ConnectionRow({
           </button>
           <button
             type="button"
-            className="button danger"
+            className="button quiet danger ai-apart"
             disabled={busy}
             onClick={() => {
               setMessage(undefined);

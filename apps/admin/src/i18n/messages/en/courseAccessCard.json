@@ -1,6 +1,5 @@
 {
   "title": "Course access: {course}",
-  "eyebrow": "Course-scoped people",
   "intro": "People whose workspace role is <role>{role}</role> see only the courses granted here, with the role given, until the grant expires or is revoked.",
   "noScoped": "No course-scoped members yet. Invite someone or change a role to {role} first.",
   "granted": "{name} can open {course} as {role} for {days, plural, one {# day} other {# days}}.",

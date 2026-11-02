@@ -17,11 +17,13 @@ import {
   Field,
   Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT } from "../i18n";
 import { GateReviewQueue } from "./GateReviewQueue";
 import { EvidenceDisputeQueue } from "./EvidenceDisputeQueue";
 import { randomId } from "../domain/webCrypto";
+import { QueueHeading } from "./contentShared";
 import {
   emptyFindings,
   findingsPayload,
@@ -49,7 +51,12 @@ export function ReviewsView({
       </Card>
     );
   return (
-    <>
+    <div className="page-stack cv-queues">
+      {client.reviews && (
+        <Notice tone="blue" title={t("reviewsView.queue.intro.title")}>
+          {t("reviewsView.queue.intro.body")}
+        </Notice>
+      )}
       {client.reviews && (
         <ReviewQueue port={client.reviews} catalogId={data.course.id} />
       )}
@@ -65,7 +72,7 @@ export function ReviewsView({
           catalogId={data.course.id}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -82,19 +89,35 @@ function ReviewQueue({
     [port, catalogId],
   );
   const [message, setMessage] = useState("");
-  if (queue.loading) return <Loading label={t("reviewsView.queue.loading")} />;
+  const heading = (
+    <QueueHeading
+      id="written-review-heading"
+      title={t("reviewsView.queue.title")}
+      count={queue.data?.pending.length}
+    />
+  );
+  if (queue.loading)
+    return (
+      <section className="cv-queue" aria-labelledby="written-review-heading">
+        {heading}
+        <SkeletonRows label={t("reviewsView.queue.loading")} rows={2} />
+      </section>
+    );
   if (queue.error || !queue.data)
-    return <Notice tone="red">{reviewErrorMessage(queue.error, t)}</Notice>;
+    return (
+      <section className="cv-queue" aria-labelledby="written-review-heading">
+        {heading}
+        <Notice tone="red">{reviewErrorMessage(queue.error, t)}</Notice>
+      </section>
+    );
   return (
-    <div className="page-stack">
-      <Notice tone="blue" title={t("reviewsView.queue.intro.title")}>
-        {t("reviewsView.queue.intro.body")}
-      </Notice>
-      <div aria-live="polite">
+    <section className="cv-queue" aria-labelledby="written-review-heading">
+      {heading}
+      <div aria-live="polite" className="cv-live">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.data.pending.length === 0 ? (
-        <Card title={t("reviewsView.queue.title")}>
+        <Card>
           <EmptyState title={t("reviewsView.queue.empty.title")}>
             {t("reviewsView.queue.empty.body")}
           </EmptyState>
@@ -127,7 +150,7 @@ function ReviewQueue({
           />
         ))
       )}
-    </div>
+    </section>
   );
 }
 
@@ -594,8 +617,13 @@ function AppealQueue({
   if (queue.loading || queue.error || !queue.data || !queue.data.appeals.length)
     return null;
   return (
-    <div className="page-stack">
-      <div aria-live="polite">
+    <section className="cv-queue" aria-labelledby="appeal-heading">
+      <QueueHeading
+        id="appeal-heading"
+        title={t("reviewsView.appeal.title")}
+        count={queue.data.appeals.length}
+      />
+      <div aria-live="polite" className="cv-live">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.data.appeals.map((appeal) => (
@@ -611,7 +639,7 @@ function AppealQueue({
           }}
         />
       ))}
-    </div>
+    </section>
   );
 }
 

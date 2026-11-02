@@ -251,6 +251,10 @@ describe("course policy settings", () => {
     } as unknown as AdminClient;
     render(<PolicySettingsCard client={client} courseId="course-1" canWrite />);
     expect(await screen.findByText("Documented defaults")).toBeVisible();
+    // The settings open as a summary; editing starts on request.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit course settings" }),
+    );
     await userEvent.clear(screen.getByLabelText("Deadline time zone (IANA)"));
     await userEvent.type(
       screen.getByLabelText("Deadline time zone (IANA)"),
@@ -263,14 +267,18 @@ describe("course policy settings", () => {
     expect(
       screen.getByLabelText("Hard-deadline daylight-saving resolution"),
     ).toHaveValue("reject");
+    // Save is always in view, and says why it cannot be pressed yet.
     expect(
-      screen.queryByRole("button", {
+      screen.getByRole("button", {
         name: "Save settings for new enrollments",
       }),
-    ).toBeNull();
+    ).toBeDisabled();
+    expect(
+      screen.getByText("Check feasibility and daylight-saving effects first."),
+    ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Preview feasibility and daylight saving",
+        name: "Check feasibility and daylight-saving effects",
       }),
     );
     expect(vi.mocked(client.previewPolicySettings!)).toHaveBeenCalledWith(
@@ -313,12 +321,15 @@ describe("course policy settings", () => {
         canWrite={false}
       />,
     );
+    // A reader sees what is in force, with no way into the form.
+    expect(await screen.findByText("Documented defaults")).toBeVisible();
+    expect(screen.getByText("Deadline time zone (IANA)")).toBeVisible();
     expect(
-      await screen.findByLabelText("Deadline time zone (IANA)"),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Edit course settings" }),
+    ).toBeNull();
     expect(
       screen.queryByRole("button", {
-        name: "Preview feasibility and daylight saving",
+        name: "Check feasibility and daylight-saving effects",
       }),
     ).toBeNull();
   });

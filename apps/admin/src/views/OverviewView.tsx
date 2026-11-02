@@ -6,12 +6,19 @@ import {
   Badge,
   Card,
   EmptyState,
-  Loading,
   Notice,
   Stat,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ChevronRight } from "lucide-react";
 import {
   activeNeedingCheck,
   type AiServicesPort,
@@ -20,6 +27,95 @@ import {
 } from "../domain/aiServices";
 import { RoleChecks } from "../components/aiServices/CheckSection";
 import "../components/aiServices/aiServices.css";
+import "./workspacePages.css";
+
+/** The workspace pages the overview's figures and queues open. */
+export type OverviewTarget =
+  "course" | "learners" | "reviews" | "media" | "providers" | "runs";
+const queueTargets: Record<
+  keyof CourseOverview["approvalQueue"],
+  OverviewTarget
+> = {
+  writtenAnswers: "reviews",
+  secondOpinions: "reviews",
+  gateReviews: "reviews",
+  generatedMedia: "media",
+  releases: "course",
+  providerRequests: "providers",
+};
+
+/** A figure on the overview; with `onOpen` the whole tile opens the page behind the figure. */
+function OverviewStat({
+  label,
+  value,
+  detail,
+  onOpen,
+  openLabel,
+}: {
+  label: string;
+  value: ReactNode;
+  detail: string;
+  onOpen?: (() => void) | undefined;
+  openLabel: string;
+}) {
+  if (!onOpen) return <Stat label={label} value={value} detail={detail} />;
+  return (
+    <button
+      type="button"
+      className="stat stat-link"
+      onClick={onOpen}
+      title={openLabel}
+    >
+      <span className="stat-label">{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+      <ChevronRight
+        size={16}
+        className="stat-arrow flip-rtl"
+        aria-hidden="true"
+      />
+    </button>
+  );
+}
+
+/** One count in a list: the row opens its page when it can; a zero is quiet. */
+function CountRow({
+  label,
+  count,
+  tone = "gold",
+  onOpen,
+}: {
+  label: ReactNode;
+  count: number;
+  tone?: "gold" | "red" | "neutral";
+  onOpen?: (() => void) | undefined;
+}) {
+  const i18n = useI18n();
+  const body = (
+    <>
+      <span className="count-row-label">{label}</span>
+      <span className={`count-row-value${count ? "" : " zero"}`}>
+        {count ? (
+          <Badge tone={tone}>{i18n.number(count)}</Badge>
+        ) : (
+          i18n.number(count)
+        )}
+      </span>
+    </>
+  );
+  return (
+    <li>
+      {onOpen ? (
+        <button type="button" className="count-row" onClick={onOpen}>
+          {body}
+          <ChevronRight size={15} className="flip-rtl" aria-hidden="true" />
+        </button>
+      ) : (
+        <div className="count-row">{body}</div>
+      )}
+    </li>
+  );
+}
 
 const queueKeys: Record<keyof CourseOverview["approvalQueue"], MessageKey> = {
   writtenAnswers: "overviewView.queue.writtenAnswers",
@@ -35,11 +131,14 @@ export function OverviewView({
   data,
   client,
   onOpenAiServices,
+  onOpenView,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
   /** Opens the AI services page. */
   onOpenAiServices?: () => void;
+  /** Opens another workspace page (the queues and figures link to theirs). */
+  onOpenView?: (view: OverviewTarget) => void;
 }) {
   const t = useT();
   if (!client.overview)
@@ -66,7 +165,11 @@ export function OverviewView({
           onOpen={onOpenAiServices}
         />
       )}
-      <Overview port={client.overview} catalogId={data.course.id} />
+      <Overview
+        port={client.overview}
+        catalogId={data.course.id}
+        onOpenView={onOpenView}
+      />
     </>
   );
 }
@@ -147,9 +250,11 @@ function AiChecks({
 function Overview({
   port,
   catalogId,
+  onOpenView,
 }: {
   port: NonNullable<AdminClient["overview"]>;
   catalogId: string;
+  onOpenView?: ((view: OverviewTarget) => void) | undefined;
 }) {
   const overview = useRemote(
     (signal) => port.load(catalogId, signal),
@@ -158,7 +263,8 @@ function Overview({
   const t = useT();
   const i18n = useI18n();
   const { when } = useFormatters();
-  if (overview.loading) return <Loading label={t("overviewView.loading")} />;
+  if (overview.loading)
+    return <SkeletonRows label={t("overviewView.loading")} rows={6} />;
   if (overview.error || !overview.data)
     return (
       <Notice tone="red">{overviewErrorMessage(overview.error, t)}</Notice>
@@ -169,10 +275,14 @@ function Overview({
     i18n.has(key as MessageKey) ? t(key as MessageKey) : fallback;
   const waiting = Object.values(o.approvalQueue).reduce((a, b) => a + b, 0);
   const defects = o.contentDefects.activeReleaseChecksFailing.length;
+  const opener = (view: OverviewTarget) =>
+    onOpenView ? () => onOpenView(view) : undefined;
+  const openLabel = (view: OverviewTarget) =>
+    t("overviewView.open", { page: t(`adminApp.nav.${view}` as MessageKey) });
   return (
     <div className="page-stack">
       <div className="stats-grid">
-        <Stat
+        <OverviewStat
           label={t("overviewView.stat.liveRelease")}
           value={
             o.release.active ? (
@@ -188,13 +298,17 @@ function Overview({
                 })
               : t("overviewView.stat.noReleaseDetail")
           }
+          onOpen={opener("course")}
+          openLabel={openLabel("course")}
         />
-        <Stat
+        <OverviewStat
           label={t("overviewView.stat.waiting")}
           value={i18n.number(waiting)}
           detail={t("overviewView.stat.waitingDetail")}
+          onOpen={opener("reviews")}
+          openLabel={openLabel("reviews")}
         />
-        <Stat
+        <OverviewStat
           label={t("overviewView.stat.deadlineRisks")}
           value={o.deadlineRisks ? i18n.number(o.deadlineRisks.length) : "—"}
           detail={
@@ -202,24 +316,28 @@ function Overview({
               ? t("overviewView.stat.deadlineRisksDetail")
               : t("overviewView.stat.notVisible")
           }
+          onOpen={o.deadlineRisks ? opener("learners") : undefined}
+          openLabel={openLabel("learners")}
         />
-        <Stat
+        <OverviewStat
           label={t("overviewView.stat.contentDefects")}
           value={i18n.number(defects)}
           detail={t("overviewView.stat.invalidated", {
             count: o.contentDefects.evidenceInvalidatedLast30Days,
           })}
+          onOpen={opener("course")}
+          openLabel={openLabel("course")}
         />
       </div>
       <Card title={t("overviewView.queue.title")}>
-        <ul className="overview-list">
+        <ul className="count-list">
           {(Object.keys(queueKeys) as (keyof typeof queueKeys)[]).map((key) => (
-            <li key={key}>
-              <span>{t(queueKeys[key])}</span>
-              <Badge tone={o.approvalQueue[key] ? "gold" : "neutral"}>
-                {o.approvalQueue[key]}
-              </Badge>
-            </li>
+            <CountRow
+              key={key}
+              label={t(queueKeys[key])}
+              count={o.approvalQueue[key]}
+              onOpen={opener(queueTargets[key])}
+            />
           ))}
         </ul>
       </Card>
@@ -239,31 +357,34 @@ function Overview({
           })}
         </p>
         {o.release.pinnedLearners.length > 0 && (
-          <ul className="overview-list">
+          <ul className="count-list">
             {o.release.pinnedLearners.map((p) => (
-              <li key={p.releaseId}>
-                <span>
-                  {p.version
+              <CountRow
+                key={p.releaseId}
+                tone="neutral"
+                label={
+                  p.version
                     ? t("overviewView.releases.pinned", { version: p.version })
-                    : t("overviewView.releases.pinnedUnknown")}
-                </span>
-                <Badge>{p.learners}</Badge>
-              </li>
+                    : t("overviewView.releases.pinnedUnknown")
+                }
+                count={p.learners}
+                onOpen={opener("learners")}
+              />
             ))}
           </ul>
         )}
         {o.lifecycle && (
           <ul
-            className="overview-list"
+            className="count-list"
             aria-label={t("overviewView.lifecycle.label")}
           >
             {Object.entries(o.lifecycle).map(([state, n]) => (
-              <li key={state}>
-                <span>
-                  {label(`overviewView.lifecycle.state.${state}`, state)}
-                </span>
-                <Badge>{n}</Badge>
-              </li>
+              <CountRow
+                key={state}
+                tone="neutral"
+                label={label(`overviewView.lifecycle.state.${state}`, state)}
+                count={n}
+              />
             ))}
           </ul>
         )}
@@ -328,20 +449,18 @@ function Overview({
                   ),
                 })}
           </p>
-          <ul className="overview-list">
+          <ul className="count-list">
             {Object.entries(o.supervisorHealth.jobsByState).map(
               ([state, n]) => (
-                <li key={state}>
-                  <span>
-                    {label(
-                      `overviewView.jobState.${state}`,
-                      state.replaceAll("_", " "),
-                    )}
-                  </span>
-                  <Badge tone={state === "failed" ? "red" : "neutral"}>
-                    {n}
-                  </Badge>
-                </li>
+                <CountRow
+                  key={state}
+                  tone={state === "failed" ? "red" : "neutral"}
+                  label={label(
+                    `overviewView.jobState.${state}`,
+                    state.replaceAll("_", " "),
+                  )}
+                  count={n}
+                />
               ),
             )}
           </ul>

@@ -3,6 +3,7 @@ import type { WorkspaceActions } from "../hooks/useAdmin";
 import { AiServicesPage } from "../components/aiServices/AiServicesPage";
 import { useAiText, type AiKey } from "../components/aiServices/shared";
 import { LearnerSpendPanel } from "../components/aiServices/LearnerSpendPanel";
+import { PageIntro } from "../components/ui";
 import "../components/aiServices/aiServices.css";
 
 /**
@@ -69,9 +70,9 @@ function ReadOnlyAiServices({
   const { t } = text;
   return (
     <div className="ai-page">
-      <p className="ai-intro">
+      <PageIntro>
         {demo ? t("aiServices.readonly.demo") : t("aiServices.readonly.body")}
-      </p>
+      </PageIntro>
       <ul className="ai-connections">
         {data.providers.map((provider) => (
           <li className="ai-connection" key={provider.id}>

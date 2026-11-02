@@ -21,9 +21,24 @@ import {
   Field,
   Notice,
   PermissionHint,
+  PageIntro,
 } from "../components/ui";
 import { useI18n, useT, type MessageKey } from "../i18n";
 import { learnerName } from "../domain/learnerName";
+import { CopyText } from "../components/CopyText";
+import "./workspacePages.css";
+
+/** The learner's reference (an id from the sign-in system) is for support, not for reading. */
+function CopyReference({ value }: { value: string }) {
+  const t = useT();
+  return (
+    <CopyText
+      value={value}
+      label={t("enrollmentsView.reference.copy")}
+      copiedLabel={t("enrollmentsView.reference.copied")}
+    />
+  );
+}
 
 /** Status badge tones, as the shared status badge colours them. */
 const statusTone: Record<string, "green" | "gold" | "red"> = {
@@ -69,23 +84,23 @@ export function EnrollmentsView({
   return (
     <div className="page-stack">
       <ActionFeedback actions={actions} />
-      <div className="section-heading">
-        <div>
-          <h2>{t("enrollmentsView.heading")}</h2>
-          <p>{t("enrollmentsView.intro")}</p>
-        </div>
-        <Button
-          kind="primary"
-          onClick={() => {
-            actions.clear();
-            setDialog("enroll");
-          }}
-          disabled={!canWrite || actions.pending}
-        >
-          <Plus size={16} aria-hidden="true" />
-          {t("enrollmentsView.newEnrollment")}
-        </Button>
-      </div>
+      <PageIntro
+        action={
+          <Button
+            kind="primary"
+            onClick={() => {
+              actions.clear();
+              setDialog("enroll");
+            }}
+            disabled={!canWrite || actions.pending}
+          >
+            <Plus size={16} aria-hidden="true" />
+            {t("enrollmentsView.newEnrollment")}
+          </Button>
+        }
+      >
+        {t("enrollmentsView.intro")}
+      </PageIntro>
       <PermissionHint
         permissions={data.permissions}
         required="enrollment.write"
@@ -148,9 +163,9 @@ export function EnrollmentsView({
         {selected ? (
           <div className="stack">
             <Card
+              className="enrollment-profile"
               title={learnerName(t, selected)}
               titleDir="auto"
-              eyebrow={t("enrollmentsView.profile.eyebrow")}
               actions={
                 <Button
                   disabled={!canWrite || actions.pending}
@@ -163,16 +178,17 @@ export function EnrollmentsView({
                 </Button>
               }
             >
-              <div className="split-line">
+              <div className="tag-row">
                 <Badge tone={statusTone[selected.status] ?? "neutral"}>
-                  {label(
-                    `enrollmentsView.status.${selected.status}`,
-                    selected.status,
-                  )}
+                  {/* Drawn in sentence case ("Active"), as the shared status badge is. */}
+                  <span className="status-text">
+                    {label(
+                      `enrollmentsView.status.${selected.status}`,
+                      selected.status,
+                    )}
+                  </span>
                 </Badge>
-                <span className="mono" dir="ltr">
-                  {selected.learnerRef}
-                </span>
+                <CopyReference value={selected.learnerRef} />
               </div>
               {selected.profile.goal ? (
                 <p dir="auto">{selected.profile.goal}</p>
@@ -245,10 +261,7 @@ export function EnrollmentsView({
               />
               <small>{t("enrollmentsView.progress.note")}</small>
             </Card>
-            <Card
-              title={t("enrollmentsView.evidence.title")}
-              eyebrow={t("enrollmentsView.evidence.eyebrow")}
-            >
+            <Card title={t("enrollmentsView.evidence.title")}>
               <PermissionHint
                 permissions={data.permissions}
                 required="evidence.review"

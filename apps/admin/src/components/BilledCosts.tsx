@@ -8,7 +8,7 @@ import {
   type PlatformPort,
 } from "../domain/platform";
 import { useRemote } from "../hooks/useAdmin";
-import { Button, Card, Field, Loading, Notice } from "./ui";
+import { Button, Card, Field, Notice, SkeletonRows } from "./ui";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -32,11 +32,11 @@ export function BilledCosts({
   const [saved, setSaved] = useState<Billing>();
   const view = saved ?? remote.data;
   return (
-    <Card title={t("billedCosts.title")} eyebrow={t("billedCosts.eyebrow")}>
+    <Card title={t("billedCosts.title")}>
       <Notice tone="blue">{t("billedCosts.explain")}</Notice>
       <StatementForm port={port} workspaceId={workspaceId} onSaved={setSaved} />
       {remote.loading && !view ? (
-        <Loading label={t("billedCosts.loading")} />
+        <SkeletonRows label={t("billedCosts.loading")} rows={3} />
       ) : remote.error && !view ? (
         <Notice tone="red">{platformErrorMessage(remote.error, t)}</Notice>
       ) : view && view.statements.length === 0 ? (

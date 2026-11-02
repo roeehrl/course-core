@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SkeletonRows, PageIntro } from "../ui";
 import { CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   AiServicesError,
@@ -28,6 +29,7 @@ import { PricesSection } from "./PricesSection";
 import { SpendingSection } from "./SpendingSection";
 import { CheckSection } from "./CheckSection";
 import { AdvancedSection } from "./AdvancedSection";
+import { SectionNav } from "../SectionNav";
 import "./aiServices.css";
 
 export interface AiData {
@@ -92,6 +94,8 @@ const SECTION_TITLES: Record<SectionId | "advanced", AiKey> = {
   check: "aiServices.section.check",
   advanced: "aiServices.section.advanced",
 };
+
+const SECTION_IDS = Object.keys(SECTION_TITLES) as (SectionId | "advanced")[];
 
 /**
  * Admin "AI services": one page, sections in the order the work is done (connections, models for
@@ -180,7 +184,7 @@ export function AiServicesPage({
       SectionId | "advanced",
       (value: boolean) => void
     >;
-    for (const id of Object.keys(SECTION_TITLES) as (SectionId | "advanced")[])
+    for (const id of SECTION_IDS)
       handlers[id] = (value) =>
         setDirty((current) =>
           current[id] === value ? current : { ...current, [id]: value },
@@ -219,11 +223,9 @@ export function AiServicesPage({
   return (
     <>
       <div className="ai-page">
-        <header className="ai-page-header">
-          <p className="ai-intro">{t("aiServices.page.intro")}</p>
-        </header>
+        <PageIntro>{t("aiServices.page.intro")}</PageIntro>
         {!data && !failed && (
-          <p role="status">{t("aiServices.page.loading")}</p>
+          <SkeletonRows label={t("aiServices.page.loading")} rows={6} />
         )}
         {!data && failed && (
           <Message tone="error">
@@ -284,19 +286,13 @@ export function AiServicesPage({
                 )}
               </div>
             </div>
-            <nav className="ai-toc" aria-label={t("aiServices.page.sections")}>
-              <ol>
-                {(
-                  Object.keys(SECTION_TITLES) as (SectionId | "advanced")[]
-                ).map((id) => (
-                  <li key={id}>
-                    <a href={`#${sectionAnchor(id)}`} onClick={jump(id)}>
-                      {t(SECTION_TITLES[id])}
-                    </a>
-                  </li>
-                ))}
-              </ol>
-            </nav>
+            <SectionNav
+              label={t("aiServices.page.sections")}
+              sections={SECTION_IDS.map((id) => ({
+                id: sectionAnchor(id),
+                label: t(SECTION_TITLES[id]),
+              }))}
+            />
             <SectionsList
               data={data}
               status={status}

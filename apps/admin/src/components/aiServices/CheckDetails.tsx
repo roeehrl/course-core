@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { SkeletonRows } from "../ui";
 import { CheckCircle2, ChevronRight, CircleHelp, XCircle } from "lucide-react";
 import type {
   AiServicesPort,
@@ -74,6 +75,8 @@ const FINDINGS = new Set([
   "judge_failed",
   "judge_unavailable",
 ]);
+/** Broken rules named in a closed conversation's row; the rest are counted. */
+const SHOWN_RULES = 2;
 /** The check's own error when its judge could not run: it kept the conversations to show why. */
 export const JUDGE_UNAVAILABLE = "PROVIDER_QUALITY_CHECK_JUDGE_UNAVAILABLE";
 type QualityRule = QualityDialogue["graders"][number];
@@ -154,6 +157,79 @@ export function findingText(text: AiText, finding: QualityFinding): string {
   }
 }
 
+const RTL_LETTER = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+const STRONG =
+  /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+/** Whether a line reads right to left: its first strong letter is Hebrew or Arabic. */
+function rtlLine(line: string) {
+  const first = STRONG.exec(line);
+  return !!first && RTL_LETTER.test(first[0]);
+}
+/** Inline math as the model wrote it ($-5$, $3 + 5 = 8$): an opening $ before a non-space, a
+ * closing $ after a non-space and not before a digit, so prices ($5 and $10) stay text. */
+const MATH = /\$(?=\S)([^$\n]*?\S)\$(?!\d)/g;
+const TEX: [RegExp, string][] = [
+  [/\\(?:left|right)\b/g, ""],
+  [/\\text\{([^{}]*)\}/g, "$1"],
+  [/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2"],
+  [/\\sqrt\{([^{}]*)\}/g, "√$1"],
+  [/\\times\b/g, "×"],
+  [/\\cdot\b/g, "·"],
+  [/\\div\b/g, "÷"],
+  [/\\pm\b/g, "±"],
+  [/\\(?:leq|le)\b/g, "≤"],
+  [/\\(?:geq|ge)\b/g, "≥"],
+  [/\\(?:neq|ne)\b/g, "≠"],
+  [/\\approx\b/g, "≈"],
+  [/\\to\b/g, "→"],
+  [/\\[,;! ]/g, " "],
+];
+const tex = (source: string) =>
+  TEX.reduce((value, [pattern, to]) => value.replace(pattern, to), source);
+/** A run of left-to-right words inside a right-to-left line, with its own punctuation. */
+const LATIN_RUN =
+  /[A-Za-z][^\n\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]*[^\s\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]|[A-Za-z]/g;
+
+/**
+ * A piece of a model's or learner's text, readable in either direction: inline math without its $
+ * delimiters, kept left to right; and in a line that reads right to left (Hebrew with an English
+ * sentence in it), each English run isolated, so its own punctuation stays with it ("…position?").
+ * `line` is the whole line the piece is part of, which decides its direction.
+ */
+function readable(piece: string, line: (at: number) => string, at: number) {
+  const parts: ReactNode[] = [];
+  let index = 0;
+  const plain = (value: string, start: number) => {
+    if (!value) return;
+    if (!rtlLine(line(start))) {
+      parts.push(value);
+      return;
+    }
+    let last = 0;
+    for (const run of value.matchAll(LATIN_RUN)) {
+      if (run.index > last) parts.push(value.slice(last, run.index));
+      parts.push(
+        <bdi key={`l${start + run.index}`} dir="ltr">
+          {run[0]}
+        </bdi>,
+      );
+      last = run.index + run[0].length;
+    }
+    if (last < value.length) parts.push(value.slice(last));
+  };
+  for (const math of piece.matchAll(MATH)) {
+    plain(piece.slice(index, math.index), at + index);
+    parts.push(
+      <bdi key={`m${at + math.index}`} dir="ltr" className="ai-math">
+        {tex(math[1]!)}
+      </bdi>,
+    );
+    index = math.index + math[0].length;
+  }
+  plain(piece.slice(index), at + index);
+  return parts;
+}
+
 /** Text with the failing passages marked and removed private text shown as a marker. */
 function Highlighted({ value, marks }: { value: string; marks: string[] }) {
   const { t } = useAiText();
@@ -171,11 +247,16 @@ function Highlighted({ value, marks }: { value: string; marks: string[] }) {
       ranges.push([found.index, found.index + found[0].length]);
   }
   ranges.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  const line = (offset: number) => {
+    const from = value.lastIndexOf("\n", offset - 1) + 1,
+      to = value.indexOf("\n", offset);
+    return value.slice(from, to < 0 ? undefined : to);
+  };
   const parts: ReactNode[] = [];
   let at = 0;
   for (const [start, end] of ranges) {
     if (start < at) continue;
-    if (start > at) parts.push(value.slice(at, start));
+    if (start > at) parts.push(...readable(value.slice(at, start), line, at));
     const piece = value.slice(start, end);
     parts.push(
       piece === REDACTED ? (
@@ -184,13 +265,13 @@ function Highlighted({ value, marks }: { value: string; marks: string[] }) {
         </span>
       ) : (
         <mark key={start} className="ai-flagged">
-          {piece}
+          {readable(piece, line, start)}
         </mark>
       ),
     );
     at = end;
   }
-  parts.push(value.slice(at));
+  parts.push(...readable(value.slice(at), line, at));
   return <>{parts}</>;
 }
 
@@ -251,26 +332,34 @@ export function CheckDetails({
   const [details, setDetails] = useState<QualityDetails | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const load = source.port.qualityCheckDetails?.bind(source.port);
+  const [onlyFailed, setOnlyFailed] = useState(false);
+  // The effect depends on the port itself, not on a function made from it: a new function on
+  // every render re-ran the effect whenever the page re-rendered, aborting and repeating the
+  // request (and after a failure, retrying without being asked).
+  const { port, workspaceId } = source;
   useEffect(() => {
-    if (!open || !load || details?.checkId === check.id) return;
+    if (!open || !port.qualityCheckDetails || details?.checkId === check.id)
+      return;
     const controller = new AbortController();
     setFailed(false);
-    load(source.workspaceId, check.id, controller.signal)
+    port
+      .qualityCheckDetails(workspaceId, check.id, controller.signal)
       .then(setDetails)
       .catch(() => {
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [open, load, check.id, source.workspaceId, details, attempt]);
+  }, [open, port, check.id, workspaceId, details, attempt]);
   if (
-    !load ||
+    !port.qualityCheckDetails ||
     (check.state !== "passed" &&
       check.state !== "failed" &&
       check.reason !== JUDGE_UNAVAILABLE)
   )
     return null;
   const ready = details?.checkId === check.id ? details : null;
+  const all = ready?.roles.flatMap((r) => r.dialogues) ?? [];
+  const failedCount = all.filter((d) => !d.passed).length;
   return (
     <details
       className="ai-sub ai-dialogues"
@@ -289,9 +378,7 @@ export function CheckDetails({
           </button>
         </div>
       ) : !ready ? (
-        <p role="status" className="ai-muted ai-dialogues-state">
-          {t("aiServices.check.details.loading")}
-        </p>
+        <SkeletonRows label={t("aiServices.check.details.loading")} rows={3} />
       ) : !ready.recorded ? (
         <p className="ai-dialogues-state">
           {t("aiServices.check.details.notRecorded")}
@@ -299,8 +386,24 @@ export function CheckDetails({
       ) : (
         <>
           <p className="ai-muted">{t("aiServices.check.details.intro")}</p>
+          {failedCount > 0 && failedCount < all.length && (
+            <label className="ai-check ai-dialogue-filter">
+              <input
+                type="checkbox"
+                checked={onlyFailed}
+                onChange={(event) => setOnlyFailed(event.target.checked)}
+              />
+              {t("aiServices.check.details.onlyFailed", {
+                count: failedCount,
+              })}
+            </label>
+          )}
           {ready.roles.map((role) => (
-            <JobDialogues key={role.role} {...role} />
+            <JobDialogues
+              key={role.role}
+              {...role}
+              onlyFailed={onlyFailed && failedCount > 0}
+            />
           ))}
         </>
       )}
@@ -311,9 +414,12 @@ export function CheckDetails({
 function JobDialogues({
   role,
   dialogues,
+  onlyFailed,
 }: {
   role: string;
   dialogues: QualityDialogue[];
+  /** Show only the conversations that did not pass (the others stay in the list, hidden). */
+  onlyFailed: boolean;
 }) {
   const { t } = useAiText();
   const failed = dialogues.filter((d) => !d.passed).length;
@@ -338,7 +444,7 @@ function JobDialogues({
       </h4>
       <ol className="ai-dialogue-list">
         {ordered.map((d) => (
-          <li key={d.position}>
+          <li key={d.position} hidden={onlyFailed && d.passed}>
             <Dialogue dialogue={d} />
           </li>
         ))}
@@ -370,43 +476,56 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
       data-dialogue={dialogue.dialogueId}
     >
       <summary>
-        <span className="ai-dialogue-head">
+        <span className="ai-dialogue-row">
           <Pill passed={dialogue.passed} undetermined={dialogue.undetermined} />
           <span className="ai-tag">{persona}</span>
+          <span className="ai-dialogue-purpose" dir="auto">
+            {dialogue.purpose.description}
+          </span>
+          {!dialogue.passed && broken.length > 0 && (
+            <span className="ai-dialogue-broken">
+              <span>
+                {noAnswer
+                  ? t("aiServices.check.details.noAnswerShort")
+                  : t("aiServices.check.details.broke")}
+              </span>
+              {/* Two rules by name, then how many more: the row stays one line. */}
+              {!noAnswer &&
+                broken.slice(0, SHOWN_RULES).map((g) => (
+                  <span key={g.grader} className="ai-pill bad">
+                    {ruleName(t, g.grader)}
+                  </span>
+                ))}
+              {!noAnswer && broken.length > SHOWN_RULES && (
+                <span
+                  className="ai-pill bad"
+                  title={text.list(
+                    broken.slice(SHOWN_RULES).map((g) => ruleName(t, g.grader)),
+                  )}
+                >
+                  {t("aiServices.check.details.moreRules", {
+                    count: broken.length - SHOWN_RULES,
+                  })}
+                </span>
+              )}
+            </span>
+          )}
+          {!noAnswer && unjudged.length > 0 && (
+            <span className="ai-dialogue-broken">
+              <span>{t("aiServices.check.details.notJudgedList")}</span>
+              {unjudged.map((g) => (
+                <span key={g.grader} className="ai-pill muted">
+                  {ruleName(t, g.grader)}
+                </span>
+              ))}
+            </span>
+          )}
           <ChevronRight
             size={18}
             aria-hidden="true"
             className="ai-chevron flip-rtl"
           />
         </span>
-        <span className="ai-dialogue-purpose" dir="auto">
-          {dialogue.purpose.description}
-        </span>
-        {!dialogue.passed && broken.length > 0 && (
-          <span className="ai-dialogue-broken">
-            <span>
-              {noAnswer
-                ? t("aiServices.check.details.noAnswerShort")
-                : t("aiServices.check.details.broke")}
-            </span>
-            {!noAnswer &&
-              broken.map((g) => (
-                <span key={g.grader} className="ai-pill bad">
-                  {ruleName(t, g.grader)}
-                </span>
-              ))}
-          </span>
-        )}
-        {!noAnswer && unjudged.length > 0 && (
-          <span className="ai-dialogue-broken">
-            <span>{t("aiServices.check.details.notJudgedList")}</span>
-            {unjudged.map((g) => (
-              <span key={g.grader} className="ai-pill muted">
-                {ruleName(t, g.grader)}
-              </span>
-            ))}
-          </span>
-        )}
       </summary>
       <div className="ai-dialogue-body">
         <div className="ai-dialogue-block">
@@ -433,8 +552,11 @@ function Dialogue({ dialogue }: { dialogue: QualityDialogue }) {
             {dialogue.lesson.summary}
           </p>
         </div>
-        <Received dialogue={dialogue} />
-        <Reply dialogue={dialogue} marks={marks} />
+        {/* What the model was given beside what it answered, on a wide page. */}
+        <div className="ai-dialogue-io">
+          <Received dialogue={dialogue} />
+          <Reply dialogue={dialogue} marks={marks} />
+        </div>
         <div className="ai-dialogue-block">
           <h5>{t("aiServices.check.details.rules")}</h5>
           {noAnswer ? (

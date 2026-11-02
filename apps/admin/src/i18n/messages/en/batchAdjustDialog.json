@@ -28,5 +28,12 @@
   "refused.other": "the policy did not allow it for this learner.",
   "reason": "Reference for this decision",
   "reason.hint": "For example an incident or approval number. Not health or personal details.",
-  "apply": "{count, plural, one {Apply to # learner} other {Apply to # learners}}"
+  "apply": "{count, plural, one {Apply to # learner} other {Apply to # learners}}",
+  "who.chosen": "Learners to adjust",
+  "cancel": "Cancel",
+  "applyNone": "Apply to the learners",
+  "blocked.choose": "Enter extra days or minutes and choose the learners.",
+  "blocked.preview": "Show the effect on each learner first.",
+  "blocked.nobody": "No learner would change.",
+  "blocked.reason": "Give a reference for this decision."
 }
