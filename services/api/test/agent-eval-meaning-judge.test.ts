@@ -75,7 +75,7 @@ describe("the judge's verdict", () => {
     expect(request.systemInstruction.startsWith(JUDGE_INSTRUCTION_HEAD)).toBe(true);
     expect(request.systemInstruction).toMatch(/Paraphrases, synonyms, negation/);
     expect(request.systemInstruction).toMatch(/other languages \(for example Hebrew\)/);
-    expect(request.systemInstruction).toMatch(/vague, generic or evasive reply does not convey a required fact/);
+    expect(request.systemInstruction).toMatch(/one false or contradicting statement fails factuality/);
     // The stated facts in plain words, the known false claims with the truth, the learner's turns and the reply as data.
     const order = judgeRequest(dialogue("companion.novice.signed-order"), "reply text");
     expect(order.prompt).toContain("- -1 lies to the right of -3 on the number line, so -1 is the greater number.");
@@ -186,7 +186,7 @@ describe("real pilot replies, judged", () => {
     }
   });
 
-  it("passes the correct replies the pattern graders failed on paraphrase, Hebrew and negation, and still fails a vague one", () => {
+  it("passes the correct replies the pattern graders failed on paraphrase, Hebrew and negation, and a vague one that states nothing false", () => {
     const [english, hebrew, negation, vague, invented] = replay.paraphrases;
     // The patterns still miss these two (#268's synonyms now catch the negation one offline too).
     for (const c of [english!, hebrew!]) expect(rule(gradeDialogue(dialogue(c.dialogueId), c.output), "factuality").passed, c.dialogueId).toBe(false);
@@ -194,8 +194,10 @@ describe("real pilot replies, judged", () => {
       const d = dialogue(c.dialogueId);
       expect(gradeDialogue(d, c.output, judged(c.judgeAnswer, replyOf(c.output))).passed, replyOf(c.output)).toBe(true);
     }
+    // Leaving a fact out is not a factuality failure (judge version 3); the pattern grader offline still asks for it.
     const lazy = gradeDialogue(dialogue(vague!.dialogueId), vague!.output, judged(vague!.judgeAnswer, replyOf(vague!.output)));
-    expect(rule(lazy, "factuality")).toMatchObject({ passed: false, findings: ["judge_failed"] });
+    expect(rule(lazy, "factuality")).toEqual({ grader: "factuality", passed: true, findings: [] });
+    expect(rule(gradeDialogue(dialogue(vague!.dialogueId), vague!.output), "factuality").findings).toEqual(["missing_fact:minus-one-right-of-minus-three"]);
     // The made-up quote ("the plant got much smaller") is dropped; the reply's own are kept.
     const made = judged(invented!.judgeAnswer, replyOf(invented!.output));
     expect(made).toMatchObject({ state: "judged", droppedQuotes: 1 });
@@ -206,5 +208,57 @@ describe("real pilot replies, judged", () => {
     const c = replay.conversations.find((x) => x.dialogueId === "companion.terse.endpoint-answer")!;
     const grade = gradeDialogue(dialogue(c.dialogueId), c.output, judged(c.judgeAnswer, replyOf(c.output)));
     expect(grade.graders.filter((g) => !g.passed).map((g) => g.grader)).toEqual(["hint_leakage"]);
+  });
+});
+
+describe("factuality judges what the reply states, never what it leaves out", () => {
+  // Replies gemini-3.8-flash gave on the pilot (suite 2.6.0) that judge version 2 failed only on
+  // factuality, for facts the reply did not restate. The judge answers are stubs in the judge's exact
+  // JSON shape, written for these tests: no provider is called.
+  const travel = dialogue("companion.expert.distance-change-travel"), close = dialogue("companion.novice.two-correct-answers");
+  const travelReply: EvalOutput = { kind: "text", text: "Yes, that's exactly right. Distance is |finish - start|, net change is signed (finish minus start), and total travel needs the route itself, since a route can double back. For example, 0 → 5 → 2: the distance between the endpoints is 2, the net change is +2, and the total travel is 5 + 3 = 8." };
+  const closeReply: EvalOutput = { kind: "text", text: "Spot on! You have demonstrated how to compare negative numbers by using their positions on the number line. Continue with the next part of the lesson, or try the lesson's own check." };
+  const factualityOf = (passed: boolean, reason: string, quotes: string[] = []) => JSON.stringify({ grounding: pass, factuality: { passed, reasons: [reason], quotes } });
+
+  it("tells the judge to fail only false or contradicting claims, including a wrong answer confirmed, and never omissions or brevity", () => {
+    const { systemInstruction, prompt } = judgeRequest(travel, replyOf(travelReply));
+    expect(systemInstruction).not.toMatch(/must (?:actually )?be conveyed/);
+    expect(systemInstruction).not.toMatch(/does not convey a required fact/);
+    expect(systemInstruction).toMatch(/factuality: the reply states nothing false\. It fails only when something the reply says is false or contradicts the lesson material or the reference facts/);
+    expect(systemInstruction).toMatch(/confirms a learner's answer or reasoning that is wrong \(calling a wrong answer right is a false claim\)/);
+    expect(systemInstruction).toMatch(/It never fails for what the reply leaves out/);
+    expect(systemInstruction).toMatch(/A short confirmation of a learner's correct answer .* is factual/);
+    expect(systemInstruction).toMatch(/a fact it leaves unsaid is never a factuality problem/);
+    // The dialogue's required facts reach the judge as reference truths, not as facts the reply must state.
+    expect(prompt).not.toMatch(/each must be conveyed/);
+    expect(prompt).toContain("Reference facts (true; the reply need not state them, but must not contradict them or confirm a learner answer that does):\n- Distance, the gap between two positions, is never negative.");
+    expect(judgeRequest(close, replyOf(closeReply)).prompt).toContain("- -3 is greater than -6 because it lies to the right of -6.");
+  });
+
+  it("passes the expert's confirmed distinctions with a correct worked example, though it does not say distance is never negative", () => {
+    const judgement = judged(factualityOf(true, "Everything it states agrees with the lesson, including the 0 to 5 to 2 route."), replyOf(travelReply), true);
+    expect(gradeDialogue(travel, travelReply, judgement)).toMatchObject({ passed: true });
+    // Offline, the pattern grader still asks for the fact; the judge does not.
+    expect(rule(gradeDialogue(travel, travelReply), "factuality").findings).toEqual(["missing_fact:distance-nonnegative"]);
+  });
+
+  it("passes a brief confirmation of a correct answer that closes back to the lesson", () => {
+    const judgement = judged(factualityOf(true, "It confirms the learner's correct answer, -3, and says nothing false."), replyOf(closeReply), true);
+    const grade = gradeDialogue(close, closeReply, judgement);
+    expect(grade).toMatchObject({ passed: true });
+    expect(rule(grade, "pacing")).toMatchObject({ passed: true });
+  });
+
+  it("still fails a reply that confirms a wrong answer as right", () => {
+    const wrong = { ...close, context: { ...close.context, question: "-6, it is to the right of -3." } };
+    const { prompt } = judgeRequest(wrong, replyOf(closeReply));
+    expect(prompt).toContain("Learner: -6, it is to the right of -3.");
+    expect(prompt).toContain("minus six greater (truth: -3 lies to the right of -6, so -3 is greater.)");
+    const judgement = judged(factualityOf(false, "It calls the learner's answer -6 right, but -3 is the greater number because it lies to the right of -6.", ["Spot on!"]), replyOf(closeReply), true);
+    const grade = gradeDialogue(wrong, closeReply, judgement);
+    expect(grade.passed).toBe(false);
+    expect(grade.graders.filter((g) => !g.passed).map((g) => g.grader)).toEqual(["factuality"]);
+    expect(rule(grade, "factuality")).toEqual({ grader: "factuality", passed: false, findings: ["judge_failed"] });
+    expect(judgement).toMatchObject({ state: "judged", verdicts: { factuality: { quotes: ["Spot on!"] } } });
   });
 });
