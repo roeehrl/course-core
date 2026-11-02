@@ -1,36 +1,6 @@
-import { useState, type PropsWithChildren } from "react";
+import { useState } from "react";
 import { Badge } from "../components/ui";
 import "./contentViews.css";
-
-/** Placeholder rows while a large section loads; the label is read out once. */
-export function SkeletonRows({
-  label,
-  rows = 6,
-}: {
-  label: string;
-  rows?: number;
-}) {
-  return (
-    <div className="cv-skeleton" role="status" aria-label={label}>
-      {Array.from({ length: rows }, (_, i) => (
-        <span key={i} aria-hidden="true" />
-      ))}
-    </div>
-  );
-}
-
-/** Raw identifiers and codes behind a closed disclosure, for staff who need to quote them. */
-export function TechnicalDetails({
-  summary,
-  children,
-}: PropsWithChildren<{ summary: string }>) {
-  return (
-    <details className="cv-tech">
-      <summary>{summary}</summary>
-      {children}
-    </details>
-  );
-}
 
 /** Long course text as body text: three lines, then a toggle for the rest. */
 export function ClampedText({

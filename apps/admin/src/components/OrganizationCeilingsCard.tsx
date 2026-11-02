@@ -7,7 +7,15 @@ import type {
 } from "../domain/policyLevels";
 import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
-import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorState,
+  Field,
+  Notice,
+  SkeletonRows,
+} from "./ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const optional = (value: string) => (value.trim() ? Number(value) : null);
@@ -52,7 +60,7 @@ export function OrganizationCeilingsCard({
       eyebrow={t("organizationCeilingsCard.eyebrow")}
     >
       {remote.loading ? (
-        <Loading label={t("organizationCeilingsCard.loading")} />
+        <SkeletonRows label={t("organizationCeilingsCard.loading")} rows={4} />
       ) : (
         <ErrorState error={remote.error} onRetry={remote.reload} />
       )}

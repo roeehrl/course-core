@@ -115,7 +115,6 @@
   "list.option": "{run} · {when} · {status}",
   "actionsNav": "Run actions",
   "started": "Started {when}",
-  "technical": "Technical details",
   "technical.runId": "Run ID",
   "technical.context": "Learner record version",
   "technical.retryOf": "Retry of run",

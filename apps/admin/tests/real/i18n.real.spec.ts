@@ -72,7 +72,9 @@ async function eachView(
   for (const name of names) {
     await openSection(page, name);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
-    await expect(page.locator("main .loading")).toHaveCount(0);
+    await expect(
+      page.locator("main :is(.loading, .skeleton-rows)"),
+    ).toHaveCount(0);
     await visit(name);
   }
 }
@@ -150,7 +152,9 @@ test("the AI supervision settings wrap their long labels under en-XA instead of 
   await expect(
     settings.getByRole("heading", { name: accent("AI supervision settings") }),
   ).toBeVisible();
-  await expect(page.locator("main .loading")).toHaveCount(0);
+  await expect(page.locator("main :is(.loading, .skeleton-rows)")).toHaveCount(
+    0,
+  );
   expect(
     await overflow(page),
     `${info.project.name} overflows`,

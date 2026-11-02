@@ -444,11 +444,15 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
   // Overview, Audit log and the course section (its title is course data, not accented).
   for (const name of ["overview", "audit"]) {
     await (await pseudoNav(page, name)).click();
-    await expect(page.locator("main .loading")).toHaveCount(0);
+    await expect(
+      page.locator("main :is(.loading, .skeleton-rows)"),
+    ).toHaveCount(0);
     expect(await untranslated(page, SECTION_DATA)).toEqual([]);
   }
   await openSection(page, "Glaze lab", {});
-  await expect(page.locator("main .loading")).toHaveCount(0);
+  await expect(page.locator("main :is(.loading, .skeleton-rows)")).toHaveCount(
+    0,
+  );
   expect(await untranslated(page, SECTION_DATA)).toEqual([]);
   await (await pseudoNav(page, "supervision")).click();
   await page.locator("main select").first().selectOption(learner.id);

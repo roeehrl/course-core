@@ -1,7 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { useScopeLabel } from "./scopeLabel";
 import type { LearningPolicy, Quota, ScopePolicy } from "../domain/policy";
-import { Badge, Button, Card, EmptyState, Notice } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Notice,
+  TechnicalDetails,
+} from "./ui";
 import {
   useFormatters,
   useI18n,
@@ -12,33 +19,6 @@ import {
 
 export const metricLabel = (t: Translate, metric: Quota["metric"]) =>
   t(`policyDetails.metric.${metric}` as MessageKey);
-
-/** Identifiers kept for support (a policy, an offer, a ledger entry), folded away under
- * "Technical details" so the owner reads sentences, not codes. */
-export function TechnicalDetails({
-  rows,
-}: {
-  rows: [label: string, value: ReactNode][];
-}) {
-  const t = useT();
-  return (
-    <details className="policy-technical">
-      <summary>{t("policyDetails.technical")}</summary>
-      <dl>
-        {rows.map(([label, value]) => (
-          <div key={label} style={{ display: "contents" }}>
-            <dt>{label}</dt>
-            <dd>
-              <span className="mono" dir="ltr">
-                {value}
-              </span>
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </details>
-  );
-}
 
 type BindingQuota = NonNullable<
   LearningPolicy["constraints"][number]["binding"]

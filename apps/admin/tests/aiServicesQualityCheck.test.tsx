@@ -618,7 +618,7 @@ describe("running the quality check from the page", () => {
     for (const message of ["connect.errQuotaUsed", "connect.errBilling"])
       expect(region.textContent).not.toContain(t(message, { service: google }));
     const technical = within(region)
-      .getByText(t("connect.technical"))
+      .getByText(english.t("ui.technicalDetails"))
       .closest("details")!;
     expect(technical).not.toHaveAttribute("open");
     expect(technical.textContent).toContain("PROVIDER_REQUEST_REJECTED");

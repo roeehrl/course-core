@@ -115,7 +115,6 @@
   "list.option": "{run} · {when} · {status}",
   "actionsNav": "פעולות על ההרצה",
   "started": "התחילה {when}",
-  "technical": "פרטים טכניים",
   "technical.runId": "מזהה ההרצה",
   "technical.context": "גרסת רשומת הלומד/ת",
   "technical.retryOf": "הרצה מחדש של",

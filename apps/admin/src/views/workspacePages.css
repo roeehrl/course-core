@@ -351,29 +351,6 @@ table.audit-table th.audit-what[scope="row"] {
   margin-top: 2px;
   font-size: var(--text-sm);
 }
-details.audit-technical > summary {
-  min-height: 0;
-  padding: 6px 0 0;
-  font-size: var(--text-xs);
-}
-details.audit-technical[open] {
-  margin-top: 4px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--paper);
-}
-details.audit-technical[open] > summary {
-  padding-top: 0;
-  margin-bottom: 8px;
-}
-details.audit-technical .audit-fields + .audit-fields {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-}
-details.audit-technical .audit-fields dd {
-  overflow-wrap: anywhere;
-}
 .audit-pager {
   display: flex;
   flex-wrap: wrap;

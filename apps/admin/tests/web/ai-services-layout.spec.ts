@@ -168,7 +168,7 @@ for (const locale of ["en", "he"] as const) {
       .first();
     await expect(byLesson).toContainText("Moves with direction");
     await expect(byLesson).not.toContainText("fnd-e01-01");
-    const technical = learners.locator(":scope > .ai-form > .ai-technical");
+    const technical = learners.locator(":scope > .ai-form > .quiet-details");
     await technical.locator("summary").click();
     await expect(technical).toContainText("fnd-e01-01");
     // The totals: none alone on a row of its own beside empty columns.

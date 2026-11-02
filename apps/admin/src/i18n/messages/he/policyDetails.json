@@ -61,7 +61,6 @@
   "why.group.range": "{metric}: {count, plural, one {מושג אחד} other {# מושגים}}, מוגבלים על ידי {level} ({scope}) — נותרו בין {min} ל-{max}.",
   "why.group.show": "{count, plural, one {הצגת המושג} other {הצגת כל # המושגים}}",
   "why.concept": "{concept}: נותרו {remaining} מתוך {limit}",
-  "technical": "פרטים טכניים",
   "technical.policy": "מזהה מדיניות",
   "technical.scope": "מזהה רמה",
   "technical.anchor": "מזהה העוגן של החלון",

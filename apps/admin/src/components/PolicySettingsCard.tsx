@@ -6,7 +6,15 @@ import type {
 } from "../domain/policyLedger";
 import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
-import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorState,
+  Field,
+  Notice,
+  SkeletonRows,
+} from "./ui";
 import { ExtensionPoolsEditor } from "./ExtensionPoolsEditor";
 import {
   AssessmentPolicyFields,
@@ -61,7 +69,7 @@ export function PolicySettingsCard({
     >
       {children}
       {remote.loading ? (
-        <Loading label={t("policySettingsCard.loading")} />
+        <SkeletonRows label={t("policySettingsCard.loading")} rows={4} />
       ) : (
         <ErrorState error={remote.error} onRetry={remote.reload} />
       )}

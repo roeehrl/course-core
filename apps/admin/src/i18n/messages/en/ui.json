@@ -38,5 +38,6 @@
   "status.evaluating": "evaluating",
   "status.needs_input": "needs input",
   "status.follow_up_due": "follow up due",
-  "dismiss": "Close this message"
+  "dismiss": "Close this message",
+  "technicalDetails": "Technical details"
 }

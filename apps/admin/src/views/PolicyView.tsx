@@ -20,15 +20,12 @@ import {
   EmptyState,
   ErrorState,
   Field,
-  Loading,
   Notice,
   Stat,
-} from "../components/ui";
-import {
-  ScopeDetails,
-  ScopeQuotas,
   TechnicalDetails,
-} from "../components/PolicyDetails";
+  SkeletonRows,
+} from "../components/ui";
+import { ScopeDetails, ScopeQuotas } from "../components/PolicyDetails";
 import { ExtensionComposer } from "../components/ExtensionComposer";
 import { ExtensionTerms } from "../components/ExtensionTerms";
 import { AccommodationEditor } from "../components/AccommodationEditor";
@@ -299,7 +296,7 @@ export function PolicyView({
           >
             {picker}
             {remote.loading ? (
-              <Loading label={t("policyView.loading")} />
+              <SkeletonRows label={t("policyView.loading")} rows={6} />
             ) : (
               <ErrorState error={remote.error} onRetry={remote.reload} />
             )}

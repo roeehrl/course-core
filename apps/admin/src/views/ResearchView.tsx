@@ -25,9 +25,9 @@ import {
   Dialog,
   EmptyState,
   Field,
-  Loading,
   Notice,
   PermissionHint,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
@@ -323,7 +323,8 @@ function ReleaseResearch({
   const [revoking, setRevoking] = useState<string>();
   const [query, setQuery] = useState("");
   const searchId = useId();
-  if (library.loading) return <Loading label={t("researchView.loading")} />;
+  if (library.loading)
+    return <SkeletonRows label={t("researchView.loading")} rows={6} />;
   if (library.error || !library.data)
     return <Notice tone="red">{researchErrorMessage(library.error, t)}</Notice>;
   const lib = library.data;

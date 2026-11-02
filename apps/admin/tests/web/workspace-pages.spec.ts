@@ -80,7 +80,9 @@ async function open(page: Page, locale: Locale) {
 }
 async function go(page: Page, name: string) {
   await openSection(page, name);
-  await expect(page.locator("main .loading")).toHaveCount(0);
+  await expect(page.locator("main :is(.loading, .skeleton-rows)")).toHaveCount(
+    0,
+  );
 }
 
 test.describe.configure({ mode: "parallel" });
@@ -165,9 +167,9 @@ for (const locale of ["en", "he"] as const)
       await expectNoHorizontalOverflow(page);
       await shot(page, `audit-${tag}`);
       // The raw record is one click away.
-      await page.locator("details.audit-technical > summary").first().click();
+      await page.locator("details.quiet-details > summary").first().click();
       await expect(
-        page.locator("details.audit-technical[open] dd").first(),
+        page.locator("details.quiet-details[open] dd").first(),
       ).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await page.getByRole("button", { name: /Older|ישנים/ }).click();

@@ -11,8 +11,8 @@ import {
   Button,
   Card,
   EmptyState,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { ArrowRight } from "lucide-react";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
@@ -76,7 +76,8 @@ function Overview({
     (signal) => port.integrations(workspaceId, signal),
     [port, workspaceId],
   );
-  if (remote.loading) return <Loading label={t("integrationsView.loading")} />;
+  if (remote.loading)
+    return <SkeletonRows label={t("integrationsView.loading")} rows={6} />;
   if (remote.error || !remote.data)
     return (
       <div className="stack">

@@ -4,7 +4,15 @@ import type { AssessmentPolicy } from "../domain/policyLedger";
 import type { AssessmentAttempts } from "../domain/assessmentAttempts";
 import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
-import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorState,
+  Field,
+  Notice,
+  SkeletonRows,
+} from "./ui";
 import { useFormatters, useT } from "../i18n";
 
 /** What the assessment policy means for a learner, in one plain sentence per rule. */
@@ -159,7 +167,7 @@ export function AssessmentAttemptsCard({
       eyebrow={t("assessmentPolicy.card.eyebrow")}
     >
       {remote.loading && !data ? (
-        <Loading label={t("assessmentPolicy.card.loading")} />
+        <SkeletonRows label={t("assessmentPolicy.card.loading")} rows={3} />
       ) : remote.error && !data ? (
         <ErrorState error={remote.error} onRetry={remote.reload} />
       ) : (

@@ -22,9 +22,10 @@ import {
   EmptyState,
   Field,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useT, type MessageKey } from "../i18n";
-import { ClampedText, SkeletonRows, shortTitle } from "./contentShared";
+import { ClampedText, shortTitle } from "./contentShared";
 
 /**
  * Answer keys and test answers (Q09): for each question of a release, its key or rubric, the
@@ -794,7 +795,7 @@ function TestRunCard({
         <Notice tone="green">{t("assessmentsView.run.allPassed")}</Notice>
       )}
       {runs.length > 0 && (
-        <details className="cv-tech">
+        <details className="quiet-details">
           <summary>
             {t("assessmentsView.run.historyCount", { count: runs.length })}
           </summary>

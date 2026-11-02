@@ -1,6 +1,6 @@
 import { platformErrorMessage, type PlatformPort } from "../domain/platform";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, Card, Loading, Notice } from "./ui";
+import { Badge, Button, Card, Notice, SkeletonRows } from "./ui";
 import {
   useFormatters,
   useI18n,
@@ -163,7 +163,7 @@ export function PolicyHistory({
     <Card title={t("policyHistory.title")}>
       <p className="muted">{t("policyHistory.intro")}</p>
       {remote.loading ? (
-        <Loading label={t("policyHistory.loading")} />
+        <SkeletonRows label={t("policyHistory.loading")} rows={3} />
       ) : remote.error || !remote.data ? (
         <div className="stack">
           <Notice tone="red">{platformErrorMessage(remote.error, t)}</Notice>

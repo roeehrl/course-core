@@ -20,8 +20,8 @@ import {
   Dialog,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT } from "../i18n";
@@ -119,7 +119,8 @@ function PeopleAdministration({
       setPending(false);
     }
   }
-  if (list.loading) return <Loading label={t("peopleView.loading")} />;
+  if (list.loading)
+    return <SkeletonRows label={t("peopleView.loading")} rows={6} />;
   if (list.error || !list.data)
     return <Notice tone="red">{peopleErrorMessage(list.error, t)}</Notice>;
   const { actorRole, people } = list.data;

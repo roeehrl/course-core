@@ -15,9 +15,10 @@ import {
   Field,
   Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { QueueHeading, SkeletonRows } from "./contentShared";
+import { QueueHeading } from "./contentShared";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' open disputes of their own evidence. Staff resolve one by reviewing the evidence:

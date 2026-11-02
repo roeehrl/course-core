@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { TechnicalDetails } from "../ui";
 import { Eye, EyeOff, ExternalLink, LoaderCircle } from "lucide-react";
 import {
   AiServicesError,
@@ -432,13 +433,12 @@ function AddConnection({
         )}
       </div>
       {outcome.kind === "failed" && (
-        <details className="ai-technical">
-          <summary>{t("aiServices.connect.technical")}</summary>
+        <TechnicalDetails>
           <p>
             {t("aiServices.connect.technicalCode")}:{" "}
             <Ltr className="mono">{outcome.code}</Ltr>
           </p>
-        </details>
+        </TechnicalDetails>
       )}
       {outcome.kind === "failed" && unreachable(outcome.code) && (
         <details className="ai-untested">

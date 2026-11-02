@@ -12,8 +12,8 @@ import {
   EmptyState,
   ErrorState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import type { ScopePolicy } from "../domain/policy";
@@ -111,7 +111,7 @@ export function AllowancesView({
         />
       )}
       {remote.loading ? (
-        <Loading label={t("allowancesView.loading")} />
+        <SkeletonRows label={t("allowancesView.loading")} rows={6} />
       ) : remote.error ? (
         <ErrorState error={remote.error} onRetry={remote.reload} />
       ) : (
