@@ -571,13 +571,12 @@ function CourseWorkspace({
   // level's home instead.
   const waitingForSections = view.startsWith("section:") && declared.loading;
   useEffect(() => {
-    if (!found && !waitingForSections && !actions.loading)
+    // Only once the course (and with it this person's role) has loaded.
+    if (!found && !waitingForSections && data)
       navigate(home, { replace: true });
-  }, [found, waitingForSections, actions.loading]);
+  }, [found, waitingForSections, data]);
   // While the course (and with it the role) loads, a page named in the address keeps its name.
-  const pending = actions.loading
-    ? views.find((item) => item.id === view)
-    : undefined;
+  const pending = !data ? views.find((item) => item.id === view) : undefined;
   const activeView =
     found ??
     (pending && { ...pending, title: t(pending.titleKey), content: false }) ??

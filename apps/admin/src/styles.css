@@ -604,10 +604,10 @@ button svg {
   border-radius: 12px;
   /* Opaque, so buttons and text scrolling under it never show through; the first shadow is a
      page-coloured ledge that fills the gap between the app bar and this bar (--sticky-top's
-     12px), so no strip of the page shows above it either. */
+     12px, 16px under the sidebar), so no strip of the page shows above it either. */
   background: var(--card);
   box-shadow:
-    0 -13px 0 0 var(--paper),
+    0 calc(-1px - var(--sticky-top)) 0 0 var(--paper),
     0 8px 16px -10px rgb(25 46 62 / 0.35);
 }
 .section-nav :is(ol, ul) {
@@ -626,11 +626,45 @@ button svg {
 .section-nav li {
   flex: none;
 }
-.section-nav[data-overflow] :is(ol, ul) {
-  mask-image: linear-gradient(to right, #000 85%, transparent);
+/* A row of tabs that scrolls sideways fades at each edge with more past it (client/scrollFades.ts
+   marks the reading start and end; right to left in Hebrew). */
+:is(.section-nav ol, .section-nav ul, nav.segmented)[data-fade-end] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
 }
-.section-nav[data-overflow] :is(ol, ul):dir(rtl) {
-  mask-image: linear-gradient(to left, #000 85%, transparent);
+:is(.section-nav ol, .section-nav ul, nav.segmented)[data-fade-start] {
+  mask-image: linear-gradient(to right, transparent, #000 40px);
+}
+:is(
+    .section-nav ol,
+    .section-nav ul,
+    nav.segmented
+  )[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 40px,
+    #000 calc(100% - 40px),
+    transparent
+  );
+}
+:is(.section-nav ol, .section-nav ul, nav.segmented)[data-fade-end]:dir(rtl) {
+  mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+}
+:is(.section-nav ol, .section-nav ul, nav.segmented)[data-fade-start]:dir(rtl) {
+  mask-image: linear-gradient(to left, transparent, #000 40px);
+}
+:is(
+    .section-nav ol,
+    .section-nav ul,
+    nav.segmented
+  )[data-fade-start][data-fade-end]:dir(rtl) {
+  mask-image: linear-gradient(
+    to left,
+    transparent,
+    #000 40px,
+    #000 calc(100% - 40px),
+    transparent
+  );
 }
 .section-nav a {
   display: inline-flex;

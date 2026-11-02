@@ -265,6 +265,19 @@ describe("workspace and course levels", () => {
     expect(window.location.pathname).toBe("/admin/courses/sorting/policy");
   });
 
+  it("keeps a deep link to an administrator's page once the role has loaded", async () => {
+    openAddress("/admin/integrations");
+    render(<AdminApp client={demo()} />);
+    await heading("Integrations");
+    await screen.findByRole("button", { name: "Integrations" });
+    // Still there after the course and role arrived (no redirect to the Courses home).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(window.location.pathname).toBe("/admin/integrations");
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Integrations" }),
+    ).toBeInTheDocument();
+  });
+
   it("finds a course in the switcher by typing, with the keyboard only", async () => {
     atCourse();
     const user = userEvent.setup();
