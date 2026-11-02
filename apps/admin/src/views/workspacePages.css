@@ -359,12 +359,14 @@ table.audit-table th.audit-what[scope="row"] {
   font-size: var(--text-sm);
   color: var(--muted);
 }
+/* Narrower: the date ("Nov 2, 2026, 12:00 PM UTC") keeps the room it needs on one line; the
+   name column gives way, and a long name wraps under its badge. */
 @container (max-width: 900px) {
   table.audit-table col.audit-col-who {
-    width: 170px;
+    width: 150px;
   }
   table.audit-table col.audit-col-when {
-    width: 150px;
+    width: 196px;
   }
 }
 @media (max-width: 699px) {

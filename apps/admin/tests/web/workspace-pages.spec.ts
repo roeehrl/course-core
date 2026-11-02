@@ -158,6 +158,16 @@ for (const locale of ["en", "he"] as const)
           );
         expect(widths[0]!).toBeGreaterThan(Math.max(widths[1]!, widths[2]!));
       }
+      // Every date fits its cell, on one line, at every width (none cut off at the table's edge).
+      expect(
+        await page
+          .locator("table.audit-table td.cell-date")
+          .evaluateAll(
+            (cells) =>
+              cells.filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
+                .length,
+          ),
+      ).toBe(0);
       const changes = page.locator("table.policy-changes");
       await expect(changes.first()).toBeVisible();
       await expect(page.getByText("placement.assessmentIds")).toBeHidden();
