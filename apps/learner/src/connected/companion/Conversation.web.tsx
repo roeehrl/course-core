@@ -623,10 +623,25 @@ function ConversationBody({
     thread.current?.anchor(bubble, asked ?? null);
   });
 
-  // Opening: at the start of the oldest unread reply, else at the latest (§3.8 item 3).
+  // Opening: at the start of the oldest unread reply, else at the latest (§3.8 item 3). The
+  // bridge's unread fields are cleared as soon as the thread shows (unread.ts), before the thread
+  // reports that it was shown, so the oldest unread reply seen while it was hidden is kept here
+  // until an opening uses it.
+  const unreadAtOpen = useRef(companionBridge.activity().firstUnreadId);
+  useEffect(() => {
+    unreadAtOpen.current = companionBridge.activity().firstUnreadId;
+    return companionBridge.onActivity((activity) => {
+      if (activity.firstUnreadId) unreadAtOpen.current = activity.firstUnreadId;
+      // Read some other way while hidden (another enrollment, the record cleared): nothing to open at.
+      else if (!thread.current?.element()?.getClientRects().length) unreadAtOpen.current = undefined;
+    });
+  }, [context.enrollmentId]);
   const openAtStart = useCallback(() => {
-    const unread = companionBridge.activity().firstUnreadId;
-    const element = unread ? thread.current?.element()?.querySelector<HTMLElement>(`[data-message-id="${unread.replace(/["\\]/g, "")}"]`) : null;
+    const scroller = thread.current?.element();
+    const unread = companionBridge.activity().firstUnreadId ?? unreadAtOpen.current;
+    // Used once it shows; a load behind a closed companion keeps it for the opening.
+    if (scroller?.getClientRects().length) unreadAtOpen.current = undefined;
+    const element = unread ? scroller?.querySelector<HTMLElement>(`[data-message-id="${unread.replace(/["\\]/g, "")}"]`) : null;
     thread.current?.open(element ?? null);
     revealPending();
   }, []);

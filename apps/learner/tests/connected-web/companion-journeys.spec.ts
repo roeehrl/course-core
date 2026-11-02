@@ -1,5 +1,5 @@
 import { nextControlKey, test, expect, type Page } from "./health";
-import { ask, box, roundButton, startLesson, stream, thread } from "./conversation-helpers";
+import { ask, box, roundButton, settled, startLesson, stream, thread } from "./conversation-helpers";
 import { closeCompanion, companionPanel, composerBox, openCompanion } from "./companion-helpers";
 
 /*
@@ -155,9 +155,11 @@ test("in focus view Esc first stops the reply being written, then leaves focus v
   await expect(panel).toBeVisible();
 });
 
-test("the trigger's dot leads to the oldest unread reply", async ({ page }) => {
+test("the trigger's dot leads to the start of the oldest unread reply", async ({ page }) => {
   const QUESTION = "Which member is the smallest?";
-  const ANSWER = "The one no other member is smaller than.";
+  // Taller than the thread: opened at its end, the reply's start would be out of sight.
+  const ANSWER = Array.from({ length: 12 }, (_, i) =>
+    `Paragraph ${i + 1}. The one no other member is smaller than: compare each member with the smallest found so far and keep the smaller.`).join("\n\n");
   const body = (await (await page.request.post("/test/notify-session", { data: { question: QUESTION } })).json()) as { token: string; questionId: string; enrollmentId: string };
   await page.goto(`/#signin=${body.token}`);
   const course = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
@@ -176,6 +178,16 @@ test("the trigger's dot leads to the oldest unread reply", async ({ page }) => {
   const answer = companionPanel(page).locator(`[data-message-id="${replyId}"]`);
   await expect(answer).toBeInViewport();
   await expect(trigger).toHaveAccessibleName("Companion");
+  // The reply's start sits 16 px below the thread's top (§3.8 item 3), not scrolled past.
+  await settled(page);
+  const gap = await page.evaluate((id) => {
+    const log = document.querySelector("#connected-companion [role='log']")!;
+    const reply = log.querySelector(`[data-message-id="${id}"]`)!;
+    return { top: reply.getBoundingClientRect().top - log.getBoundingClientRect().top, taller: reply.getBoundingClientRect().height > log.clientHeight };
+  }, replyId);
+  expect(gap.taller).toBe(true);
+  expect(gap.top).toBeGreaterThanOrEqual(12);
+  expect(gap.top).toBeLessThanOrEqual(20);
 });
 
 test("the panel's Tab order: header, thread, Jump to latest, the notice's action, the attachment, the box, the round button", { tag: "@desktop-window" }, async ({ page, request, browserName }) => {
