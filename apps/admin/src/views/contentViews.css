@@ -306,10 +306,6 @@
 .field.cv-runs-picker {
   display: none;
 }
-/* In the list's own scroll box, each run keeps its height instead of being squeezed. */
-.cv-runs-buttons > .selector-item {
-  flex-shrink: 0;
-}
 @container (max-width: 850px) {
   .field.cv-runs-picker {
     display: flex;
@@ -471,11 +467,4 @@
   inset-block-end: 0;
   z-index: 2;
   background: var(--card);
-}
-
-/* A count or state chip in a one-line row keeps its words together. */
-.cv-row-meta .badge,
-.cv-group > summary .badge {
-  white-space: nowrap;
-  overflow-wrap: normal;
 }

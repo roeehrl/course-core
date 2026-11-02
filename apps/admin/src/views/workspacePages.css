@@ -115,7 +115,6 @@ button.count-row > svg {
 }
 .check-card > .section-heading > .badge {
   flex: none;
-  white-space: nowrap;
 }
 .check-card > p {
   margin: 0;

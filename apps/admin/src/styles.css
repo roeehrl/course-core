@@ -816,7 +816,11 @@ button svg {
   letter-spacing: 0.1px;
   background: #f0f3f4;
   color: var(--muted);
-  overflow-wrap: anywhere;
+  /* A badge is a short label: its words stay on one line, so an auto-sized grid or flex column
+     never squeezes it to a letter per line. A label longer than its column ends in an ellipsis. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .badge.blue {
   color: var(--blue);
@@ -1176,6 +1180,11 @@ input.mono {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+/* In a list that scrolls on its own (.master-detail), each item keeps its height instead of
+   being squeezed to fit, which pushed its badges out of the item. */
+.master-detail .selector-list > * {
+  flex-shrink: 0;
 }
 .selector-item {
   width: 100%;
@@ -2273,9 +2282,6 @@ legend {
   color: var(--ink);
   font-size: var(--text-xs);
   font-weight: 600;
-  white-space: nowrap;
-}
-.stacked-table .badge {
   white-space: nowrap;
 }
 /* Row actions: icon buttons in one line at the row's end; the name stays readable to screen
