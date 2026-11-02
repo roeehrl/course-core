@@ -157,7 +157,6 @@
   margin: -2px;
 }
 .policy-scope-picker .selector-item {
-  flex-shrink: 0;
   min-height: 0;
   padding: 10px 12px;
   gap: 8px;
@@ -321,10 +320,6 @@
   }
 }
 
-/* A state in a table cell ("No attempts left") stays on one line. */
-.policy-page td .badge {
-  white-space: nowrap;
-}
 /* Phones draw tables as cards: the caption becomes a plain full-width line above them instead
    of a shrink-wrapped box that breaks after every word. */
 @media (max-width: 699px) {
