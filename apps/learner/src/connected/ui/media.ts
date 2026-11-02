@@ -35,3 +35,19 @@ export const useCoarsePointer = () => useMediaQuery(MEDIA.coarse);
 export const useHoverNone = () => useMediaQuery(MEDIA.hoverNone);
 /** `prefers-reduced-motion: reduce`: every motion falls back as §1.5 says. */
 export const useReducedMotion = () => useMediaQuery(MEDIA.reducedMotion);
+
+/**
+ * A CSS time (`150ms`, `.15s`) in milliseconds; undefined when it is not one. The built
+ * stylesheet is minified, which writes `150ms` as `.15s`, so the unit is always read.
+ */
+export function cssTime(value: string): number | undefined {
+  const match = /^\s*(-?(?:\d+\.?\d*|\.\d+))(ms|s)\s*$/i.exec(value);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  return match[2]!.toLowerCase() === "s" ? amount * 1000 : amount;
+}
+
+/** A motion token's duration (`--motion-m10-duration`) on an element, in milliseconds. */
+export function motionDuration(element: Element, name: string, fallback = 0): number {
+  return cssTime(getComputedStyle(element).getPropertyValue(name)) ?? fallback;
+}

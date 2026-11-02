@@ -151,6 +151,41 @@ test("opening the panel sets the lesson's width in one step and animates only th
   await settled(companion(page));
 });
 
+test("the panel's content slides in for all of M9, and closing fades it out toward the inline end (M10)", { tag: "@desktop-window" }, async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openLesson(page);
+  await expect(companion(page)).toBeVisible();
+  await page.getByRole("button", { name: "Close companion", exact: true }).click();
+  await expect(companion(page)).toBeHidden();
+  /** Presses `selector` and reads the panel `after` ms later, in the page (no round trip between). */
+  const pressAndRead = (selector: string, after: number) =>
+    page.evaluate(async ({ selector, after }) => {
+      document.querySelector<HTMLElement>(selector)!.click();
+      await new Promise((resolve) => setTimeout(resolve, after));
+      const aside = document.querySelector<HTMLElement>("#connected-companion")!;
+      return {
+        hidden: aside.hidden,
+        entering: aside.dataset.entering === "true",
+        opacity: Number(getComputedStyle(aside).opacity),
+        shift: getComputedStyle(aside.querySelector(".cc-shell-body")!).transform,
+      };
+    }, { selector, after });
+  // 150 ms into the 240 ms slide it still moves: a message fading in inside the panel (100 ms)
+  // does not end it early.
+  const opening = await pressAndRead(".connected-companion-trigger", 150);
+  expect(opening.entering).toBe(true);
+  expect(opening.shift).not.toBe("none");
+  await settled(companion(page));
+  // 60 ms into the 150 ms close it is still drawn, fading, its content moving toward the end.
+  const closing = await pressAndRead('#connected-companion [aria-label="Close companion"]', 60);
+  expect(closing.hidden).toBe(false);
+  expect(closing.opacity).toBeLessThan(1);
+  expect(closing.opacity).toBeGreaterThan(0);
+  expect(closing.shift).not.toBe("none");
+  await expect(companion(page)).toBeHidden();
+  await expect(page.locator("#connected-companion[data-leaving]")).toHaveCount(0);
+});
+
 for (const locale of ["en", "he"] as const) {
   test(`${locale}: the splitter works from the keyboard, arrows in screen direction`, { tag: "@desktop-window" }, async ({ page }, info) => {
     await page.setViewportSize({ width: 1440, height: 900 });

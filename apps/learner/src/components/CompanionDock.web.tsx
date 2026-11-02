@@ -10,6 +10,7 @@ import { CollapsedBar, revealAnchorThenFull, useSheet } from "../connected/compa
 import { useCompanionShortcut } from "../connected/companion/shortcut";
 import { validDetent } from "../connected/companion/sheetDetents";
 import { isEditable } from "../connected/layoutViewport";
+import { motionDuration } from "../connected/ui/media";
 
 /**
  * The companion's frame (final design §2): a panel flush at the lesson's inline end with a
@@ -41,22 +42,31 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
   // Crossing between the panel and the sheet keeps it open or closed (openState.ts `sync`).
 
   // Focus follows the learner's own open and close: into the companion when they open it with the
-  // trigger or the shortcut, back to the trigger when it closes from the trigger, or with focus
-  // inside it or nowhere (heard from the store before React hides it). Where the press came from is
-  // recorded at the press: a click does not focus a button in Safari, so the focus cannot say.
+  // trigger or the shortcut, back where they opened it from when it closes (the trigger, or the
+  // lesson control they were on: "Ask the companion" at a check, a control the shortcut was
+  // pressed on), when it closes from the trigger or with focus inside it or nowhere (heard from
+  // the store before React hides it). Where the press came from is recorded at the press: a click
+  // does not focus a button in Safari, so the focus cannot say.
   const moveFocus = useRef<"panel" | "trigger" | null>(null);
   const closedByTrigger = useRef(false);
+  const opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
     let was = companionOpen.get();
     return companionOpen.subscribe(() => {
       const now = companionOpen.get();
       // A change of layout (panel to sheet) is not the learner closing it.
       const sameLayout = now.docked === was.docked;
-      if (now.open && !was.open && companionOpen.lastChange() === "action" && ["trigger", "shortcut"].includes(companionOpen.openedBy() ?? ""))
-        moveFocus.current = "panel";
       const active = document.activeElement;
       const nowhere = !active || active === document.body;
-      if (!now.open && was.open && sameLayout && (closedByTrigger.current || nowhere || panel.current?.contains(active))) moveFocus.current = "trigger";
+      if (now.open && !was.open && companionOpen.lastChange() === "action") {
+        if (["trigger", "shortcut"].includes(companionOpen.openedBy() ?? "")) moveFocus.current = "panel";
+        opener.current = companionOpen.openedBy() !== "trigger" && !nowhere && active instanceof HTMLElement && !panel.current?.contains(active) ? active : null;
+      }
+      if (!now.open && was.open && sameLayout && (closedByTrigger.current || nowhere || panel.current?.contains(active))) {
+        moveFocus.current = "trigger";
+        // Closed from the trigger, it keeps the focus: the trigger is where the learner is.
+        if (closedByTrigger.current) opener.current = null;
+      }
       closedByTrigger.current = false;
       was = now;
     });
@@ -101,8 +111,17 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
     entering.current = false;
     if (!aside || !opening || !docked) return;
     aside.dataset.entering = "true";
-    const done = () => delete aside.dataset.entering;
-    aside.addEventListener("animationend", done, { once: true });
+    // Only the panel's own M9 ends it: a shorter animation inside (a message fading in) bubbles
+    // its end up here too, and would cut the slide short.
+    const ended = (event: AnimationEvent) => {
+      if (event.animationName !== "cc-shell-panel-in" || (event.target as Element | null)?.parentElement !== aside) return;
+      done();
+    };
+    const done = () => {
+      delete aside.dataset.entering;
+      aside.removeEventListener("animationend", ended);
+    };
+    aside.addEventListener("animationend", ended);
     const timer = setTimeout(done, 1000);
     return () => clearTimeout(timer);
   }, [open, docked]);
@@ -110,7 +129,13 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
     const target = moveFocus.current;
     moveFocus.current = null;
     if (target === "panel" && open && !panel.current?.contains(document.activeElement)) panel.current?.focus({ preventScroll: true });
-    if (target === "trigger" && !open) trigger.current?.focus({ preventScroll: true });
+    if (target === "trigger" && !open) {
+      const from = opener.current;
+      opener.current = null;
+      // The place it was opened from, while it is still there to take the focus.
+      if (from?.isConnected && from.getClientRects().length > 0 && !from.closest("[hidden], [inert]")) from.focus({ preventScroll: true });
+      if (document.activeElement !== from) trigger.current?.focus({ preventScroll: true });
+    }
   }, [open]);
   function close() {
     companionOpen.close();
@@ -152,7 +177,7 @@ export function CompanionDock({ layout, headerSlot = null, lessonTitle, children
     const body = panel.current;
     if (!body || typeof body.animate !== "function") return;
     const style = getComputedStyle(body);
-    const duration = parseFloat(style.getPropertyValue("--motion-m11-duration")) || 0;
+    const duration = motionDuration(body, "--motion-m11-duration");
     if (duration) body.animate([{ opacity: 0 }, { opacity: 1 }], { duration, easing: style.getPropertyValue("--motion-m11-easing").trim() || "ease" });
   }, [view]);
 
@@ -258,7 +283,7 @@ function useExitMotion(panel: React.RefObject<HTMLElement | null>, docked: boole
     if (open || moved || !box || !aside || typeof aside.animate !== "function") return;
     const style = getComputedStyle(aside);
     const name = docked ? "--motion-m10" : "--motion-m12-close";
-    const duration = parseFloat(style.getPropertyValue(`${name}-duration`)) || 0;
+    const duration = motionDuration(aside, `${name}-duration`);
     if (!duration) return;
     const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const shift = parseFloat(style.getPropertyValue("--motion-m9-shift")) || 0;

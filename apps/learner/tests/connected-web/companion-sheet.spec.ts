@@ -80,6 +80,34 @@ test("the sheet opens at Half every time and moves between heights by press and 
   expect(errors).toEqual([]);
 });
 
+test("the sheet slides (M12): opening, a change of height and closing are drawn moving, never in one frame", async ({ page }) => {
+  await sheetWindow(page);
+  await openLesson(page);
+  /** Presses `selector` and reads the sheet `after` ms later, in the page (no round trip between). */
+  const pressAndRead = (selector: string, after: number) =>
+    page.evaluate(async ({ selector, after }) => {
+      document.querySelector<HTMLElement>(selector)!.click();
+      await new Promise((resolve) => setTimeout(resolve, after));
+      const aside = document.querySelector<HTMLElement>("#connected-companion")!;
+      const shift = /matrix\(1, 0, 0, 1, 0, (-?[\d.]+)\)/.exec(getComputedStyle(aside).transform);
+      return { hidden: aside.hidden, shift: shift ? Number(shift[1]) : 0 };
+    }, { selector, after });
+  // Up from below the window (300 ms), still on its way 100 ms in.
+  const opening = await pressAndRead(".connected-header .connected-companion-trigger", 100);
+  expect(opening.shift).toBeGreaterThan(0);
+  await settled(companion(page));
+  // A press on the handle: Half to Full, the box sliding up into place.
+  const taller = await pressAndRead("#connected-companion .cc-shell-handle", 100);
+  expect(taller.shift).toBeGreaterThan(0);
+  await settled(companion(page));
+  await expect(companion(page)).toHaveAttribute("data-detent", "full");
+  // Closing slides it down (250 ms): still drawn, part way down, 60 ms in.
+  const closing = await pressAndRead('#connected-companion [aria-label="Close companion"]', 60);
+  expect(closing.hidden).toBe(false);
+  expect(closing.shift).toBeGreaterThan(0);
+  await expect(companion(page)).toBeHidden();
+});
+
 test("the lesson stays usable beside the sheet, and focusing the message box shows the lesson part, then goes Full", async ({ page }, info) => {
   await sheetWindow(page);
   await openLesson(page);

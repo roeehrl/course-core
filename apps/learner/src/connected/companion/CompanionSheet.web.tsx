@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef } from "react";
 import { useT } from "../../i18n";
 import { Icon } from "../../components/icons/Icon.web";
 import { PreparingDots } from "../ui/PreparingDots.web";
+import { motionDuration } from "../ui/media";
 import { isEditable, keyboardHeight } from "../layoutViewport";
 import { companionFocus } from "../../client/companionFocus";
 import { useCompanionActivity } from "./bridge";
@@ -101,10 +102,6 @@ export function CollapsedBar({ kind }: { kind: SheetKind }) {
 /** The host element (`.connected-host`, or the demo's frame), where the sheet's per-frame variables are written. */
 const hostOf = (element: Element | null) => element?.closest<HTMLElement>(".connected-host, .cc-demo-dock-host") ?? null;
 const headerHeight = () => document.querySelector(".connected-header, [data-testid='demo-header']")?.getBoundingClientRect().height ?? 0;
-const motion = (element: Element, name: string, fallback: number) => {
-  const value = parseFloat(getComputedStyle(element).getPropertyValue(name));
-  return Number.isFinite(value) ? value : fallback;
-};
 const easing = (element: Element, name: string, fallback: string) =>
   getComputedStyle(element).getPropertyValue(name).trim() || fallback;
 
@@ -166,12 +163,15 @@ export function useSheet(
     const apply = (animate: boolean) => {
       const height = currentHeights(kind)[detent];
       const before = shown.current;
+      // A resize that leaves this height as it is (the header observer's first report, a window
+      // change the sheet does not feel) lets a running move finish instead of cutting it.
+      if (!animate && before && before.box === height && before.offset === 0) return;
       shown.current = { box: height, offset: 0 };
       running.current?.cancel();
       running.current = null;
       const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       if (!animate || typeof aside.animate !== "function" || (before && still)) return setHeight(height);
-      const duration = motion(aside, "--motion-m12-duration", 300);
+      const duration = motionDuration(aside, "--motion-m12-duration", 300);
       const ease = easing(aside, "--motion-m12-easing", "cubic-bezier(0.32, 0.72, 0, 1)");
       if (!before) {
         // Opening: up from below the window (reduced motion: a fade).
@@ -272,7 +272,7 @@ export function useSheet(
         // Back to where it was, from where the finger left it.
         if (typeof aside.animate === "function")
           aside.animate([{ transform: `translateY(${current.base - drawn}px)` }, { transform: "none" }], {
-            duration: motion(aside, "--motion-m12-duration", 300),
+            duration: motionDuration(aside, "--motion-m12-duration", 300),
             easing: easing(aside, "--motion-m12-easing", "ease-out"),
           });
       } else {
