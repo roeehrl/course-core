@@ -49,6 +49,11 @@ async function section(page: Page, name: string) {
   await openSection(page, name);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
   await expect(page.locator("main [aria-busy='true']")).toHaveCount(0);
+  // A section that is still loading shows skeleton rows in a card that its content then
+  // replaces; a probe added to that card would go with it.
+  await expect(page.locator("main :is(.loading, .skeleton-rows)")).toHaveCount(
+    0,
+  );
 }
 
 const pageWidth = (page: Page) =>
