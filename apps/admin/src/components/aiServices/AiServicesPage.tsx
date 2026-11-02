@@ -29,7 +29,7 @@ import { PricesSection } from "./PricesSection";
 import { SpendingSection } from "./SpendingSection";
 import { CheckSection } from "./CheckSection";
 import { AdvancedSection } from "./AdvancedSection";
-import { useStickyHeight } from "../../hooks/useStickyHeight";
+import { SectionNav } from "../SectionNav";
 import "./aiServices.css";
 
 export interface AiData {
@@ -96,58 +96,6 @@ const SECTION_TITLES: Record<SectionId | "advanced", AiKey> = {
 };
 
 const SECTION_IDS = Object.keys(SECTION_TITLES) as (SectionId | "advanced")[];
-
-/**
- * The section being read: the last one whose top has passed the sticky bars (the first one before
- * any has), followed as the page scrolls.
- */
-function useCurrentSection(ready: boolean) {
-  const [current, setCurrent] = useState<SectionId | "advanced">();
-  useEffect(() => {
-    if (!ready) return;
-    const sections = SECTION_IDS.map((id) =>
-      document.getElementById(sectionAnchor(id)),
-    ).filter((el): el is HTMLElement => !!el);
-    const pick = () => {
-      // A section counts once its top reaches the bottom of the sticky links (a jump to it
-      // stops 12px below them, aiServices.css scroll-padding-top).
-      const toc = document.querySelector(".ai-toc");
-      const offset = (toc?.getBoundingClientRect().bottom ?? 0) + 24;
-      let found = sections[0];
-      for (const section of sections)
-        if (section.getBoundingClientRect().top <= offset) found = section;
-      // At the very end of the page the last section counts, however short it is.
-      if (
-        window.innerHeight + window.scrollY >=
-        document.documentElement.scrollHeight - 2
-      )
-        found = sections.at(-1);
-      const id = SECTION_IDS.find((s) => sectionAnchor(s) === found?.id);
-      setCurrent(id);
-    };
-    let frame = 0;
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(pick);
-    };
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    // A section that opens or grows moves the others without a scroll.
-    const resized =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(schedule);
-    resized?.observe(document.body);
-    pick();
-    return () => {
-      resized?.disconnect();
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-    };
-  }, [ready]);
-  return current;
-}
 
 /**
  * Admin "AI services": one page, sections in the order the work is done (connections, models for
@@ -244,9 +192,6 @@ export function AiServicesPage({
     return handlers;
   }, []);
   const status = data ? pageStatus(data) : null;
-  // The section links stick under the top bar; their height keeps anchors and focus clear of them.
-  const tocRef = useStickyHeight("--ai-toc-height");
-  const current = useCurrentSection(!!data);
   const jump =
     (section: SectionId | "advanced") => (event: React.MouseEvent) => {
       event.preventDefault();
@@ -343,25 +288,13 @@ export function AiServicesPage({
                 )}
               </div>
             </div>
-            <nav
-              className="ai-toc section-nav"
-              aria-label={t("aiServices.page.sections")}
-              ref={tocRef}
-            >
-              <ol>
-                {SECTION_IDS.map((id) => (
-                  <li key={id}>
-                    <a
-                      href={`#${sectionAnchor(id)}`}
-                      onClick={jump(id)}
-                      aria-current={current === id ? "true" : undefined}
-                    >
-                      {t(SECTION_TITLES[id])}
-                    </a>
-                  </li>
-                ))}
-              </ol>
-            </nav>
+            <SectionNav
+              label={t("aiServices.page.sections")}
+              sections={SECTION_IDS.map((id) => ({
+                id: sectionAnchor(id),
+                label: t(SECTION_TITLES[id]),
+              }))}
+            />
             <SectionsList
               data={data}
               status={status}

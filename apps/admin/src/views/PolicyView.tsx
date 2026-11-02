@@ -2,9 +2,7 @@ import { useScopeLabel } from "../components/scopeLabel";
 import { PolicyMigrationEditor } from "../components/PolicyMigrationEditor";
 import {
   useEffect,
-  useRef,
   useState,
-  type MouseEvent,
   type PropsWithChildren,
   type ReactNode,
 } from "react";
@@ -41,6 +39,7 @@ import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import { learnerName } from "../domain/learnerName";
 import { serverMessageText } from "../domain/serverMessages";
+import { SectionNav } from "../components/SectionNav";
 import "./policy.css";
 
 /** First strong isolate … pop directional isolate: a name or version keeps its own direction and
@@ -69,43 +68,12 @@ function Section({ id, children }: PropsWithChildren<{ id: SectionId }>) {
   );
 }
 
-/** The sticky "On this page" bar. It lists only the sections that are on the page now (a card
- * hidden from people without access is skipped) and marks the one being read. */
+/** The sticky "On this page" bar (SectionNav). It lists only the sections that are on the page
+ * now (a card hidden from people without access is skipped). */
 function PolicySectionNav() {
   const t = useT();
   const all = SECTIONS.map(([id]) => id);
   const [present, setPresent] = useState<SectionId[]>(all);
-  const [current, setCurrent] = useState<SectionId>();
-  const bar = useRef<HTMLElement>(null);
-  // On a narrow screen the bar scrolls sideways: keep the current section's link in view, and
-  // fade the far edge while there is more to scroll to.
-  useEffect(() => {
-    const nav = bar.current,
-      list = nav?.querySelector("ol");
-    if (!nav || !list) return;
-    const fade = () =>
-      nav.toggleAttribute(
-        "data-overflow",
-        list.scrollWidth > list.clientWidth + 1 &&
-          Math.abs(list.scrollLeft) + list.clientWidth < list.scrollWidth - 1,
-      );
-    const link = list.querySelector<HTMLElement>("[aria-current]");
-    if (link) {
-      const a = link.getBoundingClientRect(),
-        box = list.getBoundingClientRect();
-      if (a.left < box.left || a.right > box.right)
-        list.scrollBy({
-          left: a.left - box.left - (box.width - a.width) / 2,
-        });
-    }
-    fade();
-    list.addEventListener("scroll", fade, { passive: true });
-    window.addEventListener("resize", fade);
-    return () => {
-      list.removeEventListener("scroll", fade);
-      window.removeEventListener("resize", fade);
-    };
-  }, [current, present]);
   useEffect(() => {
     const update = () => {
       const ids = all.filter(
@@ -122,52 +90,14 @@ function PolicySectionNav() {
     if (page) observer?.observe(page, { childList: true, subtree: true });
     return () => observer?.disconnect();
   }, []);
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const seen = new Map<string, boolean>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries)
-          seen.set(entry.target.id, entry.isIntersecting);
-        const first = present.find((id) => seen.get(id));
-        if (first) setCurrent(first);
-      },
-      { rootMargin: "-140px 0px -55% 0px" },
-    );
-    for (const id of present) {
-      const element = document.getElementById(id);
-      if (element) observer.observe(element);
-    }
-    return () => observer.disconnect();
-  }, [present]);
-  const jump = (id: SectionId) => (event: MouseEvent) => {
-    event.preventDefault();
-    const target = document.getElementById(id);
-    target?.scrollIntoView({ block: "start" });
-    target?.focus({ preventScroll: true });
-    setCurrent(id);
-  };
   if (present.length < 2) return null;
   return (
-    <nav
-      ref={bar}
-      className="policy-nav section-nav"
-      aria-label={t("policyView.nav.label")}
-    >
-      <ol>
-        {SECTIONS.filter(([id]) => present.includes(id)).map(([id, key]) => (
-          <li key={id}>
-            <a
-              href={`#${id}`}
-              onClick={jump(id)}
-              aria-current={current === id ? "true" : undefined}
-            >
-              {t(key)}
-            </a>
-          </li>
-        ))}
-      </ol>
-    </nav>
+    <SectionNav
+      label={t("policyView.nav.label")}
+      sections={SECTIONS.filter(([id]) => present.includes(id)).map(
+        ([id, key]) => ({ id, label: t(key) }),
+      )}
+    />
   );
 }
 

@@ -569,8 +569,9 @@ button svg {
 .page-stack > * {
   max-inline-size: none;
 }
-/* An in-page link bar for long pages: it sticks under the top edge while the page scrolls, and
-   on phones it is one line that scrolls sideways instead of a block of wrapped links. */
+/* An in-page link bar for long pages (components/SectionNav.tsx): it sticks under the top edge
+   while the page scrolls, and on phones it is one line that scrolls sideways instead of a block
+   of wrapped links, its far edge fading while there is more. */
 .section-nav {
   position: sticky;
   top: var(--sticky-top);
@@ -590,7 +591,20 @@ button svg {
   padding: 0;
   list-style: none;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
+}
+.section-nav :is(ol, ul)::-webkit-scrollbar {
+  display: none;
+}
+.section-nav li {
+  flex: none;
+}
+.section-nav[data-overflow] :is(ol, ul) {
+  mask-image: linear-gradient(to right, #000 85%, transparent);
+}
+.section-nav[data-overflow] :is(ol, ul):dir(rtl) {
+  mask-image: linear-gradient(to left, #000 85%, transparent);
 }
 .section-nav a {
   display: inline-flex;
@@ -604,9 +618,14 @@ button svg {
   text-decoration: none;
   white-space: nowrap;
 }
-.section-nav a:hover,
+.section-nav a:hover {
+  background: var(--ice);
+}
+/* The section being read: drawn like a chosen item in a list (.selector-item.selected). */
 .section-nav a[aria-current] {
   background: var(--ice);
+  box-shadow: inset 0 0 0 1px #9ab4c6;
+  color: var(--ink);
 }
 .stack {
   display: flex;
@@ -1126,8 +1145,10 @@ input.mono {
    stay put). Below 850px the two stack, and the list is capped instead (see the container query). */
 .master-detail > :first-child {
   position: sticky;
-  top: var(--sticky-top);
-  max-height: calc(100dvh - var(--sticky-top) - 16px);
+  top: var(--sticky-content-top, var(--sticky-top));
+  max-height: calc(
+    100dvh - var(--sticky-content-top, var(--sticky-top)) - 16px
+  );
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3912,6 +3933,17 @@ html:has(.app-bar) {
      under it: the bar's measured height (--app-bar-height, published by AdminApp as the bar
      grows or shrinks) plus a gap. */
   scroll-padding-top: calc(var(--app-bar-height, 64px) + 12px);
+}
+/* A page with a section link bar: a link to a section, focus and find-in-page stop below the bar
+   (its measured height, --section-nav-height, from SectionNav), and a sticky list below it
+   (.master-detail) sticks under it, not behind it. */
+:root:has(.section-nav) {
+  --sticky-content-top: calc(
+    var(--sticky-top) + var(--section-nav-height, 50px) + 12px
+  );
+  scroll-padding-top: calc(
+    var(--sticky-top) + var(--section-nav-height, 50px) + 12px
+  );
 }
 .topbar.app-bar {
   position: sticky;
