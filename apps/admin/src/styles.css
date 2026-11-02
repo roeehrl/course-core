@@ -653,6 +653,13 @@ button svg {
   gap: 16px;
   min-width: 0;
 }
+/* A list laid out as a stack is a list of items (records, requests), not running text: no
+   bullets and no indent. */
+:is(ul, ol).stack {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .section-heading {
   display: flex;
   justify-content: space-between;
@@ -798,6 +805,18 @@ button svg {
   gap: 4px;
   max-width: 100%;
   min-width: 0;
+}
+/* In a row of actions, a button with its reason under it is taller than its neighbours: the row
+   lines the buttons up at their tops (not their middles), so they stay level. */
+:is(
+  .action-row,
+  .button-row,
+  .tag-row,
+  .dialog-footer,
+  .sticky-actions,
+  .ai-actions
+):has(> .button-with-reason) {
+  align-items: flex-start;
 }
 .button-reason {
   display: block;

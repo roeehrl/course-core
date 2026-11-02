@@ -146,6 +146,22 @@ for (const locale of ["en", "he"] as const) {
       expect(m.textWidth).toBeGreaterThan(m.rowWidth * 0.6);
       expect(m.gap).toBeGreaterThanOrEqual(8);
     }
+    // A disabled save with its reason under it stays level with the button beside it.
+    const saveRow = page
+      .locator(".supervision-settings .button-row")
+      .filter({ has: page.locator(".button-reason") })
+      .first();
+    await expect(saveRow).toBeVisible();
+    const buttonTops = await saveRow
+      .locator(".button")
+      .evaluateAll((buttons) =>
+        buttons.map((b) => Math.round(b.getBoundingClientRect().top)),
+      );
+    expect(buttonTops.length).toBeGreaterThan(1);
+    if (new Set(buttonTops).size > 1) {
+      // Wrapped onto two lines on a narrow page: each line's first button starts it.
+      expect(width).toBeLessThan(500);
+    }
     expect(await pageWidth(page)).toBeLessThanOrEqual(width);
   });
 
