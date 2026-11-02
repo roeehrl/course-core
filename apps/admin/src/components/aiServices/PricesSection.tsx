@@ -16,6 +16,7 @@ import {
   Field,
   Ltr,
   Message,
+  SaveBar,
   Section,
   described,
   errorText,
@@ -390,116 +391,133 @@ export function PricesSection(props: Props) {
         }}
       >
         <ErrorSummary errors={errors} />
-        {groups.map((group) => {
-          const current = data.pricing?.models.find(
-            (m) => group.modelIds.includes(m.modelId) && m.inForce,
-          )?.inForce;
-          const listName = group.remoteModel;
-          return (
-            <fieldset className="ai-price" key={group.key}>
-              <legend>
-                <Ltr className="mono">{listName}</Ltr>
-                <span className="ai-muted">
-                  {" "}
-                  ·{" "}
-                  {t("aiServices.prices.usedBy", {
-                    roles: text.list(group.roles.map((r) => jobName(t, r))),
-                  })}
-                </span>
-              </legend>
-              {current && (
-                <p className="ai-muted">
-                  {t("aiServices.prices.current", {
-                    date: text.date(current.effectiveFrom),
-                  })}
-                </p>
-              )}
-              {!group.priced && (
-                <p className="ai-muted">{t("aiServices.prices.missingNote")}</p>
-              )}
-              {scheduledFor(group).map((version, index) => (
-                <div className="ai-price-scheduled" key={version.id}>
-                  <p>{scheduledText(text, version)}</p>
-                  <div className="ai-actions ai-actions-start">
-                    <button
-                      type="button"
-                      className="button quiet"
-                      disabled={saving}
-                      onClick={() => setEditing({ group, version })}
-                    >
-                      {t("aiServices.prices.scheduledEdit")}
-                    </button>
-                    <button
-                      type="button"
-                      className="button quiet"
-                      disabled={saving}
-                      onClick={() => setKeeping({ group, version })}
-                    >
-                      {t(
-                        index === 0
-                          ? "aiServices.prices.scheduledKeep"
-                          : "aiServices.prices.scheduledRemove",
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ))}
-              <TableNote
-                suggestion={suggestionFor(group)}
-                prefilled={prefilled.includes(group.key)}
-                scheduled={scheduledFor(group)}
-              />
-              <div className="ai-grid">
-                {money(group, "input", t("aiServices.prices.input"))}
-                {money(group, "output", t("aiServices.prices.output"))}
-              </div>
-              <details>
-                <summary>{t("aiServices.prices.more")}</summary>
-                <div className="ai-grid">
-                  {money(group, "cached", t("aiServices.prices.cached"))}
-                  {money(
-                    group,
-                    "perRequest",
-                    t("aiServices.prices.perRequest"),
-                  )}
-                  {group.roles.includes("research") &&
-                    money(group, "perSearch", t("aiServices.prices.perSearch"))}
-                  {group.roles.includes("media") &&
-                    money(
-                      group,
-                      "perVideoSecond",
-                      t("aiServices.prices.perVideoSecond"),
-                    )}
-                </div>
-              </details>
-              <Field
-                id={fieldId(group, "source")}
-                label={t("aiServices.prices.source")}
-                error={
-                  errors.find((e) => e.field === fieldId(group, "source"))
-                    ?.message
-                }
+        <div className="ai-prices">
+          {groups.map((group) => {
+            const current = data.pricing?.models.find(
+              (m) => group.modelIds.includes(m.modelId) && m.inForce,
+            )?.inForce;
+            const listName = group.remoteModel;
+            const headingId = fieldId(group, "title");
+            return (
+              // A group named by a heading, not a legend: a long name wraps inside the card.
+              <div
+                className="ai-price"
+                role="group"
+                aria-labelledby={headingId}
+                key={group.key}
               >
-                <input
-                  id={fieldId(group, "source")}
-                  maxLength={500}
-                  value={forms[group.key]?.source ?? ""}
-                  disabled={saving}
-                  onChange={(event) =>
-                    update(group, "source", event.target.value)
-                  }
+                <div className="ai-price-head">
+                  <h3 id={headingId}>
+                    <Ltr className="mono">{listName}</Ltr>
+                  </h3>
+                  <p className="ai-muted">
+                    {t("aiServices.prices.usedBy", {
+                      roles: text.list(group.roles.map((r) => jobName(t, r))),
+                    })}
+                  </p>
+                </div>
+                {current && (
+                  <p className="ai-muted">
+                    {t("aiServices.prices.current", {
+                      date: text.date(current.effectiveFrom),
+                    })}
+                  </p>
+                )}
+                {!group.priced && (
+                  <p className="ai-muted">
+                    {t("aiServices.prices.missingNote")}
+                  </p>
+                )}
+                {scheduledFor(group).map((version, index) => (
+                  <div className="ai-price-scheduled" key={version.id}>
+                    <p>{scheduledText(text, version)}</p>
+                    <div className="ai-actions ai-actions-start">
+                      <button
+                        type="button"
+                        className="button quiet"
+                        disabled={saving}
+                        onClick={() => setEditing({ group, version })}
+                      >
+                        {t("aiServices.prices.scheduledEdit")}
+                      </button>
+                      <button
+                        type="button"
+                        className="button quiet"
+                        disabled={saving}
+                        onClick={() => setKeeping({ group, version })}
+                      >
+                        {t(
+                          index === 0
+                            ? "aiServices.prices.scheduledKeep"
+                            : "aiServices.prices.scheduledRemove",
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <TableNote
+                  suggestion={suggestionFor(group)}
+                  prefilled={prefilled.includes(group.key)}
+                  scheduled={scheduledFor(group)}
                 />
-              </Field>
-              {scheduledFor(group)[0] && (
-                <p className="ai-muted ai-price-preview">
-                  {t("aiServices.prices.previewUntil", {
-                    date: text.date(scheduledFor(group)[0]!.effectiveFrom),
-                  })}
-                </p>
-              )}
-            </fieldset>
-          );
-        })}
+                <div className="ai-grid">
+                  {money(group, "input", t("aiServices.prices.input"))}
+                  {money(group, "output", t("aiServices.prices.output"))}
+                </div>
+                <details>
+                  <summary>{t("aiServices.prices.more")}</summary>
+                  <div className="ai-grid">
+                    {money(group, "cached", t("aiServices.prices.cached"))}
+                    {money(
+                      group,
+                      "perRequest",
+                      t("aiServices.prices.perRequest"),
+                    )}
+                    {group.roles.includes("research") &&
+                      money(
+                        group,
+                        "perSearch",
+                        t("aiServices.prices.perSearch"),
+                      )}
+                    {group.roles.includes("media") &&
+                      money(
+                        group,
+                        "perVideoSecond",
+                        t("aiServices.prices.perVideoSecond"),
+                      )}
+                  </div>
+                </details>
+                <Field
+                  id={fieldId(group, "source")}
+                  label={t("aiServices.prices.source")}
+                  error={
+                    errors.find((e) => e.field === fieldId(group, "source"))
+                      ?.message
+                  }
+                >
+                  <textarea
+                    id={fieldId(group, "source")}
+                    className="ai-source"
+                    rows={2}
+                    maxLength={500}
+                    value={forms[group.key]?.source ?? ""}
+                    disabled={saving}
+                    onChange={(event) =>
+                      update(group, "source", event.target.value)
+                    }
+                  />
+                </Field>
+                {scheduledFor(group)[0] && (
+                  <p className="ai-muted ai-price-preview">
+                    {t("aiServices.prices.previewUntil", {
+                      date: text.date(scheduledFor(group)[0]!.effectiveFrom),
+                    })}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
         {message && <Message tone={message.tone}>{message.text}</Message>}
         {snapshot.changedElsewhere && (
           <ChangedElsewhere
@@ -508,17 +526,18 @@ export function PricesSection(props: Props) {
             onKeep={snapshot.keep}
           />
         )}
-        <div className="ai-actions">
+        <SaveBar id={`${base}-state`} changed={savable.length > 0}>
           <button
             type="submit"
             className="button primary"
             disabled={saving || !savable.length || snapshot.changedElsewhere}
+            aria-describedby={`${base}-state`}
           >
             {saving
               ? t("aiServices.prices.saving")
               : t("aiServices.prices.save")}
           </button>
-        </div>
+        </SaveBar>
       </form>
       {editing && data.pricing && (
         <ScheduledPriceDialog

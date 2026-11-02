@@ -1,10 +1,10 @@
-import { ChevronRight } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { SectionProps } from "./AiServicesPage";
 import {
   Field,
   Ltr,
   Message,
+  SaveBar,
   described,
   errorText,
   jobName,
@@ -24,6 +24,9 @@ interface Adapter {
   subscriptionRef?: string;
   automaticFallback?: { enabled: boolean; credentialEnv?: string };
 }
+
+/** Setup history entries shown before "Show all". */
+const HISTORY_SHOWN = 5;
 
 /** Line and column of a JSON.parse error, when the engine reports a position. */
 function jsonError(
@@ -68,7 +71,8 @@ export function AdvancedSection(props: Props) {
   const policy = data.setup.jobPolicy;
   const initialLimits = {
     cost: String(policy.allowance.microUsd / 1000000),
-    tokens: String(policy.allowance.tokens),
+    // With the locale's grouping (529,152); separators are ignored when it is read back.
+    tokens: text.count(policy.allowance.tokens),
     deadline: String(Math.round(policy.durationMs / 60000)),
     timeout: String(Math.round(policy.timeoutMs / 1000)),
     attempts: String(policy.maxAttempts),
@@ -140,7 +144,7 @@ export function AdvancedSection(props: Props) {
     if (limitsEdit.changedElsewhere) return;
     const numbers = {
       cost: Math.round(Number(limits.cost) * 1000000),
-      tokens: Number(limits.tokens),
+      tokens: Number(limits.tokens.replace(/[\s,.'\u00a0\u202f\u066c]/g, "")),
       deadline: Number(limits.deadline),
       timeout: Number(limits.timeout),
       attempts: Number(limits.attempts),
@@ -270,15 +274,12 @@ export function AdvancedSection(props: Props) {
       row: o,
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
+  const [allHistory, setAllHistory] = useState(false);
+  const shownHistory = allHistory ? history : history.slice(0, HISTORY_SHOWN);
   return (
     <details id={sectionAnchor("advanced")} className="ai-section ai-advanced">
       <summary>
         <span className="ai-summary-title">
-          <ChevronRight
-            size={20}
-            aria-hidden="true"
-            className="ai-chevron flip-rtl"
-          />
           <h2>{t("aiServices.section.advanced")}</h2>
         </span>
         {props.unsaved && (
@@ -401,7 +402,10 @@ export function AdvancedSection(props: Props) {
             onKeep={limitsEdit.keep}
           />
         )}
-        <div className="ai-actions">
+        <SaveBar
+          id={`${base}-limits-state`}
+          changed={JSON.stringify(limits) !== limitsKey}
+        >
           <button
             type="button"
             className="button secondary"
@@ -410,11 +414,12 @@ export function AdvancedSection(props: Props) {
               JSON.stringify(limits) === limitsKey ||
               limitsEdit.changedElsewhere
             }
+            aria-describedby={`${base}-limits-state`}
             onClick={saveLimits}
           >
             {t("aiServices.advanced.saveLimits")}
           </button>
-        </div>
+        </SaveBar>
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-fallback`}>
@@ -462,26 +467,29 @@ export function AdvancedSection(props: Props) {
           />
         </Field>
         {show("youtube")}
-        <div className="ai-actions">
+        <SaveBar id={`${base}-youtube-state`} changed={!!youtube.trim()}>
           <button
             type="button"
             className="button secondary"
             disabled={busy || !youtube.trim()}
+            aria-describedby={`${base}-youtube-state`}
             onClick={() => void serviceKey(youtube.trim())}
           >
             {t("aiServices.advanced.saveServiceKey")}
           </button>
-          {youtubeConfigured && (
+        </SaveBar>
+        {youtubeConfigured && (
+          <div className="ai-actions">
             <button
               type="button"
-              className="button danger"
+              className="button quiet danger"
               disabled={busy}
               onClick={() => void serviceKey(null)}
             >
               {t("aiServices.advanced.removeServiceKey")}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-rule`}>
@@ -519,7 +527,10 @@ export function AdvancedSection(props: Props) {
             onKeep={ruleEdit.keep}
           />
         )}
-        <div className="ai-actions">
+        <SaveBar
+          id={`${base}-rule-state`}
+          changed={rule.require !== requirePricing}
+        >
           <button
             type="button"
             className="button secondary"
@@ -529,19 +540,35 @@ export function AdvancedSection(props: Props) {
               rule.require === requirePricing ||
               (!rule.require && !rule.ack)
             }
+            aria-describedby={`${base}-rule-state`}
             onClick={() => void saveRule()}
           >
             {t("aiServices.advanced.saveRule")}
           </button>
-        </div>
+        </SaveBar>
       </section>
 
       <section className="ai-sub" aria-labelledby={`${base}-history`}>
         <h3 id={`${base}-history`}>{t("aiServices.advanced.historyTitle")}</h3>
         <p className="ai-muted">{t("aiServices.advanced.cli")}</p>
+        <details className="ai-technical">
+          <summary>{t("aiServices.connect.technical")}</summary>
+          <p className="ai-muted">
+            {t("aiServices.advanced.cliCommand")}{" "}
+            {/* i18n-ignore: a shell command, typed as it is in every language */}
+            <Ltr className="mono">npm run eval:agents</Ltr>
+          </p>
+          <p className="ai-muted">
+            {t("aiServices.advanced.cliUpload")}{" "}
+            <Ltr className="mono">
+              {/* i18n-ignore: an API request line, the same in every language */}
+              POST /api/admin/workspaces/…/provider-evals/results
+            </Ltr>
+          </p>
+        </details>
         {history.length ? (
-          <ul className="ai-list">
-            {history.map((item) => (
+          <ul className="ai-list ai-history-list">
+            {shownHistory.map((item) => (
               <li key={item.row.id}>
                 {item.kind === "result"
                   ? t("aiServices.advanced.historyResult", {
@@ -568,7 +595,7 @@ export function AdvancedSection(props: Props) {
                   </>
                 )}
                 <br />
-                <span className="ai-muted">
+                <span className="ai-muted ai-fingerprint">
                   {t("aiServices.advanced.fingerprint")}:{" "}
                   <Ltr className="mono">
                     {item.row.revisionDigest.slice(0, 16)}
@@ -579,6 +606,22 @@ export function AdvancedSection(props: Props) {
           </ul>
         ) : (
           <p className="ai-muted">{t("aiServices.advanced.historyEmpty")}</p>
+        )}
+        {history.length > HISTORY_SHOWN && (
+          <div className="ai-actions">
+            <button
+              type="button"
+              className="button quiet"
+              aria-expanded={allHistory}
+              onClick={() => setAllHistory((value) => !value)}
+            >
+              {allHistory
+                ? t("aiServices.advanced.historyFewer")
+                : t("aiServices.advanced.historyAll", {
+                    count: history.length,
+                  })}
+            </button>
+          </div>
         )}
       </section>
     </details>
