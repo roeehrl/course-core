@@ -14,9 +14,11 @@ export function DemoCompanionSlot({ onSlot }: { onSlot: (element: HTMLElement | 
  * docked panel at the page's inline end, full height under the header, with its divider, About,
  * Expand (focus view) and Close, and the trigger in the header; a nonmodal sheet on phones,
  * tablets in portrait and short windows. The demo's own guidance and notes are its content. The
- * page makes room for the panel (demo.css), and the panel's width is kept like the real one's.
+ * header runs the window's full width above the page and the panel, as the connected app's does,
+ * so its trigger stays put when the panel opens or closes; only the page under it makes room for
+ * the panel (layout.css), and the panel's width is kept like the real one's.
  */
-export function DemoCompanionDock({ width, height, headerSlot, lessonTitle, companion, children }: DemoCompanionDockProps) {
+export function DemoCompanionDock({ width, height, headerSlot, lessonTitle, header = null, companion, children }: DemoCompanionDockProps) {
   const layout = companionLayout(width, height);
   const docked = layout.placement === "docked";
   const host = useRef<HTMLDivElement>(null);
@@ -55,6 +57,7 @@ export function DemoCompanionDock({ width, height, headerSlot, lessonTitle, comp
       className="cc-demo-dock-host"
       data-docked={docked && open ? (view === "focus" ? "focus" : "open") : undefined}
     >
+      {header}
       {/* The learning content, which the panel's divider names (`aria-controls`). */}
       <div id="connected-learning" className="cc-demo-page">{children}</div>
       {companion && (

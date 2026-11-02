@@ -45,6 +45,9 @@ test("the draft keeps its value and focus across window sizes, and closing retur
   // A tablet in portrait: the learner who was typing keeps the companion, now a sheet, and the
   // same field with its text and focus.
   await page.setViewportSize({ width: 834, height: 1112 });
+  // No sideways page scroll at any width, not even in the frame before the page reads the new
+  // width and moves the panel into the sheet (§2).
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await expect(companion).toHaveAttribute("data-placement", "sheet");
   await expect(companion).toHaveClass(/is-tablet/);
   await expect(draft).toBeFocused();

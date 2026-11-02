@@ -144,6 +144,96 @@ function LearnerWorkspace({
       mode={snapshot?.mode ?? "demo"}
     />
   );
+  // The header runs the window's full width above the page and the companion's panel (on the
+  // web it is outside the page's scroll view, so opening the panel never moves its controls);
+  // native keeps it at the top of the page.
+  const header = (
+    <View
+      testID="demo-header"
+      style={{
+        backgroundColor: tokens.surface,
+        borderBottomWidth: 1,
+        borderColor: tokens.line,
+      }}
+    >
+      <View
+        style={[
+          styles.spread,
+          {
+            width: "100%",
+            maxWidth: 1280,
+            alignSelf: "center",
+            paddingHorizontal: layout.compact ? 20 : 40,
+            paddingVertical: 18,
+          },
+        ]}
+      >
+        <View style={styles.row}>
+          <View
+            style={{
+              width: 35,
+              height: 35,
+              borderRadius: 10,
+              backgroundColor: tokens.accent,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text
+              style={{
+                color: tokens.onAccent,
+                fontSize: 23,
+                fontWeight: "700",
+              }}
+            >
+              {/* i18n-ignore: logo letter of the product name, not translated */}
+              c
+            </Text>
+          </View>
+          {/* The product name stays Latin and left to right in every locale. */}
+          <Text
+            style={{
+              color: tokens.ink,
+              fontSize: 21,
+              letterSpacing: -0.8,
+              fontWeight: "700",
+              writingDirection: "ltr",
+            }}
+          >
+            {/* i18n-ignore: product name wordmark, not translated */}
+            course<Text style={{ color: tokens.accent }}>{/* i18n-ignore: product name wordmark */}core</Text>
+          </Text>
+        </View>
+        {/* Shrinks to the window, so on the narrowest phones its buttons wrap instead of running
+            past its edge. */}
+        <View style={[styles.row, { gap: 6, flexShrink: 1 }]}>
+          {snapshot && (
+            <>
+              <Button
+                label={t("learnerApp.nav.path")}
+                kind="quiet"
+                onPress={() => navigate({ screen: "roadmap" })}
+                disabled={pending}
+              />
+              {web && <DemoCompanionSlot onSlot={setCompanionSlot} />}
+              {!web && !layout.companionPane && (
+                <CompanionNavButton
+                  label={t("learnerApp.nav.companion")}
+                  onPress={() => openDialog("companion")}
+                  disabled={pending}
+                />
+              )}
+              <Button
+                label={t("learnerApp.nav.profile")}
+                onPress={() => openDialog("profile")}
+                disabled={pending}
+              />
+            </>
+          )}
+        </View>
+      </View>
+    </View>
+  );
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: tokens.page }}
@@ -153,6 +243,7 @@ function LearnerWorkspace({
         width={Math.min(dimensions.width, containerWidth)}
         height={dimensions.height}
         headerSlot={companionSlot}
+        header={web ? header : null}
         companion={web && snapshot ? companion : null}
         {...(lesson?.title ? { lessonTitle: lesson.title } : {})}
       >
@@ -161,89 +252,7 @@ function LearnerWorkspace({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ flexGrow: 1 }}
       >
-        <View
-          testID="demo-header"
-          style={{
-            backgroundColor: tokens.surface,
-            borderBottomWidth: 1,
-            borderColor: tokens.line,
-          }}
-        >
-          <View
-            style={[
-              styles.spread,
-              {
-                width: "100%",
-                maxWidth: 1280,
-                alignSelf: "center",
-                paddingHorizontal: layout.compact ? 20 : 40,
-                paddingVertical: 18,
-              },
-            ]}
-          >
-            <View style={styles.row}>
-              <View
-                style={{
-                  width: 35,
-                  height: 35,
-                  borderRadius: 10,
-                  backgroundColor: tokens.accent,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: tokens.onAccent,
-                    fontSize: 23,
-                    fontWeight: "700",
-                  }}
-                >
-                  {/* i18n-ignore: logo letter of the product name, not translated */}
-                  c
-                </Text>
-              </View>
-              {/* The product name stays Latin and left to right in every locale. */}
-              <Text
-                style={{
-                  color: tokens.ink,
-                  fontSize: 21,
-                  letterSpacing: -0.8,
-                  fontWeight: "700",
-                  writingDirection: "ltr",
-                }}
-              >
-                {/* i18n-ignore: product name wordmark, not translated */}
-                course<Text style={{ color: tokens.accent }}>{/* i18n-ignore: product name wordmark */}core</Text>
-              </Text>
-            </View>
-            <View style={[styles.row, { gap: 6 }]}>
-              {snapshot && (
-                <>
-                  <Button
-                    label={t("learnerApp.nav.path")}
-                    kind="quiet"
-                    onPress={() => navigate({ screen: "roadmap" })}
-                    disabled={pending}
-                  />
-                  {web && <DemoCompanionSlot onSlot={setCompanionSlot} />}
-                  {!web && !layout.companionPane && (
-                    <CompanionNavButton
-                      label={t("learnerApp.nav.companion")}
-                      onPress={() => openDialog("companion")}
-                      disabled={pending}
-                    />
-                  )}
-                  <Button
-                    label={t("learnerApp.nav.profile")}
-                    onPress={() => openDialog("profile")}
-                    disabled={pending}
-                  />
-                </>
-              )}
-            </View>
-          </View>
-        </View>
+        {!web && header}
         {!snapshot ? (
           <View style={{ padding: 40, gap: 20 }}>
             {error ? (

@@ -114,7 +114,18 @@ test("effective-window adaptation preserves drafts and companion notes", async (
   expect(box.y).toBeGreaterThanOrEqual((await page.getByTestId("demo-header").boundingBox())!.height - 1);
   await expect(page.getByRole("separator", { name: "Resize companion" })).toBeVisible();
   for (const name of ["About your companion", "Expand", "Close companion"]) await expect(pane.getByRole("button", { name, exact: true })).toBeVisible();
-  await expect(page.getByTestId("demo-header").getByRole("button", { name: "Companion", exact: true })).toHaveAttribute("aria-expanded", "true");
+  const trigger = page.getByTestId("demo-header").getByRole("button", { name: "Companion", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  // The header runs the window's full width above the panel, as the connected app's does: its
+  // controls stay where they are when the panel closes and opens again.
+  expect(Math.round((await page.getByTestId("demo-header").boundingBox())!.width)).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+  const openAt = (await trigger.boundingBox())!;
+  await trigger.click();
+  await expect(pane).toHaveCount(0);
+  expect((await trigger.boundingBox())!.x).toBeCloseTo(openAt.x, 0);
+  await trigger.click();
+  await expect(pane).toBeVisible();
+  expect((await trigger.boundingBox())!.x).toBeCloseTo(openAt.x, 0);
   const companion = pane;
   await expect(companion.getByRole("heading", { level: 2, name: "Companion" })).toBeVisible();
   await expect(companion.getByText("Demo · authored guidance. No live AI is connected.")).toHaveCount(1);

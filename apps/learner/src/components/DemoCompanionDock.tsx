@@ -11,6 +11,9 @@ export interface DemoCompanionDockProps {
   height: number;
   headerSlot: HTMLElement | null;
   lessonTitle?: string;
+  /** The page's header, drawn full width above the page and the panel (web; null on native,
+   * where the page keeps it). */
+  header?: React.ReactNode;
   /** The companion, on the web (null while the course loads). */
   companion: React.ReactNode;
   /** The page. */

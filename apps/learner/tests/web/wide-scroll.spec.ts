@@ -197,11 +197,17 @@ for (const viewport of VIEWPORTS)
     // the connected app): closed, the margins on both sides are the page's.
     await page.getByRole("button", { name: "Close companion", exact: true }).click();
     await expect(page.getByRole("complementary", { name: "Your companion" })).toHaveCount(0);
-    // The page takes the width back (its layout reads the new width) before it is lengthened.
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    // The panel's way out (M10, 150 ms) ends and the page has its width back before it is
+    // lengthened: the closing panel is drawn until then (`data-leaving`), and nothing still moves.
+    await expect(page.locator("#connected-companion")).toBeHidden();
+    await expect(page.locator("#connected-companion[data-leaving]")).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
     // The roadmap folds its chapters, so the short demo course no longer outgrows the widest
     // windows: lengthen it, since what is checked is that the wheel reaches its scroll view.
     await page.getByTestId("course-roadmap").evaluate((roadmap) =>
       roadmap.append(Object.assign(document.createElement("div"), { style: "height:1600px;flex-shrink:0" })));
+    await expect
+      .poll(() => page.locator('[data-testid="course-roadmap"]').evaluate((roadmap) => roadmap.getBoundingClientRect().height))
+      .toBeGreaterThan(1600);
     await expectWheelScrolls(page, "demo roadmap", "");
   });

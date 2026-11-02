@@ -44,6 +44,17 @@
   padding-block-start: 20px;
   padding-inline: 32px;
 }
+/* A window that narrows below the docked width keeps the docked grid until the page has read its
+ * new width and taken the sheet (one frame): the grid gives way meanwhile instead of widening the
+ * page, so there is no horizontal page scroll at any width, not even for a frame (§2). */
+@media (max-width: 839.98px) {
+  .connected-layout.with-companion {
+    grid-template-columns: minmax(0, 1fr) 0 0;
+  }
+  .connected-layout.with-companion .cc-shell-splitter {
+    display: none;
+  }
+}
 .connected-companion-dock {
   min-width: 0;
   outline: none;
@@ -695,8 +706,8 @@ html:has(.connected-host:not(.is-compact)) {
 
 /* The demo (`/demo`, components/DemoCompanionDock.web.tsx): the same panel, divider, focus view and
  * sheet over the demo's own page, which is not a grid. The panel is fixed at the window's inline
- * end under the demo's header (sticky); the page keeps clear of it; focus view covers the page
- * under the header and hides it. */
+ * end under the demo's header; the page keeps clear of it; focus view covers the page under the
+ * header and hides it. */
 .cc-demo-dock-host {
   display: flex;
   flex: 1 1 auto;
@@ -712,28 +723,20 @@ html:has(.connected-host:not(.is-compact)) {
 .cc-demo-dock-host[data-docked="open"] > .cc-demo-page {
   margin-inline-end: var(--panel-w, 400px);
 }
+/* As in the connected app: until the demo reads a width below the docked one, it never widens. */
+@media (max-width: 839.98px) {
+  .cc-demo-dock-host[data-docked="open"] > .cc-demo-page {
+    margin-inline-end: 0;
+  }
+}
 .cc-demo-dock-host[data-docked="focus"] > .cc-demo-page {
   visibility: hidden;
 }
-/* The header's band continues over the panel, so the header reads as the window's. */
-.cc-demo-dock-host[data-docked="open"]::before {
-  content: "";
-  position: fixed;
-  z-index: 20;
-  inset-block-start: 0;
-  inset-inline-end: 0;
-  inline-size: var(--panel-w, 400px);
-  block-size: var(--cc-demo-header, 86px);
-  box-sizing: border-box;
-  border-block-end: 1px solid var(--line);
-  background: var(--surface);
-}
-.cc-demo-dock-host[data-docked="focus"] > .cc-demo-page > * > * > [data-testid="demo-header"] {
-  visibility: visible;
-}
-[data-testid="demo-header"] {
-  position: sticky;
-  top: 0;
+/* The header is the host's first row, outside the page's scroll view: full width above the page
+ * and the panel, and still shown over focus view. */
+.cc-demo-dock-host > [data-testid="demo-header"] {
+  flex: none;
+  position: relative;
   z-index: 30;
 }
 .cc-demo-dock-host > .connected-companion-dock.is-panel,
