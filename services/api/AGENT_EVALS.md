@@ -206,9 +206,13 @@ companion in the `close` mode too (`pacingClose`).
 Patterns kept missing correct replies that paraphrase, negate, write maths in LaTeX or answer
 in Hebrew. The quality check run from the AI services page (`provider-quality-checks.ts`)
 therefore has a reviewer model judge `grounding` (the reply stays with the lesson material and
-the learner's question) and `factuality` (it agrees with what the lesson states, conveys every
-required fact, asserts none of the known false claims) by meaning
-([`agent-evals/judge.ts`](src/agent-evals/judge.ts)). Every other grader stays fixed, and
+the learner's question) and `factuality` (nothing it says is false or contradicts the lesson:
+none of the known false claims, no wrong number, order, rule or worked example, and no wrong
+learner answer confirmed as right) by meaning
+([`agent-evals/judge.ts`](src/agent-evals/judge.ts)). The judge's factuality fails only on what
+the reply states, never on what it leaves out: a brief reply, or a short confirmation of a
+learner's correct answer, is factual. (Judge version 2 also required every required fact to be
+conveyed and failed correct replies for omissions; version 3 does not.) Every other grader stays fixed, and
 grounding keeps its structural checks (quotations must be in the material, a plan names only
 supplied objectives). A quotation Core cannot find only supports a judge's fail: once the
 judge passes grounding, it is not a failure of its own. When the judge cannot run, it still
@@ -216,10 +220,11 @@ fails the grader (fail closed).
 
 - **Input**: the lesson material (course, lesson, objectives, teaching; a rubric, research
   topic or the tool loop's tool results where the dialogue has them), each required fact in
-  plain words (`factuality.required[].statement`), the known false claims with the truth, the
-  learner's turns and the reply. The prompt asks for a strict, semantic judgement: paraphrase,
-  negation, notation and other languages count by meaning; a vague reply does not convey a
-  required fact.
+  plain words (`factuality.required[].statement`) as a reference fact the reply must not
+  contradict but need not state, the known false claims with the truth, the learner's turns and
+  the reply. The prompt asks for a strict, semantic judgement: paraphrase, negation, notation and
+  other languages count by meaning; one false statement fails factuality, a missing one never
+  does.
 - **Output**: `{grounding, factuality}`, each `{passed, reasons[], quotes[]}`, through the
   provider's structured-output path (Gemini `responseMimeType` + `responseJsonSchema`, the
   Messages API's JSON-schema format) or one JSON object in text for a model without it. It is

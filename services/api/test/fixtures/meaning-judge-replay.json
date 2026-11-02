@@ -106,7 +106,7 @@
         "kind": "text",
         "text": "Good question! Numbers can be tricky. Think about where each one sits and you will see it."
       },
-      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":false,\"reasons\":[\"It never says that -1 lies to the right of -3 or that -1 is greater; it only tells the learner to think.\"],\"quotes\":[]}}"
+      "judgeAnswer": "{\"grounding\":{\"passed\":true,\"reasons\":[],\"quotes\":[]},\"factuality\":{\"passed\":true,\"reasons\":[\"It states nothing about the order of -1 and -3, so nothing it says is false; leaving the fact out is not a factuality failure.\"],\"quotes\":[]}}"
     },
     {
       "dialogueId": "companion.novice.fair-comparison",
