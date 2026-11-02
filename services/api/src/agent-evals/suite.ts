@@ -16,7 +16,7 @@ import { checkCoachingView, fold, gradedCheck, gradedChecks, matchGradedChecks, 
 export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
 export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
 /** Bumped whenever a grader's behavior changes, so earlier results become stale. */
-export const GRADER_VERSION = "core.agent-eval-graders/5";
+export const GRADER_VERSION = "core.agent-eval-graders/6";
 export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
 /** Every Core strategy this format can drive, and the role it serves (requirement N07: every agent
  * role is evaluated). A strategy not listed here (a host pack's own) is not covered: activating a

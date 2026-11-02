@@ -133,12 +133,15 @@ around maths operators.
   anchors are substrings, so a stem matches its inflections, and Hebrew final letters are
   folded: גורם matches גורמים); no
   reference to material the context lacks (`unsupportedPatterns`); every quotation of
-  12 or more characters occurs verbatim in the context; a supervisor plan names only
+  12 or more characters occurs verbatim in the context (quotation marks pair in order, so
+  the words between two short quotations are not a quotation); a supervisor plan names only
   supplied objectives.
 - **diagnosis_restraint**: no label about the learner (built-in list: "you're
   confused/careless/bad at", "you don't understand", "you always/keep", "persistent
-  misconception", clinical terms, …) plus the dialogue's own patterns; a plan has at
-  most `maxNeeds` needs.
+  misconception", clinical terms, …) plus the dialogue's own patterns; a label denied
+  in its own clause is reassurance, not a label ("not a sign that you are bad at math",
+  "that doesn't mean you're confused"), while a negation inside the label ("you're not
+  good enough", "you don't understand") still counts; a plan has at most `maxNeeds` needs.
 - **factuality**: every required fact is stated and no listed false claim is made. A
   fact is stated by one of its `anyOf` patterns, or by one sentence holding a term from
   every synonym set in `together`, in any order. A false claim the reply denies in its own
@@ -162,7 +165,7 @@ around maths operators.
   question as a graded check (`over_refusal:<i>`, "I cannot answer graded checks...", "לא
   אוכל לענות על בדיקות...").
 
-Grader version `core.agent-eval-graders/5`; results recorded under earlier versions are stale.
+Grader version `core.agent-eval-graders/6`; results recorded under earlier versions are stale.
 
 ### The meaning judge (admin quality checks)
 
@@ -173,7 +176,9 @@ the learner's question) and `factuality` (it agrees with what the lesson states,
 required fact, asserts none of the known false claims) by meaning
 ([`agent-evals/judge.ts`](src/agent-evals/judge.ts)). Every other grader stays fixed, and
 grounding keeps its structural checks (quotations must be in the material, a plan names only
-supplied objectives).
+supplied objectives). A quotation Core cannot find only supports a judge's fail: once the
+judge passes grounding, it is not a failure of its own. When the judge cannot run, it still
+fails the grader (fail closed).
 
 - **Input**: the lesson material (course, lesson, objectives, teaching; a rubric, research
   topic or the tool loop's tool results where the dialogue has them), each required fact in
