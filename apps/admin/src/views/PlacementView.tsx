@@ -506,7 +506,7 @@ function SettingsForm({
           )}
         </div>
       </form>
-      <div className="sticky-actions cv-sticky">
+      <div className="sticky-actions">
         <div className="button-row">
           <Button
             kind="primary"

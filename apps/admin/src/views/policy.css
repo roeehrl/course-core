@@ -39,7 +39,7 @@
   padding-inline: 12px;
   border-radius: 8px;
   color: var(--blue);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -84,7 +84,7 @@
   align-items: center;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 /* Settings shown before they are edited: a two-column list of what is in force. */
@@ -104,11 +104,11 @@
 }
 .policy-summary dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .policy-summary dd {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 600;
   overflow-wrap: break-word;
 }
@@ -116,7 +116,7 @@
   display: block;
   margin-block-start: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 400;
 }
 
@@ -130,7 +130,7 @@
 }
 .policy-form-actions .policy-reason {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 /* "Show all" under a shortened list or table. */
@@ -140,7 +140,7 @@
   gap: 6px 12px;
   align-items: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 /* Scope list: searchable, and bounded so its detail is never thousands of pixels away. Beside the
@@ -174,7 +174,7 @@
 .policy-scope-picker .policy-scope-count {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 @container (max-width: 850px) {
   .policy-hierarchy > .policy-scope-picker {
@@ -189,7 +189,7 @@
 .policy-why {
   margin: 0;
   padding-inline-start: 20px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 .policy-why li + li {
@@ -202,7 +202,7 @@
 .policy-why details ul {
   margin: 0;
   padding-inline-start: 18px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.7;
   color: var(--muted);
 }
@@ -216,7 +216,7 @@
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 6px 14px;
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .policy-technical dt {
   color: var(--muted);
@@ -230,7 +230,7 @@
 /* A row group's heading inside a table: the scope a set of work limits belongs to. */
 .policy-group-row th {
   background: #f4f6f7;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -247,7 +247,7 @@
 }
 .dialog.policy-dialog .dialog-footer .policy-reason {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .dialog.policy-dialog .segmented {
   margin: 0;
@@ -295,7 +295,7 @@
   align-items: center;
   padding-block: 10px;
   border-block-end: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .allowances-list > li:last-child {
   border-block-end: 0;
@@ -316,15 +316,6 @@
   }
   .policy-actions,
   .policy-actions .button {
-    width: 100%;
-  }
-}
-
-/* Phones draw tables as cards: the caption becomes a plain full-width line above them instead
-   of a shrink-wrapped box that breaks after every word. */
-@media (max-width: 699px) {
-  .policy-page table caption {
-    display: block;
     width: 100%;
   }
 }
