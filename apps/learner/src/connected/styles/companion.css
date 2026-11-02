@@ -597,7 +597,7 @@ button.cc-chat-anchor:focus-visible {
   inset-block: 50% auto;
   inset-inline-end: calc(100% + var(--space-1));
   inline-size: max-content;
-  max-inline-size: 110px;
+  max-inline-size: 124px;
   padding-inline: 6px;
   white-space: normal;
   translate: 0 -50%;
