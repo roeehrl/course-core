@@ -325,7 +325,17 @@ async function view(client: PoolClient, context: EnrollmentContext) {
 }
 
 const describe = (course: CourseManifest, id: string) => course.objectives.find((o) => o.id === id)?.description ?? id;
-const clip = (text: string, max = 140) => { const t = text.replace(/\s+/g, " ").trim(); return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t; };
+/**
+ * A question's prompt shortened for a list to at most `max` characters: whole words, then an
+ * ellipsis. A word is cut only when the last space is in the first half (one very long token).
+ */
+export function clipPrompt(text: string, max = 140) {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const space = t.lastIndexOf(" ", max - 1);
+  const body = space >= max / 2 ? t.slice(0, space) : t.slice(0, max - 1);
+  return body.replace(/[\s,;:.\-–—]+$/u, "") + "…";
+}
 const UNTESTED_SHOWN = 20;
 /**
  * What a placement result rests on (H04): for each objective shown, the questions that showed it;
@@ -340,7 +350,7 @@ export function explainPlacement(course: CourseManifest, plan: Pick<PlacementPla
     const ids = new Set(d.evidenceIds);
     const supporting = [...new Map(attempts.filter((a) => a.evidence.some((e) => ids.has(e.id))).map((a) => [a.assessmentId, a])).values()];
     return { objectiveId: d.objectiveId, description: describe(course, d.objectiveId), families: d.families.length,
-      supportingItems: supporting.map((a) => ({ assessmentId: a.assessmentId, familyId: a.familyId, prompt: clip(item(a.assessmentId)?.prompt ?? a.assessmentId) })) };
+      supportingItems: supporting.map((a) => ({ assessmentId: a.assessmentId, familyId: a.familyId, prompt: clipPrompt(item(a.assessmentId)?.prompt ?? a.assessmentId) })) };
   });
   const shown = new Set(plan.demonstrated.map((d) => d.objectiveId)), pending = new Set(plan.pendingObjectiveIds ?? []);
   const tried = new Map<string, RunAttempt[]>();
