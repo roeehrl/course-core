@@ -127,6 +127,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (present.length) field.setAttribute("aria-describedby", present.join(" "));
     else field.removeAttribute("aria-describedby");
   });
+  /** Back in the message box, the caret after its text, as Backspace in an empty box leaves it. */
+  function focusBoxAtEnd() {
+    const field = box.current;
+    if (!field) return;
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(field.value.length, field.value.length);
+  }
   const over = value.length - MESSAGE_MAX;
   // The hint keeps its line while the box has text, shown only while the box has focus: a press
   // on Send blurs the box first, and the composer must not move under the pointer before the click.
@@ -188,7 +195,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       {showPill && (
         <>
           <div className="cc-chat-pill" ref={pill} data-has-chips={attached.length ? "true" : undefined}>
-            <AttachmentChips focus={focus} idPrefix={chipsId} />
+            <AttachmentChips focus={focus} idPrefix={chipsId} onRemoved={focusBoxAtEnd} />
             <div className="cc-chat-field-row">
               <textarea
                 ref={box}

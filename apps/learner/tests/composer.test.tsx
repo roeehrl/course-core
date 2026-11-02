@@ -169,6 +169,22 @@ describe("keys", () => {
     expect(companionFocus.get().check).toBeUndefined();
     expect(screen.queryByText("Question 1")).toBeNull();
   });
+  it("a chip's × removes it and leaves focus in the message box, the caret after its text (§6)", () => {
+    show({ draft: "Why here" });
+    for (const [attach, name] of [
+      [() => companionFocus.setSelection({ kind: "text", excerpt: "the bias is added at the end" }), "Remove quoted text"],
+      [() => companionFocus.setCheck({ challengeId: "c", ordinal: 1 }), "Ask about the whole lesson instead"],
+    ] as const) {
+      act(attach);
+      const remove = screen.getByRole("button", { name });
+      remove.focus();
+      // A keyboard Enter or Space on a button is a click.
+      act(() => fireEvent.click(remove));
+      expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(box()).toHaveFocus();
+      expect(box().selectionStart).toBe(box().value.length);
+    }
+  });
 });
 
 describe("the round button", () => {

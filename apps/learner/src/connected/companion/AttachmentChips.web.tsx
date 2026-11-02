@@ -91,9 +91,10 @@ export function removeLastAttachment(focus: CompanionFocusState): boolean {
 /**
  * The attachment chips inside the pill, above the text: 28 px, an icon, a one-line label and a
  * remove button with its own name (§3.6, §3.9). `idPrefix` names each label, so the message box
- * can be described by them.
+ * can be described by them. `onRemoved` runs after a chip's × removed it, whose button goes with
+ * it: the composer moves focus to the message box (§6).
  */
-export function AttachmentChips({ focus, idPrefix }: { focus: CompanionFocusState; idPrefix: string }) {
+export function AttachmentChips({ focus, idPrefix, onRemoved }: { focus: CompanionFocusState; idPrefix: string; onRemoved?(): void }) {
   const t = useT();
   const list = attachments(focus, t);
   if (!list.length) return null;
@@ -101,7 +102,10 @@ export function AttachmentChips({ focus, idPrefix }: { focus: CompanionFocusStat
     <div className="cc-chat-attachments">
       {list.map((item) => (
         <span key={item.key} id={`${idPrefix}-${item.key}`} className="cc-chat-attachment">
-          <Chip variant="removable" size={28} icon={item.icon} label={item.label} removeLabel={item.remove} onRemove={item.onRemove} />
+          <Chip variant="removable" size={28} icon={item.icon} label={item.label} removeLabel={item.remove} onRemove={() => {
+            item.onRemove();
+            onRemoved?.();
+          }} />
         </span>
       ))}
     </div>
