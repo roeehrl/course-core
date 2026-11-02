@@ -66,6 +66,22 @@ describe("opening a notification", () => {
     expect(composed).toEqual([{ source: "notification", focus: true, revealMessageId: REPLY }]);
   });
 
+  it("goes back beside the lesson from focus view before it shows the part, so the lesson is on screen", async () => {
+    const { host: page } = host();
+    const shown: { target: LessonTarget; view: string }[] = [];
+    // The lesson is mounted already and the learner left the companion in focus view.
+    companionOpen.sync({ docked: true, surface: "lesson" });
+    companionOpen.open("trigger");
+    companionOpen.setView("focus");
+    expect(companionOpen.get().view).toBe("focus");
+    lessonNavigator.register((target) => (shown.push({ target, view: companionOpen.get().view }), true));
+    openNotificationTarget({ enrollmentId: ENROLLMENT, companion: true, episodeId: "intro", blockId: "reading", replyMessageId: REPLY }, page);
+    await settle();
+    expect(companionOpen.get()).toMatchObject({ open: true, view: "docked" });
+    // Shown once, after the lesson came back: never into the hidden lesson.
+    expect(shown).toEqual([{ target: { episodeId: "intro", blockId: "reading" }, view: "docked" }]);
+  });
+
   it("keeps a touch keyboard down", async () => {
     coarse = true;
     const { host: page } = host();

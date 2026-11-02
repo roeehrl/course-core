@@ -73,7 +73,11 @@ test("a quick check takes its answer in the long-answer composer: Enter adds a l
   expect(head.right).toBeLessThanOrEqual(head.edge + 1);
   const field = check.getByRole("textbox", { name: "Your answer", exact: true });
   const mac = await page.evaluate(() => /mac|iphone|ipad/i.test(navigator.platform));
-  await expect(field).toHaveAccessibleDescription(mac ? "⌘ Enter to submit" : /Ctrl\+Enter to submit/);
+  // The key hint is for a fine pointer only (§3.6, §4.13): a touch keyboard has no ⌘ or Ctrl.
+  if (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) {
+    await expect(check.getByText(/Enter to submit/)).toHaveCount(0);
+    await expect(field).not.toHaveAttribute("aria-describedby");
+  } else await expect(field).toHaveAccessibleDescription(mac ? "⌘ Enter to submit" : /Ctrl\+Enter to submit/);
   const submit = check.getByRole("button", { name: "Submit check", exact: true });
   await expect(submit).toBeDisabled();
   await field.click();

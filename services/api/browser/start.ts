@@ -1345,21 +1345,26 @@ app.post("/test/companion-job", async (request) => {
   // A job with a runtime snapshot names the learning event it answers (supervisor_jobs_runtime_identity).
   const requested = (await db.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
     [row.enrollment_id, row.id])).rows[0]?.id ?? null;
-  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result,runtime_snapshot,input_event_id)
-    VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6,$7,$8)`, [jobId, row.enrollment_id, row.workspace_id, `browser-job-${jobId}`,
-    state === "stalled_part_way" ? "failed" : state, JSON.stringify(result), snapshot && requested ? JSON.stringify(snapshot) : null, requested]);
-  if (state === "stalled_part_way") {
-    // Only the reason code is kept for a refused reply, never its text (output-refusal.ts).
-    const refusal = { kind: "output_refusal", role: "companion", reason: "provider_stream_stalled" };
-    await db.query("INSERT INTO supervisor_artifacts(id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-      [randomUUID(), jobId, row.enrollment_id, row.workspace_id, `${jobId}:generate`, randomUUID(), createHash("sha256").update(JSON.stringify(refusal)).digest("hex"), JSON.stringify(refusal)]);
-  }
-  await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
-  if (state === "applied")
-    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
-      [randomUUID(), row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null,
-        // As a real reply is stored (supervisor-bridge.ts): written only when the reply asks the learner something.
-        ...(replyAsksLearner(String(body.answer ?? "A stored reply.")) ? { asksLearner: true } : {}) }), jobId]);
+  // In one transaction, as the real bridge applies a reply (supervisor-bridge.ts): a read of the
+  // conversation never sees the question's job finished before its reply is stored, which would
+  // leave the question settled without a reply and nothing more to read.
+  await transaction(db, async (client) => {
+    await client.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result,runtime_snapshot,input_event_id)
+      VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6,$7,$8)`, [jobId, row.enrollment_id, row.workspace_id, `browser-job-${jobId}`,
+      state === "stalled_part_way" ? "failed" : state, JSON.stringify(result), snapshot && requested ? JSON.stringify(snapshot) : null, requested]);
+    if (state === "stalled_part_way") {
+      // Only the reason code is kept for a refused reply, never its text (output-refusal.ts).
+      const refusal = { kind: "output_refusal", role: "companion", reason: "provider_stream_stalled" };
+      await client.query("INSERT INTO supervisor_artifacts(id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        [randomUUID(), jobId, row.enrollment_id, row.workspace_id, `${jobId}:generate`, randomUUID(), createHash("sha256").update(JSON.stringify(refusal)).digest("hex"), JSON.stringify(refusal)]);
+    }
+    await client.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
+    if (state === "applied")
+      await client.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
+        [randomUUID(), row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null,
+          // As a real reply is stored (supervisor-bridge.ts): written only when the reply asks the learner something.
+          ...(replyAsksLearner(String(body.answer ?? "A stored reply.")) ? { asksLearner: true } : {}) }), jobId]);
+  });
   return { updated: true, jobId };
 });
 app.post("/test/session", async () => {
