@@ -1908,8 +1908,29 @@ pre {
   .content {
     padding: 27px 20px 20px;
   }
+  /* Narrow pages: "Your role" always sits on the course line at the top, and the title takes the
+     full width under it, whatever the title's length (it used to drop under long titles only). */
   .page-heading {
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0 12px;
+  }
+  .page-heading > :first-child {
+    display: contents;
+  }
+  .page-heading .page-course {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+  }
+  .page-heading h1 {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .page-heading > .heading-meta {
+    grid-column: 2;
+    grid-row: 1;
   }
   h1 {
     font-size: var(--text-xl);
@@ -1963,7 +1984,7 @@ pre {
     gap: 4px;
   }
   .page-heading {
-    gap: 8px;
+    column-gap: 8px;
   }
   .demo-toolbar label {
     flex-wrap: wrap;
@@ -2514,6 +2535,11 @@ legend {
     text-align: start;
     white-space: normal;
     overflow-wrap: break-word;
+  }
+  /* A date shares its card row with its label: it wraps there instead of running past the
+     card's edge. */
+  table td.cell-date {
+    white-space: normal;
   }
   /* The caption spans the card instead of shrinking to its longest word ("How / much / one /
      learner / spends"). */
