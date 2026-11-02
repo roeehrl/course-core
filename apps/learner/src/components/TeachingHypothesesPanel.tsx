@@ -779,10 +779,11 @@ const local = StyleSheet.create({
   // Text buttons start at the reading edge, never centred across the panel.
   start: { alignSelf: "flex-start" },
   probeHead: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  probeBadge: { color: tokens.ink, fontSize: 13, lineHeight: 20, fontWeight: "600" },
+  // The kind line wraps inside the quick check on a phone instead of running past it.
+  probeBadge: { color: tokens.ink, fontSize: 13, lineHeight: 20, fontWeight: "600", flexShrink: 1 },
   probeActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   probeComposer: { gap: 4, alignItems: "stretch" },
-  source: { flexDirection: "row", alignItems: "center", gap: 6 },
+  source: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0 },
   meta: { gap: 2 },
   reference: {
     color: colors.muted,

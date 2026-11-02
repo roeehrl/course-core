@@ -63,6 +63,14 @@ test("a quick check takes its answer in the long-answer composer: Enter adds a l
   const check = page.locator('[data-prof="quick-check"]');
   await expect(check.getByText("Quick check · doesn't count toward progress", { exact: true })).toBeVisible();
   await expect(check.getByText("Unverified", { exact: true })).toBeVisible();
+  // On a phone the kind line wraps inside the quick check instead of running past its edge.
+  const head = await check.evaluate((card) => {
+    const row = card.firstElementChild as HTMLElement, edge = card.getBoundingClientRect();
+    const right = Math.max(...Array.from(row.querySelectorAll("*"), (node) => node.getBoundingClientRect().right));
+    return { scroll: row.scrollWidth, client: row.clientWidth, right, edge: edge.right };
+  });
+  expect(head.scroll).toBeLessThanOrEqual(head.client + 1);
+  expect(head.right).toBeLessThanOrEqual(head.edge + 1);
   const field = check.getByRole("textbox", { name: "Your answer", exact: true });
   const mac = await page.evaluate(() => /mac|iphone|ipad/i.test(navigator.platform));
   await expect(field).toHaveAccessibleDescription(mac ? "⌘ Enter to submit" : /Ctrl\+Enter to submit/);
