@@ -113,7 +113,7 @@
   "filter.status.notRunnable": "לא מורצות כאן (קוד, כתובות)",
   "row.fixtures": "{count, plural, =0 {אין תשובות בדיקה} one {תשובת בדיקה אחת} two {שתי תשובות בדיקה} other {# תשובות בדיקה}}",
   "row.notRunnable": "לא מורץ כאן",
-  "row.failing": "{count} נכשלו",
+  "row.failing": "{count, plural, one {אחת נכשלה} two {שתיים נכשלו} other {# נכשלו}}",
   "row.key.set": "יש מפתח",
   "row.key.missing": "אין מפתח",
   "row.key.rubric": "{count, plural, one {מחוון, קריטריון אחד} two {מחוון, שני קריטריונים} other {מחוון, # קריטריונים}}",
