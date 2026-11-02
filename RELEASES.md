@@ -292,7 +292,11 @@ running deployment; the candidate's own manifest remains the record of what was 
 - Asking the companion now turns into practice only the open counted questions in scope: the
   current lesson's, and a check the learner attached with "Ask the companion" (owner decision Q2).
   Before, every open counted check of the course became practice. Checks of other lessons stay
-  counted; a reply that would give away a graded answer is still withheld before it is stored.
+  counted, and while one is open every companion reply is checked against it, whether or not the
+  question seems to be about it: the reply arrives whole once checked ("Checking the reply…"),
+  never streamed, and a reply that would give its answer away is withheld before it is shown or
+  stored. Only a counted check of the question's own lesson opened after it was asked still stops
+  the reply.
 - Migration 127 adds `assessment_challenges.assistance_reason` (`companion`, `hint`, `solution`,
   `fresh_question`), written with each downgrade so the learner app can say why a question is
   practice. It is additive: questions downgraded earlier keep NULL and show no reason.

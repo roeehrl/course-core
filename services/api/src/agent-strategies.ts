@@ -6,7 +6,7 @@ import { runSupervisorToolLoop, type SupervisorToolPort } from './supervisor-too
 import { offeredTools, supervisorTool, SUPERVISOR_TOOL_IDS, TOOL_FAMILIES } from './supervisor-tool-catalog.js';
 import { rubricAssistOutputSchema, rubricRejectionReason, rubricSuggestionProblems, type RubricAssistInput, type RubricRefusal } from './rubric-assist-contracts.js';
 import type { OutputRefusal } from './output-refusal.js';
-import type { CheckCoaching } from './companion-check-integrity.js';
+import { coachesOnChecks, type CheckCoaching } from './companion-check-integrity.js';
 
 /** Every agent role the runtime can bind a model to; the single source for role lists. */
 export const AGENT_ROLES = ['supervisor', 'companion', 'research', 'media', 'reviewer'] as const;
@@ -41,8 +41,10 @@ export interface TeachingContext {
   interactiveContext?: SemanticVisualContext;
   /** What the learner pointed at with their question (context-capsule.ts); context only, never evidence. */
   focus?: { selection?: unknown; media?: unknown; authority: 'learner_pointed_at_this_not_evidence' };
-  /** Companion only: the course's graded checks the learner's message matches (companion-check-integrity.ts).
-   * Their prompts and options only, never an answer key; present means check-coaching mode. */
+  /** Companion only: the course's graded checks the learner's message matches, then the open counted
+   * checks it does not (`open_counted`, companion-check-integrity.ts). Their prompts and options
+   * only, never an answer key; present means the reply is hidden and checked against them, and a
+   * matched item adds the stricter coaching rule. */
   checkCoaching?: CheckCoaching;
   /** Earlier questions in this lesson that are not in recentHistory, extracted verbatim (context-capsule.ts). */
   conversation?: { scope: 'this_lesson_only'; earlierQuestions: { count: number; excerpts: string[]; note: string } };
@@ -316,8 +318,10 @@ export const companionStrategy = defineRuntimeStrategy({
     // shown while it arrives. It still streams when the host follows the reply (`onText`), into a
     // hidden buffer, so the first-byte and idle bounds end a stalled call at once; the gateway then
     // checks the whole reply against the checks' keys and the judge before anything is kept.
+    // A turn only guarded over open counted checks (match `open_counted`) keeps the usual rule; it
+    // is hidden and checked all the same.
     const coaching = Boolean(context.checkCoaching?.items.length);
-    const instruction = companionInstruction(binding, coaching, hebrewQuestion(context.question));
+    const instruction = companionInstruction(binding, coachesOnChecks(context.checkCoaching), hebrewQuestion(context.question));
     const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - instruction.length - 1500));
     // A reply the provider cut off at the output limit is still delivered when it has enough
     // visible text: it is advisory tutoring text, and the learner sees that it was cut short.

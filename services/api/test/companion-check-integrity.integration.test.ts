@@ -83,13 +83,18 @@ async function session(userId: string) {
   expect(login.statusCode, login.body).toBe(200);
   return { origin, cookie: login.cookies.map(c => `${c.name}=${c.value}`).join('; '), 'x-csrf-token': login.json().csrfToken as string };
 }
-/** A learner question saved and prepared into a claimed companion job, ready to invoke. */
-async function prepare(question: string) {
+/** A learner question saved and prepared into a claimed companion job, ready to invoke. `counted`:
+ * graded checks of other lessons left open and counted when it was asked (the credit scope keeps
+ * them counted, docs/companion-check-integrity.md). */
+async function prepare(question: string, counted: { episodeId: string; assessmentId: string }[] = []) {
   const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), now = new Date().toISOString();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [studentId, `test:${studentId}`, 'Synthetic learner']);
   await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, studentId]);
   await db.query('INSERT INTO enrollments (id,workspace_id,course_release_id,user_id,policy,profile,current_episode_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
     [enrollmentId, workspaceId, releaseId, studentId, JSON.stringify(course.policy), JSON.stringify({}), 'min']);
+  for (const check of counted)
+    await db.query(`INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,expires_at)
+      VALUES ($1,$2,$3,$4,$5,'independent',true,now()+interval '1 hour')`, [randomUUID(), enrollmentId, check.episodeId, check.assessmentId, courseDigest]);
   await db.query('INSERT INTO policy_states (enrollment_id,policy_revision,ledger_revision,snapshot) VALUES ($1,1,0,$2)', [enrollmentId, JSON.stringify(initialPolicy(course, enrollmentId, studentId, now))]);
   await db.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, question, JSON.stringify({ episodeId: 'min', courseDigest })]);
   const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested',
@@ -231,6 +236,66 @@ describe('graded-check integrity of companion replies', () => {
     expect(mine.frames.filter(f => f.state === 'streaming').map(f => f.text).join('')).toBe(text);
     expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text }]);
     await mine.close();
+  }, 30_000);
+
+  it('a question from another lesson that the matcher does not tie to an open counted check is still checked against it: hidden, withheld when it gives the answer, and the check stays counted', async () => {
+    // A paraphrase of lesson "max"'s open, counted check, asked from lesson "min": no answer intent
+    // the matcher knows, so before the guard it streamed as ordinary tutoring.
+    const question = 'Walk me through finding the larger of 4 and 9.';
+    const job = await prepare(question, [{ episodeId: 'max', assessmentId: 'max-a' }]), mine = follow(job.learner, job.enrollmentId);
+    await mine.opened;
+    reply = ['The larger of 4 and 9 is 9, ', 'because 9 is farther right on the number line.'];
+    const before = requests.length;
+    const outcome = (await invoke(job.request)).json();
+    expect(outcome.status).toBe('succeeded');
+    // The usual rule (the message is not taken to be about the check), the check listed as guarded,
+    // and the reply streamed into a hidden buffer.
+    const sent = requests.slice(before);
+    expect(sent.map(r => r.streamed)).toEqual([true]);
+    expect(sent[0]!.request.systemInstruction).toContain('Graded checks: never state, choose, confirm or rule out');
+    expect(sent[0]!.request.systemInstruction).not.toContain('Check coaching:');
+    expect(JSON.parse(sent[0]!.request.messages[0]!.text).checkCoaching.items).toEqual([expect.objectContaining({ checkId: 'max-a', prompt: 'Maximum of 4 and 9?', match: 'open_counted' })]);
+    await until(() => mine.frames.at(-1)?.state === 'withdrawn');
+    expect(mine.frames.every(frame => frame.text === '' && frame.checking === true)).toBe(true);
+    expect(mine.frames.at(-1)).toMatchObject({ state: 'withdrawn', reason: 'check_answer_withheld' });
+    const coaching = checkCoachingMessage(question, gradedChecks(course).filter(check => check.id === 'max-a'));
+    const [artifact] = await artifacts(job.ref.jobId);
+    expect(artifact).toEqual({ kind: 'companion_message', text: coaching, withheld: expect.any(String) });
+    const { applied } = await deliver(job, outcome);
+    expect(applied.state).toBe('applied');
+    expect((await answer(job.ref.jobId))[0].content).toBe(coaching);
+    expect((await db.query("SELECT independent_eligible FROM assessment_challenges WHERE enrollment_id=$1 AND assessment_id='max-a'", [job.enrollmentId])).rows).toEqual([{ independent_eligible: true }]);
+    await mine.close();
+  }, 30_000);
+
+  it('a question about something else while another lesson\'s check is open and counted is answered, kept once checked, and never streamed', async () => {
+    const job = await prepare('How do I compare two numbers on a number line?', [{ episodeId: 'max', assessmentId: 'max-a' }]), mine = follow(job.learner, job.enrollmentId);
+    await mine.opened;
+    const text = 'Place both on the line: the one farther right is greater. Try it with 3 and 7.';
+    reply = [text];
+    const judgedBefore = judged.length;
+    const outcome = (await invoke(job.request)).json();
+    expect(outcome.status).toBe('succeeded');
+    // The judge checked it against the open check, which is not named in the reply.
+    expect(judged.length).toBe(judgedBefore + 1);
+    expect(JSON.parse(judged.at(-1)!.messages[0]!.text)).toMatchObject({ checks: [expect.objectContaining({ id: 'max-a' })], reply: text });
+    await until(() => mine.frames.at(-1)?.state === 'complete');
+    expect(mine.frames.filter(frame => frame.state === 'streaming').every(frame => frame.text === '' && frame.checking === true)).toBe(true);
+    expect(await artifacts(job.ref.jobId)).toEqual([{ kind: 'companion_message', text }]);
+    expect((await dispatch(job.request.operationId)).candidate).toMatchObject({ text, checkCoaching: { checkIds: ['max-a'] } });
+    const { verified, applied } = await deliver(job, outcome);
+    expect(verified.state).toBe('ready');
+    expect(applied.state).toBe('applied');
+    await mine.close();
+  }, 30_000);
+
+  it('a counted check of the question\'s own lesson opened after it was asked still stops the reply', async () => {
+    const job = await prepare('How do I compare two numbers on a number line?', [{ episodeId: 'min', assessmentId: 'min-b' }]);
+    const before = requests.length;
+    const outcome = (await invoke(job.request)).json();
+    expect(outcome.status).toBe('not_started');
+    expect(requests.length).toBe(before);
+    expect(await dispatch(job.request.operationId)).toMatchObject({ failure_code: 'INVALID_INPUT' });
   }, 30_000);
 
   it('the companion verifier rejects a stored coaching-mode reply that gives the answer away (a gateway that skipped the check)', async () => {

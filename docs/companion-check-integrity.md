@@ -47,13 +47,24 @@ previews the same rule (`apps/learner/src/connected/credit/creditScope.ts`) to a
 **Why integrity still holds.** Narrowing the credit scope changes only which attempts count; it
 does not loosen what the companion may say. An open counted question in another lesson stays
 counted because the learner received no help on it, and the companion still never gives its
-answer: check coaching reads every open question of the enrollment, not only the lesson's
-(`companion-check-scope.ts`), and the withheld-answer gate below (instruction, matching,
-deterministic verification and the judge) covers every graded check of the course, open or not.
-A learner who asks in lesson A about lesson B's open question without attaching it is coached
-without its answer, and B keeps counting only as long as no answer reached them.
+answer. Matching alone cannot promise that: a paraphrase without answer intent ("Walk me through
+finding the larger of 4 and 9") is not tied to the check. So every open counted question of the
+enrollment is added to the turn's check list whether the message matched it or not
+(`companion-check-scope.ts`, match `open_counted`): the model is told those checks still count and
+that the message is not known to be about them, so the usual rule applies and the stricter
+coaching rule only for matched checks (`coachesOnChecks`); the reply never streams (a checking
+draft); and the deterministic verification and the judge check it against those checks in the
+gateway and again in the companion verifier, before anything is shown or stored. A learner who asks
+in lesson A about lesson B's open question without attaching it is coached without its answer, and
+B keeps counting only as long as no answer reached them. The companion still refuses to answer
+(`independentAssessmentActive`) only for a counted question in the message's own scope, which
+asking made practice: one opened in that lesson after the question was asked
+(`provider-context.ts`).
 `services/api/test/companion-credit-scope.integration.test.ts` checks the scope, the placement
-refusal and that B's answer is still withheld.
+refusal and that B's answer is still withheld;
+`services/api/test/companion-check-integrity.integration.test.ts` checks, end to end, that a
+paraphrase the matcher misses is hidden and withheld while B stays counted, that another question
+is kept once checked, and that a counted question of the lesson itself still stops the reply.
 
 ## 1. Instruction
 
@@ -121,6 +132,9 @@ A match switches the turn to **check-coaching mode**:
 - The context gets `checkCoaching`: each matched check's id, type, prompt and options, never its
   key or explanation, and the note that says whether the check is identified.
 - The instruction adds `CHECK_COACHING_RULE` (and `HEBREW_RULE` for Hebrew).
+- Open counted questions the message did not match are listed after the matched checks
+  (`open_counted`, see Credit above). A turn with only those is checked the same way below but
+  keeps the usual instruction, with a note that the message is not known to be about them.
 - The reply **streams into a hidden buffer**: the provider call is streamed, so the first-byte and
   idle bounds end a stall at once (20 s each by default, `provider-runtime.ts` `RESPONSE_BOUNDS`),
   but no text reaches the learner. The learner's draft is a *checking* draft (`checking: true` on
@@ -198,7 +212,8 @@ reservation:
   `companion-check-scope.ts`): only a question in check-coaching mode reserves room for the judge.
   When the question is prepared into a job, Core runs the same match the teaching context runs when
   the call is assembled (the question, the learner's earlier questions in the lesson, the lesson's
-  and its neighbours' checks and the checks open now). A match reserves one companion call and one
+  and its neighbours' checks and the checks open now, the counted ones listed matched or not). A
+  match, or an open counted question, reserves one companion call and one
   judge call, each at its own limits (the judge at most 16,000 input characters and 2,048 output
   tokens) and price, never above the job allowance; any other question reserves its own call only.
   If the match changes between preparation and the call (a check opened meanwhile), the judge finds
