@@ -31,7 +31,7 @@ function lesson(mode: string, independentEligible = mode !== "practice"): Connec
   server.activeChallenges = [{ challengeId: `code-${mode}`, episodeId: "intro", independentEligible, mode, question: codeQuestion as never }];
   return {
     server, episode: server.course.chapters[0]!.episodes[0]!, placement: false, pending: false, now: Date.now(), answer: source,
-    onAnswerChange: vi.fn(), onRead: vi.fn(), onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn(), onComplete: vi.fn(),
+    onAnswerChange: vi.fn(), onRead: vi.fn(), check: { onStart: vi.fn(), onAnswer: vi.fn(), onSolution: vi.fn() }, onComplete: vi.fn(),
     onNormal: vi.fn(), onRefresh: vi.fn(), onBlockChange: vi.fn(),
   };
 }

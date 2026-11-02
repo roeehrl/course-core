@@ -1,0 +1,11 @@
+{
+  "counted": "Counts toward this lesson. Answer on your own.",
+  "practice": "<b>Practice.</b> This question does not count toward finishing the lesson.",
+  "reason.companion": "You asked your companion for help.",
+  "reason.hint": "You used a hint.",
+  "reason.solution": "You opened the explanation.",
+  "reason.seen_before": "You saw this question before.",
+  "pathBack": "Want this to count? A fresh check is ready when you are.",
+  "fresh": "Get a fresh check · {minutes} min",
+  "freshAnyTime": "Get a fresh check"
+}

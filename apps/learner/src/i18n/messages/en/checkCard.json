@@ -1,0 +1,22 @@
+{
+  "check.title": "Check your understanding",
+  "check.objectiveProgress": "{done, number} of {required, number} answered correctly on your own",
+  "check.expired": "This check has expired. Refresh to get the current check. Your answer draft is preserved.",
+  "check.refresh": "Refresh check",
+  "check.complete": "Your independent checks are complete.",
+  "check.start": "Start the next check →",
+  "check.opensAfter": "{count, plural, =0 {Questions} one {# question} other {# questions}} to answer on your own. The check opens after part {part, number}.",
+  "check.introCount": "{count, plural, =0 {Answer on your own to finish this lesson.} one {Answer # question correctly on your own to finish this lesson.} other {Answer # questions correctly on your own to finish this lesson.}} If you ask for help with a question, it becomes practice and does not count.",
+  "check.doneIntro": "You finished this lesson's questions.",
+  "answer.submitting": "Submitting…",
+  "answer.submitForReview": "Submit for review",
+  "answer.check": "Check",
+  "answer.chooseFirst": "Choose an answer to check it.",
+  "answer.enterFirst": "Enter your answer to check it.",
+  "abstain.label": "I don't know yet",
+  "abstain.accessibilityLabel": "I don't know yet: record no answer and get help",
+  "answer.checking": "Checking…",
+  "help.getHelp": "Get help",
+  "error.copied": "This repeats your companion's words. Write it in your own words; nothing was recorded.",
+  "error.attemptRequired": "This question needs an attempt. A partial answer is fine."
+}

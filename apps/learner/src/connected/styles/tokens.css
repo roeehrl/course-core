@@ -1,0 +1,264 @@
+/* Design tokens for the learner app (final design §1). Colours are custom properties on :root
+ * (TOK-1); dark values apply when the system asks for dark and the page has not chosen light, and
+ * again when the page chooses dark (TOK-2). src/theme/palette.ts holds the same values for React
+ * Native; tests/tokens.test.ts keeps them equal and checks every contrast pair in both themes. */
+:root {
+  --page: #f8f8f2;
+  --surface: #ffffff;
+  --surface-2: #f1f4f3;
+  --ink: #183237;
+  --ink-muted: #526a70;
+  --line: #e3eae7;
+  --line-strong: #74878a;
+  --bubble: #edf3f0;
+  --accent: #087b69;
+  --accent-hover: #066456;
+  --on-accent: #ffffff;
+  --accent-soft: #e8f6ed;
+  --companion: #7050a4;
+  --danger: #a4262c;
+  --on-danger: #ffffff;
+  --focus: #183237;
+  --send-off: #e3eae7;
+  /* Base app (non-AI surfaces). Gold and sand stay for lesson warnings only, never for credit,
+   * practice or an AI badge. */
+  --warning: #80601e;
+  --warning-soft: #fcf3df;
+  --stage: #19383e;
+  --on-stage: #ffffff;
+  --backdrop: #18323766;
+  --header: #ffffffdf;
+
+  /* Elevation (§1.3). Docked panel, composer pill, bubbles and chips have none. */
+  --shadow-menu: 0 4px 16px rgba(24, 50, 55, 0.15);
+  --shadow-sheet: 0 -1px 0 var(--line), 0 -8px 32px rgba(24, 50, 55, 0.12);
+  --shadow-jump: 0 2px 8px rgba(24, 50, 55, 0.16);
+
+  /* Type (§1.2): the system stack; each role as size, line height and the pair for `font`. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-chat-size: 16px;
+  --text-chat-line: 26px;
+  --text-chat: 16px/26px;
+  --text-reading-size: 18px;
+  --text-reading-line: 30px;
+  --text-reading: 18px/30px;
+  --text-bubble-reading-size: 17px;
+  --text-bubble-reading-line: 28px;
+  --text-bubble-reading: 17px/28px;
+  --text-title-size: 32px;
+  --text-title-line: 40px;
+  --text-title: 32px/40px;
+  --text-title-tracking: -0.5px;
+  --text-empty-size: 20px;
+  --text-empty-line: 28px;
+  --text-empty: 20px/28px;
+  --text-empty-tracking: -0.2px;
+  --text-heading-size: 16px;
+  --text-heading-line: 24px;
+  --text-heading: 16px/24px;
+  --text-button-size: 14px;
+  --text-button-line: 20px;
+  --text-button: 14px/20px;
+  --text-chip-size: 14px;
+  --text-chip-line: 20px;
+  --text-chip: 14px/20px;
+  --text-meta-size: 13px;
+  --text-meta-line: 20px;
+  --text-meta: 13px/20px;
+  --text-tag-size: 12px;
+  --text-tag-line: 16px;
+  --text-tag: 12px/16px;
+  --text-micro-size: 12px;
+  --text-micro-line: 16px;
+  --text-micro: 12px/16px;
+  --text-code-size: 14px;
+  --text-code-line: 22px;
+  --text-code: 14px/22px;
+
+  /* Spacing, radii and targets (§1.3). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-bubble: 18px;
+  --radius-bubble-tail: 6px;
+  --radius-composer: 24px;
+  --radius-composer-focus: 28px;
+  --radius-pill: 999px;
+  --radius-panel: 12px;
+  --radius-check: 18px;
+  --radius-sheet: 20px;
+  --target-min: 24px;
+  --target-touch: 44px;
+  /* The size a control needs under the current pointer: 24 px fine, 44 px coarse. */
+  --target: var(--target-min);
+
+  /* Motion (§1.5): duration and easing per row of the motion table. */
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-m1-duration: 160ms;
+  --motion-m1-easing: var(--ease-decelerate);
+  --motion-m2-duration: 0ms;
+  --motion-m2-easing: linear;
+  --motion-m3-duration: 240ms;
+  --motion-m3-easing: var(--ease-standard);
+  --motion-m4-duration: 100ms;
+  --motion-m4-easing: var(--ease-standard);
+  --motion-m5-duration: 1200ms;
+  --motion-m5-easing: ease-in-out;
+  --motion-m5-stagger: 160ms;
+  --motion-m5-rest-opacity: 0.3;
+  --motion-m6-duration: 1200ms;
+  --motion-m6-easing: ease-in-out;
+  --motion-m7-duration: 120ms;
+  --motion-m7-easing: var(--ease-decelerate);
+  --motion-m8-duration: 120ms;
+  --motion-m8-easing: linear;
+  --motion-m9-duration: 240ms;
+  --motion-m9-easing: var(--ease-decelerate);
+  --motion-m9-shift: 12px;
+  --motion-m10-duration: 150ms;
+  --motion-m10-easing: var(--ease-accelerate);
+  --motion-m11-duration: 200ms;
+  --motion-m11-easing: var(--ease-standard);
+  --motion-m12-duration: 300ms;
+  --motion-m12-easing: var(--ease-sheet);
+  --motion-m12-close-duration: 250ms;
+  --motion-m12-close-easing: var(--ease-accelerate);
+  --motion-m13-duration: 150ms;
+  --motion-m13-easing: var(--ease-decelerate);
+  --motion-m13-out-duration: 100ms;
+  --motion-m13-out-easing: var(--ease-accelerate);
+  --motion-m14-duration: 2000ms;
+  --motion-m14-easing: linear;
+  --motion-m14-hold: 1400ms;
+  --motion-m14-fade: 600ms;
+  --motion-m15-duration: 2300ms;
+  --motion-m15-easing: linear;
+  --motion-m15-hold: 2000ms;
+  --motion-m15-fade: 300ms;
+  --motion-m16-duration: 120ms;
+  --motion-m16-easing: var(--ease-decelerate);
+  --motion-m16-scale: 0.98;
+  --motion-m17-duration: 160ms;
+  --motion-m17-easing: var(--ease-decelerate);
+  --motion-m18-duration: 120ms;
+  --motion-m18-easing: var(--ease-decelerate);
+  --motion-m18-delay: 300ms;
+}
+/* Hebrew: a 14 px floor for anything that carries meaning, roomier buttons and chips, and no
+ * tracking (§1.2, §7). */
+:lang(he) {
+  --text-button-size: 15px;
+  --text-button-line: 22px;
+  --text-button: 15px/22px;
+  --text-chip-size: 15px;
+  --text-chip-line: 22px;
+  --text-chip: 15px/22px;
+  --text-meta-size: 14px;
+  --text-meta-line: 22px;
+  --text-meta: 14px/22px;
+  --text-tag-size: 13px;
+  --text-tag-line: 18px;
+  --text-tag: 13px/18px;
+  --text-title-tracking: 0;
+  --text-empty-tracking: 0;
+}
+@media (pointer: coarse) {
+  :root {
+    --target: var(--target-touch);
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0f1517;
+    --surface: #151c1e;
+    --surface-2: #1d2729;
+    --ink: #e6eeec;
+    --ink-muted: #a3b5b8;
+    --line: #24302f;
+    --line-strong: #687c7f;
+    --bubble: #24302f;
+    --accent: #4cc7ae;
+    --accent-hover: #6fd6c0;
+    --on-accent: #0e1a18;
+    --accent-soft: #1f3a33;
+    --companion: #b9a0e8;
+    --danger: #f19a93;
+    --on-danger: #0e1a18;
+    --focus: #e6eeec;
+    --send-off: #24302f;
+    --warning: #e6c27a;
+    --warning-soft: #2b2416;
+    --stage: #0b1214;
+    --on-stage: #ffffff;
+    --backdrop: #00000099;
+    --header: #151c1edf;
+    --shadow-menu: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --shadow-sheet: 0 -1px 0 var(--line), 0 -8px 32px rgba(0, 0, 0, 0.5);
+    --shadow-jump: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0f1517;
+  --surface: #151c1e;
+  --surface-2: #1d2729;
+  --ink: #e6eeec;
+  --ink-muted: #a3b5b8;
+  --line: #24302f;
+  --line-strong: #687c7f;
+  --bubble: #24302f;
+  --accent: #4cc7ae;
+  --accent-hover: #6fd6c0;
+  --on-accent: #0e1a18;
+  --accent-soft: #1f3a33;
+  --companion: #b9a0e8;
+  --danger: #f19a93;
+  --on-danger: #0e1a18;
+  --focus: #e6eeec;
+  --send-off: #24302f;
+  --warning: #e6c27a;
+  --warning-soft: #2b2416;
+  --stage: #0b1214;
+  --on-stage: #ffffff;
+  --backdrop: #00000099;
+  --header: #151c1edf;
+  --shadow-menu: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 -1px 0 var(--line), 0 -8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-jump: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* Reduced motion (§1.5): every movement is instant, the sheet fades in 150 ms, and the block
+ * highlight and composer ring hold without fading. Loops are drawn static by their own rules. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-m1-duration: 0ms;
+    --motion-m3-duration: 0ms;
+    --motion-m4-duration: 0ms;
+    --motion-m7-duration: 0ms;
+    --motion-m8-duration: 0ms;
+    --motion-m9-duration: 0ms;
+    --motion-m9-shift: 0px;
+    --motion-m10-duration: 0ms;
+    --motion-m11-duration: 0ms;
+    --motion-m12-duration: 150ms;
+    --motion-m12-easing: linear;
+    --motion-m12-close-duration: 150ms;
+    --motion-m12-close-easing: linear;
+    --motion-m13-duration: 0ms;
+    --motion-m13-out-duration: 0ms;
+    --motion-m14-hold: 2000ms;
+    --motion-m14-fade: 0ms;
+    --motion-m15-hold: 2300ms;
+    --motion-m15-fade: 0ms;
+    --motion-m16-scale: 1;
+    --motion-m17-duration: 0ms;
+    --motion-m18-duration: 0ms;
+    --motion-m5-rest-opacity: 0.6;
+  }
+}

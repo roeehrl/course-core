@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
-import { colors } from "./ui";
+import { colors } from "../theme/colors";
 import type { OverlayProps } from "./Overlay";
 
 const FOCUSABLE =
@@ -83,7 +83,7 @@ export function Overlay({ title, titleVisible = false, onClose, children }: Over
       style={{
         position: "fixed",
         inset: 0,
-        background: "#18323766",
+        background: colors.backdrop,
         display: "flex",
         justifyContent: "flex-end",
         zIndex: 1000,
@@ -121,10 +121,10 @@ export function Overlay({ title, titleVisible = false, onClose, children }: Over
           }
         }}
         style={{
-          background: colors.paper,
+          background: colors.page,
           color: colors.ink,
           // The host's type for the sheet's own head (the page's content keeps its own).
-          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          fontFamily: "var(--font-sans)",
           width: "min(480px, 100%)",
           height: "100%",
           maxHeight: "100dvh",
@@ -132,8 +132,9 @@ export function Overlay({ title, titleVisible = false, onClose, children }: Over
           flexDirection: "column",
           boxSizing: "border-box",
           outline: "none",
-          // The sheet sits at the inline end; its shadow falls toward the page.
-          boxShadow: `${dir === "rtl" ? 16 : -16}px 0 60px #18323722`,
+          // The sheet sits at the inline end; its shadow falls toward the page, tinted by the
+          // theme's backdrop (ink in light, black in dark).
+          boxShadow: `${dir === "rtl" ? 16 : -16}px 0 60px color-mix(in srgb, ${colors.backdrop} 33%, transparent)`,
         }}
       >
         <div

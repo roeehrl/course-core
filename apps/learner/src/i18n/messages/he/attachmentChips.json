@@ -1,0 +1,13 @@
+{
+  "check": "שאלה {number}",
+  "removeCheck": "שאלה על כל השיעור במקום",
+  "codeLine": "הקוד, שורה {line}",
+  "codeLines": "הקוד, שורות {start}–{end}",
+  "removeCode": "הסרת שורות הקוד",
+  "illustration": "חלק מהאיור: {label}",
+  "removeIllustration": "הסרת חלק האיור",
+  "text": "קטע נבחר: “{excerpt}”",
+  "removeText": "הסרת הקטע המצוטט",
+  "videoAt": "{label}, {time}",
+  "removeVideo": "הסרת זמן הסרטון"
+}

@@ -103,15 +103,51 @@ test("effective-window adaptation preserves drafts and companion notes", async (
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(page.getByTestId("companion-pane")).toBeVisible();
+  // The demo companion is the real companion's panel (final design §4.19): 400 px, flush at the
+  // window's end under the header, with its divider, About, Expand and Close, the trigger in the
+  // header; one line that no AI is connected, and the guidance as a companion turn.
+  const pane = page.getByRole("complementary", { name: "Your companion" });
+  await expect(pane).toBeVisible();
+  const box = (await pane.boundingBox())!;
+  expect(Math.round(box.width)).toBe(400);
+  expect(Math.round(box.x + box.width)).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+  expect(box.y).toBeGreaterThanOrEqual((await page.getByTestId("demo-header").boundingBox())!.height - 1);
+  await expect(page.getByRole("separator", { name: "Resize companion" })).toBeVisible();
+  for (const name of ["About your companion", "Expand", "Close companion"]) await expect(pane.getByRole("button", { name, exact: true })).toBeVisible();
+  const trigger = page.getByTestId("demo-header").getByRole("button", { name: "Companion", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  // The header runs the window's full width above the panel, as the connected app's does: its
+  // controls stay where they are when the panel closes and opens again.
+  expect(Math.round((await page.getByTestId("demo-header").boundingBox())!.width)).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+  const openAt = (await trigger.boundingBox())!;
+  await trigger.click();
+  await expect(pane).toHaveCount(0);
+  expect((await trigger.boundingBox())!.x).toBeCloseTo(openAt.x, 0);
+  await trigger.click();
+  await expect(pane).toBeVisible();
+  expect((await trigger.boundingBox())!.x).toBeCloseTo(openAt.x, 0);
+  const companion = pane;
+  await expect(companion.getByRole("heading", { level: 2, name: "Companion" })).toBeVisible();
+  await expect(companion.getByText("Demo · authored guidance. No live AI is connected.")).toHaveCount(1);
+  await expect(companion.getByRole("article", { name: "Companion said" })).toContainText("One clear path, at your pace.");
   await page.screenshot({ path: testInfo.outputPath("roadmap-desktop.png") });
-  await page
-    .getByRole("textbox", { name: "Notes to yourself" })
-    .fill("Look for neighbors.");
+  const notes = page.getByRole("textbox", { name: "Notes to yourself" });
+  await notes.fill("Look for neighbors.");
+  // Cmd/Ctrl+Enter saves the note on this device, and says so.
+  await notes.press("ControlOrMeta+Enter");
+  await expect(pane.getByRole("status")).toHaveText("Saved on this device.");
+  await page.reload();
+  await expect(notes).toHaveValue("Look for neighbors.");
   await page.setViewportSize({ width: 768, height: 1024 });
-  await expect(page.getByTestId("companion-pane")).toHaveCount(0);
+  // A tablet in portrait: the nonmodal sheet, which a class change keeps open.
+  await expect(pane).toHaveAttribute("data-placement", "sheet");
+  await page.getByRole("button", { name: "Close companion" }).click();
+  await expect(pane).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("roadmap-tablet.png") });
-  await page.getByRole("button", { name: "Companion", exact: true }).click();
+  // The way to the companion keeps its glyph on narrower windows.
+  const opener = page.getByRole("button", { name: "Companion", exact: true });
+  await expect(opener.locator('svg[data-icon="sparkle"]')).toHaveCount(1);
+  await opener.click();
   await expect(
     page.getByRole("textbox", { name: "Notes to yourself" }),
   ).toHaveValue("Look for neighbors.");
@@ -166,6 +202,58 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(lessonIssues.violations).toEqual([]);
+  // In a lesson the companion offers the step's hint as a chip that shows it in place.
+  if (await page.getByRole("complementary", { name: "Your companion" }).isVisible()) {
+    const hint = page.getByRole("button", { name: "Show a hint", exact: true });
+    await expect(hint).toHaveAttribute("aria-expanded", "false");
+    await hint.click();
+    await expect(page.getByRole("button", { name: "Hide hint", exact: true })).toHaveAttribute("aria-expanded", "true");
+  }
+});
+
+test("on a phone the demo companion's notes stay pinned under the guidance at Half and Full", async ({
+  page,
+}, testInfo) => {
+  // Final design §2.4 and §4.19: inside the sheet only the thread (here the authored guidance)
+  // scrolls; the composer zone with "Save note" stays on screen, so the sheet itself never scrolls.
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Loaded at phone size, so the companion starts closed, as on any phone.
+  await page.reload();
+  const pane = page.getByRole("complementary", { name: "Your companion" });
+  await expect(pane).toHaveCount(0);
+  const save = pane.getByRole("button", { name: "Save note", exact: true });
+  const guidance = pane.getByRole("group", { name: "Guidance", exact: true });
+  async function expectPinned(name: string) {
+    await expect(save).toBeVisible();
+    // Measured where the sheet comes to rest, after it slides to its detent (M12).
+    await pane.evaluate((node) => Promise.all(node.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+    const box = (await save.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(844);
+    await expect(pane.getByRole("textbox", { name: "Notes to yourself" })).toBeInViewport({ ratio: 1 });
+    await expect(pane.getByText("Saved on this device.", { exact: true })).toBeInViewport({ ratio: 1 });
+    // The sheet has nothing to scroll: what does not fit scrolls in the guidance.
+    const sheet = await pane.evaluate((node) => ({ scroll: node.scrollHeight, client: node.clientHeight }));
+    expect(sheet.scroll).toBeLessThanOrEqual(sheet.client);
+    await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+  }
+  await page.getByRole("button", { name: "Companion", exact: true }).first().click();
+  await expect(pane).toHaveAttribute("data-detent", "half");
+  await expectPinned("phone-roadmap-half");
+  await page.getByRole("button", { name: "Close companion" }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
+  await expect(page.getByRole("heading", { name: "Every number has a neighbor." })).toBeVisible();
+  await page.getByRole("button", { name: "Companion", exact: true }).first().click();
+  await expect(pane).toHaveAttribute("data-detent", "half");
+  await pane.getByRole("button", { name: "Show a hint", exact: true }).click();
+  await expect(pane.getByRole("button", { name: "Hide hint", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expectPinned("phone-lesson-hint-half");
+  // The hint makes the guidance longer than its room at Half: it scrolls on its own.
+  const room = await guidance.evaluate((node) => ({ scroll: node.scrollHeight, client: node.clientHeight }));
+  expect(room.scroll).toBeGreaterThan(room.client);
+  await pane.getByRole("button", { name: "Full height", exact: true }).click();
+  await expect(pane).toHaveAttribute("data-detent", "full");
+  await expectPinned("phone-lesson-hint-full");
 });
 
 test("blocked device storage is explicit and learning still works", async ({

@@ -2,10 +2,11 @@ import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
 import { chooseFromMenu } from "./learner-menu";
 
-/* One window-class function decides the learner layout: compact < 600,
- * medium 600–839 and expanded >= 840 (CSS px divided by text scale). The
- * boundaries are exercised on both sides here, on every engine that runs the
- * connected suite. The width loop needs one browser, not one per device project. */
+/* One window-class function gives the SDK's layout class: compact < 600, medium 600–839 and
+ * expanded >= 840 (CSS px divided by text scale). The companion follows (domain/companionLayout.ts):
+ * a phone sheet under 600, a tablet sheet to 839, a panel beside the lesson from 840. The
+ * boundaries are exercised on both sides here, on every engine that runs the connected suite. The
+ * width loop needs one browser, not one per device project. */
 
 async function openLesson(page: Page, request: Page["request"]) {
   const token = (await (await request.post("/test/session")).json()).token;
@@ -39,84 +40,101 @@ async function noHorizontalScroll(page: Page) {
 const host = (page: Page) => page.locator(".connected-host");
 
 // The width loop sets its own viewport sizes, so only desktop projects run it (@desktop-window).
-test("599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane", {
+test("599/600/839/840/1024: phone sheet, tablet sheet, docked panel", {
   tag: "@desktop-window",
 }, async ({ page }, info) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 1024, height: 900 });
   await openLesson(page, page.request);
-  const pane = page.getByRole("complementary", { name: "Your companion" });
-  const sheet = page.getByRole("dialog", { name: "Your companion" });
+  const companion = page.getByRole("complementary", { name: "Your companion", exact: true });
   const toggle = page.locator(".connected-companion-trigger");
   const draft = page.getByRole("textbox", {
     name: "Message to your companion",
     exact: true,
   });
+  const main = () => page.locator(".connected-main").boundingBox().then((box) => box!);
 
-  // Expanded (opened at 1024): the pane is beside the lesson by default.
+  // Expanded (opened at 1024): the panel is beside the lesson, flush at the window's end.
   await expect(host(page)).toHaveAttribute("data-window-class", "expanded");
-  await expect(pane).toBeVisible();
+  await expect(companion).toHaveAttribute("data-placement", "docked");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await draft.fill("Kept across every size");
-  const paneBox = (await pane.boundingBox())!,
-    main = (await page.locator(".connected-main").boundingBox())!;
-  expect(paneBox.x).toBeGreaterThanOrEqual(main.x + main.width - 1);
+  const paneBox = (await companion.boundingBox())!,
+    lesson = await main();
+  expect(paneBox.x).toBeGreaterThanOrEqual(lesson.x + lesson.width - 1);
+  expect(Math.round(paneBox.width)).toBe(400);
   await noHorizontalScroll(page);
   await page.screenshot({ path: info.outputPath("expanded-1024.png") });
 
+  // 840: still docked; the lesson keeps 479 px beside a 360 px panel.
   await page.setViewportSize({ width: 840, height: 900 });
   await expect(host(page)).toHaveAttribute("data-window-class", "expanded");
-  await expect(pane).toBeVisible();
+  await expect(companion).toHaveAttribute("data-placement", "docked");
+  const scrollbar = await page.evaluate(() => window.innerWidth - document.documentElement.clientWidth);
+  if (!scrollbar) {
+    expect(Math.round((await companion.boundingBox())!.width)).toBe(360);
+    expect(Math.round((await main()).width)).toBeGreaterThanOrEqual(479);
+  }
   await noHorizontalScroll(page);
 
-  // Medium: still a pane, and the learner can collapse it to give the lesson the width.
+  // Medium: the tablet's sheet. The panel was open, so the sheet is too, at Half, whatever has the
+  // focus (the learner is reading the lesson); the lesson takes the page's own layout and the
+  // whole width.
+  await page.getByRole("heading", { name: "Minimum", exact: true }).click();
   await page.setViewportSize({ width: 839, height: 900 });
   await expect(host(page)).toHaveAttribute("data-window-class", "medium");
   await expect(host(page)).not.toHaveClass(/is-compact/);
-  await expect(pane).toBeVisible();
-  await expect(sheet).toHaveCount(0);
-  await noHorizontalScroll(page);
-  const close = page.getByRole("button", { name: "Close companion" });
-  await expect(close).toHaveAttribute("aria-expanded", "true");
-  await close.click();
-  await expect(pane).toHaveCount(0);
-  await expect(toggle).toBeFocused();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(toggle).not.toHaveAttribute("aria-haspopup", /.*/);
-  // Collapsed, the lesson takes the full width.
-  const full = (await page.locator(".connected-main").boundingBox())!;
-  expect(full.width).toBeGreaterThan(839 - 2 * 20 - 30);
-  await toggle.click();
-  await expect(pane).toBeVisible();
+  expect((await main()).width).toBeGreaterThan(839 - 2 * 20 - 30);
+  await noHorizontalScroll(page);
+  await expect(companion).toHaveAttribute("data-placement", "sheet");
+  await expect(companion).toHaveAttribute("data-detent", "half");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(draft).toHaveValue("Kept across every size");
+  // 640 px wide, centred.
+  const sheet = (await companion.boundingBox())!;
+  expect(Math.round(sheet.width)).toBe(640);
+  expect(Math.abs(sheet.x - (839 - scrollbar - sheet.width) / 2)).toBeLessThanOrEqual(1);
+  await page.getByRole("button", { name: "Close companion" }).click();
+  await expect(companion).toHaveCount(0);
+  await expect(toggle).toBeFocused();
 
   await page.setViewportSize({ width: 600, height: 900 });
   await expect(host(page)).toHaveAttribute("data-window-class", "medium");
-  await expect(pane).toBeVisible();
+  await toggle.click();
+  await expect(companion).toHaveClass(/is-tablet/);
+  expect(Math.round((await companion.boundingBox())!.width)).toBe(600 - scrollbar - 48);
   await noHorizontalScroll(page);
   await page.screenshot({ path: info.outputPath("medium-600.png") });
-  const narrow = (await page.locator(".connected-main").boundingBox())!;
-  expect(narrow.width).toBeGreaterThanOrEqual(280);
+  await page.keyboard.press("Escape");
+  await expect(companion).toHaveCount(0);
 
-  // Compact: the companion is a sheet behind a button; the lesson scrolls on its own.
-  // (Had focus stayed in the companion, narrowing would keep it open as a sheet.)
-  await page.getByRole("heading", { name: "Minimum", exact: true }).click();
+  // Compact: the phone's sheet, the full width; the lesson scrolls on its own. The button stays
+  // in the header.
   await page.setViewportSize({ width: 599, height: 900 });
   await expect(host(page)).toHaveAttribute("data-window-class", "compact");
   await expect(host(page)).toHaveClass(/is-compact/);
-  await expect(pane).toHaveCount(0);
-  await expect(toggle).toHaveAttribute("aria-haspopup", "dialog");
+  await expect(page.locator(".connected-header .connected-companion-trigger")).toBeVisible();
+  // The product name stays in the header beside its buttons; the section name gives way.
+  await expect(page.locator(".connected-brand > span").first()).toBeVisible();
+  expect((await page.locator(".connected-brand").boundingBox())!.width).toBeGreaterThan(40);
+  // The learning pane never scrolls sideways, with a classic scrollbar's gutter too (in Hebrew
+  // such a scroll cut the start of every line).
+  expect(await page.locator(".connected-main").evaluate((pane) => pane.scrollWidth - pane.clientWidth)).toBeLessThanOrEqual(0);
   await page.screenshot({ path: info.outputPath("compact-599.png") });
   await toggle.click();
-  await expect(sheet).toBeVisible();
+  await expect(companion).toHaveClass(/is-phone/);
+  expect(Math.round((await companion.boundingBox())!.width)).toBe(599);
   await expect(draft).toHaveValue("Kept across every size");
   await page.keyboard.press("Escape");
-  await expect(sheet).toHaveCount(0);
+  await expect(companion).toHaveCount(0);
   await noHorizontalScroll(page);
 
-  // The pane choice is a device preference that survives a reload.
-  await page.setViewportSize({ width: 839, height: 900 });
-  await expect(pane).toBeVisible();
+  // The panel choice is a device preference that survives a reload.
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(companion).toBeVisible();
   await page.getByRole("button", { name: "Close companion" }).click();
   await page.reload();
   await page
@@ -125,8 +143,9 @@ test("599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pan
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
-  await expect(pane).toHaveCount(0);
+  await expect(companion).toHaveCount(0);
   await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(errors).toEqual([]);
 });
 

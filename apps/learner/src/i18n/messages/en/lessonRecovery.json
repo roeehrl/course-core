@@ -1,0 +1,7 @@
+{
+  "fresh": "Get a fresh check · {minutes, number} min",
+  "exhausted": "No new questions for this lesson right now. Your work is saved.",
+  "exhaustedTelling": "Telling your course team…",
+  "exhaustedTold": "Your course team knows and can add more questions.",
+  "exhaustedNotTold": "Couldn't tell your course team automatically. Please let them know."
+}

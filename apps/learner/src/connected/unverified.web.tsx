@@ -1,6 +1,8 @@
-import React, { startTransition, useEffect, useState } from "react";
+import React, { startTransition, useEffect, useRef, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import { useT } from "../i18n";
+import { Icon } from "../components/icons/Icon.web";
+import { Popover } from "./ui/Popover.web";
 
 /** Generated (AI-written, automatically checked, not person-reviewed) parts of
  * this learner's personal course, keyed so the lesson can label them where the
@@ -60,8 +62,9 @@ export function useUnverifiedContent(api: CourseApi, enrollmentId: string | unde
   return content;
 }
 
-/** The inline "Unverified" label: a disclosure that explains it and leads to
- * the personal change, where the learner can hide or undo it. */
+/** The inline "Unverified" label (§4.6, 18a): a small pill that opens a note on what it means and
+ * leads to the personal change, where the learner can hide or undo it. Its accessible name says
+ * what it is on; the note says the rest. */
 export function UnverifiedBadge({
   what,
   onReview,
@@ -71,22 +74,39 @@ export function UnverifiedBadge({
   onReview?: () => void;
 }) {
   const t = useT();
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
   return (
-    <details className="connected-unverified">
-      <summary
+    <span className="connected-unverified">
+      <button
+        ref={anchor}
+        type="button"
+        className="cc-ai-unverified"
         aria-label={t("unverified.label", { what })}
-        title={t("unverified.tooltip")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
       >
-        <span aria-hidden="true">⚠︎</span> {t("unverified.badge")}
-      </summary>
-      <div className="connected-unverified-body">
-        <p>{what === "question" ? t("unverified.bodyQuestion") : t("unverified.body", { what })}</p>
+        <span className="cc-ai-unverified-pill">
+          <Icon name="info" size={16} />
+          {t("unverified.badge")}
+        </span>
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} anchor={anchor} width={320} label={t("unverified.about", { what })} className="cc-ai-unverified-note">
+        <p>{what === "question" ? t("unverified.bodyQuestion") : t("unverified.body")}</p>
         {onReview && (
-          <button type="button" className="connected-link-button" onClick={onReview}>
+          <button
+            type="button"
+            className="cc-ui-text-button"
+            onClick={() => {
+              setOpen(false);
+              onReview();
+            }}
+          >
             {t("unverified.review")}
           </button>
         )}
-      </div>
-    </details>
+      </Popover>
+    </span>
   );
 }

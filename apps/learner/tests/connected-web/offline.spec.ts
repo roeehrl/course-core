@@ -64,7 +64,7 @@ test("offline: the answer waits on this device, is sent once on reconnect and re
     .getByRole("status")
     .filter({ hasText: "You’re offline." });
   await expect(status).toBeVisible();
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page.getByText(/You’re offline\. Nothing was recorded yet/),
   ).toBeVisible();
@@ -87,7 +87,10 @@ test("offline: the answer waits on this device, is sent once on reconnect and re
   expect(posts.confirmed).toEqual([]);
 
   await context.setOffline(false);
-  await expect(page.getByText(/^Recovered submission\./)).toBeVisible();
+  // The result shows under its question, in the check's own status region, never in the page
+  // notice (final design §4.1).
+  await expect(page.locator(".connected-answer-feedback.is-filled")).toContainText(/Correct\.|Let's revisit this\./);
+  await expect(page.getByText(/^Recovered submission\./)).toHaveCount(0);
   await expect(status).toHaveCount(0);
   await expect(waiting).toHaveCount(0);
   // Every send used the same idempotency key, and the server confirmed it once.
@@ -112,7 +115,7 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
     await route.fetch();
     await route.abort("connectionreset");
   });
-  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(
     page
       .getByRole("status")
@@ -129,7 +132,13 @@ test("a tab closed before the server's reply resumes in a new tab with the same 
     .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
     .first()
     .click();
-  await expect(reopened.getByText(/^Recovered submission\./)).toBeVisible();
+  // Sent again from the new tab, its result shows under its question there (§4.1), in the lesson.
+  await reopened
+    .getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ })
+    .first()
+    .click();
+  await expect(reopened.locator(".connected-answer-feedback.is-filled")).toContainText(/Correct\.|Let's revisit this\./);
+  await expect(reopened.getByText(/^Recovered submission\./)).toHaveCount(0);
   expect(posts.keys).toEqual(firstKeys);
   expect(posts.confirmed).toEqual([200]);
   await expect(
@@ -166,17 +175,18 @@ test("an answer that is still being sent is not reported as waiting on this devi
     },
     { times: 1 },
   );
-  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  const check = page.getByRole("button", { name: "Check", exact: true });
   await check.click();
   await arrived;
   // The request is saved on the device before it is sent, so the page is now in exactly the
   // state that used to show "Not recorded yet" for a request that had not failed at all.
-  await expect(page.getByRole("button", { name: "Saving…", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Checking…", exact: true })).toBeDisabled();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await expect(page.getByRole("status").filter({ hasText: "Not recorded yet" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Send saved request now" })).toHaveCount(0);
   release();
-  await expect(page.getByText("Correct. 2 is below 5.")).toBeVisible();
+  await expect(page.locator(".connected-check .cc-check-verdict")).toHaveText("Correct.");
+  await expect(page.locator(".connected-check .cc-check-explanation")).toHaveText("2 is below 5.");
   expect(await page.evaluate(() => (window as unknown as { __banners: string[] }).__banners)).toEqual([]);
   expect(posts.confirmed).toEqual([200]);
 });
@@ -212,7 +222,7 @@ test("slow network: a slow answer says the server is slow, is never sent twice, 
     },
     { times: 1 },
   );
-  const check = page.getByRole("button", { name: "Check answer", exact: true });
+  const check = page.getByRole("button", { name: "Check", exact: true });
   await check.click();
   const status = page.locator(".connected-connection");
   await expect(status).toContainText("The server is slow to answer.", {

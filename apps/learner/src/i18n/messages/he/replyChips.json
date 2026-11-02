@@ -1,0 +1,14 @@
+{
+  "notSure": "עוד לא ברור לי",
+  "hint": "רמז, בבקשה",
+  "example": "דוגמה, בבקשה",
+  "anotherWay": "הסבר אחר, בבקשה",
+  "quiz": "שאלת תרגול על זה",
+  "showMeHow": "איך פותרים את זה?",
+  "reasoning": "הדרך שלי",
+  "reasoningText": "הדרך שלי: ",
+  "starter.explain": "הסבר אחר לחלק הזה",
+  "starter.practice": "שאלת תרגול, בבקשה",
+  "starter.summary": "סיכום השיעור, בבקשה",
+  "more": "הצעות נוספות"
+}

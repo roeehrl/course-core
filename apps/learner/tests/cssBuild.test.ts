@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -70,29 +70,51 @@ describe("the web export keeps direction selectors", () => {
     expect(css).toMatch(RTL_LANGUAGE_LIST);
   });
 
-  it("emits every direction selector of the connected stylesheet in the production export", () => {
+  it("emits every learner stylesheet, with every direction selector, in the production export", () => {
     // The root check exports the app (npm run export:web) before it runs these tests.
     const folder = join(appRoot, "dist/_expo/static/css");
     expect(
       existsSync(folder),
       "no web export: run npm run export:web first",
     ).toBe(true);
-    const source = readFileSync(
+    const files = readdirSync(folder).filter((file) => file.endsWith(".css"));
+    const sheets = stylesheets(join(appRoot, "src"));
+    // The export names each stylesheet <basename>-<hash>.css, so two sources may not share one.
+    const names = sheets.map((sheet) => basename(sheet, ".css"));
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(expect.arrayContaining(["connected", "tokens", "primitives", "layout", "companion", "companion-actions"]));
+    for (const sheet of sheets) {
+      const name = basename(sheet, ".css");
+      const source = readFileSync(sheet, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      // Exact basename: companion-<hash> is not companion-actions-<hash>.
+      const exported = files
+        .filter((file) => new RegExp(`^${name}-[0-9a-f]{32}\\.css$`).test(file))
+        .map((file) => readFileSync(join(folder, file), "utf8"));
+      expect(exported, `${name}.css in the export`).toHaveLength(1);
+      expect(directionSelectors(exported[0]!), name).toHaveLength(
+        directionSelectors(source).length,
+      );
+      expect(exported[0], name).not.toMatch(RTL_LANGUAGE_LIST);
+    }
+    const connected = readFileSync(
       join(appRoot, "src/connected/connected.css"),
       "utf8",
     ).replace(/\/\*[\s\S]*?\*\//g, "");
-    const exported = readdirSync(folder)
-      .filter((file) => file.startsWith("connected-") && file.endsWith(".css"))
-      .map((file) => readFileSync(join(folder, file), "utf8"));
-    expect(exported).toHaveLength(1);
-    const css = exported[0]!;
     expect(
-      directionSelectors(source).filter((s) => s.startsWith(":dir")),
+      directionSelectors(connected).filter((s) => s.startsWith(":dir")),
     ).not.toHaveLength(0);
-    expect(directionSelectors(css)).toHaveLength(
-      directionSelectors(source).length,
+    const css = readFileSync(
+      join(folder, files.find((file) => /^connected-[0-9a-f]{32}\.css$/.test(file))!),
+      "utf8",
     );
     expect(css).toContain("summary:dir(rtl):before");
-    expect(css).not.toMatch(RTL_LANGUAGE_LIST);
   });
 });
+
+function stylesheets(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return stylesheets(path);
+    return entry.name.endsWith(".css") ? [path] : [];
+  });
+}

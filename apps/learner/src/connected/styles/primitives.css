@@ -1,0 +1,573 @@
+/* Shared pieces of the learner's AI surfaces (src/connected/ui, final design §1). Every colour
+ * is a token (styles/tokens.css); targets are 24 px for a fine pointer and 44 px for a coarse one
+ * (`--target`); focus is a 2 px `--focus` outline, which forced colours keep. */
+.cc-ui-sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Icons (components/icons): strokes take the text colour; the mirrored set flips in
+ * right-to-left text (RTL-4). */
+.cc-ui-icon {
+  flex: none;
+}
+.cc-ui-icon-mirror:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+/* Focus, for every control below. */
+.cc-ui-icon-button:focus-visible,
+.cc-ui-pill:focus-visible,
+.cc-ui-chip:focus-visible,
+.cc-ui-chip-remove:focus-visible,
+.cc-ui-text-button:focus-visible,
+.cc-ui-menu-item:focus-visible,
+.cc-ui-popover:focus-visible,
+.cc-ui-long-field:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* IconButton: a circle with a 36 px hover disc. */
+.cc-ui-icon-button {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: max(36px, var(--target));
+  min-block-size: max(36px, var(--target));
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.cc-ui-icon-button.is-small {
+  min-inline-size: max(28px, var(--target));
+  min-block-size: max(28px, var(--target));
+}
+.cc-ui-icon-button:hover,
+.cc-ui-icon-button[aria-pressed="true"],
+.cc-ui-icon-button[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.cc-ui-icon-button:disabled {
+  cursor: default;
+  color: var(--ink-muted);
+  background: transparent;
+}
+
+/* PillButton: outline or accent, 32/36/40 px high, 44 px under a coarse pointer. */
+.cc-ui-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-block-size: 36px;
+  padding-block: 0;
+  padding-inline: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+  cursor: pointer;
+}
+.cc-ui-pill-32 {
+  min-block-size: max(32px, var(--target));
+  padding-inline: var(--space-3);
+}
+.cc-ui-pill-36 {
+  min-block-size: max(36px, var(--target));
+}
+.cc-ui-pill-40 {
+  min-block-size: max(40px, var(--target));
+}
+.cc-ui-pill:hover {
+  background: var(--surface-2);
+}
+.cc-ui-pill-accent {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.cc-ui-pill-accent:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+.cc-ui-pill:disabled {
+  cursor: default;
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--ink-muted);
+}
+
+/* A text button inside a line (an action of a status, meta or notice line). */
+.cc-ui-text-button {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--target);
+  padding-block: 0;
+  padding-inline: var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 var(--text-button) var(--font-sans);
+  cursor: pointer;
+}
+.cc-ui-text-button:hover {
+  text-decoration: underline;
+}
+.cc-ui-text-button:disabled {
+  cursor: default;
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+/* Chip: send, fill (pencil) or removable (an attachment with its own ×). */
+.cc-ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-inline-size: 100%;
+  min-block-size: max(32px, var(--target));
+  padding-block: 0;
+  padding-inline: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 var(--text-chip) var(--font-sans);
+  text-align: start;
+}
+.cc-ui-chip.is-28 {
+  min-block-size: max(28px, var(--target));
+  padding-inline: 10px;
+}
+button.cc-ui-chip {
+  cursor: pointer;
+}
+button.cc-ui-chip:hover {
+  background: var(--surface-2);
+}
+.cc-ui-chip.is-removable {
+  padding-inline-end: 2px;
+  background: var(--surface-2);
+}
+.cc-ui-chip-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-ui-chip-remove {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: var(--target);
+  min-block-size: var(--target);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.cc-ui-chip-remove:hover {
+  color: var(--ink);
+}
+
+/* Tag: a small state pill. */
+.cc-ui-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: 2px;
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-pill);
+  font: 600 var(--text-tag) var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+/* Accent text on its soft fill (4.65:1 light, 5.89:1 dark; final design §1.2): the turn marker. */
+.cc-ui-tag.is-accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cc-ui-tag.is-muted {
+  background: var(--surface-2);
+  color: var(--ink-muted);
+}
+.cc-ui-tag.is-outline {
+  border: 1px solid var(--line-strong);
+}
+
+/* StatusLine and MetaLine: start-aligned meta text with a 16 px icon. */
+.cc-ui-status,
+.cc-ui-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-ui-status.is-ink,
+.cc-ui-status.is-error {
+  color: var(--ink);
+}
+.cc-ui-meta.has-rule {
+  flex-wrap: nowrap;
+}
+.cc-ui-meta-rule {
+  flex: 1;
+  min-inline-size: var(--space-4);
+  block-size: 1px;
+  background: var(--line);
+}
+
+/* PreparingDots (M5): three 6 px dots, staggered, still after 15 s. */
+.cc-ui-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  block-size: 1lh;
+}
+.cc-ui-dots > span {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  opacity: var(--motion-m5-rest-opacity);
+  animation: cc-ui-dot var(--motion-m5-duration) var(--motion-m5-easing) infinite;
+}
+.cc-ui-dots > span:nth-child(2) {
+  animation-delay: var(--motion-m5-stagger);
+}
+.cc-ui-dots > span:nth-child(3) {
+  animation-delay: calc(2 * var(--motion-m5-stagger));
+}
+.cc-ui-dots.is-still > span {
+  animation: none;
+  opacity: 0.6;
+}
+@keyframes cc-ui-dot {
+  0%,
+  100% {
+    opacity: var(--motion-m5-rest-opacity);
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* NoticeBanner: a limitation or detour notice. */
+.cc-ui-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-block: 10px;
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-ui-notice > .cc-ui-icon {
+  margin-block-start: 2px;
+  color: var(--ink-muted);
+}
+.cc-ui-notice-body {
+  flex: 1;
+  min-inline-size: 0;
+}
+.cc-ui-notice-text,
+.cc-ui-notice-more {
+  margin: 0;
+}
+.cc-ui-notice-more {
+  color: var(--ink-muted);
+}
+
+/* Menu (M16). */
+.cc-ui-menu-anchor {
+  position: relative;
+  display: inline-block;
+}
+.cc-ui-menu {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-1));
+  z-index: 1100;
+  min-inline-size: 200px;
+  padding-block: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  animation: cc-ui-pop var(--motion-m16-duration) var(--motion-m16-easing);
+}
+.cc-ui-menu.is-end {
+  inset-inline-end: 0;
+}
+.cc-ui-menu.is-start {
+  inset-inline-start: 0;
+}
+.cc-ui-menu.is-up {
+  inset-block-start: auto;
+  inset-block-end: calc(100% + var(--space-1));
+}
+.cc-ui-menu[hidden] {
+  display: none;
+}
+.cc-ui-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 40px;
+  padding-inline: var(--space-3);
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+  cursor: pointer;
+}
+.cc-ui-menu-item:hover,
+.cc-ui-menu-item:focus {
+  background: var(--surface-2);
+}
+.cc-ui-menu-item.is-danger {
+  color: var(--danger);
+}
+.cc-ui-menu-item[aria-disabled="true"] {
+  color: var(--ink-muted);
+  cursor: default;
+}
+@keyframes cc-ui-pop {
+  from {
+    opacity: 0;
+    transform: scale(var(--motion-m16-scale));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Popover (M16): anchored, non-modal. */
+.cc-ui-popover {
+  position: fixed;
+  z-index: 1100;
+  inline-size: min(280px, calc(100vw - 32px));
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-menu);
+  font: 400 var(--text-meta) var(--font-sans);
+  animation: cc-ui-pop var(--motion-m16-duration) var(--motion-m16-easing);
+}
+.cc-ui-popover.is-320 {
+  inline-size: min(320px, calc(100vw - 32px));
+}
+
+/* InlineConfirm (M17): a sentence, two equal outline buttons and a wrapping text button. */
+.cc-ui-confirm {
+  display: grid;
+  gap: var(--space-2);
+  animation: cc-ui-reveal var(--motion-m17-duration) var(--motion-m17-easing);
+}
+.cc-ui-confirm-sentence {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-chat) var(--font-sans);
+}
+.cc-ui-confirm-detail {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-ui-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cc-ui-confirm-actions > .cc-ui-pill {
+  flex: 1 1 0;
+  min-inline-size: max-content;
+}
+@keyframes cc-ui-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* PanelHeader: glyph, title, subtitle and an end slot. */
+.cc-ui-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: 56px;
+}
+.cc-ui-panel-glyph {
+  display: inline-grid;
+  place-items: center;
+}
+.cc-ui-panel-titles {
+  flex: 1;
+  min-inline-size: 0;
+}
+.cc-ui-panel-title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 var(--text-heading) var(--font-sans);
+}
+.cc-ui-panel-subtitle {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-ui-panel-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* CompanionTurnFrame: the companion's label line above its reply. */
+.cc-ui-turn {
+  margin: 0;
+}
+.cc-ui-turn-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+
+/* LongAnswerComposer: visible label, radius 16, at least 112 px, key hint and submit. */
+.cc-ui-long {
+  display: grid;
+  gap: var(--space-2);
+}
+.cc-ui-long-label {
+  color: var(--ink);
+  font: 600 var(--text-button) var(--font-sans);
+}
+.cc-ui-long-field {
+  min-block-size: 112px;
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-chat) var(--font-sans);
+  resize: vertical;
+}
+.cc-ui-long-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+/* A press on the submit with nothing written says so under the field (as the check does). */
+.cc-ui-long-missing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink);
+  font: 400 var(--text-meta) var(--font-sans);
+}
+.cc-ui-long-missing > svg {
+  flex: none;
+  margin-block-start: 2px;
+}
+.cc-ui-long-hint {
+  color: var(--ink-muted);
+  font: 400 var(--text-micro) var(--font-sans);
+}
+.cc-ui-long-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+
+/* Highlights (highlight.ts): M14 on a block, M15 on the composer. */
+[data-cc-highlight] {
+  box-shadow: inset 0 0 0 100vmax var(--accent-soft);
+  transition: box-shadow var(--motion-m14-fade) linear;
+}
+[data-cc-highlight="hold"] {
+  transition: none;
+}
+[data-cc-highlight="fade"] {
+  box-shadow: inset 0 0 0 100vmax transparent;
+}
+[data-cc-ring] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  transition: outline-color var(--motion-m15-fade) linear;
+}
+[data-cc-ring="hold"] {
+  transition: none;
+}
+[data-cc-ring="fade"] {
+  outline-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-ui-dots > span {
+    animation: none;
+    opacity: 0.6;
+  }
+  .cc-ui-menu,
+  .cc-ui-popover {
+    animation-name: cc-ui-reveal;
+  }
+  .cc-ui-confirm {
+    animation: none;
+  }
+}
+
+/* Forced colours (TOK-3): borders where fills carried the shape, CanvasText for the dots and
+ * the icons' strokes. */
+@media (forced-colors: active) {
+  .cc-ui-icon {
+    color: CanvasText;
+  }
+  .cc-ui-icon-sparkle path,
+  .cc-ui-icon-counts circle {
+    fill: CanvasText;
+  }
+  .cc-ui-icon-counts path {
+    stroke: Canvas;
+  }
+  .cc-ui-icon-practice circle {
+    stroke: CanvasText;
+  }
+  .cc-ui-chip,
+  .cc-ui-notice,
+  .cc-ui-tag,
+  .cc-ui-long-field,
+  .cc-ui-menu,
+  .cc-ui-popover {
+    border: 1px solid CanvasText;
+  }
+  .cc-ui-dots > span {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+}

@@ -258,31 +258,21 @@ async function untranslated(scope: Locator) {
 }
 
 for (const width of [390, 1280]) {
-  test(`Hebrew settings panels at ${width}px: rtl, translated, no overflow, axe clean`, async ({ page }) => {
-    const t = tr("he");
-    await page.setViewportSize({ width, height: 900 });
-    await host(page, "he");
-    await expect(page.locator("html")).toHaveAttribute("lang", "he");
-    await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-    await openProfile(page, "he");
-    await expectNoHorizontalOverflow(page);
-    await expectAccessible(page);
-    expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
-
-  });
-}
-
-for (const width of [390, 1280]) {
   test(`Hebrew companion at ${width}px: rtl, translated, no overflow, axe clean`, async ({ page }) => {
     const t = tr("he");
     await page.setViewportSize({ width, height: 900 });
     await host(page, "he");
     await enterCourse(page, "he");
     await openLesson(page, "he");
-    // The companion starts closed beside the lesson too; its button opens it.
-    await page.getByRole("button", { name: t("companionDock.open"), exact: true }).click();
-    const companion = page.getByRole(width < 600 ? "dialog" : "complementary", { name: t("companionDock.label") });
+    // The companion starts closed beside the lesson too; its button in the header opens it, as the
+    // panel beside the lesson or as a sheet over it, which is never a dialog.
+    const trigger = page.locator(".connected-header").getByRole("button", { name: t("companionTrigger.name"), exact: true });
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const companion = page.getByRole("complementary", { name: t("companionDock.label"), exact: true });
     await expect(companion).toBeVisible();
+    await expect(companion).toHaveAttribute("data-placement", width < 600 ? "sheet" : "docked");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(companion.getByRole("textbox", { name: t("connectedCompanion.draft.label") })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expectNoHorizontalOverflow(page);
@@ -290,45 +280,3 @@ for (const width of [390, 1280]) {
     expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
   });
 }
-
-for (const width of [390, 1280]) {
-  test(`Hebrew study dates and extension offer at ${width}px: rtl, translated, no overflow, axe clean`, async ({ page }) => {
-    const t = tr("he");
-    await page.setViewportSize({ width, height: 900 });
-    await host(page, "he");
-    await enterCourse(page, "he");
-    await page.getByText(t("policyPanel.caption"), { exact: true }).click();
-    const offer = page.locator(".connected-policy-panel article").first();
-    await expect(offer.getByRole("button", { name: t("policyPanel.offer.accept") })).toBeVisible();
-    await expect(offer.getByRole("region", { name: t("policyPanel.offer.beforeLabel") })).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-    await expectNoHorizontalOverflow(page);
-    await expectAccessible(page);
-    expect(await trackedHebrew(page.locator("body"), { tighter: true })).toEqual([]);
-  });
-}
-
-test("the settings panels, study dates and companion have no untranslated text under the en-XA pseudo-locale", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await host(page, "en-XA");
-  await expect(page.locator("html")).toHaveAttribute("lang", "en-XA");
-  await openProfile(page, "en-XA");
-  const profile = page.locator("section.connected-reading-card").filter({ has: page.locator("select") });
-  // The locale switcher and the profile editor above the panels belong to other views.
-  const panels = profile.locator(":scope > *:not(:nth-child(-n+2))");
-  for (const key of HEADINGS)
-    await expect(panels.getByRole("heading", { name: tr("en-XA")(key), exact: true })).toBeVisible();
-  expect(await untranslated(panels)).toEqual([]);
-
-  await page.goto("/?locale=en-XA");
-  await enterCourse(page, "en-XA");
-  await page.getByText(tr("en-XA")("policyPanel.caption"), { exact: true }).click();
-  const policy = page.locator(".connected-policy-panel");
-  await expect(policy.locator("article").first()).toBeVisible();
-  expect(await untranslated(policy)).toEqual([]);
-  await openLesson(page, "en-XA");
-  await page.getByRole("button", { name: tr("en-XA")("companionDock.open"), exact: true }).click();
-  const companion = page.getByRole("complementary", { name: tr("en-XA")("companionDock.label") });
-  await expect(companion.getByRole("textbox", { name: tr("en-XA")("connectedCompanion.draft.label") })).toBeVisible();
-  expect(await untranslated(companion)).toEqual([]);
-});

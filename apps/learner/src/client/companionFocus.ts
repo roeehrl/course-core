@@ -22,26 +22,55 @@ export interface FocusMedia {
   label: string;
   playbackSeconds?: number;
 }
+/** An open check attached to the next message, with its number in the lesson ("Question 2"). */
+export interface FocusCheck {
+  challengeId: string;
+  ordinal: number;
+}
 export interface CompanionFocusState {
   selection?: FocusSelection;
   media?: FocusMedia;
+  check?: FocusCheck;
 }
 let state: CompanionFocusState = {};
 const listeners = new Set<(value: CompanionFocusState) => void>();
+/** Where each attachment is in the page (the check, the lesson block, the player, the
+ * illustration), newest last; never sent, only used to show it above a phone's sheet. */
+type Place = keyof CompanionFocusState;
+let places: { place: Place; element: Element }[] = [];
 function publish(next: CompanionFocusState) {
   state = next;
+  places = places.filter(({ place }) => next[place] !== undefined);
   for (const listener of listeners) listener(state);
+}
+function placed(place: Place, element: Element | null | undefined, value: unknown) {
+  places = places.filter((row) => row.place !== place);
+  if (value !== undefined && element) places.push({ place, element });
 }
 export const companionFocus = {
   get: (): CompanionFocusState => state,
-  setSelection(selection: FocusSelection | undefined) {
+  /** `element` is where the selection is in the page (its block, the code field, the illustration). */
+  setSelection(selection: FocusSelection | undefined, element?: Element | null) {
+    placed("selection", element, selection);
     publish({ ...state, selection });
   },
-  setMedia(media: FocusMedia | undefined) {
+  /** `element` is the player the moment was taken from. */
+  setMedia(media: FocusMedia | undefined, element?: Element | null) {
+    placed("media", element, media);
     publish({ ...state, media });
   },
+  /** Attaches an open check to the next message (sent as its `challengeId`), or removes it;
+   * `element` is the check in the lesson. */
+  setCheck(check: FocusCheck | undefined, element?: Element | null) {
+    placed("check", element, check);
+    publish({ ...state, check });
+  },
+  /** The page element of the newest attachment still on the page, if any (final design §2.4 G6). */
+  anchor(): Element | null {
+    return places.findLast(({ element }) => element.isConnected)?.element ?? null;
+  },
   clear() {
-    if (state.selection || state.media) publish({});
+    if (state.selection || state.media || state.check) publish({});
   },
   subscribe(listener: (value: CompanionFocusState) => void) {
     listeners.add(listener);

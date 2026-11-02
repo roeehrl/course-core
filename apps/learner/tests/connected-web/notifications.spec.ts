@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 // Real API and PostgreSQL: the learner's notification bell (owner decision 8). A learner whose
 // course was updated sees one new notification, opens it and lands on that course; the read state
-// is kept by the server.
+// is kept by the server. Reply notifications are reply-notification.spec.ts.
 test("the learner's bell shows a course update and opens the course", async ({ page }) => {
   const token = (await (await page.request.post("/test/notification-session")).json()).token;
   await page.goto(`/#signin=${token}`);
@@ -11,6 +11,12 @@ test("the learner's bell shows a course update and opens the course", async ({ p
   await expect(bell).toBeVisible();
   await bell.click();
   await expect(page.getByText(/Your course was updated from version .*0\.9\.0.* to version .*1\.0\.0/)).toBeVisible();
+  // The row is one button (final design §4.8), new until opened.
+  const row = page.locator(".connected-notifications-panel").getByRole("button", { name: "Open", exact: true });
+  await expect(row).toHaveAccessibleDescription(/^New\. Your course was updated from version .*0\.9\.0.* to version .*1\.0\.0.*\. \S/);
+  expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(64);
+  // Once its opening fade (M16) has settled.
+  await page.locator(".connected-notifications-panel").evaluate((panel) => Promise.all(panel.getAnimations().map((animation) => animation.finished)));
   expect(
     (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).include(".connected-header").analyze()).violations,
   ).toEqual([]);
@@ -19,7 +25,7 @@ test("the learner's bell shows a course update and opens the course", async ({ p
   const box = (await page.locator(".connected-notifications-panel").boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await row.click();
   await expect(page.getByRole("heading", { name: "Your learning path" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Notifications", exact: true })).toBeVisible();
   await page.reload();

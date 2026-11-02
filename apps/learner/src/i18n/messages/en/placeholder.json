@@ -1,0 +1,12 @@
+{
+  "outsideLesson": "Keep drafting. Send it from a lesson.",
+  "inProgress": "Write your next message…",
+  "check": "Ask about question {number}…",
+  "text": "Ask about the selected text…",
+  "code": "Ask about your code…",
+  "video": "Ask about this moment…",
+  "illustration": "Ask about this part…",
+  "yourAnswer": "Your answer…",
+  "lesson": "Ask about this lesson…",
+  "reply": "Reply…"
+}

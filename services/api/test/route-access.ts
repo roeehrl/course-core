@@ -282,6 +282,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "POST /api/enrollments/:enrollmentId/companion/context-exclusions": "own-learner",
   "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/cancel": "own-learner",
   "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/delete": "own-learner",
+  "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/feedback": "own-learner",
   "POST /api/enrollments/:enrollmentId/complete": "own-learner",
   "GET /api/enrollments/:enrollmentId/components": "own-learner",
   "GET /api/enrollments/:enrollmentId/continuation": "own-learner",
@@ -402,6 +403,7 @@ export const PROBE_INPUT: Record<string, (ids: Record<string, string>) => { body
   "POST /api/enrollments/:enrollmentId/learner-model/hypotheses/:hypothesisId/decision": () => ({ body: { action: "pin" } }),
   "POST /api/enrollments/:enrollmentId/learner-model/diagnostics": () => ({ body: { objectiveId: "minimum" } }),
   "POST /api/enrollments/:enrollmentId/learner-model/probes/:probeRunId/answer": () => ({ body: { answer: "two" } }),
+  "POST /api/enrollments/:enrollmentId/companion/messages/:messageId/feedback": () => ({ body: { vote: "helpful" } }),
   "GET /api/admin/concept-mappings": (ids) => ({ query: { first: ids.releaseId, second: ids.otherReleaseId } }),
   "POST /api/admin/course-packages/:sha256/install": (ids) => ({ query: { workspaceId: ids.workspaceId } }),
   // The typed confirmation of an erasure; only a denied actor ever sends it.

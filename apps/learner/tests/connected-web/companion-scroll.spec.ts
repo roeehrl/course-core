@@ -9,12 +9,13 @@ import enMarkdown from "../../src/i18n/messages/en/markdownContent.json";
 import heMarkdown from "../../src/i18n/messages/he/markdownContent.json";
 
 /*
- * The companion's reading on every device project and both engines, in English and Hebrew, from
- * the live 0.1.58 test:
- * - a reply streaming in is followed inside the companion only: the lesson page never moves (the
- *   window scrolled 0 → 577 px, and the sticky header was drawn low while it did);
- * - the companion opens at its latest messages and the message box, not at the oldest of a long
- *   conversation;
+ * The companion's reading on every device project and both engines, in English and Hebrew (final
+ * design §3.8; the live 0.1.58 test):
+ * - a question is anchored near the top of the thread and its reply grows downward: nothing
+ *   scrolls while the text streams, inside the companion or on the page (the window once scrolled
+ *   0 → 577 px, and the sticky header was drawn low while it did);
+ * - with no unread reply, the companion opens at its latest messages and the message box, not at
+ *   the oldest of a long conversation (the oldest unread reply is notify's, with its tracker);
  * - a table or display formula wider than the narrow companion scrolls sideways and says so;
  * - an English formula pasted into a Hebrew question keeps its order, and a short inline formula
  *   in Hebrew prose is never split across lines.
@@ -45,7 +46,9 @@ async function openCompanion(page: Page) {
 async function ask(page: Page, locale: Locale, question: string) {
   const t = text[locale].companion;
   await page.getByRole("textbox", { name: t["draft.label"], exact: true }).fill(question);
-  await page.getByRole("button", { name: t["send.send"], exact: true }).click();
+  const saved = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
+  await page.locator("#connected-companion .cc-chat-send").click();
+  expect((await saved).status()).toBe(200);
   await expect(page.getByRole("log", { name: t.log }).getByText(question, { exact: true })).toBeVisible();
 }
 /** Where the lesson is: the window's scroll and the phone's learning pane's. */
@@ -53,32 +56,35 @@ const lessonPlace = (page: Page) =>
   page.evaluate(() => ({ window: Math.round(window.scrollY), pane: Math.round(document.querySelector(".connected-main")!.scrollTop) }));
 
 for (const locale of ["en", "he"] as const) {
-  test(`${locale}: a streaming reply is followed inside the companion, and the lesson never moves`, async ({ page }, info) => {
+  test(`${locale}: a streaming reply grows under its anchored question; neither the thread nor the lesson moves`, async ({ page }, info) => {
     const t = text[locale];
     await openLesson(page, locale);
     const pane = await openCompanion(page);
+    const log = pane.getByRole("log", { name: t.companion.log });
     const question = `${locale === "he" ? "שאלה ארוכה" : "Long question"} ${Date.now()}`;
     await ask(page, locale, question);
     const before = await lessonPlace(page);
     const header = page.locator(".connected-header");
     const headerTop = (await header.boundingBox())!.y;
+    // The anchor's scroll (M3, 240 ms) has settled.
+    await page.waitForTimeout(400);
+    const anchored = await log.evaluate((el) => Math.round(el.scrollTop));
     const pieces = Array.from({ length: 16 }, (_, i) => `Step ${i + 1}: compare the two values on the number line and keep the smaller one. `);
     expect((await (await page.request.post("/test/companion-draft", { data: { question, pieces, gapMs: 120, end: "complete" } })).json()).opened).toBe(true);
-    const draft = pane.getByLabel(t.companion["reply.region"]);
+    const draft = log.locator('[data-reply-state="streaming"]');
     await expect(draft).toBeVisible();
-    // While it streams: the lesson stays where the learner left it, and the header where it is.
+    // While it streams: the lesson stays where the learner left it, the header where it is, and
+    // the thread where the anchor put it.
     for (let sample = 0; sample < 12; sample++) {
       expect(await lessonPlace(page), `sample ${sample}`).toEqual(before);
       expect((await header.boundingBox())!.y, `header at sample ${sample}`).toBe(headerTop);
+      expect(await log.evaluate((el) => Math.round(el.scrollTop)), `thread at sample ${sample}`).toBe(anchored);
       await page.waitForTimeout(150);
     }
-    // The companion followed it inside its own box: the reply, taller than the view, starts just
-    // under the companion's title, to be read from its start.
-    const box = (await pane.boundingBox())!, title = (await pane.locator(".connected-dock-title").boundingBox())!;
-    const reply = (await draft.boundingBox())!;
-    expect(reply.height).toBeGreaterThan(box.height / 2);
-    expect(reply.y).toBeGreaterThanOrEqual(title.y + title.height - 1);
-    expect(reply.y).toBeLessThan(title.y + title.height + 40);
+    // The question sits near the thread's top, its reply under it.
+    const logBox = (await log.boundingBox())!, bubble = (await log.locator(".cc-chat-bubble").filter({ hasText: question }).boundingBox())!;
+    expect(bubble.y - logBox.y).toBeLessThan(40);
+    expect((await draft.boundingBox())!.y).toBeGreaterThan(bubble.y);
     expect(await lessonPlace(page)).toEqual(before);
     await page.screenshot({ path: info.outputPath(`streamed-${locale}.png`) });
   });
@@ -87,7 +93,12 @@ for (const locale of ["en", "he"] as const) {
     const t = text[locale];
     await openLesson(page, locale);
     await openCompanion(page);
-    for (let i = 1; i <= 7; i++) await ask(page, locale, `${locale === "he" ? "שאלה" : "Question"} ${i} ${Date.now()}`);
+    for (let i = 1; i <= 5; i++) {
+      const question = `${locale === "he" ? "שאלה" : "Question"} ${i} ${Date.now()}`;
+      await ask(page, locale, question);
+      expect((await (await page.request.post("/test/companion-job", { data: { question, state: "applied", answer: `${"A longer stored answer. ".repeat(6)}${i}` } })).json()).updated).toBe(true);
+      await expect(page.getByRole("log", { name: t.companion.log }).getByText(new RegExp(` ${i}$`))).toBeVisible({ timeout: 15_000 });
+    }
     // A new visit: the conversation is long, and the companion opens at its end.
     await page.reload();
     await expect(async () => {
@@ -96,9 +107,11 @@ for (const locale of ["en", "he"] as const) {
       await expect(page.getByRole("heading", { name: "Minimum", exact: true, level: 1 })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 20_000 });
     const pane = await openCompanion(page);
-    await expect(page.getByRole("log", { name: t.companion.log }).getByText(/ 7 \d+$/)).toBeVisible();
-    await expect.poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(2);
-    expect(await pane.evaluate((el) => el.scrollHeight > el.clientHeight + 100)).toBe(true);
+    const log = pane.getByRole("log", { name: t.companion.log });
+    await expect(log.getByText(/ 5$/)).toBeVisible();
+    await expect.poll(() => log.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(2);
+    expect(await log.evaluate((el) => el.scrollHeight > el.clientHeight + 100)).toBe(true);
+    await expect(log).toHaveAttribute("data-scrolled", "true");
     await expect(page.getByRole("textbox", { name: t.companion["draft.label"], exact: true })).toBeInViewport();
   });
 
@@ -112,12 +125,12 @@ for (const locale of ["en", "he"] as const) {
     const answer = [
       locale === "he" ? "נניח מודל של שתי שכבות: $h = w_1 \\cdot x$ ולאחר מכן $\\text{prediction} = w_2 \\cdot h$." : "Take two layers: $h = w_1 \\cdot x$ and then $\\text{prediction} = w_2 \\cdot h$.",
       "",
-      "$$w_{\\text{new}} = w - \\eta \\frac{\\partial L}{\\partial w} = 2 - 0.1 \\cdot (-6) = 2 + 0.6 = 2.6 \\quad \\text{and the next forward gives } 7.8$$",
+      "$$w_{\\text{new}} = w - \\eta \\frac{\\partial L}{\\partial w} = 2 - 0.1 \\cdot (-6) = 2 + 0.6 = 2.6 \\quad \\text{and the next forward gives } 7.8 \\quad \\text{so the loss falls from } 2 \\text{ to } 0.02$$",
       "",
-      "| Stage | w | Prediction (w·x) | Loss | Gradient dL/dw |",
-      "| --- | --- | --- | --- | --- |",
-      "| After forward | 2 | 6 | 2 | not yet computed |",
-      "| After update | 2.6 | 7.8 (on next forward) | 0.02 | not yet computed |",
+      "| Stage | w | Prediction (w·x) | Loss | Gradient dL/dw | Learning rate η | Momentum β | Weight decay λ | Epoch |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| After forward | 2 | 6 | 2 | not yet computed | 0.1 (fixed for the run) | 0.9 | 0.0001 | 1 of 10 |",
+      "| After update | 2.6 | 7.8 (on next forward) | 0.02 | not yet computed | 0.1 (fixed for the run) | 0.9 | 0.0001 | 1 of 10 |",
     ].join("\n");
     expect((await (await page.request.post("/test/companion-job", { data: { question, state: "applied", answer } })).json()).updated).toBe(true);
     const table = pane.locator(".markdown-table");
@@ -128,14 +141,15 @@ for (const locale of ["en", "he"] as const) {
     // A short inline formula is one piece, never split across lines.
     const inline = pane.getByRole("math").first();
     expect(await inline.evaluate((el) => el.querySelectorAll("math").length)).toBe(1);
-    // The table and the display formula are wider than the companion: they scroll sideways, and a
-    // line under each says so.
-    for (const frame of [table, pane.locator(".math-formula.is-display")]) {
+    // The table and the display formula are wider than the companion (the tablet sheet's 640 px
+    // included): they scroll sideways, and a line under each says so.
+    // The table's line names the table (final design §3.3: "…לשאר הטבלה" in Hebrew).
+    for (const [frame, said] of [[table, t.markdown.tableScrollHint], [pane.locator(".math-formula.is-display"), t.markdown.scrollHint]] as const) {
       await frame.scrollIntoViewIfNeeded();
       expect(await frame.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
       await expect(frame).toHaveClass(/is-overflowing/);
       const hint = frame.locator("xpath=following-sibling::*[contains(@class, 'markdown-scroll-hint')]");
-      await expect(hint).toHaveText(t.markdown.scrollHint);
+      await expect(hint).toHaveText(said);
       await expect(hint).toBeVisible();
     }
     // Scrolled to its end, the last column shows in full inside the frame.

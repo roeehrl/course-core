@@ -1,7 +1,13 @@
-import React, { useId, useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import type { NextAction } from "@course-core/sdk";
+import { stripBidiControls } from "@course-core/i18n";
 import type { GateMessage, GateView } from "../client/apiClient";
 import { englishTranslator, useI18n, useT, type LearnerTranslator, type MessageKey, type Translate } from "../i18n";
+import { Icon } from "../components/icons/Icon.web";
+import { companionBridge, useCompanionAvailable } from "./companion/bridge";
+import { companionOpen } from "./companion/openState";
+import { ringComposer } from "./ui/highlight";
+import { LongAnswerComposer } from "./ui/LongAnswerComposer.web";
 
 type GateStatus = NonNullable<GateView["status"]>;
 const GATE_STATUSES: readonly GateStatus[] = ["ready", "needs_evidence", "needs_help", "under_review", "closed_with_gaps"];
@@ -40,6 +46,35 @@ const same = (a: string, b: string) => {
 };
 
 /**
+ * What the learner would ask the companion for a help step: "Can you explain “{focus}” another
+ * way?" when the decision is about a lesson, else the plain question, so the message box says
+ * what the pill said ("…about “{focus}”" or "…to explain this another way"). Plain text for the
+ * message box (no direction marks).
+ */
+export function helpPrefill(message: GateMessage | null | undefined, i18n: Pick<LearnerTranslator, "t">): string {
+  const params = message?.params ?? {};
+  const focus = params.focusKind === "lesson" && typeof params.focus === "string" ? params.focus : "";
+  return stripBidiControls(focus ? i18n.t("gateDecision.help.prefill", { focus }) : i18n.t("gateDecision.help.prefillGeneric"));
+}
+
+/**
+ * Asks the companion about the decision's focus (§4.5): opens it with the question in the message
+ * box, caret at the end, and sends nothing. When the companion was already open, its message box
+ * is ringed (M15) so the change is seen. Without a companion on the page the host's own fallback
+ * runs (the lesson review).
+ */
+function askCompanion(action: NextAction, prefill: string, onAction: (action: NextAction) => void) {
+  if (!companionBridge.available()) return onAction(action);
+  const wasOpen = companionOpen.get().open;
+  companionBridge.compose({ source: "gate", text: prefill });
+  if (!wasOpen) return;
+  requestAnimationFrame(() => {
+    const field = document.querySelector<HTMLElement>("#connected-companion textarea");
+    if (field) ringComposer(field);
+  });
+}
+
+/**
  * The server's readiness decision for this lesson's checkpoint: its status, why, each readiness
  * criterion and the concrete next steps the server allows. It displays what the server decided;
  * pressing a step never grants credit by itself.
@@ -54,18 +89,23 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
 }) {
   const t = useT();
   const i18n = useI18n();
+  const companion = useCompanionAvailable();
   const [reviewing, setReviewing] = useState(false);
   const [reason, setReason] = useState("");
+  const [tooShort, setTooShort] = useState(false);
   const reasonId = useId();
+  const sending = useRef(false);
   if (!gate.status) return null;
   const criteria = gate.criterionResults ?? [];
   const review = gate.review ?? null, exception = gate.exception ?? null;
   // While a request is open or an exception stands, the appeal step is replaced by its status.
   const messages = gate.messages ?? null;
-  // Each step keeps its server position, which is how its message code is found.
-  const actions = (gate.nextActions ?? []).map((action, index) => ({ ...action, label: gateText(messages?.actions[index], action.label, i18n) }))
-    .filter((_, index) => !omitFreshCheck || messages?.actions[index]?.code !== "action.freshCheck")
-    .filter((action) => action.kind !== "appeal" || (onRequestReview && review?.state !== "open" && !exception));
+  // Each step keeps its server position, which is how its message code is found. Asking the
+  // companion is offered only while it is on the page (§4.16).
+  const actions = (gate.nextActions ?? []).map((action, index) => ({ ...action, label: gateText(messages?.actions[index], action.label, i18n), message: messages?.actions[index] }))
+    .filter((action) => !omitFreshCheck || action.message?.code !== "action.freshCheck")
+    .filter((action) => action.kind !== "appeal" || (onRequestReview && review?.state !== "open" && !exception))
+    .filter((action) => action.kind !== "request_help" || companion);
   // A translated criterion still says when its evidence awaits review, as the English text does.
   const criterionText = (criterion: (typeof criteria)[number], state: string) => {
     const message = messages?.criteria[criterion.criterionId], text = gateText(message, "", i18n);
@@ -92,11 +132,23 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
       : gateText(reasonMessage, gate.learnerVisibleReason, i18n);
   const showReason = Boolean(reasonText) && !rows.some((row) => same(row.text, reasonText));
   const trimmed = reason.trim();
-  const choose = (action: NextAction) => (action.kind === "appeal" && onRequestReview ? setReviewing(true) : onAction(action));
+  const choose = (action: (typeof actions)[number]) =>
+    action.kind === "appeal" && onRequestReview ? setReviewing(true)
+      : action.kind === "request_help" ? askCompanion(action, helpPrefill(action.message, i18n), onAction)
+        : onAction(action);
+  const send = () => {
+    if (pending || sending.current || !onRequestReview) return;
+    if (trimmed.length < REVIEW_MIN) return setTooShort(true);
+    sending.current = true;
+    void onRequestReview(trimmed).then(() => { setReviewing(false); setReason(""); }, () => undefined).finally(() => { sending.current = false; });
+  };
+  // The server's first step leads (a filled pill), asking the companion is its own outline pill,
+  // and the other steps are text actions, as in the gate artboard. When asking leads, no step is filled.
+  const lead = actions[0]?.kind !== "await_review" && actions[0]?.kind !== "request_help" ? actions[0] : undefined;
   return (
     <section className="connected-gate" data-status={gate.status} aria-labelledby="connected-gate-title" data-testid="gate-decision">
       <div className="connected-gate-head">
-        <p className="connected-eyebrow">{t("gateDecision.eyebrow")}</p>
+        <p className="connected-gate-label">{t("gateDecision.eyebrow")}</p>
         <h3 id="connected-gate-title" className="connected-gate-status" aria-live="polite">
           <span className="connected-gate-dot" aria-hidden="true" />
           {gateStatusLabel(gate.status, t)}
@@ -121,12 +173,15 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
             <button
               key={`${action.kind}:${action.targetId ?? ""}:${index}`}
               type="button"
-              className={index === 0 ? "connected-gate-action primary" : "connected-gate-action"}
+              className={action.kind === "request_help" ? "connected-gate-action cc-ui-pill cc-ui-pill-outline cc-ui-pill-40 cc-ai-gate-help"
+                : action === lead ? "connected-gate-action primary cc-ui-pill cc-ui-pill-accent cc-ui-pill-40"
+                  : "connected-gate-action cc-ui-text-button"}
               data-kind={action.kind}
               disabled={pending}
               aria-expanded={action.kind === "appeal" && onRequestReview ? reviewing : undefined}
               onClick={() => choose(action)}
             >
+              {action.kind === "request_help" && <Icon name="sparkle" size={16} />}
               <bdi>{action.label}</bdi>
             </button>
           ))}
@@ -134,20 +189,36 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
       )}
       {reviewing && onRequestReview && !exception && review?.state !== "open" && (
         <form
+          // Sending the request is the step forward a usability study times (connected/usability.ts).
+          ref={(form) => form?.querySelector(".cc-ui-long-meta button")?.setAttribute("data-usability", "next")}
           className="connected-gate-review-form"
           aria-label={t("gateDecision.review.form")}
           onSubmit={(event) => {
             event.preventDefault();
-            if (trimmed.length < REVIEW_MIN || pending) return;
-            void onRequestReview(trimmed).then(() => { setReviewing(false); setReason(""); }, () => undefined);
+            send();
           }}
         >
-          <label htmlFor={reasonId}>{t("gateDecision.review.reasonLabel")}</label>
-          <textarea id={reasonId} value={reason} maxLength={REVIEW_MAX} rows={3} onChange={(event) => setReason(event.target.value)} disabled={pending} />
-          <p className="connected-input-hint">{t("gateDecision.review.hint")}</p>
+          {/* Enter makes a new line; Cmd/Ctrl+Enter or the send button sends. */}
+          <LongAnswerComposer
+            id={reasonId}
+            label={t("gateDecision.review.reasonLabel")}
+            value={reason}
+            onChange={(value) => {
+              setReason(value.slice(0, REVIEW_MAX));
+              setTooShort(false);
+            }}
+            onSubmit={send}
+            submitLabel={t("gateDecision.review.send")}
+            disabled={pending}
+            describedBy={`${reasonId}-about`}
+          />
+          <p id={`${reasonId}-about`} className="connected-input-hint">{t("gateDecision.review.hint")}</p>
+          {/* Present from the start, so the line is announced when it appears. */}
+          <div className="connected-gate-review-status" role="status">
+            {tooShort && <p className="connected-gate-review-short">{t("gateDecision.review.tooShort", { count: REVIEW_MIN })}</p>}
+          </div>
           <div className="connected-gate-actions">
-            <button type="button" className="connected-gate-action" disabled={pending} onClick={() => setReviewing(false)}>{t("gateDecision.review.cancel")}</button>
-            <button type="submit" className="connected-gate-action primary" data-usability="next" disabled={pending || trimmed.length < REVIEW_MIN}>{t("gateDecision.review.send")}</button>
+            <button type="button" className="connected-gate-action cc-ui-text-button" disabled={pending} onClick={() => setReviewing(false)}>{t("gateDecision.review.cancel")}</button>
           </div>
         </form>
       )}
@@ -156,7 +227,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview, om
           <strong>{t("gateDecision.exception.title")}</strong>
           <p>{t("gateDecision.exception.body")}</p>
           {review?.reviewerNote && <p className="connected-gate-review-note" dir="auto">“{review.reviewerNote}”</p>}
-          <button type="button" className="connected-gate-action primary" data-usability="next" disabled={pending} onClick={() => onAction({ kind: "continue", label: t("gateDecision.exception.continue") })}>
+          <button type="button" className="connected-gate-action primary cc-ui-pill cc-ui-pill-accent cc-ui-pill-40" data-usability="next" disabled={pending} onClick={() => onAction({ kind: "continue", label: t("gateDecision.exception.continue") })}>
             {t("gateDecision.exception.continue")}
           </button>
         </div>

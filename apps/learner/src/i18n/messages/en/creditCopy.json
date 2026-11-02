@@ -1,0 +1,6 @@
+{
+  "practiceSuffix.companion": "This counts as practice because you asked your companion.",
+  "practiceSuffix.hint": "This counts as practice because you used a hint.",
+  "practiceSuffix.solution": "This counts as practice because you opened the explanation.",
+  "practiceSuffix.seen_before": "This counts as practice because you saw this question before."
+}

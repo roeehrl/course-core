@@ -1,0 +1,17 @@
+{
+  "askAgain": "Ask again",
+  "rateLimited": "Too many questions at once. You can ask again in {time}.",
+  "rateReady": "You can ask again",
+  "stopFailed": "Couldn't stop the reply. Try again, or delete the question.",
+  "preparing": "Preparing a reply…",
+  "slow": "Still working on it. You can keep reading or stop it.",
+  "paused": "Reply paused.",
+  "stalled": "Reply paused. It may not finish.",
+  "offline": "Connection lost. The reply continues when you're back online.",
+  "checking": "Checking the reply…",
+  "stoppedPartial": "You stopped this reply. This part wasn't checked, so it won't be saved.",
+  "stopped": "You stopped this reply.",
+  "ended.noReply": "No reply came through.",
+  "ended.partway": "The reply stopped partway.",
+  "ended.removed": "This reply was removed because it didn't pass the course's checks."
+}

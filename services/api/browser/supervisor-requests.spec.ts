@@ -11,7 +11,9 @@ test("the learner decides a proposed goal, can undo it, and sees the work the su
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
   await openProfile(page);
-  const panel = page.getByRole("region", { name: "Decisions and work from your supervisor" });
+  const panel = page.getByRole("region", { name: "Decisions and work from your companion" });
+  // One status chip per item; nothing waits on the course team in this journey.
+  await expect(panel.getByRole("heading", { name: "Waiting for you", exact: true })).toBeVisible();
   await expect(panel.getByText("Suggested goal: Find minima and maxima", { exact: true })).toBeVisible();
   await expect(panel.getByText("Why: You asked about maxima twice.", { exact: true })).toBeVisible();
   await expect(panel.getByText("A side-by-side example of a common mix-up")).toBeVisible();
@@ -23,7 +25,7 @@ test("the learner decides a proposed goal, can undo it, and sees the work the su
 
   await panel.getByRole("button", { name: "Use this goal", exact: true }).click();
   await expect(panel.getByText(/Your goal is updated/)).toBeVisible();
-  await expect(panel.getByText(/in use/)).toBeVisible();
+  await expect(panel.getByText("In use", { exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "Go back to my earlier goal", exact: true }).click();
   await expect(panel.getByText("Your earlier goal is back.")).toBeVisible();
   await expect(panel.getByRole("button", { name: "Go back to my earlier goal", exact: true })).toHaveCount(0);
