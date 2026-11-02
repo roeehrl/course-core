@@ -37,9 +37,10 @@ import {
   Field,
   Loading,
   Notice,
+  SkeletonRows,
+  TechnicalDetails,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { SkeletonRows, TechnicalDetails } from "./contentShared";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
@@ -546,7 +547,7 @@ function ClipCard({ library }: { library: MediaLibrary }) {
           : t("mediaView.clips.toolchainMissing")}
       </p>
       {library.clipRendering !== "ready" && (
-        <TechnicalDetails summary={t("mediaView.technical")}>
+        <TechnicalDetails>
           <p>{t("mediaView.clips.toolchainSetup")}</p>
         </TechnicalDetails>
       )}

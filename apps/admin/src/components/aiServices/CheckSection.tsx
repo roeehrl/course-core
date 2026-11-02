@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { TechnicalDetails } from "../ui";
 import {
   AiServicesError,
   activeNeedingCheck,
@@ -962,8 +963,7 @@ export function CheckResult({
             </>
           )}
           {check.reason && (
-            <details className="ai-technical">
-              <summary>{t("aiServices.connect.technical")}</summary>
+            <TechnicalDetails>
               <p>
                 {t("aiServices.connect.technicalCode")}:{" "}
                 <Ltr className="mono">{check.reason}</Ltr>
@@ -992,7 +992,7 @@ export function CheckResult({
                   </p>
                 </>
               )}
-            </details>
+            </TechnicalDetails>
           )}
         </Message>
         {/* The judge could not run: its conversations were kept, to show which rules have no result. */}

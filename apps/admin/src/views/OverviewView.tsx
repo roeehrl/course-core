@@ -6,9 +6,9 @@ import {
   Badge,
   Card,
   EmptyState,
-  Loading,
   Notice,
   Stat,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import {
@@ -263,7 +263,8 @@ function Overview({
   const t = useT();
   const i18n = useI18n();
   const { when } = useFormatters();
-  if (overview.loading) return <Loading label={t("overviewView.loading")} />;
+  if (overview.loading)
+    return <SkeletonRows label={t("overviewView.loading")} rows={6} />;
   if (overview.error || !overview.data)
     return (
       <Notice tone="red">{overviewErrorMessage(overview.error, t)}</Notice>

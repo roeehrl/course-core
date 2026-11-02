@@ -8,9 +8,16 @@ import {
   type StoryboardShot,
 } from "../domain/media";
 import { useRemote } from "../hooks/useAdmin";
-import { Badge, Button, Card, Dialog, Field, Notice } from "../components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  Field,
+  Notice,
+  SkeletonRows,
+} from "../components/ui";
 import { isolate } from "@course-core/i18n";
-import { SkeletonRows } from "./contentShared";
 import { useT } from "../i18n";
 
 /** What a shot asks for, used to start a request from it. */

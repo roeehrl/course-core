@@ -38,5 +38,6 @@
   "status.evaluating": "בהערכה",
   "status.needs_input": "דרוש קלט",
   "status.follow_up_due": "הגיע מועד המעקב",
-  "dismiss": "סגירת ההודעה"
+  "dismiss": "סגירת ההודעה",
+  "technicalDetails": "פרטים טכניים"
 }

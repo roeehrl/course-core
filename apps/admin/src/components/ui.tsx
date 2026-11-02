@@ -207,6 +207,59 @@ export function EmptyState({
     </div>
   );
 }
+/**
+ * Identifiers and codes kept for support (a policy id, an error code, a stored record), folded
+ * away under "Technical details" so the owner reads sentences, not codes. `rows` lists label and
+ * value pairs (the values left to right, in a monospace face); other content goes in children.
+ */
+export function TechnicalDetails({
+  summary,
+  rows,
+  children,
+}: PropsWithChildren<{
+  /** Another title for the disclosure; "Technical details" by default. */
+  summary?: string;
+  rows?: [label: string, value: ReactNode][];
+}>) {
+  const t = useT();
+  return (
+    <details className="quiet-details">
+      <summary>{summary ?? t("ui.technicalDetails")}</summary>
+      {rows && (
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>
+                <span className="mono" dir="ltr">
+                  {value}
+                </span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {children}
+    </details>
+  );
+}
+/** Placeholder rows while a page or a section loads, in place of the content to come; the label
+ * is read out once. */
+export function SkeletonRows({
+  label,
+  rows = 6,
+}: {
+  label: string;
+  rows?: number;
+}) {
+  return (
+    <div className="skeleton-rows" role="status" aria-label={label}>
+      {Array.from({ length: rows }, (_, i) => (
+        <span key={i} aria-hidden="true" />
+      ))}
+    </div>
+  );
+}
 export function PermissionHint({
   permissions,
   required,

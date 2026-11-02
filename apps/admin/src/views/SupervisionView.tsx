@@ -15,8 +15,8 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
@@ -146,7 +146,7 @@ function SupervisionPanel({
   } | null>(null);
   const [requeueReason, setRequeueReason] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionView.loading")} />;
+    return <SkeletonRows label={t("supervisionView.loading")} rows={6} />;
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   const o = view.data,

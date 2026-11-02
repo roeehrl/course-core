@@ -17,12 +17,13 @@ import {
   Field,
   Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT } from "../i18n";
 import { GateReviewQueue } from "./GateReviewQueue";
 import { EvidenceDisputeQueue } from "./EvidenceDisputeQueue";
 import { randomId } from "../domain/webCrypto";
-import { QueueHeading, SkeletonRows } from "./contentShared";
+import { QueueHeading } from "./contentShared";
 import {
   emptyFindings,
   findingsPayload,

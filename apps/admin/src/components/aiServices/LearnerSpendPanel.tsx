@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { TechnicalDetails, SkeletonRows } from "../ui";
 import {
   lastDays,
   type LearnerSpend,
@@ -114,7 +115,7 @@ export function LearnerSpendPanel({
           </select>
         </Field>
         {!view && open && (
-          <p role="status">{t("aiServices.learnerSpend.loading")}</p>
+          <SkeletonRows label={t("aiServices.learnerSpend.loading")} rows={3} />
         )}
         {view === "failed" && (
           <Message tone="error">{t("aiServices.err.unavailable")}</Message>
@@ -303,8 +304,7 @@ export function LearnerSpendPanel({
                             charged: r.charged,
                           }))}
                         />
-                        <details className="ai-technical">
-                          <summary>{t("aiServices.connect.technical")}</summary>
+                        <TechnicalDetails>
                           <p>
                             {t("aiServices.learnerSpend.enrollment")}{" "}
                             <Ltr className="mono">{row.enrollmentId}</Ltr>
@@ -314,7 +314,7 @@ export function LearnerSpendPanel({
                             <Ltr className="mono">{row.courseKey}</Ltr>
                           </p>
                           <LessonIdList lessons={row.byLesson} />
-                        </details>
+                        </TechnicalDetails>
                       </details>
                     </li>
                   ))}
@@ -539,9 +539,8 @@ function LessonIds({ lessons }: { lessons: Lesson[] }) {
   const { t } = useAiText();
   if (!lessons.some((l) => l.episodeId && l.episodeTitle)) return null;
   return (
-    <details className="ai-technical">
-      <summary>{t("aiServices.connect.technical")}</summary>
+    <TechnicalDetails>
       <LessonIdList lessons={lessons} />
-    </details>
+    </TechnicalDetails>
   );
 }

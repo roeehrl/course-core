@@ -77,7 +77,6 @@
   "connect.unreachableQuestion": "Can't reach {service} from this server?",
   "connect.saveUntested": "Save without testing",
   "connect.saveUntestedWarn": "The key will be saved untested. AI help will fail until it works.",
-  "connect.technical": "Technical details",
   "connect.technicalCode": "Reason code",
   "connect.addAnother": "Add another connection",
   "connect.cancel": "Cancel",

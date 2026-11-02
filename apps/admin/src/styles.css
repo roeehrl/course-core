@@ -2002,6 +2002,118 @@ summary {
   font-weight: 650;
   cursor: pointer;
 }
+/* A quiet secondary disclosure: "Technical details" (ui.tsx TechnicalDetails) and other
+   folded-away extras such as a run history. The same small muted title and chevron on every
+   page, pointing to the inline end when closed and down when open. */
+.quiet-details {
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.quiet-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding-block: 6px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  list-style: none;
+}
+.quiet-details > summary::-webkit-details-marker {
+  display: none;
+}
+.quiet-details > summary::before {
+  content: "";
+  flex: none;
+  inline-size: 0.42em;
+  block-size: 0.42em;
+  margin-inline: 3px 2px;
+  border-block-end: 2px solid currentColor;
+  border-inline-end: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.quiet-details > summary:dir(rtl)::before,
+.quiet-details[open] > summary::before {
+  transform: rotate(45deg);
+}
+.quiet-details[open] > summary:dir(rtl)::before {
+  transform: rotate(-45deg);
+}
+.quiet-details[open] > summary {
+  margin-block-end: 8px;
+}
+.quiet-details > p {
+  margin: 0 0 6px;
+}
+.quiet-details dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0 0 8px;
+  font-size: var(--text-xs);
+}
+.quiet-details dl > div {
+  display: contents;
+}
+/* Groups of fields (a record's ids, then its payload) are set apart by a hairline. */
+.quiet-details dl + dl {
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--line);
+}
+.quiet-details dt {
+  color: var(--muted);
+}
+.quiet-details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 560px) {
+  .quiet-details dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .quiet-details dd + dt,
+  .quiet-details dl > div + div > dt {
+    margin-block-start: 8px;
+  }
+}
+/* Placeholder rows while a page or section loads (ui.tsx SkeletonRows), instead of a lone
+   spinner line: the shape of the content to come. */
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skeleton-rows > span {
+  display: block;
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #eef2f4 0%, #f7f9fa 40%, #eef2f4 80%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-rows > span:nth-child(3n + 2) {
+  width: 86%;
+}
+.skeleton-rows > span:nth-child(3n) {
+  width: 72%;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-rows > span {
+    animation: none;
+  }
+}
 summary:focus-visible {
   outline: 3px solid #4a7799;
   outline-offset: 3px;

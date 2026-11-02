@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SkeletonRows } from "../ui";
 import { CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   AiServicesError,
@@ -281,7 +282,7 @@ export function AiServicesPage({
           <p className="ai-intro">{t("aiServices.page.intro")}</p>
         </header>
         {!data && !failed && (
-          <p role="status">{t("aiServices.page.loading")}</p>
+          <SkeletonRows label={t("aiServices.page.loading")} rows={6} />
         )}
         {!data && failed && (
           <Message tone="error">

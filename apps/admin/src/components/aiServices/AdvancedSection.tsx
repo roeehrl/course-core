@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { TechnicalDetails } from "../ui";
 import type { SectionProps } from "./AiServicesPage";
 import {
   Field,
@@ -551,8 +552,7 @@ export function AdvancedSection(props: Props) {
       <section className="ai-sub" aria-labelledby={`${base}-history`}>
         <h3 id={`${base}-history`}>{t("aiServices.advanced.historyTitle")}</h3>
         <p className="ai-muted">{t("aiServices.advanced.cli")}</p>
-        <details className="ai-technical">
-          <summary>{t("aiServices.connect.technical")}</summary>
+        <TechnicalDetails>
           <p className="ai-muted">
             {t("aiServices.advanced.cliCommand")}{" "}
             {/* i18n-ignore: a shell command, typed as it is in every language */}
@@ -565,7 +565,7 @@ export function AdvancedSection(props: Props) {
               POST /api/admin/workspaces/…/provider-evals/results
             </Ltr>
           </p>
-        </details>
+        </TechnicalDetails>
         {history.length ? (
           <ul className="ai-list ai-history-list">
             {shownHistory.map((item) => (

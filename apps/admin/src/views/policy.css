@@ -194,26 +194,6 @@
   color: var(--muted);
 }
 
-/* Technical details: identifiers kept for support, folded away. */
-.policy-technical {
-  border-block-start: 1px solid var(--line);
-}
-.policy-technical dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 14px;
-  margin: 0 0 8px;
-  font-size: var(--text-xs);
-}
-.policy-technical dt {
-  color: var(--muted);
-}
-.policy-technical dd {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 /* A row group's heading inside a table: the scope a set of work limits belongs to. */
 .policy-group-row th {
   background: #f4f6f7;

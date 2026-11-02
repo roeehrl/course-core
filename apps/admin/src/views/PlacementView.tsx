@@ -17,12 +17,12 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
   Stat,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { SkeletonRows, shortTitle } from "./contentShared";
+import { shortTitle } from "./contentShared";
 import {
   useFormatters,
   useI18n,
@@ -753,7 +753,7 @@ function EnrollmentPlacementPanel({
   );
   const [currentRevision, setCurrentRevision] = useState(revision);
   if (view.loading)
-    return <Loading label={t("placementView.loadingLearner")} />;
+    return <SkeletonRows label={t("placementView.loadingLearner")} rows={4} />;
   if (view.error || !view.data)
     return <Notice tone="red">{placementErrorMessage(view.error, t)}</Notice>;
   const v: EnrollmentPlacement = view.data;

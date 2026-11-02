@@ -16,8 +16,8 @@ import {
   Button,
   Card,
   EmptyState,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import "./workspacePages.css";
@@ -82,7 +82,8 @@ function Readiness({
     (signal) => port.readiness(workspaceId, signal),
     [port, workspaceId],
   );
-  if (remote.loading) return <Loading label={t("platformView.loading")} />;
+  if (remote.loading)
+    return <SkeletonRows label={t("platformView.loading")} rows={6} />;
   if (remote.error || !remote.data)
     return (
       <div className="stack">

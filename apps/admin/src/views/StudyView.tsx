@@ -34,8 +34,8 @@ import {
   Loading,
   Notice,
   Stat,
+  SkeletonRows,
 } from "../components/ui";
-import { SkeletonRows } from "./contentShared";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 const stateTone = {

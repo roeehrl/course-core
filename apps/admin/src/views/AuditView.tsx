@@ -13,8 +13,9 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  TechnicalDetails,
+  SkeletonRows,
 } from "../components/ui";
 import {
   useFormatters,
@@ -113,7 +114,7 @@ function AuditLog({
           </Field>
         </div>
         {page.loading ? (
-          <Loading label={t("auditView.loading")} />
+          <SkeletonRows label={t("auditView.loading")} rows={8} />
         ) : page.error || !page.data ? (
           <Notice tone="red">{overviewErrorMessage(page.error, t)}</Notice>
         ) : page.data.events.length === 0 ? (
@@ -281,7 +282,7 @@ function AuditTable({ page }: { page: AuditPage }) {
                         : t("auditView.withheld")}
                     </span>
                   )}
-                  <TechnicalDetails event={e} />
+                  <AuditRecord event={e} />
                 </th>
                 <td data-label={t("auditView.table.who")}>
                   <span className="audit-who">
@@ -311,11 +312,10 @@ function AuditTable({ page }: { page: AuditPage }) {
 }
 
 /** The record as stored, for support: the event's code, its ids and every payload field. */
-function TechnicalDetails({ event }: { event: AuditEvent }) {
+function AuditRecord({ event }: { event: AuditEvent }) {
   const t = useT();
   return (
-    <details className="audit-technical">
-      <summary>{t("auditView.technical")}</summary>
+    <TechnicalDetails>
       <dl className="audit-fields">
         <div>
           <dt>{t("auditView.technical.type")}</dt>
@@ -341,7 +341,7 @@ function TechnicalDetails({ event }: { event: AuditEvent }) {
       {event.payload && !event.payloadWithheld && (
         <AuditPayload payload={event.payload} />
       )}
-    </details>
+    </TechnicalDetails>
   );
 }
 

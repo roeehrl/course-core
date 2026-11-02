@@ -535,7 +535,6 @@ html:has(.ai-page .ai-toc) {
 }
 .ai-optional > summary,
 .ai-price details > summary,
-.ai-technical > summary,
 .ai-untested > summary {
   cursor: pointer;
   min-block-size: 32px;
@@ -774,18 +773,21 @@ html:has(.ai-page .ai-toc) {
 }
 /* One disclosure style on the whole page: a blue chevron before the summary, pointing to the
    inline end when closed (right in English, left in Hebrew) and down when open. The conversation
-   rows of a quality check keep their row chevron at the end (.ai-dialogue). */
-.ai-page details:not(.ai-dialogue) > summary {
+   rows of a quality check keep their row chevron at the end (.ai-dialogue), and "Technical
+   details" is the admin-wide quiet disclosure (styles.css .quiet-details). */
+.ai-page details:not(.ai-dialogue, .quiet-details) > summary {
   display: flex;
   align-items: center;
   gap: 4px 10px;
   list-style: none;
   cursor: pointer;
 }
-.ai-page details:not(.ai-dialogue) > summary::-webkit-details-marker {
+.ai-page
+  details:not(.ai-dialogue, .quiet-details)
+  > summary::-webkit-details-marker {
   display: none;
 }
-.ai-page details:not(.ai-dialogue) > summary::before {
+.ai-page details:not(.ai-dialogue, .quiet-details) > summary::before {
   content: "";
   flex: none;
   inline-size: 0.42em;
@@ -796,13 +798,15 @@ html:has(.ai-page .ai-toc) {
   transform: rotate(-45deg);
   transition: transform 0.15s;
 }
-.ai-page details:not(.ai-dialogue) > summary:dir(rtl)::before {
+.ai-page details:not(.ai-dialogue, .quiet-details) > summary:dir(rtl)::before {
   transform: rotate(45deg);
 }
-.ai-page details:not(.ai-dialogue)[open] > summary::before {
+.ai-page details:not(.ai-dialogue, .quiet-details)[open] > summary::before {
   transform: rotate(45deg);
 }
-.ai-page details:not(.ai-dialogue)[open] > summary:dir(rtl)::before {
+.ai-page
+  details:not(.ai-dialogue, .quiet-details)[open]
+  > summary:dir(rtl)::before {
   transform: rotate(-45deg);
 }
 .ai-advanced > summary {

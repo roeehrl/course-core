@@ -15,10 +15,11 @@ import {
   Field,
   Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { gateText } from "../components/LearnerViewScreen";
-import { QueueHeading, SkeletonRows } from "./contentShared";
+import { QueueHeading } from "./contentShared";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' requests to look at a gate decision again. Staff either uphold the decision with a

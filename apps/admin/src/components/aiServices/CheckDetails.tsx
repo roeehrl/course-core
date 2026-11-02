@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { SkeletonRows } from "../ui";
 import { CheckCircle2, ChevronRight, CircleHelp, XCircle } from "lucide-react";
 import type {
   AiServicesPort,
@@ -372,9 +373,7 @@ export function CheckDetails({
           </button>
         </div>
       ) : !ready ? (
-        <p role="status" className="ai-muted ai-dialogues-state">
-          {t("aiServices.check.details.loading")}
-        </p>
+        <SkeletonRows label={t("aiServices.check.details.loading")} rows={3} />
       ) : !ready.recorded ? (
         <p className="ai-dialogues-state">
           {t("aiServices.check.details.notRecorded")}

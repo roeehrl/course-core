@@ -44,8 +44,9 @@ async function open(
   );
   await page.getByRole("heading", { level: 1 }).waitFor();
   await openSection(page, catalog(locale, "adminApp")[`nav.${section}`]!);
-  await expect(page.locator("main .cv-skeleton")).toHaveCount(0);
-  await expect(page.locator("main .loading")).toHaveCount(0);
+  await expect(page.locator("main :is(.loading, .skeleton-rows)")).toHaveCount(
+    0,
+  );
 }
 
 async function expectNoSidewaysScroll(page: Page) {
@@ -150,7 +151,7 @@ for (const locale of ["en", "he"] as const) {
       catalog(locale, "supervisionView")["eventType.session_ended"]!,
     );
     // The run's ID is behind "Technical details", not in the card's text.
-    await expect(runCard.locator(".cv-tech")).not.toHaveAttribute("open");
+    await expect(runCard.locator(".quiet-details")).not.toHaveAttribute("open");
     // Replay, retry and stop are actions in the card's header, not view tabs.
     const views = runCard.getByRole("navigation", {
       name: catalog(locale, "runsView")["viewsNav"],

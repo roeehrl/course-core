@@ -8,8 +8,9 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  Loading,
   Notice,
+  TechnicalDetails,
+  SkeletonRows,
 } from "../components/ui";
 import {
   useFormatters,
@@ -43,7 +44,6 @@ import {
   runName,
   runOutcomeSentences,
 } from "../domain/runText";
-import { TechnicalDetails } from "./contentShared";
 
 const strong = (children: ReactNode, key: string | number) => (
   <strong key={key}>{children}</strong>
@@ -212,7 +212,8 @@ export function RunDetails({
     | "stop"
     | "payload"
   >("timeline");
-  if (result.loading) return <Loading label={t("runsView.loading")} />;
+  if (result.loading)
+    return <SkeletonRows label={t("runsView.loading")} rows={6} />;
   if (result.error)
     return <ErrorState error={result.error} onRetry={result.reload} />;
   const run = result.data!;
@@ -295,7 +296,7 @@ export function RunDetails({
           <Badge tone="blue">{t("runsView.retried")}</Badge>
         )}
       </div>
-      <TechnicalDetails summary={t("runsView.technical")}>
+      <TechnicalDetails>
         <dl>
           <dt>{t("runsView.technical.runId")}</dt>
           <dd className="mono" dir="ltr">

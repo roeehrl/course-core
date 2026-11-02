@@ -77,7 +77,6 @@
   "connect.unreachableQuestion": "השרת לא מצליח להגיע אל {service}?",
   "connect.saveUntested": "שמירה בלי בדיקה",
   "connect.saveUntestedWarn": "המפתח יישמר בלי בדיקה. עזרת ה-AI לא תעבוד עד שהמפתח יעבוד.",
-  "connect.technical": "פרטים טכניים",
   "connect.technicalCode": "קוד הסיבה",
   "connect.addAnother": "הוספת חיבור נוסף",
   "connect.cancel": "ביטול",

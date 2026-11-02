@@ -567,7 +567,10 @@ test("the en-XA pseudo-locale leaves no untranslated text in research, media, st
       await pickers.nth(0).selectOption(releaseA);
       await pickers.nth(1).selectOption(releaseB);
       await expect(page.locator(".mapping-link")).toHaveCount(1);
-    } else await expect(page.locator(".loading")).toHaveCount(0);
+    } else
+      await expect(page.locator(":is(.loading, .skeleton-rows)")).toHaveCount(
+        0,
+      );
     await expect(page.locator("#main-content .card").first()).toBeVisible();
     // Expand collapsed details so their text is checked too.
     await page.evaluate(() =>

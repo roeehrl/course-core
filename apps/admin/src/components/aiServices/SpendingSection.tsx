@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import { SkeletonRows } from "../ui";
 import {
   learnerLimitMode,
   parseUsd,
@@ -429,7 +430,9 @@ function SpendHistory({
       onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}
     >
       <summary>{t("aiServices.history.title")}</summary>
-      {!view && open && <p role="status">{t("aiServices.history.loading")}</p>}
+      {!view && open && (
+        <SkeletonRows label={t("aiServices.history.loading")} rows={3} />
+      )}
       {view === "failed" && (
         <Message tone="error">{t("aiServices.err.unavailable")}</Message>
       )}

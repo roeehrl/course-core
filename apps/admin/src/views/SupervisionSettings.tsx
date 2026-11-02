@@ -18,8 +18,8 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
@@ -62,7 +62,7 @@ export function SupervisionSettingsCard({
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionSettings.loading")} />;
+    return <SkeletonRows label={t("supervisionSettings.loading")} rows={4} />;
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   const saved = view.data;
@@ -123,7 +123,7 @@ export function SupervisionSettingsCard({
     >
       <div className="stack">
         <p className="muted">{t("supervisionSettings.intro")}</p>
-        <details className="cv-tech">
+        <details className="quiet-details">
           <summary>{t("supervisionSettings.admission.summary")}</summary>
           <p>{t("supervisionSettings.admission")}</p>
         </details>
@@ -316,7 +316,12 @@ export function AuthorityQueueCard({
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionSettings.requests.loading")} />;
+    return (
+      <SkeletonRows
+        label={t("supervisionSettings.requests.loading")}
+        rows={4}
+      />
+    );
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   async function decide(
@@ -481,7 +486,9 @@ export function LearnerBudgetCard({
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   if (view.loading && !view.data)
-    return <Loading label={t("supervisionSettings.budget.loading")} />;
+    return (
+      <SkeletonRows label={t("supervisionSettings.budget.loading")} rows={4} />
+    );
   if (view.error || !view.data)
     return <Notice tone="red">{supervisionErrorMessage(view.error, t)}</Notice>;
   const b: LearnerBudget = view.data;

@@ -61,7 +61,6 @@
   "why.group.range": "{metric}: {count, plural, one {# concept} other {# concepts}}, limited by {level} ({scope}) — between {min} and {max} left.",
   "why.group.show": "{count, plural, one {Show the concept} other {Show each of the # concepts}}",
   "why.concept": "{concept}: {remaining} of {limit} left",
-  "technical": "Technical details",
   "technical.policy": "Policy ID",
   "technical.scope": "Level ID",
   "technical.anchor": "Window anchor ID",

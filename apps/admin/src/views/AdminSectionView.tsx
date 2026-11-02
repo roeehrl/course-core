@@ -17,8 +17,8 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { useFormatters, useT, type MessageKey } from "../i18n";
 
@@ -78,7 +78,7 @@ export function AdminSectionView({
   );
   const view = scope === "course" ? course : other;
   if (course.loading && !course.data)
-    return <Loading label={t("adminSectionView.loading")} />;
+    return <SkeletonRows label={t("adminSectionView.loading")} rows={6} />;
   if (course.error || !course.data)
     return (
       <Notice tone="red">{adminSectionErrorMessage(course.error, t)}</Notice>
@@ -205,7 +205,7 @@ export function AdminSectionView({
             : t("adminSectionView.choose.learner")}
         </EmptyState>
       ) : view.loading || !section ? (
-        <Loading label={t("adminSectionView.loading")} />
+        <SkeletonRows label={t("adminSectionView.loading")} rows={6} />
       ) : (
         <SettingsForm
           key={`${section.scope}:${section.scopeRef}:${section.revision}`}

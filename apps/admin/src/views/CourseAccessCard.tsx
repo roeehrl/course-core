@@ -15,8 +15,8 @@ import {
   Card,
   EmptyState,
   Field,
-  Loading,
   Notice,
+  SkeletonRows,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
@@ -213,7 +213,7 @@ export function CourseAccessCard({
         </form>
       )}
       {list.loading ? (
-        <Loading label={t("courseAccessCard.loading")} />
+        <SkeletonRows label={t("courseAccessCard.loading")} rows={3} />
       ) : list.error ? (
         <Notice tone="red">{peopleErrorMessage(list.error, t)}</Notice>
       ) : grants.length === 0 ? (
