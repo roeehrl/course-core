@@ -64,3 +64,292 @@ nav.nav-links {
 .content > .footer {
   font-size: var(--text-xs);
 }
+
+/* The two levels (AdminApp): the workspace (every course) and one course. The top of the
+   sidebar and of the drawer says which one this is: the workspace's name, or a card with the way
+   back to every course and the course's name as its switcher. */
+.sidebar > .level-header {
+  flex: none;
+  margin: 0 18px 6px;
+}
+.level-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.level-header.level-workspace {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #2f4a5d;
+  border-radius: 12px;
+  color: #9fb6c5;
+}
+.level-header.level-workspace strong {
+  font-size: var(--text-md);
+  line-height: 1.35;
+  color: #f2f7fa;
+  overflow-wrap: anywhere;
+}
+.level-header.level-course {
+  padding: 10px;
+  border: 1px solid #3b5a6e;
+  border-radius: 12px;
+  background: #22404f;
+}
+.level-header .level-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  min-height: 32px;
+  margin: -4px 0 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: #cfe0ea;
+  text-decoration: none;
+}
+.level-header .level-back:hover {
+  background: #2c4d61;
+  color: #fff;
+}
+
+/* The course switcher (CourseSwitcher): the course's name as a button that opens a searchable
+   list of courses, with "Add a course…" and "All courses" under it. */
+.course-switcher {
+  position: relative;
+  min-width: 0;
+}
+.course-switcher-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: start;
+}
+.course-switcher-button > svg {
+  flex: none;
+}
+.course-switcher-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.level-header .course-switcher-button {
+  font-size: var(--text-md);
+  color: #fff;
+  border-color: #4b6b80;
+}
+.level-header .course-switcher-button:hover:not(:disabled),
+.level-header .course-switcher-button[aria-expanded="true"] {
+  background: #2c4d61;
+}
+.course-switcher-popup {
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 14px 40px rgb(9 20 28 / 0.22);
+}
+.course-switcher.is-popover .course-switcher-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-start: 0;
+  width: min(360px, calc(100vw - 32px));
+}
+.course-switcher.is-inline .course-switcher-popup {
+  margin-top: 6px;
+}
+input.course-switcher-search {
+  width: 100%;
+  min-height: 40px;
+  font-size: var(--text-sm);
+}
+.course-switcher-list,
+.course-switcher-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.course-switcher-list {
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.course-switcher-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  cursor: pointer;
+}
+.course-switcher-option.active {
+  background: var(--ice);
+  box-shadow: inset 0 0 0 1px #9cc3dd;
+}
+.course-switcher-option[aria-selected="true"] {
+  font-weight: 650;
+}
+.course-switcher-option > svg {
+  flex: none;
+  color: var(--blue);
+}
+.course-switcher-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.course-switcher-actions {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.course-switcher-empty {
+  margin: 0;
+  padding: 4px 10px 8px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* The breadcrumb in the top bar: workspace › course (its switcher) › page. */
+.breadcrumb {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.breadcrumb > ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.breadcrumb > ol > li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.breadcrumb-sep {
+  flex: none;
+  color: var(--muted);
+}
+.breadcrumb-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.breadcrumb-link:hover {
+  background: var(--ice);
+  text-decoration: underline;
+}
+.breadcrumb .course-switcher-button {
+  max-width: 340px;
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+.breadcrumb .course-switcher-button:hover:not(:disabled),
+.breadcrumb .course-switcher-button[aria-expanded="true"] {
+  border-color: #b9c8cf;
+  background: var(--ice);
+}
+.breadcrumb .course-switcher-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.breadcrumb-page {
+  padding: 0 8px;
+  font-weight: 650;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* Tablets: the breadcrumb sits in the dark app bar, on one line; long names are cut short (the
+   page heading below has them in full). */
+.app-bar .breadcrumb > ol {
+  flex-wrap: nowrap;
+}
+.app-bar .breadcrumb-sep {
+  color: #9fb3c2;
+}
+.app-bar .breadcrumb-link {
+  max-width: 180px;
+  color: #d9e6ed;
+}
+.app-bar .breadcrumb-link:hover {
+  background: #254255;
+  color: #fff;
+}
+.app-bar .breadcrumb .course-switcher-button {
+  max-width: 240px;
+  border-color: transparent;
+}
+.app-bar .breadcrumb-page {
+  color: #fff;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-bar .breadcrumb > ol > li:last-child {
+  flex: 0 1 auto;
+}
+.app-bar .breadcrumb-link:focus-visible,
+.app-bar .breadcrumb .course-switcher-button:focus-visible {
+  outline-color: #9cc3dd;
+}
+/* The drawer: the level card at the top of the list. */
+.nav-drawer-body > .level-header {
+  flex: none;
+}
+
+/* The Courses home's queue: what waits for staff, course by course. */
+.courses-queue-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.courses-queue-empty {
+  margin: 0;
+  color: var(--muted);
+}
+/* The course switcher's list opens over the page beside the sidebar. */
+aside.sidebar {
+  z-index: 20;
+}

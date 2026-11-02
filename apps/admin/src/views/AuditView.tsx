@@ -27,16 +27,18 @@ import {
 import auditMessages from "../i18n/messages/en/auditView.json";
 import "./workspacePages.css";
 import { AuditExport } from "../components/AuditExport";
-import { PolicyHistory } from "../components/PolicyHistory";
 
 /** Workspace audit log. Staff and system actions show what changed; learner and agent
  * events show only that they happened (learner privacy). */
 export function AuditView({
   data,
   client,
+  courses = [],
 }: {
   data: CourseWorkspace;
   client: AdminClient;
+  /** The workspace's courses, for the "Course" filter. */
+  courses?: { id: string; title: string }[];
 }) {
   const t = useT();
   if (!client.audit || !data.course.workspaceId)
@@ -51,10 +53,11 @@ export function AuditView({
     return <Notice tone="gold">{t("auditView.forbidden")}</Notice>;
   return (
     <div className="page-stack">
-      <AuditLog port={client.audit} workspaceId={data.course.workspaceId} />
-      {client.platform && data.permissions.includes("policy.read") && (
-        <PolicyHistory port={client.platform} courseId={data.course.id} />
-      )}
+      <AuditLog
+        port={client.audit}
+        workspaceId={data.course.workspaceId}
+        courses={courses}
+      />
       {client.platform && data.permissions.includes("audit.export") && (
         <AuditExport
           port={client.platform}
@@ -98,15 +101,18 @@ function eventChoices(i18n: AdminTranslator) {
 function AuditLog({
   port,
   workspaceId,
+  courses,
 }: {
   port: NonNullable<AdminClient["audit"]>;
   workspaceId: string;
+  courses: { id: string; title: string }[];
 }) {
   const id = useId();
   const t = useT();
   const i18n = useI18n();
   const [actorKind, setActorKind] = useState<AuditQuery["actorKind"] | "">("");
   const [type, setType] = useState("");
+  const [courseId, setCourseId] = useState("");
   const [pages, setPages] = useState<string[]>([]);
   const before = pages.at(-1);
   const page = useRemote(
@@ -117,11 +123,12 @@ function AuditLog({
           ...(before ? { before } : {}),
           ...(actorKind ? { actorKind } : {}),
           ...(type ? { type } : {}),
+          ...(courseId ? { courseId } : {}),
           limit: 50,
         },
         signal,
       ),
-    [port, workspaceId, actorKind, type, before],
+    [port, workspaceId, actorKind, type, courseId, before],
   );
   return (
     <div className="page-stack">
@@ -130,6 +137,28 @@ function AuditLog({
       </Notice>
       <Card title={t("auditView.activity")}>
         <div className="tag-row audit-controls">
+          {courses.length > 0 && (
+            <Field
+              label={t("auditView.filter.course")}
+              htmlFor={`${id}-course`}
+            >
+              <select
+                id={`${id}-course`}
+                value={courseId}
+                onChange={(e) => {
+                  setCourseId(e.target.value);
+                  setPages([]);
+                }}
+              >
+                <option value="">{t("auditView.filter.course.all")}</option>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id} dir="auto">
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field label={t("auditView.filter.label")} htmlFor={`${id}-kind`}>
             <select
               id={`${id}-kind`}

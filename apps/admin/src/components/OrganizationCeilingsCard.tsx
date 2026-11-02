@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { AdminClient } from "../domain/contracts";
 import { AdminError } from "../domain/errors";
 import type {
@@ -28,10 +28,13 @@ export function OrganizationCeilingsCard({
   client,
   workspaceId,
   canWrite,
+  denied = null,
 }: {
   client: AdminClient;
   workspaceId: string;
   canWrite: boolean;
+  /** Shown instead of the card to people who cannot read the limits. */
+  denied?: ReactNode;
 }) {
   const t = useT();
   const remote = useRemote(
@@ -43,7 +46,7 @@ export function OrganizationCeilingsCard({
     remote.error instanceof AdminError &&
     remote.error.code === "permission_denied"
   )
-    return null;
+    return denied;
   if (remote.data && !remote.loading)
     return (
       <CeilingsForm

@@ -96,7 +96,6 @@
   "learner.title": "Learner policy",
   "learner.eyebrow": "One learner's terms",
   "nav.label": "On this page",
-  "nav.organization": "Organization limits",
   "nav.course": "Course settings",
   "nav.learner": "Learner",
   "nav.attempts": "Graded attempts",
@@ -108,5 +107,6 @@
   "scopes.find.placeholder": "Chapter or episode",
   "scopes.count": "{count, plural, one {# level} other {# levels}}",
   "scopes.shown": "{shown} of {total} levels",
-  "scopes.none": "No level matches this search."
+  "scopes.none": "No level matches this search.",
+  "nav.history": "Policy changes"
 }

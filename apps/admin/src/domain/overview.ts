@@ -109,6 +109,8 @@ export interface AuditQuery {
   actorKind?: "learner" | "staff" | "agent" | "system";
   /** One kind of event ("release.published"); the server matches it exactly. */
   type?: string;
+  /** Only events about this course: its learners, versions and settings. */
+  courseId?: string;
   limit?: number;
 }
 

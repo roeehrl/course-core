@@ -209,5 +209,7 @@
   "area.study": "מחקרים",
   "area.supervision": "פיקוח AI",
   "area.supervisor": "המפקח",
-  "area.workspace": "סביבת העבודה"
+  "area.workspace": "סביבת העבודה",
+  "filter.course": "קורס",
+  "filter.course.all": "כל הקורסים"
 }

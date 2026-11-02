@@ -12,7 +12,6 @@ import {
   type SignInReceipt,
 } from "../domain/people";
 import { useRemote } from "../hooks/useAdmin";
-import { CourseAccessCard } from "./CourseAccessCard";
 import {
   Badge,
   Button,
@@ -60,7 +59,6 @@ export function PeopleView({
     <PeopleAdministration
       port={client.people}
       workspaceId={data.course.workspaceId}
-      course={{ id: data.course.id, title: data.course.title }}
     />
   );
 }
@@ -68,11 +66,9 @@ export function PeopleView({
 function PeopleAdministration({
   port,
   workspaceId,
-  course,
 }: {
   port: Port;
   workspaceId: string;
-  course: { id: string; title: string };
 }) {
   const i18n = useI18n();
   const t = i18n.t;
@@ -465,14 +461,6 @@ function PeopleAdministration({
           </table>
         </div>
       </Card>
-      {port.grants && port.grant && port.revokeGrant && (
-        <CourseAccessCard
-          port={port}
-          workspaceId={workspaceId}
-          course={course}
-          people={people}
-        />
-      )}
       {inviting && (
         <InviteDialog
           actorRole={actorRole}

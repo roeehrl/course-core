@@ -34,7 +34,7 @@ import {
 } from "../components/LedgerActionDialog";
 import { PolicySettingsCard } from "../components/PolicySettingsCard";
 import { AssessmentAttemptsCard } from "../components/AssessmentPolicy";
-import { OrganizationCeilingsCard } from "../components/OrganizationCeilingsCard";
+import { PolicyHistory } from "../components/PolicyHistory";
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
@@ -49,7 +49,6 @@ const isolate = (text: string) => `\u2068${text}\u2069`;
 
 /** The page's sections, in page order, for the link bar. */
 const SECTIONS = [
-  ["policy-organization", "policyView.nav.organization"],
   ["policy-course", "policyView.nav.course"],
   ["policy-learner", "policyView.nav.learner"],
   ["policy-attempts", "policyView.nav.attempts"],
@@ -57,6 +56,7 @@ const SECTIONS = [
   ["policy-work", "policyView.nav.work"],
   ["policy-extensions", "policyView.nav.extensions"],
   ["policy-offers", "policyView.nav.offers"],
+  ["policy-history", "policyView.nav.history"],
 ] as const satisfies readonly (readonly [string, MessageKey])[];
 type SectionId = (typeof SECTIONS)[number][0];
 
@@ -157,15 +157,6 @@ export function PolicyView({
     <div className="page-stack policy-page">
       <PageIntro>{t("policyView.intro")}</PageIntro>
       <PolicySectionNav />
-      {client.getPolicyCeilings && data.course.workspaceId && (
-        <Section id="policy-organization">
-          <OrganizationCeilingsCard
-            client={client}
-            workspaceId={data.course.workspaceId}
-            canWrite={canWrite}
-          />
-        </Section>
-      )}
       {settingsShown && (
         <Section id="policy-course">
           <PolicySettingsCard
@@ -227,6 +218,11 @@ export function PolicyView({
               <ErrorState error={remote.error} onRetry={remote.reload} />
             )}
           </Card>
+        </Section>
+      )}
+      {client.platform && data.permissions.includes("policy.read") && (
+        <Section id="policy-history">
+          <PolicyHistory port={client.platform} courseId={data.course.id} />
         </Section>
       )}
     </div>

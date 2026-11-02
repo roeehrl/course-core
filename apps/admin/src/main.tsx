@@ -31,7 +31,7 @@ createRoot(document.getElementById("root")!).render(
         <Suspense fallback={<Opening />}>
           <EmbeddedInspector />
         </Suspense>
-      ) : /^\/admin\/demo\/?$/.test(window.location.pathname) ? (
+      ) : /^\/admin\/demo(\/.*)?$/.test(window.location.pathname) ? (
         <Suspense fallback={<Opening demo />}>
           <DemoHost />
         </Suspense>
