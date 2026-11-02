@@ -58,6 +58,8 @@ export interface DialogueDetail {
     tools?: { name: string; args: string; allowed: boolean }[];
     criteria?: { criterionId: string; met: boolean; quote: string; note: string }[];
     sources?: number;
+    /** A tutor reply the answer guard wrote again or replaced with Core's guiding message (companion-answer-guard.ts). */
+    answerGuard?: "regenerated" | "fallback";
     /** Why there is no answer: the refusal's reason or the error's code. */
     reason?: string;
     truncated: boolean;
@@ -208,7 +210,7 @@ export function dialogueDetail(dialogue: Dialogue, output: EvalOutput, grade: Di
   };
   const reply: DialogueDetail["reply"] = { kind: output.kind, text: null, truncated: false };
   switch (output.kind) {
-    case "text": reply.text = replyText(output.text); break;
+    case "text": reply.text = replyText(output.text); if (output.answerGuard) reply.answerGuard = output.answerGuard; break;
     case "research": reply.text = replyText(output.text); reply.sources = output.sources; break;
     case "media_prompt": reply.text = replyText(output.prompt); break;
     case "plan":

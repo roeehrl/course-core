@@ -24,6 +24,7 @@ import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-c
 import { jobPolicySchema, type WorkspaceProviders } from "./provider-setup.js";
 import { roleModels } from "./provider-drafts.js";
 import { answeredRefusalReason, PROVIDER_OUTPUT_REASONS } from "./output-refusal.js";
+import { regenerationFits } from "./companion-answer-guard.js";
 
 /**
  * Quality checks run from the admin "AI services" page. The server runs Core's eval suite against
@@ -476,7 +477,7 @@ export class ProviderQualityChecks {
         payload: { checkId: id, target, draftId: locked.draft?.id ?? null, roles, conversations: locked.conversations, estimateMicroUsd: locked.estimateMicroUsd,
           reservedMicroUsd: locked.reserve.microUsd }, idempotencyKey: `provider.quality_check.started:${id}` });
       const runtime = locked.runtime, configuration = locked.configuration, pricing = new Map(locked.roles.flatMap((r) => (r.pricing ? [[r.role, r.pricing] as const] : [])));
-      launch = () => this.launch(actor, workspace, row, runtime, configuration, pricing, judge);
+      launch = () => this.launch(actor, workspace, row, runtime, configuration, pricing, judge, allowance);
       return this.view(row, locked.reserve.microUsd);
     });
     launch?.();
@@ -484,15 +485,15 @@ export class ProviderQualityChecks {
   }
 
   private launch(actor: Actor, workspace: string, row: CheckRow, runtime: ReturnType<typeof composeProviders>, configuration: Configuration,
-    pricing: Map<EvalRole, ModelPricing>, judge: JudgeChoice | null) {
-    const task = this.run(actor, workspace, row, runtime, configuration, pricing, judge)
+    pricing: Map<EvalRole, ModelPricing>, judge: JudgeChoice | null, allowance: { microUsd: number; tokens: number }) {
+    const task = this.run(actor, workspace, row, runtime, configuration, pricing, judge, allowance)
       .catch(() => this.finish(actor, workspace, row.id, { state: "error", reason: "PROVIDER_QUALITY_CHECK_FAILED" }, "uncertain").catch(() => undefined))
       .finally(() => this.running.delete(row.id));
     this.running.set(row.id, task);
   }
 
   private async run(actor: Actor, workspace: string, row: CheckRow, runtime: ReturnType<typeof composeProviders>, configuration: Configuration,
-    pricing: Map<EvalRole, ModelPricing>, judge: JudgeChoice | null) {
+    pricing: Map<EvalRole, ModelPricing>, judge: JudgeChoice | null, allowance: { microUsd: number; tokens: number }) {
     const signal = AbortSignal.timeout(Math.max(1, row.deadline_at.getTime() - Date.now()));
     let index = 0, fault: string | null = null, detail: FaultDetail | null = null;
     const toolCalls = new Map<string, readonly ToolCallRecord[]>();
@@ -537,6 +538,10 @@ export class ProviderQualityChecks {
           await this.options.beforeDialogue?.(dialogue);
           if (signal.aborted) throw new StopRun();
         },
+        // The companion's answer guard may write a leaking reply again once (companion-answer-guard.ts):
+        // that call is part of the conversation, charged to its ledger row, and runs only when it fits
+        // the conversation's reservation (the job allowance) at the role's price.
+        admitRegeneration: (dialogue, request) => regenerationFits(request, allowance, pricing.get(dialogue.role) ?? null),
         afterCall: settle, ...(meaningJudge ? { meaningJudge } : {}) });
     } catch (error) {
       if (!(error instanceof StopRun)) throw error;

@@ -269,9 +269,10 @@ export class WorkspaceProviders {
       const sized = roleReservation(binding, pricing, jobPolicy.allowance);
       if (sized) roleAllowances[role] = sized;
       if (role !== "companion") continue;
-      // A question in check-coaching mode also holds one check-judge call (companion-check-judge.ts):
-      // its judge role is the binding's checkJudgeRole, else the reviewer, else the companion itself.
-      // Only such a question reserves it (supervisor-bridge.ts, companion-check-scope.ts).
+      // A question in check-coaching mode also holds one check-judge call (companion-check-judge.ts)
+      // and the answer guard's one regeneration (companion-answer-guard.ts): its judge role is the
+      // binding's checkJudgeRole, else the reviewer, else the companion itself. Only such a question
+      // reserves them (supervisor-bridge.ts, companion-check-scope.ts).
       const judgeRole = binding.checkJudgeRole ?? (row.configuration.roles.reviewer ? "reviewer" : "companion");
       const judge = row.configuration.roles[judgeRole];
       const withJudge = judge ? companionReservation(binding, pricing, { limits: { maxInputCharacters: judgeInputCharacters(judge), maxOutputTokens: judgeOutputTokens(judge) },

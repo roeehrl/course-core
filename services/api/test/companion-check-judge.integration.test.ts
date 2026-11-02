@@ -253,7 +253,8 @@ describe('the semantic check judge in the provider gateway', () => {
     const receiptRow = await dispatch(job.request.operationId);
     expect(receiptRow).toMatchObject({ judge_verdict: 'kept', cost: COST + JUDGE_COST });
     // The gateway's scope travels with the reply, so the companion verifier repeats the same check.
-    expect(receiptRow.candidate.checkCoaching).toEqual({ checkIds: ['min-c'], lessonNumbers: expect.arrayContaining([10]) });
+    // The answer guard read the draft first and found it clean (no extra call); its outcome is on the mark.
+    expect(receiptRow.candidate.checkCoaching).toEqual({ checkIds: ['min-c'], lessonNumbers: expect.arrayContaining([10]), answerGuard: 'none' });
     const { verified, applied } = await deliver(job, outcome);
     expect(verified.state).toBe('ready');
     expect(applied.state).toBe('applied');

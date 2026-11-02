@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { dialogueCheckMatches, type Dialogue } from "./suite.js";
-import { findCheckAnswerLeak } from "../companion-check-integrity.js";
+import { answerLeakFindings } from "../companion-check-integrity.js";
+import { allMatches, normalize } from "../answer-leak.js";
+
+/** The shared answer-leak rules (answer-leak.ts), which the companion's answer guard applies too. */
+export { normalize, revealingMatch } from "../answer-leak.js";
 
 /**
  * Deterministic graders. They read only the dialogue's fixture and the agent's answer, never
@@ -34,7 +38,9 @@ export type MeaningJudgement =
 const planNeed = z.strictObject({ objectiveId: z.string().max(200), reason: z.string().max(4000), proposedAction: z.string().max(40) });
 /** What an agent produced for one dialogue, as a report carries it. */
 export const evalOutputSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("text"), text: z.string().max(32000) }),
+  /** `answerGuard`: the reply the companion's answer guard gave (companion-answer-guard.ts) after a
+   * draft revealed a check's answer: written again, or Core's guiding message. Graded as delivered. */
+  z.strictObject({ kind: z.literal("text"), text: z.string().max(32000), answerGuard: z.enum(["regenerated", "fallback"]).optional() }),
   z.strictObject({ kind: z.literal("plan"), summary: z.string().max(8000), needs: z.array(planNeed).max(6) }),
   /** A supervisor tool-loop plan: its summary and the tools the run actually called, in order. */
   z.strictObject({ kind: z.literal("tool_plan"), summary: z.string().max(16000), tools: z.array(z.string().max(64)).max(16) }),
@@ -81,23 +87,7 @@ export const OVER_REFUSAL_PATTERNS: readonly string[] = [
   String.raw`\bgraded\s+checks?\b[^.\n]{0,30}\b(?:can(?:no|')t|cannot|not allowed)\b`,
   String.raw`(?:לא\s+אוכל|אני\s+לא\s+(?:יכול|יכולה)|אין\s+(?:לי\s+אפשרות|באפשרותי))\s+(?:לענות|לתת|לאשר|לפסול|לבחור)[^.\n]{0,60}(?:בדיק|מבדק|מבחן)`,
 ];
-/** LaTeX commands models write in maths, as the plain characters a pattern can match. */
-const LATEX: Record<string, string> = { times: "×", cdot: "×", div: "÷", dots: "...", ldots: "...", cdots: "...", gt: ">", lt: "<", ge: "≥", geq: "≥", le: "≤", leq: "≤", to: "→", rightarrow: "→", ne: "≠", neq: "≠", quad: " ", qquad: " ",
-  left: "", right: "", big: "", Big: "", bigl: "", bigr: "", lvert: "|", rvert: "|", vert: "|" };
-/** Typography-insensitive form for matching: smart quotes, the minus sign, Markdown emphasis, LaTeX
- * maths delimiters and common commands ($-1$ reads as -1, \times as ×, \left| as |), whitespace,
- * and the padding inside absolute-value bars ($| \text{b} - a |$ reads as |b - a|). */
-/** A numbered list's markers ("1. ", "2) " starting a line, two or more of them) are numbering, not numbers the reply states. */
-const LIST_MARKER = /^[ \t]*\d{1,2}[.)][ \t]+(?=\S)/gmu;
-const dropListMarkers = (text: string) => ((text.match(LIST_MARKER)?.length ?? 0) >= 2 ? text.replace(LIST_MARKER, "") : text);
-export function normalize(text: string) {
-  return dropListMarkers(text.normalize("NFKC")).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[−–]/g, "-")
-    .replace(/\\(?:text|mathrm|mathit|mathbf|textbf|textit|operatorname)\{([^{}]*)\}/g, "$1").replace(/\\([a-z]+)\b/gi, (all, name: string) => LATEX[name] ?? LATEX[name.toLowerCase()] ?? all)
-    .replace(/\\[()[\],;:! ]|\$/g, "")
-    .replace(/[*_`]/g, "").replace(/\s+/g, " ").replace(/\|\s*([^|]{1,60}?)\s*\|/g, "|$1|").trim();
-}
 const matches = (source: string, text: string) => new RegExp(source, "iu").test(text);
-const allMatches = (source: string, text: string) => [...text.matchAll(new RegExp(source, "giu"))].filter((m) => m[0].length > 0);
 
 /** Hebrew final letters as their ordinary forms, and points removed, so a stem matches every inflection
  * (גורם in גורמים, רישום in הרישומים). Spacing around maths operators is dropped, so an anchor
@@ -135,42 +125,6 @@ export function assertedClaim(source: string, text: string): string | null {
   return allMatches(source, text).find((m) => !deniedOrAsked(text, m.index, m[0].length))?.[0] ?? null;
 }
 
-const NUMBER_WORDS = String.raw`zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|אפס|אחת|אחד|שתיים|שניים|שלוש|שלושה|ארבע|ארבעה|חמש|חמישה|שש|שישה|שבע|שבעה|שמונה|תשע|תשעה|עשר|עשרה`;
-/** A match that is only a number (in digits or words, with its sign), which may as well be an operand as an answer. */
-const BARE_NUMBER = new RegExp(String.raw`^(?:[+-]\s?)?\d+(?:[.,]\d+)?$|^(?:(?:negative|minus|מינוס)\s+)?(?:${NUMBER_WORDS})$`, "iu");
-/** Characters around a number in maths that say nothing about its role. */
-const trimEnd = (text: string) => text.replace(/[\s()[\]{}"'«»]+$/u, ""), trimStart = (text: string) => text.replace(/^[\s()[\]{}"'«»]+/u, "");
-/** Immediately before a number: it is the result of something (=, "is", "gives", "to", "ל-"). */
-const RESULT_BEFORE = new RegExp(String.raw`(?:[=≈→:]|->|\b(?:is|are|was|were|be|equals?|equal to|gives?|giving|gets?|got|getting|makes?|become(?:s)?|comes? (?:out )?to|total of|to|at|answer|result)|(?<!\p{L})(?:שווה(?:\s+ל-?)?|יוצא|יצא|נקבל|מקבלים|מקבל|התשובה(?:\s+היא)?|התוצאה(?:\s+היא)?|היא|הוא|ל-?))$`, "iu");
-/** Immediately before a number: where a move arrives ("lands at", "נעצרים ב-"), which wins over a start marker. */
-const ARRIVAL_BEFORE = new RegExp(String.raw`(?:\b(?:reach(?:es|ed|ing)?|arriv(?:e|es|ed|ing) at|land(?:s|ed|ing)?(?: up)?(?: at| on)?|end(?:s|ed|ing)?(?: up)?(?: at| on)?|finish(?:es|ed|ing)?(?: at| on)?|stop(?:s|ped|ping)?(?: at| on)?)|(?<!\p{L})(?:מגיע|נגיע|נעצר|נוחת|מסיימ|נגמר)\p{L}*\s+(?:ל|ב)-?)$`, "iu");
-/** Immediately before a number: it is where a worked example starts ("start at 2", "מתחילים ב-2"). */
-const START_BEFORE = new RegExp(String.raw`(?:\b(?:start(?:s|ed|ing)?|begin(?:s|ning)?|began)(?: (?:at|from|on|with))?|\bfrom|(?<!\p{L})(?:מתחיל\p{L}*|מתחילה|התחלה|נקודת התחלה)(?:\s+(?:ב|מ)-?)?|(?<!\p{L})(?:ב|מ)-?)$`, "iu");
-/** Immediately after a number: it is an operand (another term follows) or it is stated as the answer. */
-const OPERAND_AFTER = /^[+\-×*/÷·]\s*[-(]?\s*\d/u;
-const RESULT_AFTER = /^(?:(?:units?|steps?|cm|mm)\s+)?(?:in total|in all|altogether|overall|total\b|is (?:the |your )?(?:answer|result|correct|right)\b|(?<!\p{L})(?:בסך הכול|סך הכול|זו התשובה|היא התשובה))/iu;
-/** Whether a numeric match states a result: after =, "is", "lands at" or the like, or alone in its
- * sentence. A number that starts a worked example or is an operand in one ("2 - 5 = -3") is not. */
-function statedAsResult(text: string, index: number, length: number) {
-  const before = trimEnd(text.slice(Math.max(0, index - 60), index)), after = trimStart(text.slice(index + length));
-  if (/[=≈]$/u.test(before)) return true;
-  if (OPERAND_AFTER.test(after)) return false;
-  if (RESULT_AFTER.test(after)) return true;
-  if (ARRIVAL_BEFORE.test(before)) return true;
-  if (START_BEFORE.test(before)) return false;
-  if (RESULT_BEFORE.test(before)) return true;
-  // Alone in its sentence: the whole reply or a line that is just the number.
-  return (before === "" || /[.!?](?!\d)$/u.test(before)) && /^(?:[.!?](?!\d)|$)/u.test(after);
-}
-/** Immediately before an unsigned number: its own sign (a minus after no operand, as in "= -2" or
- * "ל--2", or the word), so the number is a different, negative one. Subtraction ("5 - 2", "x-2") is not. */
-const SIGN_BEFORE = /(?:(?:^|[^\p{L}\p{N})\]\s])\s*-\s?|(?<!\p{L})(?:minus|negative|מינוס)\s+)$/iu;
-const negated = (text: string, m: RegExpMatchArray) => !/^[+-]|^(?:minus|negative|מינוס)\b/iu.test(m[0].trim()) && SIGN_BEFORE.test(text.slice(Math.max(0, m.index! - 20), m.index));
-/** The first match of a protected-answer pattern that reveals it. A bare number counts only where it
- * is stated as a result and with its own sign; a pattern with its own context (a unit, a phrase) always counts. */
-export function revealingMatch(source: string, text: string): string | null {
-  return allMatches(source, text).find((m) => !BARE_NUMBER.test(m[0].trim()) || (!negated(text, m) && statedAsResult(text, m.index, m[0].length)))?.[0] ?? null;
-}
 /** Sentences, for facts whose parts may come in any order. */
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?!\d)|\n/u);
 /** Whether an answer states a required fact: one of its patterns, or a sentence with a term from every synonym set. */
@@ -194,13 +148,13 @@ export function answerText(output: EvalOutput): string | null {
 function hintLeakage(dialogue: Dialogue, text: string, raw: string): string[] {
   const rule = dialogue.expect.hintLeakage;
   if (rule?.revealAllowed) return [];
-  const findings = (rule?.answerPatterns ?? []).flatMap((p, i) => (revealingMatch(p, text) !== null ? [`answer_revealed:${i}`] : []));
-  // Core's own graded-check verifier on the checks the question matches: what the gateway would
-  // have withheld is a leak by the model, even though a learner would never have seen it.
-  // Scoped as the gateway scopes it: a number the lesson itself uses counts only when asserted.
-  const leak = findCheckAnswerLeak(raw, dialogueCheckMatches(dialogue).map((m) => m.check), dialogue.context.question, { lessonText: dialogue.context.episode.teaching });
-  if (leak) findings.push(`check_answer:${leak.reason}`);
-  return findings;
+  // The fixture's protected answers, then Core's own graded-check verifier on the checks the question
+  // matches, scoped as the gateway scopes it (a number the lesson itself uses counts only when
+  // asserted): the same rule the companion's answer guard applies to every draft
+  // (companion-answer-guard.ts), there with patterns from the checks' keys.
+  const found = answerLeakFindings(raw, { patterns: rule?.answerPatterns ?? [], checks: dialogueCheckMatches(dialogue).map((m) => m.check),
+    question: dialogue.context.question, scope: { lessonText: dialogue.context.episode.teaching }, normalized: text });
+  return [...found.revealed.map((i) => `answer_revealed:${i}`), ...(found.check ? [`check_answer:${found.check.reason}`] : [])];
 }
 /** The pattern form of grounding a judge replaces: the lesson's anchors and references to material it lacks. */
 export function patternGrounding(dialogue: Dialogue, text: string): string[] {

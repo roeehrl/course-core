@@ -3,6 +3,7 @@ import { ProviderError, type Capability, type Json, type OutputSchema, type Prov
 import type { SemanticVisualContext } from './interactive-context.js';
 import type { TeachingPolicyView } from './teaching-constraints.js';
 import { runSupervisorToolLoop, type SupervisorToolPort } from './supervisor-tool-loop.js';
+import { guardDraft, type CompanionAnswerGuard } from './companion-answer-guard.js';
 import { offeredTools, supervisorTool, SUPERVISOR_TOOL_IDS, TOOL_FAMILIES } from './supervisor-tool-catalog.js';
 import { rubricAssistOutputSchema, rubricRejectionReason, rubricSuggestionProblems, type RubricAssistInput, type RubricRefusal } from './rubric-assist-contracts.js';
 import type { OutputRefusal } from './output-refusal.js';
@@ -85,6 +86,9 @@ export interface StrategyRun {
   /** Companion only: receives the answer's text as the provider streams it (reply-drafts.ts).
    * Unverified; the strategy's result stays the only output that can be stored. */
   onText?: ((text: string) => void) | undefined;
+  /** Companion only, in check-coaching mode: the host's answer guard over the in-scope checks' keys
+   * (companion-answer-guard.ts). The keys stay in the host's closure; the model never sees them. */
+  answerGuard?: CompanionAnswerGuard | undefined;
 }
 /**
  * One way of running a host role: an SDK `defineAgentStrategy` contract (what it may read, call
@@ -311,7 +315,7 @@ export const companionStrategy = defineRuntimeStrategy({
   capability: () => 'tutoring',
   matches: () => true,
   reservationBound: contextBound,
-  async run({ binding, context, accountingKey, signal, router, onText }) {
+  async run({ binding, context, accountingKey, signal, router, onText, answerGuard }) {
     if (context.constraints.independentAssessmentActive) throw new ProviderError('INVALID_INPUT');
     // Check coaching (companion-check-integrity.ts): the stricter rule, and nothing of the reply is
     // shown while it arrives. It still streams when the host follows the reply (`onText`), into a
@@ -325,11 +329,24 @@ export const companionStrategy = defineRuntimeStrategy({
     const request = { modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: instruction,
       messages: [{ role: 'user' as const, text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens, allowCutShort: true };
     // The same request either way; streaming only lets the host show the text while it arrives.
-    const result = onText ? await router.tutorStream(request, { signal, timeoutMs: 60000 }, coaching ? () => {} : onText)
-      : await router.tutor(request, { signal, timeoutMs: 60000 });
-    if (result.output.text.length > 32000) return refusal('companion', 'output_too_large', result.usage);
-    return { content: { kind: 'companion_text', text: result.output.text, episodeId: context.episode.id, ...(result.output.cutShort ? { cutShort: true } : {}),
-      ...(coaching ? { checkCoaching: { checkIds: context.checkCoaching!.items.map(item => item.checkId) } } : {}) }, usage: result.usage };
+    const call = async (systemInstruction: string, key: string) => {
+      const sent = { ...request, systemInstruction, accounting: { accountingKey: key } };
+      const result = onText ? await router.tutorStream(sent, { signal, timeoutMs: 60000 }, coaching ? () => {} : onText)
+        : await router.tutor(sent, { signal, timeoutMs: 60000 });
+      return { text: result.output.text, ...(result.output.cutShort ? { cutShort: true } : {}), usage: result.usage };
+    };
+    const first = await call(instruction, accountingKey);
+    if (first.text.length > 32000) return refusal('companion', 'output_too_large', first.usage);
+    // The answer guard (companion-answer-guard.ts): with a check's key in scope, a draft that reveals
+    // its answer is written again once with a corrective note, then replaced by Core's guiding
+    // message. Check coaching never streams to the learner, so no draft is ever shown.
+    const guard = coaching ? answerGuard : undefined;
+    const guarded = guard ? await guardDraft(guard, first, note => call(`${instruction} ${note}`, `${accountingKey}:answer-guard`),
+      { accountingKey, signal, requestBytes: new TextEncoder().encode(`${instruction} ${request.messages[0]!.text}`).byteLength + 1024, maxOutputTokens: binding.maxOutputTokens }) : null;
+    const reply = guarded ?? first;
+    const marks = guarded ? { answerGuard: guarded.outcome, ...(guarded.withheld ? { withheld: guarded.withheld } : {}) } : {};
+    return { content: { kind: 'companion_text', text: reply.text, episodeId: context.episode.id, ...(reply.cutShort ? { cutShort: true } : {}),
+      ...(coaching ? { checkCoaching: { checkIds: context.checkCoaching!.items.map(item => item.checkId), ...marks } } : {}) }, usage: reply.usage };
   },
 });
 export const researchStrategy = defineRuntimeStrategy({

@@ -1,6 +1,7 @@
 import type { ProviderRouter } from "@course-core/providers";
 import { AGENT_ROLES, builtInStrategies, type AgentRole, type RoleBinding, type RuntimeStrategy, type StrategyRegistry, type TeachingContext } from "../agent-strategies.js";
 import { checkCoachingView, type GradedCheck } from "../companion-check-integrity.js";
+import { ANSWER_GUARD_VERSION, type CompanionAnswerGuard } from "../companion-answer-guard.js";
 import { canonicalJson, sha256 } from "./suite.js";
 
 /**
@@ -52,8 +53,9 @@ const PROBE_CHECK: GradedCheck = { id: "probe-check", type: "multiple_choice", p
  * has its own note) and the Hebrew rule when the question is in Hebrew. Its reply style (`replyStyle`,
  * concise or detailed) comes from the binding, so the plain request already has the style that binding
  * is asked in. Only roles listed here get a `variants` entry, so every other role keeps its digest.
+ * v2 adds the answer guard's regeneration (GUARDED_VARIANTS).
  */
-const PROBE_VARIANTS_VERSION = "core.role-revision-variants/1";
+const PROBE_VARIANTS_VERSION = "core.role-revision-variants/2";
 const PROBE_VARIANTS: Partial<Record<AgentRole, Record<string, Partial<TeachingContext>>>> = {
   companion: {
     checkCoaching: { checkCoaching: checkCoachingView([{ check: PROBE_CHECK, how: "quoted", score: 1 }])! },
@@ -61,11 +63,26 @@ const PROBE_VARIANTS: Partial<Record<AgentRole, Record<string, Partial<TeachingC
     hebrew: { question: "מה ההבדל בין שני המושגים בשיעור?" },
   },
 };
+/**
+ * Modes the companion enters after its model answered (v2): the answer guard
+ * (companion-answer-guard.ts) writes a draft that revealed a check's answer again once, with its
+ * corrective note. The probe's guard finds every draft leaking, so the request captured is the
+ * regeneration's; the guard's version stands for its rule and fallback.
+ */
+const GUARDED_VARIANTS: Partial<Record<AgentRole, Record<string, Partial<TeachingContext>>>> = {
+  companion: { checkCoachingRegeneration: { checkCoaching: checkCoachingView([{ check: PROBE_CHECK, how: "quoted", score: 1 }])! } },
+};
+const PROBE_GUARD: CompanionAnswerGuard = { leak: () => ({ reason: "check_answer_stated", checkId: PROBE_CHECK.id }), admitRegeneration: () => true, fallback: "Probe fallback." };
+const PROBE_DRAFT_USAGE = { accounting: { accountingKey: "revision-probe" }, providerId: "revision-probe", modelId: "revision-probe", operation: "tutor", attempts: [],
+  inputCharacters: 0, requestedMaxOutputTokens: null, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null };
 class Captured extends Error {}
-/** Runs the strategy against a router that records the first request and stops. Nothing is sent. */
-async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding, variant: Partial<TeachingContext> = {}): Promise<unknown> {
-  let captured: unknown = null;
+/** Runs the strategy against a router that records the first request and stops. Nothing is sent.
+ * `guarded`: the first tutor request is answered with a probe draft that the probe's answer guard
+ * rejects, and the regeneration's request is recorded instead. */
+async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding, variant: Partial<TeachingContext> = {}, guarded = false): Promise<unknown> {
+  let captured: unknown = null, drafts = 0;
   const capture = (operation: string) => async (request: Record<string, unknown>) => {
+    if (guarded && operation === "tutor" && drafts++ === 0) return { output: { text: "Probe draft." }, usage: structuredClone(PROBE_DRAFT_USAGE) };
     const { accounting: _accounting, ...rest } = request;
     captured = { operation, ...rest };
     throw new Captured();
@@ -75,18 +92,21 @@ async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBi
     // A tool loop's first model request comes before any tool call; the probe's tools never answer.
     const tools = { invoke: async () => { throw new Captured(); } };
     await strategy.run({ role, binding, context: { ...structuredClone(PROBE), ...structuredClone(PROBE_INPUTS[role] ?? {}), ...structuredClone(variant) }, accountingKey: "revision-probe",
-      signal: new AbortController().signal, router, tools });
+      signal: new AbortController().signal, router, tools, ...(guarded ? { answerGuard: PROBE_GUARD } : {}) });
   } catch (error) {
-    if (!(error instanceof Captured)) return null;
+    // The answer guard reports an interrupted regeneration as its own failure; the request was recorded all the same.
+    if (!(error instanceof Captured) && !(guarded && captured !== null)) return null;
   }
   return captured;
 }
 
-/** The request the strategy assembles in each prompt mode of the role (PROBE_VARIANTS), by mode name. */
+/** The request the strategy assembles in each prompt mode of the role (PROBE_VARIANTS, then
+ * GUARDED_VARIANTS with the answer guard's version), by mode name. */
 async function probeVariants(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBinding, variants: Record<string, Partial<TeachingContext>>) {
-  const requests: Record<string, unknown> = {};
+  const requests: Record<string, unknown> = {}, guarded = GUARDED_VARIANTS[role];
   for (const [name, variant] of Object.entries(variants)) requests[name] = await probe(strategy, role, binding, variant);
-  return { probe: PROBE_VARIANTS_VERSION, requests };
+  for (const [name, variant] of Object.entries(guarded ?? {})) requests[name] = await probe(strategy, role, binding, variant, true);
+  return { probe: PROBE_VARIANTS_VERSION, requests, ...(guarded ? { answerGuard: ANSWER_GUARD_VERSION } : {}) };
 }
 
 async function imageCompanion(picture: NonNullable<RoleBinding["imageModel"]>, configuration: ConfigurationShape,
