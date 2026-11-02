@@ -26,7 +26,7 @@
 }
 .cv-count {
   margin: 0;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -56,7 +56,7 @@
   border: 0;
   background: transparent;
   text-align: start;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 .cv-list > li:first-child .cv-row-summary {
@@ -83,7 +83,7 @@
   align-items: center;
   gap: 6px 10px;
   color: var(--muted);
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
 }
 .cv-row-chevron {
   color: var(--muted);
@@ -133,7 +133,7 @@
 /* Course text (a long question prompt) as body text: three lines, then "Show full prompt". */
 .cv-prose {
   margin: 0;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
   line-height: 1.6;
   white-space: pre-line;
   overflow-wrap: anywhere;
@@ -152,7 +152,7 @@
   border: 0;
   background: transparent;
   color: var(--blue);
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
   font-weight: 650;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -161,18 +161,18 @@
 /* An identifier, kept out of the way: a quiet label and the value in its own direction. */
 .cv-id {
   margin: 0;
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .cv-id code {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
 }
 
 /* "Technical details": raw identifiers and codes for staff who need them, closed by default. */
 .cv-tech {
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
   min-width: 0;
 }
 .cv-tech > summary {
@@ -252,7 +252,7 @@
 /* Answer keys: a question's sections, its stored test answers and its forms. */
 .cv-subtitle {
   margin: 0;
-  font-size: var(--text-md, 16px);
+  font-size: var(--text-md);
   font-weight: 700;
 }
 .cv-release {
@@ -265,7 +265,7 @@
   justify-content: space-between;
   gap: 4px 12px;
   padding: 4px 6px 4px 14px;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
 }
 /* The expectation, the answer, and what it tests on its own line, each in its own direction. */
 .cv-fixture-text {
@@ -278,7 +278,7 @@
 }
 .cv-fixture-text > small {
   grid-column: 2;
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
 }
 .cv-fixture-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -344,7 +344,7 @@
   padding: 10px 16px;
   cursor: pointer;
   list-style: none;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
 }
 .cv-group > summary::-webkit-details-marker {
   display: none;
@@ -414,11 +414,11 @@
   gap: 4px;
   flex: 1 1 320px;
   min-width: 0;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
 }
 .cv-topic-text .research-meta {
   margin: 0;
-  font-size: var(--text-xs, 12px);
+  font-size: var(--text-xs);
 }
 @container (max-width: 700px) {
   .cv-topic-head {
@@ -430,7 +430,7 @@
 .cv-intro {
   margin: 0;
   max-width: 900px;
-  font-size: var(--text-sm, 14px);
+  font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--muted);
 }
@@ -458,13 +458,5 @@
 }
 .cv-queue-head h2 {
   margin: 0;
-  font-size: var(--text-lg, 20px);
-}
-
-/* The placement save bar stays in view under its long lists (the bar's look is .sticky-actions'). */
-.sticky-actions.cv-sticky {
-  position: sticky;
-  inset-block-end: 0;
-  z-index: 2;
-  background: var(--card);
+  font-size: var(--text-lg);
 }
