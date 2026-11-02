@@ -287,19 +287,22 @@ export function lockPageScroll() {
   };
 }
 /**
- * Marks a scrolling dialog with `data-more-below` while part of it is below its bottom edge, so
- * its sticky actions (styles.css, .dialog-footer) show a divider only when content scrolls under
- * them.
+ * Marks a scrolling dialog with `data-more-below` while part of it is below its bottom edge, and
+ * `data-scrolled` once it has scrolled from the top, so its sticky actions (styles.css,
+ * .dialog-footer) and its sticky title (.dialog-heading) show a divider only when content
+ * scrolls under them.
  */
 export function useMoreBelow(ref: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
-    const update = () =>
+    const update = () => {
       element.toggleAttribute(
         "data-more-below",
         element.scrollTop + element.clientHeight < element.scrollHeight - 1,
       );
+      element.toggleAttribute("data-scrolled", element.scrollTop > 1);
+    };
     update();
     element.addEventListener("scroll", update, { passive: true });
     const sizes =
