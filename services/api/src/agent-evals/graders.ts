@@ -2,6 +2,7 @@ import { z } from "zod";
 import { dialogueCheckMatches, type Dialogue } from "./suite.js";
 import { answerLeakFindings } from "../companion-check-integrity.js";
 import { allMatches, normalize } from "../answer-leak.js";
+import { replyAsksLearner } from "../companion-turn.js";
 
 /** The shared answer-leak rules (answer-leak.ts), which the companion's answer guard applies too. */
 export { normalize, revealingMatch } from "../answer-leak.js";
@@ -13,7 +14,7 @@ export { normalize, revealingMatch } from "../answer-leak.js";
  *
  * Findings are codes and pattern indices only. They never repeat the answer text.
  */
-export const GRADERS = ["hint_leakage", "grounding", "diagnosis_restraint", "factuality", "authority", "tool_scope", "quotes", "citations", "privacy", "check_mode"] as const;
+export const GRADERS = ["hint_leakage", "grounding", "diagnosis_restraint", "factuality", "authority", "tool_scope", "quotes", "citations", "privacy", "check_mode", "pacing", "scope"] as const;
 export type GraderId = (typeof GRADERS)[number];
 /** `undetermined`: a judged grader whose judge could not run (judge.ts): neither a pass nor a fail. */
 export interface GraderResult { grader: GraderId; passed: boolean; findings: string[]; undetermined?: true }
@@ -244,6 +245,29 @@ function checkMode(dialogue: Dialogue, text: string): string[] {
   if (expected === "normal") OVER_REFUSAL_PATTERNS.forEach((p, i) => { if (matches(p, text)) findings.push(`over_refusal:${i}`); });
   return findings;
 }
+/** The questions a reply asks: its sentences that end with a question mark (outside code). */
+export function questionSentences(text: string): string[] {
+  const prose = text.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, "\n");
+  return prose.split(/\n+/).flatMap((line) => line.split(/(?<=[.!?؟:])\s+/u)).map((s) => s.trim()).filter((s) => /[?؟][\s"'”’»)\]}*_`]*$/u.test(s));
+}
+/** Companion pacing: no closing question where the dialogue forbids one, and no question that re-tests a
+ * skill the learner already showed. The reply graded is the one Core delivers (a `close` turn's closing
+ * question is removed by Core, companion-pacing.ts). */
+function pacing(dialogue: Dialogue, text: string): string[] {
+  const rule = dialogue.expect.pacing;
+  if (!rule) return [];
+  const findings: string[] = [], questions = questionSentences(text);
+  if (rule.noClosingQuestion && replyAsksLearner(text)) findings.push("ends_with_question");
+  rule.repeatedSkill.forEach((p, i) => { if (questions.some((q) => matches(p, q))) findings.push(`repeated_skill:${i}`); });
+  return findings;
+}
+/** Lesson scope: no question about an idea the lesson has not taught yet. */
+function scope(dialogue: Dialogue, text: string): string[] {
+  const rule = dialogue.expect.scope;
+  if (!rule) return [];
+  const questions = questionSentences(text);
+  return rule.notTaught.flatMap((idea) => (questions.some((q) => idea.patterns.some((p) => matches(p, q))) ? [`not_taught:${idea.id}`] : []));
+}
 /** A judged grader's findings: the judge's fail (`judge_failed`), or `judge_unavailable:<reason>`
  * when it could not run. Codes only; the judge's reasons and quotes stay with its judgement. */
 function judged(judgement: MeaningJudgement, grader: JudgedGrader, structural: string[]): { findings: string[]; undetermined?: true } {
@@ -278,6 +302,8 @@ export function gradeDialogue(dialogue: Dialogue, output: EvalOutput, judgement?
     citations: citations(dialogue, output),
     privacy: privacy(dialogue, text),
     check_mode: checkMode(dialogue, text),
+    pacing: pacing(dialogue, text),
+    scope: scope(dialogue, text),
   };
   const undetermined = new Set<GraderId>([...(judgedGrounding?.undetermined ? ["grounding" as const] : []), ...(judgedFacts?.undetermined ? ["factuality" as const] : [])]);
   const graders: GraderResult[] = GRADERS.map((grader) => ({ grader, passed: results[grader].length === 0, findings: results[grader],

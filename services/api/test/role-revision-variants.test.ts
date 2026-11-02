@@ -37,12 +37,14 @@ const revisions = (configuration: Configuration, strategies?: StrategyRegistry) 
 const detailed: Configuration = { ...base, roles: { ...base.roles, companion: { ...base.roles.companion, replyStyle: "detailed" } } } as Configuration;
 
 describe("companion revision digests cover every prompt mode", () => {
-  it("probe the plain, check-coaching (matched and uncertain), Hebrew and answer-guard regeneration requests", async () => {
+  it("probe the plain, check-coaching (matched and uncertain), Hebrew, pacing close and answer-guard regeneration requests", async () => {
     const instructions: string[] = [], messages: string[] = [];
     const { registry } = edited((request) => { instructions.push(request.systemInstruction); messages.push(request.messages[0]!.text); return request; });
     expect((await revisions(base, registry)).companion).toMatchObject({ strategy: "core.companion.tutor", probed: true });
     // The regeneration probe sends the coached request, gets a draft its guard rejects, and records the second request.
-    expect(instructions).toHaveLength(6);
+    expect(instructions).toHaveLength(7);
+    // The pacing probe (three question turns in a row) is asked with the strict "no question" rule.
+    expect(instructions.filter((text) => text.includes('pacing.mode "close"'))).toHaveLength(1);
     expect(instructions.filter((text) => text.includes("Check coaching:"))).toHaveLength(4);
     expect(instructions.filter((text) => text.includes("Hebrew replies:"))).toHaveLength(1);
     expect(instructions.filter((text) => text.endsWith(REGENERATION_NOTE))).toHaveLength(1);

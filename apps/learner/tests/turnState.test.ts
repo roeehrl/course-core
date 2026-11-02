@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CompanionMessage } from "../src/client/companionClient";
-import { asksLearner, questionTurnsInARow, replyAsksLearner, turnState } from "../src/connected/companion/turnState";
+import { asksLearner, closesPractice, questionTurnsInARow, replyAsksLearner, turnState } from "../src/connected/companion/turnState";
 import { message } from "./companionFixtures";
 
 const reply = (content: string, context: CompanionMessage["context"] = {}, id = "a"): CompanionMessage =>
@@ -46,5 +46,20 @@ describe("whose turn it is (final design §3.3, G2)", () => {
     for (const n of [1, 2, 3]) hints.push({ ...message, id: `q${n}` }, reply(`Try the first step ${n}.`, { checkAnswerWithheld: "check_answer_given" }, `h${n}`));
     expect(questionTurnsInARow(hints)).toBe(3);
     expect(turnState(hints)).toMatchObject({ yourTurn: true, withheldHint: true, showMeHow: false });
+  });
+  it("offers 'Back to the lesson' after a reply that ends a run of practice, and only then", () => {
+    const asking = reply("What is 1.5 * 6 - 0.5?", { asksLearner: true }, "a1");
+    const answer = { ...message, id: "m2", content: "8.5" };
+    const closing = reply("Correct: 8.5. Continue with the lesson.", {}, "a2");
+    expect(closesPractice([message, asking, answer, closing])).toBe(true);
+    expect(turnState([message, asking, answer, closing])).toMatchObject({ latestReplyId: "a2", yourTurn: false, backToLesson: true, showMeHow: false });
+    // An ordinary answer to an ordinary question, a reply that asks again, a withheld-answer hint, or a question since: no.
+    expect(turnState([message, reply("The bias is -0.5.", {}, "a3")]).backToLesson).toBe(false);
+    expect(turnState([message, asking, answer, reply("Right. And for x = 0?", { asksLearner: true }, "a4")]).backToLesson).toBe(false);
+    expect(turnState([message, asking, answer, reply("Tell me your first step.", { checkAnswerWithheld: "check_answer_given" }, "a5")]).backToLesson).toBe(false);
+    expect(turnState([message, asking, answer, closing, { ...message, id: "m3" }]).backToLesson).toBe(false);
+    expect(turnState([message, asking, answer, closing], { inProgress: true }).backToLesson).toBe(false);
+    // A deleted reply in between does not count.
+    expect(closesPractice([message, asking, answer, reply("[deleted]", {}, "a6"), closing])).toBe(true);
   });
 });

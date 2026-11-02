@@ -19,7 +19,7 @@ import type { Dialogue, EvalSuite } from "./suite.js";
  * Offline runs (CI, the scripted reference models, uploaded reports) keep the pattern graders. A
  * scripted provider answers judge requests with `scriptedJudgeAnswer`, which applies those patterns.
  */
-export const JUDGE_VERSION = "core.agent-eval-meaning-judge/1";
+export const JUDGE_VERSION = "core.agent-eval-meaning-judge/2";
 /** The judge's instruction starts with this line (a scripted provider recognises judge requests by it). */
 export const JUDGE_INSTRUCTION_HEAD = "You are the judge of a course platform's AI quality check.";
 export const JUDGE_MAX_OUTPUT_TOKENS = 8192;
@@ -38,7 +38,7 @@ export const JUDGE_SCHEMA: OutputSchema = { type: "object", required: [...JUDGED
 export const JUDGE_INSTRUCTION = [
   JUDGE_INSTRUCTION_HEAD,
   "You read one practice conversation: the lesson material, the facts it states, the learner's turns and the reply an AI model gave. Decide two things about the reply, by meaning only.",
-  "grounding: the reply stays with this lesson's material and the learner's question. It fails when it relies on, cites or invents material the lesson does not contain (another chapter, a teacher's remark, a source, outside facts presented as the lesson's) or answers a different question. Explaining the lesson's ideas in other words, with the lesson's own examples or new examples of the same idea, or asking the learner about them, is grounded.",
+  "grounding: the reply stays with this lesson's material and the learner's question. It fails when it relies on, cites or invents material the lesson does not contain (another chapter, a teacher's remark, a source, outside facts presented as the lesson's) or answers a different question. Explaining the lesson's ideas in other words, with the lesson's own examples or new examples of the same idea, or asking the learner about them, is grounded. A question, exercise or practice task the reply gives the learner about an idea the lesson has not taught yet (one listed under \"Ideas not taught yet\", or one the lesson only mentions in passing) fails grounding; a short answer about such an idea that says a later lesson covers it is grounded.",
   "factuality: the reply agrees with what the lesson states and makes no false claim. Every required fact must actually be conveyed by the reply. None of the known false claims may be asserted, and no other statement may contradict the lesson.",
   "Judge meaning, not wording. Paraphrases, synonyms, negation (\"cannot be negative\" states \"is never negative\"), notation (LaTeX such as $-1 > -3$, symbols, digits or words) and other languages (for example Hebrew) count for what they say. A claim the reply denies, corrects or only asks about is not asserted.",
   "Be strict. A vague, generic or evasive reply does not convey a required fact; hinting at it or telling the learner to think about it is not conveying it. Do not pass a reply because it is polite or long.",
@@ -73,6 +73,8 @@ export function judgeRequest(dialogue: Dialogue, reply: string) {
     "", "Lesson material:", fenced("LESSON", material),
     "", "Required facts (each must be conveyed by the reply):", lines(facts.required.map((f) => f.statement ?? humanize(f.id))),
     "", "Known false claims (none may be asserted; the truth is given):", lines(facts.forbidden.map((f) => `${humanize(f.id)} (truth: ${f.reason})`)),
+    ...(dialogue.expect.scope ? ["", "Ideas not taught yet (the reply must not quiz the learner on them):", lines(dialogue.expect.scope.notTaught.map((i) => i.statement))] : []),
+    ...(c.lessonMap ? ["", `Later lessons in this chapter: ${c.lessonMap.laterLessons.join("; ") || "(none)"}`] : []),
     "", "The learner's turns:", fenced("LEARNER", learner),
     "", "The reply to judge:", fenced("REPLY", reply),
   ].join("\n");

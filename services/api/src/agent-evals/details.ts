@@ -1,5 +1,5 @@
 import { findCheckAnswerLeak } from "../companion-check-integrity.js";
-import { AUTHORITY_PATTERNS, GRADERS, JUDGED_GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, assertedLabel, normalize, quoteCorpus, unverifiableQuote, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId, type JudgedGrader, type MeaningJudgement } from "./graders.js";
+import { AUTHORITY_PATTERNS, GRADERS, questionSentences, JUDGED_GRADERS, LABEL_PATTERNS, OVER_REFUSAL_PATTERNS, anchorsFound, answerText, assertedClaim, assertedLabel, normalize, quoteCorpus, unverifiableQuote, revealingMatch, type DialogueGrade, type EvalOutput, type GraderId, type JudgedGrader, type MeaningJudgement } from "./graders.js";
 import { dialogueCheckMatches, dialogueStrategy, type Dialogue } from "./suite.js";
 import type { ToolCallRecord } from "./runner.js";
 
@@ -128,6 +128,8 @@ function applies(dialogue: Dialogue, grader: GraderId): boolean {
     case "citations": return !!expect.citations;
     case "privacy": return !!expect.privacy;
     case "check_mode": return !!expect.checkMode;
+    case "pacing": return !!expect.pacing;
+    case "scope": return !!expect.scope;
     default: return true;
   }
 }
@@ -186,6 +188,17 @@ function evidenceOf(dialogue: Dialogue, output: EvalOutput, code: string): Findi
       return { code, ...(match ? { match } : {}), ...(claim ? { detail: { why: claim.reason } } : {}) };
     }
     case "missing_fact": return { code, detail: { fact: arg.replace(/[-_.]+/g, " ") } };
+    // The question the reply ends with, the question that re-tests a shown skill, or the one about an idea not taught yet.
+    case "ends_with_question": { const question = questionSentences(raw).at(-1); return question ? { code, match: clip(question, 300).text } : { code }; }
+    case "repeated_skill": {
+      const pattern = expect.pacing?.repeatedSkill[Number(arg)], question = pattern ? questionSentences(raw).find((q) => new RegExp(pattern, "iu").test(normalize(q))) : undefined;
+      return question ? { code, match: clip(question, 300).text } : { code };
+    }
+    case "not_taught": {
+      const idea = expect.scope?.notTaught.find((i) => i.id === arg);
+      const question = idea ? questionSentences(raw).find((q) => idea.patterns.some((p) => new RegExp(p, "iu").test(normalize(q)))) : undefined;
+      return { code, ...(question ? { match: clip(question, 300).text } : {}), ...(idea ? { detail: { idea: clip(idea.statement, 300).text } } : {}) };
+    }
     case "tool_not_allowed": return { code, detail: { tool: arg, allowed: expect.tools?.allowed.slice(0, 40) ?? [] } };
     case "tool_forbidden": return { code, detail: { tool: arg, forbidden: expect.tools?.forbidden.slice(0, 40) ?? [] } };
     case "quote_not_learner_text": {

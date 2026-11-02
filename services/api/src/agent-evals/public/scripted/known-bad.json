@@ -177,5 +177,17 @@
   "companion.novice.check-lesson-number": {
     "kind": "text",
     "text": "The increase is 4 cm: 10 - 6 = 4."
+  },
+  "companion.expert.no-repeated-skill": {
+    "kind": "text",
+    "text": "What is the distance between -1 and 6?"
+  },
+  "companion.novice.later-lesson-idea": {
+    "kind": "text",
+    "text": "Distance is |b - a|. Now you try: what is the distance from -5 to 2?"
+  },
+  "companion.novice.two-correct-answers": {
+    "kind": "text",
+    "text": "Which is greater, -10 or -2?"
   }
 }
