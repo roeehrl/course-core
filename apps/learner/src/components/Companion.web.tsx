@@ -4,7 +4,6 @@ import { Icon } from "./icons/Icon.web";
 import { Announcer, useAnnounce } from "../connected/ui/Announcer.web";
 import { CompanionTurnFrame } from "../connected/ui/CompanionTurnFrame.web";
 import { LongAnswerComposer } from "../connected/ui/LongAnswerComposer.web";
-import { PanelHeader } from "../connected/ui/PanelHeader.web";
 import { useT } from "../i18n";
 
 export type { CompanionProps } from "./Companion";
@@ -14,9 +13,11 @@ const NOTE_MAX = 4000;
 
 /**
  * The demo's companion (`/demo`, final design §4.19), on the connected companion's own parts so
- * the demo shows the real design: the panel header, the course's authored guidance as a companion
- * turn under the label line, "Show a hint" as a chip, and notes to yourself in the long-answer
- * composer. No AI is involved, and the first line of the thread says so once.
+ * the demo shows the real design: it is the content of the real panel or sheet (CompanionDock,
+ * through DemoCompanionDock.web.tsx, which gives it the header and its controls), the course's
+ * authored guidance as a companion turn under the label line, "Show a hint" as a chip, and notes
+ * to yourself in the long-answer composer pinned at the bottom. No AI is involved, and the first
+ * line of the thread says so once.
  *
  * Notes are kept on this device as they are typed; Cmd/Ctrl+Enter or "Save note" saves the note
  * there too and says so.
@@ -37,8 +38,7 @@ function DemoCompanion({ step, lessonTitle, note, onNoteChange, mode }: Companio
   const saved = `${id}-saved`,
     hintId = `${id}-hint`;
   return (
-    <section className="cc-note-demo" aria-label={t("companion.region")}>
-      <PanelHeader title={t("companion.title")} className="cc-note-demo-header" />
+    <div className="cc-note-demo">
       <div className="cc-note-demo-thread">
         <p className="cc-note-demo-intro">{t(mode === "demo" ? "companion.intro.demo" : "companion.intro.course")}</p>
         {lessonTitle && step && (
@@ -94,6 +94,6 @@ function DemoCompanion({ step, lessonTitle, note, onNoteChange, mode }: Companio
           {t("companion.notes.saved")}
         </p>
       </div>
-    </section>
+    </div>
   );
 }

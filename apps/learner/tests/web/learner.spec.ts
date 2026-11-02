@@ -103,12 +103,19 @@ test("effective-window adaptation preserves drafts and companion notes", async (
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const pane = page.getByTestId("companion-pane");
+  // The demo companion is the real companion's panel (final design §4.19): 400 px, flush at the
+  // window's end under the header, with its divider, About, Expand and Close, the trigger in the
+  // header; one line that no AI is connected, and the guidance as a companion turn.
+  const pane = page.getByRole("complementary", { name: "Your companion" });
   await expect(pane).toBeVisible();
-  // The demo companion on the real companion's parts (final design §4.19): 400 px beside the
-  // page, its title, one line that no AI is connected, and the guidance as a companion turn.
-  expect(Math.round((await pane.boundingBox())!.width)).toBe(400);
-  const companion = page.getByRole("region", { name: "Your companion" });
+  const box = (await pane.boundingBox())!;
+  expect(Math.round(box.width)).toBe(400);
+  expect(Math.round(box.x + box.width)).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+  expect(box.y).toBeGreaterThanOrEqual((await page.getByTestId("demo-header").boundingBox())!.height - 1);
+  await expect(page.getByRole("separator", { name: "Resize companion" })).toBeVisible();
+  for (const name of ["About your companion", "Expand", "Close companion"]) await expect(pane.getByRole("button", { name, exact: true })).toBeVisible();
+  await expect(page.getByTestId("demo-header").getByRole("button", { name: "Companion", exact: true })).toHaveAttribute("aria-expanded", "true");
+  const companion = pane;
   await expect(companion.getByRole("heading", { level: 2, name: "Companion" })).toBeVisible();
   await expect(companion.getByText("Demo · authored guidance. No live AI is connected.")).toHaveCount(1);
   await expect(companion.getByRole("article", { name: "Companion said" })).toContainText("One clear path, at your pace.");
@@ -121,7 +128,10 @@ test("effective-window adaptation preserves drafts and companion notes", async (
   await page.reload();
   await expect(notes).toHaveValue("Look for neighbors.");
   await page.setViewportSize({ width: 768, height: 1024 });
-  await expect(page.getByTestId("companion-pane")).toHaveCount(0);
+  // A tablet in portrait: the nonmodal sheet, which a class change keeps open.
+  await expect(pane).toHaveAttribute("data-placement", "sheet");
+  await page.getByRole("button", { name: "Close companion" }).click();
+  await expect(pane).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("roadmap-tablet.png") });
   // The way to the companion keeps its glyph on narrower windows.
   const opener = page.getByRole("button", { name: "Companion", exact: true });
@@ -182,7 +192,7 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
     .analyze();
   expect(lessonIssues.violations).toEqual([]);
   // In a lesson the companion offers the step's hint as a chip that shows it in place.
-  if (await page.getByTestId("companion-pane").isVisible()) {
+  if (await page.getByRole("complementary", { name: "Your companion" }).isVisible()) {
     const hint = page.getByRole("button", { name: "Show a hint", exact: true });
     await expect(hint).toHaveAttribute("aria-expanded", "false");
     await hint.click();

@@ -197,6 +197,7 @@
 .cc-shell-beside:focus-visible,
 .cc-shell-handle:focus-visible,
 .connected-header .connected-companion-trigger:focus-visible,
+[data-testid="demo-header"] .connected-companion-trigger:focus-visible,
 .connected-companion-trigger.is-floating:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -261,10 +262,12 @@
     display: none;
   }
 }
+/* A 720 px column with 20 px a side (§2.2): 4 px here and the thread's and composer's own 16 px,
+ * so prose, dividers and the pill are 680 px wide. */
 .connected-companion-dock.is-focus > .cc-shell-body {
   inline-size: min(720px, 100%);
   margin-inline: auto;
-  padding-inline: 20px;
+  padding-inline: 4px;
 }
 
 /* Sheets (§2.3-§2.5): nonmodal, no scrim, at the window's bottom. The height (--sheet-h) is written
@@ -383,6 +386,7 @@ html:has(.connected-host:not(.is-compact) #connected-companion.is-sheet:not([hid
   display: contents;
 }
 .connected-header .connected-companion-trigger.is-in-header,
+[data-testid="demo-header"] .connected-companion-trigger.is-in-header,
 .connected-companion-trigger.is-floating {
   position: relative;
   display: inline-flex;
@@ -401,10 +405,12 @@ html:has(.connected-host:not(.is-compact) #connected-companion.is-sheet:not([hid
   cursor: pointer;
 }
 .connected-header .connected-companion-trigger.is-in-header:hover,
+[data-testid="demo-header"] .connected-companion-trigger.is-in-header:hover,
 .connected-companion-trigger.is-floating:hover {
   background: var(--surface-2);
 }
 .connected-header .connected-companion-trigger[aria-expanded="true"],
+[data-testid="demo-header"] .connected-companion-trigger[aria-expanded="true"],
 .connected-companion-trigger.is-floating[aria-expanded="true"] {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -511,6 +517,12 @@ html:has(.connected-host.is-compact) body {
   scrollbar-gutter: stable;
   scroll-padding-block: 16px;
   padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+/* The phone's lesson pane is a Tab stop (it scrolls with the keys): it shows the one focus style
+ * (§6), inset so the pane's own edge does not clip it. */
+.connected-host.is-compact .connected-main:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 /* The pane never scrolls sideways: the back link's row ends at the pane's end (connected.css pulls
  * it 8 px past both edges on phones; past the end that made the pane scroll sideways, which cut the
@@ -679,4 +691,72 @@ html:has(.connected-host:not(.is-compact)) {
   .connected-companion-dock.is-panel[data-entering] > * {
     animation: none;
   }
+}
+
+/* The demo (`/demo`, components/DemoCompanionDock.web.tsx): the same panel, divider, focus view and
+ * sheet over the demo's own page, which is not a grid. The panel is fixed at the window's inline
+ * end under the demo's header (sticky); the page keeps clear of it; focus view covers the page
+ * under the header and hides it. */
+.cc-demo-dock-host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+}
+.cc-demo-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+}
+.cc-demo-dock-host[data-docked="open"] > .cc-demo-page {
+  margin-inline-end: var(--panel-w, 400px);
+}
+.cc-demo-dock-host[data-docked="focus"] > .cc-demo-page {
+  visibility: hidden;
+}
+/* The header's band continues over the panel, so the header reads as the window's. */
+.cc-demo-dock-host[data-docked="open"]::before {
+  content: "";
+  position: fixed;
+  z-index: 20;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  inline-size: var(--panel-w, 400px);
+  block-size: var(--cc-demo-header, 86px);
+  box-sizing: border-box;
+  border-block-end: 1px solid var(--line);
+  background: var(--surface);
+}
+.cc-demo-dock-host[data-docked="focus"] > .cc-demo-page > * > * > [data-testid="demo-header"] {
+  visibility: visible;
+}
+[data-testid="demo-header"] {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.cc-demo-dock-host > .connected-companion-dock.is-panel,
+.cc-demo-dock-host > .connected-companion-dock.is-focus {
+  position: fixed;
+  z-index: 20;
+  inset-block: var(--cc-demo-header, 86px) 0;
+  inset-inline-end: 0;
+  inline-size: var(--panel-w, 400px);
+  block-size: auto;
+  /* The grid's `start` would shrink a positioned box to its content. */
+  align-self: stretch;
+}
+.cc-demo-dock-host > .connected-companion-dock.is-focus {
+  inset-inline-start: 0;
+  inline-size: auto;
+}
+.cc-demo-dock-host > .cc-shell-splitter {
+  position: fixed;
+  z-index: 21;
+  inset-block: var(--cc-demo-header, 86px) 0;
+  inset-inline-end: var(--panel-w, 400px);
+  inline-size: 1px;
+  block-size: auto;
+  align-self: stretch;
 }

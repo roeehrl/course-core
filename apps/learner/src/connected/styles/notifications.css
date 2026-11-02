@@ -204,16 +204,22 @@ li.unread .cc-note-dot {
   }
 }
 
-/* The demo's companion (components/Companion.web.tsx, final design §4.19): the panel header, the
- * line that says no AI is connected, authored guidance as a companion turn with its label line,
- * the hint chip, and notes in the long-answer composer with "Saved on this device." on the
- * composer's meta row. */
+/* The demo's companion (components/Companion.web.tsx, final design §4.19), the content of the real
+ * panel or sheet: the line that says no AI is connected, authored guidance as a companion turn
+ * with its label line, the hint chip, and notes in the long-answer composer pinned at the bottom
+ * with "Saved on this device." on the composer's meta row. */
 .cc-note-demo {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  box-sizing: border-box;
+  min-block-size: 100%;
+  padding: var(--space-4) var(--space-4) var(--space-3);
   color: var(--ink);
   font: 400 var(--text-chat) var(--font-sans);
+}
+.cc-note-demo > .cc-note-demo-notes {
+  margin-block-start: auto;
 }
 .cc-note-demo .cc-note-demo-header {
   min-block-size: 48px;

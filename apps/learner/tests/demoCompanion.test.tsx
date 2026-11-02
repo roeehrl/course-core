@@ -26,10 +26,9 @@ describe("reusable learner components", () => {
         mode="demo"
       />,
     );
-    // The connected companion's parts: the panel header, one line that no AI is connected, the
-    // guidance as a companion turn under its label line, and no avatar tile or idea bubble.
-    const panel = screen.getByRole("region", { name: "Your companion" });
-    expect(within(panel).getByRole("heading", { level: 2, name: "Companion" })).toBeVisible();
+    // The connected companion's parts (the real panel gives it its header): one line that no AI is
+    // connected, the guidance as a companion turn under its label line, and no avatar tile or idea
+    // bubble.
     expect(screen.getAllByText("Demo · authored guidance. No live AI is connected.")).toHaveLength(1);
     const turn = screen.getByRole("article", { name: "Companion said" });
     expect(within(turn).getByText(demoCourse.lessons[0]!.steps[0]!.companion.idea)).toBeVisible();
@@ -71,7 +70,6 @@ describe("reusable learner components", () => {
         <Companion step={demoCourse.lessons[0]!.steps[0]!} lessonTitle="Example" note="" onNoteChange={() => {}} mode="demo" />
       </I18nProvider>,
     );
-    expect(screen.getByRole("region", { name: "המנחה" })).toBeVisible();
     expect(screen.getByText("הדגמה · הנחיות כתובות. אין חיבור ל־AI.")).toBeVisible();
     expect(screen.getByRole("button", { name: "הצגת רמז" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "הערות אישיות" })).toHaveAttribute("placeholder", "שאלה, רעיון, משהו לחזור אליו…");

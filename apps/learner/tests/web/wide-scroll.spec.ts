@@ -193,6 +193,12 @@ for (const viewport of VIEWPORTS)
     await expect(
       page.getByRole("heading", { name: "A little order." }),
     ).toBeVisible();
+    // The companion's panel takes the window's inline end while it shows (its own scroller, as in
+    // the connected app): closed, the margins on both sides are the page's.
+    await page.getByRole("button", { name: "Close companion", exact: true }).click();
+    await expect(page.getByRole("complementary", { name: "Your companion" })).toHaveCount(0);
+    // The page takes the width back (its layout reads the new width) before it is lengthened.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     // The roadmap folds its chapters, so the short demo course no longer outgrows the widest
     // windows: lengthen it, since what is checked is that the wheel reaches its scroll view.
     await page.getByTestId("course-roadmap").evaluate((roadmap) =>

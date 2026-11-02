@@ -30,7 +30,8 @@ export function PanelSplitter({ hidden }: { hidden: boolean }) {
   const [range, setRange] = useState<PanelRange>(() => panelRange(layoutWidth()));
   const rangeRef = useRef(range);
   rangeRef.current = range;
-  const host = () => node.current?.closest<HTMLElement>(".connected-host") ?? null;
+  // The connected host, or the demo's frame (DemoCompanionDock.web.tsx).
+  const host = () => node.current?.closest<HTMLElement>(".connected-host, .cc-demo-dock-host") ?? null;
   const rtl = () => (node.current ? getComputedStyle(node.current).direction === "rtl" : false);
   /** Draws a width: the host's variable and the separator's value (no React render). */
   const draw = (value: number) => {
@@ -58,7 +59,7 @@ export function PanelSplitter({ hidden }: { hidden: boolean }) {
   }, []);
   useLayoutEffect(
     () => () => {
-      node.current?.closest<HTMLElement>(".connected-host")?.style.removeProperty("--panel-w");
+      node.current?.closest<HTMLElement>(".connected-host, .cc-demo-dock-host")?.style.removeProperty("--panel-w");
     },
     [],
   );

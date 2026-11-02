@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   Text,
   useWindowDimensions,
@@ -8,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Companion } from "./components/Companion";
+import { DemoCompanionDock, DemoCompanionSlot } from "./components/DemoCompanionDock";
 import { Icon } from "./components/icons/Icon";
 import { LivePressable } from "./components/LivePressable";
 import { CourseRoadmap } from "./components/CourseRoadmap";
@@ -82,6 +84,10 @@ function LearnerWorkspace({
     dimensions.fontScale,
   );
   const [dialog, setDialog] = useState<"profile" | "placement" | "companion">();
+  // On the web the companion is the real companion's frame (DemoCompanionDock.web.tsx): a docked
+  // panel or a nonmodal sheet, its trigger drawn in the header; native keeps the page's own.
+  const web = Platform.OS === "web";
+  const [companionSlot, setCompanionSlot] = useState<HTMLElement | null>(null);
   const scroll = useRef<ScrollView>(null);
   const content = useRef<View>(null);
   const route = session.route;
@@ -143,12 +149,20 @@ function LearnerWorkspace({
       style={{ flex: 1, backgroundColor: tokens.page }}
       onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}
     >
+      <DemoCompanionDock
+        width={Math.min(dimensions.width, containerWidth)}
+        height={dimensions.height}
+        headerSlot={companionSlot}
+        companion={web && snapshot ? companion : null}
+        {...(lesson?.title ? { lessonTitle: lesson.title } : {})}
+      >
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ flexGrow: 1 }}
       >
         <View
+          testID="demo-header"
           style={{
             backgroundColor: tokens.surface,
             borderBottomWidth: 1,
@@ -212,7 +226,8 @@ function LearnerWorkspace({
                     onPress={() => navigate({ screen: "roadmap" })}
                     disabled={pending}
                   />
-                  {!layout.companionPane && (
+                  {web && <DemoCompanionSlot onSlot={setCompanionSlot} />}
+                  {!web && !layout.companionPane && (
                     <CompanionNavButton
                       label={t("learnerApp.nav.companion")}
                       onPress={() => openDialog("companion")}
@@ -290,7 +305,7 @@ function LearnerWorkspace({
             )}
             <View
               style={{
-                flexDirection: layout.companionPane ? "row" : "column",
+                flexDirection: !web && layout.companionPane ? "row" : "column",
                 gap: 40,
                 alignItems: "flex-start",
               }}
@@ -372,7 +387,7 @@ function LearnerWorkspace({
                   />
                 )}
               </View>
-              {layout.companionPane && (
+              {!web && layout.companionPane && (
                 // The companion beside the page (final design §2.1): 400 px wide, a flat surface
                 // with a hairline, never narrower than the panel of the connected app.
                 <View
@@ -415,6 +430,7 @@ function LearnerWorkspace({
           </View>
         )}
       </ScrollView>
+      </DemoCompanionDock>
       {dialog && snapshot && (
         <Overlay title={t(`learnerApp.dialog.${dialog}` as MessageKey)} onClose={closeDialog}>
           {dialog === "companion" ? (
