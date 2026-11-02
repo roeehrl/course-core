@@ -211,6 +211,51 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
   }
 });
 
+test("on a phone the demo companion's notes stay pinned under the guidance at Half and Full", async ({
+  page,
+}, testInfo) => {
+  // Final design §2.4 and §4.19: inside the sheet only the thread (here the authored guidance)
+  // scrolls; the composer zone with "Save note" stays on screen, so the sheet itself never scrolls.
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Loaded at phone size, so the companion starts closed, as on any phone.
+  await page.reload();
+  const pane = page.getByRole("complementary", { name: "Your companion" });
+  await expect(pane).toHaveCount(0);
+  const save = pane.getByRole("button", { name: "Save note", exact: true });
+  const guidance = pane.getByRole("group", { name: "Guidance", exact: true });
+  async function expectPinned(name: string) {
+    await expect(save).toBeVisible();
+    // Measured where the sheet comes to rest, after it slides to its detent (M12).
+    await pane.evaluate((node) => Promise.all(node.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+    const box = (await save.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(844);
+    await expect(pane.getByRole("textbox", { name: "Notes to yourself" })).toBeInViewport({ ratio: 1 });
+    await expect(pane.getByText("Saved on this device.", { exact: true })).toBeInViewport({ ratio: 1 });
+    // The sheet has nothing to scroll: what does not fit scrolls in the guidance.
+    const sheet = await pane.evaluate((node) => ({ scroll: node.scrollHeight, client: node.clientHeight }));
+    expect(sheet.scroll).toBeLessThanOrEqual(sheet.client);
+    await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+  }
+  await page.getByRole("button", { name: "Companion", exact: true }).first().click();
+  await expect(pane).toHaveAttribute("data-detent", "half");
+  await expectPinned("phone-roadmap-half");
+  await page.getByRole("button", { name: "Close companion" }).click();
+  await page.getByRole("button", { name: /^(Start the course|Start lesson \d+|Continue lesson \d+|Continue learning) →$/ }).click();
+  await expect(page.getByRole("heading", { name: "Every number has a neighbor." })).toBeVisible();
+  await page.getByRole("button", { name: "Companion", exact: true }).first().click();
+  await expect(pane).toHaveAttribute("data-detent", "half");
+  await pane.getByRole("button", { name: "Show a hint", exact: true }).click();
+  await expect(pane.getByRole("button", { name: "Hide hint", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expectPinned("phone-lesson-hint-half");
+  // The hint makes the guidance longer than its room at Half: it scrolls on its own.
+  const room = await guidance.evaluate((node) => ({ scroll: node.scrollHeight, client: node.clientHeight }));
+  expect(room.scroll).toBeGreaterThan(room.client);
+  await pane.getByRole("button", { name: "Full height", exact: true }).click();
+  await expect(pane).toHaveAttribute("data-detent", "full");
+  await expectPinned("phone-lesson-hint-full");
+});
+
 test("blocked device storage is explicit and learning still works", async ({
   page,
 }) => {
