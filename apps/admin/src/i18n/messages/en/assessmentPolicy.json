@@ -31,5 +31,12 @@
   "grant.reason.hint": "Recorded with the change, for example: the connection dropped during the check.",
   "grant.confirm": "Allow the attempt",
   "grant.cancel": "Cancel",
-  "grant.done": "One more attempt allowed. The learner can start it now."
+  "grant.done": "One more attempt allowed. The learner can start it now.",
+  "card.count": "{count, plural, one {# check} other {# checks}}",
+  "card.countOpen": "{count} available",
+  "card.countWaiting": "{count} waiting",
+  "card.countFull": "{count, plural, one {# with no attempts left} other {# with no attempts left}}",
+  "card.all": "{count, plural, one {Show the check} other {Show all # checks}}",
+  "card.fewer": "Show fewer",
+  "card.shown": "Showing {shown} of {total}"
 }

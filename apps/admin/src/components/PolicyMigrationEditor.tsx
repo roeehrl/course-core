@@ -108,6 +108,7 @@ export function PolicyMigrationEditor({
   }
   return (
     <Dialog
+      className="policy-dialog"
       title={t("policyMigrationEditor.title")}
       onClose={onClose}
       pending={pending}
@@ -128,11 +129,13 @@ export function PolicyMigrationEditor({
       </Field>
       {syntax && <Notice tone="red">{syntax}</Notice>}
       {Boolean(error) && <ErrorState error={error} />}
-      <Button onClick={() => void previewChange()} disabled={pending}>
-        {pending
-          ? t("policyMigrationEditor.validating")
-          : t("policyMigrationEditor.compute")}
-      </Button>
+      <div className="policy-form-actions action-row">
+        <Button onClick={() => void previewChange()} disabled={pending}>
+          {pending
+            ? t("policyMigrationEditor.validating")
+            : t("policyMigrationEditor.compute")}
+        </Button>
+      </div>
       {preview && (
         <div className="stack">
           <h3>{t("policyMigrationEditor.impact")}</h3>
@@ -216,6 +219,14 @@ export function PolicyMigrationEditor({
               onClick={() => void apply()}
             >
               {t("policyMigrationEditor.apply")}
+            </Button>
+            <Button
+              type="button"
+              kind="quiet"
+              disabled={pending}
+              onClick={onClose}
+            >
+              {t("policyMigrationEditor.cancel")}
             </Button>
           </div>
         </div>

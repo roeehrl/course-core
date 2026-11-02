@@ -133,7 +133,7 @@ test("demo ledger: approve accepted terms, refuse an exception past the course l
     .first()
     .click();
   await page
-    .getByRole("button", { name: "Exceptional grant for this scope" })
+    .getByRole("button", { name: "Exceptional grant", exact: true })
     .click();
   const exception = page.getByRole("dialog", { name: "Exceptional grant" });
   await exception

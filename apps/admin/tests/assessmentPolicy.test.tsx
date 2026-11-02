@@ -111,6 +111,9 @@ describe("assessment policy in course policy settings", () => {
         /as many graded attempts at each check as they need/,
       ),
     ).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit course settings" }),
+    );
     await userEvent.type(
       screen.getByLabelText("Graded attempts per check"),
       "3",
@@ -133,7 +136,7 @@ describe("assessment policy in course policy settings", () => {
     ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Preview feasibility and daylight saving",
+        name: "Check feasibility and daylight-saving effects",
       }),
     );
     expect(vi.mocked(client.previewPolicySettings!)).toHaveBeenCalledWith(

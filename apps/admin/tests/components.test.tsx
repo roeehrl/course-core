@@ -163,17 +163,19 @@ describe("admin presentation workflows", () => {
     await screen.findByText("14 calendar days from scope started");
     expect(
       screen.getByRole("table", {
-        name: "Inherited work caps and current usage",
+        name: "Work limits on this path and how much is used",
       }),
     ).toHaveTextContent("240");
     expect(screen.getByText("Maximum days per grant")).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: /Chapter · Open exploration/ }),
     );
-    expect(screen.getByText("open-ended mode")).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Chapter · Open exploration" }),
+    ).toBeVisible();
     expect(
       screen.getByText(
-        /Applicable ancestor deadlines and work caps still bind/,
+        /Deadlines and work limits from the levels above still apply/,
       ),
     ).toBeVisible();
     expect(

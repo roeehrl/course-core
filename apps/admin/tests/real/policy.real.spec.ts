@@ -53,6 +53,7 @@ test("course policy settings are previewed for feasibility before saving, at eve
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Course policy settings" }),
   });
+  await card.getByRole("button", { name: "Edit course settings" }).click();
   await expect(card.getByText("Documented defaults")).toBeVisible();
   await card.getByLabel("Deadline time zone (IANA)").fill("America/New_York");
   await card
@@ -63,7 +64,9 @@ test("course policy settings are previewed for feasibility before saving, at eve
   ).toHaveValue("reject");
   await card.getByLabel("Extension approval").selectOption("learner_and_admin");
   await card
-    .getByRole("button", { name: "Preview feasibility and daylight saving" })
+    .getByRole("button", {
+      name: "Check feasibility and daylight-saving effects",
+    })
     .click();
   await expect(
     card.getByText("The required core path and final assessment fit."),
@@ -88,10 +91,13 @@ test("course policy settings are previewed for feasibility before saving, at eve
     fullPage: true,
   });
   // A declared pace that cannot fit the required path is disclosed before anything is saved.
+  await card.getByRole("button", { name: "Edit course settings" }).click();
   await card.getByLabel("Study minutes per day").fill("1");
   await card.getByLabel("Estimated minutes per required episode").fill("600");
   await card
-    .getByRole("button", { name: "Preview feasibility and daylight saving" })
+    .getByRole("button", {
+      name: "Check feasibility and daylight-saving effects",
+    })
     .click();
   await expect(
     card.getByText("The required core path does not fit this envelope.", {
@@ -221,7 +227,7 @@ test("approve learner-accepted terms, then revoke, refund and make an exceptiona
 
   await page.reload();
   await openSection(page, "Policy & extensions");
-  await page.getByLabel("Policy enrollment").selectOption(id);
+  await page.getByLabel("Learner", { exact: true }).selectOption(id);
   await expect(
     page.getByText(
       "The learner accepted these exact terms. They also need an administrator’s approval.",
@@ -271,7 +277,7 @@ test("approve learner-accepted terms, then revoke, refund and make an exceptiona
   ).toBeVisible();
 
   await page
-    .getByRole("button", { name: "Exceptional grant for this scope" })
+    .getByRole("button", { name: "Exceptional grant", exact: true })
     .click();
   const exception = page.getByRole("dialog", { name: "Exceptional grant" });
   await exception.getByRole("button", { name: "Preview the effect" }).click();
@@ -402,12 +408,15 @@ test("a graded-attempt limit refuses the next check until an administrator allow
   const card = page.locator("section", {
     has: page.getByRole("heading", { name: "Course policy settings" }),
   });
+  await card.getByRole("button", { name: "Edit course settings" }).click();
   await card.getByLabel("Graded attempts per check").fill("1");
   await expect(
     card.getByText(/Learners get 1 graded attempt at each check\./),
   ).toBeVisible();
   await card
-    .getByRole("button", { name: "Preview feasibility and daylight saving" })
+    .getByRole("button", {
+      name: "Check feasibility and daylight-saving effects",
+    })
     .click();
   await card.getByLabel("Reason for this change").fill("One graded attempt");
   await card
@@ -483,7 +492,7 @@ test("a graded-attempt limit refuses the next check until an administrator allow
 
   await page.reload();
   await openSection(page, "Policy & extensions");
-  await page.getByLabel("Policy enrollment").selectOption(id);
+  await page.getByLabel("Learner", { exact: true }).selectOption(id);
   const attempts = page.getByRole("region", {
     name: "Graded attempts per check",
   });
