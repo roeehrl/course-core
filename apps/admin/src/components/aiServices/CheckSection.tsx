@@ -227,6 +227,7 @@ export function CheckSection(props: Props) {
         latest={latest}
         shownAbove={shownAbove}
         service={activeService(t, data)}
+        primary={!waiting.length && !passedForDraft}
       />
       {uncovered.length > 0 && (
         <p>

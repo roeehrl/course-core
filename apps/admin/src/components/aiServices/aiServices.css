@@ -1,17 +1,21 @@
-/* AI services page. Logical properties only, so the page mirrors in right-to-left locales. */
+/* AI services page. Logical properties only, so the page mirrors in right-to-left locales. It
+   uses the content width like every other admin page; running text keeps a readable measure, and
+   wide sections lay their parts side by side (container queries at the end of this file). */
 .ai-page {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-inline-size: 860px;
   min-inline-size: 0;
 }
 .ai-page :where(p, ul, ol, h2, h3) {
   margin-block: 0;
 }
+.ai-page p {
+  max-inline-size: 78ch;
+}
 .ai-intro {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.6;
 }
 .ai-status-bar {
@@ -22,7 +26,7 @@
   padding-inline: 18px;
   border-radius: 12px;
   border: 1px solid var(--line);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -58,8 +62,7 @@
 .ai-issues li + li::before {
   content: " · ";
 }
-.ai-issues a,
-.ai-toc a {
+.ai-issues a {
   color: var(--blue);
   font-weight: 600;
 }
@@ -76,14 +79,44 @@
   display: inline;
   margin: 0;
 }
+/* The section links stay under the top bar while the page scrolls (one row; on a phone it
+   scrolls sideways), and the section in view is marked. The same look as the app's shared
+   .section-nav (styles.css), which this bar also carries; --sticky-top comes from there. */
+.ai-toc {
+  position: sticky;
+  inset-block-start: var(--sticky-top, var(--app-bar-height, 0px));
+  z-index: 20;
+  min-inline-size: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.94);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px -14px rgb(25 46 62 / 0.5);
+}
+html:has(.ai-page .ai-toc) {
+  /* Links, focus and find-in-page stop below the top bar and the section links. */
+  scroll-padding-top: calc(
+    var(--sticky-top, var(--app-bar-height, 0px)) + var(--ai-toc-height, 52px) +
+      12px
+  );
+}
 .ai-toc ol {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
+  flex-wrap: nowrap;
+  gap: 4px;
   padding: 0;
   margin: 0;
   list-style: none;
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ai-toc ol::-webkit-scrollbar {
+  display: none;
+}
+.ai-toc li {
+  flex: none;
 }
 .ai-sections {
   display: flex;
@@ -99,7 +132,7 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   min-inline-size: 0;
-  scroll-margin-block-start: 16px;
+  container: ai-section / inline-size;
 }
 .ai-section:focus {
   outline: none;
@@ -117,11 +150,11 @@
   flex-wrap: wrap;
 }
 .ai-section h2 {
-  font-size: 19px;
+  font-size: var(--text-lg, 20px);
   line-height: 1.3;
 }
 .ai-section h3 {
-  font-size: 15px;
+  font-size: var(--text-md, 16px);
   line-height: 1.4;
 }
 .ai-advanced > summary {
@@ -143,7 +176,7 @@
   padding-block: 4px;
   padding-inline: 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
   line-height: 18px;
   background: #f0f3f4;
@@ -181,7 +214,7 @@
 }
 .ai-field label,
 .ai-choice legend {
-  font-size: 13px;
+  font-size: var(--text-sm, 14px);
   font-weight: 650;
 }
 .ai-field input,
@@ -194,7 +227,7 @@
   border: 1px solid #b9c7cf;
   border-radius: 8px;
   background-color: #fff;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 /* Room for the chevron (styles.css, select). */
 .ai-field select {
@@ -211,17 +244,17 @@
   .ai-field input,
   .ai-field select,
   .ai-field textarea {
-    font-size: 16px;
+    font-size: var(--text-md, 16px);
   }
 }
 .ai-hint {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   line-height: 1.5;
 }
 .ai-field-error {
   color: var(--red);
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
 }
 .ai-key-input {
@@ -245,7 +278,7 @@
   border: 1px solid var(--line);
   border-inline-start: 4px solid var(--red);
   border-radius: 8px;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.5;
 }
 .ai-key-chars ul {
@@ -263,7 +296,7 @@
   border-radius: 4px;
   background: #f4f7f9;
   font-family: ui-monospace, monospace;
-  font-size: 15px;
+  font-size: var(--text-md, 16px);
   text-align: center;
 }
 .ai-key-fix {
@@ -280,7 +313,7 @@
 .ai-key-fixed {
   margin: 0;
   color: var(--green);
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
 }
 .ai-money {
   display: flex;
@@ -320,7 +353,7 @@
   align-items: center;
   gap: 8px;
   min-block-size: 44px;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 .ai-choice input,
 .ai-check input {
@@ -333,7 +366,25 @@
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  justify-content: flex-start;
+}
+/* A dialog's buttons stay at its end, as in the app's other dialogs. */
+.ai-confirm .ai-actions {
   justify-content: flex-end;
+}
+/* Whether a form has anything to save, beside its save button. */
+.ai-save-state {
+  color: var(--muted);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.4;
+}
+.ai-save-state.unsaved {
+  color: var(--gold);
+  font-weight: 650;
+}
+/* A destructive action is quiet and sits apart, at the end of its row. */
+.ai-actions .button.ai-apart {
+  margin-inline-start: auto;
 }
 .ai-message .ai-actions {
   justify-content: flex-start;
@@ -345,7 +396,7 @@
   padding-block: 12px;
   padding-inline: 14px;
   border-radius: 10px;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.6;
   background: var(--ice);
   color: var(--blue);
@@ -373,7 +424,7 @@
   border: 2px solid var(--red);
   border-radius: 10px;
   color: var(--red);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 .ai-error-summary ul {
   margin-block: 6px 0;
@@ -385,7 +436,7 @@
 }
 .ai-why {
   margin-block: 0;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -411,7 +462,7 @@
 }
 .ai-price-suggestion {
   margin-block: 0;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -420,7 +471,7 @@
   gap: 8px;
   align-items: center;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 .ai-connections {
   display: flex;
@@ -449,11 +500,11 @@
   flex-wrap: wrap;
   gap: 4px 12px;
   align-items: center;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 .ai-muted {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   line-height: 1.5;
 }
 /* What a broken quality-check rule means, under its count. */
@@ -480,7 +531,7 @@
   border-radius: 6px;
   background: var(--ice);
   color: var(--blue);
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
 }
 .ai-optional > summary,
@@ -502,10 +553,20 @@
   border-radius: 12px;
   min-inline-size: 0;
 }
-.ai-price legend {
-  padding-inline: 4px;
-  font-weight: 650;
+.ai-price-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.ai-price-head h3 {
+  font-size: var(--text-md, 16px);
   overflow-wrap: anywhere;
+}
+.ai-field textarea.ai-source {
+  min-block-size: 0;
+  resize: vertical;
+  line-height: 1.5;
 }
 /* A later price already saved: one line and its two actions, inside the model's block. */
 .ai-price-scheduled {
@@ -517,7 +578,7 @@
   border-radius: 10px;
   background: var(--ice);
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -543,7 +604,7 @@
 }
 .ai-price-dialog h2 {
   margin-block: 0 6px;
-  font-size: 19px;
+  font-size: var(--text-lg, 20px);
 }
 .ai-price-dialog .ai-muted {
   margin: 0;
@@ -553,7 +614,7 @@
   flex-direction: column;
   gap: 6px;
   padding-inline-start: 20px;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -572,7 +633,7 @@
   background: #f4f6f7;
   color: var(--ink);
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   line-height: 1.5;
   white-space: pre;
   text-align: start;
@@ -585,7 +646,7 @@
 }
 .ai-confirm h2 {
   margin-block: 0 10px;
-  font-size: 19px;
+  font-size: var(--text-lg, 20px);
 }
 .ai-confirm p {
   margin-block: 0 18px;
@@ -604,11 +665,10 @@
   .ai-section {
     padding: 16px;
   }
-  .ai-actions {
-    justify-content: stretch;
-  }
-  .ai-actions .button {
-    flex: 1 1 auto;
+  /* On a phone a form's save button takes the whole line; other buttons keep their size and a
+     destructive one never becomes the biggest. */
+  .ai-save-bar > .button.primary {
+    flex: 1 1 100%;
   }
   .ai-status-bar {
     padding-inline: 14px;
@@ -631,19 +691,23 @@
   font-weight: 600;
   color: var(--blue);
 }
+/* Totals: one row on a wide page, two columns otherwise, a last odd one across both. */
 .ai-totals {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
   margin: 0;
+}
+.ai-totals > div:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 .ai-totals dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
 }
 .ai-totals dd {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-lg, 20px);
   font-weight: 650;
 }
 .ai-table-wrap {
@@ -654,12 +718,29 @@
 .ai-table-wrap table {
   inline-size: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 .ai-table-wrap caption {
   text-align: start;
   font-weight: 650;
   padding-block-end: 6px;
+}
+/* Sibling tables share their column widths, so the same column lines up from one to the next. */
+@media (min-width: 700px) {
+  .ai-table-wrap table {
+    table-layout: fixed;
+  }
+  .ai-table-wrap col.ai-col-num {
+    inline-size: 6.75rem;
+  }
+}
+/* Phones show tables as cards (styles.css); the caption is then a full-width title, not a
+   shrink-wrapped box that breaks one word per line. */
+@media (max-width: 699px) {
+  .ai-table-wrap caption {
+    display: block;
+    inline-size: 100%;
+  }
 }
 .ai-table-wrap th,
 .ai-table-wrap td {
@@ -674,34 +755,70 @@
 .ai-toc a {
   display: inline-flex;
   align-items: center;
-  min-block-size: 32px;
+  min-block-size: 36px;
+  padding-inline: 12px;
+  border-radius: 8px;
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ai-toc a:hover {
+  background: var(--ice);
+}
+.ai-toc a[aria-current="true"] {
+  color: var(--blue);
+  background: var(--ice);
 }
 .ai-status-detail {
   margin-block-start: 2px;
 }
-.ai-advanced > summary {
+/* One disclosure style on the whole page: a blue chevron before the summary, pointing to the
+   inline end when closed (right in English, left in Hebrew) and down when open. The conversation
+   rows of a quality check keep their row chevron at the end (.ai-dialogue). */
+.ai-page details:not(.ai-dialogue) > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
   list-style: none;
+  cursor: pointer;
 }
-.ai-advanced > summary::-webkit-details-marker {
+.ai-page details:not(.ai-dialogue) > summary::-webkit-details-marker {
   display: none;
+}
+.ai-page details:not(.ai-dialogue) > summary::before {
+  content: "";
+  flex: none;
+  inline-size: 0.42em;
+  block-size: 0.42em;
+  margin-inline: 3px 2px;
+  border-block-end: 2px solid var(--blue);
+  border-inline-end: 2px solid var(--blue);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.ai-page details:not(.ai-dialogue) > summary:dir(rtl)::before {
+  transform: rotate(45deg);
+}
+.ai-page details:not(.ai-dialogue)[open] > summary::before {
+  transform: rotate(45deg);
+}
+.ai-page details:not(.ai-dialogue)[open] > summary:dir(rtl)::before {
+  transform: rotate(-45deg);
+}
+.ai-advanced > summary {
+  justify-content: flex-start;
+}
+.ai-advanced > summary .ai-pill {
+  margin-inline-start: auto;
 }
 .ai-summary-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--blue);
 }
-/* Closed, the chevron points to the inline end like the browser's own disclosure markers: right in
-   English, left in Hebrew (.flip-rtl mirrors it). Open, it points down; in Hebrew it stays
-   mirrored while it turns, so it turns down from the left instead of flipping through the right. */
 .ai-chevron {
   transition: transform 0.15s;
-}
-.ai-advanced[open] .ai-chevron {
-  transform: rotate(90deg);
-}
-.ai-advanced[open] .ai-chevron:dir(rtl) {
-  transform: scaleX(-1) rotate(90deg);
 }
 /* The per-learner limit: an amount, or no limit per learner (the workspace total still applies). */
 .ai-learner-choice {
@@ -716,7 +833,7 @@
 /* What learners spend, and the limit suggested from it. */
 .ai-learner-spend .ai-subtitle {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md, 16px);
 }
 .ai-block {
   display: block;
@@ -735,7 +852,7 @@
   margin: 0;
 }
 .ai-rec-amount {
-  font-size: 20px;
+  font-size: var(--text-lg, 20px);
   font-weight: 650;
 }
 .ai-learner-list {
@@ -800,7 +917,7 @@
 }
 .ai-unknown h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-md, 16px);
 }
 .ai-unknown p {
   margin: 0;
@@ -857,7 +974,7 @@
    practice learner and what it tests; open, the messages, the model's reply and each rule. */
 .ai-dialogues > summary {
   min-block-size: 44px;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
 }
 .ai-dialogues-state {
   display: flex;
@@ -881,7 +998,7 @@
   gap: 4px 10px;
   align-items: baseline;
   margin: 8px 0 0;
-  font-size: 15px;
+  font-size: var(--text-md, 16px);
 }
 .ai-dialogue-job h4 .ai-muted {
   font-weight: 400;
@@ -909,16 +1026,18 @@
   border-inline-start-color: var(--muted);
 }
 .ai-dialogue > summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: block;
   min-block-size: 44px;
-  padding-block: 12px;
+  padding-block: 10px;
   padding-inline: 14px;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   font-weight: 400;
   list-style: none;
+  cursor: pointer;
+}
+.ai-dialogue > summary:hover {
+  background: #f8fafb;
 }
 .ai-dialogue > summary::-webkit-details-marker {
   display: none;
@@ -926,14 +1045,23 @@
 .ai-dialogue > summary:hover .ai-dialogue-purpose {
   text-decoration: underline;
 }
-.ai-dialogue-head {
+/* One row per conversation: result, kind of practice learner, what it tests, the rules it broke
+   and the chevron. Narrow, what it tests takes its own line (two lines at most). */
+.ai-dialogue-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 10px;
   align-items: center;
+  min-inline-size: 0;
 }
-/* Closed, the purpose is two lines at most; open, the body repeats it in full. */
+.ai-dialogue-row > .ai-pill,
+.ai-dialogue-row > .ai-tag {
+  flex: none;
+}
+/* Closed, the purpose is two lines at most (one on a wide page); open, the body repeats it. */
 .ai-dialogue-purpose {
+  order: 10;
+  flex: 1 1 100%;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -946,20 +1074,27 @@
 .ai-dialogue[open] > summary .ai-dialogue-purpose {
   display: none;
 }
+.ai-dialogue-filter {
+  margin: 0;
+}
 .ai-dialogue-broken {
+  order: 11;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   color: var(--red);
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
   line-height: 1.5;
 }
-.ai-dialogue-head .ai-chevron {
+.ai-dialogue-row .ai-chevron {
+  flex: none;
   margin-inline-start: auto;
   color: var(--blue);
 }
+/* Closed, the row chevron points to the inline end (right in English, left in Hebrew, mirrored
+   by .flip-rtl); open, it turns down, in Hebrew from the left. */
 .ai-dialogue[open] > summary .ai-chevron {
   transform: rotate(90deg);
 }
@@ -981,12 +1116,12 @@
   padding-block-start: 12px;
   border-block-start: 1px solid var(--line);
   min-inline-size: 0;
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.6;
 }
 .ai-dialogue-block h5 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   font-weight: 700;
   color: var(--muted);
 }
@@ -1029,7 +1164,7 @@
 }
 .ai-bubble-who {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
 }
 .ai-bubble p {
@@ -1045,7 +1180,7 @@
   border-radius: 10px;
   background: #fbfcfc;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--text-sm, 14px);
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1073,7 +1208,7 @@
   border-radius: 4px;
   background: #e7ebee;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
   line-height: 1.6;
 }
@@ -1101,7 +1236,7 @@
   color: var(--red);
 }
 .ai-tool-name {
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   font-weight: 650;
 }
 .ai-tool-calls .ai-pill {
@@ -1110,7 +1245,7 @@
 .ai-tool-args {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
 }
 .ai-attempts {
   display: flex;
@@ -1146,7 +1281,7 @@
 /* Which model judged a rule by meaning, and its reasons. */
 .ai-judged-by {
   margin-block: 4px 0;
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   overflow-wrap: anywhere;
 }
 .ai-judged {
@@ -1185,7 +1320,7 @@
   align-items: baseline;
   margin-block-start: 4px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   line-height: 1.5;
 }
 .ai-evidence .ai-quote {
@@ -1231,5 +1366,104 @@
 }
 .ai-latest > h4 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md, 16px);
+}
+
+/* Wide sections use their width: parts side by side where they are read side by side. */
+.ai-table-pair {
+  display: grid;
+  gap: 16px 24px;
+  min-inline-size: 0;
+}
+.ai-job-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-inline-size: 0;
+}
+.ai-job-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.ai-prices {
+  display: grid;
+  gap: 16px;
+}
+.ai-dialogue-io {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+@container ai-section (min-width: 760px) {
+  .ai-connections,
+  .ai-role-checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+    align-items: start;
+  }
+  .ai-job {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 8px 32px;
+    align-items: start;
+  }
+  .ai-prices {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+    align-items: start;
+  }
+  .ai-spending-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .ai-spending-fields .ai-learner-choice {
+    grid-column: auto;
+  }
+  .ai-totals {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .ai-totals > div:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+  .ai-dialogue-purpose {
+    order: 0;
+    flex: 1 1 0;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  .ai-dialogue-broken {
+    order: 0;
+    flex: none;
+    flex-wrap: nowrap;
+  }
+}
+@container ai-section (min-width: 960px) {
+  .ai-table-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .ai-dialogue-io {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .ai-dialogue-io > .ai-dialogue-block .ai-reply,
+  .ai-dialogue-io > .ai-dialogue-block .ai-bubble {
+    max-inline-size: 100%;
+  }
+}
+/* A short choice (a period) keeps a short field on a wide page. */
+.ai-field select.ai-narrow {
+  max-inline-size: 18rem;
+}
+/* A model's or learner's text: each paragraph takes its own direction (a Hebrew paragraph and an
+   English one in the same reply), and inline math reads left to right. */
+.ai-reply,
+.ai-bubble p {
+  unicode-bidi: plaintext;
+}
+.ai-math {
+  font-variant-numeric: tabular-nums;
 }
