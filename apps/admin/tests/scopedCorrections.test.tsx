@@ -355,7 +355,7 @@ describe("scoped retry of one run (U07)", () => {
         }
       />,
     );
-    expect(await screen.findByText("Retry of 1d0e4c2a")).toBeVisible();
+    expect(await screen.findByText("Retry of an earlier run")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(screen.getByText(/This run is a retry of run/)).toBeVisible();
     await userEvent.type(
@@ -389,9 +389,10 @@ describe("scoped retry of one run (U07)", () => {
         }
       />,
     );
-    expect(await screen.findByText("Retried as 6d0e4c2a")).toBeVisible();
+    expect(await screen.findByText("Retried")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(screen.getByText(next)).toBeVisible();
+    // The retry panel names the new run (the technical details hold its ID too).
+    expect(screen.getByText(next, { selector: ":not(dd)" })).toBeVisible();
     expect(screen.queryByLabelText("Reason for the retry")).toBeNull();
     done();
     render(

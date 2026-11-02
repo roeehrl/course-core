@@ -56,7 +56,7 @@
   "exemption.label": "פטור: {title}",
   "exemption.placed": "<title>{title}</title> · פטור בזכות השיבוץ בהרצה {run} בגרסה {version}",
   "exemption.placedAt": "<title>{title}</title> · פטור בזכות השיבוץ בהרצה {run} בגרסה {version} · {date}",
-  "evidence": "{assessment} ({family}) · {result, select, correct {נכונה} other {לא נכונה}} · {mode, select, independent {עצמאית} other {בעזרה}}",
+  "evidence": "{assessment} · {result, select, correct {נכונה} other {לא נכונה}} · {mode, select, independent {עצמאית} other {בעזרה}}",
   "evidence.invalidated": "נפסלה",
   "evidence.otherVersion": "גרסה אחרת",
   "revoke.reason": "הסיבה להחזרת היחידה למסלול",
@@ -86,5 +86,14 @@
   "status.not_placeable": "נשאר במסלול: יש מטרת למידה שאי אפשר לדלג עליה",
   "status.no_questions": "נשאר במסלול: לא נשארו שאלות",
   "status.protected_by_author": "תמיד נשאר (כותב/ת הקורס)",
-  "status.protected_by_staff": "תמיד נשאר (ההגדרה שלך)"
+  "status.protected_by_staff": "תמיד נשאר (ההגדרה שלך)",
+  "group.other": "לא משויך לפרק",
+  "group.total": "{on} מתוך {total} כלולים",
+  "group.count": "{on} מתוך {total}",
+  "group.allOn": "לכלול הכול",
+  "group.on": "לכלול את הפרק",
+  "group.off": "להוציא את הפרק",
+  "form.noChanges": "עדיין אין שינויים.",
+  "form.invalid": "כל מספר חייב להיות בטווח שמופיע מתחת לשדה שלו.",
+  "form.unsaved": "יש שינויים שלא נשמרו."
 }

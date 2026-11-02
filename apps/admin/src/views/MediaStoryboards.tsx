@@ -8,16 +8,9 @@ import {
   type StoryboardShot,
 } from "../domain/media";
 import { useRemote } from "../hooks/useAdmin";
-import {
-  Badge,
-  Button,
-  Card,
-  Dialog,
-  Field,
-  Loading,
-  Notice,
-} from "../components/ui";
+import { Badge, Button, Card, Dialog, Field, Notice } from "../components/ui";
 import { isolate } from "@course-core/i18n";
+import { SkeletonRows } from "./contentShared";
 import { useT } from "../i18n";
 
 /** What a shot asks for, used to start a request from it. */
@@ -81,7 +74,7 @@ export function StoryboardsCard({
     >
       <p className="media-hint">{t("mediaView.storyboards.intro")}</p>
       {boards.loading && !boards.data ? (
-        <Loading label={t("mediaView.storyboards.loading")} />
+        <SkeletonRows label={t("mediaView.storyboards.loading")} rows={3} />
       ) : boards.error || !boards.data ? (
         <Notice tone="red">{mediaErrorMessage(boards.error, t)}</Notice>
       ) : boards.data.length === 0 ? (

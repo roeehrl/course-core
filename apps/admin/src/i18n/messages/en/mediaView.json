@@ -44,7 +44,7 @@
   "requested": "Request recorded. Check its state below: a refused request is kept with its reason and nothing is charged.",
   "provider.eyebrow": "Provider",
   "provider.none.title": "No media provider",
-  "provider.none.body": "Assign a video model to the media role under Providers, with a reviewed rate card.",
+  "provider.none.body": "To generate clips, choose a video model for “Images and video” in AI services, under Models for each job, and give it a price under Prices. Exact clips from course visuals work without one.",
   "provider.title": "Video generation",
   "provider.model": "Model",
   "provider.clip": "Clip",
@@ -243,5 +243,6 @@
   "shots.remove": "Remove",
   "shots.removeLabel": "Remove shot {number, number}",
   "clip.formatMp4": "MP4",
-  "clip.formatWebm": "WebM"
+  "clip.formatWebm": "WebM",
+  "jobs.requestReason": "Needs a media model in AI services, or course visuals that can be clipped."
 }

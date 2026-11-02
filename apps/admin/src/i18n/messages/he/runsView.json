@@ -23,9 +23,7 @@
   "providerAttempts": "{count, plural, one {ניסיון אחד שדווח על ידי הספק} two {# ניסיונות שדווחו על ידי הספק} other {# ניסיונות שדווחו על ידי הספק}}",
   "providerAttempts.unavailable": "מספר הניסיונות אצל הספק אינו זמין",
   "artifacts": "{count, plural, one {תוצר אחד} two {# תוצרים} other {# תוצרים}}",
-  "retryOf": "הרצה מחדש של {run}",
   "retried": "הורצה מחדש",
-  "retriedAs": "הורצה מחדש בתור {run}",
   "context.reference": "הפניה",
   "context.source": "מקור",
   "context.visibility": "חשיפה",
@@ -110,5 +108,17 @@
   "status.revoked": "בוטלה",
   "status.not_started": "לא התחילה",
   "status.in_flight": "בתהליך",
-  "status.uncertain": "התוצאה לא ודאית"
+  "status.uncertain": "התוצאה לא ודאית",
+  "retryOfRun": "הרצה מחדש של הרצה קודמת",
+  "list.count": "{count, plural, one {הרצה אחת} two {שתי הרצות} other {# הרצות}}",
+  "list.pick": "הרצה",
+  "list.option": "{run} · {when} · {status}",
+  "actionsNav": "פעולות על ההרצה",
+  "started": "התחילה {when}",
+  "technical": "פרטים טכניים",
+  "technical.runId": "מזהה ההרצה",
+  "technical.context": "גרסת רשומת הלומד/ת",
+  "technical.retryOf": "הרצה מחדש של",
+  "technical.retriedAs": "הורצה מחדש בתור",
+  "event.other": "אירוע אחר ({code})"
 }

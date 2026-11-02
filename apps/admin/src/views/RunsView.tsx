@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { FileText, ScanSearch } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { useRemote } from "../hooks/useAdmin";
@@ -43,6 +43,7 @@ import {
   runName,
   runOutcomeSentences,
 } from "../domain/runText";
+import { TechnicalDetails } from "./contentShared";
 
 const strong = (children: ReactNode, key: string | number) => (
   <strong key={key}>{children}</strong>
@@ -50,6 +51,23 @@ const strong = (children: ReactNode, key: string | number) => (
 /** A machine code shown through its catalog label, or as is when the catalog has none. */
 function codeLabel(i18n: AdminTranslator, key: MessageKey, code: string) {
   return i18n.has(key) ? i18n.t(key) : code.replaceAll("_", " ");
+}
+
+/** A learning event as the server names it ("session.ended"), in words; older servers and the
+ * demo send words already. */
+function eventLabel(i18n: AdminTranslator, label: string) {
+  if (!/^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(label)) return label;
+  const key =
+    `supervisionView.eventType.${label.replaceAll(".", "_")}` as MessageKey;
+  return i18n.has(key)
+    ? i18n.t(key)
+    : i18n.t("runsView.event.other", { code: label });
+}
+/** An event time: an ISO timestamp as a date and time; an older server's clock time as is. */
+function eventTime(time: string, whenExact: (iso: string) => string) {
+  return /^\d{4}-\d{2}-\d{2}T/.test(time) && !Number.isNaN(Date.parse(time))
+    ? whenExact(time)
+    : time;
 }
 
 export function RunsView({
@@ -63,6 +81,7 @@ export function RunsView({
   const i18n = useI18n();
   const { when } = useFormatters();
   const [runId, setRunId] = useState(data.runs[0]?.id);
+  const pickerId = useId();
   return (
     <div className="page-stack">
       <div className="section-heading">
@@ -78,9 +97,45 @@ export function RunsView({
       {!data.permissions.includes("run.inspect") ? (
         <ErrorState error={new AdminError("permission_denied")} />
       ) : (
-        <div className="master-detail">
-          <Card title={t("runsView.list.title")}>
-            <div className="selector-list">
+        // Two columns: the runs, and everything about the chosen run. Below 850px they stack and
+        // the list becomes a picker, so the detail is never thousands of pixels down.
+        <div className="master-detail cv-runs">
+          <Card
+            title={t("runsView.list.title")}
+            className="cv-runs-list"
+            actions={
+              data.runs.length > 0 && (
+                <span className="cv-count">
+                  {t("runsView.list.count", { count: data.runs.length })}
+                </span>
+              )
+            }
+          >
+            {data.runs.length > 0 && (
+              <div className="field cv-runs-picker">
+                <label htmlFor={pickerId}>{t("runsView.list.pick")}</label>
+                <select
+                  id={pickerId}
+                  value={runId}
+                  onChange={(e) => setRunId(e.target.value)}
+                >
+                  {data.runs.map((run) => (
+                    <option key={run.id} value={run.id}>
+                      {t("runsView.list.option", {
+                        run: runName(i18n, run),
+                        when: when(run.startedAt),
+                        status: codeLabel(
+                          i18n,
+                          `runsView.status.${run.status}` as MessageKey,
+                          run.status,
+                        ),
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="selector-list cv-runs-buttons">
               {data.runs.map((run) => (
                 <button
                   className={`selector-item ${run.id === runId ? "selected" : ""}`}
@@ -102,21 +157,23 @@ export function RunsView({
               </EmptyState>
             )}
           </Card>
-          {client.runInspector?.replayRecent && (
-            <ReplayRecent
-              port={client.runInspector}
-              courseId={data.course.id}
-            />
-          )}
-          {runId && (
-            <RunDetails
-              key={runId}
-              courseId={data.course.id}
-              runId={runId}
-              client={client}
-              permissions={data.permissions}
-            />
-          )}
+          <div className="stack cv-runs-detail">
+            {client.runInspector?.replayRecent && (
+              <ReplayRecent
+                port={client.runInspector}
+                courseId={data.course.id}
+              />
+            )}
+            {runId && (
+              <RunDetails
+                key={runId}
+                courseId={data.course.id}
+                runId={runId}
+                client={client}
+                permissions={data.permissions}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -136,6 +193,7 @@ export function RunDetails({
 }) {
   const t = useT();
   const i18n = useI18n();
+  const { when, whenExact } = useFormatters();
   const result = useRemote(
     (signal) => client.getRun(courseId, runId, signal),
     [client, courseId, runId],
@@ -167,36 +225,58 @@ export function RunDetails({
     { id: "policies", label: t("runsView.view.policies") },
     { id: "sync", label: t("runsView.view.sync") },
     { id: "artifacts", label: t("runsView.view.artifacts") },
+    { id: "payload", label: t("runsView.view.payload") },
+  ] as const;
+  // Replay, retry and stop act on the run; they open their panel from the card's header.
+  const actions = [
     { id: "replay", label: t("runsView.view.replay") },
     { id: "retry", label: t("runsView.view.retry") },
     { id: "stop", label: t("runsView.view.stop") },
-    { id: "payload", label: t("runsView.view.payload") },
   ] as const;
+  // The server words a run's outcome; the line about what the inspector withholds is said once,
+  // at the top of the page.
+  const metadataOnly = i18n.t("runText.outcome.metadataOnly");
+  const sentences = runOutcomeSentences(i18n, run).filter(
+    (sentence) => sentence !== metadataOnly,
+  );
   return (
     <Card
       title={runName(i18n, run)}
       // An older server's (or the demo's) English label is data, in its own direction.
       titleDir={run.role ? undefined : "auto"}
       eyebrow={t("runsView.eyebrow")}
+      actions={
+        <div className="cv-actions" aria-label={t("runsView.actionsNav")}>
+          {actions.map((item) => (
+            <Button
+              key={item.id}
+              onClick={() => setView(view === item.id ? "timeline" : item.id)}
+              aria-pressed={view === item.id}
+              kind={view === item.id ? "primary" : "secondary"}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      }
     >
-      <div className="split-line">
+      <div className="tag-row">
         <RunStatus value={run.status} />
-        <small className="mono" dir="ltr">
-          {run.id}
+        <small className="muted">
+          {t("runsView.started", { when: when(run.startedAt) })}
         </small>
       </div>
-      <p>
-        {runOutcomeSentences(i18n, run).map((sentence, index) => (
-          <span key={index} dir="auto">
-            {index > 0 && " "}
-            {sentence}
-          </span>
-        ))}
-      </p>
+      {sentences.length > 0 && (
+        <p>
+          {sentences.map((sentence, index) => (
+            <span key={index} dir="auto">
+              {index > 0 && " "}
+              {sentence}
+            </span>
+          ))}
+        </p>
+      )}
       <div className="tag-row">
-        <Badge>
-          <span dir="ltr">{run.contextVersion}</span>
-        </Badge>
         <Badge>{t("runsView.toolCalls", { count: run.toolCalls })}</Badge>
         {run.providerAttempts !== undefined && (
           <Badge>
@@ -209,20 +289,40 @@ export function RunDetails({
         )}
         <Badge>{t("runsView.artifacts", { count: run.artifactCount })}</Badge>
         {run.retry?.retryOf && (
-          <Badge tone="blue">
-            {t("runsView.retryOf", { run: run.retry.retryOf.slice(0, 8) })}
-          </Badge>
+          <Badge tone="blue">{t("runsView.retryOfRun")}</Badge>
         )}
         {run.retry?.retriedBy && (
-          <Badge tone="blue">
-            {run.retry.retriedBy.runId
-              ? t("runsView.retriedAs", {
-                  run: run.retry.retriedBy.runId.slice(0, 8),
-                })
-              : t("runsView.retried")}
-          </Badge>
+          <Badge tone="blue">{t("runsView.retried")}</Badge>
         )}
       </div>
+      <TechnicalDetails summary={t("runsView.technical")}>
+        <dl>
+          <dt>{t("runsView.technical.runId")}</dt>
+          <dd className="mono" dir="ltr">
+            {run.id}
+          </dd>
+          <dt>{t("runsView.technical.context")}</dt>
+          <dd className="mono" dir="ltr">
+            {run.contextVersion}
+          </dd>
+          {run.retry?.retryOf && (
+            <>
+              <dt>{t("runsView.technical.retryOf")}</dt>
+              <dd className="mono" dir="ltr">
+                {run.retry.retryOf}
+              </dd>
+            </>
+          )}
+          {run.retry?.retriedBy?.runId && (
+            <>
+              <dt>{t("runsView.technical.retriedAs")}</dt>
+              <dd className="mono" dir="ltr">
+                {run.retry.retriedBy.runId}
+              </dd>
+            </>
+          )}
+        </dl>
+      </TechnicalDetails>
       <nav aria-label={t("runsView.viewsNav")} className="segmented">
         {views.map((item) => (
           <Button
@@ -242,19 +342,17 @@ export function RunDetails({
               <span className="timeline-dot" />
               <div>
                 <div className="split-line">
-                  <h3 dir="auto">{event.label}</h3>
-                  <small className="mono" dir="ltr">
-                    {event.time}
-                  </small>
+                  <h3 dir="auto" title={event.label}>
+                    {eventLabel(i18n, event.label)}
+                  </h3>
+                  <small>{eventTime(event.time, whenExact)}</small>
                 </div>
-                <Badge>
-                  {event.status === "recorded" ? (
-                    t("runText.event.recorded")
-                  ) : (
+                {event.status !== "recorded" && (
+                  <Badge>
                     <span dir="auto">{event.status}</span>
-                  )}
-                </Badge>
-                <p dir="auto">{event.detail ?? t("runText.event.detail")}</p>
+                  </Badge>
+                )}
+                {event.detail && <p dir="auto">{event.detail}</p>}
               </div>
             </li>
           ))}
@@ -363,51 +461,56 @@ export function RunDetails({
             </article>
           ))}
           {!!run.hypothesisChanges?.length && (
-            <table className="data-table">
-              <caption>{t("runsView.hypotheses.caption")}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">{t("runsView.hypotheses.hypothesis")}</th>
-                  <th scope="col">{t("runsView.hypotheses.change")}</th>
-                  <th scope="col">{t("runsView.hypotheses.state")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {run.hypothesisChanges.map((c, i) => (
-                  <tr key={i}>
-                    <td className="mono">
-                      <span dir="ltr">{c.templateId ?? c.hypothesisId}</span>
-                    </td>
-                    <td>
-                      {codeLabel(
-                        i18n,
-                        `runsView.hypotheses.action.${c.action}` as MessageKey,
-                        c.action,
-                      )}{" "}
-                      ·{" "}
-                      {t("runsView.hypotheses.revision", {
-                        revision: c.revision,
-                      })}
-                    </td>
-                    <td>
-                      {codeLabel(
-                        i18n,
-                        `runsView.hypotheses.kind.${c.kind}` as MessageKey,
-                        c.kind,
-                      )}{" "}
-                      ·{" "}
-                      {codeLabel(
-                        i18n,
-                        `runsView.hypotheses.status.${c.status}` as MessageKey,
-                        c.status,
-                      )}
-                      {c.pinnedByLearner &&
-                        ` · ${t("runsView.hypotheses.pinnedByLearner")}`}
-                    </td>
+            <div className="table-wrap">
+              <table className="data-table">
+                <caption>{t("runsView.hypotheses.caption")}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{t("runsView.hypotheses.hypothesis")}</th>
+                    <th scope="col">{t("runsView.hypotheses.change")}</th>
+                    <th scope="col">{t("runsView.hypotheses.state")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {run.hypothesisChanges.map((c, i) => (
+                    <tr key={i}>
+                      <td
+                        className="mono cell-truncate"
+                        title={c.templateId ?? c.hypothesisId}
+                      >
+                        <span dir="ltr">{c.templateId ?? c.hypothesisId}</span>
+                      </td>
+                      <td>
+                        {codeLabel(
+                          i18n,
+                          `runsView.hypotheses.action.${c.action}` as MessageKey,
+                          c.action,
+                        )}{" "}
+                        ·{" "}
+                        {t("runsView.hypotheses.revision", {
+                          revision: c.revision,
+                        })}
+                      </td>
+                      <td>
+                        {codeLabel(
+                          i18n,
+                          `runsView.hypotheses.kind.${c.kind}` as MessageKey,
+                          c.kind,
+                        )}{" "}
+                        ·{" "}
+                        {codeLabel(
+                          i18n,
+                          `runsView.hypotheses.status.${c.status}` as MessageKey,
+                          c.status,
+                        )}
+                        {c.pinnedByLearner &&
+                          ` · ${t("runsView.hypotheses.pinnedByLearner")}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -485,38 +588,40 @@ export function RunDetails({
                     </dd>
                   </div>
                 </dl>
-                <table className="data-table">
-                  <caption>{t("runsView.attempts.caption")}</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col" className="num">
-                        {t("runsView.attempts.attempt")}
-                      </th>
-                      <th scope="col">{t("runsView.attempts.http")}</th>
-                      <th scope="col">{t("runsView.attempts.outcome")}</th>
-                      <th scope="col" className="num">
-                        {t("runsView.attempts.tokens")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {call.attempts.map((a, i) => (
-                      <tr key={i}>
-                        <td className="num">{a.attempt ?? i + 1}</td>
-                        <td>{a.status ?? "—"}</td>
-                        <td>
-                          <span dir="ltr">{a.outcome ?? "—"}</span>
-                        </td>
-                        <td className="num">
-                          <span dir="ltr">
-                            {a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} /{" "}
-                            {a.tokens.total ?? "?"}
-                          </span>
-                        </td>
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <caption>{t("runsView.attempts.caption")}</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" className="num">
+                          {t("runsView.attempts.attempt")}
+                        </th>
+                        <th scope="col">{t("runsView.attempts.http")}</th>
+                        <th scope="col">{t("runsView.attempts.outcome")}</th>
+                        <th scope="col" className="num">
+                          {t("runsView.attempts.tokens")}
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {call.attempts.map((a, i) => (
+                        <tr key={i}>
+                          <td className="num">{a.attempt ?? i + 1}</td>
+                          <td>{a.status ?? "—"}</td>
+                          <td>
+                            <span dir="ltr">{a.outcome ?? "—"}</span>
+                          </td>
+                          <td className="num">
+                            <span dir="ltr">
+                              {a.tokens.input ?? "?"} / {a.tokens.output ?? "?"}{" "}
+                              / {a.tokens.total ?? "?"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 <small>{t("runsView.calls.privacy")}</small>
               </article>
             ))
@@ -584,22 +689,26 @@ function ReplayRecent({
     error?: unknown;
   }>({ pending: false });
   return (
-    <Card title={t("runsView.replayRecent.title")}>
-      <p>{t("runsView.replayRecent.intro")}</p>
-      <Button
-        disabled={state.pending}
-        onClick={() => {
-          setState({ pending: true });
-          port.replayRecent!(courseId, 10).then(
-            (result) => setState({ pending: false, result }),
-            (error: unknown) => setState({ pending: false, error }),
-          );
-        }}
-      >
-        {state.pending
-          ? t("runsView.replayRecent.pending")
-          : t("runsView.replayRecent.submit")}
-      </Button>
+    <Card
+      title={t("runsView.replayRecent.title")}
+      actions={
+        <Button
+          disabled={state.pending}
+          onClick={() => {
+            setState({ pending: true });
+            port.replayRecent!(courseId, 10).then(
+              (result) => setState({ pending: false, result }),
+              (error: unknown) => setState({ pending: false, error }),
+            );
+          }}
+        >
+          {state.pending
+            ? t("runsView.replayRecent.pending")
+            : t("runsView.replayRecent.submit")}
+        </Button>
+      }
+    >
+      <p className="muted">{t("runsView.replayRecent.intro")}</p>
       <div aria-live="polite">
         {state.error !== undefined && (
           <Notice tone="red">{runInspectorErrorMessage(state.error, t)}</Notice>

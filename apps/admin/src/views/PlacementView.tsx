@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
   placementAuthorLimit,
@@ -21,6 +22,7 @@ import {
   Stat,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { SkeletonRows, shortTitle } from "./contentShared";
 import {
   useFormatters,
   useI18n,
@@ -74,14 +76,22 @@ function Placement({
   const [enrollmentId, setEnrollmentId] = useState("");
   const [saved, setSaved] = useState("");
   const id = useId();
-  if (course.loading) return <Loading label={t("placementView.loading")} />;
+  if (course.loading)
+    return (
+      <div className="page-stack">
+        <SkeletonRows label={t("placementView.loading")} rows={3} />
+        <Card title={t("placementView.settings")}>
+          <SkeletonRows label={t("placementView.loading")} rows={6} />
+        </Card>
+      </div>
+    );
   if (course.error || !course.data)
     return <Notice tone="red">{placementErrorMessage(course.error, t)}</Notice>;
   const c = course.data;
   const learners = data.enrollments.filter((e) => e.status !== "erased");
   return (
     <div className="page-stack">
-      <div aria-live="polite">
+      <div aria-live="polite" className="cv-live">
         {saved && <Notice tone="green">{saved}</Notice>}
       </div>
       {!c.author?.enabled && (
@@ -167,6 +177,9 @@ function Placement({
             port={port}
             enrollmentId={enrollmentId}
             revision={learners.find((e) => e.id === enrollmentId)?.revision}
+            questionTitle={(id) =>
+              c.author?.items.find((i) => i.assessmentId === id)?.prompt ?? id
+            }
             canRevoke={data.permissions.includes("enrollment.write")}
           />
         )}
@@ -259,18 +272,41 @@ function SettingsForm({
       : {}),
   };
   const key = JSON.stringify(input);
+  const submit = () => {
+    if (!canSave) return;
+    setPending(true);
+    setError(undefined);
+    port
+      .save(catalogId, input)
+      .then(onSaved, setError)
+      .finally(() => setPending(false));
+  };
+  const dirty =
+    scopeChanged ||
+    enabled !== s.enabled ||
+    cooldown !== String(s.retestCooldownHours) ||
+    runs !== String(s.maxRuns) ||
+    itemsValue !== s.maxItems ||
+    familiesValue !== s.minFamiliesPerEpisode;
+  // A changed blueprint must be checked with the preview first.
+  const canSave =
+    !pending &&
+    dirty &&
+    valid &&
+    !(scopeChanged && Boolean(port.preview) && preview?.key !== key);
+  // Which chapter (required episode) teaches an objective, from the author's blueprint.
+  const chapterOf = (objectiveId: string | undefined) =>
+    episodes.find((e) =>
+      e.objectives.some((o) => o.objectiveId === objectiveId),
+    )?.episodeId;
   return (
     <Card title={t("placementView.settings")}>
       <form
-        className="input-grid"
+        id={`${id}-form`}
+        className="input-grid cv-placement-form"
         onSubmit={(e) => {
           e.preventDefault();
-          setPending(true);
-          setError(undefined);
-          port
-            .save(catalogId, input)
-            .then(onSaved, setError)
-            .finally(() => setPending(false));
+          submit();
         }}
       >
         {author && (
@@ -374,90 +410,86 @@ function SettingsForm({
           />
         </Field>
         {author && author.items.length > 0 && (
-          <fieldset className="wide placement-choices">
-            <legend>{t("placementView.blueprint.items")}</legend>
-            <p className="muted">{t("placementView.blueprint.itemsHint")}</p>
-            {author.items.map((item) => (
-              <label key={item.assessmentId} className="check-label">
-                <input
-                  type="checkbox"
-                  checked={!excludedItems.includes(item.assessmentId)}
-                  onChange={(e) =>
-                    setExcludedItems(
-                      toggle(
-                        excludedItems,
-                        item.assessmentId,
-                        !e.target.checked,
-                      ),
-                    )
-                  }
-                />
-                <span>
-                  <span dir="auto">{item.prompt}</span>{" "}
-                  <span className="muted mono" dir="ltr">
-                    {item.assessmentId}
-                  </span>
-                </span>
-              </label>
-            ))}
-          </fieldset>
+          <ChoiceGroups
+            legend={t("placementView.blueprint.items")}
+            hint={t("placementView.blueprint.itemsHint")}
+            groups={groupBy(
+              author.items.map((item) => ({
+                id: item.assessmentId,
+                text: item.prompt,
+                detail: item.assessmentId,
+                episode: chapterOf(item.objectiveIds[0]),
+              })),
+              episodes,
+              t("placementView.group.other"),
+            )}
+            isOn={(id) => !excludedItems.includes(id)}
+            onSet={(ids, on) =>
+              setExcludedItems(
+                on
+                  ? excludedItems.filter((x) => !ids.includes(x))
+                  : [...new Set([...excludedItems, ...ids])],
+              )
+            }
+          />
         )}
         {author && author.objectives.length > 0 && (
-          <fieldset className="wide placement-choices">
-            <legend>{t("placementView.blueprint.objectives")}</legend>
-            <p className="muted">
-              {t("placementView.blueprint.objectivesHint")}
-            </p>
-            {author.objectives.map((o) => (
-              <label key={o.objectiveId} className="check-label">
-                <input
-                  type="checkbox"
-                  checked={!excludedObjectives.includes(o.objectiveId)}
-                  onChange={(e) =>
-                    setExcludedObjectives(
-                      toggle(
-                        excludedObjectives,
-                        o.objectiveId,
-                        !e.target.checked,
-                      ),
-                    )
-                  }
-                />
-                <span dir="auto">{o.description}</span>
-              </label>
-            ))}
-          </fieldset>
+          <ChoiceGroups
+            legend={t("placementView.blueprint.objectives")}
+            hint={t("placementView.blueprint.objectivesHint")}
+            groups={groupBy(
+              author.objectives.map((o) => ({
+                id: o.objectiveId,
+                text: o.description,
+                episode: chapterOf(o.objectiveId),
+              })),
+              episodes,
+              t("placementView.group.other"),
+            )}
+            isOn={(id) => !excludedObjectives.includes(id)}
+            onSet={(ids, on) =>
+              setExcludedObjectives(
+                on
+                  ? excludedObjectives.filter((x) => !ids.includes(x))
+                  : [...new Set([...excludedObjectives, ...ids])],
+              )
+            }
+          />
         )}
         {author && episodes.length > 0 && (
           <fieldset className="wide placement-choices">
             <legend>{t("placementView.protect.legend")}</legend>
             <p className="muted">{t("placementView.protect.hint")}</p>
-            {episodes.map((episode) => {
-              const byAuthor = author.protectedEpisodeIds.includes(
-                episode.episodeId,
-              );
-              return (
-                <label key={episode.episodeId} className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={byAuthor || kept.includes(episode.episodeId)}
-                    disabled={byAuthor}
-                    onChange={(e) =>
-                      setKept(toggle(kept, episode.episodeId, e.target.checked))
-                    }
-                  />
-                  <span>
-                    <span dir="auto">{episode.title}</span>
-                    {byAuthor && (
-                      <span className="muted">
-                        {" "}
-                        · {t("placementView.protect.byAuthor")}
-                      </span>
-                    )}
-                  </span>
-                </label>
-              );
-            })}
+            <div className="cv-choice-columns">
+              {episodes.map((episode) => {
+                const byAuthor = author.protectedEpisodeIds.includes(
+                  episode.episodeId,
+                );
+                return (
+                  <label key={episode.episodeId} className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={byAuthor || kept.includes(episode.episodeId)}
+                      disabled={byAuthor}
+                      onChange={(e) =>
+                        setKept(
+                          toggle(kept, episode.episodeId, e.target.checked),
+                        )
+                      }
+                    />
+                    <span>
+                      <span dir="auto">{episode.title}</span>
+                      {byAuthor && (
+                        <span className="muted">
+                          {" "}
+                          · {t("placementView.protect.byAuthor")}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </fieldset>
         )}
         {preview && preview.key === key && preview.blueprint && (
@@ -472,42 +504,180 @@ function SettingsForm({
           {error !== undefined && (
             <Notice tone="red">{placementErrorMessage(error, t)}</Notice>
           )}
-          {scopeChanged && preview?.key !== key && (
-            <p className="muted">{t("placementView.preview.required")}</p>
-          )}
-          <div className="button-row">
-            {port.preview && author && (
-              <Button
-                disabled={pending || !valid}
-                onClick={() => {
-                  setPending(true);
-                  setError(undefined);
-                  port.preview!(catalogId, input)
-                    .then(
-                      (r) => setPreview({ key, blueprint: r.blueprint }),
-                      setError,
-                    )
-                    .finally(() => setPending(false));
-                }}
-              >
-                {t("placementView.preview.run")}
-              </Button>
-            )}
-            <Button
-              kind="primary"
-              type="submit"
-              disabled={
-                pending ||
-                !valid ||
-                (scopeChanged && Boolean(port.preview) && preview?.key !== key)
-              }
-            >
-              {t("placementView.form.save")}
-            </Button>
-          </div>
         </div>
       </form>
+      <div className="sticky-actions cv-sticky">
+        <div className="button-row">
+          <Button
+            kind="primary"
+            disabled={!canSave}
+            onClick={submit}
+            aria-describedby={`${id}-why`}
+          >
+            {t("placementView.form.save")}
+          </Button>
+          {port.preview && author && (
+            <Button
+              disabled={pending || !valid}
+              onClick={() => {
+                setPending(true);
+                setError(undefined);
+                port.preview!(catalogId, input)
+                  .then(
+                    (r) => setPreview({ key, blueprint: r.blueprint }),
+                    setError,
+                  )
+                  .finally(() => setPending(false));
+              }}
+            >
+              {t("placementView.preview.run")}
+            </Button>
+          )}
+        </div>
+        <p className="button-reason" aria-live="polite" id={`${id}-why`}>
+          {!dirty
+            ? t("placementView.form.noChanges")
+            : !valid
+              ? t("placementView.form.invalid")
+              : scopeChanged && port.preview && preview?.key !== key
+                ? t("placementView.preview.required")
+                : t("placementView.form.unsaved")}
+        </p>
+      </div>
     </Card>
+  );
+}
+
+type Choice = { id: string; text: string; detail?: string; episode?: string };
+type ChoiceGroup = { id: string; title: string; choices: Choice[] };
+/** Choices grouped by the chapter that teaches them, in the blueprint's order. */
+function groupBy(
+  choices: Choice[],
+  episodes: PlacementBlueprint,
+  other: string,
+): ChoiceGroup[] {
+  const groups = episodes.map((e) => ({
+    id: e.episodeId,
+    title: e.title,
+    choices: choices.filter((c) => c.episode === e.episodeId),
+  }));
+  const rest = choices.filter(
+    (c) => !c.episode || !episodes.some((e) => e.episodeId === c.episode),
+  );
+  return [
+    ...groups.filter((g) => g.choices.length),
+    ...(rest.length ? [{ id: "", title: other, choices: rest }] : []),
+  ];
+}
+
+/** A long list of checkboxes as one closed group per chapter, each with its count and with
+ * "include all" and "leave all out"; open a chapter to change single entries. */
+function ChoiceGroups({
+  legend,
+  hint,
+  groups,
+  isOn,
+  onSet,
+}: {
+  legend: string;
+  hint: string;
+  groups: ChoiceGroup[];
+  isOn: (id: string) => boolean;
+  onSet: (ids: string[], on: boolean) => void;
+}) {
+  const t = useT();
+  const all = groups.flatMap((g) => g.choices.map((c) => c.id));
+  const onCount = all.filter(isOn).length;
+  return (
+    <fieldset className="wide placement-choices cv-choice-groups">
+      <legend>{legend}</legend>
+      <p className="muted">{hint}</p>
+      <div className="cv-group-bar">
+        <span className="cv-count">
+          {t("placementView.group.total", { on: onCount, total: all.length })}
+        </span>
+        <Button
+          kind="quiet"
+          disabled={onCount === all.length}
+          onClick={() => onSet(all, true)}
+        >
+          {t("placementView.group.allOn")}
+        </Button>
+      </div>
+      <ul className="cv-list">
+        {groups.map((group) => {
+          const ids = group.choices.map((c) => c.id);
+          const on = ids.filter(isOn).length;
+          return (
+            <li key={group.id || "other"}>
+              <details className="cv-group">
+                <summary>
+                  <span className="cv-row-title" dir="auto">
+                    {group.title}
+                  </span>
+                  <Badge
+                    tone={on === ids.length ? "green" : on ? "gold" : "neutral"}
+                  >
+                    {t("placementView.group.count", {
+                      on,
+                      total: ids.length,
+                    })}
+                  </Badge>
+                  <ChevronDown
+                    size={18}
+                    aria-hidden="true"
+                    className="cv-row-chevron"
+                  />
+                </summary>
+                <div className="cv-row-panel">
+                  <div className="cv-actions">
+                    <Button
+                      kind="quiet"
+                      disabled={on === ids.length}
+                      onClick={() => onSet(ids, true)}
+                    >
+                      {t("placementView.group.on")}
+                    </Button>
+                    <Button
+                      kind="quiet"
+                      disabled={on === 0}
+                      onClick={() => onSet(ids, false)}
+                    >
+                      {t("placementView.group.off")}
+                    </Button>
+                  </div>
+                  <div className="cv-choice-columns">
+                    {group.choices.map((choice) => (
+                      <label key={choice.id} className="check-label">
+                        <input
+                          type="checkbox"
+                          checked={isOn(choice.id)}
+                          onChange={(e) => onSet([choice.id], e.target.checked)}
+                        />
+                        <span className="cv-choice-text">
+                          <span
+                            className="cv-clamp-2"
+                            dir="auto"
+                            title={choice.text}
+                          >
+                            {choice.text}
+                          </span>
+                          {choice.detail && (
+                            <small className="mono muted" dir="ltr">
+                              {choice.detail}
+                            </small>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
   );
 }
 
@@ -567,11 +737,13 @@ function EnrollmentPlacementPanel({
   enrollmentId,
   revision,
   canRevoke,
+  questionTitle,
 }: {
   port: PlacementAdminPort;
   enrollmentId: string;
   revision: number | undefined;
   canRevoke: boolean;
+  questionTitle: (assessmentId: string) => string;
 }) {
   const i18n = useI18n();
   const t = i18n.t;
@@ -629,6 +801,7 @@ function EnrollmentPlacementPanel({
           key={x.episodeId}
           exemption={x}
           version={v.release.version}
+          questionTitle={questionTitle}
           canRevoke={canRevoke && currentRevision !== undefined}
           onRevoke={async (reason, key) => {
             const result = (await port.revoke(
@@ -662,9 +835,11 @@ function ExemptionCard({
   version,
   canRevoke,
   onRevoke,
+  questionTitle,
 }: {
   exemption: EnrollmentPlacement["exemptions"][number];
   version: string;
+  questionTitle: (assessmentId: string) => string;
   canRevoke: boolean;
   onRevoke: (reason: string, key: string) => Promise<void>;
 }) {
@@ -707,8 +882,7 @@ function ExemptionCard({
         {exemption.evidence.map((e) => (
           <li key={e.evidenceId}>
             {t("placementView.evidence", {
-              assessment: e.assessmentId,
-              family: e.familyId,
+              assessment: shortTitle(questionTitle(e.assessmentId), 70),
               result: e.passed ? "correct" : "incorrect",
               mode: e.independent ? "independent" : "assisted",
             })}
