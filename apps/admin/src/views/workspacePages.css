@@ -406,3 +406,11 @@ details.setting-list ul {
 details.setting-list bdi {
   overflow-wrap: anywhere;
 }
+
+/* People & roles on a tablet: the last sign-in wraps to two lines, so the person's name keeps
+   its line and the row's actions stay inside the table. */
+@container (max-width: 900px) {
+  .people-table td.cell-date {
+    white-space: normal;
+  }
+}
