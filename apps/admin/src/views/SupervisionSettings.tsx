@@ -276,7 +276,13 @@ export function SupervisionSettingsCard({
             kind="primary"
             disabled={pending || unchanged || !previewed}
             onClick={() => void save()}
-            aria-describedby={unchanged || !previewed ? `${id}-why` : undefined}
+            reason={
+              unchanged
+                ? t("supervisionSettings.noChanges")
+                : !previewed
+                  ? t("supervisionSettings.checkFirst")
+                  : ""
+            }
           >
             {t("supervisionSettings.save")}
           </Button>
@@ -284,17 +290,6 @@ export function SupervisionSettingsCard({
             <Eye size={16} aria-hidden="true" />{" "}
             {t("supervisionSettings.check")}
           </Button>
-          {unchanged ? (
-            <span className="button-reason" id={`${id}-why`}>
-              {t("supervisionSettings.noChanges")}
-            </span>
-          ) : (
-            !previewed && (
-              <span className="button-reason" id={`${id}-why`}>
-                {t("supervisionSettings.checkFirst")}
-              </span>
-            )
-          )}
         </div>
       </div>
     </Card>

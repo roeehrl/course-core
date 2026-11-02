@@ -283,7 +283,7 @@ export function BatchAdjustDialog({
         <Button
           type="button"
           kind="primary"
-          aria-describedby={blocked ? "batch-blocked" : undefined}
+          reason={blocked || ""}
           disabled={flight.pending || Boolean(blocked)}
           onClick={() =>
             void flight.run(async () => {
@@ -324,11 +324,6 @@ export function BatchAdjustDialog({
         >
           {t("batchAdjustDialog.cancel")}
         </Button>
-        {blocked && (
-          <span id="batch-blocked" className="policy-reason button-reason">
-            {blocked}
-          </span>
-        )}
       </div>
     </Dialog>
   );

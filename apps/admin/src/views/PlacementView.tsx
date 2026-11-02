@@ -512,7 +512,15 @@ function SettingsForm({
             kind="primary"
             disabled={!canSave}
             onClick={submit}
-            aria-describedby={`${id}-why`}
+            reason={
+              !dirty
+                ? t("placementView.form.noChanges")
+                : !valid
+                  ? t("placementView.form.invalid")
+                  : scopeChanged && port.preview && preview?.key !== key
+                    ? t("placementView.preview.required")
+                    : ""
+            }
           >
             {t("placementView.form.save")}
           </Button>
@@ -534,15 +542,6 @@ function SettingsForm({
             </Button>
           )}
         </div>
-        <p className="button-reason" aria-live="polite" id={`${id}-why`}>
-          {!dirty
-            ? t("placementView.form.noChanges")
-            : !valid
-              ? t("placementView.form.invalid")
-              : scopeChanged && port.preview && preview?.key !== key
-                ? t("placementView.preview.required")
-                : t("placementView.form.unsaved")}
-        </p>
       </div>
     </Card>
   );

@@ -248,23 +248,19 @@ export function ExtensionComposer({
             />
           </Field>
         )}
-        <div className="policy-form-actions action-row">
+        <div className="action-row">
           <Button
             type="submit"
             kind="primary"
             disabled={
               !enabled || previewing || pending || !Object.keys(amounts).length
             }
+            reason={enabled ? "" : t("extensionComposer.notExtendable")}
           >
             {previewing
               ? t("extensionComposer.resolving")
               : t("extensionComposer.preview")}
           </Button>
-          {!enabled && (
-            <span className="policy-reason button-reason">
-              {t("extensionComposer.notExtendable")}
-            </span>
-          )}
         </div>
       </form>
       {Boolean(error) && <ErrorState error={error} onRetry={onRefresh} />}
@@ -361,7 +357,7 @@ export function ExtensionComposer({
                 />
                 {t("extensionComposer.reviewed")}
               </label>
-              <div className="policy-form-actions action-row">
+              <div className="action-row">
                 <Button
                   kind="primary"
                   type="submit"

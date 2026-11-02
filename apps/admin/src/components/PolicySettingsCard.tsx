@@ -637,12 +637,12 @@ function SettingsForm({
         </Field>
       )}
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <div className="policy-form-actions action-row">
+      <div className="action-row">
         {canSave && (
           <Button
             type="button"
             kind="primary"
-            aria-describedby={blocked ? "settings-blocked" : undefined}
+            reason={blocked || ""}
             disabled={flight.pending || Boolean(blocked)}
             onClick={() =>
               void flight.run(async () => {
@@ -688,11 +688,6 @@ function SettingsForm({
         >
           {t("policySettingsCard.cancel")}
         </Button>
-        {canSave && blocked && (
-          <span id="settings-blocked" className="policy-reason button-reason">
-            {blocked}
-          </span>
-        )}
       </div>
     </Card>
   );

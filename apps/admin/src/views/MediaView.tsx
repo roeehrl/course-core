@@ -222,7 +222,6 @@ function ReleaseMedia({
     false,
   );
   const [open, setOpen] = useState<string>();
-  const reasonId = useId();
   if (library.loading && !library.data)
     return (
       <Card eyebrow={t("mediaView.title")} title={t("mediaView.jobs.title")}>
@@ -260,25 +259,18 @@ function ReleaseMedia({
               command.pending
             }
             onClick={() => setRequesting(true)}
-            aria-describedby={
+            reason={
               lib.permissions.request && !lib.provider && !clipsReady(lib)
-                ? reasonId
-                : undefined
+                ? t("mediaView.jobs.requestReason")
+                : ""
             }
           >
             <Plus size={16} aria-hidden="true" /> {t("mediaView.jobs.request")}
           </Button>
         }
       >
-        {!lib.permissions.request ? (
+        {!lib.permissions.request && (
           <p className="media-hint">{t("mediaView.jobs.needsPermission")}</p>
-        ) : (
-          !lib.provider &&
-          !clipsReady(lib) && (
-            <p className="button-reason" id={reasonId}>
-              {t("mediaView.jobs.requestReason")}
-            </p>
-          )
         )}
         {lib.jobs.length === 0 ? (
           <p className="research-empty">{t("mediaView.jobs.empty")}</p>
