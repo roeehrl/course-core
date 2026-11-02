@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Hourglass } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import type { AllowanceOffer, Allowances } from "../domain/policyLevels";
 import { useRemote } from "../hooks/useAdmin";
@@ -17,6 +16,8 @@ import {
   Notice,
 } from "../components/ui";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import type { ScopePolicy } from "../domain/policy";
+import "./policy.css";
 
 type Change = AllowanceOffer["change"];
 
@@ -53,26 +54,33 @@ export function AllowancesView({
         : Promise.resolve(undefined),
     [client, data.course.id, message],
   );
+  const canBatch =
+    canWrite &&
+    Boolean(client.previewAccommodationBatch && client.applyAccommodationBatch);
   return (
     <div className="page-stack">
-      <div className="section-heading">
-        <div>
-          <h2>{t("allowancesView.heading")}</h2>
-          <p>{t("allowancesView.intro")}</p>
-        </div>
-        <span className="large-icon">
-          <Hourglass size={28} aria-hidden="true" />
-        </span>
+      <div className="allowances-heading">
+        <p>{t("allowancesView.intro")}</p>
+        {canBatch && (
+          <Button
+            type="button"
+            kind="primary"
+            disabled={!scopes.data?.length}
+            onClick={() => setBatching(true)}
+          >
+            {t("allowancesView.batch")}
+          </Button>
+        )}
       </div>
       {message && <Notice tone="green">{message}</Notice>}
       <div
-        className="tag-row"
+        className="segmented allowances-view-switch"
         role="group"
         aria-label={t("allowancesView.show")}
       >
         <Button
           type="button"
-          kind={view === "pending" ? "primary" : "secondary"}
+          kind="quiet"
           aria-pressed={view === "pending"}
           onClick={() => setView("pending")}
         >
@@ -80,23 +88,12 @@ export function AllowancesView({
         </Button>
         <Button
           type="button"
-          kind={view === "all" ? "primary" : "secondary"}
+          kind="quiet"
           aria-pressed={view === "all"}
           onClick={() => setView("all")}
         >
           {t("allowancesView.tab.all")}
         </Button>
-        {canWrite &&
-          client.previewAccommodationBatch &&
-          client.applyAccommodationBatch && (
-            <Button
-              type="button"
-              disabled={!scopes.data?.length}
-              onClick={() => setBatching(true)}
-            >
-              {t("allowancesView.batch")}
-            </Button>
-          )}
       </div>
       {batching && scopes.data && (
         <BatchAdjustDialog
@@ -146,6 +143,26 @@ export function AllowancesView({
   );
 }
 
+/** An allowance named for people: what it adds and where ("Calendar days · Whole course"),
+ * not its identifier. An allowance's identifier starts with the level it belongs to. */
+function usePoolName(scopes: ScopePolicy[]) {
+  const t = useT();
+  const scopeNames = useScopeLabel();
+  return (poolId: string, unit?: string) => {
+    const scope = [...scopes]
+      .sort((a, b) => b.scopeId.length - a.scopeId.length)
+      .find((s) => poolId.startsWith(`${s.scopeId}:`));
+    const what =
+      unit ?? (/calendar|day/.test(poolId) ? "calendar_day" : "other");
+    return scope
+      ? t("allowancesView.pools.name", {
+          unit: what,
+          scope: scopeNames.name(scope, scope.scopeId),
+        })
+      : t("allowancesView.pools.nameOnly", { unit: what });
+  };
+}
+
 function useChangeText() {
   const t = useT();
   return (change: Change) => {
@@ -175,7 +192,7 @@ function AllowanceLists({
   onChanged,
 }: {
   data: Allowances;
-  scopes: import("../domain/policy").ScopePolicy[];
+  scopes: ScopePolicy[];
   client: AdminClient;
   canWrite: boolean;
   onChanged: (message: string) => void;
@@ -186,6 +203,7 @@ function AllowanceLists({
   const scopeNames = useScopeLabel();
   const changeText = useChangeText();
   const learner = (name: string | null) => name ?? t("allowancesView.unnamed");
+  const poolName = usePoolName(scopes);
   const waiting = data.offers.filter(
     (o) => o.state === "accepted_pending_admin",
   );
@@ -206,6 +224,7 @@ function AllowanceLists({
                 key={`${offer.enrollmentId}:${offer.offerId}`}
                 offer={offer}
                 scopeName={scopeNames.byId(scopes, offer.scopeId)}
+                poolName={poolName}
                 client={client}
                 canWrite={canWrite && Boolean(client.approveExtension)}
                 onChanged={onChanged}
@@ -221,7 +240,9 @@ function AllowanceLists({
             eyebrow={t("allowancesView.offers.eyebrow")}
           >
             {!data.offers.length ? (
-              <small>{t("allowancesView.offers.empty")}</small>
+              <EmptyState title={t("allowancesView.offers.empty")}>
+                {t("allowancesView.offers.empty.body")}
+              </EmptyState>
             ) : (
               <div
                 className="table-wrap"
@@ -271,21 +292,25 @@ function AllowanceLists({
             eyebrow={t("allowancesView.accommodations.eyebrow")}
           >
             {!data.accommodations.length ? (
-              <small>{t("allowancesView.accommodations.empty")}</small>
+              <EmptyState title={t("allowancesView.accommodations.empty")}>
+                {t("allowancesView.accommodations.empty.body")}
+              </EmptyState>
             ) : (
-              <ul className="stack">
+              <ul className="allowances-list">
                 {data.accommodations.map((row) => (
                   <li key={`${row.enrollmentId}:${row.accommodationId}`}>
                     <Badge tone="blue">
                       {t(`allowancesView.kind.${row.kind}` as MessageKey)}
-                    </Badge>{" "}
-                    {t("allowancesView.accommodations.row", {
-                      learner: learner(row.displayName),
-                      scope: scopeNames.byId(scopes, row.scopeId),
-                      date: when(row.authorizedAt),
-                    })}
+                    </Badge>
+                    <span>
+                      {t("allowancesView.accommodations.row", {
+                        learner: learner(row.displayName),
+                        scope: scopeNames.byId(scopes, row.scopeId),
+                        date: when(row.authorizedAt),
+                      })}
+                    </span>
                     {row.batchId && (
-                      <small> {t("allowancesView.accommodations.batch")}</small>
+                      <small>{t("allowancesView.accommodations.batch")}</small>
                     )}
                   </li>
                 ))}
@@ -297,14 +322,14 @@ function AllowanceLists({
             eyebrow={t("allowancesView.pools.eyebrow")}
           >
             {!data.pools.length ? (
-              <small>{t("allowancesView.pools.empty")}</small>
+              <EmptyState title={t("allowancesView.pools.empty")}>
+                {t("allowancesView.pools.empty.body")}
+              </EmptyState>
             ) : (
-              <ul className="stack">
+              <ul className="allowances-list">
                 {data.pools.map((pool) => (
                   <li key={pool.poolId}>
-                    <span className="mono" dir="ltr">
-                      {pool.poolId}
-                    </span>{" "}
+                    <strong>{poolName(pool.poolId, pool.unit)}</strong>
                     {t("allowancesView.pools.row", {
                       used: pool.used,
                       total: pool.total,
@@ -326,12 +351,14 @@ function AllowanceLists({
 function PendingOffer({
   offer,
   scopeName,
+  poolName,
   client,
   canWrite,
   onChanged,
 }: {
   offer: AllowanceOffer;
   scopeName: string;
+  poolName: (poolId: string, unit?: string) => string;
   client: AdminClient;
   canWrite: boolean;
   onChanged: (message: string) => void;
@@ -368,10 +395,15 @@ function PendingOffer({
           expires: when(offer.expiresAt),
         })}
       </p>
-      <small>
+      <small className="muted">
         {t("allowancesView.pending.pools", {
           pools: offer.poolDebits
-            .map((d) => `${d.poolId} × ${i18n.number(d.amount)}`)
+            .map((d) =>
+              t("allowancesView.pending.pool", {
+                pool: poolName(d.poolId),
+                amount: i18n.number(d.amount),
+              }),
+            )
             .join(", "),
         })}
       </small>
@@ -451,19 +483,19 @@ function BatchList({
   scopes,
 }: {
   batches: NonNullable<import("../domain/policyLevels").Batches>["batches"];
-  scopes: import("../domain/policy").ScopePolicy[];
+  scopes: ScopePolicy[];
 }) {
   const t = useT();
   const { when } = useFormatters();
   const scopeNames = useScopeLabel();
   const changeText = useChangeText();
   return (
-    <ul className="stack">
+    <ul className="allowances-list">
       {batches.map((batch) => (
         <li key={batch.batchId}>
           <Badge tone="blue">
             {t(`allowancesView.kind.${batch.kind}` as MessageKey)}
-          </Badge>{" "}
+          </Badge>
           {t("allowancesView.batches.row", {
             what: changeText(batch.change),
             scope: scopeNames.byId(scopes, batch.scopeId),
@@ -473,7 +505,6 @@ function BatchList({
           })}
           {batch.reason && (
             <small>
-              {" "}
               <bdi>{batch.reason}</bdi>
             </small>
           )}

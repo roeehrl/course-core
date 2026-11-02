@@ -36,6 +36,16 @@ export function OrganizationCeilingsCard({
     remote.error.code === "permission_denied"
   )
     return null;
+  if (remote.data && !remote.loading)
+    return (
+      <CeilingsForm
+        key={remote.data.revision}
+        view={remote.data}
+        client={client}
+        workspaceId={workspaceId}
+        canWrite={canWrite && Boolean(client.savePolicyCeilings)}
+      />
+    );
   return (
     <Card
       title={t("organizationCeilingsCard.title")}
@@ -43,18 +53,8 @@ export function OrganizationCeilingsCard({
     >
       {remote.loading ? (
         <Loading label={t("organizationCeilingsCard.loading")} />
-      ) : remote.error ? (
-        <ErrorState error={remote.error} onRetry={remote.reload} />
       ) : (
-        remote.data && (
-          <CeilingsForm
-            key={remote.data.revision}
-            view={remote.data}
-            client={client}
-            workspaceId={workspaceId}
-            canWrite={canWrite && Boolean(client.savePolicyCeilings)}
-          />
-        )
+        <ErrorState error={remote.error} onRetry={remote.reload} />
       )}
     </Card>
   );
@@ -81,6 +81,7 @@ function CeilingsForm({
   const [preview, setPreview] = useState<CeilingsView>();
   const [reason, setReason] = useState("");
   const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
   const flight = useSingleFlight();
   const update = (next: OrganizationCeilings) => {
     setDraft(next);
@@ -90,6 +91,27 @@ function CeilingsForm({
   const reviewed =
     preview?.preview &&
     JSON.stringify(preview.preview.ceilings) === JSON.stringify(draft);
+  const changed = JSON.stringify(draft) !== JSON.stringify(current.ceilings);
+  const canCheck = canWrite && Boolean(client.previewPolicyCeilings);
+  // Why Save cannot be pressed yet, in the order the steps are taken.
+  const blocked = !changed
+    ? t("organizationCeilingsCard.blocked.noChanges")
+    : !reviewed
+      ? t("organizationCeilingsCard.blocked.check")
+      : !reason.trim()
+        ? t("organizationCeilingsCard.blocked.reason")
+        : "";
+  const cancel = () => {
+    setDraft(structuredClone(current.ceilings));
+    setPreview(undefined);
+    setReason("");
+    flight.setError(undefined);
+    setEditing(false);
+  };
+  const limitOrNone = (value: number | null) =>
+    value === null
+      ? t("organizationCeilingsCard.summary.noLimit")
+      : i18n.number(value);
   const issue = (code: string) => {
     const key = `organizationCeilingsCard.issue.${code}` as MessageKey;
     return i18n.has(key) ? t(key) : t("organizationCeilingsCard.issue.other");
@@ -116,24 +138,108 @@ function CeilingsForm({
       />
     </Field>
   );
-  return (
-    <div className="stack">
-      <div className="tag-row">
-        <Badge tone={current.source === "configured" ? "blue" : "gold"}>
-          {current.source === "configured"
-            ? t("organizationCeilingsCard.revision", {
-                revision: current.revision,
-              })
-            : t("organizationCeilingsCard.none")}
-        </Badge>
-        {current.changedAt && (
-          <small>
-            {t("organizationCeilingsCard.saved", {
-              date: when(current.changedAt),
-            })}
-          </small>
+  const status = (
+    <p className="policy-meta">
+      <Badge tone={current.source === "configured" ? "blue" : "gold"}>
+        {current.source === "configured"
+          ? t("organizationCeilingsCard.revision", {
+              revision: current.revision,
+            })
+          : t("organizationCeilingsCard.none")}
+      </Badge>
+      {current.changedAt && (
+        <span>
+          {t("organizationCeilingsCard.saved", {
+            date: when(current.changedAt),
+          })}
+        </span>
+      )}
+    </p>
+  );
+  const shown = current.ceilings;
+  if (!editing)
+    return (
+      <Card
+        title={t("organizationCeilingsCard.title")}
+        eyebrow={t("organizationCeilingsCard.eyebrow")}
+        actions={
+          canWrite && (
+            <Button type="button" onClick={() => setEditing(true)}>
+              {t("organizationCeilingsCard.edit")}
+            </Button>
+          )
+        }
+      >
+        {status}
+        <p className="muted">{t("organizationCeilingsCard.summary.intro")}</p>
+        {saved && (
+          <Notice tone="green">
+            {t("organizationCeilingsCard.savedMessage")}
+          </Notice>
         )}
-      </div>
+        <dl className="policy-summary">
+          <div>
+            <dt>{t("organizationCeilingsCard.summary.end")}</dt>
+            <dd>
+              {shown.hardDeadline
+                ? when(shown.hardDeadline)
+                : t("organizationCeilingsCard.summary.noLimit")}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("organizationCeilingsCard.summary.days")}</dt>
+            <dd>
+              {shown.maxEnrollmentDays === null
+                ? t("organizationCeilingsCard.summary.noLimit")
+                : t("organizationCeilingsCard.summary.daysValue", {
+                    count: shown.maxEnrollmentDays,
+                  })}
+              <small>
+                {t("organizationCeilingsCard.summary.zone", {
+                  zone: shown.timeZone,
+                })}
+              </small>
+            </dd>
+          </div>
+          <div>
+            <dt>{t("organizationCeilingsCard.work.additionalMinutes")}</dt>
+            <dd>{limitOrNone(shown.work.additionalMinutes)}</dd>
+          </div>
+          <div>
+            <dt>{t("organizationCeilingsCard.work.additionalEpisodes")}</dt>
+            <dd>{limitOrNone(shown.work.additionalEpisodes)}</dd>
+          </div>
+          <div>
+            <dt>
+              {t("organizationCeilingsCard.work.remediationCyclesPerConcept")}
+            </dt>
+            <dd>{limitOrNone(shown.work.remediationCyclesPerConcept)}</dd>
+          </div>
+          <div>
+            <dt>{t("organizationCeilingsCard.access")}</dt>
+            <dd>
+              {t(
+                `organizationCeilingsCard.access.${shown.existingMaterialAccess}` as MessageKey,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("organizationCeilingsCard.summary.extensions")}</dt>
+            <dd>
+              {shown.extensionsAllowed
+                ? t("organizationCeilingsCard.summary.extensionsOn")
+                : t("organizationCeilingsCard.summary.extensionsOff")}
+            </dd>
+          </div>
+        </dl>
+      </Card>
+    );
+  return (
+    <Card
+      title={t("organizationCeilingsCard.title")}
+      eyebrow={t("organizationCeilingsCard.eyebrow")}
+    >
+      {status}
       <Notice tone="blue">{t("organizationCeilingsCard.notice")}</Notice>
       <div className="input-grid">
         <Field
@@ -189,30 +295,33 @@ function CeilingsForm({
         {work("additionalMinutes", 1_000_000)}
         {work("additionalEpisodes", 10_000)}
         {work("remediationCyclesPerConcept", 100)}
-        <Field
-          label={t("organizationCeilingsCard.access")}
-          htmlFor="ceilings-access"
-        >
-          <select
-            id="ceilings-access"
-            value={draft.existingMaterialAccess}
-            disabled={!canWrite}
-            onChange={(e) =>
-              update({
-                ...draft,
-                existingMaterialAccess: e.target
-                  .value as OrganizationCeilings["existingMaterialAccess"],
-              })
-            }
+        {/* The seventh field takes the full row instead of sitting alone in a column. */}
+        <div className="span-all">
+          <Field
+            label={t("organizationCeilingsCard.access")}
+            htmlFor="ceilings-access"
           >
-            <option value="read_only">
-              {t("organizationCeilingsCard.access.read_only")}
-            </option>
-            <option value="closed">
-              {t("organizationCeilingsCard.access.closed")}
-            </option>
-          </select>
-        </Field>
+            <select
+              id="ceilings-access"
+              value={draft.existingMaterialAccess}
+              disabled={!canWrite}
+              onChange={(e) =>
+                update({
+                  ...draft,
+                  existingMaterialAccess: e.target
+                    .value as OrganizationCeilings["existingMaterialAccess"],
+                })
+              }
+            >
+              <option value="read_only">
+                {t("organizationCeilingsCard.access.read_only")}
+              </option>
+              <option value="closed">
+                {t("organizationCeilingsCard.access.closed")}
+              </option>
+            </select>
+          </Field>
+        </div>
       </div>
       <label className="check-label">
         <input
@@ -225,29 +334,6 @@ function CeilingsForm({
         />
         {t("organizationCeilingsCard.extensions")}
       </label>
-      {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      {saved && (
-        <Notice tone="green">
-          {t("organizationCeilingsCard.savedMessage")}
-        </Notice>
-      )}
-      {canWrite && client.previewPolicyCeilings && (
-        <div>
-          <Button
-            type="button"
-            disabled={flight.pending}
-            onClick={() =>
-              void flight.run(async () =>
-                setPreview(
-                  await client.previewPolicyCeilings!(workspaceId, draft),
-                ),
-              )
-            }
-          >
-            {t("organizationCeilingsCard.preview")}
-          </Button>
-        </div>
-      )}
       {reviewed && (
         <div
           className="stack"
@@ -258,7 +344,7 @@ function CeilingsForm({
           {!preview.impact.length && (
             <small>{t("organizationCeilingsCard.impact.none")}</small>
           )}
-          <ul className="stack">
+          <ul className="policy-why">
             {preview.impact.map((course) => (
               <li key={course.courseId}>
                 <Badge tone={course.feasible ? "green" : "red"}>
@@ -268,7 +354,7 @@ function CeilingsForm({
                 </Badge>{" "}
                 <bdi>{course.title}</bdi>
                 {course.issues.length > 0 && (
-                  <ul>
+                  <ul className="policy-why">
                     {course.issues.map((item, index) => (
                       <li key={index}>{issue(item.code)}</li>
                     ))}
@@ -282,44 +368,73 @@ function CeilingsForm({
           )}
         </div>
       )}
-      {canWrite && reviewed && (
-        <div className="stack">
-          <Field
-            label={t("organizationCeilingsCard.reason")}
-            htmlFor="ceilings-reason"
-          >
-            <input
-              id="ceilings-reason"
-              maxLength={1000}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
-          <div>
-            <Button
-              type="button"
-              kind="primary"
-              disabled={flight.pending || !reason.trim()}
-              onClick={() =>
-                void flight.run(async () => {
-                  const next = await client.savePolicyCeilings!(workspaceId, {
-                    expectedRevision: current.revision,
-                    ceilings: draft,
-                    reason: reason.trim(),
-                  });
-                  setCurrent(next);
-                  setDraft(structuredClone(next.ceilings));
-                  setPreview(undefined);
-                  setReason("");
-                  setSaved(true);
-                })
-              }
-            >
-              {t("organizationCeilingsCard.save")}
-            </Button>
-          </div>
-        </div>
+      {changed && (
+        <Field
+          label={t("organizationCeilingsCard.reason")}
+          htmlFor="ceilings-reason"
+        >
+          <input
+            id="ceilings-reason"
+            maxLength={1000}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Field>
       )}
-    </div>
+      {Boolean(flight.error) && <ErrorState error={flight.error} />}
+      <div className="policy-form-actions action-row">
+        <Button
+          type="button"
+          kind="primary"
+          aria-describedby={blocked ? "ceilings-blocked" : undefined}
+          disabled={flight.pending || Boolean(blocked)}
+          onClick={() =>
+            void flight.run(async () => {
+              const next = await client.savePolicyCeilings!(workspaceId, {
+                expectedRevision: current.revision,
+                ceilings: draft,
+                reason: reason.trim(),
+              });
+              setCurrent(next);
+              setDraft(structuredClone(next.ceilings));
+              setPreview(undefined);
+              setReason("");
+              setSaved(true);
+              setEditing(false);
+            })
+          }
+        >
+          {t("organizationCeilingsCard.save")}
+        </Button>
+        {canCheck && (
+          <Button
+            type="button"
+            disabled={flight.pending || !changed || Boolean(reviewed)}
+            onClick={() =>
+              void flight.run(async () =>
+                setPreview(
+                  await client.previewPolicyCeilings!(workspaceId, draft),
+                ),
+              )
+            }
+          >
+            {t("organizationCeilingsCard.preview")}
+          </Button>
+        )}
+        <Button
+          type="button"
+          kind="quiet"
+          disabled={flight.pending}
+          onClick={cancel}
+        >
+          {t("organizationCeilingsCard.cancel")}
+        </Button>
+        {blocked && (
+          <span id="ceilings-blocked" className="policy-reason button-reason">
+            {blocked}
+          </span>
+        )}
+      </div>
+    </Card>
   );
 }

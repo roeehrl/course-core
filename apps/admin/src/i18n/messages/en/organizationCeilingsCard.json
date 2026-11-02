@@ -33,5 +33,19 @@
   "issue.other": "This course's policy needs a look under these limits; open its policy page for details.",
   "reason": "Reason for this change",
   "save": "Save organization limits",
-  "savedMessage": "Saved. New enrollments in every course start with these limits; current learners are unchanged."
+  "savedMessage": "Saved. New enrollments in every course start with these limits; current learners are unchanged.",
+  "edit": "Edit organization limits",
+  "cancel": "Cancel",
+  "blocked.noChanges": "No changes yet.",
+  "blocked.check": "Check the effect on every course first.",
+  "blocked.reason": "Give a reason for the change.",
+  "summary.intro": "Every course, learner, chapter and episode can only be stricter than these limits. Changes apply to new enrollments only.",
+  "summary.noLimit": "No limit",
+  "summary.end": "Latest end date",
+  "summary.days": "Longest enrollment",
+  "summary.daysValue": "{count, plural, one {# calendar day} other {# calendar days}}",
+  "summary.zone": "Dates counted in {zone}",
+  "summary.extensions": "Extensions",
+  "summary.extensionsOn": "Courses may offer extensions",
+  "summary.extensionsOff": "No course may offer extensions"
 }

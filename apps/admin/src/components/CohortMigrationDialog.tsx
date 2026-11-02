@@ -55,6 +55,7 @@ export function CohortMigrationDialog({
     preview.shortenedGrantIds.every((id) => acknowledged.includes(id));
   return (
     <Dialog
+      className="policy-dialog"
       title={t("cohortMigrationDialog.title")}
       onClose={onClose}
       pending={flight.pending}
@@ -94,21 +95,23 @@ export function CohortMigrationDialog({
         />
       </Field>
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <Button
-        disabled={flight.pending || !instant}
-        onClick={() =>
-          void flight.run(async () =>
-            setPreview(
-              await client.previewCohortMigration!(courseId, {
-                scopeId,
-                hardDeadline: instant,
-              }),
-            ),
-          )
-        }
-      >
-        {t("cohortMigrationDialog.preview")}
-      </Button>
+      <div className="policy-form-actions action-row">
+        <Button
+          disabled={flight.pending || !instant}
+          onClick={() =>
+            void flight.run(async () =>
+              setPreview(
+                await client.previewCohortMigration!(courseId, {
+                  scopeId,
+                  hardDeadline: instant,
+                }),
+              ),
+            )
+          }
+        >
+          {t("cohortMigrationDialog.preview")}
+        </Button>
+      </div>
       {preview && (
         <div className="stack">
           <h3>
@@ -228,6 +231,14 @@ export function CohortMigrationDialog({
               }
             >
               {t("cohortMigrationDialog.apply")}
+            </Button>
+            <Button
+              type="button"
+              kind="quiet"
+              disabled={flight.pending}
+              onClick={onClose}
+            >
+              {t("cohortMigrationDialog.cancel")}
             </Button>
           </div>
         </div>

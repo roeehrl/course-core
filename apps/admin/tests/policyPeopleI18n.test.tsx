@@ -121,7 +121,7 @@ describe("policy terms in Hebrew", () => {
       />,
     );
     expect(
-      screen.getByRole("region", { name: "Work caps by scope" }),
+      screen.getByRole("region", { name: "Work limits by level" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Additional planned minutes")).toBeInTheDocument();
     expect(screen.getByText("Chapter · Foundations").tagName).toBe("BDI");

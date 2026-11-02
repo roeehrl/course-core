@@ -31,5 +31,12 @@
   "grant.reason.hint": "נרשמת יחד עם השינוי, למשל: החיבור נותק במהלך הבדיקה.",
   "grant.confirm": "מתן הניסיון",
   "grant.cancel": "ביטול",
-  "grant.done": "ניתן ניסיון נוסף. אפשר להתחיל אותו עכשיו."
+  "grant.done": "ניתן ניסיון נוסף. אפשר להתחיל אותו עכשיו.",
+  "card.count": "{count, plural, one {נקודת בקרה אחת} other {# נקודות בקרה}}",
+  "card.countOpen": "{count} זמינות",
+  "card.countWaiting": "{count} בהמתנה",
+  "card.countFull": "{count, plural, one {אחת בלי ניסיונות} other {# בלי ניסיונות}}",
+  "card.all": "{count, plural, one {הצגת נקודת הבקרה} other {הצגת כל # נקודות הבקרה}}",
+  "card.fewer": "הצגת פחות",
+  "card.shown": "מוצגות {shown} מתוך {total}"
 }

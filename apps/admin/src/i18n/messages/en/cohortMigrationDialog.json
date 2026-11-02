@@ -17,5 +17,6 @@
   "grantKind.exceptional": "exceptional",
   "acknowledge": "I acknowledge that {name}'s {kind} ends {after} instead of {before}.",
   "reason": "Reason for this change",
-  "apply": "Apply to all previewed learners"
+  "apply": "Apply to all previewed learners",
+  "cancel": "Cancel"
 }

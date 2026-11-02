@@ -94,14 +94,25 @@ describe("organization limits (G02, G03)", () => {
         canWrite
       />,
     );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Edit organization limits" }),
+    );
+    // Save is in view from the start and says why it cannot be pressed yet.
+    expect(
+      screen.getByRole("button", { name: "Save organization limits" }),
+    ).toBeDisabled();
+    expect(screen.getByText("No changes yet.")).toBeVisible();
     await userEvent.type(
-      await screen.findByLabelText("Longest enrollment (calendar days)"),
+      screen.getByLabelText("Longest enrollment (calendar days)"),
       "10",
     );
     // Nothing can be saved before the effect on every course was checked.
     expect(
-      screen.queryByRole("button", { name: "Save organization limits" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Save organization limits" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("Check the effect on every course first."),
+    ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: "Check the effect on every course" }),
     );
@@ -150,9 +161,10 @@ describe("organization limits (G02, G03)", () => {
         canWrite
       />,
     );
-    const days = await screen.findByLabelText(
-      "Longest enrollment (calendar days)",
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Edit organization limits" }),
     );
+    const days = screen.getByLabelText("Longest enrollment (calendar days)");
     await userEvent.type(days, "30");
     await userEvent.click(
       screen.getByRole("button", { name: "Check the effect on every course" }),
@@ -160,8 +172,8 @@ describe("organization limits (G02, G03)", () => {
     await screen.findByRole("button", { name: "Save organization limits" });
     await userEvent.type(days, "0");
     expect(
-      screen.queryByRole("button", { name: "Save organization limits" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Save organization limits" }),
+    ).toBeDisabled();
     await userEvent.click(
       screen.getByRole("button", { name: "Check the effect on every course" }),
     );
@@ -203,9 +215,11 @@ describe("organization limits (G02, G03)", () => {
         canWrite={false}
       />,
     );
+    // A reader sees the limits in force, with no way into the form.
+    expect(await screen.findByText("Longest enrollment")).toBeVisible();
     expect(
-      await screen.findByLabelText("Longest enrollment (calendar days)"),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Edit organization limits" }),
+    ).toBeNull();
     expect(
       screen.queryByRole("button", {
         name: "Check the effect on every course",
@@ -312,7 +326,10 @@ describe("extra time and work allowances (G09, Q05)", () => {
     } as unknown as AdminClient;
     render(<PolicySettingsCard client={client} courseId={courseId} canWrite />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Add an allowance" }),
+      await screen.findByRole("button", { name: "Edit course settings" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Add an allowance" }),
     );
     expect(screen.getByText("Allowance “allowance-1”")).toBeVisible();
     expect(
@@ -331,7 +348,7 @@ describe("extra time and work allowances (G09, Q05)", () => {
     await userEvent.type(perGrant, "2");
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Preview feasibility and daylight saving",
+        name: "Check feasibility and daylight-saving effects",
       }),
     );
     expect(

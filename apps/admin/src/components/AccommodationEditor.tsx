@@ -91,6 +91,7 @@ export function AccommodationEditor({
     preview?.adjustment.windowDeadline ?? preview?.adjustment.absoluteDeadline;
   return (
     <Dialog
+      className="policy-dialog"
       title={t("accommodationEditor.title", {
         scope: scopeNames.name(scope, scope.scopeId),
       })}
@@ -174,23 +175,25 @@ export function AccommodationEditor({
         </>
       )}
       {Boolean(error) && <ErrorState error={error} />}
-      <Button
-        onClick={() =>
-          void run(async () =>
-            setPreview(
-              await client.previewAccommodation!(
-                policy.enrollmentId,
-                request(),
+      <div className="policy-form-actions action-row">
+        <Button
+          onClick={() =>
+            void run(async () =>
+              setPreview(
+                await client.previewAccommodation!(
+                  policy.enrollmentId,
+                  request(),
+                ),
               ),
-            ),
-          )
-        }
-        disabled={pending}
-      >
-        {pending && !preview
-          ? t("accommodationEditor.computing")
-          : t("accommodationEditor.preview")}
-      </Button>
+            )
+          }
+          disabled={pending}
+        >
+          {pending && !preview
+            ? t("accommodationEditor.computing")
+            : t("accommodationEditor.preview")}
+        </Button>
+      </div>
       {preview && (
         <div className="stack">
           <h3>{t("accommodationEditor.effect")}</h3>
@@ -275,6 +278,14 @@ export function AccommodationEditor({
               }
             >
               {t("accommodationEditor.apply")}
+            </Button>
+            <Button
+              type="button"
+              kind="quiet"
+              disabled={pending}
+              onClick={onClose}
+            >
+              {t("accommodationEditor.cancel")}
             </Button>
           </div>
         </div>
