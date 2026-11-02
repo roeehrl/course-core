@@ -80,8 +80,22 @@ test("in a study that asked for usability timings, the app sends only place code
   const prompt = page.getByRole("region", { name: "Join a research study? Ordering study" });
   await expect(prompt.getByText(/how many other buttons you try first/)).toBeVisible();
   await prompt.getByRole("checkbox", { name: "I have read this and agree to take part" }).check();
+  // The course as it is after joining (the snapshot that says this arm times usability) arrives
+  // slowly, as on a busy machine: the prompt goes only once the page shows the joined course, so
+  // the course page's trial is timed from the first moment the learner can press its Start.
+  const snapshot = /\/api\/enrollments\/[^/?#]+$/;
+  let slowed = 0;
+  await page.route(snapshot, async (route) => {
+    if (route.request().method() === "GET") {
+      slowed++;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    await route.fallback();
+  });
   await prompt.getByRole("button", { name: "Join the study" }).click();
   await expect(prompt).toHaveCount(0);
+  await expect.poll(() => slowed).toBeGreaterThan(0);
+  await page.unroute(snapshot);
   const sent: { body: { batchId: string; trials: Record<string, unknown>[] }; status: number }[] = [];
   page.on("response", async (response) => {
     if (response.url().endsWith("/study/usability") && response.request().method() === "POST")

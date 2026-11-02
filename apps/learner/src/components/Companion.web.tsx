@@ -39,7 +39,9 @@ function DemoCompanion({ step, lessonTitle, note, onNoteChange, mode }: Companio
     hintId = `${id}-hint`;
   return (
     <div className="cc-note-demo">
-      <div className="cc-note-demo-thread">
+      {/* The thread's place (§2.4, §3.8): the only part that scrolls, so the notes stay pinned
+          under it; focusable so the keyboard can scroll it too. */}
+      <div className="cc-note-demo-thread" role="group" aria-label={t("companion.guidance")} tabIndex={0}>
         <p className="cc-note-demo-intro">{t(mode === "demo" ? "companion.intro.demo" : "companion.intro.course")}</p>
         {lessonTitle && step && (
           <p className="cc-note-demo-place" dir="auto">

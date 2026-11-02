@@ -74,10 +74,14 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
     setError("");
     try {
       const next = await (api as CourseApi).command<StudyView>(server as ServerSnapshot, action, { studyId: study!.id, ...data });
+      // The course changes with the choice (the arm decides the companion and what is timed), so
+      // the prompt stays, busy, until the app has the course as it now is: the course page the
+      // learner then sees is the joined one, and a press on its Start is never one the study's
+      // timings miss. A failed reload is not a failed choice; the page's own refresh catches up.
+      await Promise.resolve(onChanged()).catch(() => undefined);
       setView(next);
       setAgree(false);
       setConfirmLeave(false);
-      onChanged();
     } catch {
       setError(failure);
     } finally {

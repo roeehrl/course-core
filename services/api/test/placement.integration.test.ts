@@ -59,6 +59,11 @@ async function course(change: (c: CourseManifest) => void = () => {}, base: () =
   return { enrollment, send, state, take };
 }
 let testDatabase: TestDatabase | undefined;
+/** Each test here makes several round trips to its own Postgres copy: well under a second on
+ * an idle machine, several on a saturated one, where vitest's 5 s default cut them off. Like the
+ * other database suites, they get room for that; a test that hangs still fails. */
+const databaseTests = { timeout: 30_000 };
+
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
@@ -95,7 +100,7 @@ describe("the placement walk with a high score but a missing prerequisite", () =
   });
 });
 
-describe("optional placement runs", () => {
+describe("optional placement runs", databaseTests, () => {
   it("can be declined without penalty and later taken before study begins", async () => {
     const c = await course();
     expect(await c.state()).toMatchObject({ available: true, state: "offered", declinable: true, run: null, grantsCompletion: false });

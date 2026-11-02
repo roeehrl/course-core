@@ -207,19 +207,20 @@ li.unread .cc-note-dot {
 /* The demo's companion (components/Companion.web.tsx, final design §4.19), the content of the real
  * panel or sheet: the line that says no AI is connected, authored guidance as a companion turn
  * with its label line, the hint chip, and notes in the long-answer composer pinned at the bottom
- * with "Saved on this device." on the composer's meta row. */
+ * with "Saved on this device." on the composer's meta row. Like the real conversation (.cc-chat),
+ * it fills the body of the panel or sheet: the guidance scrolls, the notes stay (§2.4), so the
+ * panel or sheet itself never scrolls and "Save note" is on screen at Half, at Full and in a short
+ * panel, with the hint open or not. */
 .cc-note-demo {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  row-gap: var(--space-2);
   box-sizing: border-box;
-  min-block-size: 100%;
-  padding: var(--space-4) var(--space-4) var(--space-3);
+  block-size: 100%;
+  min-block-size: 0;
   color: var(--ink);
   font: 400 var(--text-chat) var(--font-sans);
-}
-.cc-note-demo > .cc-note-demo-notes {
-  margin-block-start: auto;
 }
 .cc-note-demo .cc-note-demo-header {
   min-block-size: 48px;
@@ -227,7 +228,16 @@ li.unread .cc-note-dot {
 .cc-note-demo-thread {
   display: flex;
   flex-direction: column;
-  padding-block: var(--space-2) var(--space-5);
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 16 + 8 at the top, as before the thread scrolled on its own. */
+  padding: calc(var(--space-4) + var(--space-2)) var(--space-4) var(--space-5);
+  outline: none;
+}
+.cc-note-demo-thread:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 .cc-note-demo-intro,
 .cc-note-demo-place {
@@ -283,7 +293,7 @@ li.unread .cc-note-dot {
   align-items: center;
   column-gap: var(--space-3);
   row-gap: var(--space-2);
-  padding-block-start: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
 }
 .cc-note-demo-notes .cc-note-demo-composer {
   display: contents;

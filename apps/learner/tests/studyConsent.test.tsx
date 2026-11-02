@@ -35,6 +35,27 @@ describe("research study consent", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: /Join a research study/ })).toBeNull());
   });
 
+  it("keeps the prompt, busy, until the course is reloaded as joined, and still closes it when the reload fails", async () => {
+    for (const outcome of ["loaded", "failed"] as const) {
+      const a = api({ revision: 3, study, participation: null }, { revision: 4, study, participation: joined });
+      let finish!: () => void;
+      const reload = new Promise<void>((resolve, reject) => {
+        finish = () => (outcome === "loaded" ? resolve() : reject(new Error("offline")));
+      });
+      const { unmount } = render(<StudyConsent api={a as never} server={connectedSnapshot()} mode="prompt" onChanged={() => reload} />);
+      await userEvent.click(await screen.findByRole("checkbox", { name: "I have read this and agree to take part" }));
+      await userEvent.click(screen.getByRole("button", { name: "Join the study" }));
+      await waitFor(() => expect(a.command).toHaveBeenCalled());
+      // Saved, but the course the learner would press Start in is not the joined one yet.
+      expect(screen.getByRole("heading", { name: "Join a research study? Ordering study" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Join the study" })).toBeDisabled();
+      finish();
+      await waitFor(() => expect(screen.queryByRole("heading", { name: /Join a research study/ })).toBeNull());
+      expect(screen.queryByRole("alert")).toBeNull();
+      unmount();
+    }
+  });
+
   it("'Not now' hides the prompt without joining", async () => {
     const a = api({ revision: 3, study, participation: null });
     render(<StudyConsent api={a as never} server={connectedSnapshot()} mode="prompt" onChanged={vi.fn()} />);

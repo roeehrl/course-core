@@ -1437,7 +1437,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <PersonalChanges api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <SupervisorRequests api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <ReviewAssistConsent api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
-              <StudyConsent api={api} server={server} mode="settings" onChanged={() => void refresh(server.enrollmentId)} />
+              <StudyConsent api={api} server={server} mode="settings" onChanged={() => refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}
                 onErased={() => {
                   clearServer();
@@ -1486,7 +1486,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   )
                 }
               />
-              <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
+              <StudyConsent api={api} server={server} mode="prompt" onChanged={() => refresh(server.enrollmentId)} />
               <ClosureSummary server={server} />
               {(server.closureReport || server.complete) && (
                 <ContinuationTrack api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />

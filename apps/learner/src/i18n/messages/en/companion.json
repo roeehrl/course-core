@@ -4,6 +4,7 @@
   "intro.course": "Course guidance. No live AI is connected.",
   "idea": "One clear path, at your pace. Open a lesson when you’re ready. Optional side paths are always your choice.",
   "placeLesson": "{lesson} · {step}",
+  "guidance": "Guidance",
   "hint.show": "Show a hint",
   "hint.hide": "Hide hint",
   "notes.label": "Notes to yourself",
