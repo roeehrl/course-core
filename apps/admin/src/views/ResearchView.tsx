@@ -31,6 +31,7 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import { sentenceCase } from "./contentShared";
 
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -320,6 +321,8 @@ function ReleaseResearch({
     reviewId: string;
   }>();
   const [revoking, setRevoking] = useState<string>();
+  const [query, setQuery] = useState("");
+  const searchId = useId();
   if (library.loading) return <Loading label={t("researchView.loading")} />;
   if (library.error || !library.data)
     return <Notice tone="red">{researchErrorMessage(library.error, t)}</Notice>;
@@ -336,9 +339,67 @@ function ReleaseResearch({
       candidateId: r.candidateId,
     })),
   );
+  // Topics with something to show get a card; the rest are one compact list, so thirty empty
+  // topics do not make thirty cards.
+  const needle = query.trim().toLocaleLowerCase();
+  const matches = (topic: Topic) =>
+    !needle ||
+    topic.queryText.toLocaleLowerCase().includes(needle) ||
+    topic.episodes.some((e) => e.title.toLocaleLowerCase().includes(needle));
+  const busy = (topic: Topic) =>
+    lib.sources.some((s) => s.topicId === topic.id) ||
+    suggestions.some((s) => s.topicId === topic.id) ||
+    Boolean(lib.searches?.some((x) => x.topicId === topic.id));
+  const fullTopics = lib.topics.filter((x) => busy(x) && matches(x));
+  const emptyTopics = lib.topics.filter((x) => !busy(x) && matches(x));
+  const topicActions = (topic: Topic, quiet = false) => (
+    <div className="cv-actions">
+      <Button
+        kind={quiet ? "quiet" : "secondary"}
+        disabled={!canWrite || command.pending}
+        onClick={() => setAdding({ topic })}
+      >
+        <Plus size={16} aria-hidden="true" /> {t("researchView.source.add")}
+      </Button>
+      {port.youtubeSearch && !youtubeOff && (
+        <Button
+          kind={quiet ? "quiet" : "secondary"}
+          disabled={!canWrite || command.pending}
+          onClick={() =>
+            void command.run(
+              "youtube-search:" + topic.id + ":" + Date.now(),
+              () => port.youtubeSearch!(releaseId, topic.id),
+              t("researchView.youtube.saved"),
+            )
+          }
+        >
+          <Search size={16} aria-hidden="true" />{" "}
+          {t("researchView.youtube.search")}
+        </Button>
+      )}
+    </div>
+  );
+  const topicMeta = (topic: Topic) => (
+    <p className="research-meta">
+      <span>
+        {topic.episodes.length
+          ? t("researchView.topic.episodes", {
+              episodes: topic.episodes.map((e) => e.title).join(", "),
+            })
+          : t("researchView.topic.episodesNone")}
+      </span>
+      <span>
+        {topic.allowedDomains.length
+          ? t("researchView.topic.domains", {
+              domains: topic.allowedDomains.join(", "),
+            })
+          : t("researchView.topic.domainsAny")}
+      </span>
+    </p>
+  );
   return (
     <>
-      <div aria-live="polite">
+      <div aria-live="polite" className="cv-live">
         {command.message && <Notice tone="green">{command.message}</Notice>}
         {command.error !== undefined && (
           <Notice tone="red">
@@ -361,62 +422,58 @@ function ReleaseResearch({
           </EmptyState>
         </Card>
       )}
-      {lib.topics.map((topic) => {
+      {lib.topics.length > 0 && (
+        <Card
+          title={t("researchView.topics.title")}
+          actions={
+            <span className="cv-count">
+              {t("researchView.topics.count", {
+                count: lib.topics.length,
+                withSources: lib.topics.filter(busy).length,
+              })}
+            </span>
+          }
+        >
+          <div className="cv-toolbar" role="search">
+            <div className="field cv-search">
+              <label htmlFor={searchId}>
+                {t("researchView.topics.search")}
+              </label>
+              <div className="search-field">
+                <Search size={16} aria-hidden="true" />
+                <input
+                  id={searchId}
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          {needle && fullTopics.length + emptyTopics.length === 0 && (
+            <p className="cv-count">{t("researchView.topics.noMatch")}</p>
+          )}
+        </Card>
+      )}
+      {fullTopics.map((topic) => {
         const sources = lib.sources.filter((s) => s.topicId === topic.id);
         const topicSuggestions = suggestions.filter(
           (s) =>
             s.topicId === topic.id && !sources.some((x) => x.url === s.uri),
         );
         return (
-          <Card
-            key={topic.id}
-            eyebrow={t("researchView.topic.eyebrow")}
-            title={topic.queryText}
-            titleDir="auto"
-            actions={
-              <>
-                {port.youtubeSearch && (
-                  <Button
-                    disabled={!canWrite || command.pending || youtubeOff}
-                    onClick={() =>
-                      void command.run(
-                        "youtube-search:" + topic.id + ":" + Date.now(),
-                        () => port.youtubeSearch!(releaseId, topic.id),
-                        t("researchView.youtube.saved"),
-                      )
-                    }
-                  >
-                    <Search size={16} aria-hidden="true" />{" "}
-                    {t("researchView.youtube.search")}
-                  </Button>
-                )}
-                <Button
-                  disabled={!canWrite || command.pending}
-                  onClick={() => setAdding({ topic })}
-                >
-                  <Plus size={16} aria-hidden="true" />{" "}
-                  {t("researchView.source.add")}
-                </Button>
-              </>
-            }
-          >
+          <Card key={topic.id}>
+            <div className="cv-topic-head">
+              <div>
+                <p className="eyebrow">{t("researchView.topic.eyebrow")}</p>
+                <h2 dir="auto" title={topic.queryText}>
+                  {sentenceCase(topic.queryText)}
+                </h2>
+              </div>
+              {topicActions(topic)}
+            </div>
             <PermissionHint permissions={permissions} required="course.write" />
-            <p className="research-meta">
-              <span>
-                {topic.episodes.length
-                  ? t("researchView.topic.episodes", {
-                      episodes: topic.episodes.map((e) => e.title).join(", "),
-                    })
-                  : t("researchView.topic.episodesNone")}
-              </span>
-              <span>
-                {topic.allowedDomains.length
-                  ? t("researchView.topic.domains", {
-                      domains: topic.allowedDomains.join(", "),
-                    })
-                  : t("researchView.topic.domainsAny")}
-              </span>
-            </p>
+            {topicMeta(topic)}
             {topicSuggestions.length > 0 && (
               <details className="research-suggestions">
                 <summary>
@@ -559,6 +616,29 @@ function ReleaseResearch({
           </Card>
         );
       })}
+      {emptyTopics.length > 0 && (
+        <Card
+          title={t("researchView.emptyTopics.title", {
+            count: emptyTopics.length,
+          })}
+        >
+          <p className="muted">{t("researchView.emptyTopics.body")}</p>
+          <PermissionHint permissions={permissions} required="course.write" />
+          <ul className="cv-list">
+            {emptyTopics.map((topic) => (
+              <li key={topic.id} className="cv-topic-row">
+                <div className="cv-topic-text">
+                  <strong dir="auto" title={topic.queryText}>
+                    {sentenceCase(topic.queryText)}
+                  </strong>
+                  {topicMeta(topic)}
+                </div>
+                {topicActions(topic, true)}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       {adding && (
         <AddSourceDialog
           topic={adding.topic}

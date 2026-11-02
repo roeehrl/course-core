@@ -181,12 +181,28 @@ const show = (
     </I18nProvider>,
   );
 
+/** Questions are one line each; a question's key and test answers show once its row is open. */
+const openQuestion = async (title: RegExp | string) =>
+  userEvent.click(
+    await screen.findByRole("button", {
+      name: typeof title === "string" ? new RegExp(title) : title,
+      expanded: false,
+    }),
+  );
+
 describe("answer keys and test answers (Q09)", () => {
   it("checks a key change against the test answers before it can be saved, and asks before saving a failing one", async () => {
     const p = port();
     show(p);
+    // One line per question: its type, key status and test-answer count; no editor yet.
+    const row = await screen.findByRole("button", {
+      name: /Which is smaller\?/,
+    });
+    expect(row).toHaveTextContent(/Choice\s*Key set\s*1 test answer/);
+    expect(screen.queryByText("Right answer now:")).toBeNull();
+    await userEvent.click(row);
     expect(await screen.findByText("Right answer now:")).toBeVisible();
-    expect(screen.getByText("Which is smaller?")).toBeVisible();
+    expect(screen.getAllByText("Which is smaller?")).toHaveLength(2);
     const save = screen.getByRole("button", { name: "Save key to the draft" });
     expect(save).toBeDisabled();
     await userEvent.selectOptions(
@@ -229,6 +245,7 @@ describe("answer keys and test answers (Q09)", () => {
   it("adds a test answer the question must accept and reports what the current key says", async () => {
     const p = port();
     show(p);
+    await openQuestion("Which is smaller");
     expect(await screen.findByText("must reject")).toBeVisible();
     expect(screen.getByText(/Picks the larger value/)).toBeVisible();
     await userEvent.click(screen.getByLabelText("must be marked right"));
@@ -254,6 +271,7 @@ describe("answer keys and test answers (Q09)", () => {
       expect(p.removeFixture).toHaveBeenCalledWith("c1", fixture.fixtureId),
     );
     // Code questions are never run here.
+    await openQuestion("Repair solve");
     expect(
       screen.getByText(/An installed evaluator grades this question/),
     ).toBeVisible();
@@ -266,11 +284,15 @@ describe("answer keys and test answers (Q09)", () => {
       await screen.findByRole("button", { name: "Run all test answers" }),
     );
     expect(await screen.findByText("1 test answer failed")).toBeVisible();
+    // Failures name the question by its title, not its ID, and mark its row.
     expect(
       screen.getByText(
-        /min-a · Picks the larger value: should be rejected, was graded right/,
+        /Which is smaller\? · Picks the larger value: should be rejected, was graded right/,
       ),
     ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Which is smaller\?/ }),
+    ).toHaveTextContent("1 failing");
   });
 
   it("keeps a published release read-only, hides keys from roles that cannot edit, and explains refusals", async () => {
@@ -293,6 +315,7 @@ describe("answer keys and test answers (Q09)", () => {
 
   it("speaks Hebrew", async () => {
     show(port(), undefined, "he");
+    await openQuestion("Which is smaller");
     expect(await screen.findByText("התשובה הנכונה עכשיו:")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "הרצת כל תשובות הבדיקה" }),
@@ -304,11 +327,11 @@ describe("source freshness (Q09)", () => {
   it("lists each source with when it was last checked, most urgent first, against a window staff choose", async () => {
     const p = port();
     show(p);
-    const list = await screen.findByRole("list", {
+    const list = await screen.findByRole("table", {
       name: "Sources, most urgent first",
     });
     expect(p.sources).toHaveBeenCalledWith("c1", DRAFT, 365, expect.anything());
-    expect(list).toHaveTextContent(/Recently checked\s*Old lecture notes/);
+    expect(list).toHaveTextContent(/Old lecture notes.*Recently checked/);
     expect(list).toHaveTextContent("Last checked 2026-02-03 (260 days ago)");
     expect(list).toHaveTextContent("cited in 2 lesson parts");
     expect(list).toHaveTextContent("not cited in any lesson text");

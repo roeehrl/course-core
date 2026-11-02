@@ -58,5 +58,6 @@
   "appeal.answerLabel": "תשובה {n} של {learner}",
   "appeal.decision": "ההחלטה שלך: <strong>{met, select, yes {הקריטריונים מתקיימים} other {עדיין לא}}</strong>{keeps, select, yes { (משאירה את ההחלטה המקורית)} other { (משנה את ההחלטה המקורית)}}",
   "appeal.noteHint": "חובה: הסבר לחוות הדעת השנייה.",
-  "appeal.save": "שמירת חוות הדעת השנייה"
+  "appeal.save": "שמירת חוות הדעת השנייה",
+  "appeal.title": "חוות דעת שנייה"
 }

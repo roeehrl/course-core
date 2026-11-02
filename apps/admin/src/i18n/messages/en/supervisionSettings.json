@@ -98,5 +98,8 @@
   "confirmation.people_only.help": "No conversation checkpoint is confirmed automatically, even where the course allows it. Answers wait in Reviews until someone on staff decides. Learners may wait longer.",
   "effect.people_confirm_every_conversation": "Every conversation checkpoint will wait for a person on staff.",
   "effect.checkpoints_as_authored": "Conversation checkpoints follow what each course sets.",
-  "preview.waitingConversations": "{count, plural, =0 {No conversation answers are waiting for review now.} one {# conversation answer is waiting for review now.} other {# conversation answers are waiting for review now.}}"
+  "preview.waitingConversations": "{count, plural, =0 {No conversation answers are waiting for review now.} one {# conversation answer is waiting for review now.} other {# conversation answers are waiting for review now.}}",
+  "admission.summary": "What the supervisor reads, and what it costs",
+  "noChanges": "No changes yet.",
+  "requests.emptyBody": "Nothing changes until you approve a request here."
 }

@@ -1,0 +1,457 @@
+/* Content and workflow views (answer keys, placement, research, media, studies, run inspector,
+ * reviews, supervision). Shared primitives stay in styles.css; these are the patterns those pages
+ * add: a filter bar, a compact expandable list, line-clamped course text, loading placeholders and
+ * a "Technical details" disclosure. Logical properties throughout, so Hebrew mirrors. */
+
+/* An empty live region in a page stack keeps its place in the accessibility tree without adding a
+ * second gap between the cards around it. */
+.page-stack > .cv-live:empty {
+  margin-block-start: -24px;
+}
+
+/* A row of filters above a list: search first and widest, then selects; one column on phones. */
+.cv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-end;
+}
+.cv-toolbar > .field {
+  flex: 1 1 180px;
+  max-width: 280px;
+}
+.cv-toolbar > .field.cv-search {
+  flex: 2 1 260px;
+  max-width: 420px;
+}
+.cv-count {
+  margin: 0;
+  font-size: var(--text-sm, 14px);
+  color: var(--muted);
+}
+
+/* A compact list: one line per entry, the entry opens in place. */
+.cv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.cv-list > li {
+  min-width: 0;
+}
+.cv-list > li + li {
+  border-block-start: 1px solid var(--line);
+}
+.cv-row-summary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 20px;
+  align-items: center;
+  gap: 8px 16px;
+  min-height: 52px;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  font-size: var(--text-sm, 14px);
+  line-height: 1.45;
+}
+.cv-list > li:first-child .cv-row-summary {
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+}
+.cv-row-summary:hover {
+  background: #f7f9fa;
+}
+.cv-row-summary[aria-expanded="true"] {
+  background: var(--ice);
+}
+.cv-row-title {
+  min-width: 0;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--muted);
+  font-size: var(--text-xs, 12px);
+}
+.cv-row-chevron {
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+.cv-row-summary[aria-expanded="true"] .cv-row-chevron {
+  transform: rotate(180deg);
+}
+.cv-row-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 16px 22px;
+  border-block-start: 1px solid var(--line);
+  min-width: 0;
+}
+.cv-more {
+  align-self: flex-start;
+}
+@container (max-width: 700px) {
+  .cv-toolbar > .field,
+  .cv-toolbar > .field.cv-search {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .cv-row-summary {
+    grid-template-columns: minmax(0, 1fr) 20px;
+  }
+  .cv-row-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .cv-row-meta {
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+  .cv-row-chevron {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+/* Course text (a long question prompt) as body text: three lines, then "Show full prompt". */
+.cv-prose {
+  margin: 0;
+  font-size: var(--text-sm, 14px);
+  line-height: 1.6;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.cv-prose.cv-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.cv-link-button {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: var(--text-sm, 14px);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* An identifier, kept out of the way: a quiet label and the value in its own direction. */
+.cv-id {
+  margin: 0;
+  font-size: var(--text-xs, 12px);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.cv-id code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: var(--text-xs, 12px);
+}
+
+/* "Technical details": raw identifiers and codes for staff who need them, closed by default. */
+.cv-tech {
+  font-size: var(--text-sm, 14px);
+  min-width: 0;
+}
+.cv-tech > summary {
+  cursor: pointer;
+  padding-block: 8px;
+  color: var(--muted);
+  font-weight: 650;
+}
+.cv-tech[open] > summary {
+  margin-block-end: 8px;
+}
+.cv-tech dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+}
+.cv-tech dt {
+  color: var(--muted);
+}
+.cv-tech dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 560px) {
+  .cv-tech dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .cv-tech dd + dt {
+    margin-block-start: 8px;
+  }
+}
+
+/* Placeholder rows while a large section loads, instead of a lone "Loading…" line. */
+.cv-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cv-skeleton > span {
+  display: block;
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #eef2f4 0%, #f7f9fa 40%, #eef2f4 80%);
+  background-size: 200% 100%;
+  animation: cv-shimmer 1.4s ease-in-out infinite;
+}
+.cv-skeleton > span:nth-child(3n + 2) {
+  width: 86%;
+}
+.cv-skeleton > span:nth-child(3n) {
+  width: 72%;
+}
+@keyframes cv-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-skeleton > span {
+    animation: none;
+  }
+}
+
+/* An action row whose buttons keep their natural width and their order on every card. */
+.cv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Answer keys: a question's sections, its stored test answers and its forms. */
+.cv-subtitle {
+  margin: 0;
+  font-size: var(--text-md, 16px);
+  font-weight: 700;
+}
+.cv-release {
+  max-width: 480px;
+}
+.cv-fixture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 4px 6px 4px 14px;
+  font-size: var(--text-sm, 14px);
+}
+.cv-fixture-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cv-fixture-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cv-segmented {
+  border: 0;
+  margin: 0;
+  max-width: 520px;
+}
+.cv-criterion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: end;
+}
+@container (max-width: 560px) {
+  .cv-fixture-form,
+  .cv-criterion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Run inspector: the runs on the start side, the chosen run and the replay on the other (the
+ * list's sticky scroll is .master-detail's). Narrower, the list is a picker above the run. */
+.field.cv-runs-picker {
+  display: none;
+}
+@container (max-width: 850px) {
+  .field.cv-runs-picker {
+    display: flex;
+  }
+  .selector-list.cv-runs-buttons {
+    display: none;
+  }
+}
+
+/* Placement settings: two columns of fields, chapters of checkboxes, and a save bar that stays
+ * in view while the long lists scroll. */
+.input-grid.cv-placement-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.cv-choice-groups {
+  gap: 10px;
+}
+.cv-group-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cv-group > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 20px;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-sm, 14px);
+}
+.cv-group > summary::-webkit-details-marker {
+  display: none;
+}
+.cv-group[open] > summary .cv-row-chevron {
+  transform: rotate(180deg);
+}
+.cv-group[open] > summary {
+  background: var(--ice);
+}
+.cv-choice-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 24px;
+}
+.cv-choice-columns .check-label {
+  align-items: flex-start;
+  min-height: 44px;
+}
+.cv-choice-columns .check-label input {
+  margin-block-start: 3px;
+}
+.cv-choice-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.cv-clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 700px) {
+  .input-grid.cv-placement-form,
+  .cv-choice-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Research topics: the title and a fixed action row (add, then search) on every card. */
+.cv-topic-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 18px;
+}
+.cv-topic-head h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cv-topic-head .eyebrow {
+  margin-block-end: 5px;
+}
+.cv-topic-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 10px 8px 10px 16px;
+}
+.cv-topic-text {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 320px;
+  min-width: 0;
+  font-size: var(--text-sm, 14px);
+}
+.cv-topic-text .research-meta {
+  margin: 0;
+  font-size: var(--text-xs, 12px);
+}
+@container (max-width: 700px) {
+  .cv-topic-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A page's standing rule as its introduction, in body text rather than a banner. */
+.cv-intro {
+  margin: 0;
+  max-width: 900px;
+  font-size: var(--text-sm, 14px);
+  line-height: 1.6;
+  color: var(--muted);
+}
+.cv-intro strong {
+  color: var(--ink);
+}
+
+/* Answer reviews: every queue is a titled section of cards, the same way. */
+.page-stack.cv-queues {
+  gap: 36px;
+}
+.cv-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.cv-queue > .cv-live:empty {
+  margin-block-start: -14px;
+}
+.cv-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-queue-head h2 {
+  margin: 0;
+  font-size: var(--text-lg, 20px);
+}
+
+/* The placement save bar stays in view under its long lists (the bar's look is .sticky-actions'). */
+.sticky-actions.cv-sticky {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 2;
+  background: var(--card);
+}

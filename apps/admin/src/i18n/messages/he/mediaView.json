@@ -44,7 +44,7 @@
   "requested": "הבקשה נרשמה. אפשר לבדוק את המצב שלה למטה: בקשה שנדחתה נשמרת עם הסיבה, ולא מתבצע חיוב.",
   "provider.eyebrow": "ספק",
   "provider.none.title": "אין ספק מדיה",
-  "provider.none.body": "יש להקצות מודל וידאו לתפקיד המדיה בעמוד ספקי AI, עם מחירון שנבדק.",
+  "provider.none.body": "כדי ליצור קליפים, בוחרים מודל וידאו ל„תמונות ווידאו” בעמוד שירותי AI, תחת „מודל לכל משימה”, ומגדירים לו מחיר תחת „מחירים”. קליפים מדויקים מהמחשות הקורס עובדים גם בלי מודל.",
   "provider.title": "יצירת וידאו",
   "provider.model": "מודל",
   "provider.clip": "קליפ",
@@ -243,5 +243,6 @@
   "shots.remove": "הסרה",
   "shots.removeLabel": "הסרת צילום {number, number}",
   "clip.formatMp4": "MP4",
-  "clip.formatWebm": "WebM"
+  "clip.formatWebm": "WebM",
+  "jobs.requestReason": "צריך מודל מדיה בשירותי AI, או המחשות של הקורס שאפשר להפוך לקליפ."
 }

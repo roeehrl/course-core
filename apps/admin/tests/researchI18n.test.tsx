@@ -178,8 +178,9 @@ describe("study and concept mapping views in Hebrew", () => {
         />
       </I18nProvider>,
     );
-    expect(await screen.findByText("על המחקרים")).toBeVisible();
-    expect(screen.getByText("בגיוס")).toBeVisible();
+    // The header card shows while the list loads; wait for the study itself.
+    expect(await screen.findByText("בגיוס")).toBeVisible();
+    expect(screen.getByText("על המחקרים")).toBeVisible();
     expect(
       screen.getByText(/השיבוץ מופעל בקורס הזה, באותו אופן בכל הזרועות\./),
     ).toBeVisible();
@@ -354,9 +355,8 @@ describe("YouTube search without a key", () => {
       await screen.findByText(/^YouTube search is off until/),
     ).toBeVisible();
     expect(screen.getAllByText(/AI services, under Advanced/)).toHaveLength(1);
-    expect(
-      screen.getByRole("button", { name: "Search YouTube" }),
-    ).toBeDisabled();
+    // The status card says it once; no topic offers a search that cannot run.
+    expect(screen.queryByRole("button", { name: "Search YouTube" })).toBeNull();
   });
 
   it("allows search once a key is configured", async () => {

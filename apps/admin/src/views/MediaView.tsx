@@ -39,6 +39,7 @@ import {
   Notice,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { SkeletonRows } from "./contentShared";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
@@ -171,9 +172,11 @@ export function MediaView({
     );
   return (
     <div className="page-stack">
-      <Notice tone="blue" title={t("mediaView.reviewed.title")}>
+      {/* The page's standing rule, as its introduction rather than a second banner. */}
+      <p className="cv-intro">
+        <strong>{t("mediaView.reviewed.title")}</strong>{" "}
         {t("mediaView.reviewed.body")}
-      </Notice>
+      </p>
       {published.length > 1 && (
         <div className="field">
           <label htmlFor="media-release">{t("mediaView.release.label")}</label>
@@ -219,8 +222,13 @@ function ReleaseMedia({
     false,
   );
   const [open, setOpen] = useState<string>();
+  const reasonId = useId();
   if (library.loading && !library.data)
-    return <Loading label={t("mediaView.loading")} />;
+    return (
+      <Card eyebrow={t("mediaView.title")} title={t("mediaView.jobs.title")}>
+        <SkeletonRows label={t("mediaView.loading")} rows={4} />
+      </Card>
+    );
   if (library.error || !library.data)
     return <Notice tone="red">{mediaErrorMessage(library.error, t)}</Notice>;
   const lib = library.data;
@@ -228,7 +236,7 @@ function ReleaseMedia({
     lib.episodes.find((e) => e.id === id)?.title ?? id;
   return (
     <>
-      <div aria-live="polite">
+      <div aria-live="polite" className="cv-live">
         {command.message && <Notice tone="green">{command.message}</Notice>}
         {command.error !== undefined && <CommandError error={command.error} />}
       </div>
@@ -244,20 +252,33 @@ function ReleaseMedia({
         title={t("mediaView.jobs.title")}
         actions={
           <Button
-            kind="primary"
+            // Primary only when a model can generate; exact clips alone are a quieter action.
+            kind={lib.provider ? "primary" : "secondary"}
             disabled={
               !lib.permissions.request ||
               (!lib.provider && !clipsReady(lib)) ||
               command.pending
             }
             onClick={() => setRequesting(true)}
+            aria-describedby={
+              lib.permissions.request && !lib.provider && !clipsReady(lib)
+                ? reasonId
+                : undefined
+            }
           >
             <Plus size={16} aria-hidden="true" /> {t("mediaView.jobs.request")}
           </Button>
         }
       >
-        {!lib.permissions.request && (
+        {!lib.permissions.request ? (
           <p className="media-hint">{t("mediaView.jobs.needsPermission")}</p>
+        ) : (
+          !lib.provider &&
+          !clipsReady(lib) && (
+            <p className="button-reason" id={reasonId}>
+              {t("mediaView.jobs.requestReason")}
+            </p>
+          )
         )}
         {lib.jobs.length === 0 ? (
           <p className="research-empty">{t("mediaView.jobs.empty")}</p>

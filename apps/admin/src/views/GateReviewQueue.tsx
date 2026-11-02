@@ -18,6 +18,7 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { gateText } from "../components/LearnerViewScreen";
+import { QueueHeading, SkeletonRows } from "./contentShared";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' requests to look at a gate decision again. Staff either uphold the decision with a
@@ -37,15 +38,17 @@ export function GateReviewQueue({
   );
   const [message, setMessage] = useState("");
   return (
-    <section className="page-stack" aria-labelledby="gate-review-heading">
-      <h2 id="gate-review-heading" className="section-title">
-        {t("gateReviewQueue.title")}
-      </h2>
-      <div aria-live="polite">
+    <section className="cv-queue" aria-labelledby="gate-review-heading">
+      <QueueHeading
+        id="gate-review-heading"
+        title={t("gateReviewQueue.title")}
+        count={queue.data?.reviews.length}
+      />
+      <div aria-live="polite" className="cv-live">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.loading ? (
-        <Loading label={t("gateReviewQueue.loading")} />
+        <SkeletonRows label={t("gateReviewQueue.loading")} rows={2} />
       ) : queue.error || !queue.data ? (
         <Notice tone="red">{gateReviewErrorMessage(queue.error, t)}</Notice>
       ) : queue.data.reviews.length === 0 ? (
