@@ -63,6 +63,8 @@ export const QUALITY_RULES = [
   "citations",
   "privacy",
   "check_mode",
+  "pacing",
+  "scope",
 ] as const;
 const KNOWN_RULES: ReadonlySet<string> = new Set(QUALITY_RULES);
 /** The rules a job's failed conversations broke, known ones in suite order, then any others. */

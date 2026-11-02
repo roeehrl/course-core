@@ -29,6 +29,8 @@ const KNOWN_GRADERS = new Set([
   "citations",
   "privacy",
   "check_mode",
+  "pacing",
+  "scope",
 ]);
 const PERSONAS = new Set([
   "novice",
@@ -71,6 +73,9 @@ const FINDINGS = new Set([
   "coached_ordinary_question",
   "check_not_coached",
   "over_refusal",
+  "ends_with_question",
+  "repeated_skill",
+  "not_taught",
   "no_answer",
   "judge_failed",
   "judge_unavailable",
@@ -147,6 +152,10 @@ export function findingText(text: AiText, finding: QualityFinding): string {
     case "quote_not_learner_text":
       return t("aiServices.check.details.finding.quote_not_learner_text", {
         criterion: arg,
+      });
+    case "not_taught":
+      return t("aiServices.check.details.finding.not_taught", {
+        idea: String(detail.idea ?? arg),
       });
     case "no_answer":
       return t("aiServices.check.details.finding.no_answer", {

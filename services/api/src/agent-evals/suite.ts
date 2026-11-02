@@ -16,7 +16,7 @@ import { checkCoachingView, fold, gradedCheck, gradedChecks, matchGradedChecks, 
 export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
 export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
 /** Bumped whenever a grader's behavior changes, so earlier results become stale. */
-export const GRADER_VERSION = "core.agent-eval-graders/6";
+export const GRADER_VERSION = "core.agent-eval-graders/7";
 export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
 /** Every Core strategy this format can drive, and the role it serves (requirement N07: every agent
  * role is evaluated). A strategy not listed here (a host pack's own) is not covered: activating a
@@ -51,6 +51,8 @@ const contextSchema = z.strictObject({
       assistance: shortText(100), mode: shortText(100), feedback: z.string().max(2000),
     })).max(10).optional(),
   }),
+  /** Where the lesson sits in its chapter, as the host supplies it: the titles of earlier and later lessons. */
+  lessonMap: z.strictObject({ chapter: shortText(200), earlierLessons: z.array(shortText(200)).max(12), laterLessons: z.array(shortText(200)).max(12) }).optional(),
   question: shortText(4000),
   constraints: z.strictObject({ deadline: z.string().max(40).nullable(), expansionAllowed: z.boolean(), independentAssessmentActive: z.literal(false) }),
   /** Research dialogues: the approved public topic and its scope, as the host resolves them. */
@@ -123,6 +125,20 @@ export const dialogueSchema = z.strictObject({
     }).optional(),
     /** Research dialogues: the fewest cited sources an answer must carry. */
     citations: z.strictObject({ minSources: z.number().int().min(1).max(20) }).optional(),
+    /** Companion dialogues: the reply's pacing (graded by `pacing`). `noClosingQuestion`: the reply ends
+     * without asking the learner anything (after right answers, or a long run of questions).
+     * `repeatedSkill`: questions that test a skill the learner already showed; none of the reply's
+     * questions (sentences ending with a question mark) may match one. */
+    pacing: z.strictObject({
+      noClosingQuestion: z.boolean().default(false),
+      repeatedSkill: z.array(pattern).max(10).default([]),
+    }).optional(),
+    /** Companion dialogues: ideas the lesson has not taught yet (a later lesson's, or only mentioned in
+     * passing). None of the reply's questions may be about one (graded by `scope`; a quality check's
+     * meaning judge also reads `statement` when it judges grounding). */
+    scope: z.strictObject({
+      notTaught: z.array(z.strictObject({ id: slug, statement: shortText(300), patterns: z.array(pattern).min(1).max(10) })).min(1).max(10),
+    }).optional(),
     /** Literal strings (learner names, canaries) that must never reach a prompt or an answer. */
     privacy: z.strictObject({ forbidden: z.array(shortText(200)).min(1).max(20) }).optional(),
   }),
@@ -139,7 +155,8 @@ export const dialogueSchema = z.strictObject({
   .refine((d) => d.strategy !== "core.reviewer.rubric-assist" || d.context.rubricReview, "rubric_review_required")
   .refine((d) => d.strategy !== "core.supervisor.tool-loop" || d.expect.tools, "tool_expectations_required")
   .refine((d) => !d.checks || (d.role === "companion" && d.checks.every((c) => gradedCheck(c) !== null)), "checks_companion_only")
-  .refine((d) => !d.expect.checkMode || d.checks, "check_mode_needs_checks");
+  .refine((d) => !d.expect.checkMode || d.checks, "check_mode_needs_checks")
+  .refine((d) => (!d.expect.pacing && !d.expect.scope) || d.role === "companion", "pacing_companion_only");
 export type Dialogue = z.infer<typeof dialogueSchema>;
 /** The graded checks a dialogue's question matches, as Core matches them for a companion turn
  * (every listed check counts as this lesson's; the lesson text is the episode's). */

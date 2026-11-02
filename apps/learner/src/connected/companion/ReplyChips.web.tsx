@@ -1,6 +1,7 @@
 import React, { useId, useState } from "react";
 import { useT, type MessageKey, type Translate } from "../../i18n";
 import { Chip } from "../ui/Chip.web";
+import { PillButton } from "../ui/PillButton.web";
 import type { TurnState } from "./turnState";
 
 export interface SuggestedChip {
@@ -15,11 +16,15 @@ const send = (t: Translate, key: MessageKey): SuggestedChip => ({ label: t(key),
 
 /**
  * The chips under the latest reply (final design §3.7): answers when the reply asked the learner
- * something, follow-ups otherwise; "Show me how" after three question turns in a row (TUT-3); and
+ * something, follow-ups otherwise; "Show me how" after three question turns in a row (TUT-3); only
+ * "Ask another question" under a reply that ends a run of practice (beside "Back to the lesson"); and
  * under a hint that stands in for a counted check's answer, "Here's my reasoning", which fills the
  * box. No chip asks for a counted check's answer.
  */
 export function replyChips(turn: TurnState, t: Translate): SuggestedChip[] {
+  // A reply that ends a run of practice sends the learner back to the lesson (BackToLesson); asking
+  // for another question stays one tap away.
+  if (turn.backToLesson) return [{ label: t("replyChips.askAnother"), kind: "send", text: t("replyChips.askAnotherText") }];
   const chips = turn.yourTurn
     ? [send(t, "replyChips.notSure"), send(t, "replyChips.hint"), send(t, "replyChips.example")]
     : [send(t, "replyChips.anotherWay"), send(t, "replyChips.example"), send(t, "replyChips.quiz")];
@@ -81,6 +86,20 @@ export function ChipRow({
         {t("replyChips.more")}
       </button>
       {open ? row : <div id={id} hidden />}
+    </div>
+  );
+}
+
+/**
+ * Under a reply that ends a run of practice (turnState.ts `backToLesson`): "Back to the lesson" as
+ * the clear next step, in place of "Your turn", then the chips ("Ask another question").
+ */
+export function BackToLesson({ onBack, chips }: { onBack(): void; chips?: React.ReactNode }) {
+  const t = useT();
+  return (
+    <div className="cc-chat-back-to-lesson">
+      <PillButton variant="accent" size={36} startIcon="book-open" label={t("replyChips.backToLesson")} className="cc-chat-back-button" onPress={onBack} />
+      {chips}
     </div>
   );
 }

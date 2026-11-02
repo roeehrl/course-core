@@ -26,6 +26,9 @@ import d23 from "./public/dialogues/companion.guessing.check-hint-option-hebrew.
 import d24 from "./public/dialogues/companion.guessing.check-elimination-hebrew.json" with { type: "json" };
 import d25 from "./public/dialogues/companion.novice.after-pasted-check.json" with { type: "json" };
 import d26 from "./public/dialogues/companion.novice.check-lesson-number.json" with { type: "json" };
+import d27 from "./public/dialogues/companion.novice.two-correct-answers.json" with { type: "json" };
+import d28 from "./public/dialogues/companion.expert.no-repeated-skill.json" with { type: "json" };
+import d29 from "./public/dialogues/companion.novice.later-lesson-idea.json" with { type: "json" };
 import reference from "./public/scripted/reference.json" with { type: "json" };
 import knownBad from "./public/scripted/known-bad.json" with { type: "json" };
 import overTriggering from "./public/scripted/over-triggering.json" with { type: "json" };
@@ -38,7 +41,7 @@ import { scriptedAnswerSchema, type ScriptedAnswer } from "./scripted-model.js";
  * (examples/courses/packs). The same files are in `public/` in the documented directory layout;
  * a test checks that this list and that directory build the same digest.
  */
-const DIALOGUES: readonly unknown[] = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19, d20, d21, d22, d23, d24, d25, d26];
+const DIALOGUES: readonly unknown[] = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19, d20, d21, d22, d23, d24, d25, d26, d27, d28, d29];
 let cached: EvalSuite | undefined;
 export function publicSuite(): EvalSuite {
   return (cached ??= buildSuite(manifest.id, manifest.version, DIALOGUES));

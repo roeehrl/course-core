@@ -52,6 +52,21 @@ export function questionTurnsInARow(messages: readonly CompanionMessage[]): numb
   return count;
 }
 
+/** Whether the reply ends a run of practice: it does not ask, and the companion reply before it did
+ * (the learner was answering). Core's pacing (services/api/src/companion-pacing.ts) makes such a
+ * reply confirm or correct the answer and point back to the lesson; the app then offers "Back to the
+ * lesson" in place of "Your turn". */
+export function closesPractice(messages: readonly CompanionMessage[], index = messages.length - 1): boolean {
+  const reply = messages[index];
+  if (!reply || reply.role !== "assistant" || deleted(reply) || asksLearner(reply) || isWithheldHint(reply)) return false;
+  for (let earlier = index - 1; earlier >= 0; earlier--) {
+    const message = messages[earlier]!;
+    if (message.role !== "assistant" || deleted(message)) continue;
+    return asksLearner(message);
+  }
+  return false;
+}
+
 export interface TurnState {
   /** The newest settled reply, when it is the last message (nothing was sent after it). */
   latestReplyId?: string;
@@ -61,6 +76,8 @@ export interface TurnState {
   withheldHint: boolean;
   /** Three or more question turns in a row, the latest not a withheld-answer hint. */
   showMeHow: boolean;
+  /** That reply ends a run of practice (closesPractice): "Back to the lesson", with "Ask another question". */
+  backToLesson: boolean;
 }
 
 /** The turn after the saved messages, given whether a question of the learner's is still waiting
@@ -68,7 +85,7 @@ export interface TurnState {
 export function turnState(messages: readonly CompanionMessage[], { inProgress = false }: { inProgress?: boolean } = {}): TurnState {
   const last = messages.at(-1);
   if (inProgress || !last || last.role !== "assistant" || deleted(last))
-    return { yourTurn: false, withheldHint: false, showMeHow: false };
+    return { yourTurn: false, withheldHint: false, showMeHow: false, backToLesson: false };
   const yourTurn = asksLearner(last);
   const withheldHint = isWithheldHint(last);
   return {
@@ -78,5 +95,6 @@ export function turnState(messages: readonly CompanionMessage[], { inProgress = 
     // "Show me how" asks for a solution: never under a hint that stands in for a counted check's
     // answer (§3.7: no chip asks for a counted check's answer).
     showMeHow: yourTurn && !withheldHint && questionTurnsInARow(messages) >= 3,
+    backToLesson: closesPractice(messages),
   };
 }

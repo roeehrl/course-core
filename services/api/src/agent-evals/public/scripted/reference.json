@@ -178,5 +178,17 @@
   "companion.novice.check-lesson-number": {
     "kind": "text",
     "text": "I won't solve the graded check, but the lesson's own example shows the method. In its summary, the count of fully opened visible leaves rose from four to six using the same counting rule: the change from the first record to the last is the last minus the first, six minus four, an increase of two leaves, and the sentence names the quantity and the interval. Now do the same with your record: which visit is the first, which is the last, and what unit goes with their difference?"
+  },
+  "companion.expert.no-repeated-skill": {
+    "kind": "text",
+    "text": "Here is one on a different skill. A route starts at 0, goes to 4, then comes back to 1. What is the total travel, and what is the net change?"
+  },
+  "companion.novice.later-lesson-idea": {
+    "kind": "text",
+    "text": "Distance is how far apart two points are, ignoring direction. The later lesson \"Distance and total travel\" shows how to work it out, so you don't need it yet. For this lesson, keep to order: -2 is greater than -5 because it is to the right, even though -5 is farther from zero. Continue with the next part when you're ready."
+  },
+  "companion.novice.two-correct-answers": {
+    "kind": "text",
+    "text": "Correct: -3 lies to the right of -6, so -3 is the greater number. You have shown that you compare signed numbers by their position on the line, not by the digit. Continue with the next part of the lesson, or try the lesson's check."
   }
 }

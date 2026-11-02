@@ -35,7 +35,7 @@ import { useCompanionOpenValue } from "./openState";
 import { composerPlaceholder } from "./placeholder";
 import { dismissRecovered, useRecoveredMessage } from "./recovered";
 import { ReplyActions } from "./ReplyActions.web";
-import { ChipRow, replyChips } from "./ReplyChips.web";
+import { BackToLesson, ChipRow, replyChips } from "./ReplyChips.web";
 import {
   cancelledBeforeSent,
   nextReplyChange,
@@ -851,7 +851,13 @@ function ConversationBody({
             />
             </div>
           }
-          chips={chipsShown ? <ChipRow chips={replyChips(needsConsent ? { ...turn, showMeHow: false } : turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} fresh={arriving(message.id)} label={t("conversation.suggestions")} /> : undefined}
+          chips={chipsShown ? (() => {
+            const row = <ChipRow chips={replyChips(needsConsent ? { ...turn, showMeHow: false } : turn, t)} onSend={sendChip} onFill={(text) => fill(text)} folded={folded} fresh={arriving(message.id)} label={t("conversation.suggestions")} />;
+            // A reply that ends a run of practice: back to the part the learner was on (showInLesson).
+            return turn.backToLesson
+              ? <BackToLesson chips={row} onBack={() => showLesson({ episodeId: message.context.episodeId ?? context.episodeId, blockId: context.blockId ?? message.context.blockId ?? undefined, focus: "block" })} />
+              : row;
+          })() : undefined}
         />,
       );
     }

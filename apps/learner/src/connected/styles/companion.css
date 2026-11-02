@@ -318,6 +318,17 @@ button.cc-chat-anchor:focus-visible {
 .cc-chat-chips.is-fresh {
   animation: cc-chat-in var(--motion-m7-duration) var(--motion-m7-easing);
 }
+/* Under a reply that ends a run of practice: "Back to the lesson" first, then the chips. */
+.cc-chat-back-to-lesson {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cc-chat-back-button {
+  flex: none;
+  gap: 6px;
+}
 .cc-chat-chips-folded {
   display: flex;
   flex-direction: column;
