@@ -725,6 +725,11 @@ describe("authoritative calendar offers and preserving migrations", () => {
   it("uses real domain previews/proposals and cannot accept learner consent or debit automatically", async () => {
     const { learner, id } = await enroll(),
       before = await policy(id);
+    // A per-concept work limit can name its concept: the objective's description here.
+    expect(before.conceptTitles).toMatchObject({
+      minimum: "Find a minimum.",
+      maximum: "Find a maximum.",
+    });
     const preview = await req(
       admin,
       "POST",

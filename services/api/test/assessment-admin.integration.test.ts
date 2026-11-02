@@ -76,6 +76,10 @@ describe("answer keys and test answers (Q09)", () => {
     expect(listed.json().release).toMatchObject({ id: draft, status: "draft", editable: true });
     expect(listed.json().items.find((i: { assessmentId: string }) => i.assessmentId === "min-a"))
       .toMatchObject({ kind: "key", type: "choice", editable: true, key: { correctOptionId: "two" }, options: [{ id: "two", text: "2" }, { id: "five", text: "5" }], fixtures: 0 });
+    // Each question names the lesson it is asked in: as a block, else through the lesson's gate.
+    const lesson = (id: string) => listed.json().items.find((i: { assessmentId: string }) => i.assessmentId === id)?.lessonTitle;
+    expect(lesson("min-a")).toBe("Minimum");
+    expect(lesson("max-a")).toBe("Maximum");
     expect((await items(published)).json().release).toMatchObject({ status: "published", editable: false });
     expect((await items(draft, author)).statusCode).toBe(200);
     // Keys reveal answers: roles without course.write, and learners, never get them.
