@@ -255,6 +255,28 @@ export function createDemoSupervision({
         ? { enrollmentId: uuid("c", 2), learnerName: learners[1].name }
         : {}),
     },
+    {
+      requestId: uuid("d", 3),
+      jobId: uuid("a", 31),
+      kind: "required_objectives",
+      approver: "staff",
+      proposal: {
+        objectiveIds: ["predict-small-example"],
+        objectives: [
+          {
+            id: "predict-small-example",
+            description: "Predict a small example",
+          },
+        ],
+      },
+      reason: "The learner skipped the worked examples twice.",
+      state: "pending",
+      decidedAt: null,
+      createdAt: "2026-10-12T10:05:00.000Z",
+      ...(learners[1]
+        ? { enrollmentId: uuid("c", 2), learnerName: learners[1].name }
+        : {}),
+    },
   ];
   const decisions = new Map<string, string>();
 

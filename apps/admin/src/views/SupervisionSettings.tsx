@@ -20,6 +20,7 @@ import {
   Field,
   Notice,
   SkeletonRows,
+  TechnicalDetails,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
@@ -43,7 +44,7 @@ export function SupervisionSettingsCard({
   port: SupervisionSettingsPort;
   workspaceId: string;
 }) {
-  const { t } = useI18n();
+  const { t, list } = useI18n();
   const label = useLabel();
   const id = useId();
   const view = useRemote(
@@ -70,6 +71,31 @@ export function SupervisionSettingsCard({
   const chosenFamilies = families ?? saved.permittedToolFamilies;
   const chosenConfirmation = confirmation ?? saved.conversationConfirmation;
   const allFamilies = saved.families ?? [];
+  // Tools by their kind ("Research (2), Visuals (1)"), from the families the server lists; a
+  // tool of no listed kind (an older server) is named by its id.
+  const familyOf = new Map(
+    allFamilies.flatMap((family) =>
+      family.tools.map((tool) => [tool.id, family.id] as const),
+    ),
+  );
+  const toolKinds = (ids: string[]) => {
+    const counts = new Map<string, number>();
+    const unknown: string[] = [];
+    for (const tool of ids) {
+      const family = familyOf.get(tool);
+      if (family) counts.set(family, (counts.get(family) ?? 0) + 1);
+      else unknown.push(tool);
+    }
+    return list([
+      ...[...counts].map(([family, count]) =>
+        t("supervisionSettings.preview.toolKind", {
+          family: label(`supervisionSettings.family.${family}`, family),
+          count,
+        }),
+      ),
+      ...unknown,
+    ]);
+  };
   const choiceKey = `${chosenLevel}:${chosenConfirmation}:${[...chosenFamilies].sort().join(",")}`;
   const unchanged =
     chosenLevel === saved.autonomyLevel &&
@@ -249,9 +275,7 @@ export function SupervisionSettingsCard({
                 {t("supervisionSettings.preview.removed", {
                   count: previewed.toolsRemoved.length,
                 })}{" "}
-                <span dir="ltr" className="muted">
-                  {previewed.toolsRemoved.join(", ")}
-                </span>
+                {toolKinds(previewed.toolsRemoved)}
               </p>
             )}
             {previewed.toolsAdded.length > 0 && (
@@ -259,10 +283,35 @@ export function SupervisionSettingsCard({
                 {t("supervisionSettings.preview.added", {
                   count: previewed.toolsAdded.length,
                 })}{" "}
-                <span dir="ltr" className="muted">
-                  {previewed.toolsAdded.join(", ")}
-                </span>
+                {toolKinds(previewed.toolsAdded)}
               </p>
+            )}
+            {previewed.toolsAdded.length + previewed.toolsRemoved.length >
+              0 && (
+              <TechnicalDetails
+                rows={[
+                  ...(previewed.toolsRemoved.length
+                    ? [
+                        [
+                          t("supervisionSettings.preview.removed", {
+                            count: previewed.toolsRemoved.length,
+                          }),
+                          previewed.toolsRemoved.join(", "),
+                        ] as [string, string],
+                      ]
+                    : []),
+                  ...(previewed.toolsAdded.length
+                    ? [
+                        [
+                          t("supervisionSettings.preview.added", {
+                            count: previewed.toolsAdded.length,
+                          }),
+                          previewed.toolsAdded.join(", "),
+                        ] as [string, string],
+                      ]
+                    : []),
+                ]}
+              />
             )}
             {previewed.warnings.map((warning) => (
               <Notice key={warning} tone="gold">
@@ -304,7 +353,7 @@ export function AuthorityQueueCard({
   port: SupervisionSettingsPort;
   workspaceId: string;
 }) {
-  const { t } = useI18n();
+  const { t, list } = useI18n();
   const { when, money } = useFormatters();
   const label = useLabel();
   const view = useRemote(
@@ -364,11 +413,18 @@ export function AuthorityQueueCard({
       ? t("supervisionSettings.requests.proposal.paid_ceiling", {
           amount: money(Math.round(r.proposal.limitMicroUsd / 10_000)),
         })
-      : r.proposal.objectiveIds
+      : r.proposal.objectives?.length
         ? t("supervisionSettings.requests.proposal.objectives", {
-            objectives: r.proposal.objectiveIds.join(", "),
+            objectives: list(
+              r.proposal.objectives.map((o) => `\u2068${o.description}\u2069`),
+            ),
           })
-        : "";
+        : r.proposal.objectiveIds?.length
+          ? // An older server sends ids only: say how many, the ids are under Technical details.
+            t("supervisionSettings.requests.proposal.objectiveCount", {
+              count: r.proposal.objectiveIds.length,
+            })
+          : "";
   return (
     <Card
       title={t("supervisionSettings.requests.title")}
@@ -414,6 +470,13 @@ export function AuthorityQueueCard({
                     {t("supervisionSettings.requests.authorsAct")}
                   </span>
                 )}
+                {r.proposal.objectiveIds?.length ? (
+                  <TechnicalDetails>
+                    <p className="mono" dir="ltr">
+                      {r.proposal.objectiveIds.join(", ")}
+                    </p>
+                  </TechnicalDetails>
+                ) : null}
                 <div className="tag-row">
                   <Button
                     kind="primary"
