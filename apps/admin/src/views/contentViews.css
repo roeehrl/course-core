@@ -119,12 +119,12 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
   }
-  .cv-row-meta {
+  .cv-row-summary > .cv-row-meta {
     grid-column: 1;
     grid-row: 2;
     justify-content: flex-start;
   }
-  .cv-row-chevron {
+  .cv-row-summary > .cv-row-chevron {
     grid-column: 2;
     grid-row: 1;
   }
@@ -316,6 +316,10 @@
   }
   .selector-list.cv-runs-buttons {
     display: none;
+  }
+  /* The chosen run comes straight after the picker; replaying all runs is the rarer action. */
+  .cv-runs-detail > .cv-replay {
+    order: 1;
   }
 }
 
