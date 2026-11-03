@@ -305,10 +305,16 @@ function Overview({
         />
         <OverviewStat
           label={t("overviewView.stat.contentDefects")}
-          value={i18n.number(defects)}
-          detail={t("overviewView.stat.invalidated", {
-            count: o.contentDefects.evidenceInvalidatedLast30Days,
-          })}
+          value={
+            o.contentDefects.activeReleaseChecking ? "—" : i18n.number(defects)
+          }
+          detail={
+            o.contentDefects.activeReleaseChecking
+              ? t("overviewView.stat.defectsChecking")
+              : t("overviewView.stat.invalidated", {
+                  count: o.contentDefects.evidenceInvalidatedLast30Days,
+                })
+          }
           onOpen={opener("course")}
           openLabel={openLabel("course")}
         />

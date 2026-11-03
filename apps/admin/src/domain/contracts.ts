@@ -137,6 +137,10 @@ export const releaseSchema = z.object({
   ]),
   notes: text,
   createdAt: text,
+  /** True while the server is still running this release's checks (a large course just
+   * installed or changed): `checks` is empty until they finish. Review and publication run every
+   * check on the server regardless. */
+  checking: z.boolean().optional(),
   /** warning: passed, but a standing limit staff should read (never blocks review). */
   checks: z.array(
     z.object({

@@ -26,7 +26,7 @@ import { adminHypothesisView, runHypothesisChanges } from "./teaching-hypotheses
 import { enrollmentProfileFor, STAFF_READ_ROLES } from "./learner-privacy.js";
 import { authService, type Actor } from "./auth.js";
 import { adminPermissionMatrix, catalogOfEnrollment, enrollmentRole, permitCourse, sessionCourses, roleCan, type AdminPermission } from "./course-access.js";
-import { courseOverview } from "./course-overview.js";
+import { courseOverview, failingChecks } from "./course-overview.js";
 import { auditClosedRecordAmended } from "./closed-record.js";
 import { workspaceAudit } from "./workspace-audit.js";
 import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runRetryLinks, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
@@ -81,6 +81,10 @@ export interface AdminRuntimeOptions {
   }|Promise<{models:ReturnType<ProviderRuntime["describe"]>;roles:ReturnType<ProviderRuntime["status"]>}>;
   /** ALLOW_INSECURE_ORIGINS is on: plain-http origins outside Tailscale are trusted. */
   insecureOriginsAllowed?: boolean;
+  /** How long a course view waits, after its transaction has ended, for release checks being
+   * computed in the background before it answers with those releases still checking (default
+   * 1000 ms; 0 answers at once). */
+  releaseCheckWaitMs?: number;
 }
 export interface Catalog {
   id: string;
@@ -205,7 +209,7 @@ export async function releasesFor(client: Sql, catalog: Catalog) {
  * update of the row, so it names the exact stored bundle without reading it. */
 export type ReleaseSummary = Omit<ReleaseRow, "server_bundle" | "learner_bundle"> & { row_version: string };
 /** The course's releases for listing: metadata only. Each bundle can be megabytes, so a view that
- * lists every release must not load, parse or check them (releaseChecksFor reads one only when its
+ * lists every release must not load, parse or check them (the background release check runner reads one only when its
  * checks are not known yet). */
 export async function releaseSummariesFor(client: Sql, catalog: Catalog) {
   return (
@@ -239,34 +243,116 @@ const knownChecks = new Map<string, ReleaseCheck[]>();
 const KNOWN_CHECKS_LIMIT = 512;
 const checksKey = (release: { id: string; digest: string; row_version: string }, extensions: string) =>
   `${release.id}|${release.row_version}|${release.digest}|${extensions}`;
-/** Counters for tests: how many releases had their bundle read and checked. */
-const checkStatistics = { computed: 0, reused: 0 };
+/** Counters for tests: how many releases had their bundle read and checked, how many views
+ * reused known checks, and how many checks a view left running in the background. */
+const checkStatistics = { computed: 0, reused: 0, deferred: 0 };
 export const releaseCheckStatistics = () => ({ ...checkStatistics });
+function rememberChecks(key: string, found: ReleaseCheck[]) {
+  knownChecks.delete(key);
+  knownChecks.set(key, found);
+  if (knownChecks.size > KNOWN_CHECKS_LIMIT) knownChecks.delete(knownChecks.keys().next().value!);
+}
 /**
- * The checks of each listed release. Known checks are reused without reading the bundle. An
- * unknown one reads only that release's server bundle (never the learner bundle), checks it and
- * yields to the event loop before the next, so other requests are not held behind a long view.
+ * Computes release checks off the request path. A release's checks run every visual check of
+ * the course (seconds of worker time on a large course, more on a small host), so no view and no
+ * transaction waits on them: the runner reads the release with its own pooled connection (no
+ * transaction), warms the renderers' checks in their worker threads, then records the checks for
+ * the release's exact stored row. One release at a time; a release already queued is not queued
+ * again; a failure records nothing, so the next view simply asks again. One runner per pool.
  */
-export async function releaseChecksFor(client: Sql, releases: readonly ReleaseSummary[], options: AdminRuntimeOptions) {
-  const extensions = installed(options), extensionsKey = installedKey(extensions);
-  const checks = new Map<string, ReleaseCheck[]>();
-  for (const summary of releases) {
-    const known = knownChecks.get(checksKey(summary, extensionsKey));
-    if (known) { checkStatistics.reused++; checks.set(summary.id, known); continue; }
-    const row = (await client.query<{ server_bundle: CourseManifest; digest: string; row_version: string }>(
-      "SELECT server_bundle,digest,xmin::text AS row_version FROM course_releases WHERE id=$1", [summary.id])).rows[0];
-    if (!row) continue;
+export interface ReleaseCheckRunner {
+  /** Queues the release's checks unless they are known or queued. Resolves when they are recorded
+   * (or the attempt ended); never rejects. */
+  schedule(releaseId: string, options: AdminRuntimeOptions): Promise<void>;
+  /** Resolves when nothing is queued or running (server shutdown, tests). */
+  idle(): Promise<void>;
+}
+const runners = new WeakMap<Database, ReleaseCheckRunner>();
+export function releaseCheckRunner(db: Database): ReleaseCheckRunner {
+  let runner = runners.get(db);
+  if (runner) return runner;
+  const queued = new Map<string, Promise<void>>();
+  let tail: Promise<void> = Promise.resolve();
+  const compute = async (releaseId: string, options: AdminRuntimeOptions) => {
+    const extensions = installed(options), extensionsKey = installedKey(extensions);
+    // Metadata first: checks recorded since this was queued need no bundle read.
+    const summary = (await db.query<{ id: string; digest: string; row_version: string }>(
+      "SELECT id,digest,xmin::text AS row_version FROM course_releases WHERE id=$1", [releaseId])).rows[0];
+    if (!summary || knownChecks.has(checksKey(summary, extensionsKey))) return;
+    const row = (await db.query<{ id: string; server_bundle: CourseManifest; digest: string; row_version: string }>(
+      "SELECT id,server_bundle,digest,xmin::text AS row_version FROM course_releases WHERE id=$1", [releaseId])).rows[0];
+    if (!row) return;
     await prepareCourseRunnable(row.server_bundle, extensions);
-    const found = validation({ ...summary, ...row } as unknown as ReleaseRow, options);
-    checkStatistics.computed++;
-    const key = checksKey({ id: summary.id, digest: row.digest, row_version: row.row_version }, extensionsKey);
-    knownChecks.delete(key);
-    knownChecks.set(key, found);
-    if (knownChecks.size > KNOWN_CHECKS_LIMIT) knownChecks.delete(knownChecks.keys().next().value!);
-    checks.set(summary.id, found);
     await new Promise((resolve) => setImmediate(resolve));
+    const found = validation(row as unknown as ReleaseRow, options);
+    checkStatistics.computed++;
+    rememberChecks(checksKey(row, extensionsKey), found);
+  };
+  runner = {
+    schedule(releaseId, options) {
+      const key = `${releaseId}|${installedKey(installed(options))}`;
+      let run = queued.get(key);
+      if (!run) {
+        run = tail.then(() => compute(releaseId, options)).catch(() => undefined).finally(() => queued.delete(key));
+        queued.set(key, run);
+        tail = run;
+      }
+      return run;
+    },
+    async idle() { while (queued.size) await Promise.all(queued.values()); },
+  };
+  runners.set(db, runner);
+  return runner;
+}
+/**
+ * Warms the installed renderers' checks of a stored release's visuals (prepareCourseRunnable),
+ * reading it on a pooled connection outside any transaction. Call it before a transaction that
+ * gates on the release's checks: the gate then reuses passed results for identical bytes and
+ * still checks the rest in full. Decides nothing.
+ */
+export async function warmReleaseVisuals(db: Database, releaseId: string, options: AdminRuntimeOptions) {
+  const row = (await db.query<{ server_bundle: CourseManifest }>("SELECT server_bundle FROM course_releases WHERE id=$1", [releaseId])).rows[0];
+  if (row) await prepareCourseRunnable(row.server_bundle, installed(options));
+}
+/**
+ * The known checks of each listed release, from the record and without reading any bundle. A
+ * release whose checks are not known yet is returned in `pending` with the key they will be
+ * recorded under; nothing is checked on the caller's connection or inside its transaction.
+ */
+export function releaseChecksFor(releases: readonly ReleaseSummary[], options: AdminRuntimeOptions) {
+  const extensionsKey = installedKey(installed(options));
+  const checks = new Map<string, ReleaseCheck[]>(), pending = new Map<string, string>();
+  for (const summary of releases) {
+    const key = checksKey(summary, extensionsKey), known = knownChecks.get(key);
+    if (known) { checkStatistics.reused++; checks.set(summary.id, known); continue; }
+    checkStatistics.deferred++;
+    pending.set(summary.id, key);
   }
-  return checks;
+  return { checks, pending };
+}
+/** How long a reply waits, after its transaction has ended, for checks still being computed. */
+const RELEASE_CHECK_WAIT_MS = 1000;
+/**
+ * Call after the transaction that read the releases has ended (so the runner, on its own
+ * connection, sees what it committed). Queues each pending release on the background runner,
+ * waits up to `releaseCheckWaitMs` for them, and returns the checks now known for exactly the
+ * rows the caller read. A release still being checked is left out: the view shows it as
+ * checking and the admin app asks again.
+ */
+export async function settleReleaseChecks(db: Database, pending: ReadonlyMap<string, string>, options: AdminRuntimeOptions) {
+  const runner = releaseCheckRunner(db), wait = options.releaseCheckWaitMs ?? RELEASE_CHECK_WAIT_MS;
+  const runs = [...pending.keys()].map((id) => runner.schedule(id, options));
+  if (runs.length && wait > 0) {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([Promise.all(runs), new Promise((resolve) => { timer = setTimeout(resolve, wait); })]);
+    clearTimeout(timer);
+  }
+  const settled = new Map<string, ReleaseCheck[]>();
+  for (const [id, key] of pending) {
+    const found = knownChecks.get(key);
+    if (found) settled.set(id, found);
+  }
+  return settled;
 }
 /** The author's question limit across the course's live (published or archived) releases. */
 async function authorLimitFor(client: Sql, catalog: Catalog) {
@@ -542,6 +628,11 @@ function toolExplanation(t: { tool: string; reason: string | null; draft_verific
   if (t.applied_plan_revision !== null) return { code: "support_delivered", params: { planRevision: Number(t.applied_plan_revision) } };
   return { code: ended ? "receipt_ended" : "receipt_pending" };
 }
+/**
+ * The course workspace as read inside the caller's transaction, with the releases whose checks
+ * are not known yet marked `checking`. Pass the result to settleWorkspaceView once the
+ * transaction has ended; it queues and briefly awaits those checks.
+ */
 async function workspaceView(
   client: Sql,
   actor: Actor,
@@ -554,7 +645,7 @@ async function workspaceView(
   const visible = ["owner", "admin", "author", "reviewer"].includes(role)
     ? releases
     : releases.filter((r) => r.status === "published");
-  const checks = await releaseChecksFor(client, visible, options);
+  const { checks, pending } = releaseChecksFor(visible, options);
   // The newest visible release's objectives only, read inside the database.
   const objectives = visible[0]
     ? ((await client.query<{ objectives: CourseManifest["objectives"] | null }>(
@@ -595,7 +686,7 @@ async function workspaceView(
   const enrollmentViews = [];
   for (const row of enrollments)
     enrollmentViews.push(await enrollmentView(client, actor, row.id));
-  return {
+  const view = {
     course: {
       id: catalogId,
       title: catalog.title,
@@ -616,6 +707,10 @@ async function workspaceView(
       notes: release.notes,
       createdAt: iso(release.created_at),
       checks: checks.get(release.id) ?? [],
+      /** True while this server is still checking the release (a large course, just imported or
+       * changed): `checks` is empty, and the admin app shows the release as being checked and
+       * reads the course again. Review and publication still run every check themselves. */
+      checking: pending.has(release.id),
     })),
     enrollments: enrollmentViews,
     providers,
@@ -624,6 +719,17 @@ async function workspaceView(
       : [],
     toolBudget: budget,
   };
+  return { view, pending };
+}
+/** The workspace view with the checks that finished within the wait (settleReleaseChecks). Call
+ * it after the transaction that read the view has ended. */
+async function settleWorkspaceView(db: Database, read: Awaited<ReturnType<typeof workspaceView>>, options: AdminRuntimeOptions) {
+  const settled = await settleReleaseChecks(db, read.pending, options);
+  for (const release of read.view.releases) {
+    const found = settled.get(release.id);
+    if (found) Object.assign(release, { checks: found, checking: false });
+  }
+  return read.view;
 }
 
 function headerContext(request: FastifyRequest) {
@@ -657,7 +763,8 @@ async function courseCommand(
     enrollmentId?: string;
   }>,
 ) {
-  return transaction(db, async (client) => {
+  // The view is read inside the command's transaction; its release checks are settled after it.
+  const { read, receipt } = await transaction(db, async (client) => {
     const { catalog } = await catalogFor(
       client,
       actor,
@@ -678,7 +785,7 @@ async function courseCommand(
     ).rows[0];
     if (previous) {
       requireSameRequest(previous.request_digest, requestDigest, "IDEMPOTENCY_CONFLICT");
-      return courseCommandResponse(await workspaceView(client, actor, catalogId, options), previous.response);
+      return { read: await workspaceView(client, actor, catalogId, options), receipt: previous.response as CourseCommandReceipt };
     }
     requireCondition(
       catalog.revision === input.expectedRevision,
@@ -718,8 +825,9 @@ async function courseCommand(
         enrollmentId,
       ],
     );
-    return courseCommandResponse(await workspaceView(client, actor, catalogId, options), saved.rows[0]!.response);
+    return { read: await workspaceView(client, actor, catalogId, options), receipt: saved.rows[0]!.response as CourseCommandReceipt };
   });
+  return courseCommandResponse(await settleWorkspaceView(db, read, options), receipt);
 }
 interface CourseCommandReceipt {
   receipt: { id: string; authority: "server"; outcome: "saved" | "pending_review" | "published" };
@@ -729,7 +837,7 @@ interface CourseCommandReceipt {
 /** A course command's reply: the stored receipt with the workspace as it is now. The first reply
  * and every replay are built the same way, so a replay answers exactly as the command did when
  * nothing has changed since, and with the current workspace when something has. */
-function courseCommandResponse(workspace: Awaited<ReturnType<typeof workspaceView>>, stored: CourseCommandReceipt) {
+function courseCommandResponse(workspace: Awaited<ReturnType<typeof settleWorkspaceView>>, stored: CourseCommandReceipt) {
   return { workspace, receipt: stored.receipt, message: stored.message };
 }
 export async function enrollmentCommand<T>(
@@ -1075,6 +1183,8 @@ export function registerAdminRoutes(
   options: AdminRuntimeOptions = {},
 ) {
   const path = "/api/admin";
+  // Release checks still running in the background finish before the pool closes.
+  app.addHook("onClose", () => releaseCheckRunner(db).idle());
   app.get(`${path}/session`, async (request) => {
     const actor = await auth.authenticate(request);
     // Workspace staff see every course; course-scoped members only courses of active grants.
@@ -1129,15 +1239,24 @@ export function registerAdminRoutes(
   /** What needs attention on one course. Sections the role cannot read are null. */
   app.get(`${path}/courses/:courseId/overview`, async (request) => {
     const actor = await auth.authenticate(request);
-    return transaction(db, async (client) => {
+    let pending: ReadonlyMap<string, string> = new Map();
+    const overview = await transaction(db, async (client) => {
       const { catalog, role } = await catalogFor(client, actor, params(request).courseId!);
       const permissions = adminPermissionMatrix[role] ?? [];
       return courseOverview(client, catalog, {
         enrollments: permissions.includes("enrollment.read"),
         policy: permissions.includes("policy.read"),
         runs: permissions.includes("run.inspect"),
-      }, async (release) => (await releaseChecksFor(client, [release as ReleaseSummary], options)).get(release.id) ?? []);
+      }, async (release) => {
+        const found = releaseChecksFor([release as ReleaseSummary], options);
+        pending = found.pending;
+        return found.checks.get(release.id) ?? null;
+      });
     });
+    // The active release's checks, if still being computed, are settled after the transaction.
+    for (const checks of (await settleReleaseChecks(db, pending, options)).values())
+      Object.assign(overview.contentDefects, { activeReleaseChecksFailing: failingChecks(checks), activeReleaseChecking: false });
+    return overview;
   });
   /** Workspace audit log, newest first. Payloads only for allowlisted staff/system events. */
   app.get(`${path}/workspaces/:workspaceId/audit`, async (request) => {
@@ -1262,9 +1381,11 @@ export function registerAdminRoutes(
   });
   app.get(`${path}/courses/:courseId`, async (request) => {
     const actor = await auth.authenticate(request);
-    return transaction(db, (client) =>
+    // Read in a transaction; release checks still being computed are settled after it ends.
+    const read = await transaction(db, (client) =>
       workspaceView(client, actor, params(request).courseId!, options),
     );
+    return settleWorkspaceView(db, read, options);
   });
   app.patch(`${path}/courses/:courseId`, async (request) => {
     const actor = await auth.authenticate(request),
@@ -1462,13 +1583,23 @@ export function registerAdminRoutes(
           : input.action === "publish" || input.action === "activate" || input.action === "archive"
             ? "release.publish"
             : "course.write";
+      const context = headerContext(request);
+      // Every transition but archiving runs the release's checks inside the command's transaction,
+      // with the catalog and release locked. Warm its visual checks first, outside any
+      // transaction, so that gate reuses their results instead of checking a cold course under
+      // those locks.
+      if (input.action !== "archive") {
+        const { catalog } = await catalogFor(db, actor, params(request).courseId!, permission);
+        if ((await releaseSummariesFor(db, catalog)).some((r) => r.id === params(request).releaseId))
+          await warmReleaseVisuals(db, params(request).releaseId!, options);
+      }
       return courseCommand(
         db,
         actor,
         params(request).courseId!,
         permission,
         "admin.release.transition",
-        headerContext(request),
+        context,
         { releaseId: params(request).releaseId, ...input },
         options,
         async (client, catalog) =>
@@ -1497,12 +1628,18 @@ export function registerAdminRoutes(
   app.post(`${path}/courses/:courseId/releases/:releaseId/check`, { bodyLimit: 16 * 1024 * 1024 }, async (request) => {
     const actor = await auth.authenticate(request),
       input = parse(z.strictObject({ manifest: z.unknown() }), request.body);
+    // Warm the manifest's visual checks before the transaction (they take seconds on a large
+    // course); the runtime gate below still decides, reusing only results for identical bytes.
+    await catalogFor(db, actor, params(request).courseId!, "course.write");
+    let warm: CourseManifest | undefined;
+    try { warm = compileCourse(input.manifest).server; } catch { /* checkManifest reports it below */ }
+    if (warm) await prepareCourseRunnable(warm, installed(options));
     return transaction(db, async (client) => {
       const { catalog } = await catalogFor(client, actor, params(request).courseId!, "course.write");
       const release = await releaseOf(client, catalog, params(request).releaseId);
       const check = checkManifest(input.manifest, { courseKey: catalog.course_key, version: release.version });
       if (!check.valid) return { ...check, runtime: null, changes: null };
-      const course = compileCourse(input.manifest).server;
+      const course = warm ?? compileCourse(input.manifest).server;
       let runtime: { ready: boolean; code: string | null } = { ready: true, code: null };
       try {
         await prepareCourseRunnable(course, installed(options));

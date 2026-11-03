@@ -38,7 +38,7 @@ import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { roleCan, workspaceRole } from './course-access.js';
-import { ensureCatalog, transitionReleaseWithin, type AdminRuntimeOptions, type Catalog } from './admin-routes.js';
+import { ensureCatalog, releaseCheckRunner, transitionReleaseWithin, type AdminRuntimeOptions, type Catalog } from './admin-routes.js';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { approveAdaptationRegistry, checkAdaptationConfiguration, withProspectiveExtensions, type AdaptationConfiguration, type AdaptationRuntime } from './adaptation-store.js';
 import { digestJson } from './repository.js';
@@ -343,6 +343,8 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
         idempotencyKey: `course-package:${input.workspaceId}:${packageSha}` });
       return { releaseId, alreadyInstalled: false };
     }).catch(error => { for (const undo of activated.reverse()) undo(); throw error; });
+    // Committed: record the release's checks in the background for the course view that follows.
+    void releaseCheckRunner(db).schedule(installed.releaseId, admin);
     let registry: { approved: true; registryRevision: number } | { approved: false; code: string } | undefined;
     if (input.approveRegistry) {
       try { registry = { approved: true, ...await approveStagedRegistry(db, actor, installed.releaseId, input.approveRegistry, options.adaptation) }; }
