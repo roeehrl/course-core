@@ -67,6 +67,7 @@
   "runtime.runnable": "This host can run the course as declared.",
   "runtime.notRunnable": "Not runnable here ({code}).",
   "registry.summary": "{count, plural, one {# profile} other {# profiles}} · digest {digest}",
+  "registry.summaryAfterCourseSupplied": "{count, plural, one {# profile} other {# profiles}} · digest {digest} · approvable once you approve the files the course brings (below)",
   "registry.summaryNotApprovable": "{count, plural, one {# profile} other {# profiles}} · digest {digest} · not approvable here ({code})",
   "registry.none": "None in this package.",
   "files.summary": "Package files ({count, number})",

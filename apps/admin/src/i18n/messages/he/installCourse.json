@@ -67,6 +67,7 @@
   "runtime.runnable": "השרת הזה יכול להריץ את הקורס כפי שהוגדר.",
   "runtime.notRunnable": "לא ניתן להריץ כאן ({code}).",
   "registry.summary": "{count, plural, one {פרופיל אחד} two {שני פרופילים} other {# פרופילים}} · גיבוב {digest}",
+  "registry.summaryAfterCourseSupplied": "{count, plural, one {פרופיל אחד} two {שני פרופילים} other {# פרופילים}} · גיבוב {digest} · אפשר לאשר אחרי שמאשרים את הקבצים שהקורס מביא (למטה)",
   "registry.summaryNotApprovable": "{count, plural, one {פרופיל אחד} two {שני פרופילים} other {# פרופילים}} · גיבוב {digest} · אי אפשר לאשר כאן ({code})",
   "registry.none": "אין בחבילה הזו.",
   "files.summary": "קובצי החבילה ({count, number})",
