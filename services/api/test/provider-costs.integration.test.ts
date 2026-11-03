@@ -109,6 +109,15 @@ const price = (extra: Record<string, unknown> = {}) => ({ idempotencyKey: random
   inputMicroUsdPerMillionTokens: 300_000, outputMicroUsdPerMillionTokens: 2_500_000, cachedInputMicroUsdPerMillionTokens: 75_000,
   microUsdPerRequest: null, microUsdPerOutputSecond: null, effectiveFrom: new Date(Date.now() - 60_000).toISOString(),
   sourceNote: 'Synthetic operator test price', ...extra });
+/**
+ * "Now" on the database clock, which decides what is in force (clock_timestamp()); truncated to the
+ * millisecond an ISO string carries, so it is never after the server's own reading. The test host's
+ * clock can run ahead of the database's (a VM or a remote server), and a host "now" would then be a
+ * moment in the future, scheduled rather than in force.
+ */
+async function databaseNow(): Promise<string> {
+  return (await db.query<{ t: Date }>("SELECT date_trunc('milliseconds', clock_timestamp()) AS t")).rows[0]!.t.toISOString();
+}
 async function setRequirement(requirePricing: boolean) {
   const view = (await app.inject({ url: pricingPath(), headers: headers(owner) })).json();
   const r = await app.inject({ method: 'POST', url: `${pricingPath()}/settings`, headers: headers(owner),
@@ -179,7 +188,7 @@ describe('operator pricing, priced receipts and reconciliation', () => {
     const spare = await post(price({ modelId: 'spare-model', microUsdPerRequest: 10 }));
     expect(spare.statusCode, spare.body).toBe(200);
     expect(await pricingInForce(db, workspaceId, 'spare-model')).not.toBeNull();
-    const withdrawn = await post({ ...price({ modelId: 'spare-model', expectedVersion: 1, status: 'withdrawn', effectiveFrom: new Date().toISOString() }),
+    const withdrawn = await post({ ...price({ modelId: 'spare-model', expectedVersion: 1, status: 'withdrawn', effectiveFrom: await databaseNow() }),
       inputMicroUsdPerMillionTokens: null, outputMicroUsdPerMillionTokens: null, cachedInputMicroUsdPerMillionTokens: null });
     expect(withdrawn.statusCode, withdrawn.body).toBe(200);
     expect(await pricingInForce(db, workspaceId, 'spare-model')).toBeNull();
@@ -204,7 +213,7 @@ describe('operator pricing, priced receipts and reconciliation', () => {
     expect(await viewModel()).toMatchObject({ latestVersion: 2, inForce: { version: 1 }, scheduled: [{ version: 2, effectiveFrom: later, inputMicroUsdPerMillionTokens: 400_000 }] });
     // A new price now is accepted although a later version exists: it is in force now, and the
     // scheduled one still takes over on its date.
-    const now = await post(base({ expectedVersion: 2, inputMicroUsdPerMillionTokens: 350_000, effectiveFrom: new Date().toISOString() }));
+    const now = await post(base({ expectedVersion: 2, inputMicroUsdPerMillionTokens: 350_000, effectiveFrom: await databaseNow() }));
     expect(now.statusCode, now.body).toBe(200);
     expect(now.json()).toMatchObject({ version: 3, inForceNow: true });
     expect(await pricingInForce(db, workspaceId, 'scheduled-model')).toMatchObject({ versionId: now.json().id, inputMicroUsdPerMillionTokens: 350_000 });
