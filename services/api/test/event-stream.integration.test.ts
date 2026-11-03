@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { get, type IncomingMessage, type ServerResponse } from 'node:http';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ const schema = `course_event_stream_${randomUUID().replaceAll('-', '')}`;
 const origin = 'http://127.0.0.1';
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, base: string, workspaceId: string, releaseId: string, digest: string;
 let testDatabase: TestDatabase | undefined;
+const serverStreams = new Map<string, (request: IncomingMessage, response: ServerResponse) => void>();
 
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
@@ -26,6 +28,11 @@ beforeAll(async () => {
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false,
     eventStream: { pollMs: 40, heartbeatMs: 150, recheckMs: 200, lifetimeMs: 3000, perAccount: 2 } });
   base = await app.listen({ port: 0, host: '127.0.0.1' });
+  // Each test stream is tagged so the test can wait until the server has released it.
+  app.server.on('request', (request: IncomingMessage, response: ServerResponse) => {
+    const tag = request.headers['x-test-stream'];
+    if (typeof tag === 'string') serverStreams.get(tag)?.(request, response);
+  });
   const compiled = compileCourse(fixture()), owner = randomUUID();
   workspaceId = randomUUID(); releaseId = randomUUID(); digest = compiled.digest;
   await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)', [owner, `stream:${owner}`, 'Author']);
@@ -50,27 +57,49 @@ const revision = async (id: string) => Number((await db.query('SELECT revision F
 async function command(f: Learner, action: string, body: Record<string, unknown>, extra: Record<string, string> = {}) {
   return app.inject({ method: 'POST', url: `/api/enrollments/${f.id}/${action}`, headers: { ...f.headers, ...extra }, payload: { expectedRevision: await revision(f.id), idempotencyKey: randomUUID(), ...body } });
 }
-/** Reads a real SSE response until `until` returns true or the stream ends. */
-async function stream(f: { headers: Record<string, string> }, id: string, options: { lastEventId?: string; after?: string; until?: (text: string) => boolean; timeoutMs?: number } = {}) {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 6000);
-  const response = await fetch(`${base}/api/enrollments/${id}/events/stream${options.after ? `?after=${options.after}` : ''}`, {
-    headers: { cookie: f.headers.cookie!, ...(options.lastEventId ? { 'last-event-id': options.lastEventId } : {}) }, signal: controller.signal });
-  let text = '';
-  if (response.ok && response.body) {
-    const reader = response.body.getReader(), decoder = new TextDecoder();
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        if (options.until?.(text)) break;
-      }
-    } catch { /* aborted by the timeout */ }
-    controller.abort();
-  }
-  clearTimeout(timer);
-  const events = [...text.matchAll(/id: (\d+)\nevent: learning-event\ndata: (.*)\n\n/g)].map(match => ({ id: match[1]!, data: JSON.parse(match[2]!) }));
-  return { status: response.status, type: response.headers.get('content-type'), text, events };
+type Opened = { status: number; type: string | undefined };
+type Streamed = Opened & { text: string; events: { id: string; data: Record<string, any> }[] };
+/**
+ * Opens a real SSE request on its own connection, as each EventSource holds one. Not fetch():
+ * Node 26's fetch re-validates an idle keep-alive connection on an unref'd immediate before
+ * reusing it, so a request on a pooled connection can wait until something else wakes the event
+ * loop, often longer than a stream deadline (it surfaced here as an AbortError).
+ * `opened` resolves with the response status once the server has answered (a 200 stream is
+ * then counted against its account); `done` resolves when the stream ends, `until` matches or
+ * `close()` is called; `released` resolves once the server has seen the stream close.
+ */
+function openStream(f: { headers: Record<string, string> }, id: string, options: { lastEventId?: string; after?: string; until?: (text: string) => boolean;
+  /** Called on the server as the request arrives, before the route handler has done any work. */
+  arrived?: (request: IncomingMessage, response: ServerResponse) => void } = {}) {
+  const tag = randomUUID();
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  // The server's own 'close' listeners run in the same emit; the stream slot is free after it.
+  serverStreams.set(tag, (request, response) => {
+    request.once('close', () => { serverStreams.delete(tag); setImmediate(release); });
+    options.arrived?.(request, response);
+  });
+  const request = get(`${base}/api/enrollments/${id}/events/stream${options.after ? `?after=${options.after}` : ''}`, { agent: false,
+    headers: { cookie: f.headers.cookie!, 'x-test-stream': tag, ...(options.lastEventId ? { 'last-event-id': options.lastEventId } : {}) } });
+  const response = new Promise<IncomingMessage>((resolve, reject) => { request.once('response', resolve); request.once('error', reject); });
+  const opened = response.then(r => ({ status: r.statusCode!, type: r.headers['content-type'] }));
+  const done = response.then(r => new Promise<Streamed>(resolve => {
+    let text = '';
+    r.setEncoding('utf8');
+    r.on('data', (chunk: string) => { text += chunk; if (options.until?.(text)) request.destroy(); });
+    r.once('close', () => resolve({ status: r.statusCode!, type: r.headers['content-type'], text,
+      events: [...text.matchAll(/id: (\d+)\nevent: learning-event\ndata: (.*)\n\n/g)].map(match => ({ id: match[1]!, data: JSON.parse(match[2]!) })) }));
+  }));
+  // A request closed by the test (or the server) reports an error; callers that care await `opened`/`done`.
+  request.on('error', () => undefined);
+  opened.catch(() => undefined); done.catch(() => undefined);
+  return { opened, done, released, close: () => request.destroy() };
+}
+/** Reads a stream until `until` matches or the server ends it; without `until`, only its status. */
+async function stream(f: { headers: Record<string, string> }, id: string, options: { lastEventId?: string; after?: string; until?: (text: string) => boolean } = {}) {
+  const open = openStream(f, id, options);
+  if (!options.until) { await open.opened; open.close(); }
+  return open.done;
 }
 
 describe('learning-event envelope', () => {
@@ -123,10 +152,10 @@ describe('resumable event stream', () => {
     expect(first.text).toContain(': heartbeat');
     expect(first.text).toContain('event: reconnect');
     // Resuming after the last id returns only later events, including one appended while connected.
-    const resumed = stream(f, f.id, { lastEventId: first.events.at(-1)!.id, until: text => text.includes('companion.requested') });
-    await new Promise(resolve => setTimeout(resolve, 150));
+    const resumed = openStream(f, f.id, { lastEventId: first.events.at(-1)!.id, until: text => text.includes('companion.requested') });
+    expect((await resumed.opened).status).toBe(200);
     expect((await command(f, 'companion', { episodeId: 'min', content: 'Live question?' })).statusCode).toBe(200);
-    const second = await resumed;
+    const second = await resumed.done;
     expect(second.events.map(event => event.data.event_type)).toEqual(['companion.requested']);
     expect(BigInt(second.events[0]!.id)).toBeGreaterThan(BigInt(first.events.at(-1)!.id));
     // ?after= starts after a known cursor; Last-Event-ID wins when both are given.
@@ -152,26 +181,41 @@ describe('resumable event stream', () => {
 
   it('refuses other learners, anonymous callers and too many streams, and ends when access ends', async () => {
     const f = await fresh(), peer = await fresh();
-    expect((await stream(peer, f.id, { timeoutMs: 500 })).status).toBe(404);
-    expect((await stream({ headers: { cookie: '' } }, f.id, { timeoutMs: 500 })).status).toBe(401);
-    expect((await fetch(`${base}/api/enrollments/${f.id}/events/stream?after=abc`, { headers: { cookie: f.headers.cookie! } })).status).toBe(400);
+    expect((await stream(peer, f.id)).status).toBe(404);
+    expect((await stream({ headers: { cookie: '' } }, f.id)).status).toBe(401);
+    expect((await stream(f, f.id, { after: 'abc' })).status).toBe(400);
     // Two streams per account; a third is refused until one closes.
-    const open = [stream(f, f.id, { timeoutMs: 700 }), stream(f, f.id, { timeoutMs: 700 })];
-    await new Promise(resolve => setTimeout(resolve, 150));
-    const third = await stream(f, f.id, { timeoutMs: 300 });
-    expect(third.status).toBe(429);
-    await Promise.all(open);
-    await new Promise(resolve => setTimeout(resolve, 100));
-    expect((await stream(f, f.id, { timeoutMs: 200 })).status).toBe(200);
+    const open = [openStream(f, f.id), openStream(f, f.id)];
+    expect((await Promise.all(open.map(each => each.opened))).map(each => each.status)).toEqual([200, 200]);
+    expect((await stream(f, f.id)).status).toBe(429);
+    open[0]!.close();
+    await open[0]!.released;
+    const reopened = openStream(f, f.id);
+    expect((await reopened.opened).status).toBe(200);
+    expect((await stream(f, f.id)).status).toBe(429);
+    for (const each of [open[1]!, reopened]) { each.close(); await each.released; }
+    // A client that leaves while its access is still being checked frees its slot at once,
+    // instead of holding it (and polling) until the stream's lifetime runs out.
+    const left = await Promise.all([0, 1, 2].map(() => new Promise<string>(resolve => {
+      openStream(f, f.id, { arrived: (request, response) => {
+        let written = '';
+        const write = response.write.bind(response) as (chunk: unknown) => boolean, end = response.end.bind(response) as () => ServerResponse;
+        response.write = ((chunk: unknown) => { written += String(chunk); return write(chunk); }) as typeof response.write;
+        response.end = (() => { resolve(written); return end(); }) as typeof response.end;
+        request.socket.destroy();
+      } });
+    })));
+    expect(left.filter(text => text.includes('event: reconnect') || text.includes(': heartbeat'))).toEqual([]);
+    expect((await stream(f, f.id)).status).toBe(200);
     // Erasure while connected: the stream says so and ends; a new stream is refused (410).
     // The stream's lifetime (3 s) must outlast the erasure, which writes to every learner table;
     // a stream that reached its lifetime first would only ask the client to reconnect.
-    const live = stream(f, f.id, { until: text => text.includes('event: closed'), timeoutMs: 6000 });
-    await new Promise(resolve => setTimeout(resolve, 100));
+    const live = openStream(f, f.id, { until: text => text.includes('event: closed') });
+    expect((await live.opened).status).toBe(200);
     const erased = await app.inject({ method: 'POST', url: `/api/enrollments/${f.id}/erase`, headers: f.headers, payload: { confirmation: `ERASE ${f.id.slice(0, 8)}`, reason: 'Synthetic erasure request.' } });
     expect(erased.statusCode, erased.body).toBe(200);
-    expect((await live).text).toContain('"reason":"access_changed"');
-    expect((await stream(f, f.id, { timeoutMs: 300 })).status).toBe(410);
+    expect((await live.done).text).toContain('"reason":"access_changed"');
+    expect((await stream(f, f.id)).status).toBe(410);
     // Erasure clears the device facts and keeps the identifiers.
     expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE enrollment_id=$1 AND (platform IS NOT NULL OR app_version IS NOT NULL OR occurred_at IS NOT NULL OR client_sequence IS NOT NULL)", [f.id])).rows[0].n).toBe(0);
     expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE enrollment_id=$1 AND course_digest=$2", [f.id, digest])).rows[0].n).toBeGreaterThan(0);
