@@ -166,7 +166,8 @@ export interface PriceInput {
   microUsdPerRequest: number | null;
   microUsdPerOutputSecond: number | null;
   microUsdPerServerToolRequest: number | null;
-  effectiveFrom: string;
+  /** When the version takes effect; omitted, it takes effect now by the server's clock. */
+  effectiveFrom?: string;
   sourceNote: string;
 }
 export interface ProviderCostPort {

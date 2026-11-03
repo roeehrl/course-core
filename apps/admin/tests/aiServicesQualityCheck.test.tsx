@@ -787,6 +787,8 @@ describe("prefilled prices", () => {
       cachedInputMicroUsdPerMillionTokens: 75000,
     });
     expect(current.sourceNote).toContain("ai.google.dev");
+    // Today's price takes effect now by the server's clock; only the announced change has a time.
+    expect(current).not.toHaveProperty("effectiveFrom");
     expect(next).toMatchObject({
       modelId: "connection-1:companion",
       expectedVersion: 1,
@@ -931,7 +933,6 @@ describe("a price change already scheduled", () => {
     fireEvent.change(within(prices).getByDisplayValue("0.75"), {
       target: { value: "0.80" },
     });
-    const before = Date.now();
     fireEvent.click(
       within(prices).getByRole("button", { name: t("prices.save") }),
     );
@@ -942,10 +943,33 @@ describe("a price change already scheduled", () => {
         inputMicroUsdPerMillionTokens: 800000,
       });
       // From now, not from the scheduled date: the scheduled change still applies on its date.
-      expect(Date.parse(request.effectiveFrom)).toBeGreaterThanOrEqual(
-        before - 1000,
-      );
-      expect(Date.parse(request.effectiveFrom)).toBeLessThan(Date.parse(later));
+      // "Now" is the server's: no effective time is sent.
+      expect(request).not.toHaveProperty("effectiveFrom");
+    }
+    expect(
+      await within(prices).findByText(t("prices.saved")),
+    ).toBeInTheDocument();
+  });
+
+  it("saves today's price for now by the server's clock, even when this browser's clock runs ahead", async () => {
+    // Two hours ahead of the server: a time from this clock would be saved as a scheduled price.
+    vi.setSystemTime(Date.parse(PRICE_TABLE_DAY) + 2 * 3_600_000);
+    const port = fakePort({
+      currentDraft: vi.fn().mockResolvedValue(draft(false)),
+      pricing: vi.fn().mockResolvedValue(pricing()),
+      savePrice: vi.fn().mockResolvedValue({ ...receipt, inForceNow: true }),
+    });
+    const prices = await open(port);
+    fireEvent.change(await within(prices).findByDisplayValue("0.75"), {
+      target: { value: "0.80" },
+    });
+    fireEvent.click(
+      within(prices).getByRole("button", { name: t("prices.save") }),
+    );
+    await waitFor(() => expect(port.savePrice).toHaveBeenCalledTimes(2));
+    for (const [, request] of port.savePrice.mock.calls) {
+      expect(request).toMatchObject({ inputMicroUsdPerMillionTokens: 800000 });
+      expect(request).not.toHaveProperty("effectiveFrom");
     }
     expect(
       await within(prices).findByText(t("prices.saved")),
