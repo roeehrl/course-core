@@ -321,9 +321,13 @@ Owners and administrators of a workspace have two more admin pages.
 ## Installing a course
 
 Administration installs a course from one **course package** (course-package v1, a
-`<courseId>-<version>.course.tgz` file made with the course SDK's packer) instead of creating
-a draft and pasting a manifest. In **Course & releases**, an owner or administrator chooses
-**Install course**, then either uploads the package file or pastes a GitHub link:
+`<courseId>-<version>.course.tgz` file in the format described below) instead of creating
+a draft and pasting a manifest. Core accepts packages compiled with its own SDK minor
+(`services/api/package.json` pins `@course-core/sdk`; a newer SDK's package is refused as
+`SDK_UNSUPPORTED`). The SDK's packer (`course pack`) first ships in SDK 0.6.0, so while Core
+pins SDK 0.5 a course writes the format itself. In **Course & releases**, an owner or
+administrator chooses **Install course**, then either uploads the package file or pastes a
+GitHub link:
 
 - `https://github.com/<owner>/<repo>` or `…/releases/latest` (the latest release),
 - `…/releases/tag/<tag>`, or
@@ -348,7 +352,9 @@ existing installation. The manual **New draft** path is unchanged.
 Verification is strict and executes nothing from the package. The archive must be gzip-compressed
 POSIX ustar holding only top-level regular files (names of at most 100 bytes from
 `[A-Za-z0-9._-]`; no directories, links, devices, PAX/GNU records, prefixes, absolute paths or
-`..`), at most 200 files, 32 MiB per file, 128 MiB uncompressed and 64 MiB compressed.
+`..`), at most 200 files, 32 MiB per file, 128 MiB uncompressed and 64 MiB compressed. An
+archive of a folder (`tar -czf course.tgz my-course/`) is therefore not a package: its folder
+record is refused as `PACKAGE_UNSUPPORTED_ENTRY` and its members would be nested paths.
 `course-package.json` must list every other file exactly once with its size, SHA-256 and a known
 role; unknown keys are refused. Core recompiles the course manifest with its own pinned SDK and
 requires the listed course id, version and digest (and the learner projection, when present) to
@@ -384,7 +390,8 @@ reported as `NO_SANDBOX`. Automatic updates never approve new course files
 GitHub links work for public repositories only (a private or missing one is reported as
 `GITHUB_REPOSITORY_NOT_PUBLIC_OR_MISSING`). Core resolves the release through
 `api.github.com` without credentials, picks the asset named `*.course.tgz` (several: the operator
-chooses) and, when the release has a `<asset>.sha256` file, verifies it (one `sha256sum` line
+chooses; none: `COURSE_PACKAGE_ASSET_NOT_FOUND`, and other assets such as a plain `.tgz` are never
+considered) and, when the release has a `<asset>.sha256` file, verifies it (one `sha256sum` line
 naming the package). Only `api.github.com`, `github.com` and GitHub's release-asset download
 hosts are contacted, over https, with every redirect hop checked against that list (at most 5),
 connect and read timeouts, a streaming size cap and no cookies or credentials; a pasted URL is

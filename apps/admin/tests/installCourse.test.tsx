@@ -604,6 +604,43 @@ describe("installing a course package", () => {
     );
   });
 
+  it("says why a release without a .course.tgz file or an archive of a folder is refused", async () => {
+    setup({
+      inspectUrl: vi.fn(async () => {
+        throw new CoursePackageError("COURSE_PACKAGE_ASSET_NOT_FOUND", {
+          assets: [],
+        });
+      }),
+      inspectFile: vi.fn(async () => {
+        throw new CoursePackageError("PACKAGE_UNSUPPORTED_ENTRY");
+      }),
+    });
+    await userEvent.click(screen.getByRole("radio", { name: "From GitHub" }));
+    await userEvent.type(
+      screen.getByLabelText("GitHub link"),
+      "https://github.com/example/course/releases/tag/course-v1.0.0",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The release has no matching file whose name ends in .course.tgz. Other release files, such as a plain .tgz archive, are not course packages.",
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: "Upload package file" }),
+    );
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Only top-level regular files are accepted, so an archive of a folder is not a course package.",
+    );
+  });
+
   it("runs approve, publish and registry approval with explicit confirmations", async () => {
     const states = [
       installation({ state: "approved", catalogRevision: "5" }),
