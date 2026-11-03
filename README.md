@@ -201,8 +201,10 @@ docker run --rm --detach --name course-core-ci-local \
   -p 127.0.0.1:55432:5432 \
   --health-cmd='pg_isready -U course_ci -d course_core_ci' \
   --health-interval=5s --health-timeout=5s --health-retries=20 \
-  postgres:17
+  postgres:17 -c fsync=off
 ```
+
+`fsync=off` only gives up crash durability, which a throwaway container does not need; transactions, locks and constraints behave as before. Each API test file gets its own copy of the migrated template database (about 1,400 relation files; `services/api/test/database-template.ts`), and every checkpoint must fsync the files of each copy still alive. With fsync on, inside a VM-backed Docker (Docker Desktop, Colima) on a many-core machine, those checkpoints ran for 20-50 s each and stalled test commits enough to time out tests in unrelated files at the default worker count.
 
 Wait until `docker inspect --format '{{.State.Health.Status}}' course-core-ci-local` reports `healthy`, then:
 
