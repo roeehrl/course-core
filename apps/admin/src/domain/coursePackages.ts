@@ -71,6 +71,8 @@ export const packagePreviewSchema = z.object({
       profileCount: z.number().int().nonnegative(),
       approvable: z.boolean(),
       code: text.optional(),
+      /** Approvable only once this install approves the files the course brings. */
+      afterCourseSuppliedApproval: z.literal(true).optional(),
     }),
   ]),
   hostRequirements: z
