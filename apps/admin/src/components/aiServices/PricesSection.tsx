@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import {
   activeRoles,
@@ -198,12 +198,6 @@ export function PricesSection(props: Props) {
       setSaving(false);
     }
   }
-  const times = useRef(new Map<string, string>());
-  const effective = (id: string) => {
-    let value = times.current.get(id);
-    if (!value) times.current.set(id, (value = new Date().toISOString()));
-    return value;
-  };
   const kinds = [...new Set(groups.map(kindOf).filter(Boolean))];
   if (!groups.length)
     return (
@@ -276,11 +270,11 @@ export function PricesSection(props: Props) {
               prices.microUsdPerServerToolRequest ?? null,
             sourceNote: form.source.trim(),
           };
-          const id = keys.key(request);
+          // No effective time: "now" is the server's clock, which decides what is in force. This
+          // browser's clock may run ahead (the price would be saved as scheduled) or behind.
           const saved = await port.savePrice(workspaceId, {
             ...request,
-            idempotencyKey: id,
-            effectiveFrom: effective(id),
+            idempotencyKey: keys.key(request),
           });
           // A later version that only kept today's price (a removed change) keeps following it.
           if (model?.inForce)

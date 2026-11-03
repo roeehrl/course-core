@@ -34,10 +34,10 @@ test("operator prices are versioned and validated, the rule for unpriced models 
     .getByRole("button", { name: "AI services" })
     .click();
   const prices = page.locator("#ai-prices");
-  const block = prices.locator("fieldset.ai-price", {
+  const block = prices.locator(".ai-price", {
     hasText: "public-text-model",
   });
-  await expect(block).toContainText("used by Learner tutor");
+  await expect(block).toContainText("Used by Learner tutor");
   await expect(block).toContainText("Current price from");
   await expect(
     block.getByLabel("Input, per 1M tokens", { exact: true }),
@@ -64,9 +64,20 @@ test("operator prices are versioned and validated, the rule for unpriced models 
     "Learner tutor",
   );
   await spending.getByLabel("Group by").selectOption("month");
-  await expect(
-    spending.getByRole("table", { name: "By period" }),
-  ).toContainText(new Date().toISOString().slice(0, 7));
+  // The month of the fixture's calls in UTC by the server's clock, not this host's (they can
+  // differ at a month boundary): the ledger's own month, as the spend report gives it.
+  const months = (
+    await (
+      await page.request.get(
+        `/api/admin/workspaces/${fixture.workspaceId}/provider-spend?period=month`,
+      )
+    ).json()
+  ).byPeriod.map((row: { period: string }) => row.period);
+  expect(months.length).toBeGreaterThan(0);
+  for (const month of months)
+    await expect(
+      spending.getByRole("table", { name: "By period" }),
+    ).toContainText(month);
   await accessible(page);
   await page.screenshot({
     path: info.outputPath("pricing-and-spend.png"),
@@ -114,7 +125,7 @@ test("operator prices are versioned and validated, the rule for unpriced models 
 
   // Allowing unpriced work needs an explicit acknowledgement of the conservative charge.
   const advanced = page.locator("#ai-advanced");
-  await advanced.locator("summary").click();
+  await advanced.locator(":scope > summary").click();
   await advanced
     .getByRole("checkbox", {
       name: "Refuse paid work for models without a price",
@@ -136,7 +147,7 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   )
     .getByRole("button", { name: "AI services" })
     .click();
-  await page.locator("#ai-advanced summary").click();
+  await page.locator("#ai-advanced > summary").click();
   await expect(
     page.getByRole("checkbox", {
       name: "Refuse paid work for models without a price",
@@ -167,7 +178,7 @@ test("a price already scheduled for later: today's price still changes, and the 
     ).toBeVisible();
   };
   const prices = page.locator("#ai-prices");
-  const block = prices.locator("fieldset.ai-price", {
+  const block = prices.locator(".ai-price", {
     hasText: "public-text-model",
   });
   const scheduled = block.locator(".ai-price-scheduled");
@@ -259,6 +270,65 @@ test("a price already scheduled for later: today's price still changes, and the 
   ).toBeLessThanOrEqual(1);
   await accessible(page);
 });
+
+// One viewport covers the clock handling; phone and tablet exclude @desktop-only.
+test(
+  "a price saved for now is in force by the server's clock, with this browser's clock hours ahead",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    // A time from this clock would be three hours in the server's future: a scheduled price.
+    await page.clock.setSystemTime(new Date(Date.now() + 3 * 3_600_000));
+    const fixture = await (
+      await page.request.post("/test/pricing-fixture")
+    ).json();
+    const sent: Record<string, unknown>[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        request
+          .url()
+          .endsWith(
+            `/api/admin/workspaces/${fixture.workspaceId}/provider-pricing`,
+          )
+      )
+        sent.push(request.postDataJSON());
+    });
+    await page.goto("/admin/");
+    await page.getByLabel("One-time sign-in code").fill(fixture.code);
+    await page.getByRole("button", { name: "Use code", exact: true }).click();
+    await (
+      await workspaceNav(page)
+    )
+      .getByRole("button", { name: "AI services" })
+      .click();
+    const prices = page.locator("#ai-prices");
+    const block = prices.locator(".ai-price", {
+      hasText: "public-text-model",
+    });
+    await block
+      .getByLabel("Input, per 1M tokens", { exact: true })
+      .fill("0.20");
+    await prices.getByRole("button", { name: "Save prices" }).click();
+    await expect(prices.getByText("Prices saved.")).toBeVisible();
+    // "Now" is left to the server: no effective time is sent.
+    expect(sent.length).toBeGreaterThan(0);
+    for (const body of sent) expect(body).not.toHaveProperty("effectiveFrom");
+    const view = await (
+      await page.request.get(
+        `/api/admin/workspaces/${fixture.workspaceId}/provider-pricing`,
+      )
+    ).json();
+    const model = view.models.find(
+      (m: { modelId: string }) => m.modelId === "text-companion",
+    );
+    expect(model.inForce.inputMicroUsdPerMillionTokens).toBe(200000);
+    expect(model.scheduled ?? []).toEqual([]);
+    await expect(block.locator(".ai-price-scheduled")).toHaveCount(0);
+    await expect(
+      block.getByLabel("Input, per 1M tokens", { exact: true }),
+    ).toHaveValue("0.20");
+  },
+);
 
 test("the $ sign sits before each price and spending limit, clear of the amount, in English and Hebrew", async ({
   page,

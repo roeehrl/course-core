@@ -204,7 +204,16 @@ const priceInputSchema = z.strictObject({
   microUsdPerOutputSecond: rate(MAX_MICRO_USD_PER_UNIT),
   /** Optional for clients that predate it; absent is no price. */
   microUsdPerServerToolRequest: rate(MAX_MICRO_USD_PER_UNIT).optional(),
-  effectiveFrom: z.iso.datetime({ offset: true }),
+  /**
+   * When this version takes effect. Omit it for "now": the server stamps the database clock that
+   * decides what is in force (clock_timestamp()), so a client clock running ahead cannot turn a
+   * change meant for now into a scheduled one, and one running behind cannot fall before the
+   * version in force. A given time is kept exactly, without a skew allowance: a later time is
+   * scheduled (even a second ahead; the receipt's `inForceNow` says so), because replacing a
+   * scheduled version needs its exact time; an earlier one is backdated, from the start of the
+   * version in force now at the earliest. Clients meaning "now" omit it.
+   */
+  effectiveFrom: z.iso.datetime({ offset: true }).optional(),
   sourceNote: z.string().trim().min(3).max(500).refine(v => !/[\u0000-\u001f\u007f]/.test(v)),
 });
 const settingsInputSchema = z.strictObject({
@@ -325,7 +334,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
       microUsdPerServerToolRequest: input.microUsdPerServerToolRequest ?? null };
     if (input.status === 'active') requireCondition(modelPricingSchema.safeParse({ versionId: 'draft', currency: input.currency, ...prices }).success, 'PROVIDER_PRICING_INVALID', 400);
     else requireCondition(Object.values(prices).every(v => v === null), 'PROVIDER_PRICING_INVALID', 400);
-    const effectiveFrom = new Date(input.effectiveFrom);
+    const requestedFrom = input.effectiveFrom === undefined ? null : new Date(input.effectiveFrom);
     await workspaceRole(db, actor, workspaceId, ['owner', 'admin']);
     const configured = (await resolve(workspaceId)).describe().some(m => m.id === input.modelId)
       || !!(await draftRuntime(db, workspaceId))?.describe().some(m => m.id === input.modelId);
@@ -339,6 +348,8 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
       requireCondition((latest?.version ?? 0) === input.expectedVersion, 'STALE_PROVIDER_PRICING_VERSION', 409);
       requireCondition(input.status === 'active' || (latest && latest.status === 'active'), 'PROVIDER_PRICING_INVALID', 400);
       const now = (await client.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
+      // "Now" is the database clock read under the lock (millisecond precision, so never after it).
+      const effectiveFrom = requestedFrom ?? now;
       // A new version may start any time from the start of the version in force now (never
       // earlier, so what priced calls before it stays as it was) up to a year ahead. A version
       // already scheduled for a later time still takes effect then; a new version at exactly that
