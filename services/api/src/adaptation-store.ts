@@ -79,9 +79,24 @@ export interface TrustedAdaptationAdapter {
 export interface AdaptationRuntime { adapters: readonly TrustedAdaptationAdapter[]; verifierTimeoutMs: number;
   /** Installed renderers and evaluators the host's own checks of generated content use (generated-content.ts). */
   installed?: readonly RuntimeExtension[] }
-/** The same runtime, with the installed extensions generated simulations and exercises are checked and graded by. */
+/** The same runtime, with the installed extensions generated simulations and exercises are checked and graded by.
+ * `installed` is kept as given, not copied: the server passes its live list, so course-supplied
+ * evaluators an install approves count at once, as they do for every route (server.ts). */
 export function withInstalledExtensions(runtime: AdaptationRuntime, installed: readonly RuntimeExtension[]): AdaptationRuntime {
-  return Object.freeze({ ...runtime, installed: Object.freeze([...installed]) });
+  return Object.freeze({ ...runtime, installed });
+}
+/**
+ * The runtime as it will be once `added` are installed too: a course-package preview counts the
+ * course-supplied files its install approves, before the registry step that follows it in the same
+ * install. `installed` is the host's list the reviewed code-bank adapter was composed with
+ * (adaptation-composition.ts); that adapter checks graders in its own list, so it is built again over
+ * both lists (same code, so the same implementation digest). Approves and runs nothing.
+ */
+export function withProspectiveExtensions(runtime: AdaptationRuntime, installed: readonly RuntimeExtension[], added: readonly RuntimeExtension[]): AdaptationRuntime {
+  if (!added.length) return runtime;
+  const codeBank = authoredCodeVariantBankAdapter([...installed, ...added]);
+  const adapters = runtime.adapters.map(adapter => adapter.id === codeBank.id && adapter.implementationDigest === codeBank.implementationDigest ? codeBank : adapter);
+  return Object.freeze({ ...runtime, adapters: Object.freeze(adapters), installed: Object.freeze([...(runtime.installed ?? installed), ...added]) });
 }
 /** Explicit composition only. Empty adapters means no executable adaptation capability. */
 export function createAdaptationRuntime(adapters: readonly TrustedAdaptationAdapter[], verifierTimeoutMs = 5000): AdaptationRuntime {

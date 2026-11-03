@@ -10,6 +10,10 @@ import { declarativeActivityRuntime, frameScriptIntegrity } from '../src/activit
 import type { CodeSandbox } from '../src/code-evaluator.js';
 import { buildPackage } from './course-package-fixture.js';
 import { sandboxedActivity, sandboxedDeclaration, sandboxedActivityRuntime, activityCourse, SANDBOX_ID } from './activity-fixture.js';
+import { codeRecoveryFixture, comparisonFixtures } from './code-recovery-fixture.js';
+import { composeAdaptation } from '../src/adaptation-composition.js';
+import { digestJson } from '../src/repository.js';
+import type { RuntimeExtension } from '../src/publication.js';
 
 // Real HTTP and PostgreSQL: a course package brings its own sandboxed activity script and its own
 // hidden code cases, and Core runs them only after an owner/admin approves exactly those bytes.
@@ -70,7 +74,7 @@ const inspect = (who: Session, bytes: Buffer, on = app, workspace = workspaceId)
 const install = (who: Session, digest: string, extra: Record<string, unknown> = {}, on = app, workspace = workspaceId) => on.inject({ method: 'POST',
   url: `/api/admin/course-packages/${digest}/install`, headers: headers(who), payload: { workspaceId: workspace, idempotencyKey: `install-${randomUUID()}`, ...extra } });
 const frame = (on = app) => on.inject({ method: 'GET', url: `/api/activity-frames/${SANDBOX_ID}/1.0.0` });
-async function server(options: { codeSandbox?: CodeSandbox; installedExtensions?: NonNullable<Parameters<typeof createServer>[1]['installedExtensions']> } = {}) {
+async function server(options: Pick<Parameters<typeof createServer>[1], 'codeSandbox' | 'installedExtensions' | 'adaptation'> = {}) {
   const created = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [declarativeActivityRuntime()], ...options });
   servers.push(created);
   return created;
@@ -201,5 +205,69 @@ describe('course-supplied extensions', () => {
     expect(preview.installable).toBe(false);
     const author = await inspect(sessions.author!, pkg.bytes);
     expect(author.statusCode).toBe(403);
+  });
+});
+
+// A course whose reviewed code-bank recovery registry is graded by hidden code cases the package
+// itself brings: the registry can only be approved once the install approves those cases.
+// Approved cases stay installed host-wide, so each test brings cases of its own version.
+const comparison = (casesVersion: string) => Buffer.from(JSON.stringify({ ...comparisonFixtures, version: casesVersion }));
+function recoveryCourse(version: string, casesVersion: string) {
+  const declared = { id: comparisonFixtures.id, version: casesVersion, integrity: integrityOf(comparison(casesVersion)), capabilities: [], platforms: [] } as RuntimeExtension;
+  const recovery = codeRecoveryFixture(declared);
+  recovery.course.id = 'supplied-recovery'; recovery.course.title = 'Supplied recovery'; recovery.course.version = version;
+  return recovery;
+}
+const recoveryPackage = (version: string, casesVersion: string, supplied = true) => {
+  const recovery = recoveryCourse(version, casesVersion);
+  return { config: recovery.config, ...buildPackage(recovery.course, { registry: recovery.config,
+    extra: supplied ? [{ name: 'comparison.code-fixtures.json', bytes: comparison(casesVersion), role: 'host-requirement' }] : [] }) };
+};
+/** A host as main.ts composes it: the code-bank adapter shares the server's live list of installed extensions. */
+async function recoveryHost(codeSandbox?: CodeSandbox) {
+  const installedExtensions: RuntimeExtension[] = [declarativeActivityRuntime()];
+  return server({ ...(codeSandbox ? { codeSandbox } : {}), installedExtensions, adaptation: composeAdaptation(['authored-code-bank-v1'], installedExtensions) });
+}
+const codes = (preview: { problems: { code: string; params?: Record<string, string> }[] }) => preview.problems.map(p => p.code);
+
+describe('a recovery registry graded by course-supplied code cases', () => {
+  it('is approvable once the install approves the cases, and the install then approves it', async () => {
+    const host = await recoveryHost(sandbox);
+    const pkg = recoveryPackage('1.0.0', '0.1.0');
+    const preview = (await inspect(sessions.owner!, pkg.bytes, host)).json();
+    expect(preview.courseSupplied.files).toEqual([expect.objectContaining({ extensionId: comparisonFixtures.id, kind: 'code_fixtures', status: 'approvable' })]);
+    expect(preview.runtime).toEqual({ runnable: true });
+    expect(preview.registry).toEqual({ present: true, digest: digestJson(pkg.config), profileCount: 1, approvable: true, afterCourseSuppliedApproval: true });
+    expect(codes(preview)).not.toContain('ADAPTATION_REGISTRY_NOT_APPROVABLE');
+    expect(codes(preview)).toContain('COURSE_SUPPLIED_APPROVAL_REQUIRED');
+    expect(preview.installable).toBe(true);
+
+    const installed = await install(sessions.owner!, pkg.sha256, { approveCourseSupplied: { integrities: preview.courseSupplied.approvalRequired },
+      approveRegistry: { configurationDigest: preview.registry.digest } }, host);
+    expect(installed.statusCode, installed.body).toBe(200);
+    expect(installed.json()).toMatchObject({ registryApproval: { approved: true, registryRevision: 1 }, installation: { registry: { approved: true } } });
+
+    // Now the cases are installed on this host: the next version's registry is approvable as it stands.
+    const next = recoveryPackage('1.1.0', '0.1.0');
+    const again = (await inspect(sessions.owner!, next.bytes, host)).json();
+    expect(again.courseSupplied.files).toEqual([expect.objectContaining({ status: 'installed' })]);
+    expect(again.registry).toEqual({ present: true, digest: digestJson(next.config), profileCount: 1, approvable: true });
+  });
+
+  it('still warns when the cases are not supplied, or this host cannot use them', async () => {
+    // The package does not bring the cases and the host has none: the registry's grader is missing.
+    const host = await recoveryHost(sandbox);
+    const missing = (await inspect(sessions.owner!, recoveryPackage('2.0.0', '0.2.0', false).bytes, host)).json();
+    expect(missing.courseSupplied.files).toEqual([]);
+    expect(missing.registry).toMatchObject({ present: true, approvable: false, code: 'EVALUATOR_NOT_CONFIGURED' });
+    expect(missing.registry.afterCourseSuppliedApproval).toBeUndefined();
+    expect(missing.problems).toEqual(expect.arrayContaining([{ code: 'ADAPTATION_REGISTRY_NOT_APPROVABLE', severity: 'warning', params: { reason: 'EVALUATOR_NOT_CONFIGURED' } }]));
+
+    // The package brings them, but a host without a grading sandbox cannot run them.
+    const bare = await recoveryHost();
+    const unusable = (await inspect(sessions.owner!, recoveryPackage('2.1.0', '0.2.0').bytes, bare)).json();
+    expect(unusable.courseSupplied.files).toEqual([expect.objectContaining({ status: 'unavailable', code: 'NO_SANDBOX' })]);
+    expect(unusable.registry).toMatchObject({ approvable: false, code: 'EVALUATOR_NOT_CONFIGURED' });
+    expect(codes(unusable)).toContain('ADAPTATION_REGISTRY_NOT_APPROVABLE');
   });
 });

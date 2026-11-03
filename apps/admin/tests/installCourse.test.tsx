@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { stripBidiControls } from "@course-core/i18n";
@@ -308,6 +308,64 @@ describe("installing a course package", () => {
     );
   });
 
+  it("says the registry is approvable once the files the course brings are approved, in English and Hebrew", async () => {
+    const cases = "sha256-" + "2".repeat(64);
+    const pending = () =>
+      preview({
+        registry: {
+          present: true,
+          digest: "c".repeat(64),
+          profileCount: 2,
+          approvable: true,
+          afterCourseSuppliedApproval: true,
+        },
+        problems: [
+          {
+            code: "COURSE_SUPPLIED_APPROVAL_REQUIRED",
+            severity: "warning",
+            params: { count: "1" },
+          },
+        ],
+        courseSupplied: {
+          files: [
+            {
+              extensionId: "lab-code",
+              version: "1.0.0",
+              integrity: cases,
+              kind: "code_fixtures",
+              member: "lab.code-fixtures.json",
+              bytes: 300,
+              status: "approvable",
+            },
+          ],
+          approvalRequired: [cases],
+        },
+      });
+    for (const [locale, file, inspect, text] of [
+      [
+        "en",
+        "Course package file",
+        "Inspect package",
+        /2 profiles · digest cccccccccccc… · approvable once you approve the files the course brings \(below\)/,
+      ],
+      [
+        "he",
+        "קובץ חבילת הקורס",
+        "סריקת החבילה",
+        /שני פרופילים · גיבוב cccccccccccc… · אפשר לאשר אחרי שמאשרים את הקבצים שהקורס מביא \(למטה\)/,
+      ],
+    ] as const) {
+      setup({ inspectFile: vi.fn(async () => pending()) }, locale);
+      await userEvent.upload(screen.getByLabelText(file), packageFile());
+      await userEvent.click(screen.getByRole("button", { name: inspect }));
+      await screen.findByRole("heading", { level: 3 });
+      const facts = document.querySelector("dl")!;
+      expect(stripBidiControls(facts.textContent ?? "")).toMatch(text);
+      expect(facts.textContent).not.toMatch(/not approvable|אי אפשר לאשר/);
+      cleanup();
+    }
+  });
+
   it("blocks installation while there are blocking problems and lists them first", async () => {
     setup({
       inspectFile: vi.fn(async () =>
@@ -601,6 +659,43 @@ describe("installing a course package", () => {
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "That GitHub repository does not exist or is not public.",
+    );
+  });
+
+  it("says why a release without a .course.tgz file or an archive of a folder is refused", async () => {
+    setup({
+      inspectUrl: vi.fn(async () => {
+        throw new CoursePackageError("COURSE_PACKAGE_ASSET_NOT_FOUND", {
+          assets: [],
+        });
+      }),
+      inspectFile: vi.fn(async () => {
+        throw new CoursePackageError("PACKAGE_UNSUPPORTED_ENTRY");
+      }),
+    });
+    await userEvent.click(screen.getByRole("radio", { name: "From GitHub" }));
+    await userEvent.type(
+      screen.getByLabelText("GitHub link"),
+      "https://github.com/example/course/releases/tag/course-v1.0.0",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The release has no matching file whose name ends in .course.tgz. Other release files, such as a plain .tgz archive, are not course packages.",
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: "Upload package file" }),
+    );
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Only top-level regular files are accepted, so an archive of a folder is not a course package.",
     );
   });
 

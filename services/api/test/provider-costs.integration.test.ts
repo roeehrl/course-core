@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError, type ProviderAdapter, type TokenUsage, type UsageReceipt } from '@course-core/providers';
 import type { ProviderRequest } from '@course-core/supervisor';
@@ -58,7 +58,8 @@ beforeAll(async () => {
   const providers = composeProviders({ registry: { revision: 'test-registry', models: [
     { id: 'model', providerId: 'test-provider', remoteModel: 'test/native/model', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } },
     { id: 'spare-model', providerId: 'test-provider', remoteModel: 'test/native/spare', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } },
-    { id: 'scheduled-model', providerId: 'test-provider', remoteModel: 'test/native/scheduled', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } }] },
+    { id: 'scheduled-model', providerId: 'test-provider', remoteModel: 'test/native/scheduled', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } },
+    { id: 'clock-model', providerId: 'test-provider', remoteModel: 'test/native/clock', providerConfig: {}, enabled: true, capabilities: ['tutoring'], tools: [], limits: { maxInputCharacters: 20000, maxOutputTokens: 1000 } }] },
     adapters: [{ id: 'test-provider', kind: 'test', credentialEnv: 'COURSE_PROVIDER_TEST_API_KEY' }], roles: { companion: { modelId: 'model', maxInputCharacters: 12000, maxOutputTokens: 1000 } } },
     () => 'synthetic-key-only-in-test', { test: () => adapter });
   const supervisor = { serviceToken: token, workspaceIds: [workspaceId], jobPolicy: { allowance: { microUsd: ALLOWANCE, tokens: 100_000 } } };
@@ -238,6 +239,48 @@ describe('operator pricing, priced receipts and reconciliation', () => {
     expect(await pricingAt(db, workspaceId, 'scheduled-model', new Date(Date.parse(later) + day))).toMatchObject({ versionId: kept.json().id, inputMicroUsdPerMillionTokens: 350_000 });
   }, 60000);
 
+  it('takes a price for now from the database clock when no effective time is sent, whatever the client and API host clocks say', async () => {
+    const post = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: pricingPath(), headers: headers(owner), payload });
+    const dbNow = async () => (await db.query<{ t: Date }>('SELECT clock_timestamp() AS t')).rows[0]!.t.getTime();
+    const ahead = 2 * 3_600_000;
+    const forNow: Record<string, unknown> = price({ modelId: 'clock-model' });
+    delete forNow.effectiveFrom;
+    // A browser two hours ahead of the server that sends its own "now" gets a scheduled price,
+    // kept exactly as sent: nothing is in force yet.
+    const browserNow = new Date(await dbNow() + ahead).toISOString();
+    const sent = await post(price({ modelId: 'clock-model', effectiveFrom: browserNow }));
+    expect(sent.statusCode, sent.body).toBe(200);
+    expect(sent.json()).toMatchObject({ version: 1, effectiveFrom: browserNow, inForceNow: false });
+    expect(await pricingInForce(db, workspaceId, 'clock-model')).toBeNull();
+    // Without an effective time the server stamps its database clock, even with the API host's
+    // own clock two hours ahead too: in force at once, and the scheduled version still follows.
+    const before = await dbNow();
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+    vi.setSystemTime(Date.now() + ahead);
+    const first = { ...forNow, expectedVersion: 1, inputMicroUsdPerMillionTokens: 320_000 };
+    let now;
+    try { now = await post(first); } finally { vi.useRealTimers(); }
+    const after = await dbNow();
+    expect(now.statusCode, now.body).toBe(200);
+    expect(now.json()).toMatchObject({ version: 2, inForceNow: true });
+    const stamped = Date.parse(now.json().effectiveFrom);
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(after);
+    expect(await pricingInForce(db, workspaceId, 'clock-model')).toMatchObject({ versionId: now.json().id, inputMicroUsdPerMillionTokens: 320_000 });
+    expect(await pricingAt(db, workspaceId, 'clock-model', new Date(Date.parse(browserNow) + 1000))).toMatchObject({ versionId: sent.json().id });
+    // A retry of the same request returns the same receipt and time; it adds no version.
+    expect((await post(first)).json()).toEqual(now.json());
+    // A browser behind the server: its "now" is before the version just put in force, so it is
+    // refused, while omitting the time works.
+    const behind = await post(price({ modelId: 'clock-model', expectedVersion: 2, effectiveFrom: new Date(stamped - 60_000).toISOString() }));
+    expect(behind.statusCode).toBe(400);
+    expect(behind.json().details).toMatchObject({ earliest: now.json().effectiveFrom });
+    const again = await post({ ...forNow, idempotencyKey: randomUUID(), expectedVersion: 2, inputMicroUsdPerMillionTokens: 330_000 });
+    expect(again.json()).toMatchObject({ version: 3, inForceNow: true });
+    expect(Date.parse(again.json().effectiveFrom)).toBeGreaterThanOrEqual(stamped);
+    expect(await pricingInForce(db, workspaceId, 'clock-model')).toMatchObject({ versionId: again.json().id });
+  }, 60000);
+
   it('prices a call from reported usage, reconciles, and releases the remainder exactly once', async () => {
     behavior = { kind: 'ok', tokens: { input: 1000, output: 200, total: 1300, cachedInput: 400, thoughts: 100, toolInput: 0 } };
     expect(await availability()).toEqual({ status: 'ready' });
@@ -317,11 +360,17 @@ describe('operator pricing, priced receipts and reconciliation', () => {
     expect(body.totals).toEqual({ calls: 5, reserved: String(5 * ALLOWANCE), charged: String(960 + 3 * ALLOWANCE), actual: '960',
       released: String(ALLOWANCE + ALLOWANCE - 960), held: String(ALLOWANCE), unpriced: String(2 * ALLOWANCE), uncertain: 1 });
     expect(body.byRole).toEqual([{ role: 'companion', ...body.totals }]);
-    expect(body.byPeriod).toHaveLength(1);
-    expect(body.byPeriod[0].period).toBe(new Date().toISOString().slice(0, 10));
+    // Periods are the UTC dates of the calls on the database clock (not the test host's, and a
+    // run across midnight UTC has two), newest first, adding up to the totals.
+    const periods = async (format: string) => (await db.query<{ p: string }>(`SELECT DISTINCT to_char(reserved_at AT TIME ZONE 'UTC','${format}') AS p
+      FROM provider_spend_ledger WHERE workspace_id=$1 ORDER BY 1 DESC`, [workspaceId])).rows.map(r => r.p);
+    const charged = (rows: { charged: string }[]) => String(rows.reduce((sum, r) => sum + Number(r.charged), 0));
+    expect(body.byPeriod.map((p: { period: string }) => p.period)).toEqual(await periods('YYYY-MM-DD'));
+    expect(charged(body.byPeriod)).toBe(body.totals.charged);
     expect(body.byEnrollment).toHaveLength(5);
     const monthly = (await app.inject({ url: `/api/admin/workspaces/${workspaceId}/provider-spend?period=month`, headers: headers(owner) })).json();
-    expect(monthly.byPeriod[0]).toMatchObject({ period: new Date().toISOString().slice(0, 7), charged: body.totals.charged });
+    expect(monthly.byPeriod.map((p: { period: string }) => p.period)).toEqual(await periods('YYYY-MM'));
+    expect(charged(monthly.byPeriod)).toBe(body.totals.charged);
     // The ledger agrees with the budget tables it mirrors.
     const budget = (await db.query('SELECT used_micro_usd::text AS used FROM supervisor_workspace_budgets WHERE workspace_id=$1', [workspaceId])).rows[0].used;
     expect(budget).toBe(body.totals.charged);

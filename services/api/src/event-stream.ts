@@ -64,7 +64,11 @@ export function registerEventStream(app: FastifyInstance, db: Database, auth: Re
       raw.end();
     };
     const stopped = new AbortController();
-    request.raw.on('close', () => { stopped.abort(); finish(); });
+    const disconnected = () => { stopped.abort(); finish(); };
+    request.raw.on('close', disconnected);
+    // A client that left while its access was being checked closed before this listener existed;
+    // without this the stream would hold its slot (and poll) until its lifetime ran out.
+    if (request.raw.destroyed) disconnected();
     const send = (text: string) => { if (!closed) { raw.write(text); lastWrite = Date.now(); } };
     // The learner's own companion drafts, as they are released: pushed, never polled. Staff never
     // receive them (the companion conversation is private to the learner). Not resumable by

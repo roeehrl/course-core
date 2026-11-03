@@ -586,10 +586,15 @@ export function InstallCourse({
               <dd>
                 {preview.registry.present
                   ? preview.registry.approvable
-                    ? t("installCourse.registry.summary", {
-                        count: preview.registry.profileCount,
-                        digest: short(preview.registry.digest),
-                      })
+                    ? t(
+                        preview.registry.afterCourseSuppliedApproval
+                          ? "installCourse.registry.summaryAfterCourseSupplied"
+                          : "installCourse.registry.summary",
+                        {
+                          count: preview.registry.profileCount,
+                          digest: short(preview.registry.digest),
+                        },
+                      )
                     : t("installCourse.registry.summaryNotApprovable", {
                         count: preview.registry.profileCount,
                         digest: short(preview.registry.digest),

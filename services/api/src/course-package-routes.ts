@@ -40,7 +40,7 @@ import { appendEvent } from './events.js';
 import { roleCan, workspaceRole } from './course-access.js';
 import { ensureCatalog, transitionReleaseWithin, type AdminRuntimeOptions, type Catalog } from './admin-routes.js';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
-import { approveAdaptationRegistry, checkAdaptationConfiguration, type AdaptationConfiguration, type AdaptationRuntime } from './adaptation-store.js';
+import { approveAdaptationRegistry, checkAdaptationConfiguration, withProspectiveExtensions, type AdaptationConfiguration, type AdaptationRuntime } from './adaptation-store.js';
 import { digestJson } from './repository.js';
 import { COURSE_PACKAGE_LIMITS, belowMinimumSdk, compareSemver, CoursePackageError, MINIMUM_SUPPORTED_SDK, coreCoursePackageVerifier, sha256, type CoursePackageVerifier, type VerifiedCoursePackage } from './course-package.js';
 import { fetchGitHubPackage, type RemoteFetchMode, type RemoteFetchOptions } from './course-package-source.js';
@@ -171,13 +171,18 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   for (const requirement of hostRequirements) if (requirement.status !== 'identical' && requirement.status !== 'course_supplied')
     problems.push({ code: requirement.status === 'missing' ? 'HOST_REQUIREMENT_MISSING' : 'HOST_REQUIREMENT_DIFFERENT', severity: runtime.runnable ? 'warning' : 'blocking',
       params: { name: requirement.name, sha256: requirement.sha256.slice(0, 12) } });
-  let registry: { present: false } | { present: true; digest: string; profileCount: number; approvable: boolean; code?: string };
+  // `afterCourseSuppliedApproval`: approvable only with the course-supplied files this install
+  // approves (say, the code fixture registry that grades its code-bank items). The install's registry
+  // step runs after they are activated, so this is no problem; any other refusal stays a warning.
+  let registry: { present: false } | { present: true; digest: string; profileCount: number; approvable: boolean; code?: string; afterCourseSuppliedApproval?: true };
   if (!verified.adaptationRegistryPresent) registry = { present: false };
   else {
-    const check = checkAdaptationConfiguration(compiled.server, verified.adaptationRegistry, options.adaptation);
+    const now = checkAdaptationConfiguration(compiled.server, verified.adaptationRegistry, options.adaptation);
+    const check = now.valid || !supplied.runnable.length ? now
+      : checkAdaptationConfiguration(compiled.server, verified.adaptationRegistry, withProspectiveExtensions(options.adaptation, options.installedExtensions ?? [], supplied.runnable));
     const profiles = (verified.adaptationRegistry as { profiles?: unknown } | null)?.profiles;
     registry = { present: true, digest: digestJson(verified.adaptationRegistry), profileCount: Array.isArray(profiles) ? profiles.length : 0,
-      approvable: check.valid, ...(check.valid ? {} : { code: check.code }) };
+      approvable: check.valid, ...(check.valid ? {} : { code: check.code }), ...(check.valid && !now.valid ? { afterCourseSuppliedApproval: true as const } : {}) };
     if (!check.valid) problems.push({ code: 'ADAPTATION_REGISTRY_NOT_APPROVABLE', severity: 'warning', params: { reason: check.code } });
   }
   return {
