@@ -64,9 +64,20 @@ test("operator prices are versioned and validated, the rule for unpriced models 
     "Learner tutor",
   );
   await spending.getByLabel("Group by").selectOption("month");
-  await expect(
-    spending.getByRole("table", { name: "By period" }),
-  ).toContainText(new Date().toISOString().slice(0, 7));
+  // The month of the fixture's calls in UTC by the server's clock, not this host's (they can
+  // differ at a month boundary): the ledger's own month, as the spend report gives it.
+  const months = (
+    await (
+      await page.request.get(
+        `/api/admin/workspaces/${fixture.workspaceId}/provider-spend?period=month`,
+      )
+    ).json()
+  ).byPeriod.map((row: { period: string }) => row.period);
+  expect(months.length).toBeGreaterThan(0);
+  for (const month of months)
+    await expect(
+      spending.getByRole("table", { name: "By period" }),
+    ).toContainText(month);
   await accessible(page);
   await page.screenshot({
     path: info.outputPath("pricing-and-spend.png"),
