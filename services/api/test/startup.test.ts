@@ -32,13 +32,30 @@ describe('API startup diagnostics', () => {
   it('retries a slow dependency until its deadline and throws the last failure; a definite failure is not retried', async () => {
     const waits: number[] = [], sleep = async (ms: number) => { waits.push(ms); };
     let calls = 0;
-    await expect(untilReady(async () => { calls++; if (calls < 3) throw new StartupError('docker_timeout'); return 'ready'; }, () => true, 60_000, sleep)).resolves.toBe('ready');
+    await expect(untilReady(async () => { calls++; if (calls < 3) throw new StartupError('docker_timeout'); return 'ready'; }, () => true, 60_000, { sleep })).resolves.toBe('ready');
     expect(waits).toEqual([1_000, 2_000]);
     calls = 0;
-    await expect(untilReady(async () => { calls++; throw new StartupError('TEACHING_VERIFIER_QUALIFICATION_FAILED'); }, error => (error as StartupError).code !== 'TEACHING_VERIFIER_QUALIFICATION_FAILED', 60_000, sleep))
+    await expect(untilReady(async () => { calls++; throw new StartupError('TEACHING_VERIFIER_QUALIFICATION_FAILED'); }, error => (error as StartupError).code !== 'TEACHING_VERIFIER_QUALIFICATION_FAILED', 60_000, { sleep }))
       .rejects.toMatchObject({ code: 'TEACHING_VERIFIER_QUALIFICATION_FAILED' });
     expect(calls).toBe(1);
-    await expect(untilReady(async () => { throw new StartupError('docker_unavailable'); }, () => true, 1_500, sleep)).rejects.toMatchObject({ code: 'docker_unavailable' });
+    await expect(untilReady(async () => { throw new StartupError('docker_unavailable'); }, () => true, 1_500, { sleep })).rejects.toMatchObject({ code: 'docker_unavailable' });
+  });
+  it('reports each retry with its code, attempt, elapsed time and wait, and a nested step\'s failure under that step', async () => {
+    const retries: unknown[] = [], lines: string[] = [], startup = new Startup(line => lines.push(line));
+    let calls = 0;
+    await untilReady(async () => { calls++; if (calls < 3) throw new StepFailure('sandbox_image_inspect', new StartupError('image_inspect_timeout')); return 'ready'; }, () => true, 60_000,
+      { sleep: async () => {}, onRetry: retry => { retries.push(retry); startup.retrying('docker_info', retry, 60_000); } });
+    expect(retries).toEqual([
+      { code: 'image_inspect_timeout', attempt: 1, elapsedMs: expect.any(Number), waitMs: 1_000, step: 'sandbox_image_inspect' },
+      { code: 'image_inspect_timeout', attempt: 2, elapsedMs: expect.any(Number), waitMs: 2_000, step: 'sandbox_image_inspect' },
+    ]);
+    expect(lines.map(line => JSON.parse(line))).toEqual([1, 2].map(attempt => ({ startup: 'retrying', level: 'warn', step: 'sandbox_image_inspect', code: 'image_inspect_timeout',
+      attempt, elapsedMs: expect.any(Number), nextAttemptInMs: attempt * 1_000, deadlineMs: 60_000 })));
+    // A failure that is not retryable is thrown at once and never reported as a retry.
+    retries.length = 0;
+    await expect(untilReady(async () => { throw new StartupError('TEACHING_VERIFIER_SANDBOX_QUARANTINED'); }, () => false, 60_000, { sleep: async () => {}, onRetry: retry => retries.push(retry) }))
+      .rejects.toMatchObject({ code: 'TEACHING_VERIFIER_SANDBOX_QUARANTINED' });
+    expect(retries).toEqual([]);
   });
   it('bounds SANDBOX_STARTUP_TIMEOUT_MS', () => {
     expect(sandboxStartupTimeout(undefined)).toBe(120_000);

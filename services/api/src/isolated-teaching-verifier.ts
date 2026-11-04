@@ -13,6 +13,7 @@ import { requireCondition, ApiError } from "./errors.js";
 import { digestJson } from "./repository.js";
 import type { TrustedAdaptationAdapter } from "./adaptation-store.js";
 import type { RuntimeExtension } from "./publication.js";
+import { failureCode, untilReady, type StartupRetry } from "./startup.js";
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const ids = z
@@ -156,18 +157,33 @@ export async function isolatedTeachingVerifier(
   } catch {
     throw new ApiError(400, "TEACHING_VERIFIER_ENVELOPE");
   }
+  // A broker that could not confirm a container was removed quarantines itself for the life of
+  // the process and keeps broker.lock (packages/sandbox): it refuses every later run without
+  // calling Docker, so that is QUARANTINED, which no retry can fix. A broker.lock this process
+  // did not leave may belong to another broker on the same directory (LOCKED, retryable).
+  const readiness = await sandbox.readiness();
   requireCondition(
-    (await sandbox.readiness()).ready,
-    "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE",
+    readiness.ready,
+    readiness.reason === "cleanup_required"
+      ? "TEACHING_VERIFIER_SANDBOX_QUARANTINED"
+      : readiness.reason === "broker_locked"
+        ? "TEACHING_VERIFIER_SANDBOX_LOCKED"
+        : "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE",
     503,
   );
   const qualification = await sandbox.grade({ source: config.source, cases });
   // A sandbox that could not run the cases (busy, unavailable, too slow to start, a cleanup
-  // failure) or ran out of time says nothing about the verifier: those are 503s a caller may retry
-  // (main.ts retries them at startup within a deadline). Only cases that ran and did not all pass,
-  // or broke the output protocol, are a failed qualification. Either way nothing is installed.
+  // failure) or ran out of time says nothing about the verifier: those are 503s. Busy,
+  // unavailable and too slow are retried at startup within a deadline; a cleanup failure has
+  // quarantined the broker and is not. Only cases that ran and did not all pass, or broke the
+  // output protocol, are a failed qualification. Either way nothing is installed.
   requireCondition(
-    !["busy", "unavailable", "cleanup_failed", "setup_timeout"].includes(qualification.status),
+    qualification.status !== "cleanup_failed",
+    "TEACHING_VERIFIER_SANDBOX_QUARANTINED",
+    503,
+  );
+  requireCondition(
+    !["busy", "unavailable", "setup_timeout"].includes(qualification.status),
     "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE",
     503,
   );
@@ -288,4 +304,36 @@ export async function isolatedTeachingVerifier(
     capabilities: ["teaching.generate", "teaching.verify"],
     adaptationAdapter: adapter,
   };
+}
+
+/** Qualification failures a wait can fix: Docker or the sandbox busy, slow or briefly locked by
+ * another broker. TEACHING_VERIFIER_SANDBOX_QUARANTINED is deliberately absent: the broker has
+ * disabled itself for this process (packages/sandbox never clears its own lock), so retrying only
+ * hides the cause until the deadline. A failed qualification is never retried either. */
+export const RETRYABLE_QUALIFICATION_CODES: ReadonlySet<string> = new Set([
+  "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE",
+  "TEACHING_VERIFIER_SANDBOX_LOCKED",
+  "TEACHING_VERIFIER_QUALIFICATION_TIMEOUT",
+]);
+
+/** Startup qualification: retries transient sandbox failures until `deadlineMs`, reporting each
+ * retry; anything else (a quarantined broker, a failed verifier) is thrown at once. */
+export function qualifyIsolatedTeachingVerifier(
+  bytes: Buffer,
+  sandbox: DockerSandbox,
+  options: {
+    deadlineMs: number;
+    onRetry?: (retry: StartupRetry) => void;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<RuntimeExtension> {
+  return untilReady(
+    () => isolatedTeachingVerifier(bytes, sandbox),
+    (error) => RETRYABLE_QUALIFICATION_CODES.has(failureCode(error)),
+    options.deadlineMs,
+    {
+      ...(options.sleep ? { sleep: options.sleep } : {}),
+      ...(options.onRetry ? { onRetry: options.onRetry } : {}),
+    },
+  );
 }
