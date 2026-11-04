@@ -28,10 +28,14 @@ const stateTone = {
 export function VersionMoves({
   client,
   courseId,
+  releasesKey,
   onMoved,
 }: {
   client: AdminClient;
   courseId: string;
+  /** Changes whenever the course's releases change (a version published, archived or made
+   * available), so the versions and who can move where are read again without a page reload. */
+  releasesKey?: string;
   /** Called after learners moved (or moved back), so the enrollment list can refresh. */
   onMoved?: () => void;
 }) {
@@ -80,7 +84,7 @@ export function VersionMoves({
       if (!controller.signal.aborted) setError(moveErrorMessage(cause, t));
     });
     return () => controller.abort();
-  }, [port, courseId]);
+  }, [port, courseId, releasesKey]);
   useEffect(() => {
     if (who !== "learner" || !fromId) return;
     const controller = new AbortController();
@@ -302,9 +306,9 @@ export function VersionMoves({
               ))}
             </select>
           </Field>
-          <fieldset>
+          <fieldset className="version-move-who">
             <legend>{t("versionMoves.form.who")}</legend>
-            <label>
+            <label className="choice-row">
               <input
                 type="radio"
                 name={`${id}-who`}
@@ -313,13 +317,15 @@ export function VersionMoves({
                   setWho("cohort");
                   setPreview(undefined);
                 }}
-              />{" "}
-              {t("versionMoves.form.who.cohort", {
-                version: from?.version ?? "",
-                count: from?.learners ?? 0,
-              })}
+              />
+              <span>
+                {t("versionMoves.form.who.cohort", {
+                  version: from?.version ?? "",
+                  count: from?.learners ?? 0,
+                })}
+              </span>
             </label>
-            <label>
+            <label className="choice-row">
               <input
                 type="radio"
                 name={`${id}-who`}
@@ -328,8 +334,8 @@ export function VersionMoves({
                   setWho("learner");
                   setPreview(undefined);
                 }}
-              />{" "}
-              {t("versionMoves.form.who.learner")}
+              />
+              <span>{t("versionMoves.form.who.learner")}</span>
             </label>
           </fieldset>
           {who === "learner" && (

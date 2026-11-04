@@ -254,8 +254,10 @@ button.copy-text:hover {
 .objectives-disclosure > .objectives {
   margin-top: 12px;
 }
-/* The update source: one choice per line, each a tappable row with its radio. */
-fieldset.update-source {
+/* The update source, and who moves to a newer version: one choice per line, each a tappable row
+   with its radio, so long labels wrap inside their row and never run into the next choice. */
+fieldset.update-source,
+fieldset.version-move-who {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -264,12 +266,14 @@ fieldset.update-source {
   border: 0;
   min-width: 0;
 }
-fieldset.update-source > legend {
+fieldset.update-source > legend,
+fieldset.version-move-who > legend {
   padding: 0 0 6px;
   font-size: var(--text-sm);
   font-weight: 650;
 }
-fieldset.update-source > .choice-row {
+fieldset.update-source > .choice-row,
+fieldset.version-move-who > .choice-row {
   max-width: 460px;
 }
 /* A number with its unit: sized for the number, not the card. */
