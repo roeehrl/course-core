@@ -13,10 +13,11 @@ import {
   type VersionMovesPort,
   type VersionMovesView,
 } from "../src/domain/versionMoves";
+import { AdminApp } from "../src/AdminApp";
 import { I18nProvider, createAdminTranslator } from "../src/i18n";
 import en from "../src/i18n/messages/en/versionMoves.json";
 import he from "../src/i18n/messages/he/versionMoves.json";
-import { currentContext, demo } from "./helpers";
+import { atCourse, currentContext, demo } from "./helpers";
 
 // Synthetic identities and lessons only.
 const none = { count: 0, items: [] };
@@ -257,6 +258,124 @@ describe("moving learners to a newer version", () => {
       toReleaseId: "r2",
       enrollmentId: "e-1",
     });
+  });
+
+  it("draws each Who choice as its own row, so a long label never runs into the next one", async () => {
+    setup({});
+    const group = await screen.findByRole("group", { name: "Who" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((radio) => radio.closest("label")?.textContent)).toEqual([
+      "Everyone on version 1.0.0 (3 learners)",
+      "One learner",
+    ]);
+    for (const radio of radios) {
+      const row = radio.closest("label")!;
+      expect(row).toHaveClass("choice-row");
+      // The label text is wrapped next to the control (the row's second grid column).
+      expect(row.querySelector(":scope > span")).not.toBeNull();
+    }
+    expect(group).toHaveClass("version-move-who");
+  });
+
+  it("reads the versions again when the course's releases change", async () => {
+    const after: VersionMovesView = {
+      ...view,
+      versions: [
+        {
+          releaseId: "r3",
+          version: "3.0.0",
+          status: "published",
+          learners: 0,
+          newer: [],
+        },
+        ...view.versions.map((v) => ({
+          ...v,
+          newer: [...v.newer, { releaseId: "r3", version: "3.0.0" }],
+        })),
+      ],
+    };
+    const get = vi.fn(async () => view);
+    const versionMoves = {
+      get,
+      learners: vi.fn(),
+    } as unknown as VersionMovesPort;
+    const client = {
+      mode: "connected",
+      versionMoves,
+    } as unknown as AdminClient;
+    const ui = (releasesKey: string) => (
+      <I18nProvider value={createAdminTranslator("en")}>
+        <VersionMoves
+          client={client}
+          courseId="cat-1"
+          releasesKey={releasesKey}
+        />
+      </I18nProvider>
+    );
+    const { rerender } = render(ui("r1:published|r2:published"));
+    expect(
+      await screen.findByText(/Version 2\.0\.0 · no learners/),
+    ).toBeVisible();
+    // The same releases (a parent re-render): nothing is read again.
+    rerender(ui("r1:published|r2:published"));
+    expect(get).toHaveBeenCalledTimes(1);
+    get.mockResolvedValue(after);
+    rerender(ui("r1:published|r2:published|r3:published"));
+    expect(
+      await screen.findByText(/Version 3\.0\.0 · no learners/),
+    ).toBeVisible();
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a just published version as somewhere to move learners, without a reload", async () => {
+    atCourse();
+    render(<AdminApp client={demo()} />);
+    const moves = async () =>
+      within(
+        await screen
+          .findByRole("heading", { name: "Move learners to a newer version" })
+          .then((heading) => heading.closest(".card") as HTMLElement),
+      );
+    // The "Versions" list: one row per version, with its learners and where they can move.
+    const versions = async () =>
+      within((await moves()).getAllByRole("list")[0]!)
+        .getAllByRole("listitem")
+        .map((row) => stripBidiControls(row.textContent ?? ""));
+    await waitFor(async () =>
+      expect(await versions()).toEqual([
+        "Version 1.0.0 · 2 learners · newest published",
+      ]),
+    );
+    expect((await moves()).getByText(/there is nobody to move/)).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Submit for review" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Approve review" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Publish release" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Publish reviewed release",
+    });
+    await userEvent.click(within(dialog).getByRole("checkbox"));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm publication" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // No reload: the section reads the versions again once the release is published.
+    await waitFor(async () =>
+      expect(await versions()).toEqual([
+        "Version 1.1.0 · no learners · newest published",
+        "Version 1.0.0 · 2 learners · can move to 1.1.0",
+      ]),
+    );
+    const section = await moves();
+    expect(section.queryByText(/there is nobody to move/)).toBeNull();
+    expect(
+      section.getByRole("button", { name: "Show what would happen" }),
+    ).toBeVisible();
   });
 
   it("says what to do when the server refuses, and hides moving from people who may not", async () => {

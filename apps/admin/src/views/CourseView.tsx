@@ -301,6 +301,12 @@ export function CourseView({
           <VersionMoves
             client={client}
             courseId={data.course.id}
+            releasesKey={data.releases
+              .map(
+                (r) =>
+                  `${r.id}:${r.state}:${r.availableForNewLearners ? 1 : 0}`,
+              )
+              .join("|")}
             onMoved={() => void actions.resync()}
           />
         </div>
