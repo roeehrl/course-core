@@ -20,6 +20,7 @@
   "stat.deadlineRisksDetail": "לומדים פעילים עם מועד אחרון בתוך 7 ימים",
   "stat.notVisible": "לא גלוי לתפקיד שלך",
   "stat.contentDefects": "פגמים בתוכן",
+  "stat.defectsChecking": "הבדיקות של הגרסה הפעילה עדיין רצות בשרת.",
   "stat.invalidated": "{count, plural, one {ראיה אחת בוטלה ב-30 הימים האחרונים} two {# ראיות בוטלו ב-30 הימים האחרונים} other {# ראיות בוטלו ב-30 הימים האחרונים}}",
   "releases.title": "גרסאות ולומדים",
   "releases.updateTitle": "יש עדכון זמין",

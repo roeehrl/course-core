@@ -7,7 +7,7 @@ import { installAccess } from "../components/AddCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { VersionMoves } from "../components/VersionMoves";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { SectionNav } from "../components/SectionNav";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import {
@@ -40,6 +40,9 @@ import {
   Stat,
   Status,
 } from "../components/ui";
+
+/** How soon the course is read again while a version's checks are still running. */
+const CHECKING_RETRY_MS = 3000;
 
 export function CourseView({
   data,
@@ -106,6 +109,25 @@ export function CourseView({
   const activeRelease = data.releases.find(
     (item) => item.availableForNewLearners,
   );
+  // The server checks a large, just installed or changed version in the background: read the
+  // course again until its checks are recorded.
+  const checking = data.releases.some((item) => item.checking);
+  const resync = useRef(actions.resync);
+  resync.current = actions.resync;
+  useEffect(() => {
+    if (!checking) return;
+    const timer = setTimeout(() => void resync.current(), CHECKING_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [checking, data]);
+  /** Checks that keep this version from moving on: one failed, or still running. */
+  const blocked = (release: Release) =>
+    Boolean(release.checking) || release.checks.some((item) => !item.passed);
+  const blockedReason = (release: Release) =>
+    release.checking
+      ? t("courseView.checking.wait")
+      : release.checks.some((item) => !item.passed)
+        ? t("courseView.validationRequired")
+        : "";
   const awaitingReview = data.releases.filter(
     (item) => item.state === "pending_review",
   ).length;
@@ -249,6 +271,9 @@ export function CourseView({
                   {release.availableForNewLearners && (
                     <small>{t("courseView.release.available")}</small>
                   )}
+                  {release.checking && (
+                    <small>{t("courseView.checking.row")}</small>
+                  )}
                 </span>
                 <Status value={release.state} />
                 <ArrowUpRight size={18} aria-hidden="true" />
@@ -292,7 +317,22 @@ export function CourseView({
               <small>{when(selected.createdAt)}</small>
             </div>
             <p dir="auto">{selected.notes}</p>
-            <ul className="checklist">
+            <ul
+              className="checklist"
+              aria-busy={selected.checking || undefined}
+            >
+              {selected.checking && (
+                <li key="checking" role="status">
+                  <span className="check-icon" aria-hidden="true">
+                    …
+                  </span>
+                  <div>
+                    <strong>{t("courseView.checking.label")}</strong>
+                    <small>{t("courseView.checking.detail")}</small>
+                  </div>
+                  <Badge tone="blue">{t("courseView.check.checking")}</Badge>
+                </li>
+              )}
               {selected.checks.map((check) => (
                 <li key={check.code ?? check.label}>
                   <span
@@ -344,16 +384,8 @@ export function CourseView({
               {selected.state === "draft" && (
                 <Button
                   kind="primary"
-                  disabled={
-                    !canWrite ||
-                    actions.pending ||
-                    selected.checks.some((item) => !item.passed)
-                  }
-                  reason={
-                    selected.checks.some((item) => !item.passed)
-                      ? t("courseView.validationRequired")
-                      : ""
-                  }
+                  disabled={!canWrite || actions.pending || blocked(selected)}
+                  reason={blockedReason(selected)}
                   onClick={() => void transition(selected, "submit-review")}
                 >
                   {actions.pending
@@ -396,7 +428,7 @@ export function CourseView({
                     disabled={
                       !data.permissions.includes("release.publish") ||
                       actions.pending ||
-                      selected.checks.some((item) => !item.passed)
+                      blocked(selected)
                     }
                     onClick={() => {
                       // An older release than the live one is a rollback: review its impact first.

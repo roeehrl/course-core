@@ -20,6 +20,7 @@
   "stat.deadlineRisksDetail": "Active learners due within 7 days",
   "stat.notVisible": "Not visible to your role",
   "stat.contentDefects": "Content defects",
+  "stat.defectsChecking": "The live version's checks are still running on the server.",
   "stat.invalidated": "{count, plural, one {# evidence record invalidated in 30 days} other {# evidence records invalidated in 30 days}}",
   "releases.title": "Releases and learners",
   "releases.updateTitle": "Update available",

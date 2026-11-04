@@ -24,18 +24,22 @@ const releaseIds: string[] = [];
 
 /** Rows carrying a bundle column that the API received from PostgreSQL. */
 const bundles = { server: 0, learner: 0 };
-const query = pg.Client.prototype.query;
-vi.spyOn(pg.Client.prototype, "query").mockImplementation(function (this: pg.Client, ...args: unknown[]) {
-  const result = (query as (...a: unknown[]) => unknown).apply(this, args);
-  if (result && typeof (result as Promise<unknown>).then === "function")
-    void (result as Promise<pg.QueryResult>).then((value) => {
-      for (const row of value?.rows ?? []) {
-        if (row && typeof row === "object" && "server_bundle" in row) bundles.server++;
-        if (row && typeof row === "object" && "learner_bundle" in row) bundles.learner++;
-      }
-    }, () => undefined);
-  return result as never;
-} as never);
+// Both a checked-out client's queries and the pool's own (the background release check runner
+// reads on the pool); a pool query reaches the client with a callback, so it is counted once.
+for (const prototype of [pg.Client.prototype, pg.Pool.prototype] as { query: (...a: unknown[]) => unknown }[]) {
+  const query = prototype.query;
+  vi.spyOn(prototype, "query").mockImplementation(function (this: unknown, ...args: unknown[]) {
+    const result = query.apply(this, args);
+    if (result && typeof (result as Promise<unknown>).then === "function")
+      void (result as Promise<pg.QueryResult>).then((value) => {
+        for (const row of value?.rows ?? []) {
+          if (row && typeof row === "object" && "server_bundle" in row) bundles.server++;
+          if (row && typeof row === "object" && "learner_bundle" in row) bundles.learner++;
+        }
+      }, () => undefined);
+    return result as never;
+  } as never);
+}
 
 async function counted(work: () => Promise<unknown>) {
   const before = releaseCheckStatistics(), server = bundles.server, learner = bundles.learner;
@@ -53,7 +57,8 @@ async function view() {
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
-  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: installed });
+  // Long enough that a view always shows its checks here (the counts below are about reads).
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: installed, releaseCheckWaitMs: 60_000 });
   const workspaceId = randomUUID(), userId = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,'course-view','Course view')", [workspaceId]);
   await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,'Synthetic owner')", [userId, `course-view:${userId}`]);

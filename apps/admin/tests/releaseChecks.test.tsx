@@ -1,12 +1,14 @@
 import React from "react";
 import {
+  act,
+  fireEvent,
   render,
   renderHook,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { CourseView } from "../src/views/CourseView";
 import { useWorkspace } from "../src/hooks/useAdmin";
 import { releaseSchema } from "../src/domain/contracts";
@@ -163,5 +165,85 @@ it("names the checkpoint that breaks an evidence rule, in English and Hebrew", (
     });
     expect(text.label, code).not.toMatch(/GATE_|Check /);
     expect(stripBidiControls(text.detail), code).toContain("notice-gate");
+  }
+});
+
+it("shows a version whose checks are still running as being checked, holds review, and reads the course again", async () => {
+  const client = demo();
+  const { result } = renderHook(() => useWorkspace(client, "sorting"));
+  await waitFor(() => expect(result.current.workspace).toBeDefined());
+  const workspace = result.current.workspace!;
+  const draft = workspace.releases.find((r) => r.state === "draft")!;
+  const checking = releaseSchema.parse({
+    ...draft,
+    checks: [],
+    checking: true,
+  });
+  let resyncs = 0;
+  const actions = {
+    ...result.current,
+    resync: async () => {
+      resyncs++;
+    },
+  };
+  const view = (release: typeof checking) => (
+    <CourseView
+      data={{
+        ...workspace,
+        releases: workspace.releases.map((r) =>
+          r.id === draft.id ? release : r,
+        ),
+      }}
+      client={client}
+      actions={actions}
+    />
+  );
+  vi.useFakeTimers();
+  try {
+    const { rerender } = render(view(checking));
+    fireEvent.click(
+      screen.getByRole("button", { name: new RegExp(draft.version) }),
+    );
+    const item = screen.getByText("Checking this version").closest("li")!;
+    expect(within(item).getByText("Checking")).toBeVisible();
+    const submit = screen.getByRole("button", { name: "Submit for review" });
+    expect(submit).toBeDisabled();
+    expect(
+      screen.getByText("Wait until this version's checks finish."),
+    ).toBeVisible();
+    expect(resyncs).toBe(0);
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(resyncs).toBe(1);
+    // Checks recorded: the usual list, review open, no more reads.
+    rerender(view(releaseSchema.parse({ ...draft, checking: false })));
+    expect(screen.queryByText("Checking this version")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Submit for review" }),
+    ).toBeEnabled();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(resyncs).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("words the checking state in English and Hebrew", () => {
+  const en = createAdminTranslator("en"),
+    he = createAdminTranslator("he");
+  for (const key of [
+    "courseView.check.checking",
+    "courseView.checking.label",
+    "courseView.checking.detail",
+    "courseView.checking.row",
+    "courseView.checking.wait",
+    "overviewView.stat.defectsChecking",
+  ] as const) {
+    expect(en.has(key)).toBe(true);
+    expect(he.has(key)).toBe(true);
+    expect(he.t(key)).not.toBe(en.t(key));
   }
 });

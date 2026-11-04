@@ -62,6 +62,8 @@ export const overviewSchema = z.object({
           }),
         )
         .max(50),
+      /** The live release's checks are still running on the server; the list above is empty until then. */
+      activeReleaseChecking: z.boolean().optional(),
       evidenceInvalidatedLast30Days: count,
     })
     .passthrough(),

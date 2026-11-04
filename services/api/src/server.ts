@@ -59,7 +59,7 @@ import { registerSupervisorAuthorityRoutes } from './supervisor-authority.js';
 import { registerSupervisionSettingsRoutes } from './supervision-settings-routes.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
-import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
+import { ensureCatalog, registerAdminRoutes, releaseCheckRunner, selectCatalogueReleaseWithin, warmReleaseVisuals, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
 import { registerHostInventoryRoutes } from './host-inventory.js';
@@ -157,12 +157,17 @@ export async function createServer(db: Database, options: AuthOptions & { instan
    * omitted: courses can bring activity scripts but not hidden code cases. */
   codeSandbox?: CodeSandbox;
   /** The migrations this build ships, compared with the database on the platform-readiness page. */
-  migrationsDirectory?: string }) {
+  migrationsDirectory?: string;
+  /** How long an admin course view waits for release checks running in the background (AdminRuntimeOptions). */
+  releaseCheckWaitMs?: number }) {
   const clock = serverClock(options.clock);
   if (options.companionAvailabilityOverride && process.env.NODE_ENV !== 'test') throw new Error('A companion availability override can only be installed when NODE_ENV=test.');
   // One live list of installed extensions shared by every route, so approved course-supplied
   // extensions (loaded here, and added when an install approves them) take effect at once.
   options.installedExtensions ??= [];
+  // What release checks depend on: the live installed list (admin-routes.ts releaseCheckRunner).
+  const releaseCheckOptions: AdminRuntimeOptions = { installedExtensions: options.installedExtensions,
+    ...(options.releaseCheckWaitMs === undefined ? {} : { releaseCheckWaitMs: options.releaseCheckWaitMs }) };
   const courseSupplied = new CourseSuppliedRegistry(options.installedExtensions, options.codeSandbox);
   await courseSupplied.load(db, problem => process.stderr.write(`${JSON.stringify({ event: 'course_supplied_extension.unavailable', ...problem })}\n`));
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
@@ -257,19 +262,30 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       const catalogId = (await db.query<{ id: string }>('SELECT id FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2', [workspaceId, course.server.id])).rows[0]?.id ?? null;
       await permitCourse(db, actor, workspaceId, catalogId, 'course.write');
     }
-    return transaction(db, async client => {
+    const imported = await transaction(db, async client => {
       await client.query(`INSERT INTO course_releases (id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
         [releaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), actor.id]);
       await ensureCatalog(client, releaseId);
       await appendEvent(client, { workspaceId, actorId: actor.id, actorKind: 'staff', type: 'course.imported', payload: { releaseId, digest: course.digest }, idempotencyKey: `release:${releaseId}:import` });
       return { id: releaseId, digest: course.digest, status: 'draft' };
     });
+    // Committed: check the new release in the background, so the first course view after an
+    // import finds its checks recorded instead of running every visual check of the course.
+    void releaseCheckRunner(db).schedule(releaseId, releaseCheckOptions);
+    return imported;
   });
   app.post('/api/releases/:releaseId/publish', { schema: { params: { type: 'object', properties: { releaseId: uuid }, required: ['releaseId'] } } }, async request => {
     const actor = await auth.authenticate(request), { releaseId } = request.params as { releaseId: string };
     // Optional body: { confirmOlderVersion: true } publishes a version lower than one already published.
     const body = z.strictObject({ confirmOlderVersion: z.literal(true).optional() }).safeParse(request.body ?? {});
     requireCondition(body.success, 'INVALID_REQUEST');
+    // Publishing a draft runs its checks with the catalog and release locked. Warm its visual
+    // checks first, outside any transaction, so that gate reuses their results (it still decides).
+    const draft = (await db.query<{ workspace_id: string; status: string }>('SELECT workspace_id,status FROM course_releases WHERE id=$1', [releaseId])).rows[0];
+    if (draft?.status === 'draft') {
+      await workspaceRole(db, actor, draft.workspace_id, ['owner', 'admin']);
+      await warmReleaseVisuals(db, releaseId, releaseCheckOptions);
+    }
     return transaction(db, async client => {
       let release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1', [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
@@ -436,7 +452,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerPolicyScopeRoutes(app, db, auth);
   registerContinuationRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
-  const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
+  const adminRuntime: AdminRuntimeOptions = { ...releaseCheckOptions, insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);
   registerHostInventoryRoutes(app, db, auth, options.installedExtensions ?? []);
   registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
