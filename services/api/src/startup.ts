@@ -65,6 +65,8 @@ const HINTS: Record<StartupStep, Record<string, string>> = {
     TEACHING_VERIFIER_QUALIFICATION_FAILED: 'A teaching verifier failed its own qualification cases, so it was not installed. Fix the file or remove it from TEACHING_VERIFIER_FILES.',
     TEACHING_VERIFIER_QUALIFICATION_TIMEOUT: 'A teaching verifier\'s qualification kept timing out until SANDBOX_STARTUP_TIMEOUT_MS. Docker is likely slow to start containers; raise the timeout. Qualification is never skipped.',
     TEACHING_VERIFIER_SANDBOX_UNAVAILABLE: 'The grading sandbox stayed unavailable until SANDBOX_STARTUP_TIMEOUT_MS, so no teaching verifier could be qualified. Qualification is never skipped.',
+    TEACHING_VERIFIER_SANDBOX_QUARANTINED: 'The grading sandbox could not confirm a container was removed (a create or cleanup ran past its limit), so it disabled itself and kept broker.lock in SANDBOX_STORAGE_DIR; no retry in this process can recover. Remove any leftover course-sandbox-* containers (docker ps -a), delete that broker.lock, then start again.',
+    TEACHING_VERIFIER_SANDBOX_LOCKED: 'broker.lock in SANDBOX_STORAGE_DIR stayed in place until SANDBOX_STARTUP_TIMEOUT_MS. If no other Course Core uses that directory, it is left from a run whose container cleanup was not confirmed: remove any leftover course-sandbox-* containers (docker ps -a), delete broker.lock, then start again.',
     default: 'A code fixture or teaching verifier file could not be loaded and qualified. Check the files named in CODE_FIXTURE_FILES and TEACHING_VERIFIER_FILES.',
   },
   object_store: { default: 'The artifact object store (COURSE_ARTIFACT_STORE) is not reachable. Check its endpoint and credentials, or unset it.' },
@@ -105,6 +107,12 @@ export class Startup {
   degraded(step: StartupStep, code: string) {
     this.write(JSON.stringify({ startup: 'degraded', step, code, hint: startupHint(step, code) }));
   }
+  /** A step is waiting on a slow dependency and will try again: one line per retry, at warn level,
+   * with the failure's fixed code, the time spent so far and the deadline, so a slow start is never silent. */
+  retrying(step: StartupStep, retry: StartupRetry, deadlineMs: number) {
+    this.write(JSON.stringify({ startup: 'retrying', level: 'warn', step: retry.step ?? step, code: retry.code, attempt: retry.attempt,
+      elapsedMs: retry.elapsedMs, nextAttemptInMs: retry.waitMs, deadlineMs }));
+  }
   /** Per-step timings, written only at debug level. */
   ready(level = process.env.LOG_LEVEL) {
     if (level !== 'debug') return;
@@ -115,18 +123,30 @@ export class StepFailure extends Error {
   constructor(readonly step: StartupStep, override readonly cause: unknown) { super(`startup_${step}`); }
 }
 
+/** One retry `untilReady` is about to make: the failure's fixed code, how many attempts failed so
+ * far, the time since the first attempt, the wait before the next one and, for a nested step's
+ * failure, that step. */
+export interface StartupRetry { code: string; attempt: number; elapsedMs: number; waitMs: number; step?: StartupStep }
+export interface UntilReadyOptions {
+  sleep?: (ms: number) => Promise<void>;
+  /** Called before each wait, so a slow start is never silent. */
+  onRetry?: (retry: StartupRetry) => void;
+}
 /**
  * Retries `attempt` while it fails for a reason `retryable` accepts, until `deadlineMs` after the
  * first try, with backoff from 1 s to 5 s. The last failure is thrown, never swallowed: a slow
  * Docker gets time to come up, but nothing that needs qualifying is ever installed unqualified.
+ * A failure `retryable` refuses (one no wait can fix) is thrown at once.
  */
 export async function untilReady<T>(attempt: () => Promise<T>, retryable: (error: unknown) => boolean, deadlineMs: number,
-  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))): Promise<T> {
-  const deadline = Date.now() + deadlineMs;
-  for (let delay = 1_000; ; delay = Math.min(delay * 2, 5_000)) {
+  { sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), onRetry }: UntilReadyOptions = {}): Promise<T> {
+  const started = Date.now(), deadline = started + deadlineMs;
+  for (let delay = 1_000, failures = 1; ; delay = Math.min(delay * 2, 5_000), failures++) {
     try { return await attempt(); }
     catch (error) {
       if (!retryable(error) || Date.now() + delay >= deadline) throw error;
+      const cause = error instanceof StepFailure ? error.cause : error;
+      onRetry?.({ code: failureCode(cause), attempt: failures, elapsedMs: Date.now() - started, waitMs: delay, ...(error instanceof StepFailure ? { step: error.step } : {}) });
       await sleep(delay);
     }
   }

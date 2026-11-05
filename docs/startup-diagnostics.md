@@ -23,7 +23,7 @@ writes **exactly one** JSON line to stderr and exits with status 1:
 | `provider_configuration` | Reads `PROVIDER_CONFIG_FILE` | `INVALID_CONFIGURATION`, `INVALID_CONFIG` |
 | `docker_info` | `docker info`: the daemon answers and offers the required isolation | `docker_not_installed`, `docker_unavailable`, `docker_timeout`, `required_isolation_unavailable` |
 | `sandbox_image_inspect` | `docker image inspect`: the pinned image is present for this architecture | `image_missing`, `image_inspect_timeout`, `native_image_architecture_required` |
-| `verifier_qualification` | Loads code fixtures and qualifies each teaching verifier in the sandbox | `TEACHING_VERIFIER_QUALIFICATION_FAILED`, `TEACHING_VERIFIER_QUALIFICATION_TIMEOUT`, `TEACHING_VERIFIER_SANDBOX_UNAVAILABLE`, `ENOENT` |
+| `verifier_qualification` | Loads code fixtures and qualifies each teaching verifier in the sandbox | `TEACHING_VERIFIER_QUALIFICATION_FAILED`, `TEACHING_VERIFIER_QUALIFICATION_TIMEOUT`, `TEACHING_VERIFIER_SANDBOX_UNAVAILABLE`, `TEACHING_VERIFIER_SANDBOX_QUARANTINED`, `TEACHING_VERIFIER_SANDBOX_LOCKED`, `ENOENT` |
 | `object_store` | Checks the artifact object store (`COURSE_ARTIFACT_STORE`) | `OBJECT_STORE_UNAVAILABLE` |
 | `server_setup` | Builds the HTTP server and routes | — |
 | `port_bind` | Listens on `API_HOST:PORT` | `EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL` |
@@ -44,8 +44,23 @@ first try:
   until `SANDBOX_STARTUP_TIMEOUT_MS` (default 120000, allowed 5000–900000).
 - Qualification is retried while the sandbox is busy or unavailable, or a case timed out, until
   the same deadline. A verifier whose cases ran and did not all pass fails at once.
+- A sandbox that has disabled itself is not retried. When a container create or cleanup runs
+  past its limit, the broker cannot confirm the container is gone, so it quarantines itself for
+  the life of the process and keeps `broker.lock` in `SANDBOX_STORAGE_DIR`; every later run is
+  refused without calling Docker. Startup fails at once with
+  `TEACHING_VERIFIER_SANDBOX_QUARANTINED`. The lock is never cleared automatically: remove any
+  leftover `course-sandbox-*` containers (`docker ps -a`), delete `broker.lock`, then start again.
+- A `broker.lock` that is already there when qualification starts may belong to another broker
+  on the same directory, so it is retried like a busy sandbox; if it is still there at the
+  deadline, startup fails with `TEACHING_VERIFIER_SANDBOX_LOCKED` (same remedy, once no other
+  Course Core uses the directory).
 - When the deadline passes, startup fails with the last reason. Nothing is installed
   unqualified.
+- Each retry writes one line to stderr, so a slow start is never silent:
+
+  ```json
+  {"startup":"retrying","level":"warn","step":"verifier_qualification","code":"TEACHING_VERIFIER_SANDBOX_UNAVAILABLE","attempt":1,"elapsedMs":3012,"nextAttemptInMs":1000,"deadlineMs":120000}
+  ```
 
 Without teaching verifiers (code fixtures or `COURSE_SUPPLIED_CODE_FIXTURES` only), the API
 starts at once and code grading is unavailable until Docker is ready, as before; the Docker

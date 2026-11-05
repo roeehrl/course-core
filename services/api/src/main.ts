@@ -14,7 +14,7 @@ import { parseAdditionalOrigins, parseAllowInsecureOrigins } from './origins.js'
 import { parseTrustedProxies } from './client-address.js';
 import { composeProviders, unconfiguredProviders } from './provider-composition.js';
 import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
-import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolated-teaching-verifier.js';
+import {qualifyIsolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolated-teaching-verifier.js';
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { declarativeActivityRuntime } from './activity-runtime.js';
@@ -145,7 +145,8 @@ try {
         await untilReady(async () => {
           const checked = await docker.preflight();
           if (!checked.ok) throw new StepFailure(checked.step, new StartupError(checked.reason));
-        }, error => teachingConfigured && error instanceof StepFailure && SLOW.has(failureCode(error.cause)), sandboxDeadlineMs);
+        }, error => teachingConfigured && error instanceof StepFailure && SLOW.has(failureCode(error.cause)), sandboxDeadlineMs,
+        { onRetry: retry => startup.retrying('docker_info', retry, sandboxDeadlineMs) });
       } catch (error) {
         if (teachingConfigured || !(error instanceof StepFailure)) throw error;
         startup.degraded(error.step, failureCode(error.cause));
@@ -155,11 +156,12 @@ try {
       for (const file of files) { const bytes = await readFile(file); hostFiles.push({ name: basename(file), sha256: sha256(bytes) }); installedExtensions.push(await codeEvaluator(bytes, sandbox!)); }
       let teachingFiles:unknown;try{teachingFiles=JSON.parse(process.env.TEACHING_VERIFIER_FILES??'[]');}catch{throw new ConfigurationError('Invalid teaching verifier file list.');}
       if(!Array.isArray(teachingFiles)||teachingFiles.length>20||!teachingFiles.every(file=>typeof file==='string'&&file.length<4096))throw new ConfigurationError('Invalid teaching verifier file list.');
-      // A sandbox that is busy, unavailable or too slow is retried until the deadline; a verifier that
-      // fails its own cases fails startup at once. Qualification is never skipped.
+      // A sandbox that is busy, unavailable or too slow is retried until the deadline, each retry
+      // logged; a verifier that fails its own cases, or a sandbox that quarantined itself after a
+      // cleanup it could not confirm, fails startup at once. Qualification is never skipped.
       const qualifyBy = Date.now() + sandboxDeadlineMs;
       for(const file of teachingFiles){const definition=await readIsolatedTeachingDefinition(file);hostFiles.push({name:basename(file),sha256:sha256(await readFile(file))});
-        installedExtensions.push(await untilReady(()=>isolatedTeachingVerifier(definition,sandbox!),error=>['TEACHING_VERIFIER_SANDBOX_UNAVAILABLE','TEACHING_VERIFIER_QUALIFICATION_TIMEOUT'].includes(failureCode(error)),Math.max(0,qualifyBy-Date.now())));}
+        installedExtensions.push(await qualifyIsolatedTeachingVerifier(definition,sandbox!,{deadlineMs:Math.max(0,qualifyBy-Date.now()),onRetry:retry=>startup.retrying('verifier_qualification',retry,sandboxDeadlineMs)}));}
       if (new Set(installedExtensions.map(extension => extension.id)).size !== installedExtensions.length) throw new ConfigurationError('Duplicate installed extension ID.');
     });
   }

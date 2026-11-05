@@ -85,7 +85,9 @@ it("an unavailable or failing broker never installs executable teaching capabili
   ).rejects.toMatchObject({ code: "TEACHING_VERIFIER_QUALIFICATION_FAILED" });
   // A slow or busy Docker is reported as such (retryable), never as a pass or a failed verifier.
   for (const [status, code] of [["timeout", "TEACHING_VERIFIER_QUALIFICATION_TIMEOUT"], ["busy", "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE"],
-    ["unavailable", "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE"], ["output_limit", "TEACHING_VERIFIER_QUALIFICATION_FAILED"]] as const)
+    ["unavailable", "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE"], ["output_limit", "TEACHING_VERIFIER_QUALIFICATION_FAILED"],
+    // A cleanup it could not confirm quarantines the broker: reported apart, so startup does not retry it.
+    ["cleanup_failed", "TEACHING_VERIFIER_SANDBOX_QUARANTINED"]] as const)
     await expect(
       isolatedTeachingVerifier(bytes, {
         readiness: async () => ({ ready: true }),
