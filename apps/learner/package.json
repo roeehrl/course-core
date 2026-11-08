@@ -21,7 +21,7 @@
     "@expo/metro-runtime": "~57.0.16",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@simplewebauthn/browser": "14.0.0",
-    "expo": "57.0.28",
+    "expo": "57.0.32",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",

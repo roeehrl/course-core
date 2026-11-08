@@ -204,6 +204,23 @@ test("0.5.4 changed only the stylesheet, so it serves 0.5.2 and 0.5.3 declaratio
   assert.deepEqual(Object.keys(current.files!), Object.keys(previous.files!));
 });
 
+test("0.5.5 changed only the zod pin, so every dist file is byte-identical to 0.5.4", () => {
+  // 3.x has no fixed release of GHSA-mrhx-c7xc-m3w5. The pin is hashed into the identity and the
+  // legacy fingerprints, so it needs its own version even though no dist file changed.
+  const previous = record.versions["0.5.4"]!,
+    current = record.versions["0.5.5"]!;
+  assert.deepEqual(current.files, previous.files);
+  assert.deepEqual(current.headlessFiles, previous.headlessFiles);
+  const { zod: previousZod, ...previousRest } = previous.legacyBasis
+    .dependencies!;
+  const { zod: currentZod, ...currentRest } = current.legacyBasis.dependencies!;
+  assert.deepEqual(currentRest, previousRest);
+  assert.deepEqual(
+    [previousZod, currentZod],
+    ["3.25.76", "4.6.7"],
+  );
+});
+
 const scratchDirectories: string[] = [];
 test.after(() =>
   Promise.all(
