@@ -211,14 +211,11 @@ test("0.5.5 changed only the zod pin, so every dist file is byte-identical to 0.
     current = record.versions["0.5.5"]!;
   assert.deepEqual(current.files, previous.files);
   assert.deepEqual(current.headlessFiles, previous.headlessFiles);
-  const { zod: previousZod, ...previousRest } = previous.legacyBasis
-    .dependencies!;
+  const { zod: previousZod, ...previousRest } =
+    previous.legacyBasis.dependencies!;
   const { zod: currentZod, ...currentRest } = current.legacyBasis.dependencies!;
   assert.deepEqual(currentRest, previousRest);
-  assert.deepEqual(
-    [previousZod, currentZod],
-    ["3.25.76", "4.6.7"],
-  );
+  assert.deepEqual([previousZod, currentZod], ["3.25.76", "4.6.7"]);
 });
 
 const scratchDirectories: string[] = [];
