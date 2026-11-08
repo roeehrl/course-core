@@ -22,6 +22,9 @@ Everyone signs in; there is no anonymous course access. It is one machine with n
 
 - Docker with the Compose plugin (`docker compose version` prints v2 or later; Docker Engine 26
   or later, which every current Docker Desktop and Colima has).
+- Either image builder: BuildKit (the `buildx` plugin) or the legacy builder Docker falls back to
+  without it. What stays out of a build (`.git`, `.env`, course files, backups, `.ops`) is in the
+  repository's root [`.dockerignore`](../../.dockerignore), the one file both builders read.
 - Git, to get the code: `git clone https://github.com/roeehrl/course-core && cd course-core &&
   git checkout <release tag>` (for example `v0.1.60`).
 - Node 22 or later is optional. Without it, `core.sh` runs its commands inside the Course Core
@@ -35,6 +38,14 @@ needs the most). Disk: 20 GB free.
 - **Docker Desktop**: Settings > Resources > Memory: 6 GB or more. Nothing else to change.
 - **Colima**: `colima start --cpu 4 --memory 8 --disk 60` (or edit `~/.colima/default/colima.yaml`
   and restart). Keep the checkout under your home folder, which Colima shares with Docker.
+  Colima does not install the `buildx` plugin, so `docker compose build` uses the legacy builder:
+  safe, but slower. For BuildKit, run `brew install docker-buildx`, follow the note it prints (the
+  plugin directory goes under `cliPluginsExtraDirs` in `~/.docker/config.json`), and check with
+  `docker buildx version`.
+
+Images built with the legacy builder before the root `.dockerignore` existed may hold `.git`,
+`deploy/docker/.env`, course files and backups in their untagged build-stage layers on this
+machine. Remove those layers with `docker image prune`, and do not push or copy them elsewhere.
 
 ### On Linux
 
@@ -218,11 +229,12 @@ run a second, separate stack on the same machine (with its own ports).
 ## How this is tested
 
 - `deploy/docker/compose.test.mjs` and `sandbox-gate.test.mjs` (`npm run test:lifecycle`) check the
-  files: pinned images, only the proxy publishes ports, only the gate holds the Docker socket, the
-  gate's refusals (bind mounts, other volumes, privileged mode, host namespaces, networks, devices,
+  files: pinned images, the build exclusions, only the proxy publishes ports, only the gate holds
+  the Docker socket, the gate's refusals (bind mounts, other volumes, privileged mode, host namespaces, networks, devices,
   case-variant JSON keys and more), and the operations script's env handling.
 - `deploy/docker/smoke.test.mjs` (`npm run test:self-host`, in the required `Sandbox / real Docker
-  Linux` CI check) builds the image and runs the stack under a throwaway project with `ops.mjs`:
+  Linux` CI check) first builds a context of planted local state with both the legacy builder and
+  BuildKit and checks none of it arrives; then it builds the image and runs the stack under a throwaway project with `ops.mjs`:
   it starts with supervision and a teaching verifier that must qualify, creates the owner, checks
   HTTPS, sign-in and the plain loopback listener, runs the dispatcher against the API, imports the
   public algorithms lab's code episode and grades one correct and one wrong program in sandbox
