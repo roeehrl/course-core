@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rename, rmdir, unlink } from 'node:fs/promises';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { uptime } from 'node:os';
 import path from 'node:path';
 
 export class PilotError extends Error { constructor(code) { super(code); this.code = code; } }
@@ -116,6 +117,17 @@ async function socketAccepts(file) {
     socket.once('error', error => finish(!['ECONNREFUSED', 'ENOENT'].includes(error.code)));
   });
 }
+// macOS can give the data volume a different device number at boot, so a socket left by the
+// previous boot keeps its inode but changes st_dev. The recorded device is only trusted within
+// one boot. os.uptime() is whole seconds on macOS, so the margin keeps a start just after boot
+// from counting as before it; an unreadable startedAt never counts as a reboot.
+const rebootMarginMs = 5_000;
+function bootedSinceStart(owner) {
+  return typeof owner.startedAt === 'string' && Date.now() - uptime() * 1000 > Date.parse(owner.startedAt) + rebootMarginMs;
+}
+function recordedSocket(owner, socket) {
+  return owner.socket?.ino === socket.ino && (owner.socket?.dev === socket.dev || bootedSinceStart(owner));
+}
 // Called only while transition.lock is held. Nothing here sends a termination signal.
 export async function recoverStale(state) {
   const owner = await ownerRecord(state);
@@ -129,7 +141,7 @@ export async function recoverStale(state) {
   ensure(Object.values(owner.children).every(pid => !alive(pid)), 'child_pid_live_or_reused');
   ensure((await Promise.all(owner.ports.map(portFree))).every(Boolean), 'service_port_in_use');
   if (socket) {
-    ensure(owner.socket?.ino === socket.ino && owner.socket?.dev === socket.dev, 'socket_identity_changed');
+    ensure(recordedSocket(owner, socket), 'socket_identity_changed');
     ensure(!await socketAccepts(controlPath(state)), 'socket_has_live_listener');
     await unlink(controlPath(state));
   }
@@ -219,9 +231,10 @@ export class RotatingLog {
     // Callers supply only fixed operational fields. Raw output, configuration and exception text are excluded.
     const record = { at: new Date().toISOString(), code };
     for (const [key, value] of Object.entries(fields)) {
-      ensure(['service', 'stream', 'bytes', 'exitCode', 'signal', 'count'].includes(key), 'invalid_log_field');
+      ensure(['service', 'stream', 'bytes', 'exitCode', 'signal', 'count', 'reason'].includes(key), 'invalid_log_field');
       if (key === 'service') ensure(names.includes(value), 'invalid_log_service');
       else if (key === 'stream') ensure(['stdout', 'stderr'].includes(value), 'invalid_log_stream');
+      else if (key === 'reason') ensure(typeof value === 'string' && /^[a-z0-9_]{1,64}$/.test(value), 'invalid_log_reason');
       else if (key === 'signal') ensure(['SIGTERM', 'SIGKILL', 'SIGINT', null].includes(value), 'invalid_log_signal');
       else ensure(value === null || Number.isSafeInteger(value) && value >= 0, 'invalid_log_number');
       record[key] = value;
@@ -245,6 +258,21 @@ export class RotatingLog {
   }
   async flush() { await this.queue; ensure(!this.failed, 'log_storage_failed'); }
 }
+// launchd retries a blocked start every 30 seconds with its output at /dev/null, so services.log
+// is the only record. One line per change of code, repeated at this interval while blocked.
+export const blockedLogIntervalMs = 3_600_000;
+const blockedMarker = state => path.join(state, 'start-block.json');
+/** Best effort: a failure here never replaces the error that blocked the start. Only the fixed code is logged. */
+export async function recordBlockedStart(stateInput, error, limits = {}) {
+  try {
+    const state = await privateDirectory(stateInput), code = error instanceof PilotError && /^[a-z0-9_]{1,64}$/.test(error.code) ? error.code : 'pilot_operation_failed';
+    const previous = await privateJson(blockedMarker(state), true).catch(() => null);
+    if (previous?.value?.code === code && Math.abs(Date.now() - Date.parse(previous.value.at)) < blockedLogIntervalMs) return;
+    const log = new RotatingLog(state, limits); log.write('start_blocked', { reason: code }); await log.flush();
+    await writePrivate(blockedMarker(state), JSON.stringify({ code, at: new Date().toISOString() }), true);
+  } catch { /* the caller still reports the block */ }
+}
+export async function clearBlockedStart(state) { await unlink(blockedMarker(state)).catch(() => {}); }
 export async function launchctl(args) {
   ensure(process.platform === 'darwin', 'launchd_requires_macos');
   try { const result = await promisify(execFile)('/bin/launchctl', args, { timeout: 80_000, maxBuffer: 262144 }); return { code: 0, stdout: result.stdout, stderr: result.stderr }; }
