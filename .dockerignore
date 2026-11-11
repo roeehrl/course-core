@@ -1,0 +1,22 @@
+# The self-host image's build context is the repository root (deploy/docker/compose.yaml); send
+# only source, never local state or builds. This file sits at the context root on purpose: every
+# builder reads it, including the legacy builder Compose falls back to without the buildx plugin.
+# Do not add a Dockerfile.dockerignore: only BuildKit reads one, and it then ignores this file.
+**/node_modules
+**/dist
+**/.expo
+**/.npm-cache
+**/coverage
+**/test-results
+**/playwright-report
+**/.adapter-digests-build-*
+**/*.tgz
+.git
+.local
+**/.env
+**/.env.*
+!**/.env.example
+deploy/docker/.env
+deploy/docker/course-files
+deploy/docker/backups
+deploy/docker/.ops

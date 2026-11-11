@@ -5,6 +5,7 @@
 # that gate, and the media tools for exact clips and the frame check. Build from the
 # repository root:
 #   docker compose -f deploy/docker/compose.yaml build
+# What stays out of the build context is in the repository's root .dockerignore.
 # Base images are pinned by version and digest; update both together.
 ARG NODE_IMAGE=node:26.12.0-slim@sha256:e556a144463cc8dc53afe8de6d2fa0db5c132fd39ffa232c17641bd40df2bf11
 ARG DOCKER_CLI_IMAGE=docker:29.5.2-cli@sha256:9ba8e32bfc35a2c7ae2feb1e3241b2778ae21dee80f4dcd31d04e1cfdea86ea2

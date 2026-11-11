@@ -90,10 +90,18 @@ test('secrets come from an uncommitted env file, never from the compose file', a
   assert.match(example, /^POSTGRES_PASSWORD=$/m, 'the example leaves the password empty');
   assert.match(example, /^SUPERVISOR_HOST_TOKEN=$/m);
   assert.doesNotMatch(example, /^[A-Z_]*(?:PASSWORD|TOKEN)=\S/m);
-  const ignore = await read('Dockerfile.dockerignore');
-  for (const pattern of ['**/.env', '**/node_modules', '.git', '.local', 'deploy/docker/course-files', 'deploy/docker/backups']) assert.ok(ignore.split('\n').includes(pattern), pattern);
   const gitignore = await readFile(new URL('../../.gitignore', import.meta.url), 'utf8');
   for (const pattern of ['deploy/docker/course-files/', 'deploy/docker/backups/', 'deploy/docker/.ops/']) assert.ok(gitignore.split('\n').includes(pattern), pattern);
+});
+
+test('the build context keeps local state out on every builder, from the one file they all read', async () => {
+  // The context is the repository root, so its .dockerignore is what the legacy builder reads.
+  assert.match(compose, /^ {4}context: \.\.\/\.\.\n {4}dockerfile: deploy\/docker\/Dockerfile$/m);
+  const ignore = (await read('../../.dockerignore')).split('\n');
+  for (const pattern of ['.git', '.local', '**/node_modules', '**/.env', '**/.env.*', 'deploy/docker/.env', 'deploy/docker/course-files', 'deploy/docker/backups', 'deploy/docker/.ops']) assert.ok(ignore.includes(pattern), pattern);
+  assert.ok(ignore.indexOf('!**/.env.example') > ignore.indexOf('**/.env.*'), 'the example is re-included after the env files are excluded');
+  // BuildKit prefers a per-Dockerfile ignore file, and the legacy builder never reads one.
+  await assert.rejects(read('Dockerfile.dockerignore'), { code: 'ENOENT' }, 'a per-Dockerfile ignore file makes the builders disagree');
 });
 
 test('the operations script edits env files without losing lines and judges health strictly', () => {

@@ -107,6 +107,8 @@ test('source and web allowlists include actual Expo CSS and reject private paths
   // The i18n glossary rules are the one reviewed data file in scripts/; other JSON there is not a source.
   assert(sourceAllowed('scripts/i18n-glossary.json'));for(const p of ['scripts/other.json','scripts/tests/i18n-glossary.json'])assert.equal(sourceAllowed(p),false,p);
   for(const p of ['deploy/docker/compose.yaml','deploy/docker/Dockerfile','deploy/docker/Caddyfile','deploy/docker/.env.example','deploy/docker/smoke.test.mjs','deploy/docker/README.md'])assert(sourceAllowed(p),p);
+  // The image build's exclusions must ship with the source, at the root where every builder reads them.
+  assert(sourceAllowed('.dockerignore'));assert.equal(sourceAllowed('deploy/docker/Dockerfile.dockerignore'),false);
   for(const p of ['deploy/docker/nested/x.mjs','deploy/other/compose.yaml'])assert.equal(sourceAllowed(p),false,p);
   assert.throws(()=>sourceAllowed('deploy/docker/.env'),/private configuration/);
   assert(sourceAllowed('docs/contracts/context-capsule.v1.schema.json'));

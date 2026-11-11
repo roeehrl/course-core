@@ -27,7 +27,7 @@ export function requiredCiJobs(registry = MODULES) {
 export const REQUIRED_CI_JOBS = Object.freeze(requiredCiJobs());
 export const RUNTIME_MODULES = Object.freeze(Object.keys(MODULES).filter(name => !MODULES[name].web));
 const MODULE_PATHS = Object.values(MODULES).map(module => module.directory);
-const ROOT_SOURCE = new Set(['package.json', 'package-lock.json', 'requirements-map.json', 'LICENSE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', '.gitignore']);
+const ROOT_SOURCE = new Set(['package.json', 'package-lock.json', 'requirements-map.json', 'LICENSE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', '.gitignore', '.dockerignore']);
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]sx?|json|md|sql|py|ya?ml|html|css|svg|txt|sh)$/i;
 const BUILT_EXTENSIONS = /(?:\.d\.ts|\.js|\.css|\.json)$/;
 const PRIVATE_COMPONENT = /(?:^|[._-])(?:private|secrets?|credentials?|logs?|node_modules|coverage|test-results|playwright-report|recordings?)(?:$|[._-])/i;
@@ -59,7 +59,7 @@ export function sourceAllowed(filename) {
     || /^docs\/contracts\/[a-z0-9-]+\.v[0-9]+\.schema\.json$/.test(filename);
   // deploy/docker is the documented Linux/Docker self-host stack; its .env.example holds placeholders only.
   if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename)
-    || /^deploy\/docker\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md|compose\.yaml|Caddyfile|Dockerfile|Dockerfile\.dockerignore|\.env\.example|core\.sh)$/.test(filename);
+    || /^deploy\/docker\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md|compose\.yaml|Caddyfile|Dockerfile|\.env\.example|core\.sh)$/.test(filename);
   const base = MODULE_PATHS.find(directory => filename.startsWith(`${directory}/`));
   if (!base) return false;
   const relative = filename.slice(base.length + 1);

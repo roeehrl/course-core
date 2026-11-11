@@ -159,7 +159,7 @@ test('the Docker self-host build installs only through the shared retry policy',
   assert.doesNotMatch(dockerfile, /\bnpm (?:ci|install|i)\b/, 'the Dockerfile installs only through build.mjs');
   assert.match(dockerfile, /^ARG NODE_IMAGE=node:[0-9.]+-slim@sha256:[0-9a-f]{64}$/m, 'the base image stays pinned by digest');
   // The module .npmrc files (fetch retries, ignore-scripts) must reach the build context.
-  const ignore = await readFile(path.join(ROOT, 'deploy/docker/Dockerfile.dockerignore'), 'utf8');
+  const ignore = await readFile(path.join(ROOT, '.dockerignore'), 'utf8');
   assert.doesNotMatch(ignore, /npmrc/);
   const orchestrate = await readFile(path.join(ROOT, 'scripts/orchestrate.mjs'), 'utf8');
   assert.match(orchestrate, /npmCiWithRetry\(module\.directory/);
