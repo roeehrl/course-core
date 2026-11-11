@@ -56,7 +56,7 @@ test('the checked-in exception files are valid, narrow and expiring', async () =
     }
   }
   const learner = await loadModuleExceptions(MODULES.learner.directory);
-  assert.deepEqual(learner.map(e => `${e.package} ${e.id}`).sort(), ['braces GHSA-vfj7-8cjw-p6xm', 'node-forge GHSA-86w9-cpqp-85rv', 'uuid GHSA-w5hq-g745-h8pq']);
+  assert.deepEqual(learner.map(e => `${e.package} ${e.id}`).sort(), ['glob GHSA-3g3m-2fjr-6pw4', 'minimatch GHSA-g3hv-75wg-m249']);
 });
 
 test('exception documents reject blanket, open-ended or unexplained entries', () => {

@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { PilotError, ensure, absolute, privateDirectory, privateFile, privateJson, writePrivate, mutex, ownerRecord, sameOwner,
-  control, controlPath, controlServer, socketInfo, portFree, portOwnedBy, recoverStale, RotatingLog, delay, uid, hash } from './runtime.mjs';
+  control, controlPath, controlServer, socketInfo, portFree, portOwnedBy, recoverStale, recordBlockedStart, clearBlockedStart, RotatingLog, delay, uid, hash } from './runtime.mjs';
 import { verifyTemporalCli } from './temporal-cli.mjs';
 
 export const repositoryRoot = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
@@ -432,9 +432,15 @@ export function servicePlan(root, state, config, instanceId) {
     { name: 'dispatcher', binary: process.execPath, args: [`--max-old-space-size=${config.resources.dispatcherHeapMiB}`,'dist/src/cli.js', 'dispatch-loop'], env: worker, cwd: path.join(root, 'services/supervisor') },
   ];
 }
-export async function runPilot({ root: rootInput = repositoryRoot, state: stateInput = path.join(repositoryRoot, '.local/pilot') } = {}) {
+export async function runPilot(options = {}) {
+  const logLimits = {};
+  try { return await startPilot(options, logLimits); }
+  catch (error) { await recordBlockedStart(options.state ?? path.join(repositoryRoot, '.local/pilot'), error, logLimits); throw error; }
+}
+async function startPilot({ root: rootInput = repositoryRoot, state: stateInput = path.join(repositoryRoot, '.local/pilot') }, logLimits) {
   ensure(process.versions.node.split('.')[0] === '26', 'node_26_required'); process.umask(0o077);
   const { root, state, config, ports } = await loadConfiguration(rootInput, stateInput);
+  Object.assign(logLimits, { bytes: config.resources.logBytes, backups: config.resources.logBackups });
   // Refuse to run a Temporal CLI that is not a pinned known-good build (or the one explicitly configured).
   await verifyTemporalCli(path.join(root, '.local/bin/temporal'), config.temporalCliSha256);
   let stopping = false, ready = false, failure = false, stopPromise, spawning, controlHandle;
@@ -498,7 +504,7 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
   }
   const onSignal = () => { void stop('signal'); };
   await mutex(state, 'transition.lock', async () => {
-    await recoverStale(state);
+    if (await recoverStale(state)) log.write('stale_state_recovered');
     ensure((await Promise.all(ports.map(portFree))).every(Boolean), 'service_port_in_use');
     await mkdir(path.join(state, 'run.lock'), { mode: 0o700 });
     await writePrivate(path.join(state, 'owner.json'), JSON.stringify(owner));
@@ -506,6 +512,7 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
     await new Promise((resolve, reject) => { controlHandle.server.once('error', reject); controlHandle.server.listen(controlPath(state), resolve); });
     await chmod(controlPath(state), 0o600); owner.socket = await socketInfo(state); await persist();
   });
+  await clearBlockedStart(state);
   process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
   ticker = setInterval(meter, 1000); ticker.unref(); log.write('starting');
   const launch = async spec => {

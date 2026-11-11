@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,chmod,lstat,readFile,mkdir,symlink,link,writeFile,readdir,open} from 'node:fs/promises';
 import {createServer,connect} from 'node:net';
+import {spawn} from 'node:child_process';
+import {uptime} from 'node:os';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
-import {privateDirectory,privateFile,privateFileInfo,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
+import {privateDirectory,privateFile,privateFileInfo,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree,recoverStale,recordBlockedStart,blockedLogIntervalMs} from './runtime.mjs';
 import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES,parseSecurityArguments,manageSecurity,allowInsecureOriginsConfiguration,mediaToolsConfiguration} from './pilot.mjs';
 import {manager,launchdDefinition,plist} from './service.mjs';
 async function fixture(body){const directory=await mkdtemp('/tmp/cc-rt-');try{return await body(await privateDirectory(directory));}finally{await rm(directory,{recursive:true,force:true});}}
@@ -311,7 +313,8 @@ test('actual four-service start/stop/restart preserves configuration and removes
   await writeFile(path.join(root,'services/supervisor/dist/src/cli.js'),`console.log('PRIVATE_CHILD_OUTPUT_CANARY');setInterval(()=>{},1000);process.on('SIGTERM',()=>process.exit(0));\n`,{mode:0o700});
   let running;
   try{
-    const unchanged=await readFile(path.join(state,'config.json'),'utf8');running=runPilot({root,state});const first=await waitRunning(state);assert.equal(Object.keys(first.services).length,4);assert(first.services.worker.pid>1);assert.equal(first.providerAcceptance,'not_verified');
+    await writePrivate(path.join(state,'start-block.json'),JSON.stringify({code:'service_port_in_use',at:new Date().toISOString()}));
+    const unchanged=await readFile(path.join(state,'config.json'),'utf8');running=runPilot({root,state});const first=await waitRunning(state);assert.equal(Object.keys(first.services).length,4);assert(!(await readdir(state)).includes('start-block.json'));assert(first.services.worker.pid>1);assert.equal(first.providerAcceptance,'not_verified');
     await control(state,'stop');assert.equal((await running).status,'stopped');running=null;assert.equal((await control(state,'status')).status,'not_running');assert(!((await readdir(state)).includes('owner.json')));assert((await Promise.all(ports.map(portFree))).every(Boolean));
     assert.equal(await readFile(path.join(state,'config.json'),'utf8'),unchanged);assert(!(await readFile(path.join(state,'services.log'),'utf8')).includes('PRIVATE_CHILD_OUTPUT_CANARY'));
     running=runPilot({root,state});const second=await waitRunning(state);assert.notEqual(second.instanceId,first.instanceId);await control(state,'stop');assert.equal((await running).status,'stopped');running=null;
@@ -449,4 +452,66 @@ test('the deprecated security insecure-origins alias keeps its 0.1.46 semantics 
   assert.equal(captured,note('off','on'));
   assert.deepEqual(JSON.parse(await readFile(file,'utf8')),original);
   assert.equal((await run(['security','insecure-origin-check','on','--state',state])).status,'unchanged');assert.equal(captured,'');
+}));
+// A real process binds the socket; SIGKILL leaves it on disk refusing connections, as a crash or reboot does.
+async function socketHolder(file){const child=spawn(process.execPath,['-e',`require('node:net').createServer().listen(${JSON.stringify(file)},()=>console.log('ready'))`],{stdio:['ignore','pipe','inherit']});await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('exit',()=>reject(new Error('socket holder exited')));});await chmod(file,0o600);return child;}
+async function killHolder(child){const exited=new Promise(resolve=>child.once('exit',resolve));child.kill('SIGKILL');await exited;return child.pid;}
+const beforeBoot=()=>new Date(Date.now()-uptime()*1000-3_600_000).toISOString();
+const sinceBoot=()=>new Date().toISOString();
+async function ownerFixture(state,socket,dead,changes={}){
+  await mkdir(path.join(state,'run.lock'),{mode:0o700});
+  const owner={schemaVersion:2,kind:'course-core-local-pilot',state,root:state,uid:uid(),instanceId:randomUUID(),controlToken:randomBytes(32).toString('hex'),pid:dead,ports:await freePorts(),children:{temporal:dead,api:dead},pending:null,phase:'running',socket,startedAt:beforeBoot(),...changes};
+  await writePrivate(path.join(state,'owner.json'),JSON.stringify(owner));return owner;
+}
+async function staleSocket(state){const holder=await socketHolder(controlPath(state));const info=await socketInfo(state);return {dead:await killHolder(holder),info,renumbered:{dev:info.dev+1,ino:info.ino}};}
+async function assertKept(state){const present=await readdir(state);for(const name of ['control.sock','owner.json','run.lock'])assert(present.includes(name),name);}
+test('stale recovery accepts a renumbered device with the same inode only after a reboot since the owner started',()=>fixture(async state=>{
+  const {dead,renumbered}=await staleSocket(state);await ownerFixture(state,renumbered,dead);
+  assert.equal(await recoverStale(state),true);
+  const present=await readdir(state);for(const name of ['control.sock','owner.json','run.lock'])assert(!present.includes(name),name);
+}));
+test('stale recovery still requires the exact device and inode when the machine has not rebooted',()=>fixture(async state=>{
+  const {dead,info,renumbered}=await staleSocket(state);
+  await ownerFixture(state,renumbered,dead,{startedAt:sinceBoot()});await assert.rejects(recoverStale(state),/socket_identity_changed/);await assertKept(state);
+  await writePrivate(path.join(state,'owner.json'),JSON.stringify({...JSON.parse(await readFile(path.join(state,'owner.json'),'utf8')),startedAt:undefined}),true);await assert.rejects(recoverStale(state),/socket_identity_changed/);await assertKept(state);
+  await writePrivate(path.join(state,'owner.json'),JSON.stringify({...JSON.parse(await readFile(path.join(state,'owner.json'),'utf8')),startedAt:sinceBoot(),socket:{dev:info.dev,ino:info.ino}}),true);assert.equal(await recoverStale(state),true);
+}));
+test('a reboot never excuses a different inode',()=>fixture(async state=>{
+  const {dead,info}=await staleSocket(state);await ownerFixture(state,{dev:info.dev+1,ino:info.ino+1},dead);
+  await assert.rejects(recoverStale(state),/socket_identity_changed/);await assertKept(state);
+  await writePrivate(path.join(state,'owner.json'),JSON.stringify({...JSON.parse(await readFile(path.join(state,'owner.json'),'utf8')),socket:{dev:info.dev,ino:info.ino+1}}),true);
+  await assert.rejects(recoverStale(state),/socket_identity_changed/);await assertKept(state);
+}));
+test('after a reboot a socket that still accepts connections is left alone',()=>fixture(async state=>{
+  const holder=await socketHolder(controlPath(state));
+  try{const info=await socketInfo(state),{pid:dead}=await new Promise(resolve=>{const c=spawn(process.execPath,['-e','']);c.once('exit',()=>resolve(c));});
+    await ownerFixture(state,{dev:info.dev+1,ino:info.ino},dead);await assert.rejects(recoverStale(state),/socket_has_live_listener/);await assertKept(state);
+  }finally{await killHolder(holder);}
+}));
+test('after a reboot a live owner, a live child or a busy port still blocks recovery',()=>fixture(async state=>{
+  const {dead,renumbered}=await staleSocket(state);
+  const owner=await ownerFixture(state,renumbered,dead,{pid:process.pid}),file=path.join(state,'owner.json');
+  await assert.rejects(recoverStale(state),/owner_pid_live_or_reused/);await assertKept(state);
+  await writePrivate(file,JSON.stringify({...owner,pid:dead,children:{api:process.pid}}),true);await assert.rejects(recoverStale(state),/child_pid_live_or_reused/);await assertKept(state);
+  const busy=createServer();await new Promise(resolve=>busy.listen(0,'127.0.0.1',resolve));
+  try{await writePrivate(file,JSON.stringify({...owner,pid:dead,ports:[busy.address().port,...owner.ports.slice(1)]}),true);await assert.rejects(recoverStale(state),/service_port_in_use/);await assertKept(state);}finally{await new Promise(resolve=>busy.close(resolve));}
+}));
+test('a blocked start is logged once per code, again after the interval, and without secrets',{timeout:30000},()=>fixture(async state=>{
+  const root=path.join(state,'root');await mkdir(root);await executableFixture(root);const c=config();
+  c.temporalCliSha256=createHash('sha256').update(await readFile(path.join(root,'.local/bin/temporal'))).digest('hex');await writePrivate(path.join(state,'config.json'),JSON.stringify(c));
+  const {dead,renumbered}=await staleSocket(state),owner=await ownerFixture(state,renumbered,dead,{pid:process.pid}),file=path.join(state,'owner.json'),marker=path.join(state,'start-block.json');
+  const blocked=async()=>{const text=await readFile(path.join(state,'services.log'),'utf8');return {text,records:text.trim().split('\n').map(line=>JSON.parse(line)).filter(record=>record.code==='start_blocked').map(record=>record.reason)};};
+  for(let i=0;i<4;i++)await assert.rejects(runPilot({root,state}),/owner_pid_live_or_reused/);
+  assert.deepEqual((await blocked()).records,['owner_pid_live_or_reused']);
+  await writePrivate(file,JSON.stringify({...owner,pid:dead,startedAt:sinceBoot()}),true);
+  for(let i=0;i<3;i++)await assert.rejects(runPilot({root,state}),/socket_identity_changed/);
+  assert.deepEqual((await blocked()).records,['owner_pid_live_or_reused','socket_identity_changed']);
+  await writePrivate(marker,JSON.stringify({code:'socket_identity_changed',at:new Date(Date.now()-blockedLogIntervalMs-1000).toISOString()}),true);
+  await assert.rejects(runPilot({root,state}),/socket_identity_changed/);await assert.rejects(runPilot({root,state}),/socket_identity_changed/);
+  const final=await blocked();assert.deepEqual(final.records,['owner_pid_live_or_reused','socket_identity_changed','socket_identity_changed']);
+  for(const secret of [owner.controlToken,c.serviceToken,c.databaseUrl])assert(!final.text.includes(secret));
+  assert.match(final.text,/"at":"\d{4}-\d\d-\d\dT/);
+  for(const name of ['services.log','start-block.json'])assert.equal((await lstat(path.join(state,name))).mode&0o777,0o600);
+  await assertKept(state);
+  await assert.doesNotReject(recordBlockedStart(path.join(state,'absent'),new Error('private detail')));
 }));

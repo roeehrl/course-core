@@ -763,6 +763,16 @@ dump size, and time your own drill (`verify` prints nothing about timing; wrap i
   - Each start first clears a stale owner record left by a crash, but only when
     the old processes are gone and the ports are free (`recover` does the same by
     hand). Otherwise it refuses and leaves the record for review.
+  - A control socket is cleared only if it is the one the owner record names and
+    nothing accepts connections on it. macOS can renumber the data volume at
+    boot, so after a reboot since the owner started a matching inode is enough;
+    without a reboot both the device and inode must match.
+  - The agent's output goes to `/dev/null`, so a blocked start is recorded in
+    `services.log` as `{"at":"…","code":"start_blocked","reason":"<code>"}`, once
+    per change of code and again each hour while it stays blocked (`start-block.json`
+    in the state directory keeps that place and is removed by the next start that
+    succeeds). Only the fixed code is logged. See
+    [Blocked starts](#blocked-starts).
   - Without the service, a foreground `pilot.mjs start` that fails stays down.
 - **What survives a restart.** PostgreSQL data and the Temporal store survive.
   - Learner events are written to an outbox in the same transaction as the
@@ -787,6 +797,24 @@ The API registers no error handler on its PostgreSQL connection pool. If
 PostgreSQL drops idle connections (for example when it restarts), the API process
 may exit, which stops the pilot until launchd restarts it. This has not been
 reproduced here.
+
+### Blocked starts
+
+Read the latest `start_blocked` line in `services.log`, or run `pilot.mjs start`
+with the same arguments to see the code on stderr. Do not remove anything while
+the pilot might be running.
+
+`socket_identity_changed` means `control.sock` is not the socket `owner.json`
+names and no reboot explains it, so the launcher will not unlink it and `recover`
+refuses too. Automatic recovery has already confirmed the recorded owner and
+child PIDs are gone and the service ports are free. To clear it by hand:
+
+1. Check that `pilot.mjs status` does not report a running pilot and that no
+   process has the socket open (`lsof <state>/control.sock` prints nothing).
+2. Remove `<state>/control.sock`, `<state>/owner.json` and the empty directory
+   `<state>/run.lock`.
+3. The service starts the pilot again within 30 seconds; a foreground operator
+   runs `pilot.mjs start`.
 
 ## Least-privilege database role
 
