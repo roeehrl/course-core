@@ -25,6 +25,24 @@ const breadcrumb = () =>
   screen.getByRole("navigation", { name: "You are here" });
 const sidebar = () =>
   screen.getByRole("navigation", { name: "Workspace navigation" });
+/** The address and the focused element at the moment a page's heading first appears. */
+const onArrival = (name: string) =>
+  new Promise<{ address: string; focused: Element | null }>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const shown = document.querySelector("h1");
+      if (shown?.textContent !== name) return;
+      observer.disconnect();
+      resolve({
+        address: window.location.pathname + window.location.hash,
+        focused: document.activeElement,
+      });
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
 
 describe("addresses (routing.ts)", () => {
   it("gives every workspace page and course page its own address, and reads it back", () => {
@@ -263,6 +281,28 @@ describe("workspace and course levels", () => {
     render(<AdminApp client={demo()} />);
     await heading("Policy & extensions");
     expect(window.location.pathname).toBe("/admin/courses/sorting/policy");
+  });
+
+  it("shows a page with its own address and its heading focused, not a moment later", async () => {
+    for (const [from, name, address] of [
+      ["/admin/#providers", "AI services", "/admin/ai-services"],
+      ["/admin/policy", "Policy & extensions", "/admin/courses/sorting/policy"],
+      [
+        "/admin/courses/sorting/releases",
+        "Course & releases",
+        "/admin/courses/sorting/releases",
+      ],
+    ] as const) {
+      openAddress(from);
+      const arrival = onArrival(name);
+      const view = render(<AdminApp client={demo()} />);
+      const seen = await arrival;
+      expect(seen.address).toBe(address);
+      expect(seen.focused).toBe(
+        screen.getByRole("heading", { level: 1, name }),
+      );
+      view.unmount();
+    }
   });
 
   it("keeps a deep link to an administrator's page once the role has loaded", async () => {
