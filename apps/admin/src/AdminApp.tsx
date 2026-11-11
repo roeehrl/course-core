@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -432,7 +433,9 @@ function AdminWorkspace({
   }
   const path = routePath(route, base);
   // Older and partial addresses are replaced with the page's own, so back and reload agree.
-  useEffect(() => {
+  // A layout effect: the address changes in the same commit that shows the page, never a task
+  // after it (a passive effect can run after the page is on screen and has been used).
+  useLayoutEffect(() => {
     if (window.location.pathname === path) return;
     window.history.replaceState(
       null,
@@ -604,10 +607,12 @@ function CourseWorkspace({
   const sectionId =
     view.startsWith("section:") && found ? view.slice("section:".length) : null;
   // A new page starts with no message from the last one, at the top, its heading focused.
+  // A layout effect, so focus is on the heading when the page appears: a passive effect could run
+  // after the person (or a screen reader) has already moved focus, and take it back.
   const clear = useRef(actions.clear);
   clear.current = actions.clear;
   const firstView = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (firstView.current) firstView.current = false;
     else clear.current();
     heading.current?.focus({ preventScroll: true });
