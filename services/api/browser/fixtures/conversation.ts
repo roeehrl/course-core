@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { transaction } from "../../src/database.js";
 import type { FixtureContext } from "./index.js";
 
 /**
@@ -23,10 +24,6 @@ export async function register({ app, db, replyDrafts }: FixtureContext): Promis
       [String(body.question)])).rows[0];
     if (!row || typeof body.content !== "string" || body.content.length > 4000) return { answered: false, reason: row ? "invalid_content" : "question_not_found" };
     const jobId = randomUUID();
-    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
-      VALUES ($1,$2,$3,$4,'companion','applied',1,'{}',$5)`, [jobId, row.enrollment_id, row.workspace_id, `browser-reply-${jobId}`,
-      JSON.stringify({ reason: null, applicationReceiptId: null })]);
-    await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
     const context = {
       episodeId: row.context.episodeId ?? null,
       ...(typeof body.asksLearner === "boolean" ? { asksLearner: body.asksLearner } : {}),
@@ -34,8 +31,18 @@ export async function register({ app, db, replyDrafts }: FixtureContext): Promis
       ...(typeof body.checkAnswerWithheld === "string" ? { checkAnswerWithheld: body.checkAnswerWithheld } : {}),
     };
     const id = randomUUID();
-    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
-      [id, row.enrollment_id, body.content, JSON.stringify(context), jobId]);
+    // In one transaction, as the real bridge applies a reply (supervisor-bridge.ts) and as
+    // /test/companion-job stores one: a read of the conversation between the question's job being
+    // applied and its reply being stored would show the question settled with no reply, and the
+    // app (rightly) reads nothing more for a settled question, so the reply would never show.
+    await transaction(db, async (client) => {
+      await client.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
+        VALUES ($1,$2,$3,$4,'companion','applied',1,'{}',$5)`, [jobId, row.enrollment_id, row.workspace_id, `browser-reply-${jobId}`,
+        JSON.stringify({ reason: null, applicationReceiptId: null })]);
+      await client.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
+      await client.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
+        [id, row.enrollment_id, body.content, JSON.stringify(context), jobId]);
+    });
     return { answered: true, messageId: id, jobId };
   });
   app.post("/test/conversation-dispatch", async (request) => {
