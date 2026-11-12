@@ -182,16 +182,27 @@ export function GeneratedComponentPanel({ component, loadRunner = practiceRunner
           <span>{t("generatedComponent.unavailable")}</span>
         </p>
       ) : (
-        <button
-          type="button"
-          className="cc-ui-pill cc-ui-pill-accent cc-ui-pill-40 cc-ai-model-run"
-          aria-disabled={busy || undefined}
-          aria-describedby={`${id}-note`}
-          onClick={() => void run()}
-        >
-          {busy && <span className="cc-ai-spinner" aria-hidden="true" />}
-          <span>{phase === "loading" ? i18n.rich("generatedComponent.loading", undefined, bdi) : phase === "running" ? t("generatedComponent.running") : t("generatedComponent.run")}</span>
-        </button>
+        // The button keeps one width through its states: hidden copies of each state's label sit
+        // in the same cell and the cell takes the widest, in whatever font and language the page
+        // has (a fixed minimum width fits only the fonts it was measured with).
+        <span className="cc-ai-model-run-room">
+          <button
+            type="button"
+            className="cc-ui-pill cc-ui-pill-accent cc-ui-pill-40 cc-ai-model-run"
+            aria-disabled={busy || undefined}
+            aria-describedby={`${id}-note`}
+            onClick={() => void run()}
+          >
+            {busy && <span className="cc-ai-spinner" aria-hidden="true" />}
+            <span>{phase === "loading" ? i18n.rich("generatedComponent.loading", undefined, bdi) : phase === "running" ? t("generatedComponent.running") : t("generatedComponent.run")}</span>
+          </button>
+          {(["run", "loading", "running"] as const).map((state) => (
+            <span key={state} className="cc-ui-pill cc-ui-pill-40 cc-ai-model-run-ghost" aria-hidden="true">
+              {state !== "run" && <span className="cc-ai-spinner-room" />}
+              <span>{state === "loading" ? i18n.rich("generatedComponent.loading", undefined, bdi) : t(`generatedComponent.${state}`)}</span>
+            </span>
+          ))}
+        </span>
       )}
       {/* The results' room is kept from the start, so a run never moves what follows. */}
       <div className="cc-ai-model-results" aria-live="polite">
