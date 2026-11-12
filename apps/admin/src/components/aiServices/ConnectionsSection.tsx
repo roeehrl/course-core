@@ -475,6 +475,11 @@ function AddConnection({
         <button
           type="submit"
           className="button primary"
+          // Pressing Save leaves the focus in the key field until the click is done. Leaving the
+          // field starts the key's test, whose line above moves this button down between the
+          // press and the release, so the click was lost and nothing was saved. Saving tests the
+          // key itself (and waits for a test already under way).
+          onMouseDown={(event) => event.preventDefault()}
           disabled={
             saving ||
             badChars ||
