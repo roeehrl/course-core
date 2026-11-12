@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -23,11 +23,7 @@ test("placement settings tighten only, and a learner's exemption shows its evide
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Placement" })
-    .click();
+  await openSection(page, "Placement", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Placement", level: 1 }),
   ).toBeVisible();
@@ -64,7 +60,7 @@ test("placement settings tighten only, and a learner's exemption shows its evide
   const exemption = page.getByRole("region", { name: "Exemption: Minimum" });
   await expect(exemption).toContainText("placed out in run 1");
   await expect(
-    exemption.getByRole("listitem").filter({ hasText: "min-a" }),
+    exemption.getByRole("listitem").filter({ hasText: "Which is smaller?" }),
   ).toContainText("independent");
   await accessible(page);
   await page.screenshot({

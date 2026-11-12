@@ -1,8 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openFirstCourse } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
+  // Checked from the top of the page: a control scrolled under the sticky section link bar
+  // would otherwise count as a target overlapping that bar's links (axe target-size).
+  await page.evaluate(() => window.scrollTo(0, 0));
   expect(
     (await new AxeBuilder({ page }).withTags(axeTags).analyze()).violations,
   ).toEqual([]);
@@ -22,6 +26,8 @@ test("configure a host-folder update source, check for updates and update to a p
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();

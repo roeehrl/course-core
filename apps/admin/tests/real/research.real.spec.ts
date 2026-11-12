@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openSection, workspaceNav } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 async function signIn(page: Page) {
   const setup = await page.request.post("/test/admin-fixture");
@@ -9,6 +9,8 @@ async function signIn(page: Page) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(data.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -26,18 +28,15 @@ test("staff add, inspect, review with exact evidence, attach and revoke a resear
   browser,
 }, info) => {
   const fixture = await signIn(page);
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Research sources" })
-    .click();
+  await openSection(page, "Research sources", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Research sources", level: 1 }),
   ).toBeVisible();
   await expect(page.getByText("Untrusted until reviewed")).toBeVisible();
+  // A topic with no source yet is listed under "Topics without sources".
   await expect(
-    page.getByRole("heading", {
-      name: "Public explanation of finding the minimum of a list",
+    page.getByRole("listitem").filter({
+      hasText: "Public explanation of finding the minimum of a list",
     }),
   ).toBeVisible();
 
@@ -184,10 +183,10 @@ test("staff search YouTube with the workspace key, add a result and review only 
   });
   await openSection(page, "Research sources");
   // Without an admin-entered key, search is off and only the status card says where the key
-  // goes (once): the button cannot produce an error that repeats it.
+  // goes (once): there is no search button to produce an error that repeats it.
   await expect(
-    page.getByRole("button", { name: "Search YouTube" }).first(),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "Search YouTube" }),
+  ).toHaveCount(0);
   await expect(
     page.getByText(
       /^YouTube search is off until a YouTube Data API key is added\. .*AI services, under Advanced \(for developers\)/,
@@ -197,7 +196,7 @@ test("staff search YouTube with the workspace key, add a result and review only 
 
   const key = ["synthetic", "browser", "youtube", "key"].join("-");
   await openSection(page, "AI services");
-  await page.locator("#ai-advanced summary").click();
+  await page.locator("#ai-advanced > summary").click();
   await page.getByLabel("YouTube search key").fill(key);
   await page.getByRole("button", { name: "Save key", exact: true }).click();
   await expect(page.getByText("Key saved.", { exact: true })).toBeVisible();

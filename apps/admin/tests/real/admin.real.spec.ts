@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { expectNoModeBadge, openSection } from "../workspaceNav";
+import {
+  expectNoModeBadge,
+  openSection,
+  openFirstCourse,
+} from "../workspaceNav";
 test.beforeEach(async ({ page, request }, info) => {
   const setup = await request.post("/test/admin-fixture");
   expect(setup.ok()).toBeTruthy();
@@ -11,6 +15,8 @@ test.beforeEach(async ({ page, request }, info) => {
   ).toBeVisible();
   await page.getByLabel("One-time sign-in code").fill(data.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -98,7 +104,7 @@ test("real cookie session, draft validation/review/publication and immutable rel
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByText("Selected for new learners", { exact: true }),
+    page.getByText("Live for new learners: 1.0.0", { exact: true }),
   ).toBeVisible();
   const after = await (
     await page.request.get(`/api/admin/courses/${course.id}`)
@@ -283,7 +289,8 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
       "Reviewed policy migration applied. Existing anchors, pools, grants and ledger history were preserved.",
     ),
   ).toBeVisible();
-  await expect(page.getByText("superseded", { exact: true })).toBeVisible();
+  // The waiting offer is replaced: the learner has to consent to fresh terms.
+  await expect(page.getByText("Replaced", { exact: true })).toBeVisible();
   await openSection(page, "Enrollments");
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page
@@ -322,7 +329,7 @@ test("subscription fallback opt-in and opt-out persist through the real server w
   ).toBeVisible();
   // A subscription connection is a developer setting: added through the JSON editor.
   const advanced = page.locator("#ai-advanced");
-  await advanced.locator("summary").click();
+  await advanced.locator(":scope > summary").click();
   const current = JSON.parse((await advanced.locator("pre").textContent())!);
   current.adapters.push({
     id: "subscription-one",
@@ -349,7 +356,7 @@ test("subscription fallback opt-in and opt-out persist through the real server w
   ).toBeVisible();
   await page.reload();
   await openSection(page, "AI services");
-  await page.locator("#ai-advanced summary").click();
+  await page.locator("#ai-advanced > summary").click();
   await expect(choice).toBeChecked();
   await expect(page.locator(".ai-status-bar")).toContainText("spending is off");
   expect(
@@ -382,6 +389,6 @@ test("subscription fallback opt-in and opt-out persist through the real server w
   ).toBeVisible();
   await page.reload();
   await openSection(page, "AI services");
-  await page.locator("#ai-advanced summary").click();
+  await page.locator("#ai-advanced > summary").click();
   await expect(choice).not.toBeChecked();
 });

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -23,18 +23,17 @@ test("an owner records a wrong-answer test, checks a key change against it on a 
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Answer keys" })
-    .click();
+  await openSection(page, "Answer keys", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Answer keys and test answers" }),
   ).toBeVisible();
   // The draft is chosen first; its first question is a choice whose right answer is 2.
+  // Questions are a list of rows; a row opens to its key and test answers.
   const question = page
-    .locator("section.card")
+    .getByRole("list", { name: "Questions" })
+    .getByRole("listitem")
     .filter({ hasText: "Which is smaller?" });
+  await question.getByRole("button", { name: /Which is smaller\?/ }).click();
   await expect(question).toContainText("Right answer now:");
   await question.getByLabel("Answer", { exact: true }).selectOption("five");
   await question.getByLabel("What it tests").fill("Picks the larger value");
@@ -82,6 +81,8 @@ test("an owner records a wrong-answer test, checks a key change against it on a 
   await expect(
     page.getByText("Every test answer was graded as expected."),
   ).toBeVisible();
+  // The recent runs are folded under their count.
+  await page.getByText("1 recent test run", { exact: true }).click();
   await expect(
     page.getByRole("table", { name: "Recent test runs" }),
   ).toContainText("1 passed · 0 failed");

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
-import { openSection } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 // A workspace with no runtime models configured shows one capability slot per agent
 // role to read-only staff, including the reviewer role that drafts written-answer
@@ -17,6 +17,8 @@ test("read-only staff see every agent role's capability slot without a configure
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(observerCode);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();

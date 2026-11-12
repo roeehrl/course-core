@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 // AI services / Spending on the real API: the live companion re-test's held call (finding B-2:
 // sent, no reply, $0.031410 held) is shown to the owner with what happened, and settled at $0
@@ -19,11 +19,7 @@ test("an owner sees a call whose cost stayed unknown and settles it at $0 with a
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "AI services" })
-    .click();
+  await openSection(page, "AI services", { exact: false });
   const panel = page.getByRole("region", {
     name: "Calls with an unknown cost",
   });
@@ -129,11 +125,7 @@ for (const locale of ["en", "he"] as const)
         exact: true,
       })
       .click();
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: he ? "שירותי AI" : "AI services" })
-      .click();
+    await openSection(page, he ? "שירותי AI" : "AI services", { exact: false });
     const panel = page.getByRole("region", {
       name: he ? "קריאות שהעלות שלהן לא ידועה" : "Calls with an unknown cost",
     });
@@ -153,7 +145,8 @@ for (const locale of ["en", "he"] as const)
       })),
     );
     // Same minute, different seconds and references.
-    expect(heads[0]!.time.replace(/:\d\d(?=\D*$)/, "")).not.toBe(
+    // (The zone may carry digits too, "GMT+2", so the seconds are the third part of the time.)
+    expect(heads[0]!.time.replace(/(\d{1,2}:\d{2}):\d{2}/, "$1")).not.toBe(
       heads[0]!.time,
     );
     expect(new Set(heads.map((h) => h.text)).size).toBe(2);

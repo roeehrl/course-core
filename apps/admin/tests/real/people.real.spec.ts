@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openFirstCourse, openSection } from "../workspaceNav";
 
 async function signIn(page: Page) {
   const setup = await page.request.post("/test/admin-fixture");
@@ -9,6 +9,8 @@ async function signIn(page: Page) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(data.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -19,11 +21,7 @@ test("an admin invites, re-roles and removes a learner while owners stay protect
   browser,
 }, info) => {
   await signIn(page);
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "People & roles" })
-    .click();
+  await openSection(page, "People & roles", { exact: false });
   await expect(
     page.getByRole("heading", { name: "People & roles", level: 1 }),
   ).toBeVisible();

@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openFirstCourse, openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 async function signIn(
@@ -30,7 +30,7 @@ async function signIn(
   return page;
 }
 const open = async (page: Page, name: string) => {
-  await (await workspaceNav(page)).getByRole("button", { name }).click();
+  await openSection(page, name, { exact: false });
   await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
 };
 const accessible = async (page: Page) => {
@@ -55,6 +55,8 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
 
   // The owner reads the course overview.
   const owner = await signIn(browser, baseURL, fixture.ownerCode, info);
+  // A first visit opens on the Courses home; the overview is the course's.
+  await openFirstCourse(owner);
   await expect(
     owner.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -68,10 +70,10 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
   const enrollments = owner.getByRole("list", { name: "Enrollments by state" });
   await expect(enrollments).toHaveCSS("list-style-type", "none");
   await expect(enrollments).toHaveCSS("display", "grid");
-  await expect(enrollments.getByRole("listitem").first()).toHaveCSS(
-    "display",
-    "flex",
-  );
+  // Each item holds one count row (label and count on one line).
+  await expect(
+    enrollments.getByRole("listitem").first().locator(".count-row"),
+  ).toHaveCSS("display", "flex");
   await expect(enrollments.getByRole("listitem").first()).toHaveCSS(
     "border-bottom-style",
     "solid",
@@ -89,7 +91,7 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
   ).toBeVisible();
 
   // The owner grants a time-limited observer role on this course.
-  await open(owner, "People & roles");
+  await open(owner, "Course access");
   const access = owner
     .locator("section.card")
     .filter({ hasText: "Course access: Ordering values" });
@@ -112,7 +114,9 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
     fullPage: true,
   });
 
+  // The granted course is now on the tutor's Courses home, and opens.
   await tutor.reload();
+  await openFirstCourse(tutor);
   await expect(
     tutor.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();

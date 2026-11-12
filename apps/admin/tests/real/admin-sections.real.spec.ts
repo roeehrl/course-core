@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -13,15 +13,11 @@ const accessible = async (page: Page) => {
     ),
   ).resolves.toBeLessThanOrEqual(1);
 };
-async function openSection(page: Page, code: string) {
+async function signInToNotebook(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Lab notebook" })
-    .click();
+  await openSection(page, "Lab notebook", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Lab notebook", level: 1 }),
   ).toBeVisible();
@@ -34,7 +30,7 @@ test("a course-declared admin section renders from its schema, saves within boun
   const fixture = await (
     await page.request.post("/test/admin-section-fixture")
   ).json();
-  await openSection(page, fixture.code);
+  await signInToNotebook(page, fixture.code);
   await expect(
     page.getByText("How the practice notebook prompts learners."),
   ).toBeVisible();
@@ -90,14 +86,15 @@ test("a course-declared admin section renders from its schema, saves within boun
   await accessible(page);
 
   // Each change is in the audit log.
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Audit log" })
-    .click();
+  await openSection(page, "Audit log", { exact: false });
+  // Each event is named in words; its code is under the row's technical details.
   await expect(
-    page.getByText("admin_section.settings_changed").first(),
-  ).toBeVisible();
+    page
+      .getByRole("table")
+      .getByRole("row")
+      .filter({ hasText: "admin_section.settings_changed" })
+      .first(),
+  ).toContainText("Course section settings changed");
 
   // An instructor reads the same values and cannot change them.
   const context = await browser.newContext({
@@ -108,7 +105,7 @@ test("a course-declared admin section renders from its schema, saves within boun
     ...(info.project.use.isMobile ? { isMobile: true, hasTouch: true } : {}),
   });
   const instructor = await context.newPage();
-  await openSection(instructor, fixture.instructorCode);
+  await signInToNotebook(instructor, fixture.instructorCode);
   await expect(
     instructor.getByText("Read only: your role cannot change these settings."),
   ).toBeVisible();

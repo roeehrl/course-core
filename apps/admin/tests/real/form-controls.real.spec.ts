@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
@@ -45,11 +45,7 @@ test("written-answer decision radios and criterion checkboxes stay compact; text
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Answer reviews" })
-    .click();
+  await openSection(page, "Answer reviews", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Answer reviews", level: 1 }),
   ).toBeVisible();
@@ -93,11 +89,7 @@ test("the role radios in the invite dialog stay compact", async ({
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(setup.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "People & roles" })
-    .click();
+  await openSection(page, "People & roles", { exact: false });
   await page.getByRole("button", { name: "Invite person" }).click();
   const dialog = page.getByRole("dialog", { name: "Invite a person" });
   await expect(dialog.getByRole("radio", { name: /^Learner/ })).toBeVisible();

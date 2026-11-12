@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 import enApp from "../../src/i18n/messages/en/adminApp.json" with { type: "json" };
 import heApp from "../../src/i18n/messages/he/adminApp.json" with { type: "json" };
 import enAi from "../../src/i18n/messages/en/aiServices.json" with { type: "json" };
@@ -11,7 +11,8 @@ import heSignIn from "../../src/i18n/messages/he/signIn.json" with { type: "json
 /**
  * Tablets show a sticky top app bar (menu button, section name, course picker). Nothing the page
  * scrolls to may end up under it: a link to a section, the browser scrolling a control into view
- * and keyboard focus all stop below the bar, at its measured height, also after the bar grows.
+ * and keyboard focus all stop below the bar, at its measured height, also after the bar grows
+ * (and below the page's section link bar, which sticks under it).
  * Checked on AI services → Spending limits, whose per-learner choice is a pair of small radios,
  * at 768, 834 and 1024px in English and Hebrew, with axe including WCAG 2.2 target size.
  * The test sets its own window sizes, so it runs once, in the desktop project.
@@ -22,9 +23,12 @@ const CATALOGS = {
 } as const;
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
+/** The lowest edge of what sticks at the top: the app bar, and the page's section link bar
+ * (which sticks just under it). */
 async function barBottom(page: Page) {
   const box = (await page.locator(".app-bar").boundingBox())!;
-  return box.y + box.height;
+  const nav = await page.locator(".section-nav").boundingBox();
+  return Math.max(box.y + box.height, nav ? nav.y + nav.height : 0);
 }
 async function expectBelowBar(page: Page, target: Locator, what: string) {
   const box = (await target.boundingBox())!;
@@ -59,11 +63,7 @@ for (const width of [768, 834, 1024])
       await page
         .getByRole("button", { name: signIn["useCode"], exact: true })
         .click();
-      await (
-        await workspaceNav(page)
-      )
-        .getByRole("button", { name: app["nav.providers"], exact: true })
-        .click();
+      await openSection(page, app["nav.providers"]);
       const bar = page.locator(".app-bar");
       await expect(bar).toBeVisible();
       const spending = page.locator("#ai-spending");
@@ -72,14 +72,25 @@ for (const width of [768, 834, 1024])
       });
       await expect(perLearner).toBeVisible();
 
-      // The page's scroll padding is the bar's measured height plus a gap.
+      // The page's scroll padding is the bar's measured height plus a gap, and the section link
+      // bar's measured height (it sticks under the app bar) plus a gap.
       const height = Math.ceil((await bar.boundingBox())!.height);
+      const nav = Math.ceil(
+        (await page.locator(".section-nav").boundingBox())!.height,
+      );
       expect(await publishedHeight(page)).toBe(`${height}px`);
+      expect(
+        await page.evaluate(() =>
+          document.documentElement.style.getPropertyValue(
+            "--section-nav-height",
+          ),
+        ),
+      ).toBe(`${nav}px`);
       expect(
         await page.evaluate(
           () => getComputedStyle(document.documentElement).scrollPaddingTop,
         ),
-      ).toBe(`${height + 12}px`);
+      ).toBe(`${height + 12 + nav + 12}px`);
 
       // A link to the section, the browser scrolling a control into view, and focus.
       await page.locator('a[href="#ai-spending"]').first().click();

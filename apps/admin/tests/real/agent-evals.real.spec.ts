@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { ownerApproves } from "./eval-gate";
-import { openSection } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 // Real server and database. No provider is contacted: saving a configuration never calls a model.
 async function accessible(page: Page) {
@@ -22,6 +22,8 @@ async function signIn(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -71,7 +73,7 @@ test("a new tutor model waits for a quality check; only the owner's audited appr
 
   // 1. A developer's JSON change goes through the same draft and gate: nothing turns on yet.
   const advanced = page.locator("#ai-advanced");
-  await advanced.locator("summary").click();
+  await advanced.locator(":scope > summary").click();
   await advanced.getByLabel("Tokens per request").fill("100000");
   await advanced.getByRole("button", { name: "Save limits" }).click();
   await expect(advanced.getByText("Limits saved.")).toBeVisible();
@@ -86,7 +88,8 @@ test("a new tutor model waits for a quality check; only the owner's audited appr
     ),
   ).toBeVisible();
   await expect(check).toContainText("This model hasn't been checked yet:");
-  await expect(check).toContainText("Learner tutor — public-text-model");
+  // The model by its display name.
+  await expect(check).toContainText("Learner tutor — Public Text Model");
   // Administrators cannot approve without a check.
   await expect(
     check.getByText(
@@ -118,10 +121,16 @@ test("a new tutor model waits for a quality check; only the owner's audited appr
   await page.reload();
   await openSection(page, "AI services");
   await expect(check).toContainText("No model is waiting for a check.");
-  await expect(check).toContainText(
-    "Learner tutor — public-text-model · Approved without checking",
-  );
-  await page.locator("#ai-advanced summary").click();
+  // The tutor is on, approved, with its model (its id is under the row's technical details).
+  const tutor = check
+    .getByRole("list", { name: "Jobs that are on" })
+    .locator('[data-role="companion"]');
+  await expect(tutor).toContainText("Learner tutor");
+  await expect(
+    tutor.getByText("Approved without checking", { exact: true }),
+  ).toBeVisible();
+  await expect(tutor).toContainText("public-text-model");
+  await page.locator("#ai-advanced > summary").click();
   await expect(page.locator("#ai-advanced")).toContainText(
     "Learner tutor: approved without checking on",
   );

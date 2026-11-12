@@ -1,17 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 async function openMedia(page: Page) {
   const fixture = await (await page.request.post("/test/media-fixture")).json();
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Generated media" })
-    .click();
+  await openSection(page, "Generated media", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Generated media", level: 1 }),
   ).toBeVisible();

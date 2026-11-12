@@ -1,7 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { accent } from "@course-core/i18n";
-import { openSection, workspaceNav, workspaceNavNames } from "../workspaceNav";
+import {
+  openSection,
+  workspaceNavNames,
+  openFirstCourse,
+} from "../workspaceNav";
 import { fieldIconOverlaps } from "../fieldIcons";
 import { trackedHebrew } from "../hebrewText";
 import { emptyFieldsAgainstPage } from "../fieldText";
@@ -18,6 +22,8 @@ async function signIn(page: Page) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(data.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -41,7 +47,7 @@ async function untranslated(page: Page) {
     const main = document.querySelector("main")!;
     const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
     const date =
-      /[A-Z][a-z]{2} \d{1,2}, \d{4}(, \d{1,2}:\d{2}(:\d{2})? [AP]M)?( UTC)?/g;
+      /[A-Z][a-z]{2} \d{1,2}, \d{4}(, \d{1,2}:\d{2}(:\d{2})? [AP]M)?( UTC| GMT[+-]\d{1,2}(:\d{2})?)?/g;
     let depth = 0;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       let outside = "";
@@ -143,11 +149,7 @@ test("the AI supervision settings wrap their long labels under en-XA instead of 
     await page.setViewportSize({ width: 1280, height: 900 });
   await signIn(page);
   await page.goto("/admin/?locale=en-XA");
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: accent("AI supervision") })
-    .click();
+  await openSection(page, accent("AI supervision"), { exact: false });
   const settings = page.locator(".supervision-settings").first();
   await expect(
     settings.getByRole("heading", { name: accent("AI supervision settings") }),
