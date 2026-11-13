@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page } from "./health";
-import { companion, lengthenLesson, openLesson, settled, trigger } from "./shell-helpers";
+import { companion, lengthenLesson, openLesson, pressAndWatch, settled, trigger, type CompanionFrame } from "./shell-helpers";
 
 /*
  * The companion as a bottom sheet on phones and tablets in portrait (final design §2.3, §2.4, G6).
@@ -83,28 +83,25 @@ test("the sheet opens at Half every time and moves between heights by press and 
 test("the sheet slides (M12): opening, a change of height and closing are drawn moving, never in one frame", async ({ page }) => {
   await sheetWindow(page);
   await openLesson(page);
-  /** Presses `selector` and reads the sheet `after` ms later, in the page (no round trip between). */
-  const pressAndRead = (selector: string, after: number) =>
-    page.evaluate(async ({ selector, after }) => {
-      document.querySelector<HTMLElement>(selector)!.click();
-      await new Promise((resolve) => setTimeout(resolve, after));
-      const aside = document.querySelector<HTMLElement>("#connected-companion")!;
-      const shift = /matrix\(1, 0, 0, 1, 0, (-?[\d.]+)\)/.exec(getComputedStyle(aside).transform);
-      return { hidden: aside.hidden, shift: shift ? Number(shift[1]) : 0 };
-    }, { selector, after });
-  // Up from below the window (300 ms), still on its way 100 ms in.
-  const opening = await pressAndRead(".connected-header .connected-companion-trigger", 100);
-  expect(opening.shift).toBeGreaterThan(0);
+  // Every frame drawn after each press (pressAndWatch): a sheet that jumped would be drawn at rest,
+  // or gone, on the first of them, with none in between.
+  const drawn = (frames: CompanionFrame[]) => frames.map((f) => `${f.at}ms ${f.hidden ? "hidden" : Math.round(f.shift)}`).join(", ");
+  // Up from below the window (300 ms): drawn on its way, below where it rests, then in place.
+  const opening = await pressAndWatch(page, ".connected-header .connected-companion-trigger");
+  expect(opening.some((f) => !f.hidden && f.shift > 0), `frames: ${drawn(opening)}`).toBe(true);
+  expect(opening.at(-1)!.shift, `frames: ${drawn(opening)}`).toBe(0);
   await settled(companion(page));
   // A press on the handle: Half to Full, the box sliding up into place.
-  const taller = await pressAndRead("#connected-companion .cc-shell-handle", 100);
-  expect(taller.shift).toBeGreaterThan(0);
+  const taller = await pressAndWatch(page, "#connected-companion .cc-shell-handle");
+  expect(taller.some((f) => !f.hidden && f.shift > 0), `frames: ${drawn(taller)}`).toBe(true);
   await settled(companion(page));
   await expect(companion(page)).toHaveAttribute("data-detent", "full");
-  // Closing slides it down (250 ms): still drawn, part way down, 60 ms in.
-  const closing = await pressAndRead('#connected-companion [aria-label="Close companion"]', 60);
-  expect(closing.hidden).toBe(false);
-  expect(closing.shift).toBeGreaterThan(0);
+  // Closing slides it down (250 ms): still drawn on the first frame after the press, then part
+  // way down (moved, not yet below the window) on a later one, and only then hidden.
+  const height = (await companion(page).boundingBox())!.height;
+  const closing = await pressAndWatch(page, '#connected-companion [aria-label="Close companion"]');
+  expect(closing[0]!.hidden, `frames: ${drawn(closing)}`).toBe(false);
+  expect(closing.some((f) => !f.hidden && f.shift > 0 && f.shift < height), `frames: ${drawn(closing)}`).toBe(true);
   await expect(companion(page)).toBeHidden();
 });
 

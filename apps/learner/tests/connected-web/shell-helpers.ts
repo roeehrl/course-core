@@ -42,6 +42,53 @@ export async function lengthenLesson(page: Page, paragraphs = 24) {
 export const companion = (page: Page): Locator => page.locator("#connected-companion");
 export const trigger = (page: Page): Locator => page.locator(".connected-header .connected-companion-trigger");
 
+/** The companion as one drawn frame showed it, `at` ms after a press (see `pressAndWatch`). */
+export type CompanionFrame = {
+  at: number;
+  hidden: boolean;
+  inert: boolean;
+  ariaHidden: string | null;
+  entering: boolean;
+  opacity: number;
+  /** The region's own vertical translation in px (a sheet sliding). */
+  shift: number;
+  /** The transform of the region's body (the panel's content moving). */
+  body: string;
+};
+
+/**
+ * Presses `selector` and reads the companion on every frame drawn after it, in the page (no round
+ * trip between), until a frame with none of its motion still running, or `limit` ms. This is what
+ * the learner sees frame by frame, however late a loaded machine draws them: a motion starts on the
+ * first frame drawn after it is asked for, so a read on a timer can land before that frame and see
+ * the region not yet moved (WebKit on a busy CI runner can draw nothing for over 100 ms).
+ */
+export async function pressAndWatch(page: Page, selector: string, limit = 2000): Promise<CompanionFrame[]> {
+  return page.evaluate(async ({ selector, limit }) => {
+    const aside = document.querySelector<HTMLElement>("#connected-companion")!;
+    const body = aside.querySelector(".cc-shell-body");
+    const start = performance.now();
+    const frames: CompanionFrame[] = [];
+    document.querySelector<HTMLElement>(selector)!.click();
+    while (performance.now() - start < limit) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const style = getComputedStyle(aside);
+      frames.push({
+        at: Math.round(performance.now() - start),
+        hidden: aside.hidden === true,
+        inert: aside.inert,
+        ariaHidden: aside.getAttribute("aria-hidden"),
+        entering: aside.dataset.entering === "true",
+        opacity: Number(style.opacity),
+        shift: style.transform === "none" ? 0 : new DOMMatrixReadOnly(style.transform).m42,
+        body: body ? getComputedStyle(body).transform : "none",
+      });
+      if (!aside.getAnimations({ subtree: true }).some((animation) => animation.playState === "running")) break;
+    }
+    return frames;
+  }, { selector, limit });
+}
+
 /** Waits for the companion's own motion to end, so boxes are measured where they rest. */
 export async function settled(locator: Locator) {
   await locator.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
