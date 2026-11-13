@@ -42,6 +42,8 @@ export interface AskCandidate {
   origin: HTMLElement;
   /** Where the selection ends in the document: Tab from the button continues from here. */
   endNode: Node;
+  /** The selected lesson text (a copy): put back when moving focus to the button cleared it. */
+  range?: Range;
   /** What goes with the next message. */
   build(): FocusSelection | Promise<FocusSelection>;
 }
@@ -101,6 +103,7 @@ export function textCandidate(selection: Selection | null): AskCandidate | null 
     direction: directionOf(origin),
     origin,
     endNode: range.endContainer,
+    range: range.cloneRange(),
     build: () => ({ kind: "text", excerpt }),
   };
 }
@@ -253,6 +256,24 @@ export function focusSelectionEnd(candidate: AskCandidate): void {
     block.addEventListener("blur", () => block.removeAttribute("tabindex"), { once: true });
   }
   block.focus({ preventScroll: true });
+  keepSelection(candidate);
+}
+
+/**
+ * Keeps the lesson text selected while focus is on the floating button and after it comes back.
+ * Safari's engine clears the page's selection when focus moves to an element outside it (unless
+ * the last pointer press was on a button), so a learner who Tabs to the button would no longer
+ * see what they are asking about, and after Esc could not extend it. Puts the candidate's text
+ * back when the selection is gone; a selection the learner has since made is left alone.
+ */
+export function keepSelection(candidate: AskCandidate): void {
+  if (candidate.kind !== "text" || !candidate.range || typeof document === "undefined") return;
+  const selection = document.getSelection();
+  if (!selection || (selection.rangeCount && !selection.isCollapsed)) return;
+  const { startContainer, endContainer } = candidate.range;
+  if (!startContainer.isConnected || !endContainer.isConnected) return;
+  selection.removeAllRanges();
+  selection.addRange(candidate.range.cloneRange());
 }
 
 const TABBABLE =
