@@ -25,6 +25,9 @@ async function signIn(page: Page, request: Page["request"]): Promise<Fixture> {
   return fixture;
 }
 async function accessible(page: Page) {
+  // Checked from the top of the page: a control scrolled under the sticky section link bar
+  // would otherwise count as a target overlapping that bar's links (axe target-size).
+  await page.evaluate(() => window.scrollTo(0, 0));
   expect(
     (
       await new AxeBuilder({ page })
