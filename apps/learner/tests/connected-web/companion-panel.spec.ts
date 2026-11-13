@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { nextControlKey, test, expect, type Page } from "./health";
-import { companion, lengthenLesson, openLesson, settled, trigger } from "./shell-helpers";
+import { companion, lengthenLesson, openLesson, pressAndWatch, settled, trigger } from "./shell-helpers";
 
 /*
  * The companion docked beside the lesson (final design §2.1, G8): a flush panel the learner widens
@@ -178,16 +178,20 @@ test("the panel's content slides in for all of M9, and closing fades it out towa
   expect(opening.entering).toBe(true);
   expect(opening.shift).not.toBe("none");
   await settled(companion(page));
-  // 60 ms into the 150 ms close it is still drawn, fading, its content moving toward the end.
-  const closing = await pressAndRead('#connected-companion [aria-label="Close companion"]', 60);
-  expect(closing.hidden).toBe(false);
+  // The 150 ms close, frame by frame (a timer read can land before the first frame is drawn, when
+  // the fade has not begun): still drawn on the first frame after the press, then on a later one
+  // part way faded, its content moving toward the end, and only then hidden.
+  const closing = await pressAndWatch(page, '#connected-companion [aria-label="Close companion"]');
+  const drawn = closing.filter((frame) => !frame.hidden);
+  const frames = `frames: ${closing.map((f) => `${f.at}ms ${f.hidden ? "hidden" : `${f.opacity.toFixed(2)} ${f.body}`}`).join(", ")}`;
+  expect(closing[0]!.hidden, frames).toBe(false);
   // Hidden from assistive technology while drawn, and out of the tab order with it (axe
   // aria-hidden-focus): nothing inside can be reached during the motion.
-  expect(closing.ariaHidden).toBe("true");
-  expect(closing.inert).toBe(true);
-  expect(closing.opacity).toBeLessThan(1);
-  expect(closing.opacity).toBeGreaterThan(0);
-  expect(closing.shift).not.toBe("none");
+  for (const frame of drawn) {
+    expect(frame.ariaHidden, frames).toBe("true");
+    expect(frame.inert, frames).toBe(true);
+  }
+  expect(drawn.some((f) => f.opacity < 1 && f.opacity > 0 && f.body !== "none"), frames).toBe(true);
   await expect(companion(page)).toBeHidden();
   await expect(page.locator("#connected-companion[data-leaving]")).toHaveCount(0);
   expect(await companion(page).evaluate((aside) => (aside as HTMLElement).inert)).toBe(false);
