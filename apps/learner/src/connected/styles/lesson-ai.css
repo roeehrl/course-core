@@ -498,11 +498,32 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-.cc-ai-model-run {
+/* The button and hidden copies of each state's label share one cell, which takes the widest. */
+.cc-ai-model-run-room {
+  display: inline-grid;
+  max-inline-size: 100%;
+}
+.cc-ai-model-run-room > * {
+  grid-area: 1 / 1;
+}
+.cc-ai-model-run,
+.cc-ai-model-run-ghost {
+  box-sizing: border-box;
   min-inline-size: 184px;
+  max-inline-size: 100%;
+}
+.cc-ai-model-run-ghost {
+  visibility: hidden;
+  pointer-events: none;
 }
 .cc-ai-model-run[aria-disabled="true"] {
   cursor: progress;
+}
+/* The spinner's room in a hidden label: its size, without the animation. */
+.cc-ai-spinner-room {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
 }
 .cc-ai-spinner {
   inline-size: 12px;

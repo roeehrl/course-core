@@ -1,5 +1,5 @@
 import { expect, type Browser } from "@playwright/test";
-import { openSection } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 /** Signs in as the workspace owner in a separate browser session and approves every model that
  * waits for a quality check on the AI services page (the server resolves the exact version). */
@@ -19,6 +19,8 @@ export async function ownerApproves(
     await owner.goto("/admin/");
     await owner.getByLabel("One-time sign-in code").fill(ownerCode);
     await owner.getByRole("button", { name: "Use code", exact: true }).click();
+    // A first visit opens on the Courses home; these tests start in the course.
+    await openFirstCourse(owner);
     await expect(
       owner.getByRole("heading", { name: "Course & releases", level: 1 }),
     ).toBeVisible();

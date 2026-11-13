@@ -9,7 +9,7 @@ import enApp from "../../src/i18n/messages/en/adminApp.json" with { type: "json"
 import heApp from "../../src/i18n/messages/he/adminApp.json" with { type: "json" };
 import enSignIn from "../../src/i18n/messages/en/signIn.json" with { type: "json" };
 import heSignIn from "../../src/i18n/messages/he/signIn.json" with { type: "json" };
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 type Locale = "en" | "he";
 type Args = Record<string, string | number>;
@@ -61,11 +61,7 @@ async function openMedia(page: Page, locale: Locale, code: string) {
   await page
     .getByRole("button", { name: x.signIn("useCode"), exact: true })
     .click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: x.app("nav.media") })
-    .click();
+  await openSection(page, x.app("nav.media"), { exact: false });
   await expect(
     page.getByRole("heading", { name: x.v("title"), level: 1 }),
   ).toBeVisible();
@@ -155,11 +151,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     // The render runs on the server; the clip then waits for review.
     expect((await page.request.post("/test/media-run")).ok()).toBe(true);
     await page.reload();
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: x.app("nav.media") })
-      .click();
+    await openSection(page, x.app("nav.media"), { exact: false });
     const job = page
       .getByRole("list", { name: x.v("jobs.title") })
       .getByRole("listitem")

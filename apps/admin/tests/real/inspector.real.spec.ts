@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openFirstCourse, openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -17,10 +17,12 @@ async function signIn(page: Page, code: string, view: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await (await workspaceNav(page)).getByRole("button", { name: view }).click();
+  await openSection(page, view, { exact: false });
   await expect(
     page.getByRole("heading", { name: view, level: 1 }),
   ).toBeVisible();
@@ -94,11 +96,7 @@ test("an owner inspects a learner's lesson from the read-only view: visual state
   await dialog.getByRole("button", { name: /Close/ }).first().click();
 
   // The run inspector shows policies, budgets and client/sync state; the audit log has both receipts.
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Run inspector" })
-    .click();
+  await openSection(page, "Run inspector", { exact: false });
   await page.getByRole("button", { name: "Policies & budgets" }).click();
   await expect(
     page.getByRole("table", { name: "Reservations and usage per attempt" }),
@@ -112,13 +110,15 @@ test("an owner inspects a learner's lesson from the read-only view: visual state
     path: info.outputPath("run-sync.png"),
     fullPage: true,
   });
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Audit log" })
-    .click();
-  await expect(page.getByText("run.payload_revealed").first()).toBeVisible();
-  await expect(page.getByText("run.replayed").first()).toBeVisible();
+  await openSection(page, "Audit log", { exact: false });
+  // Each event is named in words; its code is under the row's technical details.
+  const events = page.getByRole("table");
+  await expect(
+    events.getByRole("row").filter({ hasText: "run.payload_revealed" }).first(),
+  ).toContainText("Run details revealed");
+  await expect(
+    events.getByRole("row").filter({ hasText: "run.replayed" }).first(),
+  ).toContainText("Run replayed");
 
   // An instructor inspects runs but cannot reveal a payload.
   const context = await browser.newContext({

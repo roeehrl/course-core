@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 test("an admin exports and then irreversibly erases one learner's course data", async ({
   page,
@@ -10,11 +10,7 @@ test("an admin exports and then irreversibly erases one learner's course data", 
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Enrollments" })
-    .click();
+  await openSection(page, "Enrollments", { exact: false });
   const card = page.locator("section.card").filter({
     has: page.getByRole("heading", { name: "Learner data requests" }),
   });

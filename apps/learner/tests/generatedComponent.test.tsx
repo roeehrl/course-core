@@ -76,6 +76,10 @@ it("names each state of a run on the button, which stays in place, and keeps the
   // The always-on sandbox note describes the button.
   expect(button).toHaveAccessibleDescription("This runs in your browser, offline, and never counts as an answer.");
   expect(container.querySelector(".cc-ai-model-results")).not.toBeNull();
+  // Its width is the widest of its labels in the page's own font: each state's label sits hidden
+  // in the button's cell, out of the accessibility tree.
+  expect([...container.querySelectorAll(".cc-ai-model-run-room > .cc-ai-model-run-ghost[aria-hidden='true']")].map((ghost) => ghost.textContent))
+    .toEqual(["Run the model", "Loading Python…", "Running…"]);
   await act(async () => { fireEvent.click(button); });
   await act(async () => phase("loading"));
   expect(button).toHaveTextContent("Loading Python…");

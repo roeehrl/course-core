@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openSection } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 /** Organization limits, allowance pools, the cross-learner approval queue and group outage
  * adjustments against the real API and PostgreSQL (G02, G03, G05, G09, Q05). */
@@ -19,6 +19,8 @@ async function signIn(page: Page, request: Page["request"]): Promise<Fixture> {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -51,9 +53,10 @@ test("organization limits are checked against every course before saving", async
   request,
 }, info) => {
   await signIn(page, request);
-  await openSection(page, "Policy & extensions");
+  // Organization limits are a workspace page of their own.
+  await openSection(page, "Organization limits");
   const card = page.locator("section", {
-    has: page.getByRole("heading", { name: "Organization limits" }),
+    has: page.getByRole("heading", { name: "Organization limits", level: 2 }),
   });
   await card.getByRole("button", { name: "Edit organization limits" }).click();
   await expect(card.getByText("No organization limits set")).toBeVisible();

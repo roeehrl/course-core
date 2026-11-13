@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openSection } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 // Real server and database; the Anthropic Models API page is scripted by the test server.
 // No live Anthropic call is made and no generation endpoint is reachable from this suite.
@@ -27,6 +27,8 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.ownerCode);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -62,7 +64,7 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   const models = page.locator("#ai-models");
   await expect(
     models.getByLabel("Model for Learner tutor").locator("option:checked"),
-  ).toContainText("claude-sonnet-5-5");
+  ).toHaveAttribute("title", "claude-sonnet-5-5");
   await models.getByText(/Optional jobs \(3\)/).click();
   await expect(
     models.getByText("Anthropic doesn't offer this job."),
@@ -91,7 +93,7 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
     "For models Course Core knows, the fields are filled in from Anthropic's pricing page",
   );
   // Sonnet is in the bundled table: its prices are prefilled for the owner to confirm.
-  const sonnet = prices.locator("fieldset.ai-price", {
+  const sonnet = prices.locator(".ai-price", {
     hasText: "claude-sonnet-5-5",
   });
   await expect(
@@ -100,10 +102,10 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   await expect(
     sonnet.getByLabel("Output, per 1M tokens", { exact: true }),
   ).toHaveValue("10.00");
-  const haiku = prices.locator("fieldset.ai-price", {
+  const haiku = prices.locator(".ai-price", {
     hasText: "claude-haiku-5-5",
   });
-  await expect(haiku).toContainText("used by Source finder");
+  await expect(haiku).toContainText("Used by Source finder");
   await haiku.getByLabel("Input, per 1M tokens", { exact: true }).fill("2");
   await haiku.getByLabel("Output, per 1M tokens", { exact: true }).fill("10");
   await haiku.getByText("More price types").click();
@@ -124,9 +126,15 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
     .fill("Synthetic browser fixture: this model is never contacted.");
   await check.getByRole("button", { name: "Approve and turn on" }).click();
   await expect(check.getByText("Approved and turned on.")).toBeVisible();
-  await expect(check).toContainText(
-    "Source finder — claude-haiku-5-5 · Approved without checking",
-  );
+  // The source finder is on, approved, with its model (its id under the row's technical details).
+  const finder = check
+    .getByRole("list", { name: "Jobs that are on" })
+    .getByRole("listitem")
+    .filter({ hasText: "Source finder" });
+  await expect(
+    finder.getByText("Approved without checking", { exact: true }),
+  ).toBeVisible();
+  await expect(finder).toContainText("claude-haiku-5-5");
   // Saving models never grants spending: spending stays off until the button is pressed.
   await expect(page.locator(".ai-status-bar")).toContainText("spending is off");
   await accessible(page);

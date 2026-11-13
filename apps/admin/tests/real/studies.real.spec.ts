@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -17,11 +17,7 @@ async function openStudies(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Studies" })
-    .click();
+  await openSection(page, "Studies", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Studies", level: 1 }),
   ).toBeVisible();
@@ -74,11 +70,7 @@ test("an owner sets up a study, opens recruiting, sees arm balance and consent c
     ).consented,
   ).toBe(6);
   await page.reload();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Studies" })
-    .click();
+  await openSection(page, "Studies", { exact: false });
   await expect(
     page.locator(".stat").filter({ hasText: "Included in exports" }),
   ).toContainText("6");

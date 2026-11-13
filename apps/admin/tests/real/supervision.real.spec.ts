@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
@@ -17,11 +17,7 @@ async function openSupervision(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "AI supervision" })
-    .click();
+  await openSection(page, "AI supervision", { exact: false });
   await expect(
     page.getByRole("heading", { name: "AI supervision", level: 1 }),
   ).toBeVisible();
@@ -173,6 +169,10 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   ).toBeVisible();
   // Supervisor review is paid and admitted for every learner by these settings and the spending
   // limits; the learner's opt-in only governs changes to their lessons and what extra context is sent.
+  // The page says so under its disclosure.
+  await page
+    .getByText("What the supervisor reads, and what it costs", { exact: true })
+    .click();
   await expect(
     page.getByText(
       /including learners who have not opted in\. This is paid AI work/,
@@ -215,12 +215,14 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   // A tool family switched off is previewed as tools no longer used.
   await page.getByRole("checkbox", { name: /^Visuals/ }).uncheck();
   await page.getByRole("button", { name: "Check what this changes" }).click();
-  await expect(page.getByText(/will no longer be used/)).toBeVisible();
+  // (Said in the preview's summary line and in its list.)
+  await expect(page.getByText(/will no longer be used/).first()).toBeVisible();
 
   // The spending-limit request waits for an owner.
   await expect(page.getByText("Higher AI spending limit")).toBeVisible();
   await expect(
-    page.getByText("Why: Two more practice sessions this week."),
+    // The learner's own words are isolated from the sentence around them.
+    page.getByText(/Why: ⁨?Two more practice sessions this week\.⁩?/),
   ).toBeVisible();
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(

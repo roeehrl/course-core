@@ -231,14 +231,16 @@ for (const locale of ["en", "he"] as Locale[]) {
     const tutor = page.getByLabel(
       t("models.modelFor", { job: t("role.companion.name") }),
     );
-    await expect(tutor.locator("option:checked")).toContainText(
+    // Each option shows the model's display name and carries its exact id as its title.
+    await expect(tutor.locator("option:checked")).toHaveAttribute(
+      "title",
       "gemini-9.0-flash",
     );
     await expect(
       page
         .getByLabel(t("models.modelFor", { job: t("role.supervisor.name") }))
         .locator("option:checked"),
-    ).toContainText("gemini-9.0-flash");
+    ).toHaveAttribute("title", "gemini-9.0-flash");
     await page.getByRole("button", { name: t("models.save") }).click();
     await expect(
       page.getByText(t("models.savedWaiting", { count: 2 })),
@@ -273,20 +275,25 @@ for (const locale of ["en", "he"] as Locale[]) {
       .click();
     await expect(spending.getByText(t("spending.saved"))).toBeVisible();
 
-    // Quality check: the owner runs it from the page. It shows the estimate first (20 practice
-    // conversations at $0.30 / $2.50 per million tokens: eighteen tutor calls of 3000 input and 600
-    // output tokens, $0.0024 each, and two supervisor tool-loop conversations of three rounds each
-    // (two tool results, then the answer) whose input grows by 1000 tokens a round, 12000 input
-    // and 1800 output tokens, $0.0081 each), runs on the server against the synthetic model,
-    // passes, and the waiting model is turned on.
+    // Quality check: the owner runs it from the page. It shows the estimate first (its practice
+    // conversations with the tutor and the supervisor, plus the model judging each reply's facts,
+    // here Gemini 9 Flash judging its own; the server's estimate is covered by the API tests),
+    // runs on the server against the synthetic model, passes, and the waiting model is turned on.
     const check = page.locator("#ai-check");
     await expect(check).toContainText(t("check.notChecked", { count: 2 }));
-    await expect(check.locator("bdi[dir=ltr]").first()).toHaveText(
+    // Each waiting model by its name, with its id as the title.
+    await expect(check.locator("bdi[title]").first()).toHaveAttribute(
+      "title",
       "gemini-9.0-flash",
     );
+    const [costBefore, costAfter] = t("check.run.estimateJudgedSelf", {
+      amount: "\u0000",
+      model: "Gemini 9 Flash",
+    }).split("\u0000");
+    const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     await expect(
       check.getByText(
-        t("check.run.estimate", { count: 20, amount: x.money(0.0594) }),
+        new RegExp(`^${literal(costBefore!)}.+?${literal(costAfter!)}$`),
       ),
     ).toBeVisible();
     // Approving without a check is still there, folded away as the secondary choice.
@@ -332,7 +339,7 @@ for (const locale of ["en", "he"] as Locale[]) {
     // Advanced stays closed until asked for; it explains the internal names.
     const advanced = page.locator("#ai-advanced");
     await expect(advanced).not.toHaveAttribute("open", "");
-    await advanced.locator("summary").click();
+    await advanced.locator(":scope > summary").click();
     await expect(advanced.locator("pre")).toContainText("COURSE_PROVIDER_");
     await accessible(page);
 
@@ -434,10 +441,17 @@ for (const locale of ["en", "he"] as Locale[]) {
       models.getByText(t("models.why.reviewer"), { exact: false }),
     ).toBeVisible();
     await expect(models.getByText(t("models.why.media"))).toBeVisible();
-    for (const job of ["companion", "supervisor"])
-      await models
-        .getByLabel(t("models.modelFor", { job: t(`role.${job}.name`) }))
-        .selectOption({ label: "Gemini 3.8 Flash (gemini-3.8-flash)" });
+    // Options show the model's display name; its id is the option's title.
+    for (const job of ["companion", "supervisor"]) {
+      const select = models.getByLabel(
+        t("models.modelFor", { job: t(`role.${job}.name`) }),
+      );
+      await select.selectOption(
+        (await select
+          .locator('option[title="gemini-3.8-flash"]')
+          .getAttribute("value"))!,
+      );
+    }
     await models.screenshot({
       path: info.outputPath(`06-models-${locale}.png`),
     });

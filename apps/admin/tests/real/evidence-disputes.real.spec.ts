@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { closeWorkspaceNav, workspaceNav } from "../workspaceNav";
+import { closeWorkspaceNav, workspaceNav, openSection } from "../workspaceNav";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 async function signIn(page: Page, code: string) {
@@ -19,11 +19,7 @@ test("a reviewer resolves learners' evidence disputes without seeing their reaso
   ).json();
 
   await signIn(page, fixture.reviewerCode);
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Answer reviews" })
-    .click();
+  await openSection(page, "Answer reviews", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Disputed evidence" }),
   ).toBeVisible();

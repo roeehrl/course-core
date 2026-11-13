@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { workspaceNav, openFirstCourse, openSection } from "../workspaceNav";
 
 // Real API and PostgreSQL: the chapter and lesson editor with its server check and learner
 // preview, the confirmed forward publish, the platform and integrations pages, the audit export
@@ -21,12 +21,15 @@ async function signIn(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
 }
+/** Opens a page by its navigation label, on the workspace's level or the course's. */
 async function open(page: Page, view: string) {
-  await (await workspaceNav(page)).getByRole("button", { name: view }).click();
+  await openSection(page, view);
   await expect(
     page.getByRole("heading", { name: view, level: 1 }),
   ).toBeVisible();
@@ -193,9 +196,10 @@ test("an administrator sees platform readiness with the recovery targets, integr
   ).toBeVisible();
   await accessible(page);
 
+  // The workspace's audit log (a course's policy changes are on its Policy page).
   await open(page, "Audit log");
   await expect(
-    page.getByRole("heading", { name: "Policy changes" }),
+    page.getByRole("heading", { name: "Workspace activity" }),
   ).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download" }).click();
@@ -221,6 +225,8 @@ test("platform pages stay hidden from roles that cannot use them", async ({
 }) => {
   const fixture = await (await page.request.post("/test/admin-fixture")).json();
   await signIn(page, fixture.observerCode);
+  // The audit log and the platform pages are the workspace's.
+  await open(page, "Audit log");
   const nav = await workspaceNav(page);
   await expect(nav.getByRole("button", { name: "Audit log" })).toBeVisible();
   await expect(nav.getByRole("button", { name: "Platform" })).toHaveCount(0);

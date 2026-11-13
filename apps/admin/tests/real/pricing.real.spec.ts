@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 import { fieldIconOverlaps, fieldsWithIcons } from "../fieldIcons";
 
 async function accessible(page: Page) {
@@ -28,11 +28,7 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "AI services" })
-    .click();
+  await openSection(page, "AI services", { exact: false });
   const prices = page.locator("#ai-prices");
   const block = prices.locator(".ai-price", {
     hasText: "public-text-model",
@@ -108,11 +104,7 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await expect(prices.getByText("Prices saved.")).toBeVisible();
 
   await page.reload();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "AI services" })
-    .click();
+  await openSection(page, "AI services", { exact: false });
   await expect(
     block.getByLabel("Input, per 1M tokens", { exact: true }),
   ).toHaveValue("0.15");
@@ -142,11 +134,7 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await advanced.getByRole("button", { name: "Save rule" }).click();
   await expect(advanced.getByText("Rule saved.")).toBeVisible();
   await page.reload();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "AI services" })
-    .click();
+  await openSection(page, "AI services", { exact: false });
   await page.locator("#ai-advanced > summary").click();
   await expect(
     page.getByRole("checkbox", {
@@ -168,11 +156,7 @@ test("a price already scheduled for later: today's price still changes, and the 
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
   const openPrices = async () => {
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: "AI services" })
-      .click();
+    await openSection(page, "AI services", { exact: false });
     await expect(
       block.getByLabel("Input, per 1M tokens", { exact: true }),
     ).toBeVisible();
@@ -296,11 +280,7 @@ test(
     await page.goto("/admin/");
     await page.getByLabel("One-time sign-in code").fill(fixture.code);
     await page.getByRole("button", { name: "Use code", exact: true }).click();
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: "AI services" })
-      .click();
+    await openSection(page, "AI services", { exact: false });
     const prices = page.locator("#ai-prices");
     const block = prices.locator(".ai-price", {
       hasText: "public-text-model",
@@ -355,11 +335,7 @@ test("the $ sign sits before each price and spending limit, clear of the amount,
       "dir",
       locale === "he" ? "rtl" : "ltr",
     );
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: nav["nav.providers"], exact: true })
-      .click();
+    await openSection(page, nav["nav.providers"]!);
     await expect(page.locator("#ai-prices .ai-money").first()).toBeVisible();
     const fields = (await fieldsWithIcons(page.locator("main"))).filter(
       (field) => field.icons.some((icon) => icon.icon.includes(">$<")),

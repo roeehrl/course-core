@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 /**
  * AI services on the real API, in English and Hebrew, on Chromium and WebKit
@@ -38,20 +38,30 @@ async function shot(page: Page, name: string) {
   }
 }
 
-/** Where the chevron's tip points: the image of the icon's "right" under its transform. */
+/**
+ * Where the Advanced summary's chevron points. It is the summary's ::before: an inline-end and a
+ * block-end border (a corner whose tip is down and toward the inline end, so right in English and
+ * left in Hebrew) turned by its transform.
+ */
 const pointing = (page: Page) =>
-  page.locator(".ai-advanced .ai-chevron").evaluate(async (icon) => {
-    await Promise.all(icon.getAnimations().map((a) => a.finished));
-    const transform = getComputedStyle(icon).transform;
+  page.locator(".ai-advanced > summary").evaluate(async (summary) => {
+    await Promise.all(
+      summary.getAnimations({ subtree: true }).map((a) => a.finished),
+    );
+    const style = getComputedStyle(summary, "::before");
     const [a, b] =
-      transform === "none"
+      style.transform === "none"
         ? [1, 0]
-        : transform
+        : style.transform
             .match(/-?[\d.e-]+/g)!
             .map(Number)
             .slice(0, 2);
-    if (Math.abs(b!) > 0.5) return b! > 0 ? "down" : "up";
-    return a! > 0 ? "right" : "left";
+    const x = getComputedStyle(summary).direction === "rtl" ? -1 : 1;
+    // The tip (x, 1) under matrix(a, b, -b, a).
+    const dx = a! * x - b!,
+      dy = b! * x + a!;
+    if (Math.abs(dy) > Math.abs(dx)) return dy > 0 ? "down" : "up";
+    return dx > 0 ? "right" : "left";
   });
 
 for (const locale of ["en", "he"] as const)
@@ -66,11 +76,7 @@ for (const locale of ["en", "he"] as const)
     await page.goto(`/admin/?locale=${locale}`);
     await page.getByLabel(text.code).fill(fixture.code);
     await page.getByRole("button", { name: text.useCode, exact: true }).click();
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: text.aiServices })
-      .click();
+    await openSection(page, text.aiServices, { exact: false });
     const models = page.locator("#ai-models");
     await expect(models.locator("select").first()).toBeVisible();
     const wide = page.viewportSize()!.width >= 700;

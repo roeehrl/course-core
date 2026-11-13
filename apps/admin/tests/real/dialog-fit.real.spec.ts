@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { workspaceNav } from "../workspaceNav";
+import { openSection } from "../workspaceNav";
 
 /**
  * A dialog never runs off a small phone screen. On a Hebrew phone the scheduled-price dialog was
@@ -99,13 +99,9 @@ for (const locale of ["en", "he"] as const)
     await page.goto(`/admin/?locale=${locale}`);
     await page.getByLabel(text.code).fill(fixture.code);
     await page.getByRole("button", { name: text.useCode, exact: true }).click();
-    await (
-      await workspaceNav(page)
-    )
-      .getByRole("button", { name: text.aiServices })
-      .click();
+    await openSection(page, text.aiServices, { exact: false });
     const block = page
-      .locator("#ai-prices fieldset.ai-price", { hasText: "public-text-model" })
+      .locator("#ai-prices .ai-price", { hasText: "public-text-model" })
       .first();
     await expect(block.locator(".ai-price-scheduled")).toHaveCount(1);
     for (const size of SIZES) {

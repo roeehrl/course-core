@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openSection } from "../workspaceNav";
+import { openSection, openFirstCourse } from "../workspaceNav";
 
 interface Fixture {
   code: string;
@@ -17,6 +17,8 @@ async function signIn(page: Page, request: Page["request"]): Promise<Fixture> {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
@@ -55,7 +57,7 @@ test("course policy settings are previewed for feasibility before saving, at eve
   });
   await card.getByRole("button", { name: "Edit course settings" }).click();
   await expect(card.getByText("Documented defaults")).toBeVisible();
-  await card.getByLabel("Deadline time zone (IANA)").fill("America/New_York");
+  await card.getByLabel("Deadline time zone").fill("America/New_York");
   await card
     .getByLabel("Window daylight-saving resolution")
     .selectOption("reject");
@@ -261,7 +263,9 @@ test("approve learner-accepted terms, then revoke, refund and make an exceptiona
       /Grant revoked\. Its usage and history remain in the ledger/,
     ),
   ).toBeVisible();
-  await expect(page.getByText(/Revoked .*; usage kept/)).toBeVisible();
+  await expect(
+    page.getByText(/Revoked .*; what was used stays used/),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Refund allowance" }).click();
   const refund = page.getByRole("dialog", { name: "Refund allowance" });
@@ -273,7 +277,7 @@ test("approve learner-accepted terms, then revoke, refund and make an exceptiona
   await refund.getByRole("button", { name: "Apply: refund allowance" }).click();
   await expect(page.getByText(/Allowance refunded to the pool/)).toBeVisible();
   await expect(
-    page.getByText("2 units returned to course:calendar"),
+    page.getByText("2 calendar days returned to the allowance"),
   ).toBeVisible();
 
   await page
@@ -496,9 +500,11 @@ test("a graded-attempt limit refuses the next check until an administrator allow
   const attempts = page.getByRole("region", {
     name: "Graded attempts per check",
   });
-  await expect(attempts.getByRole("row").nth(1)).toContainText(
-    "1 of 1No attempts left",
-  );
+  // Used, limit and state are columns of their own.
+  const minimum = attempts.getByRole("row").nth(1).getByRole("cell");
+  await expect(minimum.nth(0)).toHaveText("1");
+  await expect(minimum.nth(1)).toHaveText("1");
+  await expect(minimum.nth(2)).toHaveText("No attempts left");
   await accessible(page);
   await attempts
     .getByRole("button", { name: "Allow one more attempt" })
@@ -508,9 +514,9 @@ test("a graded-attempt limit refuses the next check until an administrator allow
   await expect(
     page.getByText("One more attempt allowed. The learner can start it now."),
   ).toBeVisible();
-  await expect(attempts.getByRole("row").nth(1)).toContainText(
-    "1 of 2 1 allowed by staffAvailable",
-  );
+  await expect(minimum.nth(0)).toHaveText("1");
+  await expect(minimum.nth(1)).toHaveText("2 1 allowed by staff");
+  await expect(minimum.nth(2)).toHaveText("Available");
   await accessible(page);
   expect((await command("challenges", check)).ok()).toBeTruthy();
   await learner.close();

@@ -1,19 +1,17 @@
 import { test, expect, type Page, type Request } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { workspaceNav } from "../workspaceNav";
+import { openFirstCourse, openSection } from "../workspaceNav";
 
 async function signIn(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
+  // A first visit opens on the Courses home; these tests start in the course.
+  await openFirstCourse(page);
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await (
-    await workspaceNav(page)
-  )
-    .getByRole("button", { name: "Enrollments" })
-    .click();
+  await openSection(page, "Enrollments", { exact: false });
   await expect(
     page.getByRole("heading", { name: "Enrollments", level: 1 }),
   ).toBeVisible();
