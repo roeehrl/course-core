@@ -187,7 +187,9 @@
   visibility: hidden;
 }
 /* A 16 px spinner in the button's text colour: it stops after 15 s (16 turns of 900 ms; no loop
- * runs longer unattended, §1.5) and is still with reduced motion. */
+ * runs longer unattended, §1.5) and is still with reduced motion. It turns only while the answer
+ * is being checked: the hidden spinner is in the button from the start, and turns spent while it
+ * was hidden would leave none for the check itself. */
 .cc-check-spinner {
   box-sizing: border-box;
   inline-size: 16px;
@@ -195,6 +197,8 @@
   border: 2px solid currentColor;
   border-inline-end-color: transparent;
   border-radius: 50%;
+}
+.cc-check-submit.is-checking .cc-check-spinner {
   animation: cc-check-spin 900ms linear 16;
 }
 @keyframes cc-check-spin {
@@ -506,7 +510,8 @@
   .cc-check-explanation-panel {
     animation: none;
   }
-  .cc-check-spinner {
+  .cc-check-spinner,
+  .cc-check-submit.is-checking .cc-check-spinner {
     animation: none;
     border-inline-end-color: currentColor;
     opacity: 0.6;

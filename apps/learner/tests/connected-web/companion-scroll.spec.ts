@@ -66,8 +66,13 @@ for (const locale of ["en", "he"] as const) {
     const before = await lessonPlace(page);
     const header = page.locator(".connected-header");
     const headerTop = (await header.boundingBox())!.y;
-    // The anchor's scroll (M3, 240 ms) has settled.
-    await page.waitForTimeout(400);
+    // The anchor's scroll (M3, 240 ms) has come to rest: two reads 200 ms apart agree. (A fixed
+    // wait read it mid-scroll when a slow runner drew the motion late.)
+    await expect.poll(async () => {
+      const first = await log.evaluate((el) => Math.round(el.scrollTop));
+      await page.waitForTimeout(200);
+      return first === (await log.evaluate((el) => Math.round(el.scrollTop)));
+    }).toBe(true);
     const anchored = await log.evaluate((el) => Math.round(el.scrollTop));
     const pieces = Array.from({ length: 16 }, (_, i) => `Step ${i + 1}: compare the two values on the number line and keep the smaller one. `);
     expect((await (await page.request.post("/test/companion-draft", { data: { question, pieces, gapMs: 120, end: "complete" } })).json()).opened).toBe(true);

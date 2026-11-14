@@ -5,6 +5,9 @@ import { openSection, openFirstCourse } from "../workspaceNav";
 
 // Real server and database. No provider is contacted: saving a configuration never calls a model.
 async function accessible(page: Page) {
+  // Checked from the top of the page: a control scrolled under the sticky section link bar
+  // would otherwise count as a target overlapping that bar's links (axe target-size).
+  await page.evaluate(() => window.scrollTo(0, 0));
   expect(
     (
       await new AxeBuilder({ page })

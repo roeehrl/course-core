@@ -156,6 +156,11 @@ async function extendByOne(page: Page) {
 test("keyboard: the shortcut is named once, Tab reaches the button and Enter attaches", async ({ page }) => {
   await openLesson(page);
   const ask = page.getByRole("button", { name: enAsk.label, exact: true });
+  // The learner clicked in the lesson text before taking the keyboard. (Safari's engine clears
+  // the page's selection when focus moves out of it after a press on text, but not after a
+  // press on a button such as the one that opened the lesson: without this the outcome would
+  // depend on which control was pressed last.)
+  await page.locator(".connected-lesson-keeper:not([hidden]) .connected-lesson").getByText(/any other member/).first().click();
   // A selection extended with the keyboard: Shift+→ from a caret in the lesson text, one
   // character at a time, as caret browsing does it.
   await page.evaluate(() => {
@@ -174,10 +179,14 @@ test("keyboard: the shortcut is named once, Tab reaches the button and Enter att
   await expect(status).toHaveAttribute("role", "status");
   await page.keyboard.press("Tab");
   await expect(ask).toBeFocused();
-  // Esc hides it and gives focus back to where it came from, not to the top of the page.
+  // The text it stands for stays selected while the button has focus.
+  expect(await page.evaluate(() => document.getSelection()!.toString())).toBe("any other");
+  // Esc hides it and gives focus back to where it came from, not to the top of the page, with
+  // the selection still there to extend.
   await page.keyboard.press("Escape");
   await expect(ask).toHaveCount(0);
-  expect(await page.evaluate(() => !!document.activeElement?.closest(".connected-lesson"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest(".connected-lesson"))).toBe(true);
+  expect(await page.evaluate(() => document.getSelection()!.toString())).toBe("any other");
   for (let i = 0; i < 2; i++) await extendByOne(page);
   await expect(ask).toBeVisible();
   await page.keyboard.press("Tab");

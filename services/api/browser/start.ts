@@ -1359,11 +1359,21 @@ app.post("/test/companion-job", async (request) => {
         [randomUUID(), jobId, row.enrollment_id, row.workspace_id, `${jobId}:generate`, randomUUID(), createHash("sha256").update(JSON.stringify(refusal)).digest("hex"), JSON.stringify(refusal)]);
     }
     await client.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
-    if (state === "applied")
+    if (state === "applied") {
+      const replyId = randomUUID();
       await client.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
-        [randomUUID(), row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null,
+        [replyId, row.enrollment_id, String(body.answer ?? "A stored reply."), JSON.stringify({ episodeId: (row.context as { episodeId?: string }).episodeId ?? null,
           // As a real reply is stored (supervisor-bridge.ts): written only when the reply asks the learner something.
           ...(replyAsksLearner(String(body.answer ?? "A stored reply.")) ? { asksLearner: true } : {}) }), jobId]);
+      // The event the real bridge records with an applied reply, which tells the learner's event
+      // stream at commit; without it the app finds the reply only at a fallback read seconds later.
+      await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorKind: "system", type: "supervisor.applied",
+        payload: { jobId, receiptId: randomUUID(), targetId: replyId, kind: "companion_message" }, idempotencyKey: `supervisor:apply:${jobId}`, supervise: false });
+    }
+    // A reply that will not come tells the event stream too (supervisor-bridge.ts, companion.job.changed).
+    if (state === "stalled_part_way")
+      await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorKind: "system", type: "companion.job.changed",
+        payload: { jobId, state: "failed", reason: "verification_rejected" }, idempotencyKey: `companion-job-changed:${jobId}:1`, supervise: false });
   });
   return { updated: true, jobId };
 });

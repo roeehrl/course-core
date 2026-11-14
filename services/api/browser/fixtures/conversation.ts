@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { transaction } from "../../src/database.js";
+import { appendEvent } from "../../src/events.js";
 import type { FixtureContext } from "./index.js";
 
 /**
@@ -42,6 +43,9 @@ export async function register({ app, db, replyDrafts }: FixtureContext): Promis
       await client.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [row.id, jobId]);
       await client.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)",
         [id, row.enrollment_id, body.content, JSON.stringify(context), jobId]);
+      // As the real bridge records an applied reply: the learner's event stream hears it at commit.
+      await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorKind: "system", type: "supervisor.applied",
+        payload: { jobId, receiptId: randomUUID(), targetId: id, kind: "companion_message" }, idempotencyKey: `supervisor:apply:${jobId}`, supervise: false });
     });
     return { answered: true, messageId: id, jobId };
   });

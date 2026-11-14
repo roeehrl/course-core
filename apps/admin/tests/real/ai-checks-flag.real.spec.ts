@@ -7,6 +7,9 @@ import { openSection } from "../workspaceNav";
 // "Run check" for that job only, and it keeps working. The check runs against the synthetic
 // Gemini model of scripts/real-server.ts; no provider is contacted.
 async function accessible(page: Page) {
+  // Checked from the top of the page: a control scrolled under the sticky section link bar
+  // would otherwise count as a target overlapping that bar's links (axe target-size).
+  await page.evaluate(() => window.scrollTo(0, 0));
   expect(
     (
       await new AxeBuilder({ page })

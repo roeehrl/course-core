@@ -10,6 +10,7 @@ import {
   attachCandidate,
   focusAfterAsk,
   focusSelectionEnd,
+  keepSelection,
   tabbableNeighbour,
   type AskCandidate,
 } from "./selectionAttach";
@@ -137,6 +138,8 @@ function AskFromSelection({ enabled, episodeId }: { enabled: boolean; episodeId?
       onPress={(event) => attach(candidate, focusAfterAsk(event, coarse))}
       onFocus={(event) => {
         focusedFrom.current = { candidate, element: event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null };
+        // The selection stays drawn while the button stands for it.
+        keepSelection(candidate);
       }}
       onBlur={() => {
         focusedFrom.current = null;
