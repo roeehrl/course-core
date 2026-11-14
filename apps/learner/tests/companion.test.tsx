@@ -443,6 +443,35 @@ describe("streamed companion replies (T01)", () => {
     expect(within(screen.getByRole("log")).queryByText("Why does it change?")).toBeNull();
   });
 
+  it("a question cancelled before it was sent is never said to be replied to, while the conversation still reads it as waiting", async () => {
+    vi.useFakeTimers();
+    let confirm: () => void = () => {};
+    const cancel = vi.fn(() => new Promise<void>((resolve) => { confirm = resolve; }));
+    const queued: CompanionMessage = { ...message, job_state: "queued", job_sent: false };
+    const { again } = show({ messages: [queued], onCancelQuestion: cancel });
+    fireEvent.click(screen.getByRole("button", { name: "Stop reply" }));
+    expect(cancel).toHaveBeenCalledWith("m");
+    // The cancel is confirmed before the first second of the question is up; the conversation is
+    // not read again yet, so its saved row still says queued.
+    await act(async () => confirm());
+    expect(status()).toHaveTextContent("Question cancelled. Your text is back in the box.");
+    expect(screen.getByRole("textbox", { name: "Message to your companion" })).toHaveValue("Why does it change?");
+    expect(within(screen.getByRole("log")).queryByText("Why does it change?")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
+    // Time passes, and a late read (or event) still brings the question as queued.
+    act(() => void vi.advanceTimersByTime(9000));
+    again({ messages: [{ ...queued }], onCancelQuestion: cancel });
+    act(() => void vi.advanceTimersByTime(9000));
+    expect(status()).toHaveTextContent("Question cancelled. Your text is back in the box.");
+    expect(status()).not.toHaveTextContent("Companion is replying");
+    expect(within(screen.getByRole("log")).queryByText("Why does it change?")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
+    // Read back as cancelled, it stays out of the thread.
+    again({ messages: [{ ...queued, job_state: "cancelled" }], onCancelQuestion: cancel });
+    expect(within(screen.getByRole("log")).queryByText("Why does it change?")).toBeNull();
+    expect(status()).toHaveTextContent("Question cancelled. Your text is back in the box.");
+  });
+
   it("switches to Stop as soon as the reply's call is sent, even while the saved job still reads queued", () => {
     const queued = { ...message, job_state: "queued" };
     expect(companionJobLabel(queued)).toBeUndefined();
