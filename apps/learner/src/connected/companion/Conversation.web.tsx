@@ -287,8 +287,14 @@ function ConversationBody({
   // The reply view of every question, and the one whose reply is on its way.
   // A question the learner cancelled here before its call was sent was never asked: it leaves the
   // thread (its text went back to the box). One cancelled earlier stays, as the learner's own text.
-  const shown = messages.filter((message) =>
-    !(message.role === "learner" && cancelledHere.current.has(message.id) && cancelledBeforeSent(message, companionDraftFor(message, messages, drafts))));
+  // The server confirmed the cancel before the conversation is read again (the event that reads it
+  // comes later): until then the saved row still reads as waiting, and it leaves the thread too, so
+  // it is never shown, held as running, or announced as being replied to after its cancel.
+  const shown = messages.filter((message) => {
+    if (message.role !== "learner" || !cancelledHere.current.has(message.id)) return true;
+    const replyDraft = companionDraftFor(message, messages, drafts);
+    return !(cancelledBeforeSent(message, replyDraft) || (!message.job_sent && !replyDraft && companionHasPending([message])));
+  });
   const views = new Map<string, { view: ReplyView; draft?: CompanionDraft; clock: ReplyClock }>();
   const newestQuestion = shown.findLast((message) => message.role === "learner" && !deleted(message))?.id;
   let running: CompanionMessage | undefined;
@@ -300,7 +306,7 @@ function ConversationBody({
     views.set(message.id, { view, ...(replyDraft ? { draft: replyDraft } : {}), clock });
     // Only the newest question holds the round button: an older one still waiting (a reply that
     // never came) shows its own row and never locks the composer.
-    if (message.id === newestQuestion && replyInProgress(message, view, stops[message.id])) running = message;
+    if (message.id === newestQuestion && !cancelledHere.current.has(message.id) && replyInProgress(message, view, stops[message.id])) running = message;
   }
   // A question being sent, or accepted and not yet read back with the conversation.
   const sending = locals.find((item) =>
@@ -328,6 +334,9 @@ function ConversationBody({
   const known = useRef<Set<string> | null>(null);
   useEffect(() => {
     for (const [id, { view, clock }] of views) {
+      // A question the learner cancelled here is not being replied to: whatever is read after the
+      // cancel, its "Question cancelled" stays the last thing said about it.
+      if (cancelledHere.current.has(id) && (view.kind === "preparing" || view.kind === "streaming" || view.kind === "checking")) continue;
       const kind =
         view.kind === "preparing" ? (view.slow ? "slow" : now - clock.since >= REPLY_MS.announce ? "replying" : "")
         : view.kind === "streaming" ? (view.line === "stalled" ? "stalled" : view.line === "offline" ? "offline" : "")
@@ -559,6 +568,9 @@ function ConversationBody({
       if (beforeSent) {
         cancelledHere.current.add(messageId);
         setStops(({ [messageId]: _, ...rest }) => rest);
+        // Its bubble of this page goes too (a send whose answer came before the conversation was
+        // read again would otherwise show it as still being prepared).
+        setLocals((list) => list.filter((item) => item.messageId !== messageId && keyByMessage.get(messageId) !== item.key));
         putBack(text);
         announce(replyAnnouncement("cancelled", t));
       } else setStops((all) => ({ ...all, [messageId]: { state: "stopped", partial } }));
