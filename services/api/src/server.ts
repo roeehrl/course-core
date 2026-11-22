@@ -61,7 +61,7 @@ import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from '.
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, releaseCheckRunner, selectCatalogueReleaseWithin, warmReleaseVisuals, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
-import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
+import { registerPlatformOperationRoutes, type Deployment, type PlatformOptions } from './platform-operations.js';
 import { registerHostInventoryRoutes } from './host-inventory.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerAssessmentPolicyRoutes } from './assessment-policy-routes.js';
@@ -130,7 +130,7 @@ const registeredRouteLists = new WeakMap<FastifyInstance, RegisteredRoute[]>();
 export const registeredRoutes = (app: FastifyInstance): readonly RegisteredRoute[] => registeredRouteLists.get(app) ?? [];
 /** The admin app's workspace pages, by their address (apps/admin/src/routing.ts). */
 const ADMIN_WORKSPACE_PAGES = ['courses', 'people', 'ai-services', 'ai-supervision', 'organization-limits', 'concept-mappings', 'audit', 'platform', 'integrations'] as const;
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders;
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; deployment?: Deployment; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders;
   /** The host provider file's configuration (PROVIDER_CONFIG_FILE) that `providers` was composed from: its roles are reported by the eval gate. */
   providerConfiguration?: unknown; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
@@ -456,7 +456,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminRoutes(app, db, auth, adminRuntime);
   registerHostInventoryRoutes(app, db, auth, options.installedExtensions ?? []);
   registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
-    supervisorConfigured: Boolean(options.supervisor), adaptationAdapters: adaptation.adapters, migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
+    supervisorConfigured: Boolean(options.supervisor), deployment: options.deployment ?? 'local', adaptationAdapters: adaptation.adapters, migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
   const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions, courseSupplied };
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };

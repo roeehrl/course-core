@@ -33,6 +33,8 @@ const backupRun = z
   .nullable();
 export const readinessSchema = z.object({
   generatedAt: z.string(),
+  /** How the server runs Core, so its advice names the right tools (newer servers; older ones are the native pilot). */
+  deployment: z.enum(["compose", "local"]).optional(),
   overall: status,
   checks: z.tuple([
     z.object({

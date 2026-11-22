@@ -33,6 +33,7 @@ import { clipToolchainFromEnvironment } from './clip-export.js';
 import { mediaInspectionFromEnvironment } from './media-pixels.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
 import { pythonRunnerFromEnvironment } from './python-runner.js';
+import { deploymentFromEnvironment } from './platform-operations.js';
 
 import { ConfigurationError, failureCode, Startup, StartupError, StepFailure, sandboxStartupTimeout, untilReady } from './startup.js';
 
@@ -175,6 +176,7 @@ try {
   // Exact clips and compositions need an rsvg-convert compatible rasterizer and ffmpeg (clip-export.ts).
   const clipToolchain = clipToolchainFromEnvironment(process.env), mediaInspection = mediaInspectionFromEnvironment(process.env);
   const app = await startup.step('server_setup', () => createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, allowInsecureOrigins, loginCodes, trustedProxies,
+    deployment: deploymentFromEnvironment(process.env.COURSE_DEPLOYMENT),
     ...(sessionHours !== undefined ? { sessionHours } : {}),
     adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
     ...(process.env.CORE_INSTANCE_ID ? { instanceId: process.env.CORE_INSTANCE_ID } : {}),

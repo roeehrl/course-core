@@ -76,6 +76,8 @@ services:
       ALLOW_INSECURE_ORIGINS: ${COURSE_ALLOW_INSECURE_ORIGINS:-false}
       API_HOST: 0.0.0.0
       PORT: '4310'
+      # Tells administration to give Compose advice (core.sh backup and restore-drill).
+      COURSE_DEPLOYMENT: compose
       # Only the proxy's fixed address may name the client in X-Forwarded-For.
       TRUSTED_PROXIES: ${COURSE_PROXY_ADDRESS:-172.30.89.10}
       AUTH_LOGIN_CODES: ${AUTH_LOGIN_CODES:-disabled}
