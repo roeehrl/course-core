@@ -343,8 +343,15 @@ describe("platform readiness (Q11, T03)", () => {
         deployment: "compose" as const,
         targets: {
           ...base.targets,
-          rto: { ...base.targets.rto, drillAgeDays: 16, status: "warning" as const },
-          encryption: { latestEncrypted: false, status: "not_configured" as const },
+          rto: {
+            ...base.targets.rto,
+            drillAgeDays: 16,
+            status: "warning" as const,
+          },
+          encryption: {
+            latestEncrypted: false,
+            status: "not_configured" as const,
+          },
         },
       })),
     });
@@ -354,10 +361,16 @@ describe("platform readiness (Q11, T03)", () => {
         client={{ platform } as unknown as AdminClient}
       />,
     );
-    expect(await screen.findByText(/deploy\/docker\/core\.sh backup/)).toBeVisible();
-    expect(screen.getByText(/deploy\/docker\/core\.sh restore-drill/)).toBeVisible();
+    expect(
+      await screen.findByText(/deploy\/docker\/core\.sh backup/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/deploy\/docker\/core\.sh restore-drill/),
+    ).toBeVisible();
     expect(screen.getByText(/Compose backups are not encrypted/)).toBeVisible();
-    expect(screen.queryByText(/config\.json|backup\.mjs|pilot guide/)).toBeNull();
+    expect(
+      screen.queryByText(/config\.json|backup\.mjs|pilot guide/),
+    ).toBeNull();
   });
 
   it("explains how to meet a missed RPO, and refuses other roles", async () => {

@@ -190,7 +190,9 @@ function Targets({ report }: { report: Readiness }) {
         )}
       </dl>
       {encryption?.latestEncrypted === false && (
-        <p className="info-note">{t(`platformView.targets.encryptionHelp${help}`)}</p>
+        <p className="info-note">
+          {t(`platformView.targets.encryptionHelp${help}`)}
+        </p>
       )}
       {rpo.status !== "ok" && (
         <Notice tone={rpo.status === "failing" ? "red" : "gold"}>
@@ -199,7 +201,9 @@ function Targets({ report }: { report: Readiness }) {
       )}
       {rto.status !== "ok" && (
         <Notice tone={rto.status === "failing" ? "red" : "gold"}>
-          {t(`platformView.targets.rtoHelp${help}`, { days: rto.drillMaxAgeDays })}
+          {t(`platformView.targets.rtoHelp${help}`, {
+            days: rto.drillMaxAgeDays,
+          })}
         </Notice>
       )}
     </Card>
