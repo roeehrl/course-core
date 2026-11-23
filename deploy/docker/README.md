@@ -171,8 +171,18 @@ deploy/docker/core.sh restore-drill   # restore the newest backup into a scratch
 snapshot, the Temporal store (SQLite's online backup), the sealed provider vault and `.env`, with
 a manifest of digests and row counts in the pilot's format. Each backup and drill is recorded for
 the readiness page in administration. **A backup holds learner records and every secret**: keep it
-on private, encrypted storage, never in a repository. Run `backup` daily (for example from cron:
-`0 3 * * * cd /path/to/course-core && deploy/docker/core.sh backup`) and `restore-drill` weekly.
+on private, encrypted storage, never in a repository. Run `backup` daily and `restore-drill`
+weekly, for example from cron:
+
+```
+0 3 * * *   cd /path/to/course-core && deploy/docker/core.sh backup
+30 3 * * 0  cd /path/to/course-core && deploy/docker/core.sh restore-drill
+```
+
+On a Mac that sleeps, a launchd agent with `StartCalendarInterval` does the same and runs a job it
+missed when the Mac wakes. The Platform page checks these against the Compose targets: a backup at
+most 24 hours old (an hour later still counts; past 48 hours is failing), and a drill at most 7
+days old that restored within 60 minutes.
 To replace the live data with a backup: `core.sh restore --backup <dir> --yes`.
 
 Every service restarts after a crash (`restart: unless-stopped`), and the API waits for a healthy

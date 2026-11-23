@@ -6,7 +6,7 @@ import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { auditCsv } from "../src/workspace-audit.js";
-import { policyChanges, RECOVERY_TARGETS } from "../src/platform-operations.js";
+import { backupStatus, policyChanges, RECOVERY_TARGETS } from "../src/platform-operations.js";
 import { previewAsLearners } from "../src/release-editing.js";
 import { fixture } from "./fixture.js";
 
@@ -298,6 +298,13 @@ describe("platform readiness and integrations (Q11, Q12, T03)", () => {
     await report("restore_drill", "failed", 1, 30, "restored_row_counts_differ");
     expect((await call(owner, "GET", url)).json().targets.rto.status).toBe("failing");
     expect(RECOVERY_TARGETS).toMatchObject({ rpoMinutes: 60, rtoMinutes: 60 });
+    // Compose hosts back up daily (core.sh backup): the newest copy, now 2 minutes old, is still on
+    // target a day and half an hour later there (a daily job may finish a little late), not on the pilot.
+    const hoursLater = (hours: number) => new Date(Date.now() + hours * 3_600_000);
+    expect((await backupStatus(db, hoursLater(24.5), "compose")).rpo).toMatchObject({ targetMinutes: 1440, status: "ok" });
+    expect((await backupStatus(db, hoursLater(24.5), "local")).rpo).toMatchObject({ targetMinutes: 60, status: "failing" });
+    expect((await backupStatus(db, hoursLater(30), "compose")).rpo.status).toBe("warning");
+    expect((await backupStatus(db, hoursLater(49), "compose")).rpo.status).toBe("failing");
     expect(JSON.stringify(body)).not.toMatch(/\/Users\/|postgres:\/\//);
     for (const who of [author, instructor, support, learner]) expect((await call(who, "GET", url)).statusCode).toBe(403);
   });

@@ -6,6 +6,7 @@ import {
   type NotificationsPort,
   type StaffNotification,
 } from "../domain/notifications";
+import { spanOfMinutes } from "../domain/platform";
 import { useFormatters, useI18n, type MessageKey } from "../i18n";
 import { Button, focusInPlace } from "./ui";
 
@@ -306,8 +307,8 @@ export function useNotificationText(
       return {
         title: t("notifications.kind.backups_overdue.title"),
         body: t("notifications.kind.backups_overdue.body", {
-          minutes: num(p.minutes),
-          target: num(p.targetMinutes),
+          age: spanOfMinutes(num(p.minutes), t),
+          target: spanOfMinutes(num(p.targetMinutes), t),
         }),
       };
     default:

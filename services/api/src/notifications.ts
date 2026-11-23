@@ -33,7 +33,7 @@ import { resolveRole, roleCan, workspaceRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
 import { requireCondition } from './errors.js';
 import { approvalQueue } from './course-overview.js';
-import { backupStatus } from './platform-operations.js';
+import { backupStatus, type Deployment } from './platform-operations.js';
 import { uncheckedRoles } from './agent-evals/gate.js';
 import { providerConfigurationSchema } from './provider-composition.js';
 import type { WorkspaceProviders } from './provider-setup.js';
@@ -97,7 +97,8 @@ export async function notifyUser(client: PoolClient | Database, input: { workspa
 }
 
 interface Condition { kind: (typeof STAFF_NOTIFICATION_KINDS)[number]; subject: string; params: Params; link: string; fingerprint: string; rank: number }
-export interface StaffSources { providers?: WorkspaceProviders | undefined }
+/** deployment: how the server runs Core, which sets the backup target (platform-operations.ts). */
+export interface StaffSources { providers?: WorkspaceProviders | undefined; deployment?: Deployment | undefined }
 
 /** Who is told that AI help is paused: the roles that can change the spending limits. */
 const canChangeLimits = (role: string) => roleCan(role, 'supervision.settings');
@@ -219,7 +220,7 @@ export async function staffConditions(client: Sql, workspaceId: string, role: st
   }
   if (role === 'owner' || role === 'admin') {
     // Only an overdue backup is a problem; whether it was encrypted is not (owner decision 9).
-    const { rpo } = await backupStatus(client, now);
+    const { rpo } = await backupStatus(client, now, sources.deployment ?? 'local');
     if (rpo.status === 'warning' || rpo.status === 'failing')
       conditions.push({ kind: 'backups_overdue', subject: 'workspace', params: { minutes: rpo.currentMinutes, targetMinutes: rpo.targetMinutes, severe: rpo.status === 'failing' },
         link: '/platform', fingerprint: rpo.status, rank: rpo.status === 'failing' ? 2 : 1 });

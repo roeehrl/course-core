@@ -25,15 +25,23 @@ type Auth = ReturnType<typeof authService>;
  * host path, endpoint, credential, key ending or learner content.
  */
 
-/** Recovery targets of the self-host pilot (deploy/local/README.md). */
+/** Recovery targets of the native self-host pilot, which snapshots hourly (deploy/local/README.md). */
 export const RECOVERY_TARGETS = Object.freeze({
   /** Data loss on restore: time since the newest verified snapshot or backup. */
   rpoMinutes: 60,
+  /** How late the newest copy may be past rpoMinutes and still count as on target. */
+  rpoGraceMinutes: 0,
   /** Restore on the same host, measured by the restore drill. */
   rtoMinutes: 60,
   /** A drill older than this no longer shows the backups restore. */
   drillMaxAgeDays: 7,
 });
+/**
+ * Compose hosts back up once a day with `core.sh backup` (deploy/docker/README.md). The grace
+ * keeps a daily job that finishes a few minutes later than yesterday's from reading as overdue.
+ */
+export const COMPOSE_RECOVERY_TARGETS = Object.freeze({ ...RECOVERY_TARGETS, rpoMinutes: 24 * 60, rpoGraceMinutes: 60 });
+export const recoveryTargets = (deployment: Deployment = 'local') => (deployment === 'compose' ? COMPOSE_RECOVERY_TARGETS : RECOVERY_TARGETS);
 /** The supervisor worker and dispatcher reach the API every few seconds while they run. */
 const BRIDGE_QUIET_WARNING_SECONDS = 120, BRIDGE_QUIET_FAILING_SECONDS = 600;
 /** A code answer the sandbox was too slow to start (not run, not counted) marks it for this long. */
@@ -103,7 +111,8 @@ function runtimeVersions() {
 
 interface BackupRow { kind: 'snapshot' | 'backup' | 'restore_drill'; outcome: 'succeeded' | 'failed'; code: string | null; started_at: Date; finished_at: Date;
   encrypted: boolean; core_version: string | null; tables: number | null; rows: string | null; bytes: string | null }
-export async function backupStatus(client: Sql, now: Date) {
+export async function backupStatus(client: Sql, now: Date, deployment: Deployment = 'local') {
+  const targets = recoveryTargets(deployment);
   const latest = async (kind: BackupRow['kind'], outcome?: BackupRow['outcome']) => (await client.query<BackupRow>(
     `SELECT kind,outcome,code,started_at,finished_at,encrypted,core_version,tables,rows::text,bytes::text FROM platform_backup_reports
       WHERE kind=$1 AND ($2::text IS NULL OR outcome=$2) ORDER BY finished_at DESC LIMIT 1`, [kind, outcome ?? null])).rows[0] ?? null;
@@ -114,11 +123,12 @@ export async function backupStatus(client: Sql, now: Date) {
   const lastAttempts = [await latest('snapshot'), await latest('backup')].filter((r): r is BackupRow => Boolean(r));
   const newest = [snapshot, backup].filter((r): r is BackupRow => Boolean(r)).sort((a, b) => b.finished_at.getTime() - a.finished_at.getTime())[0] ?? null;
   const rpoMinutes = minutesSince(newest?.finished_at ?? null, now);
-  const rpoStatus: CheckStatus = rpoMinutes === null ? 'no_data' : rpoMinutes <= RECOVERY_TARGETS.rpoMinutes ? 'ok' : rpoMinutes <= 2 * RECOVERY_TARGETS.rpoMinutes ? 'warning' : 'failing';
+  const rpoStatus: CheckStatus = rpoMinutes === null ? 'no_data' : rpoMinutes <= targets.rpoMinutes + targets.rpoGraceMinutes ? 'ok'
+    : rpoMinutes <= 2 * targets.rpoMinutes ? 'warning' : 'failing';
   const drillMinutes = drill?.outcome === 'succeeded' ? Math.ceil((drill.finished_at.getTime() - drill.started_at.getTime()) / 60_000) : null;
   const drillAgeDays = drill ? Math.floor((now.getTime() - drill.finished_at.getTime()) / 86_400_000) : null;
-  const rtoStatus: CheckStatus = !drill ? 'no_data' : drill.outcome === 'failed' || drillMinutes! > RECOVERY_TARGETS.rtoMinutes ? 'failing'
-    : drillAgeDays! > RECOVERY_TARGETS.drillMaxAgeDays ? 'warning' : 'ok';
+  const rtoStatus: CheckStatus = !drill ? 'no_data' : drill.outcome === 'failed' || drillMinutes! > targets.rtoMinutes ? 'failing'
+    : drillAgeDays! > targets.drillMaxAgeDays ? 'warning' : 'ok';
   // Whether the newest copy was encrypted (age, deploy/local/README.md). Encryption is optional
   // (owner decision 9): an unencrypted copy is reported as not set up, never as a warning.
   const encryption = { latestEncrypted: newest ? newest.encrypted : null,
@@ -126,9 +136,9 @@ export async function backupStatus(client: Sql, now: Date) {
   const lastFailure = lastAttempts.find(r => r.outcome === 'failed' && (!newest || r.finished_at > newest.finished_at)) ?? null;
   return {
     lastSnapshot: view(snapshot), lastBackup: view(backup), lastRestoreDrill: view(drill), lastFailure: view(lastFailure),
-    rpo: { targetMinutes: RECOVERY_TARGETS.rpoMinutes, currentMinutes: rpoMinutes, status: rpoStatus },
+    rpo: { targetMinutes: targets.rpoMinutes, currentMinutes: rpoMinutes, status: rpoStatus },
     // lastDrillSeconds: the same drill's exact length (the minutes are rounded up for the target).
-    rto: { targetMinutes: RECOVERY_TARGETS.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: RECOVERY_TARGETS.drillMaxAgeDays, status: rtoStatus,
+    rto: { targetMinutes: targets.rtoMinutes, lastDrillMinutes: drillMinutes, drillAgeDays, drillMaxAgeDays: targets.drillMaxAgeDays, status: rtoStatus,
       lastDrillSeconds: drill?.outcome === 'succeeded' ? Math.round((drill.finished_at.getTime() - drill.started_at.getTime()) / 1000) : null },
     encryption,
   };
@@ -187,7 +197,7 @@ export async function platformReadiness(db: Database, options: PlatformOptions, 
     facts: { coreVersion: core, sdkVersion: sdk, nodeVersion: process.versions.node, nodeSupported: nodeMajor === 26, postgresMajor, postgresSupported: postgresMajor >= 17,
       courseSchemaVersion: 1, installedExtensions: options.installedExtensions.length } };
 
-  const backups = await backupStatus(db, now);
+  const backups = await backupStatus(db, now, options.deployment ?? 'local');
   const backupCheck = { id: 'backups' as const, status: worst([backups.rpo.status, backups.rto.status, backups.encryption.status, backups.lastFailure ? 'warning' : 'ok']),
     facts: { lastSnapshot: backups.lastSnapshot, lastBackup: backups.lastBackup, lastRestoreDrill: backups.lastRestoreDrill, lastFailure: backups.lastFailure } };
 
