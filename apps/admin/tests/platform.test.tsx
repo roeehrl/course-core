@@ -343,6 +343,11 @@ describe("platform readiness (Q11, T03)", () => {
         deployment: "compose" as const,
         targets: {
           ...base.targets,
+          rpo: {
+            targetMinutes: 1440,
+            currentMinutes: 3000,
+            status: "failing" as const,
+          },
           rto: {
             ...base.targets.rto,
             drillAgeDays: 16,
@@ -368,6 +373,12 @@ describe("platform readiness (Q11, T03)", () => {
       screen.getByText(/deploy\/docker\/core\.sh restore-drill/),
     ).toBeVisible();
     expect(screen.getByText(/Compose backups are not encrypted/)).toBeVisible();
+    // A daily target and a two-day-old copy read in hours and days, not thousands of minutes.
+    expect(screen.getByText("Data loss at most 24 hours")).toBeVisible();
+    expect(
+      screen.getByText("The newest good copy is 2 days old."),
+    ).toBeVisible();
+    expect(screen.getByText(/at least once a day/)).toBeVisible();
     expect(
       screen.queryByText(/config\.json|backup\.mjs|pilot guide/),
     ).toBeNull();

@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
   platformErrorMessage,
+  spanOfMinutes,
   type BackupRun,
   type CheckStatus,
   type PlatformPort,
@@ -134,20 +135,24 @@ function Targets({ report }: { report: Readiness }) {
       <dl className="facts">
         <div>
           <dt>
-            {t("platformView.targets.rpo", { minutes: rpo.targetMinutes })}{" "}
+            {t("platformView.targets.rpo", {
+              duration: spanOfMinutes(rpo.targetMinutes, t),
+            })}{" "}
             <StatusBadge status={rpo.status} />
           </dt>
           <dd>
             {rpo.currentMinutes === null
               ? t("platformView.targets.rpoNone")
               : t("platformView.targets.rpoValue", {
-                  minutes: rpo.currentMinutes,
+                  age: spanOfMinutes(rpo.currentMinutes, t),
                 })}
           </dd>
         </div>
         <div>
           <dt>
-            {t("platformView.targets.rto", { minutes: rto.targetMinutes })}{" "}
+            {t("platformView.targets.rto", {
+              duration: spanOfMinutes(rto.targetMinutes, t),
+            })}{" "}
             <StatusBadge status={rto.status} />
           </dt>
           <dd>

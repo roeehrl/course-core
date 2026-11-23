@@ -462,7 +462,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
   registerCourseUpdateRoutes(app, db, auth, updater);
   registerCourseVersionMoveRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [] });
-  registerNotificationRoutes(app, db, auth, { providers: options.workspaceProviders });
+  registerNotificationRoutes(app, db, auth, { providers: options.workspaceProviders, deployment: options.deployment ?? 'local' });
   if (options.courseVersionMoveTickMs !== undefined) {
     if (!Number.isInteger(options.courseVersionMoveTickMs) || options.courseVersionMoveTickMs < 10_000) throw new Error('courseVersionMoveTickMs must be at least 10000.');
     // Single-flight across processes (advisory lock); failures are logged as codes only.

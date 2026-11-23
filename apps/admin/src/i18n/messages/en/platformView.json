@@ -19,12 +19,12 @@
   "status.not_configured": "Not set up",
   "status.no_data": "No reports yet",
   "targets.title": "Recovery targets",
-  "targets.rpo": "Data loss at most {minutes} minutes",
-  "targets.rpoValue": "The newest good copy is {minutes} minutes old.",
+  "targets.rpo": "Data loss at most {duration}",
+  "targets.rpoValue": "The newest good copy is {age} old.",
   "targets.rpoNone": "No backup or snapshot has been reported yet.",
   "targets.rpoHelp": "Turn on hourly snapshots (the snapshots setting in the pilot's config.json), then check the services log for snapshot_failed.",
-  "targets.rpoHelpCompose": "Run a backup at least every hour (deploy/docker/core.sh backup, for example from cron). If one failed, its code is listed under Backups.",
-  "targets.rto": "Back up and running within {minutes} minutes",
+  "targets.rpoHelpCompose": "Run a backup at least once a day (deploy/docker/core.sh backup, for example from cron or launchd). If one failed, its code is listed under Backups.",
+  "targets.rto": "Back up and running within {duration}",
   "targets.rtoValue": "The last restore drill took {duration}, {ago}.",
   "targets.rtoNone": "No restore drill has been reported yet.",
   "targets.rtoHelp": "Run a restore drill (backup.mjs verify) on a recent snapshot at least every {days} days. If it failed, its code is listed under Backups.",
@@ -97,5 +97,7 @@
   "targets.encryptionHelpCompose": "Compose backups are not encrypted: each one holds every learner's data and the server's secrets. Keep them on private, encrypted storage, never in a repository (deploy/docker/README.md, \"Every day\").",
   "targets.intro": "How much data could be lost in a failure, and how quickly the platform is back.",
   "targets.seconds": "{count, plural, one {# second} other {# seconds}}",
-  "targets.minutes": "{count, plural, one {# minute} other {# minutes}}"
+  "targets.minutes": "{count, plural, one {# minute} other {# minutes}}",
+  "targets.hours": "{count, plural, one {# hour} other {# hours}}",
+  "targets.days": "{count, plural, one {# day} other {# days}}"
 }

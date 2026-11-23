@@ -356,6 +356,14 @@ export const platformErrorMessage = (
     ? t(`platform.error.${code}` as MessageKey)
     : t("platform.error.unknown");
 };
+/** A span of minutes as people say it: minutes up to two hours, then hours up to two days, then days. */
+export function spanOfMinutes(minutes: number, t: Translate) {
+  if (minutes < 120)
+    return t("platformView.targets.minutes", { count: minutes });
+  if (minutes < 48 * 60)
+    return t("platformView.targets.hours", { count: Math.floor(minutes / 60) });
+  return t("platformView.targets.days", { count: Math.floor(minutes / 1440) });
+}
 /** Micro-USD typed in a form ("12.34" dollars) as an integer, or null when it is not a valid amount. */
 export function parseDollars(value: string): number | null {
   const trimmed = value.trim().replace(/,/g, "");

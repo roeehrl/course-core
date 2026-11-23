@@ -284,7 +284,8 @@ Owners and administrators of a workspace have two more admin pages.
   it too slowly: a warning for an hour after the latest), telemetry export (spans sent and dropped), versions
   (Core, SDK, Node, course file format), and backups. The recovery targets are
   checked from the backup tool's reports (`platform_backup_reports`, migration 100;
-  see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup,
+  see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup
+  (24 hours on Docker Compose, which backs up daily: `deploy/docker/README.md`),
   RTO 60 minutes from the latest restore drill, drills at most 7 days old. Each
   failing part says what to do. Worker contact and slow sandbox starts are kept in memory per
   API process.

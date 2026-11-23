@@ -19,12 +19,12 @@
   "status.not_configured": "לא הוגדר",
   "status.no_data": "אין דיווחים עדיין",
   "targets.title": "יעדי שחזור",
-  "targets.rpo": "אובדן מידע של {minutes} דקות לכל היותר",
-  "targets.rpoValue": "העותק התקין העדכני ביותר נוצר לפני {minutes} דקות.",
+  "targets.rpo": "אובדן מידע של {duration} לכל היותר",
+  "targets.rpoValue": "העותק התקין העדכני ביותר נוצר לפני {age}.",
   "targets.rpoNone": "עדיין לא דווח על גיבוי או תמונת מצב.",
   "targets.rpoHelp": "יש להפעיל תמונות מצב כל שעה (ההגדרה snapshots בקובץ config.json של הפיילוט), ואז לבדוק ביומן השירותים אם מופיע snapshot_failed.",
-  "targets.rpoHelpCompose": "יש להריץ גיבוי לפחות פעם בשעה (deploy/docker/core.sh backup, למשל מ-cron). אם גיבוי נכשל, הקוד שלו מופיע תחת גיבויים.",
-  "targets.rto": "חזרה לפעולה תוך {minutes} דקות",
+  "targets.rpoHelpCompose": "יש להריץ גיבוי לפחות פעם ביום (deploy/docker/core.sh backup, למשל מ-cron או launchd). אם גיבוי נכשל, הקוד שלו מופיע תחת גיבויים.",
+  "targets.rto": "חזרה לפעולה תוך {duration}",
   "targets.rtoValue": "תרגיל השחזור האחרון נמשך {duration}, {ago}.",
   "targets.rtoNone": "עדיין לא דווח על תרגיל שחזור.",
   "targets.rtoHelp": "יש להריץ תרגיל שחזור (backup.mjs verify) על תמונת מצב עדכנית לפחות כל {days} ימים. אם הוא נכשל, הקוד שלו מופיע תחת גיבויים.",
@@ -97,5 +97,7 @@
   "targets.encryptionHelpCompose": "גיבויי Compose אינם מוצפנים: כל אחד מהם מכיל את הנתונים של כל הלומדים ואת הסודות של השרת. יש לשמור אותם באחסון פרטי ומוצפן, ולעולם לא במאגר קוד (deploy/docker/README.md, \"Every day\").",
   "targets.intro": "כמה מידע עלול ללכת לאיבוד בתקלה, ותוך כמה זמן הפלטפורמה חוזרת לפעול.",
   "targets.seconds": "{count, plural, one {שנייה אחת} two {שתי שניות} other {# שניות}}",
-  "targets.minutes": "{count, plural, one {דקה אחת} two {שתי דקות} other {# דקות}}"
+  "targets.minutes": "{count, plural, one {דקה אחת} two {שתי דקות} other {# דקות}}",
+  "targets.hours": "{count, plural, one {שעה אחת} two {שעתיים} other {# שעות}}",
+  "targets.days": "{count, plural, one {יום אחד} two {יומיים} other {# ימים}}"
 }
