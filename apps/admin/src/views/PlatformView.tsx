@@ -126,6 +126,8 @@ function Targets({ report }: { report: Readiness }) {
   const i18n = useI18n();
   const t = i18n.t;
   const { rpo, rto, encryption } = report.targets;
+  // Compose hosts back up with core.sh; the native pilot with its config.json and backup.mjs.
+  const help = report.deployment === "compose" ? "Compose" : "";
   return (
     <Card title={t("platformView.targets.title")}>
       <p className="muted">{t("platformView.targets.intro")}</p>
@@ -188,16 +190,20 @@ function Targets({ report }: { report: Readiness }) {
         )}
       </dl>
       {encryption?.latestEncrypted === false && (
-        <p className="info-note">{t("platformView.targets.encryptionHelp")}</p>
+        <p className="info-note">
+          {t(`platformView.targets.encryptionHelp${help}`)}
+        </p>
       )}
       {rpo.status !== "ok" && (
         <Notice tone={rpo.status === "failing" ? "red" : "gold"}>
-          {t("platformView.targets.rpoHelp")}
+          {t(`platformView.targets.rpoHelp${help}`)}
         </Notice>
       )}
       {rto.status !== "ok" && (
         <Notice tone={rto.status === "failing" ? "red" : "gold"}>
-          {t("platformView.targets.rtoHelp", { days: rto.drillMaxAgeDays })}
+          {t(`platformView.targets.rtoHelp${help}`, {
+            days: rto.drillMaxAgeDays,
+          })}
         </Notice>
       )}
     </Card>

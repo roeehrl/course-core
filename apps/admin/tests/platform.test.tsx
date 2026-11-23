@@ -335,6 +335,44 @@ describe("platform readiness (Q11, T03)", () => {
     expect(note.closest('[role="alert"]')).toBeNull();
   });
 
+  it("gives Compose hosts the core.sh backup, drill and storage advice instead of the native pilot's", async () => {
+    const base = readiness({ currentMinutes: 200, status: "failing" });
+    const platform = port({
+      readiness: vi.fn(async () => ({
+        ...base,
+        deployment: "compose" as const,
+        targets: {
+          ...base.targets,
+          rto: {
+            ...base.targets.rto,
+            drillAgeDays: 16,
+            status: "warning" as const,
+          },
+          encryption: {
+            latestEncrypted: false,
+            status: "not_configured" as const,
+          },
+        },
+      })),
+    });
+    render(
+      <PlatformView
+        data={workspace("owner")}
+        client={{ platform } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText(/deploy\/docker\/core\.sh backup/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/deploy\/docker\/core\.sh restore-drill/),
+    ).toBeVisible();
+    expect(screen.getByText(/Compose backups are not encrypted/)).toBeVisible();
+    expect(
+      screen.queryByText(/config\.json|backup\.mjs|pilot guide/),
+    ).toBeNull();
+  });
+
   it("explains how to meet a missed RPO, and refuses other roles", async () => {
     const platform = port({
       readiness: vi.fn(async () =>

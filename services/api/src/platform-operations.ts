@@ -48,7 +48,16 @@ let bridgeContactAt: number | null = null;
  * In-process only: each API instance reports what reached it since it started. */
 export function noteBridgeContact(now = Date.now()) { bridgeContactAt = now; }
 
+/** How this host runs Core, so operator advice names the right tools: `compose` is the Docker
+ * Compose deployment (deploy/docker, COURSE_DEPLOYMENT=compose), `local` the native pilot
+ * (deploy/local). */
+export type Deployment = 'compose' | 'local';
+/** Reads COURSE_DEPLOYMENT; anything other than `compose` is the native pilot. */
+export const deploymentFromEnvironment = (value: string | undefined): Deployment => (value?.trim() === 'compose' ? 'compose' : 'local');
+
 export interface PlatformOptions {
+  /** How this host runs Core (default `local`). */
+  deployment?: Deployment | undefined;
   installedExtensions: readonly RuntimeExtension[];
   /** The grading sandbox, when this host runs one, with its in-process count of grades stopped
    * because setup (container create and start) ran past its bound. */
@@ -183,7 +192,7 @@ export async function platformReadiness(db: Database, options: PlatformOptions, 
     facts: { lastSnapshot: backups.lastSnapshot, lastBackup: backups.lastBackup, lastRestoreDrill: backups.lastRestoreDrill, lastFailure: backups.lastFailure } };
 
   const checks = [databaseCheck, temporalCheck, sandboxCheck, collectorCheck, versionCheck, backupCheck];
-  return { generatedAt: now.toISOString(), overall: worst(checks.map(c => c.status)), checks, targets: { rpo: backups.rpo, rto: backups.rto, encryption: backups.encryption } };
+  return { generatedAt: now.toISOString(), deployment: options.deployment ?? 'local', overall: worst(checks.map(c => c.status)), checks, targets: { rpo: backups.rpo, rto: backups.rto, encryption: backups.encryption } };
 }
 
 // ---------------------------------------------------------------- integrations
