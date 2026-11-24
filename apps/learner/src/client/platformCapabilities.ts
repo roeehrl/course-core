@@ -2,7 +2,7 @@ import type { LayoutClass } from "@course-core/sdk";
 import { LEARNER_APP_VERSION } from "./apiClient";
 
 /** The SDK release this app is built against (package.json pins its tarball). */
-export const LEARNER_SDK_VERSION = "0.5.0";
+export const LEARNER_SDK_VERSION = "0.6.0";
 
 export type InputMode = "touch" | "pointer" | "keyboard";
 

@@ -87,12 +87,12 @@ Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release a
 
 | Component | SDK release |
 | --- | --- |
-| `services/api`, `packages/adaptation`, `packages/visuals`, `apps/learner` | 0.5.0 |
-| `examples/courses` | 0.5.0 |
+| `services/api`, `packages/adaptation`, `packages/visuals`, `apps/learner` | 0.6.0 |
+| `examples/courses` | 0.6.0 |
 
-Course packages are supported for SDK releases `>=0.5.0 <0.6.0`. 0.5.0 is also the minimum supported SDK: Core keeps no compatibility with SDK 0.4 or older courses, so a package compiled with one is refused (`SDK_BELOW_MINIMUM`) and a draft recorded as built with one is refused at publication (`PUBLISH_SDK_BELOW_MINIMUM`). CI loads the example packs under 0.5.0 (`services/api/test/sdk-support.integration.test.ts` publishes them and runs one through real HTTP and PostgreSQL). Packages from SDK 0.6 or later are refused (`SDK_UNSUPPORTED`) until Core pins that release; RELEASES.md ("Adopting a new SDK release") lists the steps.
+Course packages are supported for SDK releases `>=0.6.0 <0.7.0`; a package compiled with SDK 0.5 installs with the warning `SDK_OLDER_THAN_CORE`. 0.5.0 is the minimum supported SDK: Core keeps no compatibility with SDK 0.4 or older courses, so a package compiled with one is refused (`SDK_BELOW_MINIMUM`) and a draft recorded as built with one is refused at publication (`PUBLISH_SDK_BELOW_MINIMUM`). CI loads the example packs under 0.6.0 (`services/api/test/sdk-support.integration.test.ts` publishes them and runs one through real HTTP and PostgreSQL). Packages from SDK 0.7 or later are refused (`SDK_UNSUPPORTED`) until Core pins that release; RELEASES.md ("Adopting a new SDK release") lists the steps.
 
-`packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0 and 0.5.0 and the pin move kept visuals 0.1.1. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, 0.4.0 added publish-time scene checks (invariants, goldens) and authoring tools, and 0.5.0 adds images, radial gradients, matrix equations, path morph, colour animation and a camera, with export, device chrome, lazy loading, completion observations and translatable player texts; 0.5.1 makes lazy loading preload inside a scrolling lesson pane. 0.5.2 gives every diagnostic a catalog key, so the apps translate visuals errors; 0.5.3 drops the Latin letter-spacing and capitals from the player's labels in Hebrew, 0.5.4 keeps the scene and its sliders in their own left-to-right coordinates in a right-to-left page, and 0.5.5 moves only its zod pin to a release fixed for GHSA-mrhx-c7xc-m3w5. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
+`packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0, 0.5.0 and 0.6.0, and each pin move kept the visuals version. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, 0.4.0 added publish-time scene checks (invariants, goldens) and authoring tools, and 0.5.0 adds images, radial gradients, matrix equations, path morph, colour animation and a camera, with export, device chrome, lazy loading, completion observations and translatable player texts; 0.5.1 makes lazy loading preload inside a scrolling lesson pane. 0.5.2 gives every diagnostic a catalog key, so the apps translate visuals errors; 0.5.3 drops the Latin letter-spacing and capitals from the player's labels in Hebrew, 0.5.4 keeps the scene and its sliders in their own left-to-right coordinates in a right-to-left page, and 0.5.5 moves only its zod pin to a release fixed for GHSA-mrhx-c7xc-m3w5. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
 
 Lesson visuals must be accessible whatever SDK built the bundle: publication refuses
 (`PUBLISH_VISUAL_INACCESSIBLE`, details `reasons`: `keyboard`, `renderer_text_alternative`,
@@ -189,7 +189,7 @@ A Python code exercise in a lesson check (practice or independent mode) in the c
 
 ## API tests with disposable Postgres 17
 
-The API currently pins the public SDK `0.5.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
+The API currently pins the public SDK `0.6.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
 
 Use a new disposable database, never an application database. For example, start a separate local container with no persistent volume:
 
@@ -327,8 +327,8 @@ Administration installs a course from one **course package** (course-package v1,
 `<courseId>-<version>.course.tgz` file in the format described below) instead of creating
 a draft and pasting a manifest. Core accepts packages compiled with its own SDK minor
 (`services/api/package.json` pins `@course-core/sdk`; a newer SDK's package is refused as
-`SDK_UNSUPPORTED`). The SDK's packer (`course pack`) first ships in SDK 0.6.0, so while Core
-pins SDK 0.5 a course writes the format itself. In **Course & releases**, an owner or
+`SDK_UNSUPPORTED`). SDK 0.6's `course pack` writes it, and a course may write
+the format itself. In **Course & releases**, an owner or
 administrator chooses **Install course**, then either uploads the package file or pastes a
 GitHub link:
 
@@ -1477,8 +1477,8 @@ at most 5000), and `cursor.through` is the last sequence returned, so the next p
 the `Course-Core-Export-Has-More` header says whether one exists. Malformed cursors and limits get
 400. A staff copy keeps every event's identity and replaces payloads the event privacy rule withholds
 with `{"withheld":"event-payloads"}`. Each page is recorded in `data_exports` and the audit log like
-the full export. SDK 0.6.0 is not released yet, so Core's tests validate every export against the
-schema vendored in `services/api/src/vendor/sdk-event-export` (implementation: `src/event-export.ts`).
+the full export. Core's tests validate every export against the released
+`@course-core/sdk/event-export-schema` (implementation: `src/event-export.ts`).
 
 ### Learner model privacy
 

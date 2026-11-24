@@ -11,12 +11,12 @@ import { MAX_PAGE, type LearningEventExport } from "../src/event-export.js";
 import { fixture } from "./fixture.js";
 
 // Real HTTP and PostgreSQL 17: the portable learning-event export (K14) in the SDK 0.6.0
-// learningEventExport format, validated against the vendored SDK schema.
-const schemaJson = JSON.parse(readFileSync(new URL("../src/vendor/sdk-event-export/learning-event-export.schema.json", import.meta.url), "utf8"));
+// learningEventExport format, validated against the released SDK schema.
+const schemaJson = JSON.parse(readFileSync(new URL(import.meta.resolve("@course-core/sdk/event-export-schema")), "utf8"));
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 (addFormats as unknown as (a: Ajv2020) => void)(ajv);
 const validateShape = ajv.compile(schemaJson);
-/** Shape (vendored schema) plus the SDK's semantic rules for the record (records.ts learningEventExport). */
+/** Shape (released schema) plus the SDK's semantic rules for the record (records.ts learningEventExport). */
 function sdkIssues(value: LearningEventExport): string[] {
   const issues = validateShape(value) ? [] : (validateShape.errors ?? []).map((e) => `${e.instancePath} ${e.message}`);
   const after = BigInt(value.cursor.after), through = BigInt(value.cursor.through);

@@ -30,7 +30,7 @@ The bank is finite. A corrected repeat stays practice/ineligible, and help does 
 
 ## Validate and test
 
-This directory has its own package and lockfile and uses the published **SDK 0.5.0 release asset** (the packs were authored and first accepted with 0.1.0). It does not import a sibling SDK source checkout. No root package or API/core test needs to be edited.
+This directory has its own package and lockfile and uses the published **SDK 0.6.0 release asset** (the packs were authored and first accepted with 0.1.0). It does not import a sibling SDK source checkout. No root package or API/core test needs to be edited.
 
 ```sh
 cd examples/courses
