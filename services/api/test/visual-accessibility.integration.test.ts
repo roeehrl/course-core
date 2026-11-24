@@ -10,7 +10,8 @@ import { fixture } from './fixture.js';
 import { visualContextFixture } from '../../../apps/learner/tests/visualContext.fixture.js';
 
 // S12 through real HTTP and PostgreSQL: Core refuses to publish a lesson visual whose renderer
-// declares no keyboard support, even though SDK 0.5 bundles pass validation.
+// declares no keyboard support. SDK 0.6 already refuses such a course at import; a draft compiled
+// by SDK 0.5 passed validation, so Core's own publication check stays (visual-accessibility.test.ts).
 const origin = 'http://localhost:4310', schema = `course_visual_a11y_${randomUUID().replaceAll('-', '')}`;
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string, testDatabase: TestDatabase | undefined;
 let headers: Record<string, string>;
@@ -47,17 +48,13 @@ beforeAll(async () => {
 }, 30000);
 afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
-it('refuses publication of a keyboard:false renderer and leaves the release unpublished', async () => {
-  const { releaseId, publish } = await importAndPublish(course({ keyboard: false, textAlternative: 'A meter with a value.' }));
-  expect(publish.statusCode, publish.body).toBe(409);
-  expect(publish.json()).toMatchObject({ error: 'PUBLISH_VISUAL_INACCESSIBLE' });
-  expect((await db.query('SELECT status FROM course_releases WHERE id=$1', [releaseId])).rows[0].status).not.toBe('published');
-});
-
-it('refuses a blank renderer text alternative', async () => {
-  const { publish } = await importAndPublish(course({ keyboard: true, textAlternative: '   ' }));
-  expect(publish.statusCode, publish.body).toBe(409);
-  expect(publish.json()).toMatchObject({ error: 'PUBLISH_VISUAL_INACCESSIBLE' });
+it.each([
+  ['a keyboard:false renderer', { keyboard: false, textAlternative: 'A meter with a value.' }, 'INACCESSIBLE_VISUAL'],
+  ['a blank renderer text alternative', { keyboard: true, textAlternative: '   ' }, 'MISSING_TEXT_ALTERNATIVE'],
+] as const)('refuses to import %s', async (_, accessibility, code) => {
+  const imported = await app.inject({ method: 'POST', url: `/api/workspaces/${workspaceId}/releases`, headers, payload: course(accessibility) });
+  expect(imported.statusCode, imported.body).toBe(400);
+  expect(imported.json()).toMatchObject({ error: 'INVALID_COURSE', issues: [{ code }] });
 });
 
 it('publishes the same course once the renderer is accessible', async () => {

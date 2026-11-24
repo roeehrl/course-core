@@ -58,7 +58,7 @@ Never change a recorded value. The API (`services/api/src/svg-renderer.ts`) trea
 
 ## Released SDK contract
 
-The dependency is the released `@course-core/sdk` **v0.5.0** tarball from the SDK's GitHub release. No sibling SDK source or private application source is imported. The package imports SDK types only; its built JavaScript is byte-identical under SDK 0.2.0 and 0.5.0, so 0.1.1 kept its version and released fingerprint when the pin moved. `toVisualExperience(scene)` returns the released SDK's `VisualExperience` with renderer ID `course-core-svg-v1`; `fromVisualExperience(experience)` validates the embedded scene and rejects divergent outer metadata. The embedded scene is the source of truth. Exported experiences advertise **web only**.
+The dependency is the released `@course-core/sdk` **v0.6.0** tarball from the SDK's GitHub release. No sibling SDK source or private application source is imported. The package imports SDK types only; its built JavaScript is byte-identical under SDK 0.2.0 and 0.5.0, so 0.1.1 kept its version and released fingerprint when the pin moved. `toVisualExperience(scene)` returns the released SDK's `VisualExperience` with renderer ID `course-core-svg-v1`; `fromVisualExperience(experience)` validates the embedded scene and rejects divergent outer metadata. The embedded scene is the source of truth. Exported experiences advertise **web only**.
 
 ```ts
 import {

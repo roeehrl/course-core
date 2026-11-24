@@ -80,6 +80,9 @@ export async function courseVersionNotice(client: PoolClient, enrollmentId: stri
 export async function learnerSnapshot(client: PoolClient, context: EnrollmentContext) {
   const enrollmentId = context.enrollment.id;
   const policy = await loadPolicy(client, enrollmentId), course = structuredClone(context.release.learner_bundle), now = new Date().toISOString();
+  // Core serves the source locale only. The SDK 0.6 translation bundles hold every lesson's text,
+  // including the lessons and blocks left out below, so they never travel with the snapshot.
+  delete course.locales; delete course.translations;
   // Optional personal additions the learner hid are left out of their view.
   const hidden = await hiddenOptionalBlocks(client, context);
   if (hidden.size) for (const chapter of course.chapters) for (const episode of chapter.episodes) episode.blocks = episode.blocks.filter(block => !hidden.has(`${episode.id}/${block.id}`));

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile, realpath } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SDK_VERSION } from '@course-core/sdk';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { createDatabase, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
@@ -135,7 +136,7 @@ describe('finding the newest package', () => {
     const course = version('2.0.0'), compiled = compileCourse(course), manifest = Buffer.from(JSON.stringify(course));
     await writeFile(path.join(unpacked, 'course.json'), manifest);
     await writeFile(path.join(unpacked, 'course-package.json'), JSON.stringify({ format: 'course-package', formatVersion: 1, courseId: 'ordering', courseVersion: '2.0.0',
-      courseDigest: compiled.digest, sdkVersion: '0.5.0', minimumCoreVersion: '0.1.0', source: {}, members: [{ name: 'course.json', bytes: manifest.length, sha256: sha256(manifest), role: 'course-manifest' }] }));
+      courseDigest: compiled.digest, sdkVersion: SDK_VERSION, minimumCoreVersion: '0.1.0', source: {}, members: [{ name: 'course.json', bytes: manifest.length, sha256: sha256(manifest), role: 'course-manifest' }] }));
     const packed = await readPathPackage(updater.directories, rootId, `${w.folder}/unpacked`, 'ordering');
     expect(packed.source.file).toBeNull();
     expect((await verifyCoursePackage(packed.bytes)).descriptor.courseVersion).toBe('2.0.0');
@@ -270,7 +271,7 @@ describe('automatic updates', () => {
     // A blocking problem (newer Core required, a newer SDK minor than Core pins, or an SDK below 0.5.0) installs nothing.
     for (const [change, code] of [
       [(d: Record<string, unknown>) => { d.minimumCoreVersion = '9.0.0'; }, 'CORE_VERSION_TOO_OLD'],
-      [(d: Record<string, unknown>) => { d.sdkVersion = '0.6.0'; }, 'SDK_UNSUPPORTED'],
+      [(d: Record<string, unknown>) => { d.sdkVersion = '0.7.0'; }, 'SDK_UNSUPPORTED'],
       [(d: Record<string, unknown>) => { d.sdkVersion = '0.4.0'; }, 'SDK_BELOW_MINIMUM'],
     ] as const) {
       const w = await workspace();

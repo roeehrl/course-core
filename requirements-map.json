@@ -11,7 +11,7 @@
     },
     "sdk": {
       "repository": "roeehrl/course-sdk",
-      "commit": "6b7f4d4f905c1f216f8be4ec4f1be5f0277851c2"
+      "commit": "d9277fcdf9de2afa9d0d7c2c960a94c0851501fd"
     }
   },
   "ids": [
@@ -1130,8 +1130,9 @@
       "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
       "core:apps/learner/tests/connected-web/screen-reader.spec.ts::a lesson read in document order",
       "core:apps/learner/tests/connected-web/screen-reader.spec.ts::keyboard Tab order follows the reading order",
-      "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
-      "core:services/api/test/visual-accessibility.test.ts"
+      "core:services/api/test/visual-accessibility.integration.test.ts::INACCESSIBLE_VISUAL",
+      "core:services/api/test/visual-accessibility.test.ts",
+      "core:services/api/test/visual-accessibility.test.ts::PUBLISH_VISUAL_INACCESSIBLE"
     ],
     "T01": [
       "core:apps/learner/tests/companion.test.tsx::outside the live announcements",

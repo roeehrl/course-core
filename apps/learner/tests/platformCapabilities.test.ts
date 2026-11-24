@@ -5,7 +5,7 @@ import { LEARNER_APP_VERSION } from "../src/client/apiClient";
 describe("platform capabilities report (M02)", () => {
   it("describes the window with the activity target rule, its class and its input modes", () => {
     expect(platformCapabilities(390, "compact", { coarse: true, fine: false })).toEqual({
-      target: "web_mobile", appVersion: LEARNER_APP_VERSION, sdkVersion: "0.5.0", layoutClass: "compact", inputModes: ["touch", "keyboard"],
+      target: "web_mobile", appVersion: LEARNER_APP_VERSION, sdkVersion: "0.6.0", layoutClass: "compact", inputModes: ["touch", "keyboard"],
       capabilities: ["activity.declarative", "activity.sandboxed_web", "visual.render"], rendererIds: ["course-core-svg-v1"], nativeModules: [],
     });
     expect(platformCapabilities(1440, "expanded", { coarse: false, fine: true })).toMatchObject({ target: "web_desktop", layoutClass: "expanded", inputModes: ["pointer", "keyboard"] });

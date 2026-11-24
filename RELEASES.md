@@ -64,7 +64,7 @@ To release a change, bump the version and record the new build with
 bytes shipped as 0.1.0); 0.1.1 is that build under its own version.
 
 The SDK is the only type-only dependency. `src` imports it with `import type`, and the
-identity refuses dist code that names it. Its pin moved from 0.2.0 to 0.5.0 this way:
+identity refuses dist code that names it. Its pin moved from 0.2.0 to 0.5.0 this way (and to 0.6.0 the same way, for 0.5.5):
 
 - the dist is byte-identical;
 - 0.1.1 keeps `sha256-d64441db…`;
@@ -207,8 +207,8 @@ Before building candidates, the candidate job runs two checks on the tested comm
 ### Adopting a new SDK release
 
 The range of course packages Core accepts follows the SDK it pins
-(`supportedSdkRange` in `services/api/src/course-package-routes.ts`): pinned to 0.5.x it
-is `>=0.5.0 <0.6.0`, and pinning 0.6.x makes it `>=0.6.0 <0.7.0` with no code change.
+(`supportedSdkRange` in `services/api/src/course-package-routes.ts`): pinned to 0.6.x it
+is `>=0.6.0 <0.7.0`, and pinning 0.7.x makes it `>=0.7.0 <0.8.0` with no code change.
 Packages from an older minor at or above the minimum supported SDK (`MINIMUM_SUPPORTED_SDK`,
 0.5.0, in `services/api/src/course-package.ts`) still install with a warning; below it they
 are refused (`SDK_BELOW_MINIMUM`), and a newer minor is refused (`SDK_UNSUPPORTED`) until
@@ -223,9 +223,8 @@ tarball is published on the SDK's GitHub release; never pin an unreleased commit
 2. Check the new range: `node --test scripts/release-compat.test.mjs` and
    `services/api/test/course-packages.integration.test.ts` (a package from the next
    minor is refused, the pinned minor's patches are accepted).
-3. For 0.6.0: replace the vendored `services/api/src/vendor/sdk-event-export` schema with
-   the released `@course-core/sdk/event-export-schema` (see its README) and rerun
-   `test/event-export.integration.test.ts`.
+3. Rerun `test/event-export.integration.test.ts` (the released
+   `@course-core/sdk/event-export-schema`).
 4. Run `services/api/test/sdk-support.integration.test.ts` (the pinned SDK and the gate
    rules over HTTP) and update the README's supported range. Raise `MINIMUM_SUPPORTED_SDK`
    (API and `scripts/release-compat.mjs`) only as a deliberate, documented break.
@@ -392,6 +391,14 @@ A course package compiled with a newer SDK minor than the one Core pins (for exa
 bundle could use contracts this Core cannot check, so it is now a blocking problem,
 `SDK_UNSUPPORTED`: upgrade Core first, then install the course. Packages from the pinned
 minor or an older one install as before.
+
+### Next release (after 0.1.67): SDK 0.6.0
+
+Core pins SDK 0.6.0 and accepts course packages compiled with `>=0.6.0 <0.7.0`. A package
+compiled with SDK 0.5 still installs, with the warning `SDK_OLDER_THAN_CORE`; releases already
+installed are not affected. A multi-locale course installs and is served in its source locale
+only: the learner apps do not offer its translations yet, and the translation bundles are never
+sent to learners. Upgrade Core before installing a course compiled with SDK 0.6.
 
 ### Next release (after 0.1.50): every agent role is checked before a change
 

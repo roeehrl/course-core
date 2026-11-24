@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
-import { SDK_VERSION } from "@course-core/sdk";
+import { courseTextKeys, SDK_VERSION } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -36,11 +36,11 @@ afterAll(async () => {
   await testDatabase?.drop();
 });
 
-/** No SDK 0.4 compatibility (RELEASES.md): Core pins SDK 0.5.0, refuses packages built below it,
+/** No SDK 0.4 compatibility (RELEASES.md): Core pins SDK 0.6.0, refuses packages built below 0.5.0,
  * and applies the full false-mastery rules to every gate, including gates without a version. */
 describe("SDK 0.5.0 is the minimum, with the full gate rules for every gate", () => {
-  it("pins SDK 0.5.0", () => {
-    expect(SDK_VERSION).toBe("0.5.0");
+  it("pins SDK 0.6.0", () => {
+    expect(SDK_VERSION).toBe("0.6.0");
   });
   it("refuses to publish a gate of choice items only, and shows the checkpoint to staff before they try", async () => {
     const owner = await session("owner");
@@ -72,6 +72,26 @@ describe("SDK 0.5.0 is the minimum, with the full gate rules for every gate", ()
     expect(imported.statusCode, imported.body).toBe(200);
     const publish = await call(owner, "POST", `/api/releases/${imported.json().id}/publish`);
     expect(publish.json()).toMatchObject({ error: "PUBLISH_GATE_PARTIAL_OBJECTIVES", details: { gateId: "max-gate" } });
+  });
+  it("serves a multi-locale course in its source locale, without the translated text of closed lessons", async () => {
+    const owner = await session("owner"), learner = await session("learner");
+    const course = fixture();
+    course.id = "two-locales";
+    const [first, ...rest] = [...courseTextKeys(course).keys()];
+    course.locales = ["he"];
+    course.translations = { he: { texts: { [first!]: "TRANSLATED-CANARY" }, fallback: rest } };
+    const imported = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, course);
+    expect(imported.statusCode, imported.body).toBe(200);
+    const published = await call(owner, "POST", `/api/releases/${imported.json().id}/publish`);
+    expect(published.statusCode, published.body).toBe(200);
+    const stored = (await db.query("SELECT learner_bundle FROM course_releases WHERE id=$1", [imported.json().id])).rows[0].learner_bundle;
+    expect(JSON.stringify(stored)).toContain("TRANSLATED-CANARY");
+    const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: imported.json().id })).json().id;
+    const snapshot = await call(learner, "GET", `/api/enrollments/${enrollment}`);
+    expect(snapshot.statusCode).toBe(200);
+    expect(snapshot.json().course.title).toBe(course.title);
+    expect(snapshot.json().course).not.toHaveProperty("translations");
+    expect(snapshot.body).not.toContain("TRANSLATED-CANARY");
   });
   it("publishes the example courses, whose every checkpoint asks for a produced answer, and runs one through real HTTP", async () => {
     const owner = await session("owner"), learner = await session("learner");
