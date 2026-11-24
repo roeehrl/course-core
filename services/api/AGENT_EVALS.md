@@ -514,8 +514,9 @@ calls this runner as a custom provider can be added later without changing them.
 
 - Thirty public dialogues are a regression floor, not coverage of teaching quality.
   Pattern graders catch the failures they encode and can be evaded by paraphrase.
-- The supervisor tool loop and the research, media and reviewer roles are not
-  evaluated or gated.
+- Every bound role is evaluated and gated, but coverage is thin outside the companion (the
+  table above), and media is judged on the request Core assembles, never on a generated
+  result.
 - Live mode is implemented and its refusals are tested, but it has not been run
   against a real provider.
 - Recorded reports are attested by the recording user; the API cannot prove that a

@@ -238,7 +238,7 @@ Residual risk: the sweep covers the paths that exist in this repository. A new o
 
 | Threat | Mitigation in code | Residual risk |
 | --- | --- | --- |
-| Malicious or swapped dependencies | `npm run audit:public` requires SHA-512-pinned npmjs tarballs or the exact SDK release asset, lockfile v3 and registered local modules (`scripts/public-policy.mjs:89-126`, `scripts/modules.mjs:83-84`); `.npmrc` may only name the npm registry (`public-policy.mjs:55-64`); installs run `npm ci --ignore-scripts` (`scripts/orchestrate.mjs:187`) | No vulnerability audit of dependencies, no SBOM and no artifact signing. Install scripts are disabled only through the orchestrator; a manual `npm ci` in a component runs them |
+| Malicious or swapped dependencies | `npm run audit:public` requires SHA-512-pinned npmjs tarballs or the exact SDK release asset, lockfile v3 and registered local modules (`scripts/public-policy.mjs:89-126`, `scripts/modules.mjs:83-84`); `.npmrc` may only name the npm registry (`public-policy.mjs:55-64`); installs run `npm ci --ignore-scripts` (`scripts/orchestrate.mjs:187`); releases carry a CycloneDX SBOM and a GitHub build provenance attestation (`.github/workflows/release.yml`), and a nightly job audits every module lock with npm audit and osv-scanner (`.github/workflows/nightly.yml`) | The audit is nightly, not a pull-request gate, and reviewed exceptions are allowed until they expire; an attestation proves which workflow built the bytes, not that they were reviewed, and the Compose install builds from source without checking one. Install scripts are disabled only through the orchestrator; a manual `npm ci` in a component runs them |
 | Compromised CI | Actions are pinned by commit SHA, the token is `contents: read`, checkout credentials are not persisted, and no secrets reach pull requests (`.github/workflows/ci.yml`, CONTRIBUTING.md) | — |
 | Swapped runtime binaries | The sandbox image is pinned by digest (above); the Temporal CLI must be checksum-verified by the operator | The Temporal checksum is a documented operator step, not enforced by the launcher |
 
@@ -290,8 +290,10 @@ The most significant, in rough order:
    no content filter.
 8. **Backups are unencrypted unless age recipients are configured**, and erasure
    does not reach existing backups or Temporal history.
-9. **Supply-chain controls are pinning and integrity only.** There is no SBOM,
-   signing or vulnerability audit.
+9. **Supply-chain controls do not review code.** Dependencies are pinned by digest and
+   audited nightly, and releases carry an SBOM and a build attestation, but a malicious
+   change in a pinned dependency with no published advisory is not detected, and the
+   attestation is not checked when installing from source.
 
 This document is reviewed when a trust boundary changes: a new external integration,
 a new credential type, a change to the sandbox, the package format or the network
