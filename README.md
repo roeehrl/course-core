@@ -1287,8 +1287,12 @@ The learner (only) can hide an *optional* addition and restore it later
 Required changes and lesson rewrites cannot be hidden (`CHANGE_NOT_HIDEABLE`);
 disagreement goes to the companion or course team. Applied adaptation history,
 evidence and gates never change, and optional personal additions are never
-required reading for episode completion. Withdrawing an applied change from the
-underlying plan itself is not implemented.
+required reading for episode completion. The learner can also undo one applied change
+(`POST …/personal-changes/revert`): a new plan revision rolls it back to the plan it was
+applied on, and attempts, evidence and episode progress stay as they were. A change is not
+undoable (`revertable: false`) once already undone, after a course version move archived it,
+when it added a generated question, when it only suggested a profile correction, or while a
+later applied change builds on it.
 
 **Remedial episodes.** A teaching-bank profile with operation `insert_episode`
 (SDK 0.4) can insert an exact, author-reviewed text-only episode after its
